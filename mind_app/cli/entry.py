@@ -8,6 +8,7 @@ from engine.errors import ApplicationError
 from mind_core.config import ConfigOverride
 from .commands import (
     AgentListenCommand,
+    CompletionCommand,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
@@ -129,6 +130,11 @@ async def main(
             config_overrides=config_overrides,
             config_profile=config_profile,
         )
+
+    if isinstance(command, CompletionCommand):
+        from .completion import run_completion_command
+
+        return run_completion_command(command)
 
     if isinstance(command, DoctorCommand):
         from .doctor import run_doctor_command

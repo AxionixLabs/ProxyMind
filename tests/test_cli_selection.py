@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -15,11 +16,13 @@ from mind_app.cli.commands import (
     AgentListenCommand,
     BatchCommand,
     CliInvocation,
+    CompletionCommand,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
     InteractiveCommand,
     McpServerCommand,
+    ResumeCommand,
 )
 from mind_app.cli.frontend import (
     resolve_cli_design,
@@ -72,6 +75,27 @@ def test_legacy_entry_options_are_removed(option: str) -> None:
 def test_cli_parser_returns_typed_commands() -> None:
     assert parse_cli_command([]) == InteractiveCommand()
     assert parse_cli_command(["exec", "hello"]) == ExecCommand(prompt="hello")
+    assert parse_cli_command(["resume"]) == ResumeCommand()
+    assert parse_cli_command(["completion"]) == CompletionCommand()
+    assert parse_cli_command([
+        "completion",
+        "powershell",
+    ]) == CompletionCommand(shell="powershell")
+    assert parse_cli_command([
+        "resume",
+        "--last",
+        "continue with the review",
+        "--all",
+        "--include-non-interactive",
+        "--model",
+        "review-model",
+    ]) == ResumeCommand(
+        prompt="continue with the review",
+        model="review-model",
+        last=True,
+        all_workspaces=True,
+        include_non_interactive=True,
+    )
     assert parse_cli_command([
         "exec",
         "hello",
@@ -143,12 +167,12 @@ def test_cli_help_separates_argument_and_option_blocks(
     exec_help = capsys.readouterr().out
     assert (
         "  [PROMPT]\n"
-        "          任务内容；使用 '-' 或管道时从标准输入读取\n\n"
+        "          Task instructions; use '-' or a pipe to read from standard input\n\n"
         "Options:"
     ) in exec_help
     assert (
         "  --mode <MODE>\n"
-        "          运行模式，默认 xtra\n\n"
+        "          Run mode [default: xtra]\n\n"
         "  --access <ACCESS_MODE>\n"
     ) in exec_help
 
@@ -187,12 +211,20 @@ def test_root_help_flags_share_output(monkeypatch, capsys, flag: str) -> None:
     ("arguments", "usage"),
     (
         (("exec", "--help"), "Usage: mind exec [OPTIONS] [PROMPT]"),
+        (
+            ("resume", "--help"),
+            "Usage: mind resume [OPTIONS] [SESSION_ID] [PROMPT]",
+        ),
         (("batch", "--help"), "Usage: mind batch [OPTIONS] <SOURCE>..."),
         (("agent", "--help"), "Usage: mind agent <COMMAND> [ARGS]"),
         (("agent", "listen", "--help"), "Usage: mind agent listen [OPTIONS]"),
         (("helix", "--help"), "Usage: mind helix <COMMAND> [ARGS]"),
         (("helix", "upgrade", "--help"), "Usage: mind helix upgrade [OPTIONS]"),
         (("doctor", "--help"), "Usage: mind doctor [OPTIONS]"),
+        (
+            ("completion", "--help"),
+            "Usage: mind completion [OPTIONS] [SHELL]",
+        ),
         (("mcp-server", "--help"), "Usage: mind mcp-server [OPTIONS]"),
         (("help", "--help"), "Usage: mind help [COMMAND]..."),
     ),
@@ -306,6 +338,56 @@ async def test_direct_cli_mode_does_not_forward_attachments() -> None:
         message="hello",
         mode="chat",
         access_mode="safe",
+    )
+
+
+@pytest.mark.anyio
+async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
+    record = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+    metadata = dict(record)
+    run_tui_loop = AsyncMock()
+    attachments = Mock()
+    mind = SimpleNamespace(
+        history_workspace=r"D:\workspace",
+        recent_conversation_sessions=Mock(return_value=[record]),
+        resume_conversation=Mock(return_value=metadata),
+        attach=SimpleNamespace(add_pending_attachments=attachments),
+        task_event=asyncio.Event(),
+    )
+    monkeypatch.setattr(
+        "mind_app.tui.session.loop.run_tui_loop",
+        run_tui_loop,
+    )
+
+    result = await run_selected_mode(
+        mind,
+        ResumeCommand(
+            prompt="continue",
+            images=("screen.png",),
+            model="review-model",
+            last=True,
+        ),
+    )
+
+    assert result is None
+    mind.recent_conversation_sessions.assert_called_once_with(
+        workspace=r"D:\workspace",
+        sources=("tui", "tui:resume"),
+        limit=1,
+    )
+    mind.resume_conversation.assert_called_once_with(
+        record,
+        source="tui:resume",
+    )
+    attachments.assert_called_once_with("screen.png")
+    run_tui_loop.assert_awaited_once_with(
+        mind,
+        initial_prompt="continue",
+        initial_images=("screen.png",),
+        initial_model="review-model",
     )
 
 

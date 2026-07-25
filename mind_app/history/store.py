@@ -17,6 +17,11 @@ HISTORY_LIMIT      = 200
 TITLE_MAX_CHARS    = 80
 HISTORY_MENU_LIMIT = 10
 
+INTERACTIVE_HISTORY_SOURCES = (
+    "tui",
+    "tui:resume",
+)
+
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
     cid            TEXT NOT NULL,
@@ -95,7 +100,12 @@ class ConversationHistoryStore(object):
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cid, sid) DO UPDATE SET
                         workspace      = excluded.workspace,
-                        source         = excluded.source,
+                        source         = CASE
+                            WHEN {TABLE_SESSION_CURSORS}.source = ''
+                                 AND excluded.source <> ''
+                            THEN excluded.source
+                            ELSE {TABLE_SESSION_CURSORS}.source
+                        END,
                         title          = CASE
                             WHEN {TABLE_SESSION_CURSORS}.title = ''
                                  AND excluded.title <> ''
@@ -125,23 +135,80 @@ class ConversationHistoryStore(object):
     def list_sessions(
         self,
         *,
-        workspace: str = "",
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None,
         limit: int = HISTORY_MENU_LIMIT,
         now_ms: typing.Optional[int] = None
     ) -> list[dict[str, typing.Any]]:
-        """返回当前 workspace 下最近未过期的会话游标列表。"""
-        now = _now_ms() if now_ms is None else int(now_ms)
+        """返回符合工作区和来源条件的最近会话游标。"""
+        return self._select_sessions(
+            workspace=workspace,
+            sources=sources,
+            limit=limit,
+            now_ms=now_ms,
+        )
 
-        workspace_key = normalize_workspace(workspace)
-        item_limit    = max(1, int(limit or HISTORY_MENU_LIMIT))
+    def find_session(
+        self,
+        session_id: str,
+        *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None,
+        now_ms: typing.Optional[int] = None
+    ) -> dict[str, typing.Any] | None:
+        """按会话标识查找一个未过期的会话游标。"""
+        sid = _clean(session_id)
+        if not sid:
+            return None
+
+        records = self._select_sessions(
+            session_id=sid,
+            workspace=workspace,
+            sources=sources,
+            limit=1,
+            now_ms=now_ms,
+        )
+        return records[0] if records else None
+
+    def _select_sessions(
+        self,
+        *,
+        session_id: str | None = None,
+        workspace: str | Path | None,
+        sources: typing.Collection[str] | None,
+        limit: int,
+        now_ms: typing.Optional[int]
+    ) -> list[dict[str, typing.Any]]:
+        """执行共享的会话游标查询。"""
+        now        = _now_ms() if now_ms is None else int(now_ms)
+        item_limit = max(1, int(limit or HISTORY_MENU_LIMIT))
 
         clauses = ["expires_at > ?"]
 
         params: list[typing.Any] = [now]
 
-        if workspace_key:
+        if session_id is not None:
+            clauses.append("sid = ?")
+            params.append(session_id)
+
+        if workspace is not None:
             clauses.append("workspace = ?")
-            params.append(workspace_key)
+            params.append(normalize_workspace(workspace))
+
+        if sources is not None:
+            source_values_list: list[str] = []
+            for source in sources:
+                value = _clean(source)
+                if value and value not in source_values_list:
+                    source_values_list.append(value)
+
+            source_values = tuple(source_values_list)
+            if not source_values:
+                return []
+
+            placeholders = ", ".join("?" for _ in source_values)
+            clauses.append(f"source IN ({placeholders})")
+            params.extend(source_values)
 
         conn = self._connect()
         try:
@@ -215,7 +282,7 @@ def normalize_workspace(workspace: typing.Any) -> str:
         return normalized
 
     try:
-        path = Path(workspace_text).expanduser()
+        path     = Path(workspace_text).expanduser()
         resolved = path.resolve(strict=False)
     except (OSError, RuntimeError, ValueError):
         normalized = workspace_text

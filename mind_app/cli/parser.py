@@ -20,6 +20,9 @@ from .commands import (
     AgentListenCommand,
     BatchCommand,
     CliInvocation,
+    CompletionCommand,
+    COMPLETION_SHELLS,
+    CompletionShell,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
@@ -31,7 +34,8 @@ from .commands import (
     McpServerCommand,
     McpSetEnabledCommand,
     OutputFormat,
-    ParsedCommand
+    ParsedCommand,
+    ResumeCommand,
 )
 from .help import CliArgumentParser
 from .invocation import (
@@ -40,6 +44,8 @@ from .invocation import (
 )
 
 EXEC_HELP          = "Run a task non-interactively"
+RESUME_HELP        = "Resume a previous interactive session"
+COMPLETION_HELP    = "Generate shell completion scripts"
 BATCH_HELP         = "Run one or more schematics"
 AGENT_HELP         = "Manage remote task subscriptions"
 AGENT_LISTEN_HELP  = "Listen for remotely dispatched tasks"
@@ -49,9 +55,12 @@ DOCTOR_HELP        = "Diagnose the local runtime environment"
 MCP_HELP           = "Manage external MCP servers"
 MCP_SERVER_HELP    = "Start the MCP server over stdio"
 HELP_HELP          = "Print this message or the help of the given subcommand(s)"
+OPTION_HELP        = "Print help (see a summary with '-h')"
 
 ROOT_COMMANDS = frozenset({
     "exec",
+    "resume",
+    "completion",
     "batch",
     "agent",
     "helix",
@@ -87,7 +96,10 @@ def create_cli_parser() -> CliArgumentParser:
         "exec",
         prog=f"{const.APP_NAME} exec",
         help=EXEC_HELP,
-        description="执行单次非交互任务。PROMPT 使用 '-' 时从标准输入读取。",
+        description=(
+            "Run a task non-interactively. Use '-' as PROMPT to read from "
+            "standard input."
+        ),
         help_title=f"{const.APP_DESC} Exec",
         usage="%(prog)s [OPTIONS] [PROMPT]",
         add_help=False,
@@ -97,7 +109,7 @@ def create_cli_parser() -> CliArgumentParser:
         "prompt",
         nargs="?",
         metavar="PROMPT",
-        help="任务内容；使用 '-' 或管道时从标准输入读取",
+        help="Task instructions; use '-' or a pipe to read from standard input",
     )
     exec_options = exec_parser.add_argument_group("Options")
     exec_options.add_argument(
@@ -105,37 +117,102 @@ def create_cli_parser() -> CliArgumentParser:
         choices=MODES,
         default=DEFAULT_RUN_MODE,
         metavar="MODE",
-        help=f"运行模式，默认 {DEFAULT_RUN_MODE}",
+        help=f"Run mode [default: {DEFAULT_RUN_MODE}]",
     )
     exec_options.add_argument(
         "--access",
         choices=sorted(ACCESS_MODE_SET),
         default=DEFAULT_ACCESS_MODE,
         metavar="ACCESS_MODE",
-        help=f"工具访问模式，默认 {DEFAULT_ACCESS_MODE}",
+        help=f"Tool access mode [default: {DEFAULT_ACCESS_MODE}]",
     )
     exec_options.add_argument(
         "--json",
         action="store_true",
-        help="输出逐行 JSON 事件",
+        help="Print newline-delimited JSON events",
     )
     exec_options.add_argument(
         "--helix",
         action="store_true",
-        help="启动或复用本地 Helix 并接入其 MCP 工具",
+        help="Start or reuse the local Helix runtime and attach its MCP tools",
     )
     exec_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
+    )
+
+    resume_parser = subparsers.add_parser(
+        "resume",
+        prog=f"{const.APP_NAME} resume",
+        help=RESUME_HELP,
+        description=(
+            "Resume a previous interactive session. The session picker opens "
+            "by default; use --last to continue the most recent session."
+        ),
+        help_title=f"{const.APP_DESC} Resume",
+        usage="%(prog)s [OPTIONS] [SESSION_ID] [PROMPT]",
+        add_help=False,
+    )
+    resume_arguments = resume_parser.add_argument_group("Arguments")
+    resume_arguments.add_argument(
+        "session_id",
+        nargs="?",
+        metavar="SESSION_ID",
+        help="Session id to resume directly",
+    )
+    resume_arguments.add_argument(
+        "resume_prompt",
+        nargs="?",
+        metavar="PROMPT",
+        help="Optional user prompt to start the resumed session",
+    )
+    resume_options = resume_parser.add_argument_group("Options")
+    resume_options.add_argument(
+        "--last",
+        action="store_true",
+        help="Continue the most recent session without showing the picker",
+    )
+    resume_options.add_argument(
+        "--all",
+        action="store_true",
+        dest="all_workspaces",
+        help="Show sessions from all working directories",
+    )
+    resume_options.add_argument(
+        "--include-non-interactive",
+        action="store_true",
+        help="Include sessions created by non-interactive commands",
+    )
+    resume_options.add_argument(
+        "-i",
+        "--image",
+        action="extend",
+        nargs="+",
+        default=[],
+        dest="images",
+        metavar="FILE",
+        help="Optional image(s) to attach to the initial prompt",
+    )
+    resume_options.add_argument(
+        "-m",
+        "--model",
+        metavar="MODEL",
+        help="Model the agent should use",
+    )
+    resume_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help=OPTION_HELP,
     )
 
     batch_parser = subparsers.add_parser(
         "batch",
         prog=f"{const.APP_NAME} batch",
         help=BATCH_HELP,
-        description="装载一个或多个星图并按指定模式执行。",
+        description="Load and run one or more schematics in the selected mode.",
         help_title=f"{const.APP_DESC} Batch",
         usage="%(prog)s [OPTIONS] <SOURCE>...",
         add_help=False,
@@ -145,7 +222,7 @@ def create_cli_parser() -> CliArgumentParser:
         "sources",
         nargs="+",
         metavar="SOURCE",
-        help="星图文件、'-'、inline: 内容或 URL",
+        help="Schematic file, '-', inline: content, or URL",
     )
     batch_options = batch_parser.add_argument_group("Options")
     batch_options.add_argument(
@@ -153,32 +230,32 @@ def create_cli_parser() -> CliArgumentParser:
         choices=MODES,
         required=True,
         metavar="MODE",
-        help="批量任务使用的运行模式",
+        help="Run mode for the batch",
     )
     batch_options.add_argument(
         "--access",
         choices=sorted(ACCESS_MODE_SET),
         default=DEFAULT_ACCESS_MODE,
         metavar="ACCESS_MODE",
-        help=f"工具访问模式，默认 {DEFAULT_ACCESS_MODE}",
+        help=f"Tool access mode [default: {DEFAULT_ACCESS_MODE}]",
     )
     batch_options.add_argument(
         "--helix",
         action="store_true",
-        help="启动或复用本地 Helix 并接入其 MCP 工具",
+        help="Start or reuse the local Helix runtime and attach its MCP tools",
     )
     batch_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
 
     agent_parser = subparsers.add_parser(
         "agent",
         prog=f"{const.APP_NAME} agent",
         help=AGENT_HELP,
-        description="管理远端任务订阅。",
+        description="Manage remote task subscriptions.",
         help_title=f"{const.APP_DESC} Agent",
         usage="%(prog)s <COMMAND> [ARGS]",
         add_help=False,
@@ -193,7 +270,10 @@ def create_cli_parser() -> CliArgumentParser:
         "listen",
         prog=f"{const.APP_NAME} agent listen",
         help=AGENT_LISTEN_HELP,
-        description="监听远端下发任务并维持订阅连接。",
+        description=(
+            "Listen for remotely dispatched tasks and keep the subscription "
+            "active."
+        ),
         help_title=f"{const.APP_DESC} Agent Listen",
         usage="%(prog)s [OPTIONS]",
         add_help=False,
@@ -202,27 +282,27 @@ def create_cli_parser() -> CliArgumentParser:
     listen_options.add_argument(
         "--helix",
         action="store_true",
-        help="启动或复用本地 Helix 并接入其 MCP 工具",
+        help="Start or reuse the local Helix runtime and attach its MCP tools",
     )
     listen_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
     agent_options = agent_parser.add_argument_group("Options")
     agent_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
 
     helix_parser = subparsers.add_parser(
         "helix",
         prog=f"{const.APP_NAME} helix",
         help=HELIX_HELP,
-        description="管理 Helix provider 运行组件。",
+        description="Manage Helix provider runtime components.",
         help_title=f"{const.APP_DESC} Helix",
         usage="%(prog)s <COMMAND> [ARGS]",
         add_help=False,
@@ -237,7 +317,9 @@ def create_cli_parser() -> CliArgumentParser:
         "upgrade",
         prog=f"{const.APP_NAME} helix upgrade",
         help=HELIX_UPGRADE_HELP,
-        description="下载或更新当前平台的 Helix 运行组件。",
+        description=(
+            "Download or update Helix runtime components for this platform."
+        ),
         help_title=f"{const.APP_DESC} Helix Upgrade",
         usage="%(prog)s [OPTIONS]",
         add_help=False,
@@ -247,21 +329,24 @@ def create_cli_parser() -> CliArgumentParser:
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
     helix_options = helix_parser.add_argument_group("Options")
     helix_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
 
     doctor_parser = subparsers.add_parser(
         "doctor",
         prog=f"{const.APP_NAME} doctor",
         help=DOCTOR_HELP,
-        description="只读检查配置、运行组件和本地工具。",
+        description=(
+            "Run read-only checks for configuration, runtime components, and "
+            "local tools."
+        ),
         help_title=f"{const.APP_DESC} Doctor",
         usage="%(prog)s [OPTIONS]",
         add_help=False,
@@ -270,13 +355,13 @@ def create_cli_parser() -> CliArgumentParser:
     doctor_options.add_argument(
         "--json",
         action="store_true",
-        help="输出单个 JSON 诊断报告",
+        help="Print a single JSON diagnostic report",
     )
     doctor_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
 
     mcp_parser = subparsers.add_parser(
@@ -557,7 +642,10 @@ def create_cli_parser() -> CliArgumentParser:
         "mcp-server",
         prog=f"{const.APP_NAME} mcp-server",
         help=MCP_SERVER_HELP,
-        description=f"通过标准输入输出提供 {const.APP_DESC} agent 工具。",
+        description=(
+            f"Expose the {const.APP_DESC} agent tool over standard input and "
+            "output."
+        ),
         help_title=f"{const.APP_DESC} MCP Server",
         usage="%(prog)s [OPTIONS]",
         add_help=False,
@@ -567,14 +655,43 @@ def create_cli_parser() -> CliArgumentParser:
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
+    )
+
+    completion_parser = subparsers.add_parser(
+        "completion",
+        prog=f"{const.APP_NAME} completion",
+        help=COMPLETION_HELP,
+        description="Generate a completion script for the selected shell.",
+        help_title=f"{const.APP_DESC} Completion",
+        usage="%(prog)s [OPTIONS] [SHELL]",
+        add_help=False,
+    )
+    completion_arguments = completion_parser.add_argument_group("Arguments")
+    completion_arguments.add_argument(
+        "shell",
+        nargs="?",
+        choices=COMPLETION_SHELLS,
+        default="bash",
+        metavar="SHELL",
+        help=(
+            "Shell to generate completions for [default: bash; possible "
+            "values: bash, elvish, fish, powershell, zsh]"
+        ),
+    )
+    completion_options = completion_parser.add_argument_group("Options")
+    completion_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help=OPTION_HELP,
     )
 
     help_parser = subparsers.add_parser(
         "help",
         prog=f"{const.APP_NAME} help",
         help=HELP_HELP,
-        description="显示根命令或指定子命令的完整帮助。",
+        description="Print full help for the root command or a subcommand.",
         help_title=f"{const.APP_DESC} Help",
         usage="%(prog)s [COMMAND]...",
         add_help=False,
@@ -584,14 +701,14 @@ def create_cli_parser() -> CliArgumentParser:
         "help_topics",
         nargs="*",
         metavar="COMMAND",
-        help="需要查看的命令路径，例如 agent listen",
+        help="Command path to show, for example agent listen",
     )
     help_options = help_parser.add_argument_group("Options")
     help_options.add_argument(
         "-h",
         "--help",
         action="help",
-        help="显示此命令的帮助信息",
+        help=OPTION_HELP,
     )
 
     root_arguments = parser.add_argument_group("Arguments")
@@ -624,7 +741,7 @@ def create_cli_parser() -> CliArgumentParser:
         "-h",
         "--help",
         action="help",
-        help="Print help (see a summary with '-h')",
+        help=OPTION_HELP,
     )
     root_options.add_argument(
         "-V",
@@ -639,6 +756,7 @@ def create_cli_parser() -> CliArgumentParser:
         CliArgumentParser,
     ] = {
         ("exec",): exec_parser,
+        ("resume",): resume_parser,
         ("batch",): batch_parser,
         ("agent",): agent_parser,
         ("agent", "listen"): listen_parser,
@@ -654,6 +772,7 @@ def create_cli_parser() -> CliArgumentParser:
         ("mcp", "disable"): mcp_disable_parser,
         ("mcp", "help"): mcp_help_parser,
         ("mcp-server",): mcp_server_parser,
+        ("completion",): completion_parser,
         ("help",): help_parser,
     }
     for path, command_parser in command_parsers.items():
@@ -702,6 +821,31 @@ def _optional_string(
     if value is None or isinstance(value, str):
         return value
     parser.error(f"invalid {key}: expected string")
+
+
+def _image_paths(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+) -> tuple[str, ...]:
+    """读取并验证图片附件路径。"""
+    images = values.get("images")
+    if not isinstance(images, list) or not all(
+        isinstance(image, str) for image in images
+    ):
+        parser.error("invalid image arguments")
+    return tuple(images)
+
+
+def _completion_shell(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+) -> CompletionShell:
+    """读取并验证 shell 补全目标。"""
+    value = _required_string(parser, values, "shell")
+    for shell in COMPLETION_SHELLS:
+        if value == shell:
+            return shell
+    parser.error(f"unsupported completion shell: {value}")
 
 
 def _required_string(
@@ -910,18 +1054,12 @@ def _interactive_command(
 
     values: dict[str, object] = vars(namespace)
 
-    images = values.get("images")
-    if not isinstance(images, list) or not all(
-        isinstance(image, str) for image in images
-    ):
-        parser.error("invalid image arguments")
-
     prompt = _optional_string(parser, values, "prompt")
     model  = _optional_string(parser, values, "model")
 
     return InteractiveCommand(
         prompt=(prompt.strip() or None) if prompt is not None else None,
-        images=tuple(images),
+        images=_image_paths(parser, values),
         model=(model.strip() or None) if model is not None else None,
     )
 
@@ -986,6 +1124,32 @@ def _parse_cli_command(
             access_mode=_access_mode(parser, values),
             output_format=output_format,
             helix=bool(values["helix"]),
+        )
+
+    if command == "resume":
+        session_id = _optional_string(parser, values, "session_id")
+        prompt     = _optional_string(parser, values, "resume_prompt")
+        model      = _optional_string(parser, values, "model")
+        last       = bool(values["last"])
+
+        if last and session_id is not None:
+            if prompt is not None:
+                parser.error("--last cannot be used with SESSION_ID")
+            prompt = session_id
+            session_id = None
+
+        session_id = str(session_id or "").strip() or None
+        prompt     = str(prompt or "").strip() or None
+        model      = str(model or "").strip() or None
+
+        return ResumeCommand(
+            session_id=session_id,
+            prompt=prompt,
+            images=_image_paths(parser, values),
+            model=model,
+            last=last,
+            all_workspaces=bool(values["all_workspaces"]),
+            include_non_interactive=bool(values["include_non_interactive"]),
         )
 
     if command == "batch":
@@ -1125,6 +1289,9 @@ def _parse_cli_command(
 
     if command == "mcp-server":
         return McpServerCommand()
+
+    if command == "completion":
+        return CompletionCommand(shell=_completion_shell(parser, values))
 
     if command == "help":
         parser.print_command_help(_help_topics(parser, values))

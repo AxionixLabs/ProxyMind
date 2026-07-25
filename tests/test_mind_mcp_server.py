@@ -57,7 +57,7 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=Mock(return_value=metadata),
-        recent_conversation_sessions=Mock(return_value=[]),
+        find_conversation_session=Mock(return_value=None),
         resume_conversation=Mock(),
         calling=AsyncMock(return_value=result),
     )
@@ -99,7 +99,7 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=Mock(),
-        recent_conversation_sessions=Mock(return_value=[record]),
+        find_conversation_session=Mock(return_value=record),
         resume_conversation=Mock(return_value=metadata),
         calling=AsyncMock(return_value=result),
     )
@@ -116,6 +116,10 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
     assert actual.run is result
     assert actual.session_id == metadata["sid"]
     mind.reset_conversation.assert_not_called()
+    mind.find_conversation_session.assert_called_once_with(
+        metadata["sid"],
+        workspace=tmp_path.resolve(),
+    )
     mind.resume_conversation.assert_called_once_with(
         record,
         source="mcp_server",
@@ -128,7 +132,7 @@ async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=Mock(),
-        recent_conversation_sessions=Mock(return_value=[]),
+        find_conversation_session=Mock(return_value=None),
         resume_conversation=Mock(),
         calling=AsyncMock(),
     )
@@ -168,7 +172,7 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=Mock(return_value=metadata),
-        recent_conversation_sessions=Mock(return_value=[]),
+        find_conversation_session=Mock(return_value=None),
         resume_conversation=Mock(),
         calling=AsyncMock(side_effect=wait_forever),
     )
@@ -220,7 +224,7 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=Mock(return_value=metadata),
-        recent_conversation_sessions=Mock(return_value=[]),
+        find_conversation_session=Mock(return_value=None),
         resume_conversation=Mock(),
         calling=AsyncMock(side_effect=wait_forever),
     )

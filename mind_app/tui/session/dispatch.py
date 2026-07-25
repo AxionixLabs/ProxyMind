@@ -6,6 +6,7 @@ import enum
 import typing
 from engine.file_assist import FileAssist
 from mind_app.frontend import ApplicationView
+from mind_app.history import INTERACTIVE_HISTORY_SOURCES
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
@@ -397,7 +398,10 @@ class TuiCommandDispatcher(object):
 
     async def _resume_conversation(self) -> None:
         """选择并恢复最近的会话。"""
-        records = self.mind.recent_conversation_sessions()
+        records = self.mind.recent_conversation_sessions(
+            workspace=self.mind.history_workspace,
+            sources=INTERACTIVE_HISTORY_SOURCES,
+        )
         if not records:
             self._present(text_block(
                 "No resumable conversations in the last 24 hours.",

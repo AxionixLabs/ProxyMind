@@ -6,6 +6,7 @@ from .store import (
     HISTORY_LIMIT,
     HISTORY_MENU_LIMIT,
     HISTORY_TTL_MS,
+    INTERACTIVE_HISTORY_SOURCES,
     TITLE_MAX_CHARS,
     normalize_workspace
 )
@@ -15,6 +16,7 @@ __all__ = [
     "HISTORY_LIMIT",
     "HISTORY_MENU_LIMIT",
     "HISTORY_TTL_MS",
+    "INTERACTIVE_HISTORY_SOURCES",
     "TITLE_MAX_CHARS",
     "normalize_workspace"
 ]

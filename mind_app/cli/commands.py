@@ -13,7 +13,26 @@ from mind_nova.requests.access import (
     DEFAULT_ACCESS_MODE
 )
 
-OutputFormat = typing.Literal["text", "json"]
+OutputFormat = typing.Literal[
+    "text",
+    "json"
+]
+
+CompletionShell = typing.Literal[
+    "bash",
+    "elvish",
+    "fish",
+    "powershell",
+    "zsh",
+]
+
+COMPLETION_SHELLS: tuple[CompletionShell, ...] = (
+    "bash",
+    "elvish",
+    "fish",
+    "powershell",
+    "zsh",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +41,18 @@ class InteractiveCommand(object):
     prompt: str | None = None
     images: tuple[str, ...] = ()
     model: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeCommand(object):
+    """描述交互式会话恢复入口。"""
+    session_id: str | None = None
+    prompt: str | None = None
+    images: tuple[str, ...] = ()
+    model: str | None = None
+    last: bool = False
+    all_workspaces: bool = False
+    include_non_interactive: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +94,12 @@ class DoctorCommand(object):
 @dataclass(frozen=True, slots=True)
 class McpServerCommand(object):
     """描述 stdio MCP 服务入口。"""
+
+
+@dataclass(frozen=True, slots=True)
+class CompletionCommand(object):
+    """描述 shell 补全脚本生成入口。"""
+    shell: CompletionShell = "bash"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +149,7 @@ class McpSetEnabledCommand(object):
 
 RuntimeCommand: typing.TypeAlias = (
     InteractiveCommand
+    | ResumeCommand
     | ExecCommand
     | BatchCommand
     | AgentListenCommand
@@ -133,7 +171,11 @@ CliCommand: typing.TypeAlias = (
     | McpRegistryCommand
 )
 
-ParsedCommand: typing.TypeAlias = CliCommand | McpServerCommand
+ParsedCommand: typing.TypeAlias = (
+    CliCommand
+    | McpServerCommand
+    | CompletionCommand
+)
 
 
 @dataclass(frozen=True, slots=True)

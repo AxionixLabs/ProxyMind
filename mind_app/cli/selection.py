@@ -15,6 +15,7 @@ from .commands import (
     McpListCommand,
     McpRemoveCommand,
     McpSetEnabledCommand,
+    ResumeCommand
 )
 
 OutputMode = typing.Literal[
@@ -43,8 +44,9 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
         return command.output_format
     if isinstance(command, BatchCommand):
         return "text"
-    if isinstance(command, InteractiveCommand):
+    if isinstance(command, (InteractiveCommand, ResumeCommand)):
         return "tui"
+
     typing.assert_never(command)
 
 

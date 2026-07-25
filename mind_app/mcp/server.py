@@ -17,10 +17,6 @@ from mind_app.frontend.contracts import Frontend
 from mind_app.frontend.sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.modes.result import RunResult
-from mind_app.history import (
-    HISTORY_LIMIT,
-    normalize_workspace
-)
 from mind_app.output.silent import create_silent_output_session
 from mind_app.paths import (
     ensure_mind_home,
@@ -212,7 +208,10 @@ class MindMcpRuntime(object):
                 source="mcp_server",
             )
         else:
-            record = self._find_session(requested_session_id, workspace)
+            record = self.mind.find_conversation_session(
+                requested_session_id,
+                workspace=workspace,
+            )
             if record is None:
                 return self._failed(
                     "session_id is unavailable for this working directory"
@@ -233,23 +232,6 @@ class MindMcpRuntime(object):
         )
 
         return MindMcpExecutionResult(run=run, session_id=request.session_id)
-
-    def _find_session(
-        self,
-        session_id: str,
-        workspace: Path
-    ) -> dict[str, typing.Any] | None:
-        """查找当前工作区内可恢复的本地会话游标。"""
-        workspace_key = normalize_workspace(workspace)
-
-        for record in self.mind.recent_conversation_sessions(limit=HISTORY_LIMIT):
-            if (
-                record.get("sid") == session_id
-                and normalize_workspace(record.get("workspace")) == workspace_key
-            ):
-                return record
-
-        return None
 
     @staticmethod
     def _failed(

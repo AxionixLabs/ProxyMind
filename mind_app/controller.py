@@ -216,12 +216,16 @@ class Mind(object):
     def recent_conversation_sessions(
         self,
         *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None,
         limit: int = HISTORY_LIMIT
     ) -> list[dict[str, typing.Any]]:
         """返回可恢复的本地会话游标。"""
         try:
             records = self.history_store.list_sessions(
-                limit=limit
+                workspace=workspace,
+                sources=sources,
+                limit=limit,
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
             observe_exception("history.list.failed", exc, level="WARNING")
@@ -231,6 +235,31 @@ class Mind(object):
             record for record in records
             if valid_session_ids(record.get("cid"), record.get("sid"))
         ]
+
+    def find_conversation_session(
+        self,
+        session_id: str,
+        *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None
+    ) -> dict[str, typing.Any] | None:
+        """按会话标识返回可恢复的本地会话游标。"""
+        try:
+            record = self.history_store.find_session(
+                session_id,
+                workspace=workspace,
+                sources=sources,
+            )
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            observe_exception("history.find.failed", exc, level="WARNING")
+            return None
+
+        if record is None or not valid_session_ids(
+            record.get("cid"),
+            record.get("sid"),
+        ):
+            return None
+        return record
 
     def resume_conversation(
         self,

@@ -22,7 +22,7 @@ HELP_SECTIONS = (
 
 def supports_help_color(
     stream: typing.TextIO | None = None,
-    environ: typing.Mapping[str, str] | None = None,
+    environ: typing.Mapping[str, str] | None = None
 ) -> bool:
     """判断命令帮助输出是否适合使用 ANSI 样式。"""
     output = sys.stdout if stream is None else stream
@@ -119,6 +119,7 @@ class CliHelpFormatter(argparse.HelpFormatter):
         options = ", ".join(action.option_strings)
         if action.nargs == 0:
             return options
+
         suffix = "..." if action.nargs in {"*", "+"} else ""
         return f"{options} <{metavar}>{suffix}"
 
@@ -127,7 +128,7 @@ class CliHelpFormatter(argparse.HelpFormatter):
         usage: str | None,
         actions: typing.Sequence[argparse.Action],
         groups: typing.Sequence[typing.Any],
-        prefix: str | None,
+        prefix: str | None
     ) -> str:
         text = super()._format_usage(usage, actions, groups, prefix)
         text = text.replace("usage: ", "Usage: ", 1)
@@ -221,17 +222,21 @@ class CliArgumentParser(argparse.ArgumentParser):
         **kwargs: typing.Any,
     ) -> None:
         self.help_title = help_title
-        description = kwargs.pop("description", "")
+        description     = kwargs.pop("description", "")
+
         self.help_summary = (
             str(description or "")
             if help_summary is None
             else help_summary
         )
+
         self.help_color = supports_help_color() if color is None else color
+
         kwargs["formatter_class"] = functools.partial(
             CliHelpFormatter,
             color=self.help_color,
         )
+
         super().__init__(*args, **kwargs)
         self._command_help: dict[tuple[str, ...], CliArgumentParser] = {}
 
@@ -242,6 +247,30 @@ class CliArgumentParser(argparse.ArgumentParser):
     ) -> None:
         """登记一条可由 help 命令访问的命令路径。"""
         self._command_help[path] = parser
+
+    def registered_command_parsers(
+        self,
+    ) -> dict[tuple[str, ...], "CliArgumentParser"]:
+        """返回按登记顺序排列的命令路径和解析器。"""
+        return dict(self._command_help)
+
+    def completion_actions(self) -> tuple[argparse.Action, ...]:
+        """返回当前命令可用于补全的选项动作。"""
+        return tuple(
+            action
+            for action in self._actions
+            if action.option_strings
+        )
+
+    def completion_positionals(self) -> tuple[argparse.Action, ...]:
+        """返回当前命令带固定候选值的位置参数动作。"""
+        return tuple(
+            action
+            for action in self._actions
+            if not action.option_strings
+            and action.nargs != argparse.PARSER
+            and action.choices is not None
+        )
 
     def print_command_help(self, path: tuple[str, ...]) -> typing.NoReturn:
         """打印指定命令路径的帮助并结束参数解析。"""
@@ -258,6 +287,7 @@ class CliArgumentParser(argparse.ArgumentParser):
     def format_help(self) -> str:
         """在 argparse 帮助正文前增加命令标题。"""
         body = super().format_help()
+
         if not self.help_title:
             return body
 

@@ -15,6 +15,8 @@ if typing.TYPE_CHECKING:
 async def choose_history_session(
     runtime: "TuiRuntime",
     records: list[dict[str, typing.Any]],
+    *,
+    show_workspace: bool = False
 ) -> dict[str, typing.Any] | None:
     """在主 TUI 中选择一项历史会话。"""
     if not records:
@@ -28,11 +30,28 @@ async def choose_history_session(
             MenuOption(
                 value=record,
                 label=_record_prefix(record),
-                detail=_record_title(record),
+                detail=_record_detail(
+                    record,
+                    show_workspace=show_workspace,
+                ),
             )
             for record in records
         ),
     ))
+
+
+def _record_detail(
+    record: dict[str, typing.Any],
+    *,
+    show_workspace: bool
+) -> str:
+    """返回包含可选工作区的会话说明。"""
+    title = _record_title(record)
+    if not show_workspace:
+        return title
+
+    workspace = str(record.get("workspace") or "-").strip() or "-"
+    return f"{title} · {workspace}"
 
 
 def _record_title(record: dict[str, typing.Any]) -> str:
