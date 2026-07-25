@@ -167,22 +167,23 @@ async def test_queued_pastes_keep_independent_placeholder_snapshots() -> None:
     assert (first, second) == contents
 
 
-def test_streaming_rejected_command_never_enters_message_queue() -> None:
+@pytest.mark.parametrize("command", ["/compact", "/fork"])
+def test_streaming_rejected_command_never_enters_message_queue(command) -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    runtime.screen.input.buffer.text = "/compact"
+    runtime.screen.input.buffer.text = command
 
     runtime.submissions.accept_input(runtime.screen.input.buffer)
 
     assert not runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
-    assert "'/compact' is disabled while a task is in progress." in (
+    assert f"'{command}' is disabled while a task is in progress." in (
         _fragments_text(runtime.document.fragments(width=100))
     )
     command_fragment = next(
         fragment
         for fragment in runtime.document.blocks[-1].block.fragments
-        if fragment[1] == "/compact"
+        if fragment[1] == command
     )
     assert command_fragment[0] == "class:prompt.command.slash"
 

@@ -68,28 +68,28 @@ class TuiProcessViewer(object):
 
         try:
             return await future
-        finally:
-            self.state = None
-            self.focus_input()
-            self.invalidate()
+        except BaseException:
+            self.settle()
+            raise
 
-    def update(self, request: ProcessViewerRequest) -> None:
-        """替换当前查看器内容。"""
-        if self.state is None:
-            return None
-        self.state.request = request
-        self.invalidate()
-
-    def finish(self, value: typing.Any) -> None:
-        """结束当前查看并返回动作。"""
+    def resolve(self, value: typing.Any) -> None:
+        """提交当前查看动作并解除等待。"""
         state = self.state
         if state is not None and not state.future.done():
             state.future.set_result(value)
 
+    def settle(self) -> None:
+        """撤下已结束的查看器并恢复主输入焦点。"""
+        if self.state is None:
+            return None
+        self.state = None
+        self.focus_input()
+        self.invalidate()
+
     async def close(self) -> None:
         """关闭当前查看器。"""
-        self.finish("detach")
-        self.state = None
+        self.resolve("detach")
+        self.settle()
 
     def fragments(self) -> StyleAndTextTuples:
         """返回当前查看器的格式化内容。"""
@@ -115,11 +115,11 @@ class TuiProcessViewer(object):
         @bindings.add(Keys.Escape, eager=True)
         @bindings.add("q")
         def _(event) -> None:
-            self.finish("detach")
+            self.resolve("detach")
 
         @bindings.add("c-c")
         def _(event) -> None:
-            self.finish("interrupt")
+            self.resolve("interrupt")
 
         return bindings
 

@@ -63,3 +63,35 @@ def test_history_keeps_the_original_session_source(tmp_path) -> None:
 
     assert record is not None
     assert record["source"] == "tui"
+
+
+def test_history_reuses_pending_fork_request_until_cleared(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+    source = {
+        "mode": "chat",
+        "cid": "cid_alpha_12345678",
+        "sid": "sid_alpha_1_abcdef",
+    }
+
+    first = store.get_or_create_fork_request(
+        **source,
+        request_id="fork_request_one",
+        now_ms=100,
+    )
+    retried = store.get_or_create_fork_request(
+        **source,
+        request_id="fork_request_two",
+        now_ms=200,
+    )
+
+    assert first == "fork_request_one"
+    assert retried == first
+
+    store.clear_fork_request(**source, request_id=first)
+    next_request = store.get_or_create_fork_request(
+        **source,
+        request_id="fork_request_two",
+        now_ms=300,
+    )
+
+    assert next_request == "fork_request_two"

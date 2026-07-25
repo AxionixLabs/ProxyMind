@@ -249,6 +249,9 @@ class TuiRuntime(FrontendRuntime):
         await self.screen.menu.close()
         await self.screen.process_viewer.close()
 
+        if self.document.active_kind == "operation":
+            self.document.clear_active()
+
         self.screen.bottom_pane.clear()
         background_tasks = tuple(self._background_tasks)
         self._background_tasks.clear()
@@ -291,10 +294,23 @@ class TuiRuntime(FrontendRuntime):
             visible = value
 
         self.viewport.reset_view()
-        block = query_block(visible)
-        self.append_block(block, kind="user")
-        self.viewport.mark_submitted_query(block)
+        if visible:
+            block = query_block(visible)
+            self.append_block(block, kind="user")
+            self.viewport.mark_submitted_query(block)
         return value
+
+    @property
+    def has_pending_attachments(self) -> bool:
+        """返回当前是否存在可随空消息发送的附件。"""
+        return self.submissions.has_pending_attachments
+
+    def bind_pending_attachment_check(
+        self,
+        check: typing.Callable[[], bool] | None,
+    ) -> None:
+        """绑定或清除待发送附件状态判断。"""
+        self.submissions.bind_pending_attachment_check(check)
 
     def set_prompt_context(self, context: PromptContext) -> None:
         """在首帧或输入轮次前更新输入区展示上下文。"""
@@ -340,18 +356,54 @@ class TuiRuntime(FrontendRuntime):
         """结束主画布中的菜单或只读面板。"""
         self.screen.menu.finish(value)
 
-    async def view_process(self, request: ProcessViewerRequest) -> typing.Any:
-        """显示进程查看器并等待用户动作。"""
+    async def view_process(
+        self,
+        request: ProcessViewerRequest,
+        block: FragmentBlock,
+    ) -> typing.Any:
+        """显示动态进程正文并等待查看器动作。"""
         self._discard_submitted_query()
-        return await self.screen.process_viewer.request(request)
+        self.set_active_renderable(block, kind="operation")
+        try:
+            return await self.screen.process_viewer.request(request)
+        except BaseException:
+            self.dismiss_process_viewer()
+            raise
 
-    def update_process_viewer(self, request: ProcessViewerRequest) -> None:
-        """替换当前进程查看内容。"""
-        self.screen.process_viewer.update(request)
+    def update_process_viewer(self, block: FragmentBlock) -> None:
+        """替换当前动态进程正文。"""
+        self.set_active_renderable(block, kind="operation")
 
-    def finish_process_viewer(self, value: typing.Any = None) -> None:
-        """结束当前进程查看器。"""
-        self.screen.process_viewer.finish(value)
+    def resolve_process_viewer(self, value: typing.Any = None) -> None:
+        """提交当前进程查看动作并解除等待。"""
+        self.screen.process_viewer.resolve(value)
+
+    def commit_process_viewer(self, block: FragmentBlock) -> None:
+        """原位提交进程摘要并恢复主输入区域。"""
+        if self.document.active_kind != "operation":
+            raise RuntimeError("cannot commit a process without active output")
+        self.document.commit_active(block)
+        self.screen.process_viewer.settle()
+        self.viewport.stable_content_changed()
+        self._flush_background_blocks()
+
+    def dismiss_process_viewer(self) -> None:
+        """撤下动态进程正文并恢复主输入区域。"""
+        changed = self.document.active_kind == "operation"
+        if changed:
+            self.document.clear_active()
+        self.screen.process_viewer.settle()
+        if changed:
+            self.viewport.stable_content_changed()
+            self._flush_background_blocks()
+
+    def commit_process_result(self, block: FragmentBlock) -> None:
+        """用稳定进程摘要替换刚提交的命令输入。"""
+        self._discard_submitted_query()
+        self.document.set_active(block, kind="operation")
+        self.document.commit_active(block)
+        self.viewport.stable_content_changed()
+        self._flush_background_blocks()
 
     def start_background_task(
         self,

@@ -33,6 +33,17 @@ async def run_tui_loop(
     application = mind.frontend.application
     runtime     = require_tui_runtime(mind.frontend.runtime)
 
+    attachment_state = getattr(mind, "attach", None)
+
+    attachment_check = getattr(
+        attachment_state,
+        "has_pending_attachments",
+        None,
+    )
+    runtime.bind_pending_attachment_check(
+        attachment_check if callable(attachment_check) else None
+    )
+
     runtime.start_background_task(
         monitor_exec_status(runtime, mind),
         name="process status",
@@ -90,7 +101,13 @@ async def run_tui_loop(
                 await asyncio.gather(prompt_task, return_exceptions=True)
 
             prompt_text = prompt_task.result()
-            action = await dispatcher.dispatch(prompt_text)
+
+            action = (
+                DispatchAction.MODEL_TURN
+                if not prompt_text.strip() and runtime.has_pending_attachments
+                else await dispatcher.dispatch(prompt_text)
+            )
+
         if action is DispatchAction.EXIT:
             break
         if action is DispatchAction.HANDLED:
@@ -98,6 +115,7 @@ async def run_tui_loop(
 
         await state.refresh_preferences(mind, ttl_sec=0.0)
         application.emit(ApplicationView(type="tui.gap"))
+
         mind.native_coding.reset_patch_diff()
 
         await execute_tui_model_turn(

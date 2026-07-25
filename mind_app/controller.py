@@ -18,6 +18,7 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
 )
+from mind_nova.identifiers import short_uid
 from .reporting import RunReport
 from engine.observability import (
     observe,
@@ -281,13 +282,75 @@ class Mind(object):
             )
             return None
 
+        metadata = self.bind_conversation(cid, sid, source=source)
+        if metadata is not None:
+            observe("history.resumed", cid=cid, sid=sid)
+        return metadata
+
+    def bind_conversation(
+        self,
+        cid: str,
+        sid: str,
+        *,
+        source: str = "bind",
+    ) -> typing.Optional[dict[str, str]]:
+        """把当前运行绑定到一组已存在的远端会话标识。"""
+        if not valid_session_ids(cid, sid):
+            observe(
+                "conversation.bind.skipped",
+                level="WARNING",
+                reason="invalid_cursor",
+                cid=cid,
+                sid=sid,
+                source=source,
+            )
+            return None
+
         self.conversation = ConversationState(cid=cid, sid=sid)
-        observe("history.resumed", cid=cid, sid=sid)
 
         metadata = self.conversation.snapshot()
+
         self._touch_history_session(metadata, source=source)
 
+        observe("conversation.bound", cid=cid, sid=sid, source=source)
+
         return metadata
+
+    def prepare_conversation_fork(self, mode: RunMode, cid: str, sid: str) -> str:
+        """持久化并返回当前源会话的稳定分支请求标识。"""
+        candidate = f"fork_{short_uid(20)}"
+        try:
+            return self.history_store.get_or_create_fork_request(
+                mode=mode,
+                cid=cid,
+                sid=sid,
+                request_id=candidate,
+            )
+        except (OSError, sqlite3.Error, ValueError) as error:
+            observe_exception("conversation.fork.prepare_failed", error)
+            raise ApplicationError("Unable to persist the conversation fork request.") from error
+
+    def clear_conversation_fork(
+        self,
+        mode: RunMode,
+        cid: str,
+        sid: str,
+        request_id: str,
+    ) -> None:
+        """清除已完成或不可重试的本地分支请求。"""
+        try:
+            self.history_store.clear_fork_request(
+                mode=mode,
+                cid=cid,
+                sid=sid,
+                request_id=request_id,
+            )
+        except (OSError, sqlite3.Error, ValueError) as error:
+            observe_exception(
+                "conversation.fork.clear_failed",
+                error,
+                level="WARNING",
+            )
 
     def _touch_history_session(
         self,

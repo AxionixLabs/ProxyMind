@@ -36,6 +36,11 @@ def _ignore_stream_command(_command: str) -> bool:
     return False
 
 
+def _no_pending_attachments() -> bool:
+    """返回默认的待发送附件状态。"""
+    return False
+
+
 class TuiInputClosed(EOFError):
     """表示主输入 Application 已经停止。"""
 
@@ -49,6 +54,14 @@ class TuiSubmissionFlow(object):
 
     EXIT_CONFIRM_TIMEOUT_SEC: typing.Final[float] = 2.0
 
+    ROOT_SLASH_HINT: typing.Final[str] = (
+        "Choose a slash command from the menu or type its full name."
+    )
+
+    EMPTY_MESSAGE_HINT: typing.Final[str] = (
+        "Enter a message or attach a file before sending."
+    )
+
     def __init__(
         self,
         *,
@@ -58,7 +71,7 @@ class TuiSubmissionFlow(object):
         get_input_buffer: typing.Callable[[], Buffer],
         append_notice: typing.Callable[[FragmentBlock], None],
         queue_command_block: typing.Callable[[FragmentBlock], None],
-        invalidate: typing.Callable[[], None],
+        invalidate: typing.Callable[[], None]
     ) -> None:
         self.input_model = input_model
 
@@ -90,6 +103,9 @@ class TuiSubmissionFlow(object):
         self._stream_command_handler: typing.Callable[[str], bool] = (
             _ignore_stream_command
         )
+        self._has_pending_attachments: typing.Callable[[], bool] = (
+            _no_pending_attachments
+        )
 
         self.input_model.bind_interrupt(self.interrupt_input)
 
@@ -112,106 +128,62 @@ class TuiSubmissionFlow(object):
         """返回当前退出确认到期任务。"""
         return self._exit_expiry_task
 
-    def set_mode(self, mode: str) -> None:
-        """更新输入建议模式并在模式变化时刷新占位文案。"""
-        mode_changed = mode != self._mode
+    @property
+    def has_pending_attachments(self) -> bool:
+        """返回当前是否存在可随空消息发送的附件。"""
+        return bool(self._has_pending_attachments())
 
-        self._mode = mode
-
-        self.input_model.set_mode(mode)
-        if mode_changed:
-            self.placeholder_text = self.input_model.new_placeholder(mode)
-        self._invalidate()
-
-    def accept_input(self, buffer: Buffer) -> bool:
-        """恢复折叠粘贴内容并按当前运行状态提交输入。"""
-        self.clear_exit_confirmation()
-
-        editable_text = buffer.text
-        paste_store   = self.input_model.submission_state()
-        shell_mode    = self.input_model.shell_mode
-
-        value = self.input_model.restore_submission(buffer.text)
-        if not value:
-            if shell_mode:
-                self._append_notice(FragmentBlock((
-                    ("class:input.notice.hint", "• "),
-                    (
-                        "class:input.notice.hint",
-                        f"{self.input_model.SHELL_COMMAND_HINT_TEXT}  ",
-                    ),
-                    (
-                        "class:input.notice.example",
-                        self.input_model.SHELL_COMMAND_HINT_EXAMPLE,
-                    ),
-                )))
-            else:
-                self.input_model.clear_submission_state()
-            self._invalidate()
-            return False
-
-        if shell_mode:
-            value = f"! {value}" if value else "!"
-
-        if is_unrecognized_slash_command(value):
-            self._append_notice(FragmentBlock((
-                ("class:input.notice.hint", "•"),
-                (
-                    "class:input.notice.hint",
-                    f" {unrecognized_slash_command_message(value)}",
-                ),
-            )))
-            self._invalidate()
-            return True
-
-        submission = TuiSubmission(
-            value=value,
-            editable_text=editable_text,
-            paste_store=paste_store,
-            shell_mode=shell_mode,
-        )
-
-        if self._is_submission_deferred():
-            policy = stream_command_policy(value)
-            if policy is not None:
-                self._dispatch_stream_command(submission, policy=policy)
-                buffer.text = ""
-                buffer.cursor_position = 0
-                self.input_model.clear_submission_state()
-                self._invalidate()
-                return False
-            self.queued_messages.append(submission)
-            self.queued_submission_text = submission.visible_text
-        else:
-            self.message_queue.put_nowait(submission)
-
-        self.placeholder_text = self.input_model.new_placeholder(self._mode)
-
-        buffer.text = submission.visible_text
-        buffer.cursor_position = len(buffer.text)
-
+    def _reject_input(
+        self,
+        buffer: Buffer,
+        *,
+        editable_text: str,
+        message: str,
+    ) -> bool:
+        """拒绝无效输入并显示一项输入提示。"""
+        self.input_model.rollback_submission_history(editable_text)
         self.input_model.clear_submission_state()
+        buffer.text = ""
+        buffer.cursor_position = 0
+        self._append_notice(FragmentBlock((
+            ("class:input.notice.hint", "• "),
+            ("class:input.notice.hint", message),
+        )))
         self._invalidate()
         return False
 
-    def enqueue_message(
-        self,
-        value: str,
-        *,
-        visible_text: str | None = None,
-    ) -> None:
-        """把外部提交的文本写入消息队列。"""
-        self.message_queue.put_nowait(TuiSubmission(
-            value=value,
-            editable_text=value if visible_text is None else visible_text,
-            paste_store={},
-        ))
+    def _schedule_exit_expiry(self) -> None:
+        """安排退出确认窗口到期后的界面恢复。"""
+        self._cancel_exit_expiry()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        self._exit_expiry_task = asyncio.create_task(
+            self._expire_exit_confirmation(),
+            name="tui exit confirmation expiry",
+        )
+
+    def _cancel_exit_expiry(self) -> None:
+        """取消尚未完成的退出确认到期任务。"""
+        task = self._exit_expiry_task
+        self._exit_expiry_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _raise_requested_exit(self) -> None:
+        """按退出来源传播终止信号。"""
+        reason = self.consume_exit_request()
+        if reason == "interrupt":
+            raise TuiInterruptRequested
+        if reason == "eof":
+            raise EOFError
 
     def _dispatch_stream_command(
         self,
         submission: TuiSubmission,
         *,
-        policy: StreamCommandPolicy,
+        policy: StreamCommandPolicy
     ) -> None:
         """按流式期间策略分派命令或生成拒绝提示。"""
         handled = bool(
@@ -240,43 +212,18 @@ class TuiSubmissionFlow(object):
             ),
         )))
 
-    async def read_submission(self) -> typing.Any:
-        """按提交顺序读取下一项输入，并优先传播退出请求。"""
-        self._raise_requested_exit()
-
-        queued     = self.queued_messages.pop_next()
-        submission = queued if queued is not None else await self._read_input_event()
-
-        self._invalidate()
-
-        if submission is _INPUT_CLOSED:
-            raise TuiInputClosed
-
-        self.clear_exit_confirmation()
-        return submission
-
-    async def _read_input_event(self) -> typing.Any:
-        """等待输入或退出事件，并取消未完成的另一项等待。"""
-        submission_task = asyncio.create_task(self.message_queue.get())
-        exit_task       = asyncio.create_task(self._exit_event.wait())
-        tasks           = (submission_task, exit_task)
-
-        try:
-            finished, _ = await asyncio.wait(
-                tasks,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        finally:
-            pending = [task for task in tasks if not task.done()]
-            for task in pending:
-                task.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
-
-        if exit_task in finished:
-            self._raise_requested_exit()
-
-        return submission_task.result()
+    def enqueue_message(
+        self,
+        value: str,
+        *,
+        visible_text: str | None = None
+    ) -> None:
+        """把外部提交的文本写入消息队列。"""
+        self.message_queue.put_nowait(TuiSubmission(
+            value=value,
+            editable_text=value if visible_text is None else visible_text,
+            paste_store={},
+        ))
 
     def finish_input(self) -> None:
         """通知等待方主输入应用已经停止。"""
@@ -384,24 +331,131 @@ class TuiSubmissionFlow(object):
         self._cancel_exit_expiry()
         self._invalidate()
 
-    def _schedule_exit_expiry(self) -> None:
-        """安排退出确认窗口到期后的界面恢复。"""
-        self._cancel_exit_expiry()
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return None
-        self._exit_expiry_task = asyncio.create_task(
-            self._expire_exit_confirmation(),
-            name="tui exit confirmation expiry",
+    def set_mode(self, mode: str) -> None:
+        """更新输入建议模式并在模式变化时刷新占位文案。"""
+        mode_changed = mode != self._mode
+
+        self._mode = mode
+
+        self.input_model.set_mode(mode)
+        if mode_changed:
+            self.placeholder_text = self.input_model.new_placeholder(mode)
+        self._invalidate()
+
+    def accept_input(self, buffer: Buffer) -> bool:
+        """恢复折叠粘贴内容并按当前运行状态提交输入。"""
+        self.clear_exit_confirmation()
+
+        editable_text = buffer.text
+        paste_store   = self.input_model.submission_state()
+        shell_mode    = self.input_model.shell_mode
+
+        value = self.input_model.restore_submission(buffer.text)
+        if not value:
+            if shell_mode:
+                self._append_notice(FragmentBlock((
+                    ("class:input.notice.hint", "• "),
+                    (
+                        "class:input.notice.hint",
+                        f"{self.input_model.SHELL_COMMAND_HINT_TEXT}  ",
+                    ),
+                    (
+                        "class:input.notice.example",
+                        self.input_model.SHELL_COMMAND_HINT_EXAMPLE,
+                    ),
+                )))
+                self._invalidate()
+                return False
+
+            if not self.has_pending_attachments:
+                return self._reject_input(
+                    buffer,
+                    editable_text=editable_text,
+                    message=self.EMPTY_MESSAGE_HINT,
+                )
+
+        if shell_mode:
+            value = f"! {value}" if value else "!"
+
+        if value == "/":
+            return self._reject_input(
+                buffer,
+                editable_text=editable_text,
+                message=self.ROOT_SLASH_HINT,
+            )
+
+        if is_unrecognized_slash_command(value):
+            self._append_notice(FragmentBlock((
+                ("class:input.notice.hint", "•"),
+                (
+                    "class:input.notice.hint",
+                    f" {unrecognized_slash_command_message(value)}",
+                ),
+            )))
+            self._invalidate()
+            return True
+
+        submission = TuiSubmission(
+            value=value,
+            editable_text=editable_text,
+            paste_store=paste_store,
+            shell_mode=shell_mode,
         )
 
-    def _cancel_exit_expiry(self) -> None:
-        """取消尚未完成的退出确认到期任务。"""
-        task = self._exit_expiry_task
-        self._exit_expiry_task = None
-        if task is not None and not task.done():
-            task.cancel()
+        if self._is_submission_deferred():
+            policy = stream_command_policy(value)
+            if policy is not None:
+                self._dispatch_stream_command(submission, policy=policy)
+                buffer.text = ""
+                buffer.cursor_position = 0
+                self.input_model.clear_submission_state()
+                self._invalidate()
+                return False
+            self.queued_messages.append(submission)
+            self.queued_submission_text = submission.visible_text
+        else:
+            self.message_queue.put_nowait(submission)
+
+        self.placeholder_text = self.input_model.new_placeholder(self._mode)
+
+        buffer.text = submission.visible_text
+        buffer.cursor_position = len(buffer.text)
+
+        self.input_model.clear_submission_state()
+        self._invalidate()
+        return False
+
+    def bind_pending_attachment_check(
+        self,
+        check: typing.Callable[[], bool] | None,
+    ) -> None:
+        """绑定或清除待发送附件状态判断。"""
+        self._has_pending_attachments = (
+            check if check is not None else _no_pending_attachments
+        )
+
+    async def _read_input_event(self) -> typing.Any:
+        """等待输入或退出事件，并取消未完成的另一项等待。"""
+        submission_task = asyncio.create_task(self.message_queue.get())
+        exit_task       = asyncio.create_task(self._exit_event.wait())
+        tasks           = (submission_task, exit_task)
+
+        try:
+            finished, _ = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        if exit_task in finished:
+            self._raise_requested_exit()
+
+        return submission_task.result()
 
     async def _expire_exit_confirmation(self) -> None:
         """关闭已到期的退出确认并恢复信息栏。"""
@@ -410,13 +464,20 @@ class TuiSubmissionFlow(object):
         self.interrupt_state.disarm_exit()
         self._invalidate()
 
-    def _raise_requested_exit(self) -> None:
-        """按退出来源传播终止信号。"""
-        reason = self.consume_exit_request()
-        if reason == "interrupt":
-            raise TuiInterruptRequested
-        if reason == "eof":
-            raise EOFError
+    async def read_submission(self) -> typing.Any:
+        """按提交顺序读取下一项输入，并优先传播退出请求。"""
+        self._raise_requested_exit()
+
+        queued     = self.queued_messages.pop_next()
+        submission = queued if queued is not None else await self._read_input_event()
+
+        self._invalidate()
+
+        if submission is _INPUT_CLOSED:
+            raise TuiInputClosed
+
+        self.clear_exit_confirmation()
+        return submission
 
     async def close(self) -> None:
         """清理提交状态和退出确认任务。"""
@@ -432,6 +493,7 @@ class TuiSubmissionFlow(object):
 
         self._interrupt_handler      = _ignore_interrupt
         self._stream_command_handler = _ignore_stream_command
+        self._has_pending_attachments = _no_pending_attachments
 
 
 if __name__ == '__main__':

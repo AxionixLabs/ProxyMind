@@ -23,6 +23,10 @@ from mind_nova.requests.compact import (
     build_compact_payload,
     stream_compact_events
 )
+from mind_nova.requests.fork import (
+    ConversationForkRequestError,
+    request_conversation_fork
+)
 
 from ..core.models import FragmentBlock
 from ..core.styles import (
@@ -100,6 +104,43 @@ class CompactLiveStatus(object):
     def failed(self, message: str) -> None:
         """更新压缩失败提示。"""
         self._message = message or "Context compaction failed. Please try again."
+        self._state   = "failed"
+        self._done    = True
+
+
+class ForkLiveStatus(object):
+    """记录会话分支操作的阶段状态。"""
+
+    def __init__(self) -> None:
+        self._message = "Forking conversation..."
+        self._state   = "linking"
+        self._done    = False
+
+    def snapshot(self) -> dict[str, typing.Any]:
+        """返回复用对话操作动画的状态快照。"""
+        return {
+            "summary": self._message,
+            "done": self._done,
+            "detail_limit": 0,
+            "items": [
+                {
+                    "name": "Fork",
+                    "state": self._state,
+                }
+            ],
+        }
+
+    def completed(self, copied_items: int) -> None:
+        """更新分支创建完成状态。"""
+        suffix = f" · {copied_items} items" if copied_items > 0 else ""
+
+        self._message = f"Conversation forked.{suffix}"
+        self._state   = "ready"
+        self._done    = True
+
+    def failed(self, message: str) -> None:
+        """更新分支创建失败状态。"""
+        self._message = message or "Conversation fork failed. Try /fork again."
         self._state   = "failed"
         self._done    = True
 
@@ -185,21 +226,187 @@ async def compact_current_conversation(
     return status
 
 
+async def fork_current_conversation(
+    mind: "Mind",
+    *,
+    run_mode: RunMode,
+) -> ForkLiveStatus:
+    """复制当前远端上下文并在成功后切换会话标识。"""
+    source = mind.conversation.snapshot()
+
+    request_id = mind.prepare_conversation_fork(
+        run_mode,
+        source["cid"],
+        source["sid"],
+    )
+    status = ForkLiveStatus()
+
+    observe(
+        "conversation.fork.start",
+        mode=run_mode,
+        cid=source["cid"],
+        sid=source["sid"],
+        request_id=request_id,
+    )
+
+    try:
+        if compact_animation_enabled(mind):
+            observe("conversation.fork.animation.start")
+            await mind.start_compact_anim(status.snapshot)
+
+        result = await request_conversation_fork(
+            mode=run_mode,
+            cid=source["cid"],
+            sid=source["sid"],
+            request_id=request_id,
+        )
+
+        target_cid   = str(result.get("cid") or "").strip()
+        target_sid   = str(result.get("sid") or "").strip()
+        copied_items = _positive_int(result.get("copied_items"))
+
+        bound = mind.bind_conversation(
+            target_cid,
+            target_sid,
+            source="tui",
+        )
+        if bound is None:
+            mind.clear_conversation_fork(
+                run_mode,
+                source["cid"],
+                source["sid"],
+                request_id,
+            )
+
+            status.failed("Conversation fork returned invalid session IDs.")
+
+            observe(
+                "conversation.fork.failed",
+                level="ERROR",
+                reason="invalid_target",
+                request_id=request_id,
+            )
+            return status
+
+        mind.clear_conversation_fork(
+            run_mode,
+            source["cid"],
+            source["sid"],
+            request_id,
+        )
+        status.completed(copied_items)
+
+        observe(
+            "conversation.fork.complete",
+            mode=run_mode,
+            source_cid=source["cid"],
+            source_sid=source["sid"],
+            cid=bound["cid"],
+            sid=bound["sid"],
+            request_id=request_id,
+            copied_items=copied_items,
+        )
+
+    except asyncio.CancelledError:
+        observe(
+            "conversation.fork.interrupted",
+            level="WARNING",
+            request_id=request_id,
+        )
+        raise
+
+    except ConversationForkRequestError as error:
+        if not error.retryable:
+            mind.clear_conversation_fork(
+                run_mode,
+                source["cid"],
+                source["sid"],
+                request_id,
+            )
+        status.failed(error.message)
+
+        observe(
+            "conversation.fork.failed",
+            level="WARNING" if error.retryable else "ERROR",
+            reason=error.code or error.status_code or "request_failed",
+            request_id=request_id,
+        )
+
+    except Exception as error:
+        message = str(error).strip()
+        detail  = f": {message}" if message else ""
+
+        status.failed(
+            f"Conversation fork failed: {type(error).__name__}{detail}"
+        )
+
+        observe_exception(
+            "conversation.fork.failed",
+            error,
+            request_id=request_id,
+        )
+
+    return status
+
+
 async def finish_compact_activity(mind: "Mind") -> None:
     """结束上下文压缩活动状态。"""
     await mind.stop_anim("compact", settle=False)
 
 
+async def finish_fork_activity(mind: "Mind") -> None:
+    """结束会话分支操作复用的活动动画。"""
+    await mind.stop_anim("compact", settle=False)
+
+
+def render_fork_result(mind: "Mind", status: ForkLiveStatus) -> None:
+    """展示会话分支操作的最终状态。"""
+    view = external_mcp_status_view(status.snapshot(), detail_limit=0)
+
+    block = render_mcp_status_block(view)
+    if not block.plain_text:
+        return None
+
+    _present(mind, block, view_type="tui.fork.status")
+    _present(mind, view_type="tui.gap")
+
+
+def render_fork_failure(mind: "Mind", error: BaseException) -> None:
+    """展示会话分支操作的未处理失败。"""
+    message = str(getattr(error, "message", "") or str(error)).strip()
+
+    status = ForkLiveStatus()
+    status.failed(message or "Conversation fork failed. Try /fork again.")
+
+    render_fork_result(mind, status)
+
+
+def render_fork_interrupted(mind: "Mind") -> None:
+    """展示会话分支操作被中断的状态。"""
+    _present(
+        mind,
+        fragment_block(
+            TextSpan("Conversation fork ", ACCENT_STYLE),
+            TextSpan("· interrupted", WARNING_STYLE),
+        ),
+        view_type="tui.fork.interrupted",
+    )
+    _present(mind, view_type="tui.gap")
+
+
 def render_compact_failure(mind: "Mind", error: BaseException) -> None:
     """展示上下文压缩未处理异常的最终状态。"""
     message = str(error).strip()
+
     detail = (
         f": {type(error).__name__}: {message}"
         if message
         else f": {type(error).__name__}"
     )
+
     status = CompactLiveStatus()
     status.failed(f"Context compaction failed{detail}")
+
     render_compact_result(mind, status)
 
 
@@ -224,6 +431,16 @@ def compact_event_detail(event: dict[str, typing.Any]) -> str:
     if isinstance(before_items, int) and isinstance(after_items, int):
         return f" · {before_items} -> {after_items} items"
     return ""
+
+
+def _positive_int(value: typing.Any) -> int:
+    """把正整数统计值规范化为非负整数。"""
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 async def copy_last_assistant_reply(mind: "Mind") -> None:

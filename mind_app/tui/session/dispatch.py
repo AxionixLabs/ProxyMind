@@ -30,9 +30,14 @@ from ..features.conversation import (
     compact_current_conversation,
     copy_last_assistant_reply,
     finish_compact_activity,
+    finish_fork_activity,
+    fork_current_conversation,
     render_compact_failure,
     render_compact_interrupted,
-    render_compact_result
+    render_compact_result,
+    render_fork_failure,
+    render_fork_interrupted,
+    render_fork_result
 )
 from ..features.diff import print_current_apply_patch_diff
 from ..features.helix import (
@@ -240,6 +245,27 @@ class TuiCommandDispatcher(object):
                     error,
                 ),
                 on_cancelled=lambda: render_compact_interrupted(self.mind),
+            )
+            await self.foreground_tasks.wait()
+            return DispatchAction.HANDLED
+
+        if matches_command(command, "fork"):
+            self.foreground_tasks.start(
+                "Conversation fork",
+                lambda: fork_current_conversation(
+                    self.mind,
+                    run_mode=self.state.mode,
+                ),
+                finish_activity=lambda: finish_fork_activity(self.mind),
+                on_succeeded=lambda status: render_fork_result(
+                    self.mind,
+                    status,
+                ),
+                on_failed=lambda error: render_fork_failure(
+                    self.mind,
+                    error,
+                ),
+                on_cancelled=lambda: render_fork_interrupted(self.mind),
             )
             await self.foreground_tasks.wait()
             return DispatchAction.HANDLED

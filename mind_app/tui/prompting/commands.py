@@ -57,6 +57,9 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "resume", "/resume", "恢复最近会话",
     ),
     TuiCommandSpec(
+        "fork", "/fork", "复制当前对话上下文",
+    ),
+    TuiCommandSpec(
         "permissions", "/permissions", "切换权限模式",
     ),
     TuiCommandSpec(

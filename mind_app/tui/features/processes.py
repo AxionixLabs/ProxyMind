@@ -13,6 +13,7 @@ from mind_app.frontend import (
     ApplicationView
 )
 from ..core.models import (
+    FragmentBlock,
     MenuOption,
     MenuRequest
 )
@@ -33,10 +34,15 @@ from ..core.styles import (
 
 PS_PANEL_TICK_SEC: float         = 0.12
 PS_OUTPUT_LIMIT: int             = 60000
-PS_SUMMARY_MAX_LINES: int        = 8
+PS_VISIBLE_OUTPUT_LINES: int     = 8
 PS_MENU_VISIBLE_LIMIT: int       = 8
 PROCESS_STATUS_ACTIVE_SEC: float = 0.5
 PROCESS_STATUS_IDLE_SEC: float   = 1.0
+
+PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
+    fragments=(("", " "),),
+    max_height=1,
+)
 
 _STOP_ALL_ACTION = object()
 
@@ -222,16 +228,21 @@ async def watch_exec_session(
         return False
 
     application = mind.frontend.application
-    height      = _ps_panel_height(application.viewport.height)
+
     initial = await mind.native_coding.exec_session_output_snapshot(
         session_id=sid,
         max_output_chars=PS_OUTPUT_LIMIT,
     )
+
     runtime.cancel_background_session_task(sid)
+
     if initial.get("ok") is False:
         return False
     if str(initial.get("status") or "").strip() == "exited":
-        render_exec_session_summary(application, initial)
+        runtime.commit_process_result(exec_session_summary_block(
+            initial,
+            terminal_width=application.viewport.width,
+        ))
         return "exited"
 
     state: dict[str, typing.Any] = {
@@ -244,7 +255,6 @@ async def watch_exec_session(
         sid,
         state,
         runtime=runtime,
-        height=height,
         announce_detach=announce_detach,
     )
 
@@ -255,24 +265,18 @@ async def _watch_exec_session(
     state: dict[str, typing.Any],
     *,
     runtime: "TuiRuntime",
-    height: int,
     announce_detach: bool,
 ) -> bool | str:
     """轮询并更新主 TUI 中的命令会话面板。"""
     application = mind.frontend.application
 
-    def request() -> ProcessViewerRequest:
-        fragments = render_exec_session_panel(
-            state,
-            height=max(4, height - 1),
+    viewer_task = asyncio.create_task(runtime.view_process(
+        PROCESS_VIEWER_FOCUS_REQUEST,
+        exec_session_live_block(
+            state.get("snapshot"),
             terminal_width=application.viewport.width,
-        )
-        return ProcessViewerRequest(
-            fragments=tuple(fragments),
-            max_height=height,
-        )
-
-    viewer_task = asyncio.create_task(runtime.view_process(request()))
+        ),
+    ))
 
     async def poll() -> None:
         while not viewer_task.done():
@@ -281,17 +285,20 @@ async def _watch_exec_session(
                 max_output_chars=PS_OUTPUT_LIMIT,
             )
             if current_snapshot.get("ok") is False:
-                runtime.finish_process_viewer(state.get("last_snapshot"))
+                runtime.resolve_process_viewer(state.get("last_snapshot"))
                 return None
 
             state["snapshot"]      = current_snapshot
             state["updated_at"]    = time.time()
             state["last_snapshot"] = current_snapshot
 
-            runtime.update_process_viewer(request())
+            runtime.update_process_viewer(exec_session_live_block(
+                current_snapshot,
+                terminal_width=application.viewport.width,
+            ))
 
             if str(current_snapshot.get("status") or "").strip() == "exited":
-                runtime.finish_process_viewer(current_snapshot)
+                runtime.resolve_process_viewer(current_snapshot)
                 return None
             await asyncio.sleep(PS_PANEL_TICK_SEC)
 
@@ -304,24 +311,39 @@ async def _watch_exec_session(
             poll_task.cancel()
         await asyncio.gather(poll_task, return_exceptions=True)
 
-    if result == "interrupt":
-        result = await _interrupt_exec_session(mind, session_id)
-    elif result == "detach" and announce_detach:
-        snapshot = state.get("last_snapshot") or state.get("snapshot")
-        if isinstance(snapshot, dict):
-            render_exec_session_detached(application, snapshot)
-    if isinstance(result, dict):
-        render_exec_session_summary(application, result)
-        return "exited"
-    if result == "detach":
-        snapshot = state.get("last_snapshot") or state.get("snapshot")
-        if isinstance(snapshot, dict) and snapshot.get("origin") == "tui_shell":
-            runtime.start_background_session_task(
-                session_id,
-                _watch_detached_exec_session(runtime, mind, session_id),
-            )
-        return "detach"
-    return True
+    settled = False
+    try:
+        if result == "interrupt":
+            result = await _interrupt_exec_session(mind, session_id)
+        if isinstance(result, dict):
+            runtime.commit_process_viewer(exec_session_summary_block(
+                result,
+                terminal_width=application.viewport.width,
+            ))
+            settled = True
+            return "exited"
+        if result == "detach":
+            snapshot = state.get("last_snapshot") or state.get("snapshot")
+            if announce_detach and isinstance(snapshot, dict):
+                runtime.commit_process_viewer(exec_session_detached_block(
+                    snapshot,
+                    terminal_width=application.viewport.width,
+                ))
+            else:
+                runtime.dismiss_process_viewer()
+            settled = True
+            if isinstance(snapshot, dict) and snapshot.get("origin") == "tui_shell":
+                runtime.start_background_session_task(
+                    session_id,
+                    _watch_detached_exec_session(runtime, mind, session_id),
+                )
+            return "detach"
+        runtime.dismiss_process_viewer()
+        settled = True
+        return True
+    finally:
+        if not settled:
+            runtime.dismiss_process_viewer()
 
 
 def render_exec_session_menu(
@@ -380,8 +402,21 @@ def render_exec_session_panel(
 
     body_height = max(1, height - 4)
     width       = _terminal_width(terminal_width)
-    title       = _panel_title(snapshot, terminal_width=width)
-    meta        = _panel_meta(snapshot, terminal_width=width)
+
+    title = _clip_inline(
+        _panel_title(snapshot, terminal_width=width),
+        width,
+    )
+
+    meta = _clip_inline(
+        _panel_meta(snapshot, terminal_width=width),
+        width,
+    )
+
+    help_text = _clip_inline(
+        "Enter/Esc/q background · Ctrl+C stop · output is tailed",
+        width,
+    )
 
     lines: StyleAndTextTuples = [
         ("class:ps.title", title),
@@ -390,13 +425,14 @@ def render_exec_session_panel(
         ("", "\n"),
         (
             "class:ps.help",
-            "Enter/Esc/q background · Ctrl+C stop · output is tailed",
+            help_text,
         ),
         ("", "\n"),
     ]
 
     if snapshot.get("ok") is False:
-        lines.append(("class:ps.error", f"  {snapshot.get('reason') or 'snapshot_failed'}"))
+        error = f"  {snapshot.get('reason') or 'snapshot_failed'}"
+        lines.append(("class:ps.error", _clip_inline(error, width)))
         lines.append(("", "\n"))
         return lines
 
@@ -413,26 +449,50 @@ def render_exec_session_panel(
     return lines
 
 
-def render_exec_session_summary(
-    application: ApplicationSink,
-    snapshot: dict[str, typing.Any]
-) -> None:
-    """渲染 exec_command 查看面板的最终摘要。"""
-    render_command_summary(application, exec_session_command_summary(snapshot))
+def exec_session_live_block(
+    snapshot: typing.Any,
+    *,
+    terminal_width: int | None = None
+) -> FragmentBlock:
+    """生成前台命令运行期间的动态正文块。"""
+    current = snapshot if isinstance(snapshot, dict) else {}
+
+    fragments = render_exec_session_panel(
+        {"snapshot": current},
+        height=PS_VISIBLE_OUTPUT_LINES + 4,
+        terminal_width=terminal_width,
+    )
+    return FragmentBlock(tuple(fragments))
 
 
-def render_exec_session_detached(
-    application: ApplicationSink,
+def exec_session_summary_block(
     snapshot: dict[str, typing.Any],
-) -> None:
-    """渲染进程会话已转入后台的摘要。"""
+    *,
+    terminal_width: int | None = None
+) -> FragmentBlock:
+    """生成前台命令结束后的稳定摘要块。"""
+    return command_summary_text(
+        exec_session_command_summary(snapshot),
+        terminal_width=terminal_width,
+    )
+
+
+def exec_session_detached_block(
+    snapshot: dict[str, typing.Any],
+    *,
+    terminal_width: int | None = None,
+) -> FragmentBlock:
+    """生成命令转入后台后的稳定摘要块。"""
     session_id = str(snapshot.get("session_id") or "").strip()
-    render_command_summary(application, CommandSummary(
+
+    summary = CommandSummary(
         kind=_session_kind(snapshot),
         command=str(snapshot.get("command") or session_id or "command"),
         suffix=f" · {session_id}",
-        lines=(),
-    ))
+        lines=tuple(exec_session_summary_lines(snapshot)),
+    )
+
+    return command_summary_text(summary, terminal_width=terminal_width)
 
 
 def exec_session_command_summary(snapshot: dict[str, typing.Any]) -> CommandSummary:
@@ -460,15 +520,14 @@ def exec_session_summary_title_parts(
 def exec_session_summary_lines(
     snapshot: dict[str, typing.Any],
     *,
-    max_lines: int = PS_SUMMARY_MAX_LINES
+    max_lines: int = PS_VISIBLE_OUTPUT_LINES
 ) -> list[str]:
     """返回 exec_command 摘要输出行。"""
-    limit = max(1, int(max_lines or PS_SUMMARY_MAX_LINES))
+    limit = max(1, int(max_lines or PS_VISIBLE_OUTPUT_LINES))
 
     display = [
         _clip_inline(line, 160)
         for line in _panel_output_lines(snapshot, limit=limit)
-        if str(line or "").strip()
     ]
     if display:
         return display[-limit:]
@@ -478,7 +537,7 @@ def exec_session_summary_lines(
         return [
             f"{_session_kind(snapshot)} exited with code {int(exit_code or 0)}"
         ]
-    return []
+    return ["(no output)"]
 
 
 def _running_items(snapshot: typing.Any) -> list[dict[str, typing.Any]]:
@@ -652,21 +711,18 @@ def _panel_output_lines(
 ) -> list[str]:
     """提取面板需要展示的输出行。"""
     raw_lines = snapshot.get("output_lines")
-    lines     = [str(line) for line in raw_lines] if isinstance(raw_lines, list) else []
+
+    lines = (
+        [str(line) for line in raw_lines if str(line).strip()]
+        if isinstance(raw_lines, list)
+        else []
+    )
 
     if not lines:
         output = str(snapshot.get("output") or "")
-        lines = [line for line in output.splitlines() if line]
+        lines = [line for line in output.splitlines() if line.strip()]
 
     return lines[-max(1, int(limit or 1)):]
-
-
-def _ps_panel_height(terminal_height: int | None = None) -> int:
-    """根据终端高度计算查看面板高度。"""
-    height = terminal_height
-    if not isinstance(height, int) or height <= 0:
-        height = shutil.get_terminal_size(fallback=(100, 24)).lines
-    return max(8, min(28, height - 4))
 
 
 def _terminal_width(terminal_width: int | None = None) -> int:

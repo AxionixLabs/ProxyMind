@@ -3,12 +3,14 @@
 
 import typing
 from dataclasses import dataclass
+from prompt_toolkit.utils import get_cwidth
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
 from mind_app.presentation.models import TextStyle
 from ..core.models import FragmentBlock
+from ..core.render import clip_text
 from ..core.styles import prompt_style
 
 COMMAND_SUMMARY_DEFAULT_WIDTH: int = 100
@@ -74,7 +76,12 @@ def command_summary_title_parts(
 ) -> list[tuple[str, str]]:
     """返回命令面板摘要标题分段。"""
     kind   = str(summary.kind or "Command").strip() or "Command"
-    suffix = str(summary.suffix or "")
+    width  = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
+
+    suffix = clip_text(
+        str(summary.suffix or ""),
+        width=max(0, width - get_cwidth(f"• {kind} ") - 1),
+    )
 
     command = _summary_command_text(
         summary.command,
@@ -111,11 +118,11 @@ def _summary_command_text(
         text = fallback
 
     width        = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
-    prefix_width = len(f"• {kind} ")
+    prefix_width = get_cwidth(f"• {kind} ")
 
     available = min(
         COMMAND_SUMMARY_COMMAND_MAX,
-        max(12, width - prefix_width - len(suffix))
+        max(1, width - prefix_width - get_cwidth(suffix))
     )
 
     return _clip_inline(text, available)
@@ -136,14 +143,7 @@ def _summary_line_text(
 def _clip_inline(value: typing.Any, limit: int) -> str:
     """裁剪单行文本。"""
     text = " ".join(str(value or "").split())
-    size = max(1, int(limit or 1))
-
-    if len(text) <= size:
-        return text
-    if size <= 1:
-        return "…"
-
-    return f"{text[:size - 1]}…"
+    return clip_text(text, width=max(1, int(limit or 1)))
 
 
 if __name__ == '__main__':

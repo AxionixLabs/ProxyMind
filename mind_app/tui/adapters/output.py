@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import json
+import math
 import time
 import random
 import typing
@@ -19,6 +20,7 @@ from ..core.runtime import TuiRuntime
 from ..core.models import FragmentBlock
 from ..core.render import (
     display_line_count,
+    fragment_continuation_widths,
     fragments_text
 )
 from ..core.styles import (
@@ -33,6 +35,8 @@ STREAM_RENDER_REGULAR_SEC    = 1 / 20
 STREAM_RENDER_SLOW_SEC       = 1 / 12
 STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
 STREAM_RENDER_LONG_TEXT_SIZE = 2000
+STREAM_REVEAL_CELLS_PER_SEC  = 80
+STREAM_REVEAL_MAX_LAG_SEC    = 0.2
 
 
 class TuiOutputControl(OutputControlPort):
@@ -96,6 +100,7 @@ class TuiOutputControl(OutputControlPort):
             return None
 
         self.assistant.append(text)
+        self.assistant.reveal_all()
         self._render_active(cursor=False)
 
     async def prepare_external_output(self) -> None:
@@ -107,6 +112,7 @@ class TuiOutputControl(OutputControlPort):
         """立即同步当前流式内容。"""
         self._cancel_stream_render()
         if self.assistant.active:
+            self.assistant.reveal_all()
             self._render_active(cursor=False)
 
     async def record_hidden_output(self, text: str) -> None:
@@ -217,6 +223,7 @@ class TuiOutputControl(OutputControlPort):
         ):
             self._render_stream_frame()
             self._stream_rendered_at = loop.time()
+            self._schedule_pending_stream_frame()
             return None
 
         if self._stream_render_handle is None:
@@ -228,15 +235,20 @@ class TuiOutputControl(OutputControlPort):
     def _flush_stream_render(self) -> None:
         """展示帧预算内合并的最新流式正文。"""
         self._stream_render_handle = None
+
         if not self.assistant.active:
             self._stream_rendered_at = 0.0
             return None
+
         self._render_stream_frame()
         self._stream_rendered_at = asyncio.get_running_loop().time()
+        self._schedule_pending_stream_frame()
 
     def _render_stream_frame(self) -> None:
         """渲染流式帧并记录本帧耗时。"""
         started_at = time.perf_counter()
+
+        self.assistant.reveal(self._stream_reveal_cells())
         self._render_active(cursor=True)
         self._stream_render_cost_sec = max(
             0.0,
@@ -251,6 +263,35 @@ class TuiOutputControl(OutputControlPort):
         ):
             return STREAM_RENDER_SLOW_SEC
         return STREAM_RENDER_REGULAR_SEC
+
+    def _stream_reveal_cells(self) -> int:
+        """按帧间隔和积压量返回本帧应揭示的终端列数。"""
+        pending = self.assistant.pending_width
+        if pending <= 0:
+            return int(self.assistant.pending_length > 0)
+
+        interval = self._stream_render_interval()
+        regular  = max(1, math.ceil(STREAM_REVEAL_CELLS_PER_SEC * interval))
+
+        lag_frames = max(
+            1,
+            math.floor(STREAM_REVEAL_MAX_LAG_SEC / interval),
+        )
+
+        retained = regular * lag_frames
+        return max(regular, pending - retained)
+
+    def _schedule_pending_stream_frame(self) -> None:
+        """在仍有待揭示正文时安排下一帧。"""
+        if (
+            self.assistant.pending_length <= 0
+            or self._stream_render_handle is not None
+        ):
+            return None
+        self._stream_render_handle = asyncio.get_running_loop().call_later(
+            self._stream_render_interval(),
+            self._flush_stream_render,
+        )
 
     def _cancel_stream_render(self) -> None:
         """取消待展示帧并重置流式刷新时钟。"""
@@ -269,7 +310,7 @@ class TuiOutputControl(OutputControlPort):
         cursor: bool,
     ) -> None:
         """刷新当前流式内容并按需附加打字机光标。"""
-        block = StyledBlock(plain_text=self.assistant.text)
+        block = StyledBlock(plain_text=self.assistant.visible_text)
 
         fragments = _assistant_prefixed_fragments(
             list(styled_block_fragments(block))
@@ -325,10 +366,21 @@ def _cursor_keeps_display_height(
     text       = fragments_text(fragments)
     line_width = max(1, int(width))
 
+    continuation_widths = fragment_continuation_widths(
+        fragments,
+        prefix_style=ASSISTANT_PREFIX_CLASS,
+        prefix_width=2,
+    )
+
     return display_line_count(
         f"{text}{cursor}",
         width=line_width,
-    ) == display_line_count(text, width=line_width)
+        continuation_widths=continuation_widths,
+    ) == display_line_count(
+        text,
+        width=line_width,
+        continuation_widths=continuation_widths,
+    )
 
 
 def _assistant_prefixed_fragments(

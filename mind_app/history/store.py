@@ -11,6 +11,7 @@ from mind_app.paths import mind_history_db_path
 from .ids import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
+TABLE_PENDING_FORKS   = "conversation_pending_forks"
 
 HISTORY_TTL_MS     = 24 * 60 * 60 * 1000
 HISTORY_LIMIT      = 200
@@ -40,6 +41,19 @@ ON {TABLE_SESSION_CURSORS} (expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_conversation_session_cursors_updated
 ON {TABLE_SESSION_CURSORS} (updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS {TABLE_PENDING_FORKS} (
+    mode        TEXT NOT NULL,
+    cid         TEXT NOT NULL,
+    sid         TEXT NOT NULL,
+    request_id  TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL,
+    PRIMARY KEY (mode, cid, sid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_pending_forks_expires
+ON {TABLE_PENDING_FORKS} (expires_at);
 """
 
 
@@ -169,6 +183,94 @@ class ConversationHistoryStore(object):
             now_ms=now_ms,
         )
         return records[0] if records else None
+
+    def get_or_create_fork_request(
+        self,
+        *,
+        mode: str,
+        cid: str,
+        sid: str,
+        request_id: str,
+        now_ms: typing.Optional[int] = None,
+    ) -> str:
+        """返回源会话尚未完成的稳定分支请求标识。"""
+        mode_text = _clean(mode)
+        cid_text  = _clean(cid)
+        sid_text  = _clean(sid)
+        candidate = _clean(request_id)
+
+        if not mode_text or not candidate or not valid_session_ids(cid_text, sid_text):
+            raise ValueError("mode, valid cid/sid, and request_id are required")
+
+        now = _now_ms() if now_ms is None else int(now_ms)
+        row: sqlite3.Row | None = None
+        conn = self._connect()
+        try:
+            with conn:
+                self._init_schema(conn)
+                conn.execute(
+                    f"DELETE FROM {TABLE_PENDING_FORKS} WHERE expires_at <= ?",
+                    (now,),
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO {TABLE_PENDING_FORKS} (
+                        mode, cid, sid, request_id, created_at, expires_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(mode, cid, sid) DO NOTHING
+                    """,
+                    (
+                        mode_text,
+                        cid_text,
+                        sid_text,
+                        candidate,
+                        now,
+                        now + self.ttl_ms,
+                    ),
+                )
+                row = conn.execute(
+                    f"""
+                    SELECT request_id
+                    FROM {TABLE_PENDING_FORKS}
+                    WHERE mode = ? AND cid = ? AND sid = ?
+                    """,
+                    (mode_text, cid_text, sid_text),
+                ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            raise sqlite3.DatabaseError("pending fork request was not persisted")
+        return str(row["request_id"])
+
+    def clear_fork_request(
+        self,
+        *,
+        mode: str,
+        cid: str,
+        sid: str,
+        request_id: str,
+    ) -> None:
+        """清除与指定源会话和请求标识匹配的分支操作。"""
+        conn = self._connect()
+        try:
+            with conn:
+                self._init_schema(conn)
+                conn.execute(
+                    f"""
+                    DELETE FROM {TABLE_PENDING_FORKS}
+                    WHERE mode = ? AND cid = ? AND sid = ? AND request_id = ?
+                    """,
+                    (
+                        _clean(mode),
+                        _clean(cid),
+                        _clean(sid),
+                        _clean(request_id),
+                    ),
+                )
+        finally:
+            conn.close()
 
     def _select_sessions(
         self,

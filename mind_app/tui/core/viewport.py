@@ -16,8 +16,10 @@ from .models import (
 )
 from .render import (
     display_line_count,
+    fragment_continuation_widths,
     fragments_text
 )
+from .styles import ASSISTANT_PREFIX_CLASS
 
 
 class TuiTranscriptViewport(object):
@@ -190,6 +192,11 @@ class TuiTranscriptViewport(object):
             block_rows = display_line_count(
                 text,
                 width=self._get_terminal_width(),
+                continuation_widths=fragment_continuation_widths(
+                    list(blocks[index].block.fragments),
+                    prefix_style=ASSISTANT_PREFIX_CLASS,
+                    prefix_width=2,
+                ),
             )
 
             separator_rows = (
@@ -219,13 +226,20 @@ class TuiTranscriptViewport(object):
 
     def scroll_page(self, direction: int) -> None:
         """按当前正文窗口高度向前或向后翻页。"""
-        text = fragments_text(self._get_transcript_fragments())
+        fragments = self._get_transcript_fragments()
+
+        text = fragments_text(fragments)
         if not text:
             return None
 
         total_rows = display_line_count(
             text,
             width=self._get_terminal_width(),
+            continuation_widths=fragment_continuation_widths(
+                fragments,
+                prefix_style=ASSISTANT_PREFIX_CLASS,
+                prefix_width=2,
+            ),
         )
 
         render_info = self._get_render_info()

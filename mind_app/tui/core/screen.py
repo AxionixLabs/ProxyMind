@@ -75,6 +75,7 @@ from .render import (
     cursor_point,
     cursor_point_for_display_row,
     display_line_count,
+    fragment_continuation_widths,
     fragments_text
 )
 from .styles import (
@@ -593,9 +594,10 @@ class TuiScreen(object):
 
     def _transcript_cursor(self) -> Point:
         """让会话内容视口跟随最新输出。"""
-        text = fragments_text(self.transcript_fragments())
+        fragments = self.transcript_fragments()
+        text      = fragments_text(fragments)
+        view_row  = self._get_transcript_view_row()
 
-        view_row = self._get_transcript_view_row()
         if view_row is None:
             x, y = cursor_point(text, width=self.terminal_width)
         else:
@@ -603,13 +605,16 @@ class TuiScreen(object):
                 text,
                 width=self.terminal_width,
                 display_row=view_row,
+                continuation_widths=self._transcript_continuation_widths(
+                    fragments,
+                ),
             )
 
         return Point(x=x, y=y)
 
     def _transcript_key_bindings(self) -> KeyBindings:
         """创建正文视口翻页按键。"""
-        bindings = KeyBindings()
+        bindings     = KeyBindings()
         input_active = has_focus(INPUT_BUFFER_NAME)
 
         @bindings.add("c-l", eager=True, filter=input_active)
@@ -635,9 +640,28 @@ class TuiScreen(object):
 
     def _transcript_dimension(self) -> Dimension:
         """返回正文当前内容在画布中占用的高度。"""
-        text = fragments_text(self.transcript_fragments())
-        rows = display_line_count(text, width=self.terminal_width)
+        fragments = self.transcript_fragments()
+        text      = fragments_text(fragments)
+
+        rows = display_line_count(
+            text,
+            width=self.terminal_width,
+            continuation_widths=self._transcript_continuation_widths(
+                fragments,
+            ),
+        )
         return Dimension.exact(min(rows, self.transcript_available_height()))
+
+    @staticmethod
+    def _transcript_continuation_widths(
+        fragments: FormattedText,
+    ) -> tuple[int, ...]:
+        """返回正文每个逻辑行的自动折行前缀宽度。"""
+        return fragment_continuation_widths(
+            fragments,
+            prefix_style=ASSISTANT_PREFIX_CLASS,
+            prefix_width=2,
+        )
 
     def _status_dimension(self) -> Dimension:
         """返回动画区域的精确高度。"""

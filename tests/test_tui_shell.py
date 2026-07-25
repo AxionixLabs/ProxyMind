@@ -17,6 +17,8 @@ from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
+    exec_session_live_block,
+    exec_session_summary_block,
     manage_exec_sessions,
     render_exec_sessions_stopped,
     watch_exec_session,
@@ -377,9 +379,14 @@ async def test_process_viewer_returns_detach_without_using_input_buffer() -> Non
     )))
     await asyncio.sleep(0)
 
-    viewer.finish("detach")
+    viewer.resolve("detach")
 
     assert await task == "detach"
+    assert focused == ["viewer"]
+    assert viewer.active
+
+    viewer.settle()
+
     assert focused == ["viewer", "input"]
     assert not viewer.active
 
@@ -402,10 +409,13 @@ async def test_detaching_shell_viewer_keeps_session_for_ps() -> None:
         frontend=SimpleNamespace(application=application),
         native_coding=native_coding,
     )
+    committed = []
     runtime = SimpleNamespace(
         view_process=AsyncMock(return_value="detach"),
-        update_process_viewer=lambda request: None,
-        finish_process_viewer=lambda value: None,
+        update_process_viewer=lambda block: None,
+        resolve_process_viewer=lambda value: None,
+        commit_process_viewer=committed.append,
+        dismiss_process_viewer=lambda: None,
         cancel_background_session_task=lambda session_id: None,
         start_background_session_task=(
             lambda session_id, awaitable: awaitable.close()
@@ -421,12 +431,12 @@ async def test_detaching_shell_viewer_keeps_session_for_ps() -> None:
 
     assert viewed
     assert native_coding.exec_session_output_snapshot.await_count >= 1
-    summary = application.views[-1]
-    text = "".join(value for _style, value in summary.renderable.fragments)
-    assert summary.type == "tui.command_summary"
+    assert len(committed) == 1
+    text = "".join(value for _style, value in committed[0].fragments)
     assert "Shell" in text
     assert " · background · " not in text
     assert "exec_background" in text
+    assert "ready" in text
 
 
 def test_background_completion_waits_for_stream_boundary() -> None:
@@ -463,17 +473,117 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
         FragmentBlock((("", "command query"),)),
         kind="user",
     )
-    task = asyncio.create_task(runtime.view_process(ProcessViewerRequest(
-        fragments=(("class:ps.title", "Shell running\noutput"),),
-    )))
+    live_block = FragmentBlock((("class:ps.title", "Shell running\noutput"),))
+    task = asyncio.create_task(runtime.view_process(
+        ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+        live_block,
+    ))
     await asyncio.sleep(0)
 
     assert runtime.screen.process_viewer.active
-    assert runtime.screen._process_viewer_height() == 2
+    assert runtime.document.active_block == live_block
+    assert runtime.document.active_kind == "operation"
+    assert runtime.screen._process_viewer_height() == 1
     assert runtime.screen._content_input_gap_height() == 2
     assert runtime.screen._interaction_height() == 0
     assert not runtime.screen.input_area.filter()
 
-    runtime.finish_process_viewer("detach")
+    runtime.resolve_process_viewer("detach")
     assert await task == "detach"
+    assert runtime.screen.process_viewer.active
+    assert not runtime.screen.input_area.filter()
+
+    final_block = FragmentBlock((("class:ps.title", "Shell completed"),))
+    runtime.commit_process_viewer(final_block)
+
+    assert runtime.document.active_block is None
+    assert runtime.document.blocks[-1].block == final_block
     assert runtime.screen.input_area.filter()
+
+
+@pytest.mark.anyio
+async def test_foreground_process_completion_commits_in_place() -> None:
+    application = _ApplicationStub()
+    initial = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "git pull",
+        "status": "running",
+        "origin": "tui_shell",
+        "output_lines": ["Updating files"],
+    }
+    completed = {
+        **initial,
+        "status": "exited",
+        "exit_code": 0,
+        "output_lines": ["Updating files", "Already up to date."],
+    }
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=SimpleNamespace(
+            exec_session_output_snapshot=AsyncMock(
+                side_effect=[initial, completed],
+            ),
+        ),
+    )
+    runtime = TuiRuntime()
+
+    result = await watch_exec_session(
+        runtime,
+        mind,
+        "exec_shell",
+        announce_detach=True,
+    )
+
+    assert result == "exited"
+    assert runtime.document.active_block is None
+    assert not runtime.screen.process_viewer.active
+    assert runtime.screen.input_area.filter()
+    text = "".join(
+        value
+        for _style, value in runtime.document.blocks[-1].block.fragments
+    )
+    assert "git pull" in text
+    assert "Already up to date." in text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("terminal_width", [40, 80])
+@pytest.mark.parametrize(
+    "output_lines",
+    [[], [f"line {index}" for index in range(12)]],
+)
+async def test_process_completion_preserves_total_layout_height(
+    output_lines,
+    terminal_width,
+) -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (terminal_width, 24)
+    snapshot = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "git pull",
+        "status": "running",
+        "origin": "tui_shell",
+        "output_lines": output_lines,
+    }
+    live_block = exec_session_live_block(
+        snapshot,
+        terminal_width=terminal_width,
+    )
+    final_block = exec_session_summary_block(
+        {**snapshot, "status": "exited", "exit_code": 0},
+        terminal_width=terminal_width,
+    )
+    task = asyncio.create_task(runtime.view_process(
+        ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+        live_block,
+    ))
+    await asyncio.sleep(0)
+    running_height = runtime.screen._visible_height()
+
+    runtime.resolve_process_viewer("exited")
+    assert await task == "exited"
+    runtime.commit_process_viewer(final_block)
+
+    assert runtime.screen._visible_height() == running_height

@@ -32,14 +32,19 @@ from mind_app.presentation.tool_views import (
 from mind_app.tui.adapters.content import TuiContentSink
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.presentation import TuiPresentationSink
+from mind_app.tui.core.assistant import TuiAssistantStream
 from mind_app.tui.core.document import (
     TuiBlockKind,
     TuiDocument,
 )
 from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.render import display_line_count
+from mind_app.tui.core.render import (
+    display_line_count,
+    fragment_continuation_widths,
+)
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.screen import _erase_terminal_scrollback
+from mind_app.tui.core.styles import ASSISTANT_PREFIX_CLASS
 
 
 def _block(text: str) -> FragmentBlock:
@@ -678,6 +683,52 @@ async def test_wide_character_stream_reflows_without_losing_content() -> None:
     )
 
 
+def test_stream_reveal_keeps_combined_text_units_intact() -> None:
+    stream = TuiAssistantStream()
+    stream.append("A\u0301👩\u200d💻🇨🇳x")
+
+    stream.reveal(1)
+    assert stream.visible_text == "A\u0301"
+
+    stream.reveal(1)
+    assert stream.visible_text == "A\u0301👩\u200d💻"
+
+    stream.reveal(1)
+    assert stream.visible_text == "A\u0301👩\u200d💻🇨🇳"
+
+
+def test_assistant_wrap_prefix_is_included_in_display_rows() -> None:
+    fragments = [(ASSISTANT_PREFIX_CLASS, f"• {'x' * 17}")]
+    text = "".join(value for _style, value in fragments)
+    continuation_widths = fragment_continuation_widths(
+        fragments,
+        prefix_style=ASSISTANT_PREFIX_CLASS,
+        prefix_width=2,
+    )
+
+    assert display_line_count(text, width=10) == 2
+    assert display_line_count(
+        text,
+        width=10,
+        continuation_widths=continuation_widths,
+    ) == 3
+
+
+def test_transcript_height_uses_assistant_wrap_prefix() -> None:
+    runtime = TuiRuntime()
+    runtime.set_active_renderable(
+        FragmentBlock(((ASSISTANT_PREFIX_CLASS, f"• {'x' * 37}"),)),
+        kind="assistant",
+    )
+
+    with patch.object(
+        runtime.screen.application.output,
+        "get_size",
+        return_value=Size(rows=24, columns=20),
+    ):
+        assert runtime.screen._transcript_dimension().preferred == 3
+
+
 @pytest.mark.anyio
 async def test_text_done_boundary_adds_one_assistant_continuation_line() -> None:
     runtime = TuiRuntime()
@@ -741,6 +792,7 @@ async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
         await output.append_assistant_delta(" third")
 
         assert output.assistant.text == "first second third"
+        assert output.assistant.visible_text != output.assistant.text
         assert render.call_count == 1
 
         await output.settle_stream()
@@ -749,6 +801,29 @@ async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
         assert render.call_count == 2
 
     assert _document_text(runtime.document) == "• first second third"
+
+
+@pytest.mark.anyio
+async def test_animated_stream_drains_backlog_without_more_deltas() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+    source = "中文" * 50
+
+    await output.append_assistant_delta(source)
+
+    assert output.assistant.text == source
+    assert 0 < output.assistant.pending_width <= 16
+
+    for _ in range(50):
+        if output.assistant.pending_length == 0:
+            break
+        await asyncio.sleep(0.01)
+
+    assert output.assistant.visible_text == source
+    assert output._stream_render_handle is None
+
+    await output.settle_stream()
+    assert _document_text(runtime.document) == f"• {source}"
 
 
 def test_stream_render_budget_adapts_to_size_and_render_cost() -> None:
@@ -775,11 +850,14 @@ def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:
         "get_size",
         return_value=Size(rows=24, columns=40),
     ):
-        output.assistant.text = "short"
+        output.assistant.append("short")
+        output.assistant.reveal_all()
         output._render_active(cursor=True)
         assert _document_text(runtime.document).endswith("█")
 
-        output.assistant.text = "x" * 38
+        output.assistant.clear()
+        output.assistant.append("x" * 38)
+        output.assistant.reveal_all()
         output._render_active(cursor=True)
         active_text = _document_text(runtime.document)
         active_rows = display_line_count(active_text, width=40)
