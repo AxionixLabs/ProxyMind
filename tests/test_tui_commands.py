@@ -69,9 +69,26 @@ def test_helix_prefix_keeps_command_order() -> None:
     ]
 
 
-def test_complete_command_does_not_leave_a_noop_completion() -> None:
+def test_complete_command_remains_available_to_the_menu() -> None:
     assert [item.display_text for item in _completions("/mc")] == ["/mcp"]
     assert _completions("/mcp") == []
+    assert [
+        item.display_text for item in _slash_completions("/mcp")
+    ] == ["/mcp"]
+
+
+def test_command_matching_is_case_insensitive_and_prioritizes_exact_alias() -> None:
+    assert [
+        item.display_text for item in _slash_completions("/FAST")
+    ] == ["/fast"]
+    assert [
+        item.display_text for item in _slash_completions("/q")
+    ] == ["/q", "/quit"]
+
+
+def test_command_matching_distinguishes_empty_and_argument_states() -> None:
+    assert _slash_completions("/aaa") == ()
+    assert _slash_completions("/model ") is None
 
 
 @pytest.mark.parametrize(
@@ -247,3 +264,9 @@ def _completions(text: str):
         Document(text=text, cursor_position=len(text)),
         CompleteEvent(completion_requested=True),
     ))
+
+
+def _slash_completions(text: str):
+    return SlashCommandCompleter().slash_completions(
+        Document(text=text, cursor_position=len(text))
+    )

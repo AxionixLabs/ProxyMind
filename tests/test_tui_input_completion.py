@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from mind_core.skills import SkillSpec
 from mind_app.tui.core.runtime import TuiRuntime
 
 
@@ -47,6 +49,17 @@ async def wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     raise AssertionError(f"input text did not become {text!r}")
 
 
+async def wait_for_submission(runtime: TuiRuntime):
+    """等待输入处理结果进入提交队列。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+    while loop.time() < deadline:
+        if not runtime.submissions.message_queue.empty():
+            return runtime.submissions.message_queue.get_nowait()
+        await asyncio.sleep(0.001)
+    raise AssertionError("submission did not become ready")
+
+
 def rendered_input_line(runtime: TuiRuntime) -> str:
     """返回最近一次渲染中的首行输入文本。"""
     screen = runtime.screen.application.renderer.last_rendered_screen
@@ -69,6 +82,18 @@ def rendered_window_line(runtime: TuiRuntime, window) -> str:
         row[column].char
         for column in range(position.xpos + position.width)
     ).rstrip()
+
+
+def skill_spec(name: str) -> SkillSpec:
+    """创建输入补全测试使用的 skill 描述。"""
+    entry = Path(f"{name}/SKILL.md")
+    return SkillSpec(
+        name=name,
+        description=f"Use {name}",
+        source="test",
+        root=entry.parent,
+        entry=entry,
+    )
 
 
 def test_command_completion_discards_text_after_cursor() -> None:
@@ -102,8 +127,13 @@ def test_completion_surface_has_no_async_footer_gap() -> None:
 
     buffer.document = Document("/mcp", cursor_position=4)
 
-    assert not runtime.screen._completion_visible()
-    assert runtime.screen._footer_visible()
+    assert runtime.screen._completion_visible()
+    assert runtime.screen._completion_height() == 1
+    assert not runtime.screen._footer_visible()
+    assert "".join(
+        text
+        for _style, text in runtime.screen._completion_fallback_fragments()
+    ).startswith("/mcp")
 
 
 @pytest.mark.anyio
@@ -135,7 +165,7 @@ async def test_slash_completion_has_no_inline_ghost_text() -> None:
                 assert buffer.text == "/"
                 assert buffer.suggestion is None
                 assert buffer.complete_state is not None
-                assert buffer.complete_state.complete_index is None
+                assert buffer.complete_state.complete_index == 0
                 assert rendered_input_line(runtime) == "› /"
             finally:
                 await runtime.close()
@@ -204,6 +234,221 @@ async def test_slash_completion_aligns_with_input_command() -> None:
             assert menu_position.ypos == bottom_position.ypos + 1
         finally:
             await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_slash_prefix_selects_first_match_without_rewriting_input() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/f")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.text == "/f"
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.complete_index == 0
+            assert buffer.complete_state.current_completion.display_text == "/fast"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_tab_completes_selected_slash_command_without_submitting() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/f")
+            await wait_for_completion(runtime)
+            pipe_input.send_text("\t")
+            await wait_for_input_text(runtime, "/fast")
+
+            assert runtime.submissions.message_queue.empty()
+            assert runtime.screen._completion_fallback_visible()
+            assert "".join(
+                text
+                for _style, text in runtime.screen._completion_fallback_fragments()
+            ).startswith("/fast")
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_enter_executes_the_default_root_command() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/\r")
+            submission = await wait_for_submission(runtime)
+
+            assert submission.value == "/chat"
+            assert runtime.screen.input.buffer.text == ""
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_enter_opens_parameter_input_for_complete_command() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/model\r")
+            await wait_for_input_text(runtime, "/model ")
+
+            assert runtime.submissions.message_queue.empty()
+            assert not runtime.screen._completion_visible()
+            assert runtime.screen.input.buffer.suggestion is not None
+            assert runtime.screen.input.buffer.suggestion.text == "<model-id>"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_unknown_slash_command_renders_non_selectable_empty_state() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/aaa")
+            await wait_for_input_text(runtime, "/aaa")
+            runtime.screen.application.invalidate()
+            await asyncio.sleep(0)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is None
+            assert runtime.screen._completion_fallback_visible()
+            assert runtime.screen._completion_fallback_fragments() == [
+                ("class:completion-menu.empty", "no matches"),
+            ]
+            assert rendered_window_line(
+                runtime,
+                runtime.screen.completion_fallback_window,
+            ).lstrip() == "no matches"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_prefix_selects_first_match_without_rewriting_input() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("alpha"), skill_spec("beta")))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.text == "$"
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.complete_index == 0
+            assert buffer.complete_state.current_completion.text == "$alpha "
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_complete_skill_remains_selected_until_it_is_accepted() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("alpha"),))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$alpha")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.text == "$alpha"
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.current_completion.text == "$alpha "
+
+            pipe_input.send_text("\t")
+            await wait_for_input_text(runtime, "$alpha ")
+
+            assert buffer.complete_state is None
+            assert runtime.submissions.message_queue.empty()
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_unknown_skill_renders_non_selectable_empty_state() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("alpha"),))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$zzz")
+            await wait_for_input_text(runtime, "$zzz")
+            runtime.screen.application.invalidate()
+            await asyncio.sleep(0)
+
+            assert runtime.screen.input.buffer.complete_state is None
+            assert runtime.screen._completion_fallback_fragments() == [
+                ("class:completion-menu.empty", "no matches"),
+            ]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_backspace_preserves_selected_skill_without_async_restart() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("alphabet"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$alph")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            runtime.input_model._select_completion(buffer, 1)
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.current_completion.text == "$alphabet "
+
+            with patch.object(
+                buffer,
+                "start_completion",
+                wraps=buffer.start_completion,
+            ) as start_completion:
+                pipe_input.send_text("\x7f\x7f")
+                await wait_for_input_text(runtime, "$al")
+
+            start_completion.assert_not_called()
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.current_completion.text == "$alphabet "
+        finally:
+            await runtime.close()
+
+
+def test_dismissed_slash_menu_reopens_after_editing() -> None:
+    runtime = TuiRuntime()
+    buffer = runtime.screen.input.buffer
+    buffer.document = Document("/aaa", cursor_position=4)
+
+    runtime.input_model.dismiss_completion_menu(buffer)
+    assert not runtime.screen._completion_visible()
+
+    buffer.document = Document("/aaax", cursor_position=5)
+    buffer.document = Document("/aaa", cursor_position=4)
+
+    assert runtime.screen._completion_fallback_visible()
 
 
 @pytest.mark.anyio

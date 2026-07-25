@@ -39,6 +39,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "completion-menu.completion.current": "bg:default bold #F4F8FB",
     "completion-menu.meta.completion": "bg:default #707A84",
     "completion-menu.meta.completion.current": "bg:default #8FC7EA",
+    "completion-menu.empty": "bg:default #59616A",
     "queue.label": "bg:default #8A929C bold",
     "queue.marker": "bg:default #7B838E",
     "queue.text": "bg:default #DDE7EF dim",
@@ -76,24 +77,29 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 
 
 def _surface_style(
-    capabilities: TerminalCapabilities,
+    capabilities: TerminalCapabilities
 ) -> BaseStyle:
     """根据终端主题创建输入区和审批卡表面样式。"""
     if not capabilities.dynamic_surfaces:
         return Style.from_dict({})
 
     terminal_background = capabilities.theme.background
+
     light = _is_light_color(terminal_background)
+
     surface_background = (
         _blend_color((0, 0, 0), terminal_background, 0.04)
         if light
         else _blend_color((255, 255, 255), terminal_background, 0.12)
     )
+
     background = f"bg:{_hex_color(surface_background)}"
+
     styles = {
-        "input-surface": background,
-        "approval-card": background,
+        "input-surface" : background,
+        "approval-card" : background,
     }
+
     if light:
         styles.update({
             "prompt": "#20262C",
@@ -101,6 +107,7 @@ def _surface_style(
             "prompt.command.slash": "#70408F",
             "placeholder": "#68737D",
             "auto-suggestion": "#737F89",
+            "completion-menu.empty": "#68737D",
             "approval-question": "bold #005F87",
             "approval-context": "#53606C",
             "approval-meta": "#687480",
@@ -123,7 +130,7 @@ def _surface_style(
 def _blend_color(
     foreground: RgbColor,
     background: RgbColor,
-    ratio: float,
+    ratio: float
 ) -> RgbColor:
     """按给定比例把前景 RGB 混入背景 RGB。"""
     weight = max(0.0, min(1.0, ratio))
@@ -139,6 +146,7 @@ def _blend_color(
 def _is_light_color(color: RgbColor) -> bool:
     """根据相对亮度判断 RGB 是否属于亮色主题。"""
     linear = []
+
     for component in color:
         value = component / 255
         linear.append(
@@ -146,7 +154,9 @@ def _is_light_color(color: RgbColor) -> bool:
             if value <= 0.04045
             else ((value + 0.055) / 1.055) ** 2.4
         )
+
     luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
     return luminance > 0.5
 
 
@@ -182,7 +192,7 @@ def build_tui_application_style(
     approval_style: BaseStyle,
     menu_style: BaseStyle,
     *,
-    capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
+    capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> BaseStyle:
     """组合 TUI 输入、审批、菜单和主画布样式。"""
     return merge_styles([
@@ -194,19 +204,21 @@ def build_tui_application_style(
     ])
 
 
-def exit_summary_fragments() -> tuple[tuple[str, str], ...]:
-    """生成 TUI 释放终端后的静态退出摘要。"""
+def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:
+    """生成 TUI 释放终端后的会话恢复提示。"""
+    command = f"{const.APP_NAME} resume {session_id}"
+
     return (
         ("dim fg:#7F8C9A", "■ "),
-        ("fg:#DDE7EF", const.APP_DESC),
-        ("dim fg:#7F8C9A", " · session ended"),
+        ("fg:#DDE7EF", "To continue this session, run "),
+        ("fg:#4DE3FF", command),
     )
 
 
 def styled_block_fragments(
     block: StyledBlock,
     *,
-    fallback_style: TextStyle | None = None,
+    fallback_style: TextStyle | None = None
 ) -> tuple[tuple[str, str], ...]:
     """把中立展示块转换为 prompt_toolkit 文本片段。"""
     spans = block.spans

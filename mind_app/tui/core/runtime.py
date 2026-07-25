@@ -220,11 +220,11 @@ class TuiRuntime(object):
         """绑定或清除待发送附件状态判断。"""
         self.submissions.bind_pending_attachment_check(check)
 
-    def print_exit_summary(self) -> None:
-        """在 TUI 释放终端后打印静态退出摘要。"""
+    def print_exit_summary(self, session_id: str) -> None:
+        """在 TUI 释放终端后打印会话恢复提示。"""
         if self.active:
             raise RuntimeError("TUI exit summary requires a closed Application")
-        self.screen.print_exit_summary()
+        self.screen.print_exit_summary(session_id)
 
     def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
         """注册主应用首帧完成后的同步回调。"""
@@ -568,7 +568,7 @@ class TuiRuntime(object):
             await asyncio.gather(*background_tasks, return_exceptions=True)
 
         await self.viewport.close()
-        await self._exit_application(erase=False)
+        await self._exit_application(erase=True)
 
     async def read_message(self, context: PromptContext) -> str:
         """更新输入上下文并按提交顺序读取下一条消息。"""

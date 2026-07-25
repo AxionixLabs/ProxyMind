@@ -9,8 +9,8 @@ from prompt_toolkit.completion import (
     Completion
 )
 from .skills import (
-    is_skill_token,
-    skill_completions
+    skill_completions,
+    skill_query_token
 )
 
 StreamCommandPolicy = typing.Literal[
@@ -312,19 +312,54 @@ class SlashCommandCompleter(Completer):
 
     def matching_completions(self, document) -> tuple[Completion, ...]:
         """返回当前文档可以实际改写输入内容的补全项。"""
+        completions = self.menu_completions(document)
+        if completions is None:
+            return ()
+        if len(completions) > 1:
+            return completions
+
+        return tuple(
+            completion
+            for completion in completions
+            if completion_changes_input(document, completion)
+        )
+
+    def menu_completions(
+        self,
+        document,
+    ) -> tuple[Completion, ...] | None:
+        """返回当前命令或 skill 查询的全部菜单项。"""
+        completions = self.skill_completions(document)
+        if completions is not None:
+            return completions
+        return self.slash_completions(document)
+
+    def skill_completions(
+        self,
+        document,
+    ) -> tuple[Completion, ...] | None:
+        """返回 skill 查询阶段的全部匹配项。"""
+        text = document.text_before_cursor
+        if skill_query_token(text) is None:
+            return None
+        return tuple(skill_completions(text, self._skills()))
+
+    def slash_completions(
+        self,
+        document,
+    ) -> tuple[Completion, ...] | None:
+        """返回命令名输入阶段的全部斜杠命令匹配项。"""
         text     = document.text_before_cursor
         stripped = text.lstrip()
-        skills   = self._skills()
-
-        if is_skill_token(text, skills):
-            return tuple(skill_completions(text, skills))
 
         if not stripped.startswith("/"):
-            return ()
+            return None
+        if "\n" in stripped:
+            return None
 
         token = stripped.splitlines()[-1]
         if " " in token:
-            return ()
+            return None
 
         if token == "/":
             candidates = [
@@ -332,15 +367,23 @@ class SlashCommandCompleter(Completer):
             ]
             visible_limit = len(self.TOP_LEVEL)
         else:
+            folded = token.casefold()
+
             candidates = [
                 item for item in self.COMMANDS
-                if item["display"].startswith(token)
-                or item["text"].startswith(token)
-                or str(item.get("match") or "").startswith(token)
+                if item["display"].casefold().startswith(folded)
+                or item["text"].casefold().startswith(folded)
+                or str(item.get("match") or "").casefold().startswith(folded)
             ]
+
+            candidates.sort(
+                key=lambda item: 0
+                if item["display"].casefold() == folded
+                else 1
+            )
             visible_limit = 7
 
-        completions = tuple(
+        return tuple(
             Completion(
                 item["text"],
                 start_position=-len(token),
@@ -350,14 +393,8 @@ class SlashCommandCompleter(Completer):
             for item in candidates[:visible_limit]
         )
 
-        return tuple(
-            completion
-            for completion in completions
-            if _completion_changes_input(document, completion)
-        )
 
-
-def _completion_changes_input(document, completion: Completion) -> bool:
+def completion_changes_input(document, completion: Completion) -> bool:
     """判断补全项是否会改写光标前的匹配文本。"""
     before = document.text_before_cursor
     start  = len(before) + completion.start_position

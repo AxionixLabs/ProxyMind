@@ -8,6 +8,7 @@ from prompt_toolkit.auto_suggest import (
     Suggestion
 )
 from prompt_toolkit.application.current import get_app
+from prompt_toolkit.buffer import CompletionState
 from prompt_toolkit.completion import (
     CompleteEvent,
     Completion
@@ -24,6 +25,7 @@ from prompt_toolkit.styles import Style
 from mind_core.skills import SkillSpec
 from ..prompting.commands import (
     SlashCommandCompleter,
+    completion_changes_input,
     parameterized_command_texts
 )
 from ..prompting.ghost import (
@@ -158,6 +160,8 @@ class TuiInputModel(object):
         self._history_draft: Document | None   = None
         self._history_draft_shell_mode: bool   = False
 
+        self._dismissed_completion_query: tuple[str, int] | None = None
+
         self.key_bindings = self._build_key_bindings()
 
         self.style = Style.from_dict({
@@ -181,6 +185,7 @@ class TuiInputModel(object):
             "completion-menu.completion.current": "bg:default bold #F4F8FB",
             "completion-menu.meta.completion": "#707A84",
             "completion-menu.meta.completion.current": "#8FC7EA",
+            "completion-menu.empty": "#59616A",
         })
 
     @staticmethod
@@ -239,6 +244,36 @@ class TuiInputModel(object):
             buffer.on_suggestion_set.fire()
         return True
 
+    def _selected_menu_completion(self, buffer) -> Completion | None:
+        """返回当前补全菜单中准备确认的候选项。"""
+        completions = self.completion_menu_completions(buffer.document)
+        if not completions:
+            return None
+
+        state = buffer.complete_state
+        if state is not None and state.current_completion is not None:
+            return state.current_completion
+        return completions[0]
+
+    def _apply_menu_completion(self, buffer, completion: Completion) -> None:
+        """应用菜单候选并处理后续补全状态。"""
+        original = buffer.document
+        self.apply_completion(buffer, completion)
+
+        if buffer.document == original:
+            self.dismiss_completion_menu(buffer)
+        elif completion.text == "$":
+            buffer.start_completion(
+                select_first=False,
+                complete_event=CompleteEvent(text_inserted=True),
+            )
+        elif completion.text in self.PARAMETERIZED_COMMANDS:
+            buffer.suggestion = self.auto_suggest.get_suggestion(
+                buffer,
+                buffer.document,
+            )
+            buffer.on_suggestion_set.fire()
+
     def new_placeholder(self, mode: str) -> str:
         """为新的输入轮次生成一次占位文案。"""
         theme   = self.theme(mode)
@@ -266,10 +301,90 @@ class TuiInputModel(object):
 
     def handle_interrupt(self, buffer) -> None:
         """优先关闭补全，再把取消操作交给主运行时。"""
-        if buffer.complete_state is not None:
-            buffer.cancel_completion()
+        if (
+            buffer.complete_state is not None
+            or self.completion_menu_completions(buffer.document) is not None
+        ):
+            self.dismiss_completion_menu(buffer)
             return None
+
         self.interrupt_handler()
+
+    def completion_menu_completions(
+        self,
+        document: Document
+    ) -> tuple[Completion, ...] | None:
+        """返回当前未被关闭的命令或 skill 菜单项。"""
+        query = (document.text, document.cursor_position)
+        if query == self._dismissed_completion_query:
+            return None
+        return self.completer.menu_completions(document)
+
+    def reopen_completion_menu(self, buffer) -> None:
+        """在输入内容变化后允许补全菜单重新显示。"""
+        _ = buffer
+        self._dismissed_completion_query = None
+
+    def dismiss_completion_menu(self, buffer) -> None:
+        """关闭当前补全菜单并保留输入内容。"""
+        document = getattr(buffer, "document", None)
+        if document is not None:
+            self._dismissed_completion_query = (
+                document.text,
+                document.cursor_position,
+            )
+        buffer.cancel_completion()
+
+    def select_default_completion(self, buffer) -> None:
+        """让命令或 skill 菜单默认高亮第一个有效候选项。"""
+        state = buffer.complete_state
+        if (
+            state is None
+            or state.complete_index is not None
+            or not state.completions
+            or self.completion_menu_completions(state.original_document) is None
+        ):
+            return None
+
+        if (
+            len(state.completions) == 1
+            and not completion_changes_input(
+                state.original_document,
+                state.completions[0],
+            )
+        ):
+            return None
+
+        state.go_to_index(0)
+
+    def refresh_completion_menu(
+        self,
+        buffer,
+        selected_text: str | None = None
+    ) -> None:
+        """同步刷新补全菜单并尽量保留当前候选项。"""
+        if self.completion_menu_completions(buffer.document) is None:
+            return None
+
+        completions = self.completer.matching_completions(buffer.document)
+        if not completions:
+            return None
+
+        index = next(
+            (
+                item_index
+                for item_index, completion in enumerate(completions)
+                if completion.text == selected_text
+            ),
+            0,
+        )
+
+        buffer.complete_state = CompletionState(
+            original_document=buffer.document,
+            completions=list(completions),
+            complete_index=index,
+        )
+        buffer.on_completions_changed.fire()
 
     def bind_exit(
         self,
@@ -489,11 +604,33 @@ class TuiInputModel(object):
             self.set_shell_mode(False)
             event.app.invalidate()
 
+        completion_menu_open = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(
+                not self.can_rollback_queue()
+                and self.completion_menu_completions(
+                    get_app().current_buffer.document
+                ) is not None
+            )
+        )
+
+        @bindings.add("escape", eager=True, filter=completion_menu_open)
+        def _(event) -> None:
+            self.dismiss_completion_menu(event.app.current_buffer)
+            event.app.invalidate()
+
         edit_backspace = has_focus(INPUT_BUFFER_NAME) & ~shell_mode_empty
 
         @bindings.add("backspace", eager=True, filter=edit_backspace)
         def _(event) -> None:
             buffer = event.app.current_buffer
+            state  = buffer.complete_state
+
+            selected_text = (
+                state.current_completion.text
+                if state is not None and state.current_completion is not None
+                else None
+            )
+
             if event.arg < 0:
                 deleted = buffer.delete(count=-event.arg)
             else:
@@ -507,11 +644,11 @@ class TuiInputModel(object):
                 buffer,
                 buffer.document,
             )
+
             buffer.on_suggestion_set.fire()
+
             if buffer.completer and buffer.complete_while_typing():
-                buffer.start_completion(
-                    complete_event=CompleteEvent(text_inserted=True),
-                )
+                self.refresh_completion_menu(buffer, selected_text)
 
         @bindings.add("c-z", eager=True, save_before=lambda event: False)
         def _(event) -> None:
@@ -545,7 +682,18 @@ class TuiInputModel(object):
         @bindings.add("tab")
         def _(event) -> None:
             buffer = event.app.current_buffer
-            if (
+
+            menu_completion = self._selected_menu_completion(buffer)
+
+            completion_menu_opened = (
+                self.completion_menu_completions(buffer.document) is not None
+            )
+
+            if menu_completion is not None:
+                self._apply_menu_completion(buffer, menu_completion)
+            elif completion_menu_opened:
+                return None
+            elif (
                 self.can_submit_queue()
                 and (buffer.text.strip() or self.shell_mode)
             ):
@@ -565,7 +713,10 @@ class TuiInputModel(object):
 
         @bindings.add("s-tab")
         def _(event) -> None:
-            self._select_completion(event.app.current_buffer, -max(1, event.arg))
+            self._select_completion(
+                event.app.current_buffer,
+                -max(1, event.arg),
+            )
 
         @bindings.add(Keys.BracketedPaste, eager=True)
         def _(event) -> None:
@@ -580,27 +731,33 @@ class TuiInputModel(object):
         @bindings.add("enter")
         def _(event) -> None:
             buffer = event.app.current_buffer
-            state = buffer.complete_state
-            if state is not None and state.current_completion is not None:
-                completion = state.current_completion
-                self.apply_completion(buffer, completion)
+            completion = self._selected_menu_completion(buffer)
+            if completion is not None:
+                self._apply_menu_completion(buffer, completion)
                 if (
                     completion.text == "$"
                     or completion.text.startswith("$")
                     or completion.text in self.PARAMETERIZED_COMMANDS
                 ):
-                    if completion.text == "$":
-                        buffer.start_completion(
-                            select_first=False,
-                            complete_event=CompleteEvent(text_inserted=True),
-                        )
                     return
+
+            else:
+                state = buffer.complete_state
+                if state is not None and state.current_completion is not None:
+                    completion = state.current_completion
+                    self.apply_completion(buffer, completion)
+                    if completion.text.startswith("$"):
+                        return
+
             buffer.validate_and_handle()
 
         @bindings.add("up")
         def _(event) -> None:
             buffer = event.app.current_buffer
-            if buffer.complete_state:
+
+            if self.completion_menu_completions(buffer.document) is not None:
+                self._select_completion(buffer, -max(1, event.arg))
+            elif buffer.complete_state:
                 self._select_completion(buffer, -max(1, event.arg))
             elif buffer.document.cursor_position_row > 0:
                 buffer.cursor_up(count=max(1, event.arg))
@@ -614,7 +771,9 @@ class TuiInputModel(object):
         @bindings.add("down")
         def _(event) -> None:
             buffer = event.app.current_buffer
-            if buffer.complete_state:
+            if self.completion_menu_completions(buffer.document) is not None:
+                self._select_completion(buffer, max(1, event.arg))
+            elif buffer.complete_state:
                 self._select_completion(buffer, max(1, event.arg))
             elif buffer.document.cursor_position_row < buffer.document.line_count - 1:
                 buffer.cursor_down(count=max(1, event.arg))

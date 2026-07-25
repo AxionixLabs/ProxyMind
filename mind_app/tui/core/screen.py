@@ -52,6 +52,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalCapabilities
 )
 from mind_nova import const
+from ..prompting.commands import completion_changes_input
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .bottom_pane import (
@@ -178,7 +179,14 @@ class TuiScreen(object):
         )
 
         self.input.buffer.enable_history_search = to_filter(True)
+
         self.input.buffer.on_text_changed += on_input_text_changed
+        self.input.buffer.on_text_changed += (
+            self.input_model.reopen_completion_menu
+        )
+        self.input.buffer.on_completions_changed += (
+            self.input_model.select_default_completion
+        )
 
         self.transcript_control = FormattedTextControl(
             self._transcript_fragments,
@@ -335,7 +343,7 @@ class TuiScreen(object):
         self.completion_menu = CompletionsMenu(
             max_height=self.COMPLETION_MAX_HEIGHT,
             scroll_offset=1,
-            extra_filter=Condition(self._completion_visible),
+            extra_filter=Condition(self._native_completion_visible),
         )
 
         typing.cast(Window, self.completion_menu.content).right_margins.clear()
@@ -349,7 +357,30 @@ class TuiScreen(object):
                 ),
                 self.completion_menu,
             ]),
-            filter=Condition(self._completion_visible),
+            filter=Condition(self._native_completion_visible),
+        )
+
+        self.completion_fallback_control = FormattedTextControl(
+            self._completion_fallback_fragments,
+        )
+
+        self.completion_fallback_window = Window(
+            content=self.completion_fallback_control,
+            height=Dimension.exact(1),
+            dont_extend_width=True,
+            style="class:completion-menu",
+        )
+
+        self.completion_fallback_row = ConditionalContainer(
+            VSplit([
+                Window(
+                    width=Dimension.exact(1),
+                    char=" ",
+                    dont_extend_width=True,
+                ),
+                self.completion_fallback_window,
+            ]),
+            filter=Condition(self._completion_fallback_visible),
         )
 
         self.input_surface = HSplit(
@@ -371,6 +402,7 @@ class TuiScreen(object):
             [
                 self.input_surface,
                 self.completion_menu_row,
+                self.completion_fallback_row,
                 self.input_footer,
             ],
             align=VerticalAlign.TOP,
@@ -478,14 +510,14 @@ class TuiScreen(object):
         _erase_terminal_scrollback(self.application.output)
         self.invalidate()
 
-    def print_exit_summary(self) -> None:
-        """在 Application 停止后向终端打印静态退出摘要。"""
+    def print_exit_summary(self, session_id: str) -> None:
+        """在 Application 停止后向终端打印会话恢复提示。"""
         with contextlib.suppress(EOFError, OSError, ValueError):
             print_formatted_text(
                 PromptFormattedText(
                     (
                         ("", "\n"),
-                        *exit_summary_fragments(),
+                        *exit_summary_fragments(session_id),
                     ),
                 ),
                 output=self.application.output,
@@ -779,17 +811,89 @@ class TuiScreen(object):
         return bool(
             self.bottom_pane.input_visible
             and (
-                (state is not None and state.completions)
+                self._completion_fallback_visible()
+                or (state is not None and state.completions)
                 or self._expected_completion_count()
             )
         )
+
+    def _native_completion_visible(self) -> bool:
+        """判断原生补全候选列表是否应当显示。"""
+        state = self.input.buffer.complete_state
+        return bool(
+            self.bottom_pane.input_visible
+            and not self._completion_fallback_visible()
+            and state is not None
+            and state.completions
+        )
+
+    def _completion_fallback_visible(self) -> bool:
+        """判断精确命令或空结果状态是否应当显示。"""
+        return bool(
+            self.bottom_pane.input_visible
+            and self._completion_fallback_fragments()
+        )
+
+    def _completion_fallback_fragments(self) -> PromptFormattedText:
+        """返回精确命令或空结果状态使用的展示片段。"""
+        completions = self.input_model.completion_menu_completions(
+            self.input.buffer.document
+        )
+
+        if completions is None:
+            return PromptFormattedText()
+
+        if not completions:
+            return PromptFormattedText([
+                ("class:completion-menu.empty", "no matches"),
+            ])
+
+        if (
+            len(completions) != 1
+            or completion_changes_input(
+                self.input.buffer.document,
+                completions[0],
+            )
+        ):
+            return PromptFormattedText()
+
+        completion = completions[0]
+
+        fragments: StyleAndTextTuples = [
+            (
+                "class:completion-menu.completion.current",
+                f"{completion.display_text}  ",
+            ),
+        ]
+
+        if completion.display_meta_text:
+            fragments.append((
+                "class:completion-menu.meta.completion.current",
+                f"{completion.display_meta_text} ",
+            ))
+
+        return PromptFormattedText(fragments)
 
     def _expected_completion_count(self) -> int:
         """同步计算当前输入应展示的补全项数量。"""
         if not self.bottom_pane.input_visible:
             return 0
+
+        document = self.input.buffer.document
+
+        raw_completions = self.input_model.completer.menu_completions(
+            document
+        )
+
+        completions = self.input_model.completion_menu_completions(document)
+
+        if raw_completions is not None:
+            if completions is None:
+                return 0
+            return max(1, len(completions))
+
         return len(self.input_model.completer.matching_completions(
-            self.input.buffer.document
+            document
         ))
 
     def _completion_height(self) -> int:

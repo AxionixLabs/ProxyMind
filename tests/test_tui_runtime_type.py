@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from io import StringIO
+from unittest.mock import AsyncMock
 
 import pytest
 from prompt_toolkit.output.plain_text import PlainTextOutput
@@ -10,6 +11,7 @@ from mind_app.tui.core.runtime import (
     TuiRuntime,
     require_tui_runtime
 )
+from mind_app.tui.core.styles import exit_summary_fragments
 
 
 def test_require_tui_runtime_returns_concrete_runtime() -> None:
@@ -27,6 +29,28 @@ def test_exit_summary_renders_as_plain_terminal_text() -> None:
     stdout = StringIO()
     runtime = TuiRuntime(output_obj=PlainTextOutput(stdout))
 
-    runtime.print_exit_summary()
+    runtime.print_exit_summary("sid_test_1_abcdef")
 
-    assert stdout.getvalue() == "\r\n■ Mind · session ended\r\n"
+    assert stdout.getvalue() == (
+        "\r\n■ To continue this session, run "
+        "mind resume sid_test_1_abcdef\r\n"
+    )
+
+
+def test_exit_summary_command_is_bright_cyan_without_bold() -> None:
+    fragments = exit_summary_fragments("sid_test_1_abcdef")
+    command_style, command = fragments[-1]
+
+    assert command == "mind resume sid_test_1_abcdef"
+    assert command_style == "fg:#4DE3FF"
+    assert "bold" not in command_style
+
+
+@pytest.mark.anyio
+async def test_runtime_close_erases_the_input_surface() -> None:
+    runtime = TuiRuntime()
+    runtime._exit_application = AsyncMock()
+
+    await runtime.close()
+
+    runtime._exit_application.assert_awaited_once_with(erase=True)

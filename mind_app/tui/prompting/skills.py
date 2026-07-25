@@ -192,30 +192,18 @@ def iter_prompt_tokens(
         cursor = end
 
 
-def is_skill_token(
-    text: str,
-    skills: typing.Iterable[SkillSpec] = ()
-) -> bool:
-    """判断当前光标是否位于 skill token。"""
+def skill_query_token(text: str) -> str | None:
+    """返回当前光标所在的 skill 查询 token。"""
     current_line = text.splitlines()[-1] if text.splitlines() else text
     if not current_line or current_line[-1].isspace():
-        return False
+        return None
 
     token = current_line.split()[-1] if current_line.split() else current_line
     if not token.startswith("$"):
-        return False
+        return None
     if not SKILL_PREFIX_RE.fullmatch(token):
-        return False
-
-    query = token[1:].strip().lower()
-    if not query:
-        return True
-
-    names = known_skill_names(skills)
-    if query in names:
-        return False
-
-    return any(name.startswith(query) for name in names)
+        return None
+    return token
 
 
 def skill_completions(
@@ -223,9 +211,9 @@ def skill_completions(
     skills: typing.Iterable[SkillSpec] = ()
 ) -> typing.Iterator[Completion]:
     """生成 skill 补全项。"""
-    current_line = text.splitlines()[-1] if text.splitlines() else text
-
-    token = current_line.split()[-1] if current_line.split() else current_line
+    token = skill_query_token(text)
+    if token is None:
+        return
     query = token[1:].strip().lower()
 
     matches = [

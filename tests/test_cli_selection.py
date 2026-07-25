@@ -651,12 +651,16 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     runtime = TuiRuntime()
     runtime.close = AsyncMock(side_effect=lambda: events.append("runtime"))
     runtime.print_exit_summary = Mock(
-        side_effect=lambda **_kwargs: events.append("summary"),
+        side_effect=lambda *_args, **_kwargs: events.append("summary"),
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
+        ),
+        conversation=SimpleNamespace(
+            turn_count=1,
+            sid="sid_test_1_abcdef",
         ),
         exit_code=exit_code,
     )
@@ -668,7 +672,32 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     )
 
     assert events == ["runtime", "resources", "summary"]
-    runtime.print_exit_summary.assert_called_once_with()
+    runtime.print_exit_summary.assert_called_once_with("sid_test_1_abcdef")
+
+
+@pytest.mark.anyio
+async def test_tui_finalization_closes_silently_without_a_conversation() -> None:
+    events = []
+    runtime = TuiRuntime()
+    runtime.close = AsyncMock(side_effect=lambda: events.append("runtime"))
+    runtime.print_exit_summary = Mock()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        close_runtime_resources=AsyncMock(
+            side_effect=lambda: events.append("resources"),
+        ),
+        conversation=SimpleNamespace(turn_count=0, sid=None),
+        exit_code=0,
+    )
+
+    await bootstrap.finalize_application(
+        mind,
+        output_mode="tui",
+        completed=True,
+    )
+
+    assert events == ["runtime", "resources"]
+    runtime.print_exit_summary.assert_not_called()
 
 
 @pytest.mark.anyio

@@ -66,16 +66,6 @@ from .selection import (
 )
 
 
-async def _await_cleanup(awaitable: typing.Awaitable[None]) -> None:
-    """在取消态下等待清理任务执行完成。"""
-    task = asyncio.ensure_future(awaitable)
-    try:
-        await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
-
-
 def _emit_helix_skipped(controller: Mind) -> None:
     """输出 Helix 启动被跳过的状态。"""
     controller.frontend.application.emit(ApplicationView(
@@ -97,97 +87,14 @@ def _emit_helix_skipped(controller: Mind) -> None:
     controller.frontend.application.emit(ApplicationView(type="spacer"))
 
 
-async def start_tui_external_mcp(controller: Mind) -> None:
-    """在 TUI 进入交互循环前启动外部 MCP。"""
-    from ..tui.features.mcp import (
-        finish_mcp_activity,
-        render_external_mcp_start_status
-    )
-
+async def _await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+    """在取消态下等待清理任务执行完成。"""
+    task = asyncio.ensure_future(awaitable)
     try:
-        await controller.start_external_mcp_runtime(defer_activity_stop=True)
+        await asyncio.shield(task)
     except asyncio.CancelledError:
-        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        await task
         raise
-    except Exception as error:
-        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
-        render_external_mcp_start_status(controller, error=error)
-        return None
-
-    await finish_mcp_activity(controller, "start")
-    render_external_mcp_start_status(controller)
-
-
-async def start_tui_service_runtime(controller: Mind) -> None:
-    """在 TUI 后台准备 Helix 服务运行时。"""
-    from ..tui.features.helix import (
-        finish_helix_activity,
-        link_helix_runtime,
-        render_helix_link_failure,
-        render_helix_link_result
-    )
-
-    try:
-        linked = await link_helix_runtime(controller, download_confirmed=True)
-    except asyncio.CancelledError:
-        await controller.await_cleanup(finish_helix_activity(controller))
-        raise
-    except Exception as error:
-        await controller.await_cleanup(finish_helix_activity(controller))
-        render_helix_link_failure(controller, error)
-        return None
-
-    await finish_helix_activity(controller)
-    render_helix_link_result(controller, linked)
-
-
-async def finalize_application(
-    controller: Mind,
-    *,
-    output_mode: OutputMode,
-    completed: bool,
-) -> None:
-    """关闭前端和运行时资源，并在完整 TUI 会话后打印退出摘要。"""
-    observe(
-        "app.shutdown.start",
-        output_mode=output_mode,
-        completed=completed,
-        exit_code=controller.exit_code,
-    )
-    try:
-        await controller.frontend.runtime.close()
-    except BaseException as error:
-        observe_exception("frontend.close.failed", error)
-        raise
-    finally:
-        await controller.close_runtime_resources()
-
-    if completed and output_mode == "tui":
-        from ..tui.core.runtime import require_tui_runtime
-
-        runtime = require_tui_runtime(controller.frontend.runtime)
-        runtime.print_exit_summary()
-
-
-async def run_application(
-    command: ApplicationCommand,
-    *,
-    entry_file: str | None,
-    config_overrides: tuple[ConfigOverride, ...] = (),
-    config_profile: str | None = None,
-) -> int:
-    """装配并运行需要本地应用资源的命令。"""
-    animation = AsyncAnimManager()
-    try:
-        return await _run_application(
-            command,
-            entry_file,
-            animation,
-            config_overrides,
-            config_profile,
-        )
-    finally:
-        await _await_cleanup(animation.stop())
 
 
 async def _run_application(
@@ -195,7 +102,7 @@ async def _run_application(
     entry_file: str | None,
     animation: AsyncAnimManager,
     config_overrides: tuple[ConfigOverride, ...],
-    config_profile: str | None,
+    config_profile: str | None
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -452,6 +359,101 @@ async def _run_controller(
             output_mode=output_mode,
             completed=completed,
         )
+
+
+async def start_tui_external_mcp(controller: Mind) -> None:
+    """在 TUI 进入交互循环前启动外部 MCP。"""
+    from ..tui.features.mcp import (
+        finish_mcp_activity,
+        render_external_mcp_start_status
+    )
+
+    try:
+        await controller.start_external_mcp_runtime(defer_activity_stop=True)
+    except asyncio.CancelledError:
+        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        raise
+    except Exception as error:
+        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        render_external_mcp_start_status(controller, error=error)
+        return None
+
+    await finish_mcp_activity(controller, "start")
+    render_external_mcp_start_status(controller)
+
+
+async def start_tui_service_runtime(controller: Mind) -> None:
+    """在 TUI 后台准备 Helix 服务运行时。"""
+    from ..tui.features.helix import (
+        finish_helix_activity,
+        link_helix_runtime,
+        render_helix_link_failure,
+        render_helix_link_result
+    )
+
+    try:
+        linked = await link_helix_runtime(controller, download_confirmed=True)
+    except asyncio.CancelledError:
+        await controller.await_cleanup(finish_helix_activity(controller))
+        raise
+    except Exception as error:
+        await controller.await_cleanup(finish_helix_activity(controller))
+        render_helix_link_failure(controller, error)
+        return None
+
+    await finish_helix_activity(controller)
+    render_helix_link_result(controller, linked)
+
+
+async def run_application(
+    command: ApplicationCommand,
+    *,
+    entry_file: str | None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
+    config_profile: str | None = None
+) -> int:
+    """装配并运行需要本地应用资源的命令。"""
+    animation = AsyncAnimManager()
+    try:
+        return await _run_application(
+            command,
+            entry_file,
+            animation,
+            config_overrides,
+            config_profile,
+        )
+    finally:
+        await _await_cleanup(animation.stop())
+
+
+async def finalize_application(
+    controller: Mind,
+    *,
+    output_mode: OutputMode,
+    completed: bool
+) -> None:
+    """关闭前端和运行时资源，并在已有对话时打印恢复提示。"""
+    observe(
+        "app.shutdown.start",
+        output_mode=output_mode,
+        completed=completed,
+        exit_code=controller.exit_code,
+    )
+    try:
+        await controller.frontend.runtime.close()
+    except BaseException as error:
+        observe_exception("frontend.close.failed", error)
+        raise
+    finally:
+        await controller.close_runtime_resources()
+
+    if completed and output_mode == "tui":
+        from ..tui.core.runtime import require_tui_runtime
+
+        runtime = require_tui_runtime(controller.frontend.runtime)
+        conversation = controller.conversation
+        if conversation.turn_count > 0 and conversation.sid:
+            runtime.print_exit_summary(conversation.sid)
 
 
 if __name__ == '__main__':
