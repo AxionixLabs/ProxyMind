@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import re
-import json
 import math
 import httpx
 import shutil
@@ -23,16 +23,14 @@ from mcp.client.session_group import (
 )
 from mind_nova import const
 
-DEFAULT_MCP_TRANSPORT = "streamable_http"
-ALLOWED_MCP_TRANSPORT = {"streamable_http", "sse", "stdio"}
-
+DEFAULT_MCP_TRANSPORT         = "streamable_http"
 DEFAULT_MCP_START_TIMEOUT_SEC = 10.0
-DEFAULT_MCP_REQ_TIMEOUT_SEC = 30 * 60
-DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
+DEFAULT_MCP_REQ_TIMEOUT_SEC   = 60.0
+DEFAULT_MCP_SSE_TIMEOUT_SEC   = 30 * 60
 
 
 class McpConfigError(ValueError):
-    """表示外部 MCP 配置文件无法解析。"""
+    """表示外部 MCP 配置无法解析。"""
 
 
 def _positive_float(value: typing.Any, fallback: float) -> float:
@@ -78,7 +76,8 @@ def _tool_patterns(value: typing.Any) -> list[str]:
         return []
 
     patterns: list[str] = []
-    seen: set[str] = set()
+    seen: set[str]      = set()
+
     for item in value:
         if not isinstance(item, str):
             continue
@@ -90,21 +89,9 @@ def _tool_patterns(value: typing.Any) -> list[str]:
     return patterns
 
 
-def _normalize_tool_rules(value: typing.Any) -> dict[str, list[str]]:
-    """规范化单个外接 MCP 服务的工具允许和拒绝规则。"""
-    if not isinstance(value, dict):
-        return {}
-
-    rules: dict[str, list[str]] = {}
-    for name in ("allow", "deny"):
-        if name in value:
-            rules[name] = _tool_patterns(value.get(name))
-    return rules
-
-
 def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
     """按原始工具名判断外接 MCP 工具是否允许暴露。"""
-    policy = rules if isinstance(rules, dict) else {}
+    policy    = rules if isinstance(rules, dict) else {}
     tool_name = str(name)
 
     allow = policy.get("allow")
@@ -133,8 +120,9 @@ def _limit_tool_name(value: str) -> str:
     if len(value) <= max_external_name_len:
         return value
 
-    digest = hashlib.sha1(value.encode(const.CHARSET, errors="ignore")).hexdigest()[:8]
+    digest     = hashlib.sha1(value.encode(const.CHARSET, errors="ignore")).hexdigest()[:8]
     prefix_len = max_external_name_len - len(digest) - 1
+
     return f"{value[:prefix_len]}_{digest}"
 
 
@@ -146,18 +134,14 @@ def slugify_mcp_name(value: typing.Any, fallback: str = "server") -> str:
 
 
 def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
-    """读取 mcpServers 配置并规范化为内部服务列表。"""
+    """把有效配置中的 MCP 服务表规范化为内部服务列表。"""
     if not isinstance(raw, dict):
         return []
 
-    mapping = raw.get("mcpServers")
-    if not isinstance(mapping, dict):
-        return []
-
     normalized: list[dict[str, typing.Any]] = []
-    seen_names: set[str] = set()
+    seen_names: set[str]                    = set()
 
-    for idx, (key, item) in enumerate(mapping.items(), start=1):
+    for idx, (key, item) in enumerate(raw.items(), start=1):
         if not isinstance(item, dict):
             continue
 
@@ -167,16 +151,14 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
         url     = str(item.get("url", "") or "").strip()
         command = str(item.get("command", "") or "").strip()
 
-        inferred_transport = item.get("transport") or item.get("type")
-        if not inferred_transport:
-            if command and not url:
-                inferred_transport = "stdio"
-            else:
-                inferred_transport = "sse" if url.lower().endswith("/sse") else DEFAULT_MCP_TRANSPORT
-
-        transport = str(inferred_transport or DEFAULT_MCP_TRANSPORT).strip().lower().replace("-", "_")
-        if transport not in ALLOWED_MCP_TRANSPORT:
-            transport = DEFAULT_MCP_TRANSPORT
+        if command and url:
+            continue
+        transport = (
+            "stdio"
+            if command
+            else "sse" if url.lower().rstrip("/").endswith("/sse")
+            else DEFAULT_MCP_TRANSPORT
+        )
         if transport == "stdio":
             if not command:
                 continue
@@ -184,9 +166,14 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
             continue
 
         timeout_sec = _positive_float(
-            item.get("timeout_sec"),
+            item.get("tool_timeout_sec"),
             DEFAULT_MCP_REQ_TIMEOUT_SEC
         )
+        tool_rules: dict[str, list[str]] = {}
+        if "allow" in item:
+            tool_rules["allow"] = _tool_patterns(item.get("allow"))
+        if "deny" in item:
+            tool_rules["deny"] = _tool_patterns(item.get("deny"))
         unique_slug = slug
 
         suffix = 2
@@ -196,16 +183,16 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
         seen_names.add(unique_slug)
 
         base = {
-            "name"                : unique_slug,
-            "enabled"             : item.get("enabled", True) is not False,
-            "transport"           : transport,
-            "startup_timeout_sec" : _positive_float(
+            "name": unique_slug,
+            "enabled": item.get("enabled", True) is not False,
+            "required": item.get("required", False) is True,
+            "transport": transport,
+            "startup_timeout_sec": _positive_float(
                 item.get("startup_timeout_sec"),
                 DEFAULT_MCP_START_TIMEOUT_SEC
             ),
-            "timeout_sec"         : timeout_sec,
-            "notes"               : str(item.get("notes", "") or "").strip(),
-            "tools"               : _normalize_tool_rules(item.get("tools")),
+            "timeout_sec": timeout_sec,
+            "tools": tool_rules
         }
 
         if transport == "stdio":
@@ -213,64 +200,41 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
             normalized.append(
                 {
                     **base,
-                    "command"  : command,
-                    "args"     : _string_list(item.get("args")),
-                    "env"      : _string_map(item.get("env")),
-                    "cwd"      : cwd,
-                    "encoding" : str(item.get("encoding", "") or "utf-8").strip() or "utf-8",
-                    "encoding_error_handler": (
-                        str(item.get("encoding_error_handler") or "strict").strip().lower()
-                    ),
+                    "command": command,
+                    "args": _string_list(item.get("args")),
+                    "env": _string_map(item.get("env")),
+                    "cwd": cwd,
+                    "encoding": "utf-8",
+                    "encoding_error_handler": "strict"
                 }
             )
             continue
 
+        headers = _string_map(item.get("http_headers"))
+        for header, environment_name in _string_map(
+            item.get("env_http_headers")
+        ).items():
+            environment_value = os.environ.get(environment_name)
+            if environment_value is not None:
+                headers[header] = environment_value
+
+        bearer_name  = str(item.get("bearer_token_env_var") or "").strip()
+        bearer_token = os.environ.get(bearer_name) if bearer_name else None
+
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+
         normalized.append(
             {
                 **base,
-                "url"                  : url,
-                "headers"              : _string_map(item.get("headers")),
-                "sse_read_timeout_sec" : _positive_float(
-                    item.get("sse_read_timeout_sec"),
-                    DEFAULT_MCP_SSE_TIMEOUT_SEC
-                ),
-                "terminate_on_close"   : item.get("terminate_on_close", True) is not False,
+                "url": url,
+                "headers": headers,
+                "sse_read_timeout_sec": timeout_sec,
+                "terminate_on_close": True
             }
         )
 
     return normalized
-
-
-def mcp_servers_path(root_dir: typing.Any) -> Path:
-    """返回指定配置目录下的外部 MCP 配置文件路径。"""
-    return Path(str(root_dir)).expanduser() / "mcp_servers.json"
-
-
-def load_mcp_servers_file(root_dir: typing.Any) -> list[dict[str, typing.Any]]:
-    """读取并解析外部 MCP 配置文件，异常时返回空列表。"""
-    target = mcp_servers_path(root_dir)
-    try:
-        raw = target.read_text(encoding=const.CHARSET)
-    except FileNotFoundError:
-        return []
-    except OSError:
-        return []
-
-    if not raw.strip():
-        return []
-
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise McpConfigError(
-            f"Invalid MCP config {target.name} at "
-            f"line {exc.lineno}, column {exc.colno}: {exc.msg}"
-        ) from exc
-
-    try:
-        return normalize_mcp_servers(payload)
-    except (TypeError, ValueError, OverflowError):
-        return []
 
 
 def tool_name_hook(name: str, server_info: mcp_types.Implementation) -> str:
@@ -308,17 +272,18 @@ def external_http_client(
 ) -> httpx.AsyncClient:
     """创建外部 HTTP/SSE MCP 服务使用的 HTTP 客户端。"""
     kwargs: dict[str, typing.Any] = {
-        "follow_redirects" : True,
-        "timeout"          : timeout or httpx.Timeout(
+        "follow_redirects": True,
+        "timeout": timeout or httpx.Timeout(
             DEFAULT_MCP_REQ_TIMEOUT_SEC,
             read=DEFAULT_MCP_SSE_TIMEOUT_SEC
         ),
-        "trust_env"        : False
+        "trust_env": False
     }
     if headers:
         kwargs["headers"] = headers
     if auth is not None:
         kwargs["auth"] = auth
+
     return httpx.AsyncClient(**kwargs)
 
 
@@ -398,6 +363,7 @@ async def preflight_server(server: dict[str, typing.Any]) -> None:
         port = 443 if parsed.scheme == "https" else 80
 
     timeout_sec = min(_positive_float(server.get("timeout_sec"), 30.0), 1.0)
+
     errors: list[str] = []
 
     try:

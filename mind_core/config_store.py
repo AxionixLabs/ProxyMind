@@ -17,17 +17,18 @@ from mind_core.provider_config import (
     DEFAULT_ROUTE_NAME
 )
 
-DEFAULT_CONFIG_TEXT = f"""[service]
-domain = ""
+DEFAULT_CONFIG_TEXT = f"""model = ""
+model_provider = "{DEFAULT_PROVIDER_NAME}"
+model_reasoning_effort = "{DEFAULT_REASONING_EFFORT}"
+project_root_markers = [".git"]
 
-[model.primary]
-provider = "{DEFAULT_PROVIDER_NAME}"
+[model_providers.{DEFAULT_PROVIDER_NAME}]
 route = "{DEFAULT_ROUTE_NAME}"
-model = ""
-apikey = ""
+api_key = ""
 base_url = ""
-reasoning_effort = "{DEFAULT_REASONING_EFFORT}"
-enabled = false
+
+[service]
+domain = ""
 
 [skills]
 enabled = []
@@ -35,9 +36,13 @@ disabled = []
 
 [features]
 
+[mcp_servers]
+
 [hosted_tools.groups]
 perf_engine = false
 sandbox_cloud = false
+
+[projects]
 """
 
 
@@ -91,6 +96,14 @@ class ConfigStore(object):
         self._write_text(tomlkit.dumps(document))
         return dict(document.unwrap())
 
+    def delete(self, paths: typing.Iterable[tuple[str, ...]]) -> dict[str, object]:
+        """删除指定点路径并保留其他格式和字段。"""
+        document = self.read_document()
+        for path in paths:
+            self._delete_path(document, path)
+        self._write_text(tomlkit.dumps(document))
+        return dict(document.unwrap())
+
     @staticmethod
     def _set_path(
         document: TOMLDocument,
@@ -109,6 +122,29 @@ class ConfigStore(object):
                 target[component] = child
             target = child
         target[path[-1]] = tomlkit.item(value)
+
+    @staticmethod
+    def _delete_path(
+        document: TOMLDocument,
+        path: tuple[str, ...],
+    ) -> None:
+        """从 TOML 文档中删除一个已经存在的点路径。"""
+        if not path or any(not component for component in path):
+            raise ConfigStoreError("config path is empty")
+
+        target: MutableMapping[str, typing.Any] = document
+        for component in path[:-1]:
+            child = target.get(component)
+            if not isinstance(child, MutableMapping):
+                raise ConfigStoreError(
+                    f"config path does not exist: {'.'.join(path)}"
+                )
+            target = child
+        if path[-1] not in target:
+            raise ConfigStoreError(
+                f"config path does not exist: {'.'.join(path)}"
+            )
+        del target[path[-1]]
 
     def _write_text(self, text: str) -> None:
         """在同目录中原子替换配置文档。"""

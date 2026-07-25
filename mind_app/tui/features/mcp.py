@@ -15,10 +15,7 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
-from mind_app.mcp.config import (
-    McpConfigError,
-    load_mcp_servers_file
-)
+from mind_app.mcp.config import normalize_mcp_servers
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
@@ -29,7 +26,6 @@ from ..core.styles import (
     fragment_block,
     text_block
 )
-
 from ..core.runtime import TuiRuntime, require_tui_runtime
 
 McpAction = typing.Literal[
@@ -86,11 +82,13 @@ def _present(
 
 def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     """汇总当前外部 MCP 配置与已连接工具状态。"""
-    config_error = ""
+    config_error: str = ""
+
     try:
-        configured = load_mcp_servers_file(getattr(mind, "src_opera_place", ""))
-    except McpConfigError as error:
-        configured = []
+        config     = mind.config_session.load()
+        configured = normalize_mcp_servers(config.get("mcp_servers"))
+    except (OSError, TypeError, ValueError) as error:
+        configured   = []
         config_error = str(error)
 
     runtime      = getattr(mind, "external_mcp", None)

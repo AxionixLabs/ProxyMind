@@ -31,6 +31,7 @@ from prompt_toolkit.layout.containers import (
     ConditionalContainer,
     HSplit,
     VerticalAlign,
+    VSplit,
     Window
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -321,6 +322,18 @@ class TuiScreen(object):
 
         typing.cast(Window, self.completion_menu.content).right_margins.clear()
 
+        self.completion_menu_row = ConditionalContainer(
+            VSplit([
+                Window(
+                    width=Dimension.exact(1),
+                    char=" ",
+                    dont_extend_width=True,
+                ),
+                self.completion_menu,
+            ]),
+            filter=Condition(self._completion_visible),
+        )
+
         self.input_footer = ConditionalContainer(
             HSplit(
                 [
@@ -341,7 +354,7 @@ class TuiScreen(object):
             [
                 self.input,
                 self.completion_gap,
-                self.completion_menu,
+                self.completion_menu_row,
                 self.input_footer,
             ],
             align=VerticalAlign.TOP,
@@ -488,12 +501,12 @@ class TuiScreen(object):
         if line_number == 0 and wrap_count == 0:
             if self.input_model.shell_mode:
                 return [("class:shell-escape", "! ")]
-            return [("class:prompt.kicker", "> ")]
+            return [("class:prompt.kicker", "› ")]
         return [("class:prompt.kicker", ". ")]
 
     def _placeholder_fragments(self) -> StyleAndTextTuples:
         """返回当前输入轮次固定的占位文案。"""
-        return [("class:placeholder", f" {self._get_placeholder_text()}")]
+        return [("class:placeholder", self._get_placeholder_text())]
 
     def _transcript_fragments(self) -> FormattedText:
         """返回正文控件使用的格式化片段。"""

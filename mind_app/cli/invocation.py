@@ -8,12 +8,20 @@ from mind_core.config import (
     config_override,
     parse_config_override
 )
+from mind_core.config_layers import normalize_profile_name
 from mind_nova import const
 
 CONFIG_FLAGS  = ("-c", "--config")
+PROFILE_FLAGS = ("-p", "--profile")
 ENABLE_FLAG   = "--enable"
 DISABLE_FLAG  = "--disable"
-VALUE_OPTIONS = frozenset((*CONFIG_FLAGS, ENABLE_FLAG, DISABLE_FLAG))
+
+VALUE_OPTIONS = frozenset((
+    *CONFIG_FLAGS,
+    *PROFILE_FLAGS,
+    ENABLE_FLAG,
+    DISABLE_FLAG,
+))
 
 
 class ArgumentContainer(typing.Protocol):
@@ -40,9 +48,17 @@ def add_invocation_options(container: ArgumentContainer) -> None:
             "(`foo.bar.baz`) to override nested values. The value portion is "
             "parsed as TOML. If it fails to parse as TOML, the raw string is "
             "used as a literal.\n\n"
-            "Examples: - `-c model.primary.model=\"o3\"` - "
+            "Examples: - `-c model=\"o3\"` - "
             "`-c 'skills.disabled=[\"legacy\"]'` - "
             "`-c hosted_tools.groups.perf_engine=true`"
+        ),
+    )
+    container.add_argument(
+        *PROFILE_FLAGS,
+        metavar="PROFILE",
+        help=(
+            f"Layer `~/.{const.APP_NAME}/<name>.config.toml` on top of "
+            "the base user configuration"
         ),
     )
     container.add_argument(
@@ -65,13 +81,14 @@ def add_invocation_options(container: ArgumentContainer) -> None:
     )
 
 
-def extract_config_overrides(
+def extract_invocation_options(
     parser: argparse.ArgumentParser,
     arguments: tuple[str, ...],
-) -> tuple[tuple[str, ...], tuple[ConfigOverride, ...]]:
-    """提取可出现在任意命令层级的进程级配置覆盖。"""
+) -> tuple[tuple[str, ...], tuple[ConfigOverride, ...], str | None]:
+    """提取可出现在任意命令层级的进程级选项。"""
     remaining: list[str]            = []
     overrides: list[ConfigOverride] = []
+    profile: str | None             = None
 
     index: int = 0
     while index < len(arguments):
@@ -91,6 +108,10 @@ def extract_config_overrides(
         try:
             if option in CONFIG_FLAGS:
                 overrides.append(parse_config_override(value))
+            elif option in PROFILE_FLAGS:
+                if profile is not None:
+                    raise ValueError("profile may only be specified once")
+                profile = normalize_profile_name(value)
             else:
                 feature = value.strip()
                 if not feature:
@@ -103,7 +124,7 @@ def extract_config_overrides(
             parser.error(str(error))
         index += consumed
 
-    return tuple(remaining), tuple(overrides)
+    return tuple(remaining), tuple(overrides), profile
 
 
 def _option_value(
@@ -117,10 +138,11 @@ def _option_value(
             return token, None, 1
         return token, arguments[index + 1], 2
 
-    for option in ("--config", ENABLE_FLAG, DISABLE_FLAG):
+    for option in ("--config", "--profile", ENABLE_FLAG, DISABLE_FLAG):
         prefix = f"{option}="
         if token.startswith(prefix):
             return option, token[len(prefix):], 1
+
     return None, None, 1
 
 

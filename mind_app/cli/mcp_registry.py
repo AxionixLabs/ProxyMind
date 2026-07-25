@@ -5,10 +5,13 @@ import sys
 import json
 import typing
 import subprocess
+from pathlib import Path
 from engine.errors import ApplicationError
-from mind_app.mcp.config import McpConfigError
 from mind_app.mcp.registry import McpServerRegistry
-from mind_app.paths import mind_mcp_servers_path
+from mind_app.paths import mind_config_path
+from mind_core.config import ConfigOverride
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from mind_app.cli.commands import (
     McpAddCommand,
     McpGetCommand,
@@ -21,9 +24,6 @@ from mind_app.cli.commands import (
 
 def _server_transport(config: dict[str, typing.Any]) -> str:
     """返回适合展示的服务传输类型。"""
-    transport = str(config.get("transport") or config.get("type") or "").strip()
-    if transport:
-        return transport.replace("_", "-")
     if str(config.get("command") or "").strip():
         return "stdio"
 
@@ -93,7 +93,6 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
         executable, *arguments = command.stdio_command
 
         config: dict[str, typing.Any] = {
-            "transport": "stdio",
             "command": executable,
             "args": arguments,
             "enabled": command.enabled,
@@ -106,27 +105,38 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
 
         return config
 
-    if command.url is None or command.transport is None:
+    if command.url is None:
         raise ApplicationError("MCP server target is incomplete")
 
     config = {
-        "transport" : command.transport,
-        "url"       : command.url,
-        "enabled"   : command.enabled
+        "url"     : command.url,
+        "enabled" : command.enabled
     }
+
+    if command.bearer_token_env_var is not None:
+        config["bearer_token_env_var"] = command.bearer_token_env_var
     if command.headers:
-        config["headers"] = dict(command.headers)
+        config["http_headers"] = dict(command.headers)
+
     return config
 
 
 def run_mcp_registry_command(
     command: McpRegistryCommand,
     *,
-    output_stream: typing.TextIO | None = None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
+    config_profile: str | None = None,
+    output_stream: typing.TextIO | None = None
 ) -> int:
     """执行一个外部 MCP 服务注册表命令。"""
     stream   = sys.stdout if output_stream is None else output_stream
-    registry = McpServerRegistry(mind_mcp_servers_path())
+
+    registry = McpServerRegistry(ConfigSession(
+        ConfigStore(mind_config_path()),
+        config_overrides,
+        profile=config_profile,
+        workspace=Path.cwd(),
+    ))
 
     try:
         if isinstance(command, McpListCommand):
@@ -147,13 +157,15 @@ def run_mcp_registry_command(
 
         if isinstance(command, McpGetCommand):
             config = registry.get(command.name)
-            value = {"name": command.name, "config": config}
+            value  = {"name": command.name, "config": config}
+
             if command.output_format == "json":
                 _write_json(value, stream)
             else:
                 stream.write(f"{command.name}\n")
                 stream.write(json.dumps(config, ensure_ascii=False, indent=2))
                 stream.write("\n")
+
             return 0
 
         if isinstance(command, McpAddCommand):
@@ -171,7 +183,8 @@ def run_mcp_registry_command(
             action = "Enabled" if command.enabled else "Disabled"
             stream.write(f"{action} MCP server '{command.name}'.\n")
             return 0
-    except McpConfigError as error:
+
+    except (OSError, TypeError, ValueError) as error:
         raise ApplicationError(str(error)) from error
 
     typing.assert_never(command)

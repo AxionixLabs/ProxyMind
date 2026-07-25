@@ -26,7 +26,6 @@ from ..frontend.contracts import (
     Frontend
 )
 from ..paths import (
-    ensure_mcp_servers_file,
     ensure_mind_home,
     mind_config_path,
     mind_reports_dir,
@@ -175,6 +174,7 @@ async def run_application(
     *,
     entry_file: str | None,
     config_overrides: tuple[ConfigOverride, ...] = (),
+    config_profile: str | None = None,
 ) -> int:
     """装配并运行需要本地应用资源的命令。"""
     animation = AsyncAnimManager()
@@ -184,6 +184,7 @@ async def run_application(
             entry_file,
             animation,
             config_overrides,
+            config_profile,
         )
     finally:
         await _await_cleanup(animation.stop())
@@ -194,6 +195,7 @@ async def _run_application(
     entry_file: str | None,
     animation: AsyncAnimManager,
     config_overrides: tuple[ConfigOverride, ...],
+    config_profile: str | None,
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -227,11 +229,16 @@ async def _run_application(
     home    = ensure_mind_home()
     reports = mind_reports_dir()
 
-    ensure_mcp_servers_file()
-    config_session = ConfigSession(
-        ConfigStore(mind_config_path()),
-        config_overrides,
-    )
+    try:
+        config_session = ConfigSession(
+            ConfigStore(mind_config_path()),
+            config_overrides,
+            profile=config_profile,
+            workspace=Path.cwd(),
+        )
+        config_session.load()
+    except (OSError, TypeError, ValueError) as error:
+        raise ApplicationError(f"Configuration is invalid: {error}") from error
 
     report = RunReport(str(reports))
     power  = os.cpu_count() or 1
@@ -385,16 +392,10 @@ async def _run_controller(
         startup_tasks = (preference_task, domain_task)
 
         try:
-            if config_session.feature_enabled("external_mcp"):
-                if output_mode == "tui":
-                    await start_tui_external_mcp(controller)
-                else:
-                    await controller.start_external_mcp_runtime()
+            if output_mode == "tui":
+                await start_tui_external_mcp(controller)
             else:
-                observe(
-                    "external_mcp.start.skipped",
-                    reason="feature_disabled",
-                )
+                await controller.start_external_mcp_runtime()
             await preference_task
             service_endpoints.configure(await domain_task)
             observe(

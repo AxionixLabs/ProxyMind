@@ -7,7 +7,7 @@ from pathlib import Path
 from engine.errors import ApplicationError
 from mind_core.application_paths import (
     APP_HOME_ENV,
-    default_application_home,
+    default_application_home
 )
 from mind_core.config_store import default_config_path
 from mind_nova import const
@@ -23,11 +23,6 @@ def mind_home() -> Path:
 def helix_home() -> Path:
     """返回 Helix 在应用统一目录下的数据根。"""
     return Path(os.environ.get(HX_HOME_ENV) or mind_home() / "helix").expanduser()
-
-
-def mind_mcp_servers_path() -> Path:
-    """返回外部 MCP 配置文件路径。"""
-    return mind_home() / "mcp_servers.json"
 
 
 def mind_config_path() -> Path:
@@ -64,34 +59,12 @@ def ensure_writable_dir(path: Path) -> Path:
     return target
 
 
-def ensure_writable_file(path: Path) -> Path:
-    """确保文件所在目录和文件本身可写。"""
-    target = Path(path).expanduser()
-    ensure_writable_dir(target.parent)
-
-    with target.open("a+b"):
-        pass
-    return target
-
-
-def ensure_mcp_servers_file() -> Path:
-    """确保 MCP 配置文件存在且非空。"""
-    default_mcp_servers = '{\n  "mcpServers": {}\n}\n'
-
-    target = ensure_writable_file(mind_mcp_servers_path())
-    if target.stat().st_size <= 0:
-        target.write_text(default_mcp_servers, encoding=const.CHARSET)
-
-    return target
-
-
 def ensure_mind_home() -> Path:
     """确保应用的用户级目录及常用子路径可写。"""
     try:
         root = ensure_writable_dir(mind_home())
         ensure_writable_dir(mind_reports_dir())
         ensure_writable_dir(mind_history_dir())
-        ensure_mcp_servers_file()
         return root
     except OSError as exc:
         raise ApplicationError(

@@ -4,7 +4,7 @@
 import typing
 import asyncio
 from engine.errors import ApplicationError
-from mind_app.mcp.config import load_mcp_servers_file
+from mind_app.mcp.config import normalize_mcp_servers
 from mind_app.mcp.group import (
     ExternalMcpGroup,
     open_optional_external_mcp_group
@@ -87,7 +87,9 @@ class ExternalMcpRuntime(object):
             return None
 
         self._last_start_snapshot = {}
-        servers = load_mcp_servers_file(self._mind.src_opera_place)
+
+        config  = self._mind.config_session.load()
+        servers = normalize_mcp_servers(config.get("mcp_servers"))
 
         if include_disabled:
             servers = [

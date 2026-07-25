@@ -29,14 +29,13 @@ from .commands import (
     McpRemoveCommand,
     McpServerCommand,
     McpSetEnabledCommand,
-    McpTransport,
     OutputFormat,
     ParsedCommand
 )
 from .help import CliArgumentParser
 from .invocation import (
     add_invocation_options,
-    extract_config_overrides,
+    extract_invocation_options,
 )
 
 EXEC_HELP          = "Run a task non-interactively"
@@ -49,7 +48,8 @@ DOCTOR_HELP        = "Diagnose the local runtime environment"
 MCP_HELP           = "Manage external MCP servers"
 MCP_SERVER_HELP    = "Start the MCP server over stdio"
 HELP_HELP          = "Print this message or the help of the given subcommand(s)"
-ROOT_COMMANDS      = frozenset({
+
+ROOT_COMMANDS = frozenset({
     "exec",
     "batch",
     "agent",
@@ -374,13 +374,12 @@ def create_cli_parser() -> CliArgumentParser:
     mcp_add_options.add_argument(
         "--url",
         metavar="URL",
-        help="URL of a streamable HTTP or SSE server",
+        help="URL of a streamable HTTP MCP server",
     )
     mcp_add_options.add_argument(
-        "--transport",
-        choices=("streamable-http", "sse"),
-        metavar="TRANSPORT",
-        help="Remote transport; inferred from the URL when omitted",
+        "--bearer-token-env-var",
+        metavar="ENV_VAR",
+        help="Environment variable containing a bearer token for a remote server",
     )
     mcp_add_options.add_argument(
         "--env",
@@ -731,22 +730,6 @@ def _stdio_command(
     return ()
 
 
-def _mcp_transport(
-    parser: argparse.ArgumentParser,
-    values: dict[str, object],
-    url: str,
-) -> McpTransport:
-    """读取远程 MCP transport，缺省时按 URL 推断。"""
-    value = _optional_string(parser, values, "transport")
-    if value == "streamable-http":
-        return "streamable_http"
-    if value == "sse":
-        return "sse"
-    if value is None:
-        return "sse" if url.lower().rstrip("/").endswith("/sse") else "streamable_http"
-    parser.error(f"invalid MCP transport: {value}")
-
-
 def _run_mode(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
@@ -955,7 +938,12 @@ def _parse_cli_command(
             headers = _key_value_pairs(parser, values, "header")
             cwd_value = _optional_string(parser, values, "cwd")
             cwd = str(cwd_value or "").strip() or None
-            raw_transport = _optional_string(parser, values, "transport")
+            bearer_value = _optional_string(
+                parser,
+                values,
+                "bearer_token_env_var",
+            )
+            bearer_token_env_var = str(bearer_value or "").strip() or None
 
             if stdio_command and not bool(values["stdio_separated"]):
                 parser.error("stdio commands must follow the '--' separator")
@@ -970,14 +958,15 @@ def _parse_cli_command(
                 return McpAddCommand(
                     name=name,
                     url=url,
-                    transport=_mcp_transport(parser, values, url),
+                    bearer_token_env_var=bearer_token_env_var,
                     headers=headers,
                     enabled=not bool(values["disabled"]),
                 )
 
-            if raw_transport is not None or headers:
+            if headers or bearer_token_env_var is not None:
                 parser.error(
-                    "--transport and --header are only valid for remote servers"
+                    "--header and --bearer-token-env-var are only valid "
+                    "for remote servers"
                 )
             return McpAddCommand(
                 name=name,
@@ -1021,11 +1010,14 @@ def parse_cli_invocation(
     raw_arguments = tuple(
         sys.argv[1:] if arguments is None else arguments
     )
+
     parser = create_cli_parser()
-    command_arguments, overrides = extract_config_overrides(
+
+    command_arguments, overrides, profile = extract_invocation_options(
         parser,
         raw_arguments,
     )
+
     return CliInvocation(
         command=_parse_cli_command(
             parser,
@@ -1033,6 +1025,7 @@ def parse_cli_invocation(
             input_stream=input_stream,
         ),
         config_overrides=overrides,
+        profile=profile,
     )
 
 

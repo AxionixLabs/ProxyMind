@@ -7,10 +7,12 @@ from pathlib import (
     PurePath
 )
 from prompt_toolkit.utils import get_cwidth
-from mind_app.paths import mind_config_path
-from mind_core.config import config_to_preferences
+from mind_core.config import (
+    config_to_preferences,
+    ModelConfigField,
+    model_config_field_values
+)
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
 from mind_core.provider_config import (
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS
@@ -192,7 +194,8 @@ def _clip_exec_status_command(value: typing.Any, *, limit: int) -> str:
 
 
 async def save_primary_pref_field(
-    field: typing.Literal["model", "apikey", "base_url", "reasoning_effort"],
+    session: ConfigSession,
+    field: ModelConfigField,
     value: str
 ) -> dict[str, typing.Any]:
     """更新 primary 模型槽位的单个字段并持久化到本地配置。"""
@@ -203,10 +206,13 @@ async def save_primary_pref_field(
     if field == "reasoning_effort":
         normalized = normalize_reasoning_effort(normalized)
 
-    config = ConfigSession(ConfigStore(mind_config_path())).update({
-        ("model", "primary", field): normalized,
-        ("model", "primary", "enabled"): True,
-    })
+    preferences = config_to_preferences(session.load())
+
+    primary = dict(preferences.get("primary") or {})
+    primary[field] = normalized
+
+    config = session.update(model_config_field_values(primary, field))
+
     return config_to_preferences(config)
 
 

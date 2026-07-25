@@ -4,12 +4,13 @@
 import httpx
 import typing
 import asyncio
-import contextlib
 import logging
+import contextlib
 from datetime import timedelta
 from types import TracebackType
 from contextlib import asynccontextmanager
 from mcp import ClientSession, types as mcp_types
+from engine.errors import ApplicationError
 from engine.observability import (
     observe,
     observe_exception
@@ -420,7 +421,20 @@ async def open_optional_external_mcp_group(
     ]
 
     try:
-        connected_servers = sum(await asyncio.gather(*connect_tasks))
+        connection_results = await asyncio.gather(*connect_tasks)
+        connected_servers  = sum(connection_results)
+
+        failed_required = [
+            str(server.get("name") or "server")
+            for server, connected in zip(enabled, connection_results)
+            if server.get("required") is True and not connected
+        ]
+
+        if failed_required:
+            names = ", ".join(failed_required)
+            raise ApplicationError(
+                f"Required MCP server failed to start: {names}"
+            )
 
         if connected_servers <= 0:
             observe(

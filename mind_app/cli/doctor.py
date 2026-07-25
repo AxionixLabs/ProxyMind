@@ -8,10 +8,7 @@ import typing
 from dataclasses import dataclass
 from pathlib import Path
 from engine.errors import ApplicationError
-from mind_app.mcp.config import (
-    McpConfigError,
-    load_mcp_servers_file
-)
+from mind_app.mcp.config import normalize_mcp_servers
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
@@ -24,15 +21,14 @@ from mind_app.runtime.environment.shell_tools import (
 from mind_app.frontend.contracts import ApplicationView
 from mind_app.paths import (
     mind_config_path,
-    mind_home,
-    mind_mcp_servers_path
+    mind_home
 )
 from mind_app.runtime.mcp.service_runtime import (
     ServiceRuntimeSpec,
     resolve_service_runtime
 )
 from mind_core.config import (
-    ConfigOverride,
+    ConfigOverride
 )
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
@@ -53,23 +49,21 @@ DOCTOR_TOOLS   = ("rg", "jq", "ast-grep")
 @dataclass(frozen=True, slots=True)
 class DoctorContext(object):
     """保存本地诊断所需的只读路径和运行形态。"""
-
     platform: str
     entry_mode: ApplicationMode
     entry_root: Path
     home: Path
     config_path: Path
-    mcp_config_path: Path
     supports: Path
     packaged: bool
     runtime_spec: ServiceRuntimeSpec | None
     config_overrides: tuple[ConfigOverride, ...] = ()
+    config_profile: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class DoctorCheck(object):
     """描述一项本地环境检查结果。"""
-
     key: str
     name: str
     status: DoctorStatus
@@ -92,7 +86,6 @@ class DoctorCheck(object):
 @dataclass(frozen=True, slots=True)
 class DoctorReport(object):
     """汇总本地环境诊断结果。"""
-
     checks: tuple[DoctorCheck, ...]
     version: str = const.APP_VERSION
 
@@ -148,9 +141,12 @@ def _python_check() -> DoctorCheck:
     """检查 Python 解释器版本。"""
     current = sys.version_info[:3]
     version = ".".join(str(part) for part in current)
+
     if current >= MINIMUM_PYTHON:
         return DoctorCheck("python", "Python", "pass", version)
+
     minimum = ".".join(str(part) for part in MINIMUM_PYTHON)
+
     return DoctorCheck(
         "python",
         "Python",
@@ -179,6 +175,7 @@ def _entry_layout_check(context: DoctorContext) -> DoctorCheck:
             f"{context.entry_mode} supports directory is unavailable",
             str(context.supports),
         )
+
     return DoctorCheck(
         "entry_layout",
         "Entry layout",
@@ -190,8 +187,9 @@ def _entry_layout_check(context: DoctorContext) -> DoctorCheck:
 
 def _home_check(context: DoctorContext) -> DoctorCheck:
     """检查应用用户目录是否存在且可读写。"""
-    home = context.home
+    home  = context.home
     label = f"{const.APP_DESC} home"
+
     if not home.exists():
         return DoctorCheck(
             "mind_home",
@@ -200,6 +198,7 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
             "not created yet",
             str(home),
         )
+
     if not home.is_dir():
         return DoctorCheck(
             "mind_home",
@@ -208,6 +207,7 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
             "path is not a directory",
             str(home),
         )
+
     if not os.access(home, os.R_OK | os.W_OK):
         return DoctorCheck(
             "mind_home",
@@ -216,6 +216,7 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
             "directory is not readable and writable",
             str(home),
         )
+
     return DoctorCheck("mind_home", label, "pass", str(home))
 
 
@@ -240,10 +241,12 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
         )
 
     try:
-        config = ConfigSession(
+        resolution = ConfigSession(
             ConfigStore(target),
             context.config_overrides,
-        ).load(create=False)
+            profile=context.config_profile,
+            workspace=Path.cwd(),
+        ).resolve(create=False)
     except (TypeError, ValueError) as error:
         return DoctorCheck(
             "config",
@@ -253,80 +256,93 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
             f"{type(error).__name__}: {error}",
         )
 
+    config = resolution.config
+
+    layer_summary = " > ".join(
+        layer.scope for layer in resolution.layers
+    )
+
+    detail = f"{target}; layers={layer_summary}"
+
+    if resolution.project_root is not None:
+        detail += (
+            f"; project={resolution.project_root}; "
+            f"trusted={str(resolution.project_trusted).lower()}"
+        )
+
     model_value = config.get("model", {})
+
     model: dict[str, object] = (
         model_value if isinstance(model_value, dict) else {}
     )
+
     primary_value = model.get("primary", {})
+
     primary: dict[str, object] = (
         primary_value if isinstance(primary_value, dict) else {}
     )
-    provider = str(primary.get("provider") or "").strip()
+
+    provider   = str(primary.get("provider") or "").strip()
     model_name = str(primary.get("model") or "").strip()
-    enabled = bool(primary.get("enabled"))
+    enabled    = bool(primary.get("enabled"))
+
     if enabled and provider and model_name:
         return DoctorCheck(
             "config",
             "Config",
             "pass",
             f"primary model enabled ({provider}/{model_name})",
-            str(target),
+            detail,
         )
     return DoctorCheck(
         "config",
         "Config",
         "warn",
         "primary model is disabled or incomplete",
-        str(target),
+        detail,
     )
 
 
 def _mcp_config_check(context: DoctorContext) -> DoctorCheck:
-    """检查外部 MCP 配置文件是否可解析。"""
-    target = context.mcp_config_path
+    """检查有效配置中的外部 MCP 服务。"""
+    target = context.config_path
     if not target.exists():
         return DoctorCheck(
             "external_mcp",
             "External MCP",
             "warn",
-            "mcp_servers.json is not created yet",
-            str(target),
-        )
-    if not target.is_file():
-        return DoctorCheck(
-            "external_mcp",
-            "External MCP",
-            "fail",
-            "mcp_servers.json is not a file",
-            str(target),
-        )
-    if not os.access(target, os.R_OK):
-        return DoctorCheck(
-            "external_mcp",
-            "External MCP",
-            "fail",
-            "mcp_servers.json is not readable",
+            "config.toml is not created yet",
             str(target),
         )
 
     try:
-        servers = load_mcp_servers_file(target.parent)
-    except McpConfigError as error:
+        resolution = ConfigSession(
+            ConfigStore(target),
+            context.config_overrides,
+            profile=context.config_profile,
+            workspace=Path.cwd(),
+        ).resolve(create=False)
+        servers = normalize_mcp_servers(
+            resolution.config.get("mcp_servers")
+        )
+    except (OSError, TypeError, ValueError) as error:
         return DoctorCheck(
             "external_mcp",
             "External MCP",
             "fail",
-            "mcp_servers.json is invalid",
+            "MCP configuration is invalid",
             str(error),
         )
 
     enabled = sum(server.get("enabled", True) is not False for server in servers)
+    layers  = " > ".join(layer.scope for layer in resolution.layers)
+
     return DoctorCheck(
         "external_mcp",
         "External MCP",
         "pass",
         f"{len(servers)} configured, {enabled} enabled",
-        str(target),
+        f"{target}; layers={layers}",
     )
 
 
@@ -369,6 +385,7 @@ def _helix_check(context: DoctorContext) -> DoctorCheck:
 def _tool_check(context: DoctorContext, tool: str) -> DoctorCheck:
     """检查一个内置 coding 工具的 bundled 或系统命令。"""
     folder_name, command_name = SHELL_TOOL_LAYOUT[tool]
+
     bundled = context.supports / folder_name / executable_name(command_name)
     if bundled.is_file():
         return DoctorCheck(
@@ -419,8 +436,11 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
         "warn": TextStyle(foreground="#FFD75F", bold=True),
         "fail": TextStyle(foreground="#FF6B6B", bold=True),
     }
+
     title = f"{const.APP_DESC} doctor {report.version}\n"
+
     plain_parts = [title]
+
     spans: list[TextSpan] = [
         TextSpan(
             title,
@@ -430,12 +450,15 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
 
     for check in report.checks:
         label = f"[{check.status.upper():4}]"
-        line = f"{label} {check.name}: {check.summary}\n"
+        line  = f"{label} {check.name}: {check.summary}\n"
+
         plain_parts.append(line)
+
         spans.extend((
             TextSpan(label, label_styles[check.status]),
             TextSpan(f" {check.name}: {check.summary}\n"),
         ))
+
         if check.detail:
             detail = f"       {check.detail}\n"
             plain_parts.append(detail)
@@ -447,7 +470,9 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
         f"{report.count('fail')} failed"
     )
     plain_parts.append(summary)
+
     spans.append(TextSpan(summary, TextStyle(bold=True)))
+
     return StyledBlock(
         plain_text="".join(plain_parts),
         spans=tuple(spans),
@@ -459,10 +484,11 @@ def run_doctor_command(
     *,
     entry_file: str | None,
     config_overrides: tuple[ConfigOverride, ...] = (),
+    config_profile: str | None = None
 ) -> int:
     """解析只读诊断上下文并输出检查结果。"""
     output_mode = resolve_cli_output_mode(command)
-    frontend = resolve_cli_frontend(output_mode)
+    frontend    = resolve_cli_frontend(output_mode)
 
     try:
         layout = resolve_application_layout(entry_file=entry_file)
@@ -470,6 +496,7 @@ def run_doctor_command(
         raise ApplicationError(f"Application entry is unsupported: {error}") from error
 
     runtime_spec = None
+
     if layout.platform in {"win32", "darwin"}:
         runtime_spec = resolve_service_runtime(
             platform=layout.platform,
@@ -484,11 +511,11 @@ def run_doctor_command(
         entry_root=layout.root,
         home=mind_home(),
         config_path=mind_config_path(),
-        mcp_config_path=mind_mcp_servers_path(),
         supports=layout.supports,
         packaged=layout.packaged,
         runtime_spec=runtime_spec,
         config_overrides=config_overrides,
+        config_profile=config_profile,
     ))
     frontend.application.emit(ApplicationView(
         type="json" if command.output_format == "json" else "doctor",

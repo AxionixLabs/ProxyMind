@@ -461,6 +461,30 @@ class TuiInputModel(object):
             self.set_shell_mode(False)
             event.app.invalidate()
 
+        edit_backspace = has_focus(INPUT_BUFFER_NAME) & ~shell_mode_empty
+
+        @bindings.add("backspace", eager=True, filter=edit_backspace)
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            if event.arg < 0:
+                deleted = buffer.delete(count=-event.arg)
+            else:
+                deleted = buffer.delete_before_cursor(count=event.arg)
+
+            if not deleted:
+                event.app.output.bell()
+                return None
+
+            buffer.suggestion = self.auto_suggest.get_suggestion(
+                buffer,
+                buffer.document,
+            )
+            buffer.on_suggestion_set.fire()
+            if buffer.completer and buffer.complete_while_typing():
+                buffer.start_completion(
+                    complete_event=CompleteEvent(text_inserted=True),
+                )
+
         @bindings.add("c-z", eager=True, save_before=lambda event: False)
         def _(event) -> None:
             event.app.current_buffer.undo()

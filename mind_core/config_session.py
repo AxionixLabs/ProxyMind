@@ -2,11 +2,15 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from pathlib import Path
 from mind_core.config import (
     ConfigOverride,
     config_override,
-    apply_config_overrides,
-    normalize_config
+)
+from mind_core.config_layers import (
+    ConfigLayer,
+    ConfigResolution,
+    ConfigResolver
 )
 from mind_core.config_store import ConfigStore
 
@@ -17,22 +21,37 @@ class ConfigSession(object):
     def __init__(
         self,
         store: ConfigStore,
-        overrides: tuple[ConfigOverride, ...] = ()
+        overrides: tuple[ConfigOverride, ...] = (),
+        *,
+        profile: str | None = None,
+        workspace: Path | None = None
     ) -> None:
-        self.store     = store
-        self.overrides = tuple(overrides)
+        self.store = store
+        self.resolver = ConfigResolver(
+            store,
+            overrides,
+            profile=profile,
+            workspace=workspace,
+        )
+
+    def resolve(self, *, create: bool = True) -> ConfigResolution:
+        """返回包含来源信息的有效配置结果。"""
+        return self.resolver.resolve(create=create)
 
     def load(self, *, create: bool = True) -> dict[str, typing.Any]:
         """返回文件配置与进程覆盖合并后的有效快照。"""
-        raw = self.store.read_raw(create=create)
-        return normalize_config(apply_config_overrides(raw, self.overrides))
+        return self.resolve(create=create).config
+
+    def layers(self, *, create: bool = True) -> tuple[ConfigLayer, ...]:
+        """返回当前参与解析的配置来源。"""
+        return self.resolve(create=create).layers
 
     def update(
         self,
         values: dict[tuple[str, ...], object]
     ) -> dict[str, typing.Any]:
         """校验并持久化多个配置字段，再返回有效快照。"""
-        normalize_config(self.store.read_raw())
+        self.resolve()
 
         validated = {
             path: config_override(path, value).value
@@ -40,13 +59,6 @@ class ConfigSession(object):
         }
         self.store.update(validated)
         return self.load()
-
-    def feature_enabled(self, name: str) -> bool:
-        """返回指定已注册功能在当前进程中的状态。"""
-        features = self.load().get("features")
-        if not isinstance(features, dict):
-            return False
-        return features.get(name) is True
 
 
 if __name__ == "__main__":

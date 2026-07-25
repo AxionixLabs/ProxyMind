@@ -3,11 +3,11 @@
 
 from pathlib import Path
 from functools import lru_cache
-from mind_core.config import (
-    normalize_config
-)
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore, default_config_path
+from mind_core.config_store import (
+    ConfigStore,
+    default_config_path
+)
 from .models import SkillSpec
 from .parser import parse_skill_frontmatter
 from .paths import (
@@ -112,9 +112,8 @@ def _configured_skill_filters(config: dict | None = None) -> dict[str, list[str]
         except (OSError, TypeError, ValueError):
             config = {}
 
-    normalized = normalize_config(config)
+    skills = config.get("skills") if isinstance(config, dict) else {}
 
-    skills = normalized.get("skills") if isinstance(normalized, dict) else {}
     if not isinstance(skills, dict):
         return {"enabled": [], "disabled": []}
 

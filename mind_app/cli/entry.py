@@ -118,6 +118,7 @@ async def main(
     *,
     entry_file: str | None = None,
     config_overrides: tuple[ConfigOverride, ...] = (),
+    config_profile: str | None = None
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
@@ -126,6 +127,7 @@ async def main(
         return await run_mind_mcp_server(
             entry_file=entry_file,
             config_overrides=config_overrides,
+            config_profile=config_profile,
         )
 
     if isinstance(command, DoctorCommand):
@@ -135,6 +137,7 @@ async def main(
             command,
             entry_file=entry_file,
             config_overrides=config_overrides,
+            config_profile=config_profile,
         )
 
     if isinstance(command, (
@@ -146,7 +149,11 @@ async def main(
     )):
         from .mcp_registry import run_mcp_registry_command
 
-        return run_mcp_registry_command(command)
+        return run_mcp_registry_command(
+            command,
+            config_overrides=config_overrides,
+            config_profile=config_profile,
+        )
 
     from .bootstrap import run_application
 
@@ -154,6 +161,7 @@ async def main(
         command,
         entry_file=entry_file,
         config_overrides=config_overrides,
+        config_profile=config_profile,
     )
 
 
@@ -175,6 +183,7 @@ def run(
                 command,
                 entry_file=entry_file,
                 config_overrides=invocation.config_overrides,
+                config_profile=invocation.profile,
             ))
     except ApplicationError as error:
         emit_entry_failure(command, error, phase="runtime")

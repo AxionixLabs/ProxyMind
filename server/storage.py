@@ -3,6 +3,7 @@
 
 import typing
 from mind_app.paths import mind_config_path
+from mind_core.config import model_config_values
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.provider_config import (
@@ -43,15 +44,15 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
     hosted = pref_to_hosted_tools(payload.get("hosted_tools"))
     groups = hosted["groups"]
 
-    values = {
-        ("model", "primary", name): value
-        for name, value in primary.items()
-    }
+    values = model_config_values(primary)
+
     values.update({
         ("hosted_tools", "groups", name): value
         for name, value in groups.items()
     })
+
     _config_session().update(values)
+
     return load_pref()
 
 

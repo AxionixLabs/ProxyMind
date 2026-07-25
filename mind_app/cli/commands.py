@@ -14,7 +14,6 @@ from mind_nova.requests.access import (
 )
 
 OutputFormat = typing.Literal["text", "json"]
-McpTransport = typing.Literal["streamable_http", "sse"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +57,6 @@ class HelixUpgradeCommand(object):
 @dataclass(frozen=True, slots=True)
 class DoctorCommand(object):
     """描述本地环境诊断入口。"""
-
     output_format: OutputFormat = "text"
 
 
@@ -70,14 +68,12 @@ class McpServerCommand(object):
 @dataclass(frozen=True, slots=True)
 class McpListCommand(object):
     """描述外部 MCP 服务列表命令。"""
-
     output_format: OutputFormat = "text"
 
 
 @dataclass(frozen=True, slots=True)
 class McpGetCommand(object):
     """描述外部 MCP 服务查询命令。"""
-
     name: str
     output_format: OutputFormat = "text"
 
@@ -85,10 +81,9 @@ class McpGetCommand(object):
 @dataclass(frozen=True, slots=True)
 class McpAddCommand(object):
     """描述外部 MCP 服务添加命令。"""
-
     name: str
     url: str | None = None
-    transport: McpTransport | None = None
+    bearer_token_env_var: str | None = None
     stdio_command: tuple[str, ...] = ()
     env: tuple[tuple[str, str], ...] = ()
     headers: tuple[tuple[str, str], ...] = ()
@@ -99,14 +94,12 @@ class McpAddCommand(object):
 @dataclass(frozen=True, slots=True)
 class McpRemoveCommand(object):
     """描述外部 MCP 服务删除命令。"""
-
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class McpSetEnabledCommand(object):
     """描述外部 MCP 服务启用状态命令。"""
-
     name: str
     enabled: bool
 
@@ -140,9 +133,9 @@ ParsedCommand: typing.TypeAlias = CliCommand | McpServerCommand
 @dataclass(frozen=True, slots=True)
 class CliInvocation(object):
     """描述一次命令及其进程级配置覆盖。"""
-
     command: ParsedCommand
     config_overrides: tuple[ConfigOverride, ...] = ()
+    profile: str | None = None
 
 
 def command_uses_helix(command: RuntimeCommand) -> bool:

@@ -83,8 +83,13 @@ async def persist_primary_pref(
 ) -> typing.Optional[dict[str, typing.Any]]:
     """把 TUI 偏好命令写入 primary slot，并刷新本地缓存。"""
     application = mind.frontend.application
+
     try:
-        saved = await save_primary_pref_field(field_name, field_value)
+        saved = await save_primary_pref_field(
+            mind.config_session,
+            field_name,
+            field_value,
+        )
         await mind.refresh_pref_if_stale(ttl_sec=0.0)
     except (OSError, TypeError, ValueError) as pref_save_error:
         application.emit(ApplicationView(

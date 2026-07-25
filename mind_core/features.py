@@ -66,9 +66,7 @@ class FeatureRegistry(object):
         return values
 
 
-FEATURE_REGISTRY = FeatureRegistry((
-    FeatureDefinition(name="external_mcp", default=True),
-))
+FEATURE_REGISTRY = FeatureRegistry(())
 
 
 if __name__ == "__main__":
