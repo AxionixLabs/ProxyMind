@@ -137,6 +137,16 @@ def create_cli_parser() -> CliArgumentParser:
         help="Start or reuse the local Helix runtime and attach its MCP tools",
     )
     exec_options.add_argument(
+        "-i",
+        "--image",
+        action="extend",
+        nargs="+",
+        default=[],
+        dest="images",
+        metavar="FILE",
+        help="Optional image(s) to attach to the initial prompt",
+    )
+    exec_options.add_argument(
         "-h",
         "--help",
         action="help",
@@ -1120,6 +1130,7 @@ def _parse_cli_command(
 
         return ExecCommand(
             prompt=prompt,
+            images=_image_paths(parser, values),
             mode=_run_mode(parser, values),
             access_mode=_access_mode(parser, values),
             output_format=output_format,

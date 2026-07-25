@@ -54,10 +54,17 @@ async def run_selected_mode(
         if isinstance(command, AgentListenCommand):
             await mind.agent_loop()
         elif isinstance(command, ExecCommand):
+            attachments: list[dict[str, typing.Any]] = []
+            if command.images:
+                for image in command.images:
+                    mind.attach.add_pending_attachments(image)
+                attachments = mind.attach.consume_pending_attachments()
+
             run_result = await mind.calling(
                 message=command.prompt,
                 mode=command.mode,
                 access_mode=access_mode,
+                attachments=attachments,
             )
             mind.exit_code = run_result.exit_code
         elif isinstance(command, BatchCommand):

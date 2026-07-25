@@ -105,8 +105,11 @@ def test_cli_parser_returns_typed_commands() -> None:
         "full",
         "--json",
         "--helix",
+        "--image",
+        "screen.png",
     ]) == ExecCommand(
         prompt="hello",
+        images=("screen.png",),
         mode="fast",
         access_mode="full",
         output_format="json",
@@ -322,22 +325,35 @@ def test_exec_reads_prompt_from_standard_input() -> None:
 
 
 @pytest.mark.anyio
-async def test_direct_cli_mode_does_not_forward_attachments() -> None:
+async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
     run_result = RunResult(status="completed", assistant_text="done")
+    attachments = [{"kind": "image", "data_url": "data:image/png;base64,AA=="}]
+    attach = SimpleNamespace(
+        add_pending_attachments=Mock(),
+        consume_pending_attachments=Mock(return_value=attachments),
+    )
     mind = SimpleNamespace(
         calling=AsyncMock(return_value=run_result),
+        attach=attach,
         exit_code=99,
     )
-    command = ExecCommand(prompt="hello", mode="chat")
+    command = ExecCommand(
+        prompt="hello",
+        images=("screen.png",),
+        mode="chat",
+    )
 
     result = await run_selected_mode(mind, command)
 
     assert result is run_result
     assert mind.exit_code == 0
+    attach.add_pending_attachments.assert_called_once_with("screen.png")
+    attach.consume_pending_attachments.assert_called_once_with()
     mind.calling.assert_awaited_once_with(
         message="hello",
         mode="chat",
         access_mode="safe",
+        attachments=attachments,
     )
 
 
