@@ -8,6 +8,10 @@ from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.patch_stdout import patch_stdout
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
 from mind_core.design.terminal_progress import (
     PassiveTerminalProgress,
     TerminalProgress
@@ -31,6 +35,7 @@ from .document import (
 from .input import TuiInputModel
 from .interrupt import TuiExitReason
 from .process_viewer import ProcessViewerRequest
+from .render import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
 from .styles import query_block
@@ -48,7 +53,7 @@ StartupAnimation: typing.TypeAlias = typing.Callable[
 ]
 
 
-class TuiRuntime(FrontendRuntime):
+class TuiRuntime(object):
     """协调 TUI Application 生命周期、正文输出和前端交互能力。"""
 
     def __init__(
@@ -58,6 +63,9 @@ class TuiRuntime(FrontendRuntime):
         input_obj: Input | None = None,
         output_obj: Output | None = None,
         terminal_progress: TerminalProgress | None = None,
+        terminal_capabilities: TerminalCapabilities = (
+            DEGRADED_TERMINAL_CAPABILITIES
+        ),
     ) -> None:
         self.input_model = input_model or TuiInputModel()
         self.context     = PromptContext(mode="chat", model="")
@@ -137,10 +145,13 @@ class TuiRuntime(FrontendRuntime):
             scroll_transcript_page=self.viewport.scroll_page,
             input_obj=input_obj,
             output_obj=output_obj,
+            terminal_capabilities=terminal_capabilities,
         )
 
         self.activity = TuiActivity(
-            set_renderable=self.screen.set_activity_renderable,
+            set_renderable=lambda block: self.screen.set_activity_renderable(
+                sanitize_fragment_block(block)
+            ),
             clear_renderable=self.screen.clear_activity_renderable,
             get_width=lambda: self.terminal_width,
         )

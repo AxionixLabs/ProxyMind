@@ -7,6 +7,7 @@ import typing
 import asyncio
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from mind_app.presentation.models import TextSpan
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_nova import const
 from mind_app.frontend import (
     ApplicationSink,
@@ -61,19 +62,25 @@ async def monitor_exec_status(
             try:
                 snapshot = await mind.native_coding.running_exec_sessions()
                 sessions = _running_items(snapshot)
+
                 label = exec_status_display_label(
                     snapshot,
                     line_width=runtime.terminal_width,
                 )
+
                 delay = (
                     PROCESS_STATUS_ACTIVE_SEC
                     if sessions
                     else PROCESS_STATUS_IDLE_SEC
                 )
+
                 runtime.set_process_status_label(label)
+
             except (OSError, RuntimeError, TypeError, ValueError):
                 pass
+
             await asyncio.sleep(delay)
+
     finally:
         runtime.set_process_status_label("")
 
@@ -144,10 +151,11 @@ async def stop_all_exec_sessions(
     runtime: "TuiRuntime",
     mind: typing.Any,
     *,
-    sessions: list[dict[str, typing.Any]] | None = None,
+    sessions: list[dict[str, typing.Any]] | None = None
 ) -> bool:
     """确认并停止当前全部后台命令会话。"""
     application = mind.frontend.application
+
     if sessions is None:
         snapshot = await mind.native_coding.running_exec_sessions()
         sessions = _running_items(snapshot)
@@ -216,7 +224,7 @@ def render_exec_sessions_stopped(
     requested = int(data.get("requested") or 0)
     stopped   = int(data.get("stopped") or 0)
     failed    = int(data.get("failed") or 0)
-    details = [f"requested={requested} · stopped={stopped} · failed={failed}"]
+    details   = [f"requested={requested} · stopped={stopped} · failed={failed}"]
 
     details.extend(
         "failed "
@@ -702,11 +710,11 @@ def _panel_title(
     terminal_width: int
 ) -> str:
     """生成查看面板标题。"""
-    sid    = str(snapshot.get("session_id") or "").strip()
-    status = str(snapshot.get("status") or "unknown").strip()
-
-    kind = _session_kind(snapshot)
+    sid     = str(snapshot.get("session_id") or "").strip()
+    status  = str(snapshot.get("status") or "unknown").strip()
+    kind    = _session_kind(snapshot)
     command = _clip_inline(snapshot.get("command"), max(12, terminal_width - 32))
+
     if command:
         return f"{kind} {status} · {sid} · {command}"
 
@@ -784,7 +792,7 @@ def _clip_inline(value: typing.Any, limit: int) -> str:
 
 def _inline_text(value: typing.Any) -> str:
     """把任意值整理为单行展示文本。"""
-    return " ".join(str(value or "").split())
+    return " ".join(sanitize_terminal_text(value).split())
 
 
 if __name__ == '__main__':

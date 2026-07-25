@@ -12,6 +12,12 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
+from mind_app.presentation.terminal_text import (
+    TerminalTextFilter,
+    sanitize_terminal_line,
+    sanitize_terminal_text,
+    sanitize_text_spans
+)
 from mind_app.presentation.rich.styles import rich_style
 from mind_app.output.contracts import (
     BLOCK_OUTPUT,
@@ -56,6 +62,8 @@ class RichOutputControl(OutputPort):
         self._stream_output_fact: bool      = False
         self._stream_boundary_pending: bool = False
 
+        self._stream_filter = TerminalTextFilter()
+
         self._reset_components()
 
         self.record_writer: StreamRecordWriter
@@ -79,6 +87,7 @@ class RichOutputControl(OutputPort):
     async def stop(self, *, blink: bool = True) -> None:
         """停止渲染与后台状态任务，并关闭记录。"""
         await self._cancel_pending_status_task()
+        await self._finish_stream_filter()
         await self.coordinator.stop(blink=blink)
         await self.record_writer.close()
         self._reset_components()
@@ -98,7 +107,28 @@ class RichOutputControl(OutputPort):
         if not chunk:
             return None
 
-        text = str(chunk)
+        raw_text = str(chunk)
+
+        text = (
+            self._stream_filter.feed(raw_text)
+            if display == self.STREAM
+            else sanitize_terminal_text(raw_text)
+        )
+
+        safe_parts = (
+            list(sanitize_text_spans(display_parts))
+            if display_parts is not None
+            else None
+        )
+
+        safe_display_chunk = (
+            sanitize_terminal_text(display_chunk)
+            if display_chunk is not None
+            else None
+        )
+
+        if not text and not safe_parts:
+            return None
 
         boundary_prefix = self._consume_stream_boundary_prefix(incoming_text=text)
         if boundary_prefix and display == self.STREAM:
@@ -120,15 +150,17 @@ class RichOutputControl(OutputPort):
             text,
             echo=echo,
             display=display,
-            display_chunk=display_chunk,
+            display_chunk=safe_display_chunk,
             raw_chunk=raw_chunk,
             display_style=display_style,
-            display_parts=display_parts,
+            display_parts=safe_parts,
             preserve_display_parts=preserve_display_parts
         )
 
     async def prepare_external_output(self) -> None:
         """落版当前 live 文本，并在外部 UI 输出前消费 text.done 边界。"""
+        await self._finish_stream_filter()
+
         display_text    = self.coordinator.text_state.display_text
         has_live_state  = bool(display_text)
         has_live_text   = bool(display_text.strip())
@@ -161,6 +193,9 @@ class RichOutputControl(OutputPort):
         """启动自定义工具状态显示。"""
         if not self.animate:
             return None
+
+        text = sanitize_terminal_text(text)
+
         self.coordinator.hold_status_slot()
 
         await self._schedule_status_task(
@@ -183,6 +218,9 @@ class RichOutputControl(OutputPort):
         """启动等待模型回复的状态显示。"""
         if not self.animate:
             return None
+
+        text = sanitize_terminal_text(text)
+
         animate_after = delay_sec if animate_after_sec is None else max(0.0, float(animate_after_sec))
 
         await self._schedule_status_task(
@@ -206,7 +244,9 @@ class RichOutputControl(OutputPort):
 
     async def settle_stream(self) -> None:
         """同步当前流式正文到稳定显示状态。"""
+        await self._finish_stream_filter()
         await self.coordinator.settle_stream()
+        self._stream_filter.reset()
 
     async def commit_live(self) -> None:
         """将当前 live 正文落版为普通终端输出。"""
@@ -214,22 +254,35 @@ class RichOutputControl(OutputPort):
             render_rich_final(self.coordinator.text_state.final_units())
             if self.coordinator.text_state.display_text else None
         )
+
         await self.coordinator.text_renderer.suspend(clear=True)
+
         if renderable is not None:
             self._print_direct(renderable)
             self.coordinator.text_state.clear()
+
+        self._stream_filter.reset()
 
     async def print_block(
         self,
         chunk: typing.Optional[str],
         *,
-        display_parts: list[TextSpan] | None = None,
+        display_parts: list[TextSpan] | None = None
     ) -> None:
         """直接打印块文本，不启动动态渲染器。"""
         if not chunk:
             return None
 
-        text = str(chunk)
+        text = sanitize_terminal_text(chunk)
+
+        safe_parts = (
+            list(sanitize_text_spans(display_parts))
+            if display_parts is not None
+            else None
+        )
+
+        if not text and not safe_parts:
+            return None
 
         boundary_prefix        = self._consume_stream_boundary_prefix(incoming_text=text)
         record_boundary_prefix = boundary_prefix
@@ -248,10 +301,11 @@ class RichOutputControl(OutputPort):
         await self._print_boundary_prefix(boundary_prefix, record=False)
 
         self._print_direct(
-            self._parts_renderable(display_parts)
-            if display_parts is not None
+            self._parts_renderable(safe_parts)
+            if safe_parts is not None
             else Text(text.rstrip("\n"), style="bold")
         )
+
         self.coordinator.text_state.remember_external_output(
             display=self.BLOCK,
             text=text if text.endswith("\n") else f"{text}\n"
@@ -263,6 +317,7 @@ class RichOutputControl(OutputPort):
 
     def mark_stream_boundary(self) -> None:
         """标记下一段输出前需要处理流式边界。"""
+        self._stream_filter.reset()
         self._stream_boundary_pending = True
 
     async def record_hidden_output(self, text: str) -> None:
@@ -270,7 +325,8 @@ class RichOutputControl(OutputPort):
         if not text:
             return None
 
-        value = str(text)
+        value = sanitize_terminal_text(text)
+
         self._consume_stream_boundary_prefix(incoming_text=value)
         self.record_writer.write(value, block=True)
 
@@ -283,10 +339,12 @@ class RichOutputControl(OutputPort):
     ) -> None:
         """记录工具调用参数的审计信息。"""
         payload   = self._tool_arguments_audit_payload(arguments)
-        call_part = f" call_id={call_id}" if call_id else ""
+        tool_name = sanitize_terminal_line(name) or "tool"
+        safe_call_id = sanitize_terminal_line(call_id)
+        call_part = f" call_id={safe_call_id}" if safe_call_id else ""
 
         self.record_writer.write_audit(
-            f"# tool_args tool={name}{call_part} arguments={payload}"
+            f"# tool_args tool={tool_name}{call_part} arguments={payload}"
         )
 
     def _print_direct(self, renderable: typing.Any) -> None:
@@ -374,6 +432,16 @@ class RichOutputControl(OutputPort):
             console=self.console,
             refresh_per_second=refresh_per_second
         )
+        self._stream_filter.reset()
+
+    async def _finish_stream_filter(self) -> None:
+        """收束流式控制序列并提交剩余的安全文本。"""
+        tail = self._stream_filter.finish()
+        if not tail:
+            return None
+
+        self.record_writer.write(tail)
+        await self.coordinator.append(tail, display=self.STREAM)
 
     def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
         """在指定状态任务结束后清理任务引用。"""
@@ -412,6 +480,7 @@ class RichOutputControl(OutputPort):
             return None
         if record:
             self.record_writer.write_raw(prefix)
+
         await self.coordinator.text_renderer.suspend(clear=True)
         self._print_raw(prefix)
 

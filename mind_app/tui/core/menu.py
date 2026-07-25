@@ -9,7 +9,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import (
     MenuOption,
     MenuRequest
@@ -72,6 +72,7 @@ class TuiMenu(object):
 
     async def request(self, request: MenuRequest) -> typing.Any:
         """显示菜单并等待用户选择。"""
+        request = _sanitize_menu_request(request)
         if not request.options and not request.body:
             return None
 
@@ -270,6 +271,7 @@ class TuiMenu(object):
         state = self.state
         if state is None:
             return None
+        request = _sanitize_menu_request(request)
         state.request = request
         if request.options:
             state.selected = min(len(request.options) - 1, state.selected)
@@ -362,6 +364,25 @@ class TuiMenu(object):
                     self._choose_index(start + selected_number - 1)
 
         return bindings
+
+
+def _sanitize_menu_request(request: MenuRequest) -> MenuRequest:
+    """复制菜单请求并清理其中的显示字段。"""
+    return MenuRequest(
+        title=sanitize_terminal_text(request.title),
+        options=tuple(
+            MenuOption(
+                value=option.value,
+                label=sanitize_terminal_text(option.label),
+                detail=sanitize_terminal_text(option.detail),
+            )
+            for option in request.options
+        ),
+        body=tuple(sanitize_terminal_text(line) for line in request.body),
+        selected=request.selected,
+        status=sanitize_terminal_text(request.status),
+        help_text=sanitize_terminal_text(request.help_text),
+    )
 
 
 if __name__ == '__main__':

@@ -7,6 +7,7 @@ from .models import (
     FormattedText,
     FragmentBlock
 )
+from .render import sanitize_fragment_block
 
 TuiBlockKind = typing.Literal[
     "user",
@@ -119,7 +120,7 @@ class TuiDocument(object):
         """暂存等待命令分派决定展示方式的用户输入。"""
         if self._pending_submission is not None:
             raise RuntimeError("cannot stage multiple TUI submissions")
-        self._pending_submission = block
+        self._pending_submission = sanitize_fragment_block(block)
 
     def commit_submission(self) -> FragmentBlock | None:
         """把暂存用户输入提交为稳定正文块。"""
@@ -137,6 +138,8 @@ class TuiDocument(object):
 
     def append_block(self, block: FragmentBlock, *, kind: TuiBlockKind) -> bool:
         """追加一个稳定正文块并统一保留块间空行。"""
+        block = sanitize_fragment_block(block)
+
         item = TranscriptBlock(
             block=block,
             kind=kind,
@@ -146,10 +149,12 @@ class TuiDocument(object):
                 or self._active_tail
             ),
         )
+
         if self.active_block is not None:
             self._active_tail.append(item)
         else:
             self.blocks.append(item)
+
         return True
 
     def discard_trailing_block(self, block: FragmentBlock) -> bool:
@@ -165,17 +170,23 @@ class TuiDocument(object):
 
     def set_active(self, block: FragmentBlock, *, kind: TuiBlockKind) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
+        block = sanitize_fragment_block(block)
+
         if self.active_block is None:
             self.active_kind = kind
             self.active_gap_before = bool(self.blocks)
         elif self.active_kind != kind:
             raise ValueError("active TUI block kind cannot change before commit")
+
         self.active_block = block
 
     def commit_active(self, block: FragmentBlock) -> None:
         """把当前动态正文替换为相同位置的稳定块。"""
         if self.active_kind is None:
             raise ValueError("cannot commit an active TUI block without a kind")
+
+        block = sanitize_fragment_block(block)
+
         self.blocks.append(TranscriptBlock(
             block=block,
             kind=self.active_kind,

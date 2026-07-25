@@ -4,6 +4,7 @@
 import collections
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
 from .render import clip_fragments
 
@@ -11,7 +12,6 @@ from .render import clip_fragments
 @dataclass(frozen=True, slots=True)
 class TuiSubmission(object):
     """保存一次输入提交的请求文本和可见编辑状态。"""
-
     value: str
     editable_text: str
     paste_store: dict[str, str]
@@ -59,22 +59,27 @@ class TuiQueuedMessages(object):
             return []
 
         row_limit = max(1, int(max_rows))
+
         lines: list[FormattedText] = [[(
             "class:queue.label",
             _queue_title(width),
         )]]
-        available = max(0, row_limit - 1)
+
+        available     = max(0, row_limit - 1)
         visible_count = min(len(self._items), available)
+
         if len(self._items) > available:
             visible_count = max(0, available - 1)
 
         for item in list(self._items)[:visible_count]:
-            preview = " ".join(item.visible_text.split())
+            preview = " ".join(sanitize_terminal_text(item.visible_text).split())
             lines.append([
                 ("class:queue.marker", "  ↳ "),
                 ("class:queue.text", preview),
             ])
+
         hidden_count = len(self._items) - visible_count
+
         if hidden_count:
             lines.append([(
                 "class:queue.more",
@@ -82,10 +87,12 @@ class TuiQueuedMessages(object):
             )])
 
         out: FormattedText = []
+
         for index, line in enumerate(lines):
             if index:
                 out.append(("", "\n"))
             out.extend(_ellipsize_fragments(line, width=max(1, width)))
+
         return out
 
 
@@ -96,16 +103,20 @@ def _queue_title(width: int) -> str:
         "• Queued for next turn (Esc edits latest)",
         "• Queued for next turn",
     )
+
     limit = max(1, int(width))
+
     for title in titles:
         if get_cwidth(title) <= limit:
             return title
+
     return titles[-1]
 
 
 def _ellipsize_fragments(parts: FormattedText, *, width: int) -> FormattedText:
     """按显示宽度裁剪单行片段并在末尾添加省略号。"""
     limit = max(1, int(width))
+
     if get_cwidth("".join(text for _, text in parts)) <= limit:
         return parts
 
@@ -117,6 +128,7 @@ def _ellipsize_fragments(parts: FormattedText, *, width: int) -> FormattedText:
     )
 
     style = clipped[-1][0] if clipped else "class:queue.text"
+
     return [*clipped, (style, omit)]
 
 

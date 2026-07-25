@@ -20,9 +20,9 @@ from .native_helpers import (
     _patch_file_action
 )
 from .shell_errors import (
+    normalize_shell_output_text,
     shell_error_diagnostic_lines,
-    shell_output_lines,
-    strip_ansi_shell_output
+    shell_output_lines
 )
 from .native_patch import (
     _hunk_label,
@@ -273,7 +273,7 @@ def _shell_command_ordered_output_lines(
 
     lines: list[str] = []
     for item in values:
-        text = strip_ansi_shell_output(item).rstrip()
+        text = normalize_shell_output_text(item).rstrip()
         if text.strip():
             lines.append(text)
     return lines

@@ -93,6 +93,11 @@ def test_completion_surface_has_no_async_footer_gap() -> None:
     assert buffer.complete_state is None
     assert runtime.screen._completion_visible()
     assert runtime.screen._completion_height() == 1
+    assert runtime.screen._completion_section_height() == 1
+    assert (
+        runtime.screen._input_stack_height()
+        == runtime.screen._input_surface_height() + 1
+    )
     assert not runtime.screen._footer_visible()
 
     buffer.document = Document("/mcp", cursor_position=4)
@@ -147,7 +152,27 @@ async def test_input_prompt_uses_single_space_before_placeholder() -> None:
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
 
-            assert rendered_input_line(runtime) == "› Write tests for @filename"
+            assert rendered_input_line(runtime) == "›  Write tests for @filename"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_inline_command_hint_keeps_leading_space() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/model ")
+            await wait_for_input_text(runtime, "/model ")
+            await wait_for_suggestion(runtime)
+            runtime.screen.application.invalidate()
+            await asyncio.sleep(0)
+
+            assert runtime.screen.input.buffer.suggestion is not None
+            assert runtime.screen.input.buffer.suggestion.text == "<model-id>"
+            assert rendered_input_line(runtime) == "› /model <model-id>"
         finally:
             await runtime.close()
 
@@ -167,10 +192,16 @@ async def test_slash_completion_aligns_with_input_command() -> None:
             input_line = rendered_input_line(runtime)
             menu_window = runtime.screen.completion_menu.content
             completion_line = rendered_window_line(runtime, menu_window)
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            bottom_position = screen.visible_windows_to_write_positions[
+                runtime.screen.input_bottom_padding
+            ]
+            menu_position = screen.visible_windows_to_write_positions[menu_window]
 
             assert input_line == "› /s"
             assert completion_line.lstrip().startswith("/skills")
             assert input_line.index("/") == completion_line.index("/")
+            assert menu_position.ypos == bottom_position.ypos + 1
         finally:
             await runtime.close()
 

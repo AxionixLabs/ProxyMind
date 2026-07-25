@@ -13,7 +13,9 @@ import pytest
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.utils import get_cwidth
 
+from mind_app.interaction.contracts import PromptContext
 from mind_app.output.content import (
     AssistantTextDelta,
     SourcesOutput,
@@ -38,6 +40,7 @@ from mind_app.tui.core.document import (
     TuiDocument,
 )
 from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
     display_line_count,
     fragment_continuation_widths,
@@ -76,6 +79,75 @@ def test_block_outer_newlines_do_not_duplicate_document_spacing() -> None:
     document.append_block(_block("\nsecond\n"), kind="operation")
 
     assert _document_text(document) == "first\n\nsecond"
+
+
+def test_document_sanitizes_control_sequences_across_fragments() -> None:
+    document = TuiDocument()
+    block = FragmentBlock((
+        ("class:first", "safe\x1b]52;c;"),
+        ("class:second", "payload\x1b\\\tdevice\x1bPprivate\x1b\\"),
+    ))
+
+    document.append_block(block, kind="operation")
+
+    stored = document.blocks[0].block
+    text = "".join(value for _style, value in stored.fragments)
+    assert text == "safe    device"
+    assert "\x1b" not in text
+    assert "payload" not in text
+    assert "private" not in text
+
+
+def test_document_preserves_safe_fragment_boundaries_and_identity() -> None:
+    document = TuiDocument()
+    block = FragmentBlock((
+        ("class:notice", "•"),
+        ("class:notice", " safe"),
+    ))
+
+    document.append_block(block, kind="notice")
+
+    assert document.blocks[0].block is block
+    assert document.blocks[0].block.fragments == block.fragments
+
+
+def test_queued_messages_filter_controls_before_clipping() -> None:
+    queued = TuiQueuedMessages()
+    queued.append(TuiSubmission(
+        value="raw",
+        editable_text="id\tdevice\x1b]52;c;payload\x1b\\",
+        paste_store={},
+    ))
+
+    fragments = queued.fragments(width=24)
+    text = "".join(value for _style, value in fragments)
+
+    assert "\x1b" not in text
+    assert "payload" not in text
+    assert all(
+        get_cwidth(line) <= 24
+        for line in text.splitlines()
+    )
+
+
+def test_footer_filters_context_controls_before_clipping() -> None:
+    runtime = TuiRuntime()
+    runtime.set_prompt_context(PromptContext(
+        mode="chat",
+        model="model\x1b]52;c;payload\x1b\\",
+        workspace_label="workspace\x1bPprivate\x1b\\",
+        access_label="safe",
+    ))
+
+    text = "".join(
+        value for _style, value in runtime.screen._footer_fragments()
+    )
+
+    assert "model" in text
+    assert "workspace" in text
+    assert "\x1b" not in text
+    assert "payload" not in text
+    assert "private" not in text
 
 
 def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
@@ -290,13 +362,19 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
             try:
                 assert not runtime.screen.application.full_screen
                 initial_height = runtime.screen.canvas.preferred_height(40, 12)
-                assert initial_height.min == 3
-                assert initial_height.preferred == 3
-                assert initial_height.max == 3
+                assert initial_height.min == 4
+                assert initial_height.preferred == 4
+                assert initial_height.max == 4
 
                 initial_screen = runtime.screen.application.renderer.last_rendered_screen
+                initial_top = initial_screen.visible_windows_to_write_positions[
+                    runtime.screen.input_top_padding
+                ]
                 initial_input = initial_screen.visible_windows_to_write_positions[
                     runtime.screen.input.window
+                ]
+                initial_bottom = initial_screen.visible_windows_to_write_positions[
+                    runtime.screen.input_bottom_padding
                 ]
                 initial_footer = initial_screen.visible_windows_to_write_positions[
                     runtime.screen.footer_window
@@ -315,8 +393,10 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                 active_footer = active_screen.visible_windows_to_write_positions[
                     runtime.screen.footer_window
                 ]
-                assert initial_input.ypos == 0
-                assert initial_footer.ypos == 2
+                assert initial_top.ypos == 0
+                assert initial_input.ypos == 1
+                assert initial_bottom.ypos == 2
+                assert initial_footer.ypos == 3
                 assert active_input.ypos > initial_input.ypos
                 assert active_footer.ypos > initial_footer.ypos
 
@@ -365,6 +445,30 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
 
 
 @pytest.mark.anyio
+async def test_three_row_terminal_prioritizes_complete_input_surface() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=3, columns=40),
+        ):
+            await runtime.open()
+            try:
+                screen = runtime.screen.application.renderer.last_rendered_screen
+                positions = screen.visible_windows_to_write_positions
+
+                assert positions[runtime.screen.input_top_padding].ypos == 0
+                assert positions[runtime.screen.input.window].ypos == 1
+                assert positions[runtime.screen.input_bottom_padding].ypos == 2
+                assert runtime.screen.footer_window not in positions
+                assert not runtime.screen._footer_visible()
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_multiline_input_grows_for_trailing_edit_line() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -392,6 +496,7 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
                 ]
 
                 assert runtime.screen._input_height() == 3
+                assert runtime.screen._input_surface_height() == 5
                 assert input_position.height == 3
             finally:
                 await runtime.close()

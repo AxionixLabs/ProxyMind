@@ -2,10 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import os
-import re
 import sys
 import typing
 from mind_nova import const
+from mind_app.presentation.terminal_text import (
+    sanitize_terminal_line,
+    sanitize_terminal_text
+)
 from mind_app.presentation.contracts import (
     PresentationSink,
     PresentationView
@@ -43,11 +46,6 @@ ANSI_BOLD    = "\x1b[1m"
 ANSI_CYAN    = "\x1b[1;96m"
 ANSI_MAGENTA = "\x1b[1;95m"
 
-ANSI_ESCAPE_RE = re.compile(
-    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))"
-)
-
-
 def _write(stream: typing.TextIO, text: str) -> None:
     """写入并刷新一个文本块。"""
     if not text:
@@ -58,16 +56,17 @@ def _write(stream: typing.TextIO, text: str) -> None:
 
 def _terminal_text(value: typing.Any) -> str:
     """移除外部文本中的终端控制序列。"""
-    text = ANSI_ESCAPE_RE.sub("", str(value or ""))
-    return text.replace("\x1b", "").replace("\x9b", "")
+    return sanitize_terminal_text(value)
 
 
 def _styled_text(text: str, style: str) -> str:
     """生成在末尾换行前复位的 ANSI 文本。"""
-    body = text.rstrip("\r\n")
+    body     = text.rstrip("\r\n")
     trailing = text[len(body):]
+
     if not body:
         return trailing
+
     return f"{style}{body}{ANSI_RESET}{trailing}"
 
 
@@ -77,20 +76,24 @@ def _supports_color(stream: typing.TextIO) -> bool:
         return False
     if os.environ.get("FORCE_COLOR") not in {None, "", "0"}:
         return True
+
     isatty = getattr(stream, "isatty", None)
+
     return bool(callable(isatty) and isatty())
 
 
 def _line(value: typing.Any) -> str:
     """把值转换为单行文本。"""
-    return str(value or "").replace("\r", "").strip()
+    return sanitize_terminal_line(value)
 
 
 def _tool_label(name: str) -> str:
     """根据工具名称生成展示标签。"""
     normalized = _line(name).lower()
+
     if normalized in {"web_search", "search_query"} or normalized.startswith("web_"):
         return "web search:"
+
     return f"mcp: {normalized or 'tool'}"
 
 
@@ -101,8 +104,9 @@ def _payload(data: typing.Any) -> dict[str, typing.Any]:
 
 def _tool_output(data: typing.Any) -> str:
     """提取工具结果中的标准输出文本。"""
-    payload = _payload(data)
+    payload  = _payload(data)
     combined = payload.get("output")
+
     if combined is not None and str(combined):
         return str(combined).rstrip("\n")
 
@@ -111,6 +115,7 @@ def _tool_output(data: typing.Any) -> str:
         for key in ("stdout", "stderr")
         if payload.get(key) is not None and str(payload[key])
     ]
+
     return "\n".join(values)
 
 
@@ -124,11 +129,12 @@ class TextOutputState:
         stderr: typing.TextIO,
         color: bool = False,
     ) -> None:
-        self.record_writer = record_writer
-        self.stdout = stdout
-        self.stderr = stderr
-        self.color = color
+        self.record_writer  = record_writer
+        self.stdout         = stdout
+        self.stderr         = stderr
+        self.color          = color
         self.assistant_open = False
+
         self._assistant_parts: list[str] = []
 
     async def open(self) -> None:
@@ -160,11 +166,13 @@ class TextOutputState:
     def assistant(self, text: str) -> None:
         """输出 assistant 正文。"""
         plain = _terminal_text(text)
+
         if not plain:
             return None
         if not self.assistant_open:
             self.process(f"{const.APP_DESC.lower()}\n", style=ANSI_MAGENTA)
             self.assistant_open = True
+
         _write(self.stdout, plain)
         self.record_writer.write(plain)
 
@@ -226,7 +234,7 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         text: typing.Optional[str] = "Thinking",
         *,
         delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
+        animate_after_sec: float | None = None
     ) -> None:
         """文本模式不显示等待动画。"""
         _ = text, delay_sec, animate_after_sec
@@ -244,7 +252,7 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的文本。"""
         if text:
-            self.state.record_writer.write(str(text), block=True)
+            self.state.record_writer.write(_terminal_text(text), block=True)
 
     def mark_stream_boundary(self) -> None:
         """标记文本流边界。"""
@@ -255,12 +263,14 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         name: str,
         arguments: dict[str, typing.Any],
         *,
-        call_id: typing.Optional[str] = None,
+        call_id: typing.Optional[str] = None
     ) -> None:
         """输出工具调用标题和参数摘要。"""
         self.state.settle_assistant()
+
         tool = _line(name) or "tool"
         args = arguments if isinstance(arguments, dict) else {}
+
         if tool in {"shell_command", "exec_command", "write_stdin"}:
             command = _line(args.get("command") or args.get("cmd") or tool)
             cwd = _line(args.get("cwd") or ".")
@@ -269,8 +279,13 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
             self.state.process("apply patch\n")
         else:
             self.state.process(f"{_tool_label(tool)}\n")
-        if call_id:
-            self.state.record_writer.write_audit(f"tool {tool} call_id={call_id}")
+
+        safe_call_id = sanitize_terminal_line(call_id)
+
+        if safe_call_id:
+            self.state.record_writer.write_audit(
+                f"tool {tool} call_id={safe_call_id}"
+            )
 
     def flush(self) -> None:
         """刷新文本记录。"""
@@ -391,7 +406,7 @@ class TextPresentationSink(PresentationSink):
 def create_text_output_session(
     log_file: str,
     *,
-    animate: bool = True,
+    animate: bool = True
 ) -> OutputSession:
     """创建无动画的人类可读文本输出会话。"""
     _ = animate
@@ -401,7 +416,9 @@ def create_text_output_session(
         stderr=sys.stderr,
         color=_supports_color(sys.stderr),
     )
+
     control = TextOutputControl(state)
+
     return OutputSession(
         control=control,
         status=control,

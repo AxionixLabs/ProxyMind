@@ -287,7 +287,7 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
     await asyncio.wait_for(run_task, timeout=1.0)
 
     document = fragments_text(runtime.document.fragments(width=100))
-    assert document.index("External MCP ready") < document.index("> hi")
+    assert document.index("External MCP ready") < document.index("› hi")
     assert model_started.is_set()
 
 

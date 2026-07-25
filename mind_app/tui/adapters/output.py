@@ -12,6 +12,12 @@ from mind_app.presentation.models import (
     StyledBlock,
     TextStyle
 )
+from mind_app.presentation.terminal_text import (
+    TerminalTextFilter,
+    sanitize_terminal_line,
+    sanitize_styled_block,
+    sanitize_terminal_text
+)
 from mind_app.stream_io.output_record import StreamRecordWriter
 from mind_app.stream_sanitize import sanitize_value
 from ..core.assistant import TuiAssistantStream
@@ -56,6 +62,8 @@ class TuiOutputControl(OutputControlPort):
         self.assistant     = TuiAssistantStream()
         self.record_writer = StreamRecordWriter(log_file)
 
+        self._assistant_filter = TerminalTextFilter()
+
         self._cursor = random.choice(("█", "▉", "▋"))
 
         self._stream_render_handle: asyncio.TimerHandle | None = None
@@ -80,6 +88,7 @@ class TuiOutputControl(OutputControlPort):
     async def stop(self, *, blink: bool = True) -> None:
         """提交当前内容并关闭记录。"""
         _ = blink
+        self._finish_assistant_filter(render=False)
         self._commit_current()
         await self.record_writer.close()
 
@@ -91,7 +100,12 @@ class TuiOutputControl(OutputControlPort):
         if not chunk:
             return None
 
-        text = self.assistant.prepare_delta(str(chunk))
+        raw_text = self.assistant.prepare_delta(str(chunk))
+
+        text = self._assistant_filter.feed(raw_text)
+        if not text:
+            return None
+
         self.record_writer.write(text)
 
         if self.animate:
@@ -106,6 +120,7 @@ class TuiOutputControl(OutputControlPort):
     async def prepare_external_output(self) -> None:
         """在外部展示前提交当前流式内容。"""
         self.assistant.discard_boundary()
+        self._finish_assistant_filter(render=False)
         self._commit_current()
 
     async def settle_stream(self) -> None:
@@ -118,12 +133,13 @@ class TuiOutputControl(OutputControlPort):
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的块状内容。"""
         if text:
-            value = str(text)
+            value = sanitize_terminal_text(text)
             self.assistant.discard_boundary()
             self.record_writer.write(value, block=True)
 
     def mark_stream_boundary(self) -> None:
         """标记下一段流式内容边界。"""
+        self._finish_assistant_filter(render=True)
         self.assistant.mark_boundary()
 
     def record_tool_arguments(
@@ -134,9 +150,11 @@ class TuiOutputControl(OutputControlPort):
         call_id: typing.Optional[str] = None,
     ) -> None:
         """记录工具调用参数审计信息。"""
-        call_part = f" call_id={call_id}" if call_id else ""
+        tool_name = sanitize_terminal_line(name) or "tool"
+        safe_call_id = sanitize_terminal_line(call_id)
+        call_part = f" call_id={safe_call_id}" if safe_call_id else ""
         self.record_writer.write_audit(
-            f"# tool_args tool={name}{call_part} arguments={self._audit_payload(arguments)}"
+            f"# tool_args tool={tool_name}{call_part} arguments={self._audit_payload(arguments)}"
         )
 
     async def append_assistant_metadata(
@@ -149,7 +167,7 @@ class TuiOutputControl(OutputControlPort):
         self.assistant.discard_boundary()
         self._commit_current()
 
-        value = str(text)
+        value = sanitize_terminal_text(text)
         self.record_writer.write(value, block=True)
         block = StyledBlock(plain_text=value.rstrip("\n"))
         self.runtime.append_block(
@@ -166,8 +184,10 @@ class TuiOutputControl(OutputControlPort):
         block_kind: TuiBlockKind = "operation",
     ) -> None:
         """提交正文后追加一个结构化展示块。"""
+        block = sanitize_styled_block(block)
         if not block.plain_text:
             return None
+
         self.assistant.discard_boundary()
         self._commit_current()
         self.record_writer.write(block.plain_text, block=True)
@@ -185,9 +205,11 @@ class TuiOutputControl(OutputControlPort):
 
     def _commit_current(self) -> bool:
         """把当前动态内容提交为稳定 TUI 内容块并返回提交状态。"""
+        self._finish_assistant_filter(render=False)
         self._cancel_stream_render()
 
         if not self.assistant.active:
+            self._assistant_filter.reset()
             self.runtime.clear_active_renderable()
             return False
 
@@ -204,8 +226,22 @@ class TuiOutputControl(OutputControlPort):
 
         self.runtime.commit_active_renderable(block)
         self.assistant.clear()
+        self._assistant_filter.reset()
 
         return True
+
+    def _finish_assistant_filter(self, *, render: bool) -> None:
+        """收束流式控制序列，并按需刷新新增的换行。"""
+        tail = self._assistant_filter.finish()
+        if not tail:
+            return None
+
+        self.record_writer.write(tail)
+        self.assistant.append(tail)
+        self.assistant.reveal_all()
+
+        if render:
+            self._render_active(cursor=False)
 
     def _schedule_stream_render(self) -> None:
         """立即展示首帧，并把后续增量合并到自适应帧预算。"""
@@ -223,16 +259,17 @@ class TuiOutputControl(OutputControlPort):
         ):
             self._render_stream_frame()
             self._stream_rendered_at = loop.time()
-            self._schedule_pending_stream_frame()
+            self._schedule_pending_stream_frame(loop)
             return None
 
         if self._stream_render_handle is None:
             self._stream_render_handle = loop.call_later(
                 max(0.0, interval - elapsed),
                 self._flush_stream_render,
+                loop,
             )
 
-    def _flush_stream_render(self) -> None:
+    def _flush_stream_render(self, loop: asyncio.AbstractEventLoop) -> None:
         """展示帧预算内合并的最新流式正文。"""
         self._stream_render_handle = None
 
@@ -241,8 +278,8 @@ class TuiOutputControl(OutputControlPort):
             return None
 
         self._render_stream_frame()
-        self._stream_rendered_at = asyncio.get_running_loop().time()
-        self._schedule_pending_stream_frame()
+        self._stream_rendered_at = loop.time()
+        self._schedule_pending_stream_frame(loop)
 
     def _render_stream_frame(self) -> None:
         """渲染流式帧并记录本帧耗时。"""
@@ -281,16 +318,20 @@ class TuiOutputControl(OutputControlPort):
         retained = regular * lag_frames
         return max(regular, pending - retained)
 
-    def _schedule_pending_stream_frame(self) -> None:
+    def _schedule_pending_stream_frame(
+        self,
+        loop: asyncio.AbstractEventLoop
+    ) -> None:
         """在仍有待揭示正文时安排下一帧。"""
         if (
             self.assistant.pending_length <= 0
             or self._stream_render_handle is not None
         ):
             return None
-        self._stream_render_handle = asyncio.get_running_loop().call_later(
+        self._stream_render_handle = loop.call_later(
             self._stream_render_interval(),
             self._flush_stream_render,
+            loop,
         )
 
     def _cancel_stream_render(self) -> None:

@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
-from .render import display_line_count
+from .render import (
+    display_line_count,
+    sanitize_formatted_text
+)
 
 ProcessViewerAction: typing.TypeAlias = typing.Literal[
     "detach",
@@ -19,7 +22,6 @@ ProcessViewerAction: typing.TypeAlias = typing.Literal[
 @dataclass(frozen=True, slots=True)
 class ProcessViewerRequest(object):
     """描述主 TUI 中的进程输出查看内容。"""
-
     fragments: tuple[tuple[str, str], ...]
     max_height: int = 28
 
@@ -27,7 +29,6 @@ class ProcessViewerRequest(object):
 @dataclass(slots=True)
 class ProcessViewerState(object):
     """保存进程查看器的内容和等待结果。"""
-
     request: ProcessViewerRequest
     future: asyncio.Future[typing.Any]
 
@@ -75,7 +76,11 @@ class TuiProcessViewer(object):
 
         future = asyncio.get_running_loop().create_future()
 
-        self.state = ProcessViewerState(request=request, future=future)
+        safe_request = ProcessViewerRequest(
+            fragments=tuple(sanitize_formatted_text(request.fragments)),
+            max_height=request.max_height,
+        )
+        self.state = ProcessViewerState(request=safe_request, future=future)
 
         self.focus_viewer()
         self.invalidate()
@@ -92,7 +97,9 @@ class TuiProcessViewer(object):
         """撤下已结束的查看器并恢复主输入焦点。"""
         if self.state is None:
             return None
+
         self.state = None
+
         self.focus_input()
         self.invalidate()
 

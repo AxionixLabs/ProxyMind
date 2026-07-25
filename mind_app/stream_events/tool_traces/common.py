@@ -3,6 +3,10 @@
 
 import typing
 from mind_app.presentation.models import TracePreview
+from mind_app.presentation.terminal_text import (
+    sanitize_terminal_line,
+    sanitize_terminal_text,
+)
 
 MISSING = object()
 
@@ -15,7 +19,7 @@ SCREEN_CODE_PREVIEW_LINES = 18
 
 def _short_text(value: typing.Any, limit: int = 120) -> str:
     """把任意值压缩为单行短文本。"""
-    text = " ".join(str(value or "").split())
+    text = sanitize_terminal_line(value)
     if len(text) <= limit:
         return text
     return f"{text[:max(0, limit - 3)]}..."
@@ -23,7 +27,7 @@ def _short_text(value: typing.Any, limit: int = 120) -> str:
 
 def _short_line(value: typing.Any, limit: int = 120) -> str:
     """截断单行文本并保留原有空白结构。"""
-    text = str(value or "").rstrip()
+    text = sanitize_terminal_text(value).rstrip()
     if len(text) <= limit:
         return text
     return f"{text[:max(0, limit - 3)]}..."
@@ -31,7 +35,7 @@ def _short_line(value: typing.Any, limit: int = 120) -> str:
 
 def _normalize_preview_lines(value: typing.Any) -> list[str]:
     """把预览内容归一化为按行拆分的文本列表。"""
-    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    text = sanitize_terminal_text(value).strip("\n")
     if not text:
         return []
     return text.split("\n")

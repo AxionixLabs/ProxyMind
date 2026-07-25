@@ -46,6 +46,11 @@ from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.widgets import TextArea
 from mind_app.interaction.contracts import PromptContext
+from mind_app.presentation.terminal_text import sanitize_terminal_text
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
 from mind_nova import const
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
@@ -91,10 +96,10 @@ class TuiScreen(object):
     INPUT_MAX_LINES: typing.Final[int]               = 8
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
-    CONTENT_INPUT_GAP_HEIGHT: typing.Final[int]      = 2
+    CONTENT_INPUT_GAP_HEIGHT: typing.Final[int]      = 1
     OVERLAY_INPUT_GAP_HEIGHT: typing.Final[int]      = 1
     COMMAND_SURFACE_GAP_HEIGHT: typing.Final[int]    = 2
-    FOOTER_GAP_HEIGHT: typing.Final[int]             = 1
+    INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int]  = 1
     ESCAPE_SEQUENCE_TIMEOUT_SEC: typing.Final[float] = 0.1
 
     def __init__(
@@ -116,7 +121,10 @@ class TuiScreen(object):
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
         input_obj: Input | None = None,
-        output_obj: Output | None = None
+        output_obj: Output | None = None,
+        terminal_capabilities: TerminalCapabilities = (
+            DEGRADED_TERMINAL_CAPABILITIES
+        ),
     ) -> None:
         self.input_model     = input_model
         self.document        = document
@@ -289,6 +297,18 @@ class TuiScreen(object):
             always_hide_cursor=True,
             dont_extend_height=True,
         )
+        self.input_top_padding = Window(
+            height=Dimension.exact(self.INPUT_SURFACE_PADDING_HEIGHT),
+            char=" ",
+            style="class:input-surface",
+            dont_extend_height=True,
+        )
+        self.input_bottom_padding = Window(
+            height=Dimension.exact(self.INPUT_SURFACE_PADDING_HEIGHT),
+            char=" ",
+            style="class:input-surface",
+            dont_extend_height=True,
+        )
 
         self.approval_card = ConditionalContainer(
             self.approval_window,
@@ -312,14 +332,6 @@ class TuiScreen(object):
             Window(height=self._content_input_gap_dimension, char=" "),
             filter=Condition(self._content_input_gap_visible),
         )
-        self.completion_gap = ConditionalContainer(
-            Window(
-                height=Dimension.exact(1),
-                char=" ",
-                dont_extend_height=True,
-            ),
-            filter=Condition(self._completion_visible),
-        )
         self.completion_menu = CompletionsMenu(
             max_height=self.COMPLETION_MAX_HEIGHT,
             scroll_offset=1,
@@ -340,26 +352,24 @@ class TuiScreen(object):
             filter=Condition(self._completion_visible),
         )
 
+        self.input_surface = HSplit(
+            [
+                self.input_top_padding,
+                self.input,
+                self.input_bottom_padding,
+            ],
+            align=VerticalAlign.TOP,
+            height=self._input_surface_dimension,
+            window_too_small=Window(),
+        )
         self.input_footer = ConditionalContainer(
-            HSplit(
-                [
-                    Window(
-                        height=Dimension.exact(self.FOOTER_GAP_HEIGHT),
-                        char=" ",
-                        dont_extend_height=True,
-                    ),
-                    self.footer_window,
-                ],
-                height=Dimension.exact(self.FOOTER_GAP_HEIGHT + 1),
-                window_too_small=Window(),
-            ),
+            self.footer_window,
             filter=Condition(self._footer_visible),
         )
 
         self.input_stack = HSplit(
             [
-                self.input,
-                self.completion_gap,
+                self.input_surface,
                 self.completion_menu_row,
                 self.input_footer,
             ],
@@ -395,7 +405,8 @@ class TuiScreen(object):
             and output_obj is None
             and not (sys.stdin.isatty() and sys.stdout.isatty())
         )
-        application_input = input_obj or (DummyInput() if dummy_io else None)
+
+        application_input  = input_obj or (DummyInput() if dummy_io else None)
         application_output = output_obj or (DummyOutput() if dummy_io else None)
 
         self.application: Application[None] = Application(
@@ -408,6 +419,7 @@ class TuiScreen(object):
                 self.input_model.style,
                 TUI_APPROVAL_STYLE,
                 TUI_MENU_STYLE,
+                capabilities=terminal_capabilities,
             ),
             full_screen=False,
             erase_when_done=False,
@@ -537,7 +549,7 @@ class TuiScreen(object):
 
     def _placeholder_fragments(self) -> StyleAndTextTuples:
         """返回当前输入轮次固定的占位文案。"""
-        return [("class:placeholder", self._get_placeholder_text())]
+        return [("class:placeholder", f" {self._get_placeholder_text()}")]
 
     def _assistant_line(self, target_line: int) -> bool:
         """判断指定正文逻辑行是否属于助手正文块。"""
@@ -592,7 +604,7 @@ class TuiScreen(object):
 
         parts: FormattedText = [(f"fg:{theme['brand']}", const.APP_DESC)]
 
-        access_label = str(context.access_label or "").strip()
+        access_label = sanitize_terminal_text(context.access_label).strip()
 
         access_style = (
             "class:footer.access.full"
@@ -605,7 +617,7 @@ class TuiScreen(object):
             ("class:footer.workspace", context.workspace_label),
         ]
         for style, value in values:
-            text = str(value or "").strip()
+            text = sanitize_terminal_text(value).strip()
             if text:
                 parts.extend([
                     ("class:footer.separator", " · "),
@@ -689,6 +701,10 @@ class TuiScreen(object):
         """返回输入框当前显示高度。"""
         return Dimension.exact(self._input_height())
 
+    def _input_surface_dimension(self) -> Dimension:
+        """返回包含上下留白的输入表面高度。"""
+        return Dimension.exact(self._input_surface_height())
+
     def _input_stack_dimension(self) -> Dimension:
         """返回输入框、补全列表和当前可见 footer 的总高度。"""
         return Dimension.exact(self._input_stack_height())
@@ -731,12 +747,15 @@ class TuiScreen(object):
         return 1 if self.process_status.active else 0
 
     def _footer_height(self) -> int:
-        """返回当前输入区 footer 及其间距占用高度。"""
-        return self.FOOTER_GAP_HEIGHT + 1 if self._footer_visible() else 0
+        """返回当前输入区 footer 占用高度。"""
+        return 1 if self._footer_visible() else 0
 
     def _footer_visible(self) -> bool:
         """判断输入框下方的信息栏是否应当显示。"""
-        return not self._overlay_active()
+        return bool(
+            not self._overlay_active()
+            and self.terminal_height > self._input_surface_height()
+        )
 
     def _queue_submission_hint_visible(self) -> bool:
         """判断执行期间是否应显示输入排队提示。"""
@@ -777,29 +796,35 @@ class TuiScreen(object):
         """计算无边框补全列表占用行数。"""
         if not self._completion_visible():
             return 0
-        state = self.input.buffer.complete_state
+
+        state        = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0
-        count = max(loaded_count, self._expected_completion_count())
-        available = max(1, self.terminal_height - self._input_height() - 1)
+        count        = max(loaded_count, self._expected_completion_count())
+        available    = max(1, self.terminal_height - self._input_surface_height())
+
         return min(self.COMPLETION_MAX_HEIGHT, count, available)
 
     def _completion_section_height(self) -> int:
-        """返回补全列表及其顶部间距的总高度。"""
-        height = self._completion_height()
-        return height + 1 if height else 0
+        """返回补全列表占用高度。"""
+        return self._completion_height()
 
     def _input_stack_height(self) -> int:
         """返回当前完整输入区域占用高度。"""
         return (
-            self._input_height()
+            self._input_surface_height()
             + self._completion_section_height()
             + self._footer_height()
         )
+
+    def _input_surface_height(self) -> int:
+        """计算输入内容与上下留白共同占用的高度。"""
+        return self._input_height() + self.INPUT_SURFACE_PADDING_HEIGHT * 2
 
     def _input_height(self) -> int:
         """计算输入内容占用的显示行数。"""
         text = self.input.buffer.text
         rows = display_line_count(text, width=max(1, self.terminal_width - 2))
+
         if text.endswith("\n"):
             rows += 1
         return max(1, min(self.INPUT_MAX_LINES, rows))
@@ -808,6 +833,7 @@ class TuiScreen(object):
         """计算审批卡在当前画布中的显示高度。"""
         if not self.bottom_pane.is_active("approval"):
             return 0
+
         text = fragments_text(self.approval.fragments())
         rows = display_line_count(text, width=self.terminal_width)
         return min(rows, self._approval_available_height())
@@ -829,6 +855,7 @@ class TuiScreen(object):
         """计算内嵌菜单在当前画布中的显示高度。"""
         if not self.bottom_pane.is_active("menu"):
             return 0
+
         available = max(
             1,
             self.terminal_height
@@ -837,12 +864,14 @@ class TuiScreen(object):
             - self._queued_height()
             - self._content_input_gap_height(),
         )
+
         return min(self.menu.height(), available)
 
     def _process_viewer_height(self) -> int:
         """计算进程查看器占用的高度。"""
         if not self.bottom_pane.is_active("process_viewer"):
             return 0
+
         available = max(
             1,
             self.terminal_height
@@ -858,6 +887,7 @@ class TuiScreen(object):
             return self._approval_height()
         if self.bottom_pane.transient_active:
             return 0
+
         return self._input_stack_height()
 
     def _visible_height(self) -> int:
@@ -873,6 +903,7 @@ class TuiScreen(object):
             + self._content_input_gap_height()
             + self._interaction_height()
         )
+
         return max(1, min(self.terminal_height, height))
 
     def _content_input_gap_height(self) -> int:
@@ -886,6 +917,7 @@ class TuiScreen(object):
             return self.COMMAND_SURFACE_GAP_HEIGHT
         if self.bottom_pane.transient_active:
             return self.OVERLAY_INPUT_GAP_HEIGHT
+
         return self.CONTENT_INPUT_GAP_HEIGHT
 
     def _content_input_gap_dimension(self) -> Dimension:
@@ -916,7 +948,9 @@ class TuiScreen(object):
             with contextlib.suppress(Exception):
                 size = application.output.get_size()
                 return int(size.columns), int(size.rows)
+
         fallback = shutil.get_terminal_size(fallback=(100, 24))
+
         return fallback.columns, fallback.lines
 
 
@@ -926,6 +960,7 @@ def _erase_terminal_scrollback(output: Output) -> None:
         return None
     if sys.platform == "win32" and not hasattr(output, "vt100_output"):
         return None
+
     output.write_raw("\x1b[3J")
     output.flush()
 

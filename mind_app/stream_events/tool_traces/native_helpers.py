@@ -6,7 +6,7 @@ from .common import (
     _short_line,
     _summary_lines
 )
-from .shell_errors import strip_ansi_shell_output
+from .shell_errors import normalize_shell_output_text
 
 
 def _patch_file_action(files: typing.Any) -> str:
@@ -61,11 +61,11 @@ def failure_summary(data: dict[str, typing.Any]) -> str:
     if not isinstance(data, dict):
         return ""
 
-    stderr = strip_ansi_shell_output(data.get("stderr")).strip()
+    stderr = normalize_shell_output_text(data.get("stderr")).strip()
     if stderr:
         return _first_line(stderr)
 
-    error = strip_ansi_shell_output(data.get("error")).strip()
+    error = normalize_shell_output_text(data.get("error")).strip()
     if error:
         return error
 

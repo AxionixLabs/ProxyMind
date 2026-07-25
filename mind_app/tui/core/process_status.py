@@ -3,6 +3,7 @@
 
 import typing
 from prompt_toolkit.utils import get_cwidth
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
 from .render import clip_fragments
 from .status_frames import render_status_fragments
@@ -28,7 +29,7 @@ class TuiProcessStatus(object):
 
     def set_label(self, value: typing.Any) -> None:
         """更新后台进程摘要文本。"""
-        label = " ".join(str(value or "").split())
+        label = " ".join(sanitize_terminal_text(value).split())
         if label == self.label:
             return None
         self.label = label
@@ -44,19 +45,23 @@ class TuiProcessStatus(object):
             return []
 
         width = max(1, int(self._get_width()))
+
         suffix: FormattedText = [
             ("class:process-status.separator", " · "),
             ("class:process-status.action", "/ps"),
             ("class:process-status.hint", " to view"),
         ]
+
         suffix_width = sum(get_cwidth(text) for _style, text in suffix)
         status_width = max(1, width - suffix_width)
+
         label_fragments = render_status_fragments(
             self.label,
             family="wait",
             phase=0.0,
             animated=False,
         )
+
         status = clip_fragments(
             [
                 *label_fragments[:2],

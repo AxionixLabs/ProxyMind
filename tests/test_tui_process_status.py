@@ -85,6 +85,20 @@ def test_process_status_remains_static() -> None:
     assert second == first
 
 
+def test_process_status_filters_controls_before_clipping() -> None:
+    status = TuiProcessStatus(
+        invalidate=lambda: None,
+        get_width=lambda: 30,
+    )
+
+    status.set_label("id\tdevice\x1b]52;c;payload\x1b\\")
+    rendered = fragments_text(status.fragments())
+
+    assert "\x1b" not in rendered
+    assert "payload" not in rendered
+    assert get_cwidth(rendered) <= 30
+
+
 def test_command_summary_bolds_action_but_not_command() -> None:
     parts = command_summary_title_parts(CommandSummary(
         kind="Started",

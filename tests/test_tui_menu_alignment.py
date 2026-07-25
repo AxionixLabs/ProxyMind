@@ -140,5 +140,32 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     ).bold
 
 
+@pytest.mark.anyio
+async def test_menu_filters_controls_before_width_calculation() -> None:
+    width = 24
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: width,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Devices\x1b]52;c;payload\x1b\\",
+        options=(
+            MenuOption("device", "id\tdevice", "ready\x1bPprivate\x1b\\"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    text = _fragments_text(menu.fragments())
+    menu.finish(None)
+    await task
+
+    assert "\x1b" not in text
+    assert "payload" not in text
+    assert "private" not in text
+    assert all(get_cwidth(line) <= width for line in text.splitlines())
+
+
 def _fragments_text(parts) -> str:
     return "".join(text for _, text in parts)

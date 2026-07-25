@@ -42,3 +42,18 @@ async def test_json_output_initializes_and_flushes_assistant_state() -> None:
 
     event = json.loads(stdout.getvalue())
     assert event["item"]["text"] == "first second"
+
+
+@pytest.mark.anyio
+async def test_json_output_preserves_structured_text_semantics() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    content = JsonContentSink(state)
+    control = JsonOutputControl(state)
+    raw = "id\tdevice\x1b]52;c;payload\x1b\\"
+
+    await content.emit(AssistantTextDelta(raw))
+    await control.settle_stream()
+
+    event = json.loads(stdout.getvalue())
+    assert event["item"]["text"] == raw

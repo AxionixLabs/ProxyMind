@@ -28,6 +28,7 @@ from mind_app.presentation.styles import (
     COMMAND_STRING_STYLE
 )
 from .styles import prompt_style
+from .render import sanitize_formatted_text
 
 
 TUI_APPROVAL_STYLE = Style.from_dict({
@@ -38,7 +39,7 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-omitted"           : "dim #8896A5",
     "approval-option"            : "#8B96A3",
     "approval-option-selected"   : "bold #4DE3FF",
-    "approval-shortcut"          : "dim #6F7B88",
+    "approval-shortcut"          : "bold #C4CED8",
     "approval-shortcut-selected" : "bold #C7F7FF",
     "approval-command"           : prompt_style(COMMAND_STYLE),
     "approval-command-head"      : prompt_style(COMMAND_HEAD_STYLE),
@@ -434,6 +435,7 @@ def _wrap_fragment_line(
     max_width: int,
 ) -> list[list[tuple[str, str]]]:
     """按终端显示宽度换行格式化片段。"""
+    parts = sanitize_formatted_text(parts)
     limit = max(1, int(max_width))
 
     lines: list[list[tuple[str, str]]] = []

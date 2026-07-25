@@ -615,14 +615,15 @@ def test_activity_completion_does_not_change_input_stack_height() -> None:
     assert runtime.screen._input_stack_height() == input_height
 
 
-def test_footer_reserves_one_blank_row() -> None:
+def test_input_surface_reserves_padding_around_dynamic_input() -> None:
     runtime = TuiRuntime()
 
-    assert runtime.screen.FOOTER_GAP_HEIGHT == 1
-    assert runtime.screen._footer_height() == 2
+    assert runtime.screen.INPUT_SURFACE_PADDING_HEIGHT == 1
+    assert runtime.screen._input_surface_height() == 3
+    assert runtime.screen._footer_height() == 1
     assert (
         runtime.screen._input_stack_height()
-        == runtime.screen._input_height() + 2
+        == runtime.screen._input_surface_height() + 1
     )
 
 

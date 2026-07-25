@@ -176,6 +176,23 @@ async def test_text_output_emits_assistant_text_after_stream_settles() -> None:
     assert stdout.getvalue() == "first second\n"
 
 
+@pytest.mark.anyio
+async def test_text_hidden_output_is_safe_for_display_logs() -> None:
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+    control = TextOutputControl(state)
+
+    await control.record_hidden_output(
+        "47031FDAQ001MK\tdevice\x1b]52;c;payload\x1b\\"
+    )
+
+    assert "".join(record.parts) == "47031FDAQ001MK  device"
+
+
 def test_only_interactive_rich_commands_request_entry_outro() -> None:
     terminal = SimpleNamespace(isatty=lambda: True)
 

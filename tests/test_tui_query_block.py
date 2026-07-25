@@ -139,7 +139,7 @@ async def test_surface_command_is_staged_without_showing_default_footer() -> Non
     assert not runtime.document.blocks
     assert runtime.screen._footer_visible()
     assert runtime.screen._footer_fragments() == []
-    assert runtime.screen._footer_height() == runtime.screen.FOOTER_GAP_HEIGHT + 1
+    assert runtime.screen._footer_height() == 1
 
 
 @pytest.mark.anyio

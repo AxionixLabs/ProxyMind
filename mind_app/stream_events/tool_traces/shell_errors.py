@@ -3,18 +3,17 @@
 
 import re
 import typing
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
-
-def strip_ansi_shell_output(value: typing.Any) -> str:
-    """移除命令输出里的 ANSI 控制序列。"""
-    return ANSI_ESCAPE_RE.sub("", str(value or ""))
+def normalize_shell_output_text(value: typing.Any) -> str:
+    """清理命令输出里的终端控制序列并展开水平制表符。"""
+    return sanitize_terminal_text(value)
 
 
 def shell_output_lines(value: typing.Any, *, keep_empty: bool = False) -> list[str]:
     """把 shell 输出归一化成已清理 ANSI 的文本行。"""
-    lines = strip_ansi_shell_output(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = normalize_shell_output_text(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if keep_empty:
         return lines
     return [line for line in lines if line.strip()]

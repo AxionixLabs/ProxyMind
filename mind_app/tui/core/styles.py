@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import typing
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    RgbColor,
+    TerminalCapabilities
+)
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
@@ -12,7 +16,7 @@ from mind_nova import const
 from prompt_toolkit.styles import (
     BaseStyle,
     Style,
-    merge_styles,
+    merge_styles
 )
 from ..prompting.commands import resolve_slash_command
 from .models import FragmentBlock
@@ -26,7 +30,6 @@ WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
-TUI_SURFACE_BACKGROUND = "#363B42"
 
 TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "assistant.prefix": "bold dim fg:#7F8C9A",
@@ -72,28 +75,84 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 })
 
 
-def supports_filled_tui_surfaces(
-    environ: typing.Mapping[str, str] | None = None
-) -> bool:
-    """判断当前终端是否启用满宽表面背景。"""
-    env = os.environ if environ is None else environ
-    return bool(str(env.get("WT_SESSION") or "").strip()) or (
-        str(env.get("TERM_PROGRAM") or "").casefold() == "iterm.app"
-        or str(env.get("LC_TERMINAL") or "").casefold() == "iterm2"
+def _surface_style(
+    capabilities: TerminalCapabilities,
+) -> BaseStyle:
+    """根据终端主题创建输入区和审批卡表面样式。"""
+    if not capabilities.dynamic_surfaces:
+        return Style.from_dict({})
+
+    terminal_background = capabilities.theme.background
+    light = _is_light_color(terminal_background)
+    surface_background = (
+        _blend_color((0, 0, 0), terminal_background, 0.04)
+        if light
+        else _blend_color((255, 255, 255), terminal_background, 0.12)
+    )
+    background = f"bg:{_hex_color(surface_background)}"
+    styles = {
+        "input-surface": background,
+        "approval-card": background,
+    }
+    if light:
+        styles.update({
+            "prompt": "#20262C",
+            "prompt.kicker": "bold #596570",
+            "prompt.command.slash": "#70408F",
+            "placeholder": "#68737D",
+            "auto-suggestion": "#737F89",
+            "approval-question": "bold #005F87",
+            "approval-context": "#53606C",
+            "approval-meta": "#687480",
+            "approval-omitted": "#687480",
+            "approval-option": "#3F4B56",
+            "approval-option-selected": "bold #005F87",
+            "approval-shortcut": "bold #26323C",
+            "approval-shortcut-selected": "bold #004F70",
+            "approval-command": "#25303A",
+            "approval-command-head": "bold #005F87",
+            "approval-command-flag": "#355C7D",
+            "approval-command-path": "bold #1F2933",
+            "approval-command-string": "#246B4A",
+            "approval-command-number": "#755D00",
+            "approval-command-operator": "bold #53606C",
+        })
+    return Style.from_dict(styles)
+
+
+def _blend_color(
+    foreground: RgbColor,
+    background: RgbColor,
+    ratio: float,
+) -> RgbColor:
+    """按给定比例把前景 RGB 混入背景 RGB。"""
+    weight = max(0.0, min(1.0, ratio))
+    return typing.cast(
+        RgbColor,
+        tuple(
+            round(front * weight + back * (1.0 - weight))
+            for front, back in zip(foreground, background)
+        ),
     )
 
 
-def _surface_style(
-    environ: typing.Mapping[str, str] | None = None
-) -> BaseStyle:
-    """创建输入区和审批卡使用的终端表面样式。"""
-    if not supports_filled_tui_surfaces(environ):
-        return Style.from_dict({})
-    background = f"bg:{TUI_SURFACE_BACKGROUND}"
-    return Style.from_dict({
-        "input-surface": background,
-        "approval-card": background,
-    })
+def _is_light_color(color: RgbColor) -> bool:
+    """根据相对亮度判断 RGB 是否属于亮色主题。"""
+    linear = []
+    for component in color:
+        value = component / 255
+        linear.append(
+            value / 12.92
+            if value <= 0.04045
+            else ((value + 0.055) / 1.055) ** 2.4
+        )
+    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    return luminance > 0.5
+
+
+def _hex_color(color: RgbColor) -> str:
+    """把 RGB 元组转换为 prompt_toolkit 颜色值。"""
+    return "#" + "".join(f"{component:02X}" for component in color)
 
 
 def prompt_style(style: TextStyle) -> str:
@@ -123,7 +182,7 @@ def build_tui_application_style(
     approval_style: BaseStyle,
     menu_style: BaseStyle,
     *,
-    environ: typing.Mapping[str, str] | None = None
+    capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> BaseStyle:
     """组合 TUI 输入、审批、菜单和主画布样式。"""
     return merge_styles([
@@ -131,7 +190,7 @@ def build_tui_application_style(
         approval_style,
         menu_style,
         TUI_APPLICATION_OVERRIDES,
-        _surface_style(environ),
+        _surface_style(capabilities),
     ])
 
 

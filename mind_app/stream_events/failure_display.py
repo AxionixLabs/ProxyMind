@@ -8,6 +8,7 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from mind_app.presentation.text_layout import wrap_styled_line
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 
 FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F", bold=True)
 FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A", bold=True)
@@ -23,7 +24,7 @@ def render_failure_title(phase: str) -> str:
 
 def render_failure_text(phase: str, error: typing.Any) -> str:
     """生成 stream 生命周期失败块文本。"""
-    title = render_failure_title(phase)
+    title   = render_failure_title(phase)
     message = _failure_message(error)
     return f"{title}\n└ {message}" if message else title
 
@@ -33,16 +34,17 @@ def render_failure_display_parts(
     error: typing.Any,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> list[TextSpan]:
     """把 stream 生命周期失败块转换为显示片段。"""
-    title = render_failure_title(phase)
+    title   = render_failure_title(phase)
     message = _failure_message(error)
 
     parts: list[TextSpan] = [
         TextSpan("■", FAILURE_DOT_STYLE),
         TextSpan(title[1:], FAILURE_TITLE_STYLE),
     ]
+
     if message:
         message_parts = [TextSpan(message, FAILURE_MESSAGE_STYLE)]
         if isinstance(terminal_width, int) and terminal_width > 0:
@@ -58,6 +60,7 @@ def render_failure_display_parts(
             TextSpan("└ ", FAILURE_BRANCH_STYLE),
             *message_parts,
         ])
+
     return parts
 
 
@@ -66,7 +69,7 @@ def render_failure_block(
     error: typing.Any,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> StyledBlock:
     """生成中立的 stream 生命周期失败展示块。"""
     parts = tuple(render_failure_display_parts(
@@ -75,6 +78,7 @@ def render_failure_block(
         terminal_width=terminal_width,
         measure_width=measure_width,
     ))
+
     return StyledBlock(
         plain_text=render_failure_text(phase, error),
         spans=parts,
@@ -84,12 +88,13 @@ def render_failure_block(
 
 def _failure_message(error: typing.Any) -> str:
     """压缩生命周期错误文本；不解析 shell stdout/stderr。"""
-    message = "" if error is None else str(error).strip()
+    message = sanitize_terminal_text(error).strip()
     if not message:
         return ""
 
     lines = [line.strip() for line in message.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     lines = [line for line in lines if line]
+
     if not lines:
         return ""
 

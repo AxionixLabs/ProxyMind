@@ -6,15 +6,19 @@ import pytest
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
+from mind_core.design.terminal_capabilities import (
+    TerminalCapabilities,
+    TerminalColorLevel,
+    TerminalIdentity,
+    TerminalKind,
+    TerminalTheme,
+)
 from mind_app.tui.core.approval_render import (
     TUI_APPROVAL_STYLE,
     tui_approval_content_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import (
-    TUI_SURFACE_BACKGROUND,
-    build_tui_application_style,
-)
+from mind_app.tui.core.styles import build_tui_application_style
 
 
 def test_approval_content_keeps_question_without_card_title() -> None:
@@ -77,6 +81,27 @@ def test_long_command_wraps_within_content_width() -> None:
     assert command_lines[0].startswith("$ ")
     assert all(line.startswith(("$ ", "  ")) for line in command_lines)
     assert all(get_cwidth(line) <= 16 for line in text_lines)
+
+
+def test_approval_filters_controls_before_wrapping() -> None:
+    width = 24
+    lines = tui_approval_content_lines(
+        ["accept", "decline"],
+        approval={
+            "tool": "shell_command",
+            "command": "adb devices\x1b]52;c;payload\x1b\\\tid",
+            "prompt": "Approve?\x1bPprivate\x1b\\",
+            "show_timer": False,
+        },
+        width=width,
+    )
+    text_lines = _line_texts(lines)
+    text = "\n".join(text_lines)
+
+    assert "\x1b" not in text
+    assert "payload" not in text
+    assert "private" not in text
+    assert all(get_cwidth(line) <= width for line in text_lines)
 
 
 def test_command_truncation_keeps_head_tail_and_all_options() -> None:
@@ -171,39 +196,58 @@ def test_approval_surface_uses_no_background() -> None:
     assert question.color == "4DE3FF"
 
 
+def test_truecolor_terminal_uses_background_derived_surface_color() -> None:
+    empty = Style.from_dict({})
+    style = build_tui_application_style(
+        empty,
+        TUI_APPROVAL_STYLE,
+        empty,
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(
+                TerminalKind.WINDOWS_TERMINAL,
+                "Windows Terminal",
+            ),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+    )
+
+    assert style.get_attrs_for_style_str(
+        "class:input-surface"
+    ).bgcolor == "1F1F1F"
+    assert style.get_attrs_for_style_str(
+        "class:approval-card"
+    ).bgcolor == "1F1F1F"
+
+
 @pytest.mark.parametrize(
-    "environ",
+    "capabilities",
     (
-        {"WT_SESSION": "windows-terminal"},
-        {"TERM_PROGRAM": "iTerm.app"},
-        {"LC_TERMINAL": "iTerm2"},
+        TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.UNKNOWN, "unknown"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+        TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.ANSI256,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+        TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.WEZTERM, "WezTerm"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+        ),
     ),
 )
-def test_supported_terminal_fills_input_and_approval_surfaces(environ) -> None:
+def test_incomplete_terminal_capability_keeps_surfaces_transparent(
+    capabilities,
+) -> None:
     empty = Style.from_dict({})
     style = build_tui_application_style(
         empty,
         TUI_APPROVAL_STYLE,
         empty,
-        environ=environ,
-    )
-    expected = TUI_SURFACE_BACKGROUND.removeprefix("#").upper()
-
-    assert style.get_attrs_for_style_str(
-        "class:input-surface"
-    ).bgcolor == expected
-    assert style.get_attrs_for_style_str(
-        "class:approval-card"
-    ).bgcolor == expected
-
-
-def test_other_terminal_keeps_input_and_approval_surfaces_transparent() -> None:
-    empty = Style.from_dict({})
-    style = build_tui_application_style(
-        empty,
-        TUI_APPROVAL_STYLE,
-        empty,
-        environ={"TERM_PROGRAM": "Apple_Terminal"},
+        capabilities=capabilities,
     )
 
     assert style.get_attrs_for_style_str(
@@ -212,6 +256,31 @@ def test_other_terminal_keeps_input_and_approval_surfaces_transparent() -> None:
     assert style.get_attrs_for_style_str(
         "class:approval-card"
     ).bgcolor == ""
+
+
+def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
+    empty = Style.from_dict({})
+    style = build_tui_application_style(
+        empty,
+        TUI_APPROVAL_STYLE,
+        empty,
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=(255, 255, 255)),
+        ),
+    )
+
+    assert style.get_attrs_for_style_str(
+        "class:input-surface"
+    ).bgcolor == "F5F5F5"
+    selected = style.get_attrs_for_style_str(
+        "class:approval-option-selected"
+    )
+    shortcut = style.get_attrs_for_style_str("class:approval-shortcut")
+    assert selected.color == "005F87"
+    assert selected.bold
+    assert shortcut.color == "26323C"
 
 
 def test_selected_session_shortcut_uses_118_style() -> None:
@@ -244,6 +313,16 @@ def test_selected_session_shortcut_uses_118_style() -> None:
     assert shortcut.bold
 
 
+def test_unselected_shortcuts_remain_visible_on_filled_surface() -> None:
+    shortcut = TUI_APPROVAL_STYLE.get_attrs_for_style_str(
+        "class:approval-shortcut"
+    )
+
+    assert shortcut.color == "C4CED8"
+    assert shortcut.bold
+    assert not shortcut.dim
+
+
 @pytest.mark.anyio
 async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> None:
     runtime = TuiRuntime()
@@ -266,6 +345,13 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
     assert "class:input-surface" in runtime.screen.input.window.style
     assert runtime.screen.input.window.width is None
     assert not runtime.screen.input.window.dont_extend_width()
+    for padding in (
+        runtime.screen.input_top_padding,
+        runtime.screen.input_bottom_padding,
+    ):
+        assert padding.style == "class:input-surface"
+        assert padding.width is None
+        assert not padding.dont_extend_width()
     assert runtime.screen._approval_height() > 14
 
     runtime.screen.approval.finish("decline")

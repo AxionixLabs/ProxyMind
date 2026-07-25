@@ -137,7 +137,7 @@ class FrontendRuntime(typing.Protocol):
         ...
 
 
-class PassiveFrontendRuntime(FrontendRuntime):
+class PassiveFrontendRuntime(object):
     """提供无需常驻前端运行期时的空实现。"""
 
     @property

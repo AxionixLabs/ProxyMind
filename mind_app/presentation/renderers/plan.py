@@ -15,6 +15,7 @@ from ..styles import (
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
 )
+from ..terminal_text import sanitize_terminal_text
 
 PLAN_SUMMARY_STYLE = TextStyle(
     foreground=PREVIEW_MORE_STYLE.foreground,
@@ -31,27 +32,33 @@ def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
     """把计划更新视图转换为中立展示块。"""
     text_lines = ["• Updated Plan"]
 
+    explanation = sanitize_terminal_text(view.explanation)
+
     spans = [
         TextSpan("•", SUCCESS_DOT_STYLE),
         TextSpan(" Updated Plan", TITLE_STYLE),
     ]
 
-    if view.explanation:
-        text_lines.append(f"  └ {view.explanation}")
+    if explanation:
+        text_lines.append(f"  └ {explanation}")
+
         spans.extend((
             TextSpan("\n  └ ", PLAN_SUMMARY_STYLE),
-            TextSpan(view.explanation, PLAN_SUMMARY_STYLE),
+            TextSpan(explanation, PLAN_SUMMARY_STYLE),
         ))
 
-    indent = "    " if view.explanation else "  "
+    indent = "    " if explanation else "  "
 
     for item in view.items:
-        icon = "✔" if item.status == "completed" else "□"
+        step  = sanitize_terminal_text(item.step)
+        icon  = "✔" if item.status == "completed" else "□"
         style = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PLAN_INACTIVE_BODY_STYLE
-        text_lines.append(f"{indent}{icon} {item.step}")
+
+        text_lines.append(f"{indent}{icon} {step}")
+
         spans.extend((
             TextSpan(f"\n{indent}{icon} ", style),
-            TextSpan(item.step, style),
+            TextSpan(step, style),
         ))
 
     return StyledBlock(
@@ -78,14 +85,17 @@ def render_plan_steps_start_view(view: PlanStepsStartView) -> StyledBlock:
     ]
 
     for tool in view.tools:
-        text_lines.append(f"    - {tool}")
+        display_tool = sanitize_terminal_text(tool)
+
+        text_lines.append(f"    - {display_tool}")
         spans.extend((
             TextSpan("\n    - ", PREVIEW_TEXT_STYLE),
-            TextSpan(tool, COMMAND_HEAD_STYLE),
+            TextSpan(display_tool, COMMAND_HEAD_STYLE),
         ))
 
     if view.omitted_steps:
         more = f"... {view.omitted_steps} more"
+
         text_lines.append(f"    {more}")
         spans.extend((
             TextSpan("\n    ", PREVIEW_MORE_STYLE),

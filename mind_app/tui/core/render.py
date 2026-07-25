@@ -3,7 +3,44 @@
 
 import typing
 from prompt_toolkit.utils import get_cwidth
+from mind_app.presentation.terminal_text import TerminalTextFilter
 from .models import FormattedText
+from .models import FragmentBlock
+
+
+def sanitize_formatted_text(
+    parts: typing.Iterable[tuple[str, str]],
+) -> FormattedText:
+    """清理格式化文本中的终端控制序列并保留样式边界。"""
+    text_filter        = TerminalTextFilter(measure_width=get_cwidth)
+    out: FormattedText = []
+    last_style: str    = ""
+
+    for style, text in parts:
+        last_style = style
+        if not text:
+            out.append((style, text))
+            continue
+        _append_fragment(out, style, text_filter.feed(text))
+
+    _append_fragment(out, last_style, text_filter.finish())
+
+    return out
+
+
+def sanitize_fragment_block(block: FragmentBlock) -> FragmentBlock:
+    """返回只包含安全显示文本的片段块。"""
+    fragments = tuple(sanitize_formatted_text(block.fragments))
+    if fragments == block.fragments:
+        return block
+    return FragmentBlock(fragments)
+
+
+def _append_fragment(parts: FormattedText, style: str, text: str) -> None:
+    """追加非空的安全片段并保留原有样式边界。"""
+    if not text:
+        return None
+    parts.append((style, text))
 
 
 def fragments_text(parts: typing.Iterable[tuple[str, str]]) -> str:
@@ -28,7 +65,8 @@ def clip_text(text: typing.Any, *, width: int) -> str:
         return omit
 
     available = limit - ellipsis_width
-    used = 0
+    used: int = 0
+
     chars: list[str] = []
     for char in value:
         char_width = max(0, get_cwidth(char))
@@ -36,6 +74,7 @@ def clip_text(text: typing.Any, *, width: int) -> str:
             break
         chars.append(char)
         used += char_width
+
     return f"{''.join(chars)}{omit}"
 
 
@@ -184,8 +223,8 @@ def _display_rows(
     continuation_width: int
 ) -> int:
     """计算一个逻辑行考虑自动折行前缀后的显示行数。"""
-    rows       = 1
-    used_width = 0
+    rows: int       = 1
+    used_width: int = 0
 
     for char in text:
         char_width = max(0, get_cwidth(char))
