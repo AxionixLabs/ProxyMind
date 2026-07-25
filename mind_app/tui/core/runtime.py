@@ -107,6 +107,7 @@ class TuiRuntime(object):
         self.viewport = TuiTranscriptViewport(
             document=self.document,
             is_application_active=lambda: self.active,
+            is_scrollback_deferred=lambda: self.submission_deferred,
             is_closing=lambda: self._closing,
             get_application=lambda: self.screen.application,
             get_terminal_width=lambda: self.terminal_width,
@@ -614,14 +615,22 @@ class TuiRuntime(object):
         approval: dict[str, typing.Any]
     ) -> ApprovalDecisionValue:
         """在唯一审批区域中读取工具执行决策。"""
-        wait_paused = await self.activity.pause_wait()
+        if not self.screen.approval.begin(approval):
+            return "expired"
+
+        wait_paused: bool = False
+
         self.terminal_progress.warning()
         try:
-            return await self.screen.approval.request(approval)
+            wait_paused = await self.activity.pause_wait()
+            return await self.screen.approval.wait()
         finally:
             self.terminal_progress.begin()
-            if wait_paused:
-                await self.activity.resume_wait()
+            try:
+                if wait_paused:
+                    await self.activity.resume_wait()
+            finally:
+                await self.screen.approval.dismiss()
 
     async def view_process(
         self,

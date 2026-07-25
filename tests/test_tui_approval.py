@@ -358,5 +358,36 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
     await task
 
 
+@pytest.mark.anyio
+async def test_approval_selection_resets_between_requests() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    request = {
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "show_timer": False,
+    }
+
+    assert approval.begin(request)
+    approval._move(1)
+    selected_fragments = approval.fragments()
+    assert any(
+        style == "class:approval-option-selected" and text.startswith("No,")
+        for style, text in selected_fragments
+    )
+    approval.finish("decline")
+    assert await approval.wait() == "decline"
+    await approval.dismiss()
+
+    assert approval.begin(request)
+    reset_fragments = approval.fragments()
+    assert any(
+        style == "class:approval-option-selected" and text.startswith("Yes,")
+        for style, text in reset_fragments
+    )
+    approval.finish("decline")
+    await approval.dismiss()
+
+
 def _line_texts(lines) -> list[str]:
     return ["".join(text for _, text in line) for line in lines]

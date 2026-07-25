@@ -19,12 +19,10 @@ from .approval_render import tui_approval_content_lines
 
 @dataclass(slots=True)
 class ApprovalState(object):
-    """保存审批层当前请求、选择位置和等待结果。"""
-
+    """保存审批层当前请求和等待结果。"""
     approval: dict[str, typing.Any]
     decisions: list[ApprovalDecisionValue]
     future: asyncio.Future[ApprovalDecisionValue]
-    selected: int = 0
 
 
 class TuiApproval(object):
@@ -37,7 +35,7 @@ class TuiApproval(object):
         focus_card: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
         get_width: typing.Callable[[], int],
-        get_max_height: typing.Callable[[], int],
+        get_max_height: typing.Callable[[], int]
     ) -> None:
         self.invalidate  = invalidate
         self.focus_card  = focus_card
@@ -47,6 +45,8 @@ class TuiApproval(object):
         self.get_max_height = get_max_height
 
         self.state: ApprovalState | None = None
+
+        self.selected_index: int = 0
 
         self.expiry_task: asyncio.Task[None] | None = None
 
@@ -62,29 +62,55 @@ class TuiApproval(object):
         approval: dict[str, typing.Any],
     ) -> ApprovalDecisionValue:
         """显示审批内容并等待当前请求结果。"""
-        if approval_expired(approval):
+        if not self.begin(approval):
             return "expired"
 
+        try:
+            return await self.wait()
+        finally:
+            await self.dismiss()
+
+    def begin(self, approval: dict[str, typing.Any]) -> bool:
+        """建立审批状态并同步显示交互表面。"""
+        if approval_expired(approval):
+            return False
+        if self.state is not None:
+            raise RuntimeError("cannot begin multiple TUI approvals")
+
         future = asyncio.get_running_loop().create_future()
+
         self.state = ApprovalState(
             approval=dict(approval),
             decisions=approval_decisions(approval),
             future=future,
         )
+        self.selected_index = 0
         self.focus_card()
         self.invalidate()
         self.expiry_task = asyncio.create_task(
             self._expire(),
             name="tui approval expiry",
         )
+        return True
 
-        try:
-            return await future
-        finally:
-            await self._cancel_expiry()
-            self.state = None
-            self.focus_input()
-            self.invalidate()
+    async def wait(self) -> ApprovalDecisionValue:
+        """等待当前审批请求产生决策。"""
+        state = self.state
+        if state is None:
+            raise RuntimeError("cannot wait without an active TUI approval")
+        return await state.future
+
+    async def dismiss(self) -> None:
+        """清理当前审批状态并恢复主输入表面。"""
+        state = self.state
+        if state is None:
+            return None
+        await self._cancel_expiry()
+        if not state.future.done():
+            state.future.set_result("decline")
+        self.state = None
+        self.focus_input()
+        self.invalidate()
 
     async def close(self) -> None:
         """安全结束当前审批请求并清理倒计时。"""
@@ -103,16 +129,19 @@ class TuiApproval(object):
         lines = tui_approval_content_lines(
             state.decisions,
             approval=state.approval,
-            selected_index=state.selected,
+            selected_index=self.selected_index,
             width=max(1, self.get_width() - 4),
             max_height=self.get_max_height(),
         )
+
         out: StyleAndTextTuples = []
+
         for index, line in enumerate(lines):
             out.append(("class:approval-card", "  "))
             out.extend(line)
             if index < len(lines) - 1:
                 out.append(("class:approval-card", "\n"))
+
         return out
 
     def finish(self, decision: ApprovalDecisionValue) -> None:
@@ -129,7 +158,9 @@ class TuiApproval(object):
         state = self.state
         if state is None or not state.decisions:
             return None
-        state.selected = (state.selected + step) % len(state.decisions)
+        self.selected_index = (
+            self.selected_index + step
+        ) % len(state.decisions)
         self.invalidate()
 
     def _finish_index(self, index: int) -> None:
@@ -145,9 +176,8 @@ class TuiApproval(object):
 
         @bindings.add("enter")
         def _(event) -> None:
-            state = self.state
-            if state is not None:
-                self._finish_index(state.selected)
+            if self.state is not None:
+                self._finish_index(self.selected_index)
 
         @bindings.add("down")
         @bindings.add("c-n")

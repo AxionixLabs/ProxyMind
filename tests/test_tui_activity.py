@@ -258,9 +258,16 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
             calls.append("resume")
 
     class ApprovalStub(object):
-        async def request(self, approval):
-            calls.append("approval")
+        def begin(self, approval):
+            calls.append("approval.begin")
+            return True
+
+        async def wait(self):
+            calls.append("approval.wait")
             raise RuntimeError("approval failed")
+
+        async def dismiss(self):
+            calls.append("approval.dismiss")
 
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
@@ -273,7 +280,46 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
     with pytest.raises(RuntimeError, match="approval failed"):
         await runtime.request_approval({})
 
-    assert calls == ["pause", "warning", "approval", "progress", "resume"]
+    assert calls == [
+        "approval.begin",
+        "warning",
+        "pause",
+        "approval.wait",
+        "progress",
+        "resume",
+        "approval.dismiss",
+    ]
+
+
+@pytest.mark.anyio
+async def test_request_approval_keeps_card_active_during_activity_handoff() -> None:
+    runtime = TuiRuntime()
+    active_during_handoff = []
+
+    class ActivityStub(object):
+        async def pause_wait(self) -> bool:
+            active_during_handoff.append(runtime.screen.approval.active)
+            await asyncio.sleep(0)
+            return True
+
+        async def resume_wait(self) -> None:
+            active_during_handoff.append(runtime.screen.approval.active)
+            await asyncio.sleep(0)
+
+    runtime.activity = ActivityStub()
+    task = asyncio.create_task(runtime.request_approval({
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "show_timer": False,
+    }))
+    await asyncio.sleep(0)
+
+    assert runtime.screen.approval.active
+    runtime.screen.approval.finish("accept")
+
+    assert await task == "accept"
+    assert active_during_handoff == [True, True]
+    assert not runtime.screen.approval.active
 
 
 @pytest.mark.anyio

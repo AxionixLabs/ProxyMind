@@ -120,13 +120,16 @@ async def test_tui_approval_switches_terminal_progress_to_warning() -> None:
         clear=Mock(),
     )
     runtime = TuiRuntime(terminal_progress=progress)
-    runtime.screen.approval.request = AsyncMock(return_value="accept")
+    runtime.screen.approval.begin = Mock(return_value=True)
+    runtime.screen.approval.wait = AsyncMock(return_value="accept")
+    runtime.screen.approval.dismiss = AsyncMock()
 
     decision = await runtime.request_approval({})
 
     assert decision == "accept"
     progress.warning.assert_called_once_with()
     progress.begin.assert_called_once_with()
+    runtime.screen.approval.dismiss.assert_awaited_once_with()
 
 
 @pytest.mark.anyio

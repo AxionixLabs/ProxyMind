@@ -30,6 +30,7 @@ class TuiTranscriptViewport(object):
         *,
         document: TuiDocument,
         is_application_active: typing.Callable[[], bool],
+        is_scrollback_deferred: typing.Callable[[], bool],
         is_closing: typing.Callable[[], bool],
         get_application: typing.Callable[[], Application[None]],
         get_terminal_width: typing.Callable[[], int],
@@ -37,12 +38,13 @@ class TuiTranscriptViewport(object):
         get_transcript_fragments: typing.Callable[[], FormattedText],
         get_render_info: typing.Callable[[], WindowRenderInfo | None],
         clear_terminal_scrollback: typing.Callable[[], None],
-        invalidate: typing.Callable[[], None],
+        invalidate: typing.Callable[[], None]
     ) -> None:
         self.document = document
 
-        self._is_application_active = is_application_active
-        self._is_closing            = is_closing
+        self._is_application_active  = is_application_active
+        self._is_scrollback_deferred = is_scrollback_deferred
+        self._is_closing             = is_closing
 
         self._get_application          = get_application
         self._get_terminal_width       = get_terminal_width
@@ -103,6 +105,7 @@ class TuiTranscriptViewport(object):
         if (
             self._is_closing()
             or not self._is_application_active()
+            or self._is_scrollback_deferred()
             or self.document.active_block is not None
             or self.view_row is not None
             or (task is not None and not task.done())

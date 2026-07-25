@@ -305,7 +305,11 @@ def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
 
 
 @pytest.mark.anyio
-async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
+@pytest.mark.parametrize(
+    "state_setter",
+    ["set_execution_active", "set_foreground_active"],
+)
+async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -321,14 +325,19 @@ async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
                     "print_text",
                     wraps=runtime.screen.application.print_text,
                 ) as print_text:
-                    runtime.set_execution_active(True)
+                    set_busy = getattr(runtime, state_setter)
+                    set_busy(True)
                     for index in range(6):
                         runtime.append_block(
                             _block(f"block {index}\n" + "line\n" * 3),
                             kind="operation",
                         )
 
-                    runtime.set_execution_active(False)
+                    await asyncio.sleep(0.02)
+                    assert runtime.document.scrollback_prefix_count == 0
+                    assert not print_text.called
+
+                    set_busy(False)
                     await asyncio.sleep(0.02)
 
                 assert len(runtime.document.blocks) == 6
