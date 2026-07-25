@@ -1,0 +1,44 @@
+# -*- coding: utf-8 -*-
+
+import io
+import json
+
+import pytest
+
+from mind_app.output.content import AssistantTextDelta
+from mind_app.output.jsonl import (
+    JsonContentSink,
+    JsonOutputControl,
+    JsonOutputState,
+)
+
+
+class _RecordWriter(object):
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    def write_raw(self, text: str) -> None:
+        _ = text
+
+    def flush(self) -> None:
+        return None
+
+
+@pytest.mark.anyio
+async def test_json_output_initializes_and_flushes_assistant_state() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    content = JsonContentSink(state)
+    control = JsonOutputControl(state)
+
+    await content.emit(AssistantTextDelta("first "))
+    await content.emit(AssistantTextDelta("second"))
+
+    assert stdout.getvalue() == ""
+    await control.settle_stream()
+
+    event = json.loads(stdout.getvalue())
+    assert event["item"]["text"] == "first second"
