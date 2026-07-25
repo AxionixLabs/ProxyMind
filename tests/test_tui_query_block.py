@@ -23,7 +23,7 @@ def test_non_slash_input_keeps_existing_transcript_style() -> None:
 
     assert shell.fragments == (("class:prompt", "!git status"),)
     assert message.fragments == (
-        ("class:prompt.kicker", "> "),
+        ("class:prompt.kicker", "› "),
         ("class:prompt", "hello"),
     )
 
@@ -38,7 +38,7 @@ def test_unknown_slash_text_is_not_styled_as_a_command() -> None:
     block = query_block("/今天天气")
 
     assert block.fragments == (
-        ("class:prompt.kicker", "> "),
+        ("class:prompt.kicker", "› "),
         ("class:prompt", "/今天天气"),
     )
 
@@ -89,18 +89,18 @@ def test_root_slash_is_rejected_with_hint_before_queueing() -> None:
     )
 
 
-def test_empty_message_without_attachments_is_rejected_with_hint() -> None:
+@pytest.mark.parametrize("text", ("", "   "))
+def test_empty_message_without_attachments_is_silent(text: str) -> None:
     runtime = TuiRuntime()
     buffer = runtime.screen.input.buffer
+    buffer.text = text
 
-    keep_text = runtime.submissions.accept_input(buffer)
+    buffer.validate_and_handle()
 
-    assert not keep_text
+    assert buffer.text == ""
     assert runtime.submissions.message_queue.empty()
     assert not runtime.submissions.queued_messages.active
-    assert "".join(
-        text for _style, text in runtime.document.blocks[-1].block.fragments
-    ) == "• Enter a message or attach a file before sending."
+    assert not runtime.document.blocks
 
 
 def test_surface_command_blanks_footer_as_soon_as_it_is_submitted() -> None:

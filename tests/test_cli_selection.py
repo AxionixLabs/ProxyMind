@@ -33,10 +33,8 @@ from mind_app.cli.help import (
     ANSI_HEADER,
     ANSI_MUTED,
 )
-from mind_app.cli.parser import (
-    create_cli_parser,
-    parse_cli_command,
-)
+from mind_app.cli.arguments import create_cli_parser
+from mind_app.cli.parser import parse_cli_command
 from mind_app.cli.selection import resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_mode
 from mind_app.modes.result import RunResult

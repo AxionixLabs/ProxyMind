@@ -106,12 +106,6 @@ class TuiAutoSuggest(AutoSuggest):
 class TuiInputModel(object):
     """提供 TUI 独立的输入编辑、补全、历史和主题状态。"""
 
-    SHELL_COMMAND_HINT_TEXT: typing.Final[str] = (
-        "Prefix a command with ! to run it locally"
-    )
-
-    SHELL_COMMAND_HINT_EXAMPLE: typing.Final[str] = "Example: !ls"
-
     PARAMETERIZED_COMMANDS: typing.Final[tuple[str, ...]] = (
         parameterized_command_texts()
     )

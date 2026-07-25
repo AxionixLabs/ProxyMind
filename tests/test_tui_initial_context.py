@@ -10,15 +10,6 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.session.state import preload_tui_prompt_context
 
 
-def test_startup_placeholder_excludes_empty_shell_notice() -> None:
-    model = TuiRuntime().input_model
-
-    assert all(
-        model.SHELL_COMMAND_HINT_TEXT not in candidate
-        for candidate in model.PLACEHOLDER_COMMANDS
-    )
-
-
 @pytest.mark.anyio
 async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     runtime = TuiRuntime()

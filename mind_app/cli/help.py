@@ -210,6 +210,20 @@ class CliHelpFormatter(argparse.HelpFormatter):
         return text
 
 
+class CliSubparsersAction(argparse._SubParsersAction):
+    """创建带统一帮助能力的子命令解析器。"""
+
+    def add_parser(
+        self,
+        name: str,
+        **kwargs: typing.Any,
+    ) -> "CliArgumentParser":
+        parser = super().add_parser(name, **kwargs)
+        if not isinstance(parser, CliArgumentParser):
+            raise TypeError("subparser must use CliArgumentParser")
+        return parser
+
+
 class CliArgumentParser(argparse.ArgumentParser):
     """为每一层命令提供统一标题和帮助格式。"""
 
@@ -238,7 +252,18 @@ class CliArgumentParser(argparse.ArgumentParser):
         )
 
         super().__init__(*args, **kwargs)
+        self.register("action", "parsers", CliSubparsersAction)
         self._command_help: dict[tuple[str, ...], CliArgumentParser] = {}
+
+    def add_subparsers(
+        self,
+        **kwargs: typing.Any,
+    ) -> CliSubparsersAction:
+        """创建返回同类解析器的子命令动作。"""
+        action = super().add_subparsers(**kwargs)
+        if not isinstance(action, CliSubparsersAction):
+            raise TypeError("subparsers action must use CliSubparsersAction")
+        return action
 
     def register_command_help(
         self,

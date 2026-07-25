@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
+import typing
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
@@ -24,6 +26,7 @@ WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
+TUI_SURFACE_BACKGROUND = "#363B42"
 
 TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "assistant.prefix": "bold dim fg:#7F8C9A",
@@ -69,6 +72,30 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 })
 
 
+def supports_filled_tui_surfaces(
+    environ: typing.Mapping[str, str] | None = None
+) -> bool:
+    """判断当前终端是否启用满宽表面背景。"""
+    env = os.environ if environ is None else environ
+    return bool(str(env.get("WT_SESSION") or "").strip()) or (
+        str(env.get("TERM_PROGRAM") or "").casefold() == "iterm.app"
+        or str(env.get("LC_TERMINAL") or "").casefold() == "iterm2"
+    )
+
+
+def _surface_style(
+    environ: typing.Mapping[str, str] | None = None
+) -> BaseStyle:
+    """创建输入区和审批卡使用的终端表面样式。"""
+    if not supports_filled_tui_surfaces(environ):
+        return Style.from_dict({})
+    background = f"bg:{TUI_SURFACE_BACKGROUND}"
+    return Style.from_dict({
+        "input-surface": background,
+        "approval-card": background,
+    })
+
+
 def prompt_style(style: TextStyle) -> str:
     """把中立文本样式转换为 prompt_toolkit 样式字符串。"""
     parts = [
@@ -95,6 +122,8 @@ def build_tui_application_style(
     input_style: BaseStyle,
     approval_style: BaseStyle,
     menu_style: BaseStyle,
+    *,
+    environ: typing.Mapping[str, str] | None = None
 ) -> BaseStyle:
     """组合 TUI 输入、审批、菜单和主画布样式。"""
     return merge_styles([
@@ -102,6 +131,7 @@ def build_tui_application_style(
         approval_style,
         menu_style,
         TUI_APPLICATION_OVERRIDES,
+        _surface_style(environ),
     ])
 
 
@@ -172,7 +202,7 @@ def query_block(text: str) -> FragmentBlock:
     for index, line in enumerate(lines):
         if index:
             fragments.append(("", "\n"))
-        marker = "" if command else ("> " if index == 0 else "  ")
+        marker = "" if command else ("› " if index == 0 else "  ")
         if marker:
             fragments.append(("class:prompt.kicker", marker))
         fragments.append((text_style, line))

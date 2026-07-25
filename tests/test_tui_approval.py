@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.tui.core.approval_render import (
@@ -10,6 +11,10 @@ from mind_app.tui.core.approval_render import (
     tui_approval_content_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import (
+    TUI_SURFACE_BACKGROUND,
+    build_tui_application_style,
+)
 
 
 def test_approval_content_keeps_question_without_card_title() -> None:
@@ -166,6 +171,49 @@ def test_approval_surface_uses_no_background() -> None:
     assert question.color == "4DE3FF"
 
 
+@pytest.mark.parametrize(
+    "environ",
+    (
+        {"WT_SESSION": "windows-terminal"},
+        {"TERM_PROGRAM": "iTerm.app"},
+        {"LC_TERMINAL": "iTerm2"},
+    ),
+)
+def test_supported_terminal_fills_input_and_approval_surfaces(environ) -> None:
+    empty = Style.from_dict({})
+    style = build_tui_application_style(
+        empty,
+        TUI_APPROVAL_STYLE,
+        empty,
+        environ=environ,
+    )
+    expected = TUI_SURFACE_BACKGROUND.removeprefix("#").upper()
+
+    assert style.get_attrs_for_style_str(
+        "class:input-surface"
+    ).bgcolor == expected
+    assert style.get_attrs_for_style_str(
+        "class:approval-card"
+    ).bgcolor == expected
+
+
+def test_other_terminal_keeps_input_and_approval_surfaces_transparent() -> None:
+    empty = Style.from_dict({})
+    style = build_tui_application_style(
+        empty,
+        TUI_APPROVAL_STYLE,
+        empty,
+        environ={"TERM_PROGRAM": "Apple_Terminal"},
+    )
+
+    assert style.get_attrs_for_style_str(
+        "class:input-surface"
+    ).bgcolor == ""
+    assert style.get_attrs_for_style_str(
+        "class:approval-card"
+    ).bgcolor == ""
+
+
 def test_selected_session_shortcut_uses_118_style() -> None:
     lines = tui_approval_content_lines(
         ["accept", "acceptForSession", "decline"],
@@ -215,6 +263,9 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
     assert not fragment_text.endswith("\n")
     assert runtime.screen.approval_window.width is None
     assert not runtime.screen.approval_window.dont_extend_width()
+    assert "class:input-surface" in runtime.screen.input.window.style
+    assert runtime.screen.input.window.width is None
+    assert not runtime.screen.input.window.dont_extend_width()
     assert runtime.screen._approval_height() > 14
 
     runtime.screen.approval.finish("decline")

@@ -34,7 +34,7 @@ class _ApplicationStub(object):
         self.views.append(view)
 
 
-def test_empty_shell_mode_submission_stays_in_input() -> None:
+def test_empty_shell_mode_submission_is_silent() -> None:
     runtime = TuiRuntime()
     runtime.input_model.set_shell_mode(True)
 
@@ -43,22 +43,7 @@ def test_empty_shell_mode_submission_stays_in_input() -> None:
     assert not handled
     assert runtime.submissions.message_queue.empty()
     assert runtime.input_model.shell_mode
-    assert runtime.document.blocks[-1].kind == "notice"
-    fragments = runtime.document.blocks[-1].block.fragments
-    assert "".join(text for _style, text in fragments) == (
-        "• Prefix a command with ! to run it locally  Example: !ls"
-    )
-    assert fragments[:2] == (
-        ("class:input.notice.hint", "• "),
-        (
-            "class:input.notice.hint",
-            "Prefix a command with ! to run it locally  ",
-        ),
-    )
-    assert fragments[-1] == (
-        "class:input.notice.example",
-        "Example: !ls",
-    )
+    assert not runtime.document.blocks
 
 
 @pytest.mark.anyio

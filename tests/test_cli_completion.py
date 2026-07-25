@@ -12,7 +12,7 @@ from mind_app.cli.completion import (
     generate_completion_script,
     run_completion_command,
 )
-from mind_app.cli.parser import create_cli_parser
+from mind_app.cli.arguments import create_cli_parser
 
 
 @pytest.mark.parametrize("shell", COMPLETION_SHELLS)

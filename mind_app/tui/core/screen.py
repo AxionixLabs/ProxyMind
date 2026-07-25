@@ -132,7 +132,8 @@ class TuiScreen(object):
 
         self._clear_exit_confirmation  = clear_exit_confirmation
         self._clear_visible_transcript = clear_visible_transcript
-        self._scroll_transcript_page   = scroll_transcript_page
+
+        self._scroll_transcript_page = scroll_transcript_page
 
         self.activity_block: FragmentBlock | None = None
 
@@ -143,6 +144,7 @@ class TuiScreen(object):
 
         self.input = TextArea(
             name=INPUT_BUFFER_NAME,
+            style="class:input-surface",
             multiline=True,
             lexer=self.input_model.lexer,
             auto_suggest=self.input_model.auto_suggest,

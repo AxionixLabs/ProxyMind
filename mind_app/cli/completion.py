@@ -73,7 +73,7 @@ def generate_completion_script(
 ) -> str:
     """根据现有命令树生成指定 shell 的补全脚本。"""
     if parser is None:
-        from .parser import create_cli_parser
+        from .arguments import create_cli_parser
 
         parser = create_cli_parser()
 

@@ -59,10 +59,6 @@ class TuiSubmissionFlow(object):
         "Choose a slash command from the menu or type its full name."
     )
 
-    EMPTY_MESSAGE_HINT: typing.Final[str] = (
-        "Enter a message or attach a file before sending."
-    )
-
     def __init__(
         self,
         *,
@@ -365,26 +361,10 @@ class TuiSubmissionFlow(object):
         value = self.input_model.restore_submission(buffer.text)
         if not value:
             if shell_mode:
-                self._append_notice(FragmentBlock((
-                    ("class:input.notice.hint", "• "),
-                    (
-                        "class:input.notice.hint",
-                        f"{self.input_model.SHELL_COMMAND_HINT_TEXT}  ",
-                    ),
-                    (
-                        "class:input.notice.example",
-                        self.input_model.SHELL_COMMAND_HINT_EXAMPLE,
-                    ),
-                )))
-                self._invalidate()
                 return False
 
             if not self.has_pending_attachments:
-                return self._reject_input(
-                    buffer,
-                    editable_text=editable_text,
-                    message=self.EMPTY_MESSAGE_HINT,
-                )
+                return False
 
         if shell_mode:
             value = f"! {value}" if value else "!"
