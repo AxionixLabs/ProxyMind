@@ -111,6 +111,17 @@ def test_document_preserves_safe_fragment_boundaries_and_identity() -> None:
     assert document.blocks[0].block.fragments == block.fragments
 
 
+def test_document_detects_only_user_or_assistant_conversation() -> None:
+    document = TuiDocument()
+    document.append_block(_block("intro"), kind="system")
+
+    assert not document.has_conversation
+
+    document.append_block(_block("question"), kind="user")
+
+    assert document.has_conversation
+
+
 def test_queued_messages_filter_controls_before_clipping() -> None:
     queued = TuiQueuedMessages()
     queued.append(TuiSubmission(

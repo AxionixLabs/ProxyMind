@@ -85,7 +85,7 @@ class TuiRuntime(object):
         self._open_callbacks: list[typing.Callable[[], None]] = []
         self._startup_animations: list[StartupAnimation]      = []
 
-        self._closing = False
+        self._closing: bool = False
 
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
@@ -444,14 +444,14 @@ class TuiRuntime(object):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None,
+        handler: typing.Callable[[], bool] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         self.submissions.bind_interrupt_handler(handler)
 
     def bind_stream_command_handler(
         self,
-        handler: typing.Callable[[str], bool] | None,
+        handler: typing.Callable[[str], bool] | None
     ) -> None:
         """绑定或清除忙碌期间的命令分派函数。"""
         self.submissions.bind_stream_command_handler(handler)
@@ -514,13 +514,20 @@ class TuiRuntime(object):
             return None
 
         self._closing = False
+
         self._application_error = None
+
+        self.screen.set_transcript_only(False)
+
         application = self.screen.application
+
         previous_render_count = application.render_counter
+
         self._application_task = asyncio.create_task(
             self._run_application(),
             name="tui application",
         )
+
         while (
             (
                 not application.is_running
@@ -529,16 +536,22 @@ class TuiRuntime(object):
             and not self._application_task.done()
         ):
             await asyncio.sleep(0)
+
         application_error = self._application_task_exception()
         if application_error is not None:
             raise application_error
+
         await self._play_startup_animation()
+
         for callback in tuple(self._open_callbacks):
             callback()
 
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+
+        preserve_transcript = self.document.has_conversation
+
         self._startup_animations.clear()
         self.terminal_progress.clear()
 
@@ -557,7 +570,10 @@ class TuiRuntime(object):
 
         self.document.discard_submission()
         self.screen.bottom_pane.clear()
+        self.screen.set_transcript_only(preserve_transcript)
+
         background_tasks = tuple(self._background_tasks)
+
         self._background_tasks.clear()
         self._background_session_tasks.clear()
 
@@ -568,7 +584,7 @@ class TuiRuntime(object):
             await asyncio.gather(*background_tasks, return_exceptions=True)
 
         await self.viewport.close()
-        await self._exit_application(erase=True)
+        await self._exit_application(erase=not preserve_transcript)
 
     async def read_message(self, context: PromptContext) -> str:
         """更新输入上下文并按提交顺序读取下一条消息。"""
@@ -585,13 +601,14 @@ class TuiRuntime(object):
             raise EOFError
 
         if isinstance(submission, TuiSubmission):
-            value = submission.value
+            value   = submission.value
             visible = submission.visible_text.strip() or value
         else:
-            value = str(submission)
+            value   = str(submission)
             visible = value
 
         self.viewport.reset_view()
+
         if visible:
             block = query_block(visible)
             self.document.stage_submission(block)
@@ -602,13 +619,24 @@ class TuiRuntime(object):
                 if committed is not None:
                     self.viewport.content_appended()
                     self.viewport.mark_submitted_query(committed)
+
         self.submissions.clear_surface_submission_pending()
+
         return value
 
     async def select_menu(self, request: MenuRequest) -> typing.Any:
         """在主 Application 画布内读取菜单选择。"""
         self._discard_submitted_query()
         return await self.screen.menu.request(request)
+
+    async def _finish_approval_session(self, wait_paused: bool) -> None:
+        """恢复等待状态并关闭当前审批卡。"""
+        self.terminal_progress.begin()
+        try:
+            if wait_paused:
+                await self.activity.resume_wait()
+        finally:
+            await self.screen.approval.dismiss()
 
     async def request_approval(
         self,
@@ -623,14 +651,15 @@ class TuiRuntime(object):
         self.terminal_progress.warning()
         try:
             wait_paused = await self.activity.pause_wait()
-            return await self.screen.approval.wait()
-        finally:
-            self.terminal_progress.begin()
-            try:
-                if wait_paused:
-                    await self.activity.resume_wait()
-            finally:
-                await self.screen.approval.dismiss()
+            decision    = await self.screen.approval.wait()
+
+        except BaseException:
+            await self._finish_approval_session(wait_paused)
+            raise
+
+        await self._finish_approval_session(wait_paused)
+
+        return decision
 
     async def view_process(
         self,

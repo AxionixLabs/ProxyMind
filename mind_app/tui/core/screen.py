@@ -144,6 +144,8 @@ class TuiScreen(object):
 
         self._scroll_transcript_page = scroll_transcript_page
 
+        self._transcript_only: bool = False
+
         self.activity_block: FragmentBlock | None = None
 
         self.process_status = TuiProcessStatus(
@@ -411,7 +413,12 @@ class TuiScreen(object):
         )
         self.input_area = ConditionalContainer(
             self.input_stack,
-            filter=Condition(lambda: self.bottom_pane.input_visible),
+            filter=Condition(
+                lambda: (
+                    self.bottom_pane.input_visible
+                    and not self._transcript_only
+                )
+            ),
         )
 
         self.canvas = HSplit(
@@ -493,6 +500,11 @@ class TuiScreen(object):
         ):
             with contextlib.suppress(Exception):
                 application.invalidate()
+
+    def set_transcript_only(self, active: bool) -> None:
+        """切换为只保留正文的终端画布。"""
+        self._transcript_only = bool(active)
+        self.invalidate()
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
@@ -764,11 +776,13 @@ class TuiScreen(object):
 
     def _queued_height(self) -> int:
         """计算待提交消息区域占用行数。"""
-        if self.bottom_pane.is_active("approval"):
+        if self._transcript_only or self.bottom_pane.is_active("approval"):
             return 0
+
         text = fragments_text(self._queued_fragments())
         if not text:
             return 0
+
         rows = display_line_count(text, width=self.terminal_width)
         return min(self.QUEUED_MAX_HEIGHT, max(1, rows))
 
@@ -785,7 +799,8 @@ class TuiScreen(object):
     def _footer_visible(self) -> bool:
         """判断输入框下方的信息栏是否应当显示。"""
         return bool(
-            not self._overlay_active()
+            not self._transcript_only
+            and not self._overlay_active()
             and self.terminal_height > self._input_surface_height()
         )
 
@@ -987,6 +1002,8 @@ class TuiScreen(object):
 
     def _interaction_height(self) -> int:
         """返回输入区或审批区当前占用的高度。"""
+        if self._transcript_only:
+            return 0
         if self.bottom_pane.is_active("approval"):
             return self._approval_height()
         if self.bottom_pane.transient_active:
@@ -1031,10 +1048,13 @@ class TuiScreen(object):
     def _content_input_gap_visible(self) -> bool:
         """判断正文状态区与底部交互区域之间是否保留空行。"""
         return bool(
-            self.document.has_visible_content
-            or self.activity_block is not None
-            or self.process_status.active
-            or self._queued_content_visible()
+            not self._transcript_only
+            and (
+                self.document.has_visible_content
+                or self.activity_block is not None
+                or self.process_status.active
+                or self._queued_content_visible()
+            )
         )
 
     def _transcript_status_gap_visible(self) -> bool:

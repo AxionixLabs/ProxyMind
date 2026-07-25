@@ -292,6 +292,50 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
 
 
 @pytest.mark.anyio
+async def test_request_approval_dismisses_card_when_pause_fails() -> None:
+    calls = []
+
+    class ActivityStub(object):
+        async def pause_wait(self) -> bool:
+            calls.append("pause")
+            raise RuntimeError("pause failed")
+
+        async def resume_wait(self) -> None:
+            calls.append("resume")
+
+    class ApprovalStub(object):
+        def begin(self, approval):
+            calls.append("approval.begin")
+            return True
+
+        async def wait(self):
+            calls.append("approval.wait")
+            return "accept"
+
+        async def dismiss(self):
+            calls.append("approval.dismiss")
+
+    runtime = TuiRuntime.__new__(TuiRuntime)
+    runtime.activity = ActivityStub()
+    runtime.screen = SimpleNamespace(approval=ApprovalStub())
+    runtime.terminal_progress = SimpleNamespace(
+        warning=lambda: calls.append("warning"),
+        begin=lambda: calls.append("progress"),
+    )
+
+    with pytest.raises(RuntimeError, match="pause failed"):
+        await runtime.request_approval({})
+
+    assert calls == [
+        "approval.begin",
+        "warning",
+        "pause",
+        "progress",
+        "approval.dismiss",
+    ]
+
+
+@pytest.mark.anyio
 async def test_request_approval_keeps_card_active_during_activity_handoff() -> None:
     runtime = TuiRuntime()
     active_during_handoff = []

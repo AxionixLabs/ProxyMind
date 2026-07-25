@@ -7,6 +7,8 @@ import pytest
 from prompt_toolkit.output.plain_text import PlainTextOutput
 
 from mind_app.frontend.contracts import PassiveFrontendRuntime
+from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import (
     TuiRuntime,
     require_tui_runtime
@@ -47,10 +49,38 @@ def test_exit_summary_command_is_bright_cyan_without_bold() -> None:
 
 
 @pytest.mark.anyio
-async def test_runtime_close_erases_the_input_surface() -> None:
+async def test_runtime_close_erases_empty_canvas() -> None:
     runtime = TuiRuntime()
     runtime._exit_application = AsyncMock()
 
     await runtime.close()
 
     runtime._exit_application.assert_awaited_once_with(erase=True)
+
+
+@pytest.mark.anyio
+async def test_runtime_close_preserves_conversation_without_bottom_area() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(
+        FragmentBlock((("class:user", "question"),)),
+        kind="user",
+    )
+    runtime.append_block(
+        FragmentBlock((("class:assistant", "answer"),)),
+        kind="assistant",
+    )
+    runtime.submissions.queued_messages.append(TuiSubmission(
+        value="queued",
+        editable_text="queued",
+        paste_store={},
+    ))
+    runtime._exit_application = AsyncMock()
+
+    await runtime.close()
+
+    runtime._exit_application.assert_awaited_once_with(erase=False)
+    assert not runtime.screen.input_area.filter()
+    assert not runtime.screen._footer_visible()
+    assert runtime.screen._interaction_height() == 0
+    assert runtime.screen._content_input_gap_height() == 0
+    assert runtime.screen._queued_height() == 0

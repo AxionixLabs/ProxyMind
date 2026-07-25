@@ -65,6 +65,18 @@ class TuiDocument(object):
         )
 
     @property
+    def has_conversation(self) -> bool:
+        """返回归档中是否存在用户或助手对话。"""
+        conversation_kinds = {"user", "assistant"}
+        return bool(
+            self.active_kind in conversation_kinds
+            or any(
+                item.kind in conversation_kinds
+                for item in (*self.blocks, *self._active_tail)
+            )
+        )
+
+    @property
     def has_visible_content(self) -> bool:
         """返回实时画布中是否仍有未提交正文。"""
         return bool(
