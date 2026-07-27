@@ -10,6 +10,7 @@ from mind_app.presentation.models import TextSpan
 from mind_nova import const
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
+from mind_core.permissions import PermissionSettings
 from ...runtime.support.calling import resolve_mode_runner
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
@@ -86,7 +87,7 @@ async def run_tui_model_turn(
     message_text: str,
     run_mode: RunMode,
     pref_config: dict[str, typing.Any],
-    access_mode: str = "safe"
+    permissions: PermissionSettings
 ) -> None:
     """为单轮 TUI 输入建立 MCP 会话并执行模型流程。"""
     attachments: list[dict[str, typing.Any]] = []
@@ -122,7 +123,7 @@ async def run_tui_model_turn(
                 pref_config=pref_config,
                 message=message_text,
                 tools=tools,
-                access_mode=access_mode,
+                permissions=permissions,
                 attachments=attachments,
                 metadata=turn_metadata,
                 ev_report=ev_report

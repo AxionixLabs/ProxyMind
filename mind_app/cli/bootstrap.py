@@ -11,6 +11,10 @@ from engine.errors import ApplicationError
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
+from mind_core.permissions import (
+    PermissionSettings,
+    resolve_permissions
+)
 from engine.observability import (
     observe,
     observe_exception
@@ -143,7 +147,7 @@ async def _run_application(
             profile=config_profile,
             workspace=Path.cwd(),
         )
-        config_session.load()
+        config_resolution = config_session.resolve()
     except (OSError, TypeError, ValueError) as error:
         raise ApplicationError(f"Configuration is invalid: {error}") from error
 
@@ -168,6 +172,11 @@ async def _run_application(
 
     try:
         preference = Preferences(config_session)
+
+        permissions = resolve_permissions(
+            config_resolution.config,
+            interactive=output_mode == "tui",
+        )
 
         service_context = ServiceRuntimeContext(
             spec=runtime_spec,
@@ -221,6 +230,7 @@ async def _run_application(
         service_context=service_context,
         power=power,
         output_mode=output_mode,
+        permissions=permissions,
     )
 
 
@@ -238,7 +248,8 @@ async def _run_controller(
     runtime_spec: ServiceRuntimeSpec,
     service_context: ServiceRuntimeContext,
     power: int,
-    output_mode: OutputMode
+    output_mode: OutputMode,
+    permissions: PermissionSettings
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     try:
@@ -257,6 +268,7 @@ async def _run_controller(
             frontend=frontend,
             design=design,
             report=report,
+            permissions=permissions,
         )
 
     except BaseException as error:

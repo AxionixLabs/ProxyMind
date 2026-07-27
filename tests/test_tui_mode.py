@@ -9,6 +9,7 @@ import pytest
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.mode import render_mode_status
 from mind_app.tui.session import loop
+from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.parametrize(
@@ -44,6 +45,7 @@ async def test_mode_command_renders_status_and_updates_prompt_context(
     task_event = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
@@ -85,6 +87,7 @@ async def test_attachment_only_submission_starts_model_turn(monkeypatch) -> None
     pref_config = {"primary": {"model": "test-model"}}
     turn_messages: list[str] = []
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(

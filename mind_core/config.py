@@ -125,6 +125,8 @@ def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]
 def _default_effective_config() -> dict[str, typing.Any]:
     """返回默认的有效配置结构。"""
     return {
+        "sandbox_mode": "",
+        "approval_policy": "",
         "service" : {
             "domain" : ""
         },
@@ -159,6 +161,8 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     _validate_effective_mcp_servers(mcp_servers)
 
     return {
+        "sandbox_mode": _as_str(data.get("sandbox_mode")).strip(),
+        "approval_policy": _as_str(data.get("approval_policy")).strip(),
         "service": {
             "domain": _as_str(
                 service.get("domain"),
@@ -187,6 +191,8 @@ STRING_CONFIG_PATHS = frozenset({
     ("model_provider",),
     ("model_reasoning_effort",),
     ("service", "domain"),
+    ("sandbox_mode",),
+    ("approval_policy",),
 })
 
 BOOL_CONFIG_PATHS = frozenset({
@@ -212,6 +218,8 @@ TABLE_CONFIG_PATHS = (
 )
 
 ROOT_CONFIG_FIELDS = frozenset({
+    "sandbox_mode",
+    "approval_policy",
     "model",
     "model_provider",
     "model_reasoning_effort",
@@ -303,6 +311,18 @@ def validate_config_value(
             choices = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
             raise ConfigValidationError(
                 f"{dotted} must be one of: {choices}"
+            )
+        if path == ("sandbox_mode",) and value not in {
+            "read-only", "workspace-write", "danger-full-access"
+        }:
+            raise ConfigValidationError(
+                f"{dotted} must be one of: read-only, workspace-write, danger-full-access"
+            )
+        if path == ("approval_policy",) and value not in {
+            "untrusted", "on-request", "never"
+        }:
+            raise ConfigValidationError(
+                f"{dotted} must be one of: untrusted, on-request, never"
             )
         return None
 

@@ -9,6 +9,10 @@ from .config import truncate_text
 from .contracts import McpSessionLike
 from .status import should_reraise_external
 
+if typing.TYPE_CHECKING:
+    from mind_core.permissions import PermissionSettings
+
+
 class CompositeToolSession(McpSessionLike):
     """合并客户端、外部和服务 MCP 会话，并按工具来源分发调用。"""
 
@@ -16,7 +20,7 @@ class CompositeToolSession(McpSessionLike):
         self,
         service_session: ClientSession | None = None,
         external_group: typing.Any = None,
-        client_registry: ClientToolRegistry | None = None,
+        client_registry: ClientToolRegistry | None = None
     ) -> None:
         """保存可选服务会话、外部工具分组和客户端工具。"""
         self.service_session = service_session
@@ -109,6 +113,7 @@ class CompositeToolSession(McpSessionLike):
         cid: str | None = None,
         sid: str | None = None,
         call_id: str | None = None,
+        permissions: "PermissionSettings | None" = None
     ) -> mcp_types.CallToolResult:
         """根据工具名称选择外部会话或本地会话执行调用。"""
         payload = arguments if args is None else args
@@ -125,6 +130,7 @@ class CompositeToolSession(McpSessionLike):
                 cid=cid,
                 sid=sid,
                 call_id=call_id,
+                permissions=permissions,
             )
 
         if self.external_group is not None and name in self.external_group.tools:

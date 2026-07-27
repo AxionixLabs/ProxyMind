@@ -8,6 +8,9 @@ from dataclasses import (
 )
 from mcp import types as mcp_types
 
+if typing.TYPE_CHECKING:
+    from mind_core.permissions import PermissionSettings
+
 
 @dataclass(slots=True)
 class ClientToolRuntime:
@@ -21,6 +24,7 @@ class ClientToolRuntime:
     cid: str | None = None
     sid: str | None = None
     call_id: str | None = None
+    permissions: "PermissionSettings | None" = None
 
 
 ClientToolHandler = typing.Callable[
@@ -35,7 +39,6 @@ ClientToolHandler = typing.Callable[
 @dataclass(frozen=True, slots=True)
 class ClientTool:
     """客户端工具的描述信息与处理函数。"""
-
     name: str
     description: str
     input_schema: dict[str, typing.Any]

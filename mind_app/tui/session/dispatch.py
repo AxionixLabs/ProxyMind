@@ -12,7 +12,6 @@ from mind_app.presentation.models import (
     TextSpan
 )
 from mind_nova.modes import RunMode
-from mind_nova.requests.access import normalize_access_mode
 from server import config_service_base_url
 from ..core.models import FragmentBlock
 from ..core.runtime import TuiRuntime
@@ -176,16 +175,16 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "permissions"):
             selected = await choose_permissions_mode(
                 self.runtime,
-                self.state.access_mode,
+                self.state.permissions,
             )
             if selected is None:
                 self._present()
             else:
-                self.state.access_mode = normalize_access_mode(selected)
+                self.state.permissions = selected
                 self.state.apply_prompt_context(self.runtime)
                 render_permissions_status(
                     self.application,
-                    self.state.access_mode,
+                    self.state.permissions,
                 )
             return DispatchAction.HANDLED
 

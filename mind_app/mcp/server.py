@@ -34,14 +34,18 @@ from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.preference import Preferences
+from mind_core.permissions import (
+    PermissionSettings,
+    resolve_permissions
+)
 from mind_core.service_config import ServiceConfig
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
 )
-from mind_nova.requests.access import (
-    AccessMode,
-    DEFAULT_ACCESS_MODE
+from mind_nova.requests.permissions import (
+    ApprovalPolicy,
+    SandboxMode
 )
 from mind_nova.services import service_endpoints
 from mind_nova import const
@@ -62,10 +66,11 @@ class MindMcpExecutionResult(object):
         return result
 
 
-@dataclass(slots=True)
 class _McpRequestState(object):
     """记录单次 MCP 请求已经绑定的会话。"""
-    session_id: str | None = None
+
+    def __init__(self) -> None:
+        self.session_id: str | None = None
 
 
 class MindMcpRuntime(object):
@@ -95,7 +100,12 @@ class MindMcpRuntime(object):
             profile=config_profile,
             workspace=Path.cwd(),
         )
-        config_session.load()
+        config_resolution = config_session.resolve()
+
+        permissions = resolve_permissions(
+            config_resolution.config,
+            interactive=False,
+        )
 
         pref = Preferences(config_session)
 
@@ -121,6 +131,7 @@ class MindMcpRuntime(object):
             design=None,
             report=report,
             workspace_root=Path.cwd(),
+            permissions=permissions,
         )
 
         try:
@@ -144,7 +155,8 @@ class MindMcpRuntime(object):
         *,
         prompt: str,
         mode: RunMode,
-        access_mode: AccessMode,
+        sandbox_mode: SandboxMode | None,
+        approval_policy: ApprovalPolicy | None,
         working_directory: str | None,
         timeout_sec: float | None = DEFAULT_MCP_EXEC_TIMEOUT_SEC,
         session_id: str | None = None
@@ -171,13 +183,29 @@ class MindMcpRuntime(object):
             return self._failed(f"working directory is unavailable: {workspace}")
 
         request = _McpRequestState()
+
+        effective_sandbox_mode: SandboxMode = (
+            self.mind.permissions.sandbox_mode
+            if sandbox_mode is None
+            else sandbox_mode
+        )
+        effective_approval_policy: ApprovalPolicy = (
+            self.mind.permissions.approval_policy
+            if approval_policy is None
+            else approval_policy
+        )
+        permissions = PermissionSettings(
+            sandbox_mode=effective_sandbox_mode,
+            approval_policy=effective_approval_policy,
+        )
+
         try:
             async with asyncio.timeout(timeout_sec):
                 async with self._call_lock:
                     return await self._execute_locked(
                         message=message,
                         mode=mode,
-                        access_mode=access_mode,
+                        permissions=permissions,
                         workspace=workspace,
                         requested_session_id=(session_id or "").strip() or None,
                         request=request,
@@ -194,7 +222,7 @@ class MindMcpRuntime(object):
         *,
         message: str,
         mode: RunMode,
-        access_mode: AccessMode,
+        permissions: PermissionSettings,
         workspace: Path,
         requested_session_id: str | None,
         request: _McpRequestState
@@ -228,7 +256,7 @@ class MindMcpRuntime(object):
         run = await self.mind.calling(
             message=message,
             mode=mode,
-            access_mode=access_mode,
+            permissions=permissions,
         )
 
         return MindMcpExecutionResult(run=run, session_id=request.session_id)
@@ -294,7 +322,8 @@ def create_mind_mcp_server(
         prompt: str,
         context: Context[typing.Any, MindMcpRuntime, typing.Any],
         mode: RunMode = DEFAULT_RUN_MODE,
-        access_mode: AccessMode = DEFAULT_ACCESS_MODE,
+        sandbox_mode: SandboxMode | None = None,
+        approval_policy: ApprovalPolicy | None = None,
         working_directory: str | None = None,
         timeout_sec: float | None = DEFAULT_MCP_EXEC_TIMEOUT_SEC,
         session_id: str | None = None
@@ -305,7 +334,8 @@ def create_mind_mcp_server(
         result = await runtime.execute(
             prompt=prompt,
             mode=mode,
-            access_mode=access_mode,
+            sandbox_mode=sandbox_mode,
+            approval_policy=approval_policy,
             working_directory=working_directory,
             timeout_sec=timeout_sec,
             session_id=session_id,

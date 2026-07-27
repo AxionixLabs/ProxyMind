@@ -9,6 +9,7 @@ from dataclasses import (
 )
 from engine.enhance import exchange_arguments
 from mind_app.mcp.contracts import McpSessionLike
+from mind_core.permissions import PermissionSettings
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -98,17 +99,19 @@ class ToolBatchExecutor:
         mode: str,
         pref_config: dict[str, typing.Any],
         metadata: dict[str, typing.Any],
-        report: typing.Any
+        report: typing.Any,
+        permissions: PermissionSettings
     ) -> None:
-        self.session      = session
+        self.session        = session
         self.output_control = output_control
         self.status_control = status_control
-        self.presentation = presentation
-        self.tools        = tools
-        self.mode         = mode
-        self.pref_config  = pref_config
-        self.metadata     = metadata
-        self.report       = report
+        self.presentation   = presentation
+        self.tools          = tools
+        self.mode           = mode
+        self.pref_config    = pref_config
+        self.metadata       = metadata
+        self.report         = report
+        self.permissions    = permissions
 
     @staticmethod
     async def post_tool_result(
@@ -185,6 +188,7 @@ class ToolBatchExecutor:
                 cid=str(event.get("cid") or ""),
                 sid=str(event.get("sid") or ""),
                 call_id=str(event.get("call_id") or ""),
+                permissions=self.permissions,
             )
 
             ok      = tool_run.ok

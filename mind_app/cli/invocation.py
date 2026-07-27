@@ -10,12 +10,16 @@ from mind_core.config import (
 from mind_core.config_layers import normalize_profile_name
 from mind_nova import const
 
-CONFIG_FLAGS  = ("-c", "--config")
-PROFILE_FLAGS = ("-p", "--profile")
+CONFIG_FLAGS   = ("-c", "--config")
+PROFILE_FLAGS  = ("-p", "--profile")
+SANDBOX_FLAGS  = ("-s", "--sandbox")
+APPROVAL_FLAGS = ("-a", "--ask-for-approval")
 
 VALUE_OPTIONS = frozenset((
     *CONFIG_FLAGS,
     *PROFILE_FLAGS,
+    *SANDBOX_FLAGS,
+    *APPROVAL_FLAGS,
 ))
 
 
@@ -56,6 +60,18 @@ def add_invocation_options(container: ArgumentContainer) -> None:
             "the base user configuration"
         ),
     )
+    container.add_argument(
+        *SANDBOX_FLAGS,
+        choices=("read-only", "workspace-write", "danger-full-access"),
+        metavar="SANDBOX_MODE",
+        help="Select the sandbox policy for local commands",
+    )
+    container.add_argument(
+        *APPROVAL_FLAGS,
+        choices=("untrusted", "on-request", "never"),
+        metavar="APPROVAL_POLICY",
+        help="Configure when local commands require approval",
+    )
 
 
 def extract_invocation_options(
@@ -89,6 +105,10 @@ def extract_invocation_options(
                 if profile is not None:
                     raise ValueError("profile may only be specified once")
                 profile = normalize_profile_name(value)
+            elif option in SANDBOX_FLAGS:
+                overrides.append(parse_config_override(f'sandbox_mode="{value}"'))
+            elif option in APPROVAL_FLAGS:
+                overrides.append(parse_config_override(f'approval_policy="{value}"'))
         except ValueError as error:
             parser.error(str(error))
         index += consumed
@@ -107,7 +127,12 @@ def _option_value(
             return token, None, 1
         return token, arguments[index + 1], 2
 
-    for option in ("--config", "--profile"):
+    for option in (
+        "--config",
+        "--profile",
+        "--sandbox",
+        "--ask-for-approval",
+    ):
         prefix = f"{option}="
         if token.startswith(prefix):
             return option, token[len(prefix):], 1

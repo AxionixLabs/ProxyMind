@@ -4,14 +4,11 @@
 import re
 import typing
 from mind_core.provider_config import SUPPORTED_PROVIDER_OPTIONS
-from mind_nova.requests.access import normalize_access_mode
+from mind_core.permissions import PermissionSettings
 from .models import (
     RunCompletedView,
     RunStartedView
 )
-
-SANDBOX_LABEL = "workspace-write [workdir, /tmp, $TMPDIR]"
-
 
 def _display_workdir(value: typing.Any) -> str:
     """返回适合终端展示的工作区路径。"""
@@ -28,15 +25,14 @@ def build_run_started_view(
     mode: str,
     pref_config: dict[str, typing.Any],
     workdir: str,
-    access_mode: str,
-    turn_id: str,
+    permissions: PermissionSettings,
+    turn_id: str
 ) -> RunStartedView:
     """构建一次运行的启动展示数据。"""
-    primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
-    primary = primary if isinstance(primary, dict) else {}
-    model   = primary.get("model")
+    primary  = pref_config.get("primary") if isinstance(pref_config, dict) else None
+    primary  = primary if isinstance(primary, dict) else {}
+    model    = primary.get("model")
     provider = _provider_label(primary.get("provider"))
-    access = normalize_access_mode(access_mode)
 
     return RunStartedView(
         thread_id=str(metadata.get("cid") or metadata.get("sid") or ""),
@@ -46,9 +42,9 @@ def build_run_started_view(
         mode=str(mode or ""),
         model=str(model or ""),
         provider=provider,
-        approval="never" if access == "full" else "on-request",
+        approval=permissions.approval_policy,
         workdir=_display_workdir(workdir),
-        sandbox=SANDBOX_LABEL,
+        sandbox=permissions.sandbox_mode,
         reasoning_effort=str(primary.get("reasoning_effort") or "none"),
         reasoning_summaries=str(
             primary.get("reasoning_summaries")
@@ -68,7 +64,7 @@ def _provider_label(value: typing.Any) -> str:
 
 
 def build_run_completed_view(
-    usage: dict[str, typing.Any] | None,
+    usage: dict[str, typing.Any] | None
 ) -> RunCompletedView:
     """构建一次运行的完成展示数据。"""
     return RunCompletedView(usage=dict(usage) if isinstance(usage, dict) else {})

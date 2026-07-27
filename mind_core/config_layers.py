@@ -31,6 +31,8 @@ PROJECT_RESTRICTED_ROOTS = frozenset({
     "project_root_markers",
     "projects",
     "service",
+    "sandbox_mode",
+    "approval_policy",
 })
 
 MCP_STDIO_FIELDS = frozenset({

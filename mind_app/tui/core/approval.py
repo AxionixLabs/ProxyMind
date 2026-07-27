@@ -81,7 +81,7 @@ class TuiApproval(object):
 
         self.state = ApprovalState(
             approval=dict(approval),
-            decisions=approval_decisions(approval),
+            decisions=approval_decisions(),
             future=future,
         )
         self.selected_index = 0

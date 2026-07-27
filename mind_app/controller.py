@@ -14,6 +14,7 @@ from engine.ports import terminate_port_process
 from engine.errors import ApplicationError
 from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
+from mind_core.permissions import PermissionSettings
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -80,8 +81,10 @@ class Mind(object):
             kwargs.get("workspace_root") or Path.cwd()
         )
 
-        self.pref: Preferences           = kwargs["pref"]
-        self.config_session: ConfigSession = kwargs["config_session"]
+        self.pref: Preferences               = kwargs["pref"]
+        self.config_session: ConfigSession   = kwargs["config_session"]
+        self.permissions: PermissionSettings = kwargs["permissions"]
+
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
 
@@ -106,9 +109,9 @@ class Mind(object):
 
         self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
-        self.server_manager: typing.Optional[ServerManage]            = None
-        self.keepalive_stop: typing.Optional[asyncio.Event]           = None
-        self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
+        self.server_manager: typing.Optional[ServerManage]       = None
+        self.keepalive_stop: typing.Optional[asyncio.Event]      = None
+        self.keepalive_task: typing.Optional[asyncio.Task[None]] = None
 
         self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None

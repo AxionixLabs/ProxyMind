@@ -9,6 +9,7 @@ import pytest
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
+from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
@@ -24,6 +25,7 @@ async def test_effort_command_updates_footer_context_immediately(
         },
     }
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         pref=SimpleNamespace(to_config=lambda: stale_config),
         frontend=SimpleNamespace(

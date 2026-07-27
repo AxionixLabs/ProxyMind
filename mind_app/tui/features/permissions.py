@@ -2,6 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_core.permissions import (
+    PermissionPreset,
+    PermissionSettings,
+    permission_label,
+    preset_permissions
+)
 from mind_app.presentation.models import (
     TextSpan,
     TextStyle
@@ -14,10 +20,6 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
-from mind_nova.requests.access import (
-    access_mode_label,
-    normalize_access_mode
-)
 from ..core.styles import (
     BRIGHT_STYLE,
     MUTED_STYLE,
@@ -27,46 +29,59 @@ from ..core.styles import (
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
-
-PERMISSION_OPTIONS: tuple[tuple[str, str, str], ...] = (
-    ("safe", "Approval", "tool execution requires approval"),
-    ("full", "Elevated", "tool execution may run without approval"),
+PERMISSION_OPTIONS: tuple[tuple[PermissionPreset, str, str], ...] = (
+    ("read-only", "Read Only", "inspect files and ask before broader actions"),
+    ("auto", "Auto", "work in the workspace and ask before crossing its boundary"),
+    ("full-access", "Full Access", "run without sandbox restrictions or approval prompts"),
 )
 
 
 async def choose_permissions_mode(
     runtime: "TuiRuntime",
-    current_mode: typing.Any,
-) -> str | None:
+    current: PermissionSettings
+) -> PermissionSettings | None:
     """在主 TUI 中选择权限模式。"""
-    current = normalize_access_mode(current_mode)
-    return await runtime.select_menu(MenuRequest(
+    selected = await runtime.select_menu(MenuRequest(
         title="Permissions",
-        status=f"current={access_mode_label(current)}",
+        status=f"current={permission_label(current)}",
         options=tuple(
             MenuOption(value=value, label=label, detail=detail)
             for value, label, detail in PERMISSION_OPTIONS
         ),
-        selected=1 if current == "full" else 0,
+        selected=next(
+            (
+                index
+                for index, (value, _label, _detail) in enumerate(PERMISSION_OPTIONS)
+                if value == current.preset
+            ),
+            0,
+        ),
     ))
+
+    if selected is None:
+        return None
+
+    return preset_permissions(typing.cast(PermissionPreset, selected))
 
 
 def render_permissions_status(
     application: ApplicationSink,
-    access_mode: typing.Any,
+    permissions: PermissionSettings
 ) -> None:
     """展示当前权限模式。"""
-    normalized = normalize_access_mode(access_mode)
-    label      = access_mode_label(normalized)
+    label = permission_label(permissions)
 
     detail = (
-        "tool execution requires approval"
-        if normalized == "safe"
-        else "tool execution may run without approval"
+        f"sandbox={permissions.sandbox_mode}"
+        f" · approval={permissions.approval_policy}"
     )
 
     title_style = TextStyle(
-        foreground="#D8B26E" if normalized == "full" else "#8FC7EA",
+        foreground=(
+            "#D8B26E"
+            if permissions.sandbox_mode == "danger-full-access"
+            else "#8FC7EA"
+        ),
         bold=True,
     )
 

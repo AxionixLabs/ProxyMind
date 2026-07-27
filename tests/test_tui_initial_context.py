@@ -8,6 +8,7 @@ import pytest
 
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.session.state import preload_tui_prompt_context
+from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
@@ -32,6 +33,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
             }),
         ),
         set_history_workspace=workspace_updates.append,
+        permissions=preset_permissions("auto"),
     )
 
     with patch(
@@ -42,7 +44,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
 
     assert not runtime.active
     assert runtime.context.model == "gpt-test high"
-    assert runtime.context.access_label
+    assert runtime.context.permissions_label == "Auto"
     assert runtime.screen.process_status.label == "pytest -q"
     assert workspace_updates == [Path("D:/workspace")]
     mind.fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)

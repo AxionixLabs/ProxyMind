@@ -5,6 +5,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
+    from mind_core.permissions import PermissionSettings
 
 
 class McpSessionLike(typing.Protocol):
@@ -27,6 +28,7 @@ class McpSessionLike(typing.Protocol):
         cid: str | None = None,
         sid: str | None = None,
         call_id: str | None = None,
+        permissions: "PermissionSettings | None" = None
     ) -> "mcp_types.CallToolResult":
         """调用指定 MCP 工具并返回执行结果。"""
         ...

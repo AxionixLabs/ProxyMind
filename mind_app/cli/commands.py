@@ -8,10 +8,6 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
 )
-from mind_nova.requests.access import (
-    AccessMode,
-    DEFAULT_ACCESS_MODE
-)
 
 OutputFormat = typing.Literal[
     "text",
@@ -62,7 +58,6 @@ class ExecCommand(object):
     images: tuple[str, ...] = ()
     model: str | None = None
     mode: RunMode = DEFAULT_RUN_MODE
-    access_mode: AccessMode = DEFAULT_ACCESS_MODE
     output_format: OutputFormat = "text"
     helix: bool = False
 
@@ -72,7 +67,6 @@ class BatchCommand(object):
     """描述批量星图执行入口。"""
     sources: tuple[str, ...]
     mode: RunMode
-    access_mode: AccessMode = DEFAULT_ACCESS_MODE
     helix: bool = False
 
 

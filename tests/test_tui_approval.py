@@ -34,11 +34,11 @@ def test_approval_content_keeps_question_without_card_title() -> None:
         approval=approval,
     )
     text_lines = ["".join(text for _, text in line) for line in lines]
+    command_index = text_lines.index("$ pytest -q")
 
-    assert text_lines[0] == "Approve this command?"
-    assert text_lines[1] == ""
-    assert text_lines[2] == "$ pytest -q"
-    assert text_lines[3] == ""
+    assert text_lines[0] == "Would you like to approve the following command?"
+    assert text_lines[command_index - 1] == ""
+    assert text_lines[command_index + 1] == ""
     assert "Review command" not in "\n".join(text_lines)
 
 
@@ -54,13 +54,14 @@ def test_multiline_command_preserves_lines_and_prefix_alignment() -> None:
         width=40,
     )
     text_lines = _line_texts(lines)
+    command_index = text_lines.index("$ echo first")
 
-    assert text_lines[2:5] == [
+    assert text_lines[command_index:command_index + 3] == [
         "$ echo first",
         "  echo second",
         "  echo third",
     ]
-    assert text_lines[5] == ""
+    assert text_lines[command_index + 3] == ""
 
 
 def test_long_command_wraps_within_content_width() -> None:
@@ -75,7 +76,11 @@ def test_long_command_wraps_within_content_width() -> None:
         width=16,
     )
     text_lines = _line_texts(lines)
-    command_lines = text_lines[2:text_lines.index("", 2)]
+    command_index = next(
+        index for index, line in enumerate(text_lines)
+        if line.startswith("$ ")
+    )
+    command_lines = text_lines[command_index:text_lines.index("", command_index)]
 
     assert len(command_lines) > 1
     assert command_lines[0].startswith("$ ")
@@ -369,7 +374,7 @@ async def test_approval_selection_resets_between_requests() -> None:
     }
 
     assert approval.begin(request)
-    approval._move(1)
+    approval._move(2)
     selected_fragments = approval.fragments()
     assert any(
         style == "class:approval-option-selected" and text.startswith("No,")

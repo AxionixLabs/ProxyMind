@@ -31,6 +31,7 @@ from mind_app.output.content import AssistantTextDelta
 from mind_app.presentation.run_views import build_run_started_view
 from mind_app.runtime.support.calling import run_mode_lifecycle
 from mind_app.stream_events.worked import worked_footer_text
+from mind_core.permissions import preset_permissions
 
 
 class _RecordWriter(object):
@@ -81,7 +82,7 @@ def _run_view():
             },
         },
         workdir=r"D:\PycharmProjects\Craft",
-        access_mode="full",
+        permissions=preset_permissions("full-access"),
         turn_id="turn-test",
     )
 
@@ -93,7 +94,7 @@ def test_run_view_uppercases_windows_drive_letter_for_display() -> None:
         mode="chat",
         pref_config={},
         workdir="d:/PycharmProjects/ProxyMind",
-        access_mode="safe",
+        permissions=preset_permissions("read-only"),
         turn_id="",
     )
 
@@ -123,7 +124,7 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
     assert f"{ANSI_MAGENTA}mind{ANSI_RESET}\n" in visible
     assert "provider: OpenAI" in recorded
     assert "approval: never" in recorded
-    assert "sandbox: workspace-write [workdir, /tmp, $TMPDIR]" in recorded
+    assert "sandbox: danger-full-access" in recorded
     assert "reasoning effort: high" in recorded
     assert "reasoning summaries: none" in recorded
     assert "session id: sid-test" in recorded

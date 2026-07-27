@@ -13,6 +13,9 @@ from .planning import planning_tools
 from .update_plan import update_plan_tools
 from .view_image import view_image_tools
 
+if typing.TYPE_CHECKING:
+    from mind_core.permissions import PermissionSettings
+
 
 class ClientToolRegistry:
     """客户端工具的注册表与分发器。"""
@@ -54,6 +57,7 @@ class ClientToolRegistry:
         cid: str | None = None,
         sid: str | None = None,
         call_id: str | None = None,
+        permissions: "PermissionSettings | None" = None
     ) -> mcp_types.CallToolResult:
         """分发一次客户端工具调用。"""
         key  = str(name or "").strip()
@@ -71,6 +75,7 @@ class ClientToolRegistry:
             cid=cid,
             sid=sid,
             call_id=call_id,
+            permissions=permissions,
         )
         return await tool.handler(dict(arguments or {}), runtime)
 

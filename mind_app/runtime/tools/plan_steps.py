@@ -10,6 +10,7 @@ from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.mcp.tool_store import has_tool
+from mind_core.permissions import PermissionSettings
 from .execution_policy import (
     is_execution_ignored,
     validate_execution_policy
@@ -59,11 +60,13 @@ class StepPlanExecutor:
         *,
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
-        report: typing.Any
+        report: typing.Any,
+        permissions: PermissionSettings
     ) -> None:
-        self.session = session
-        self.tools   = tools
-        self.report  = report
+        self.session     = session
+        self.tools       = tools
+        self.report      = report
+        self.permissions = permissions
 
     async def execute_tool_call(
         self,
@@ -187,7 +190,12 @@ class StepPlanExecutor:
                     "call_id"   : call_id
                 }
 
-            result = await self.session.call_tool(name, exchanged_args, **runtime)
+            result = await self.session.call_tool(
+                name,
+                exchanged_args,
+                permissions=self.permissions,
+                **runtime,
+            )
 
             step_result = PlanStepResult(
                 run=run_index,

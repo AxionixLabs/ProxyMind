@@ -6,7 +6,6 @@ import typing
 import argparse
 from mind_nova import const
 from mind_nova.modes import RunMode
-from mind_nova.requests.access import AccessMode
 from .arguments import (
     PROMPT_SHORT_VALUE_PREFIXES,
     PROMPT_VALUE_OPTIONS,
@@ -181,20 +180,6 @@ def _run_mode(
     parser.error(f"invalid mode: {value}")
 
 
-def _access_mode(
-    parser: argparse.ArgumentParser,
-    values: dict[str, object],
-) -> AccessMode:
-    """读取并验证工具访问模式参数。"""
-    value = values.get("access")
-    if value == "safe":
-        return "safe"
-    if value == "full":
-        return "full"
-
-    parser.error(f"invalid access mode: {value}")
-
-
 def _sources(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
@@ -232,7 +217,7 @@ def _help_topics(
 
 
 def _interactive_command(
-    parser: argparse.ArgumentParser,
+    parser: CliArgumentParser,
     arguments: tuple[str, ...],
 ) -> InteractiveCommand | None:
     """解析不含子命令的交互入口参数。"""
@@ -332,7 +317,6 @@ def _parse_cli_command(
             images=_merged_image_paths(parser, values),
             model=_selected_model(parser, values),
             mode=_run_mode(parser, values),
-            access_mode=_access_mode(parser, values),
             output_format=output_format,
             helix=bool(values["helix"]),
         )
@@ -366,7 +350,6 @@ def _parse_cli_command(
         return BatchCommand(
             sources=_sources(parser, values),
             mode=_run_mode(parser, values),
-            access_mode=_access_mode(parser, values),
             helix=bool(values["helix"]),
         )
 

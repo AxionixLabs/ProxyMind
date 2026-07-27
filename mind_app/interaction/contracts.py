@@ -10,11 +10,10 @@ from mind_nova.modes import RunMode
 @dataclass(frozen=True, slots=True)
 class PromptContext(object):
     """描述主交互输入框需要展示的上下文。"""
-
     mode: RunMode
     model: str
     workspace_label: str = ""
-    access_label: str = ""
+    permissions_label: str = ""
 
 
 class InteractionPort(typing.Protocol):

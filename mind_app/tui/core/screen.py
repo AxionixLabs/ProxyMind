@@ -648,16 +648,16 @@ class TuiScreen(object):
 
         parts: FormattedText = [(f"fg:{theme['brand']}", const.APP_DESC)]
 
-        access_label = sanitize_terminal_text(context.access_label).strip()
+        permissions_label = sanitize_terminal_text(context.permissions_label).strip()
 
         access_style = (
             "class:footer.access.full"
-            if access_label.lower() == "elevated"
+            if permissions_label.lower() == "full access"
             else "class:footer.access"
         )
         values = [
             ("class:footer.model", context.model or "-"),
-            (access_style, access_label),
+            (access_style, permissions_label),
             ("class:footer.workspace", context.workspace_label),
         ]
         for style, value in values:

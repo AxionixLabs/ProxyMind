@@ -147,7 +147,7 @@ def test_footer_filters_context_controls_before_clipping() -> None:
         mode="chat",
         model="model\x1b]52;c;payload\x1b\\",
         workspace_label="workspace\x1bPprivate\x1b\\",
-        access_label="safe",
+        permissions_label="Auto",
     ))
 
     text = "".join(

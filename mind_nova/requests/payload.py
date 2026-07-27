@@ -3,10 +3,7 @@
 
 import typing
 from mind_nova.identifiers import short_uid
-from .access import (
-    DEFAULT_ACCESS_MODE,
-    apply_access_mode
-)
+from .permissions import permission_payload
 
 
 def resolve_transport_mode(mode: str) -> str:
@@ -101,7 +98,8 @@ async def build_chat_payload(
     if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
         runtime_exec_env = {}
 
-    turn_id = str(kwargs.pop("turn_id", "") or "").strip() or short_uid(12)
+    turn_id     = str(kwargs.pop("turn_id", "") or "").strip() or short_uid(12)
+    permissions = permission_payload(kwargs.pop("permissions", None))
 
     payload = {
         "turn_id"      : turn_id,
@@ -111,10 +109,9 @@ async def build_chat_payload(
         "tools"        : tools,
         "hosted_tools" : request_hosted_tools(pref_config),
         "exec_env"     : runtime_exec_env,
+        **permissions,
         **kwargs
     }
-
-    apply_access_mode(payload, payload.pop("access_mode", DEFAULT_ACCESS_MODE))
 
     if attachments:
         payload["attachments"] = attachments

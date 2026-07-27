@@ -35,19 +35,21 @@ async def run_selected_mode(
     """按命令行参数分派到直接执行或交互模式。"""
     if isinstance(command, AgentListenCommand):
         selected_mode = "agent"
-        access_mode   = "safe"
     elif isinstance(command, (ExecCommand, BatchCommand)):
         selected_mode = command.mode
-        access_mode   = command.access_mode
     elif isinstance(command, (InteractiveCommand, ResumeCommand)):
         selected_mode = "tui"
-        access_mode   = "safe"
     else:
         raise TypeError(f"unsupported runtime command: {type(command).__name__}")
 
     started_at = time.perf_counter()
 
-    observe("mode.start", mode=selected_mode, access_mode=access_mode)
+    observe(
+        "mode.start",
+        mode=selected_mode,
+        sandbox_mode=mind.permissions.sandbox_mode,
+        approval_policy=mind.permissions.approval_policy,
+    )
 
     run_result: RunResult | None = None
 
@@ -71,7 +73,6 @@ async def run_selected_mode(
             run_result = await mind.calling(
                 message=command.prompt,
                 mode=command.mode,
-                access_mode=access_mode,
                 attachments=attachments,
                 **calling_kwargs,
             )
@@ -80,7 +81,6 @@ async def run_selected_mode(
             run_result = await mind.mind_pack(
                 list(command.sources),
                 command.mode,
-                access_mode=access_mode,
             )
             mind.exit_code = run_result.exit_code
         elif isinstance(command, InteractiveCommand):

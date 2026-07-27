@@ -31,10 +31,13 @@ from mind_app.cli.frontend import (
 from mind_app.cli.help import (
     ANSI_ACCENT,
     ANSI_HEADER,
-    ANSI_MUTED,
+    ANSI_MUTED
 )
 from mind_app.cli.arguments import create_cli_parser
-from mind_app.cli.parser import parse_cli_command
+from mind_app.cli.parser import (
+    parse_cli_command,
+    parse_cli_invocation
+)
 from mind_app.cli.selection import resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_mode
 from mind_app.modes.result import RunResult
@@ -43,6 +46,8 @@ from mind_app.frontend.sinks import ConsoleApplicationSink
 from mind_app.frontend.sinks import JsonApplicationSink
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.application_paths import ApplicationLayout
+from mind_core.config import ConfigOverride
+from mind_core.permissions import preset_permissions
 from engine.errors import ApplicationError
 
 
@@ -99,8 +104,6 @@ def test_cli_parser_returns_typed_commands() -> None:
         "hello",
         "--mode",
         "fast",
-        "--access",
-        "full",
         "--json",
         "--helix",
         "--image",
@@ -112,10 +115,31 @@ def test_cli_parser_returns_typed_commands() -> None:
         images=("screen.png",),
         model="exec-model",
         mode="fast",
-        access_mode="full",
         output_format="json",
         helix=True,
     )
+
+
+def test_permission_options_are_process_level_config_overrides() -> None:
+    invocation = parse_cli_invocation([
+        "exec",
+        "hello",
+        "--sandbox",
+        "workspace-write",
+        "--ask-for-approval",
+        "on-request",
+    ])
+
+    assert invocation.command == ExecCommand(prompt="hello")
+    assert invocation.config_overrides == (
+        ConfigOverride(("sandbox_mode",), "workspace-write"),
+        ConfigOverride(("approval_policy",), "on-request"),
+    )
+
+
+def test_legacy_access_option_is_removed() -> None:
+    with pytest.raises(SystemExit):
+        parse_cli_command(["exec", "hello", "--access", "full"])
     assert parse_cli_command([
         "batch",
         "first.md",
@@ -222,11 +246,10 @@ def test_cli_help_separates_argument_and_option_blocks(
         "          Task instructions; use '-' or a pipe to read from standard input\n\n"
         "Options:"
     ) in exec_help
-    assert (
-        "  --mode <MODE>\n"
-        "          Run mode [default: xtra]\n\n"
-        "  --access <ACCESS_MODE>\n"
-    ) in exec_help
+    assert "  --mode <MODE>\n          Run mode [default: xtra]" in exec_help
+    root_help = create_cli_parser().format_help()
+    assert "  -s, --sandbox <SANDBOX_MODE>" in root_help
+    assert "  -a, --ask-for-approval <APPROVAL_POLICY>" in root_help
 
 
 def test_cli_help_uses_accent_and_muted_terminal_colors(monkeypatch) -> None:
@@ -401,6 +424,7 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
         calling=AsyncMock(return_value=run_result),
         attach=attach,
         exit_code=99,
+        permissions=preset_permissions("auto"),
     )
     command = ExecCommand(
         prompt="hello",
@@ -417,7 +441,6 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
     mind.calling.assert_awaited_once_with(
         message="hello",
         mode="chat",
-        access_mode="safe",
         attachments=attachments,
     )
 
@@ -435,6 +458,7 @@ async def test_direct_cli_mode_applies_temporary_model_override() -> None:
         calling=AsyncMock(return_value=run_result),
         fresh_pref_config=fresh_pref_config,
         exit_code=99,
+        permissions=preset_permissions("auto"),
     )
 
     result = await run_selected_mode(
@@ -453,7 +477,6 @@ async def test_direct_cli_mode_applies_temporary_model_override() -> None:
         },
         message="hello",
         mode="chat",
-        access_mode="safe",
         attachments=[],
     )
 
@@ -473,6 +496,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         resume_conversation=Mock(return_value=metadata),
         attach=SimpleNamespace(add_pending_attachments=attachments),
         task_event=asyncio.Event(),
+        permissions=preset_permissions("auto"),
     )
     monkeypatch.setattr(
         "mind_app.tui.session.loop.run_tui_loop",
@@ -514,6 +538,7 @@ async def test_failed_exec_sets_nonzero_exit_code() -> None:
     mind = SimpleNamespace(
         calling=AsyncMock(return_value=run_result),
         exit_code=0,
+        permissions=preset_permissions("auto"),
     )
 
     result = await run_selected_mode(mind, ExecCommand(prompt="hello"))

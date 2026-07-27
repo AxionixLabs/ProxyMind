@@ -129,7 +129,7 @@ async def run_tui_loop(
                 message_text=prompt_text,
                 run_mode=state.mode,
                 pref_config=state.pref_config,
-                access_mode=state.access_mode,
+                permissions=state.permissions,
             ),
             stream_command_handler=foreground_tasks.handle_stream_command,
             show_interrupt_notice=lambda: not mind.task_event.is_set(),

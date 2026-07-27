@@ -8,13 +8,13 @@ from mind_app.interaction import PromptContext
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from mind_core.skills import configured_skills
 from mind_core.preference import apply_primary_model_override
+from mind_core.permissions import (
+    PermissionSettings,
+    permission_label
+)
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
-)
-from mind_nova.requests.access import (
-    DEFAULT_ACCESS_MODE,
-    access_mode_label
 )
 from ..core.runtime import (
     TuiRuntime,
@@ -43,14 +43,14 @@ class TuiSessionState(object):
         workspace_label: str,
         model_override: str | None = None,
         mode: RunMode = DEFAULT_RUN_MODE,
-        access_mode: str = DEFAULT_ACCESS_MODE,
+        permissions: PermissionSettings
     ) -> None:
         self.pref_config     = pref_config
         self.model           = model
         self.model_override  = model_override
         self.workspace_label = workspace_label
         self.mode            = mode
-        self.access_mode     = access_mode
+        self.permissions     = permissions
 
         self.workspace_refreshed_at = time.monotonic()
 
@@ -60,7 +60,7 @@ class TuiSessionState(object):
         mind: "Mind",
         runtime: TuiRuntime,
         *,
-        model_override: str | None = None,
+        model_override: str | None = None
     ) -> "TuiSessionState":
         """根据控制器缓存和已预载的运行时上下文创建会话状态。"""
         pref_config = apply_primary_model_override(
@@ -73,6 +73,7 @@ class TuiSessionState(object):
             model=primary_model_from_config(pref_config),
             model_override=model_override,
             workspace_label=runtime.context.workspace_label,
+            permissions=mind.permissions,
         )
 
     def prompt_context(self) -> PromptContext:
@@ -81,7 +82,7 @@ class TuiSessionState(object):
             mode=self.mode,
             model=primary_model_prompt_label(self.pref_config, self.model),
             workspace_label=self.workspace_label,
-            access_label=access_mode_label(self.access_mode),
+            permissions_label=permission_label(self.permissions),
         )
 
     def apply_prompt_context(self, runtime: TuiRuntime) -> None:
@@ -185,7 +186,7 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
         mode=DEFAULT_RUN_MODE,
         model=primary_model_prompt_label(pref_config),
         workspace_label=workspace_display_label(runtime_workspace_root),
-        access_label=access_mode_label(DEFAULT_ACCESS_MODE),
+        permissions_label=permission_label(mind.permissions),
     ))
     runtime.set_process_status_label(exec_status_display_label(
         exec_snapshot,

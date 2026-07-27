@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_core.permissions import PermissionSettings
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.output import (
@@ -26,16 +27,18 @@ class PlanToolCallRunner:
         status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
-        report: typing.Any
+        report: typing.Any,
+        permissions: PermissionSettings
     ) -> None:
         self.output_control = output_control
         self.status_control = status_control
-        self.presentation = presentation
+        self.presentation   = presentation
 
         self.executor = StepPlanExecutor(
             session=session,
             tools=tools,
-            report=report
+            report=report,
+            permissions=permissions,
         )
 
     async def handle(

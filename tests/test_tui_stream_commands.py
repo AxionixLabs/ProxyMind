@@ -11,6 +11,7 @@ from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.styles import text_block
 from mind_app.tui.session import barriers
 from mind_app.tui.session import loop
+from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
@@ -18,6 +19,7 @@ async def test_foreground_result_is_rendered_before_barrier_release() -> None:
     runtime = TuiRuntime()
     events = []
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         await_cleanup=lambda awaitable: awaitable,
     )
     foreground = barriers.TuiForegroundTasks(runtime, mind)
@@ -66,6 +68,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     pref_config = {"primary": {"model": "test-model"}}
 
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
         pref=SimpleNamespace(to_config=lambda: pref_config),
@@ -151,6 +154,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     link_cancelled = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
         pref=SimpleNamespace(to_config=lambda: pref_config),
@@ -235,6 +239,7 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
     model_started = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
         pref=SimpleNamespace(to_config=lambda: pref_config),
@@ -317,6 +322,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
 
     cancel_startup = AsyncMock(side_effect=cancel_service_runtime_startup)
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
         pref=SimpleNamespace(to_config=lambda: pref_config),

@@ -10,6 +10,9 @@ from .notify import (
     supports_tool_progress
 )
 
+if typing.TYPE_CHECKING:
+    from mind_core.permissions import PermissionSettings
+
 
 def is_hosted_tool(
     tools: list[dict[str, typing.Any]],
@@ -35,6 +38,7 @@ async def execute_tool(
     cid: str | None = None,
     sid: str | None = None,
     call_id: str | None = None,
+    permissions: "PermissionSettings | None" = None
 ) -> CallToolResult:
     """统一工具执行入口。"""
     if is_hosted_tool(tools, name, meta=meta):
@@ -59,6 +63,7 @@ async def execute_tool(
         cid=cid,
         sid=sid,
         call_id=call_id,
+        permissions=permissions,
     )
 
 

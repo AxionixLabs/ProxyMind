@@ -25,6 +25,9 @@ from engine.observability import (
     observe_exception
 )
 
+if typing.TYPE_CHECKING:
+    from mind_core.permissions import PermissionSettings
+
 _COMMON_PROMOTED_RESULT_KEYS = (
     "path",
     "source_path",
@@ -273,6 +276,7 @@ async def run_tool_step(
     cid: str | None = None,
     sid: str | None = None,
     call_id: str | None = None,
+    permissions: "PermissionSettings | None" = None
 ) -> ToolRunResult:
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
@@ -308,6 +312,7 @@ async def run_tool_step(
                 cid=cid,
                 sid=sid,
                 call_id=call_id,
+                permissions=permissions,
             )
             ok = not result.isError
 

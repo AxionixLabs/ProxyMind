@@ -58,7 +58,7 @@ def test_running_input_replaces_information_footer_with_queue_hint() -> None:
     runtime.context = PromptContext(
         mode="chat",
         model="gpt-test high",
-        access_label="Full access",
+        permissions_label="Full Access",
         workspace_label="ProxyMind",
     )
     runtime.execution_active = True
@@ -70,7 +70,7 @@ def test_running_input_replaces_information_footer_with_queue_hint() -> None:
     assert runtime.screen._footer_visible()
     assert text == "  tab to queue message"
     assert runtime.context.model not in text
-    assert runtime.context.access_label not in text
+    assert runtime.context.permissions_label not in text
     assert runtime.context.workspace_label not in text
 
 
@@ -79,7 +79,7 @@ def test_queued_submission_restores_information_footer() -> None:
     runtime.context = PromptContext(
         mode="chat",
         model="gpt-test high",
-        access_label="Full access",
+        permissions_label="Full Access",
         workspace_label="ProxyMind",
     )
     runtime.execution_active = True
@@ -92,7 +92,7 @@ def test_queued_submission_restores_information_footer() -> None:
     assert runtime.screen._footer_visible()
     assert "tab to queue message" not in text
     assert "gpt-test high" in text
-    assert "Full access" in text
+    assert "Full Access" in text
     assert "ProxyMind" in text
 
     runtime.screen.input.buffer.text = "another task"

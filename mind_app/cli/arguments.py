@@ -7,10 +7,6 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     MODES
 )
-from mind_nova.requests.access import (
-    ACCESS_MODE_SET,
-    DEFAULT_ACCESS_MODE
-)
 from .commands import COMPLETION_SHELLS
 from .help import CliArgumentParser
 from .invocation import (
@@ -114,13 +110,6 @@ def create_cli_parser() -> CliArgumentParser:
         help=f"Run mode [default: {DEFAULT_RUN_MODE}]",
     )
     exec_options.add_argument(
-        "--access",
-        choices=sorted(ACCESS_MODE_SET),
-        default=DEFAULT_ACCESS_MODE,
-        metavar="ACCESS_MODE",
-        help=f"Tool access mode [default: {DEFAULT_ACCESS_MODE}]",
-    )
-    exec_options.add_argument(
         "--json",
         action="store_true",
         help="Print newline-delimited JSON events",
@@ -211,13 +200,6 @@ def create_cli_parser() -> CliArgumentParser:
         required=True,
         metavar="MODE",
         help="Run mode for the batch",
-    )
-    batch_options.add_argument(
-        "--access",
-        choices=sorted(ACCESS_MODE_SET),
-        default=DEFAULT_ACCESS_MODE,
-        metavar="ACCESS_MODE",
-        help=f"Tool access mode [default: {DEFAULT_ACCESS_MODE}]",
     )
     batch_options.add_argument(
         "--helix",

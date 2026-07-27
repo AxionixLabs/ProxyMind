@@ -10,6 +10,7 @@ from mind_app.modes import stream
 from mind_app.modes.result import RunResult
 from mind_app.output.session import OutputSession
 from mind_app.runtime.mcp import tool_runtime
+from mind_core.permissions import preset_permissions
 
 
 class _OutputControl(object):
@@ -107,6 +108,7 @@ async def _run_stream(
         [],
         exec_env={},
         skills=[{"name": "test"}],
+        permissions=preset_permissions("auto"),
         session_factory=lambda *_args, **_kwargs: _output_session(),
     )
     return result, mind

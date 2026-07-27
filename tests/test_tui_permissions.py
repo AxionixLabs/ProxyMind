@@ -6,12 +6,13 @@ from unittest.mock import Mock
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.permissions import render_permissions_status
+from mind_core.permissions import preset_permissions
 
 
 def test_elevated_permissions_status_renders_on_one_line() -> None:
     application = SimpleNamespace(emit=Mock())
 
-    render_permissions_status(application, "full")
+    render_permissions_status(application, preset_permissions("full-access"))
 
     status, gap = (
         call.args[0]
@@ -21,7 +22,8 @@ def test_elevated_permissions_status_renders_on_one_line() -> None:
 
     assert status.type == "tui.permissions.status"
     assert text == (
-        "Permissions · Elevated · tool execution may run without approval"
+        "Permissions · Full Access · sandbox=danger-full-access"
+        " · approval=never"
     )
     assert gap.type == "tui.gap"
 
@@ -31,9 +33,9 @@ def test_elevated_permissions_use_prominent_footer_style() -> None:
     runtime.context = PromptContext(
         mode="chat",
         model="test-model",
-        access_label="Elevated",
+        permissions_label="Full Access",
     )
 
     fragments = runtime.screen._footer_fragments()
 
-    assert ("class:footer.access.full", "Elevated") in fragments
+    assert ("class:footer.access.full", "Full Access") in fragments

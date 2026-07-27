@@ -172,7 +172,7 @@ async def stream_looper(
             mode=mode,
             pref_config=pref_config,
             workdir=str(getattr(mind, "history_workspace", "") or ""),
-            access_mode=str(kwargs.get("access_mode") or ""),
+            permissions=kwargs["permissions"],
             turn_id=str(kwargs.get("turn_id") or ""),
         ))
 
@@ -196,7 +196,8 @@ async def stream_looper(
             mode=mode,
             pref_config=pref_config,
             metadata=metadata,
-            report=mind.report
+            report=mind.report,
+            permissions=kwargs["permissions"],
         )
         plan_tool_runner = PlanToolCallRunner(
             session=session,
@@ -204,7 +205,8 @@ async def stream_looper(
             status_control=status_control,
             presentation=presentation,
             tools=tools,
-            report=mind.report
+            report=mind.report,
+            permissions=kwargs["permissions"],
         )
 
         async for event in stream_chat(mode, pref_config, message, tools, **kwargs):
@@ -313,7 +315,10 @@ async def stream_looper(
                     approval_id=approval_id,
                 )
 
-                decision = await mind.frontend.interaction.request_approval(approval)
+                if kwargs["permissions"].approval_policy == "never":
+                    decision = "decline"
+                else:
+                    decision = await mind.frontend.interaction.request_approval(approval)
 
                 observe(
                     "approval.decided",
@@ -341,7 +346,14 @@ async def stream_looper(
                     continue
 
                 approved = decision in {"accept", "acceptForSession"}
-                reason   = None if approved else "user denied"
+
+                reason = (
+                    None
+                    if approved
+                    else "approval policy is never"
+                    if kwargs["permissions"].approval_policy == "never"
+                    else "user denied"
+                )
 
                 approvals.mark_decision(
                     call_id=str(event.get("call_id") or ""), approval=approval, decision=decision
@@ -420,7 +432,8 @@ async def stream_looper(
                     arguments=arguments,
                     store=approvals,
                     meta=event_meta,
-                    local_meta=meta_for_tool(tools, name)
+                    local_meta=meta_for_tool(tools, name),
+                    approval_policy=kwargs["permissions"].approval_policy,
                 )
 
                 if approval_decision.action == "wait":

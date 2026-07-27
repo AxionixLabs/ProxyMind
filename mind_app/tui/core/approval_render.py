@@ -124,7 +124,6 @@ def _approval_option_groups(
 
         body = _decision_parts(
             decision,
-            approval=approval,
             label_style=label_style,
             shortcut_style=shortcut_style,
         )
@@ -569,12 +568,11 @@ def _trim_trailing_space(
 def _decision_parts(
     decision: str,
     *,
-    approval: dict[str, typing.Any],
     label_style: str,
     shortcut_style: str,
 ) -> list[tuple[str, str]]:
     """生成审批选项标签和快捷键片段。"""
-    label    = approval_decision_label(approval, decision)
+    label    = approval_decision_label(decision)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
     parts    = [(label_style, label)]
 

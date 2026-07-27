@@ -18,6 +18,7 @@ from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
 from mind_app.tui.session import loop
+from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
@@ -82,6 +83,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
     class MindStub(object):
         task_event = asyncio.Event()
+        permissions = preset_permissions("auto")
         pref = SimpleNamespace(to_config=lambda: {
             "primary": {"model": "test-model"},
         })

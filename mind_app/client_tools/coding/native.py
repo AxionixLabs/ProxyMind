@@ -74,10 +74,104 @@ def authorization_failure_result(
     )
     return build_coding_result(
         tool=tool,
+        args={
+            key: value
+            for key, value in arguments.items()
+            if key != "execution"
+        },
+        raw=raw,
+        target=coding.agent_id,
+    )
+
+
+def sandbox_failure_result(
+    coding: NativeCoding,
+    *,
+    tool: str,
+    arguments: dict[str, typing.Any],
+) -> mcp_types.CallToolResult:
+    """构造只读沙箱拒绝写入或进程执行的结果。"""
+    raw = coding.fail_result(
+        "sandbox_read_only",
+        tool=tool,
+        error="sandbox_denied",
+        sandbox_mode="read-only",
+    )
+    return build_coding_result(
+        tool=tool,
         args={key: value for key, value in arguments.items() if key != "execution"},
         raw=raw,
         target=coding.agent_id,
     )
+
+
+def read_only_sandbox(runtime: ClientToolRuntime) -> bool:
+    """判断当前客户端工具是否运行在只读沙箱中。"""
+    return bool(
+        runtime.permissions is not None
+        and runtime.permissions.sandbox_mode == "read-only"
+    )
+
+
+def validate_unsandboxed_process_authorization(
+    runtime: ClientToolRuntime
+) -> None:
+    """校验无系统进程沙箱时的本地进程执行权限。"""
+    permissions = runtime.permissions
+    if permissions is None:
+        raise ExecutionAuthorizationError(
+            "execution_permissions_required",
+            "local process execution requires permission settings"
+        )
+
+    sandbox_mode = permissions.sandbox_mode
+    if sandbox_mode == "read-only":
+        raise ExecutionAuthorizationError(
+            "sandbox_read_only",
+            "read-only mode does not allow local process execution"
+        )
+
+    execution = runtime.execution if isinstance(runtime.execution, dict) else {}
+    state = str(execution.get("state") or "").strip().lower()
+    raw_reasons = execution.get("reasons")
+    reasons = {
+        str(reason).strip()
+        for reason in raw_reasons
+        if str(reason).strip()
+    } if isinstance(raw_reasons, list) else set()
+    approved = state == "approved" or (
+        state == "allowed" and "session_approval_matched" in reasons
+    )
+
+    if sandbox_mode == "workspace-write" and not approved:
+        raise ExecutionAuthorizationError(
+            "unsandboxed_process_approval_required",
+            "workspace-write local process execution requires explicit approval"
+        )
+    if (
+        sandbox_mode == "danger-full-access"
+        and permissions.approval_policy == "untrusted"
+        and not approved
+    ):
+        raise ExecutionAuthorizationError(
+            "untrusted_process_approval_required",
+            "untrusted local process execution requires explicit approval"
+        )
+
+
+def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
+    """校验客户端工作区写入权限。"""
+    permissions = runtime.permissions
+    if permissions is None:
+        raise ExecutionAuthorizationError(
+            "execution_permissions_required",
+            "workspace write requires permission settings"
+        )
+    if permissions.sandbox_mode == "read-only":
+        raise ExecutionAuthorizationError(
+            "sandbox_read_only",
+            "read-only mode does not allow workspace writes"
+        )
 
 
 def trusted_canonical(
@@ -109,9 +203,16 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """执行单条命令。"""
+        if read_only_sandbox(runtime):
+            return sandbox_failure_result(
+                coding,
+                tool="shell_command",
+                arguments=arguments,
+            )
         try:
             reject_model_execution(arguments)
             args = trusted_canonical(runtime, tool="shell_command")
+            validate_unsandboxed_process_authorization(runtime)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="shell_command", arguments=arguments, error=exc
@@ -131,10 +232,16 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """应用补丁。"""
-        _ = runtime
+        if read_only_sandbox(runtime):
+            return sandbox_failure_result(
+                coding,
+                tool="apply_patch",
+                arguments=arguments,
+            )
 
         try:
             reject_model_execution(arguments)
+            validate_workspace_write_authorization(runtime)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="apply_patch", arguments=arguments, error=exc
@@ -164,9 +271,16 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """启动可持续命令会话。"""
+        if read_only_sandbox(runtime):
+            return sandbox_failure_result(
+                coding,
+                tool="exec_command",
+                arguments=arguments,
+            )
         try:
             reject_model_execution(arguments)
             args = trusted_canonical(runtime, tool="exec_command")
+            validate_unsandboxed_process_authorization(runtime)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="exec_command", arguments=arguments, error=exc
@@ -196,9 +310,21 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             validate_runtime_identity(
                 cid=runtime.cid, sid=runtime.sid, call_id=runtime.call_id
             )
+
             args = canonical_arguments(runtime.execution, tool="write_stdin")
-            if args["stdin"]:
-                validate_execution_authorization(runtime.execution, require_grant=True)
+
+            mutates_process = bool(args["stdin"]) or args.get("control") != "none"
+
+            if read_only_sandbox(runtime) and mutates_process:
+                return sandbox_failure_result(
+                    coding,
+                    tool="write_stdin",
+                    arguments=arguments,
+                )
+            validate_execution_authorization(runtime.execution, require_grant=True)
+            if mutates_process:
+                validate_unsandboxed_process_authorization(runtime)
+
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="write_stdin", arguments=arguments, error=exc

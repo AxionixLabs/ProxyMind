@@ -7,6 +7,7 @@ from dataclasses import (
     dataclass,
     field
 )
+from mind_nova.requests.permissions import ApprovalPolicy
 from mind_app.stream_events.approval_trace import approval_summary
 from mind_nova import const
 from .models import (
@@ -17,12 +18,13 @@ from .models import (
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
     "accept",
+    "acceptForSession",
     "decline"
 )
 
 DECISION_LABELS: dict[str, str] = {
-    "accept"           : "Yes, proceed",
-    "acceptForSession" : "Yes, for this session",
+    "accept"           : f"Yes, proceed",
+    "acceptForSession" : f"Yes, for this session",
     "decline"          : f"No, and tell {const.APP_DESC} what to do differently"
 }
 
@@ -37,6 +39,8 @@ SHELL_TOOL_NAMES = {
     "exec_command",
     "write_stdin"
 }
+
+SHOW_APPROVAL_TIMER = True
 
 
 @dataclass(slots=True)
@@ -124,7 +128,8 @@ def validate_tool_approval(
     arguments: dict[str, typing.Any],
     store: ApprovalStore,
     meta: dict[str, typing.Any] | None = None,
-    local_meta: dict[str, typing.Any] | None = None
+    local_meta: dict[str, typing.Any] | None = None,
+    approval_policy: ApprovalPolicy | None = None
 ) -> ApprovalDecision:
     """校验服务端已批准工具调用的审批元数据。"""
     tool_name = str(name or "").strip()
@@ -145,6 +150,13 @@ def validate_tool_approval(
 
     if not event_approved and not approval_id:
         if approval_required(event=event, meta=effective_meta):
+            if approval_policy == "never":
+                return ApprovalDecision(
+                    action="reject",
+                    result=_approval_reject_result(
+                        "approval disabled by approval policy"
+                    ),
+                )
             return ApprovalDecision(action="wait")
         return ApprovalDecision(action="allow")
 
@@ -227,7 +239,7 @@ def approval_remaining_sec(approval: dict[str, typing.Any] | None) -> float | No
 
 def approval_expiry_label(approval: dict[str, typing.Any] | None) -> str:
     """生成审批过期倒计时文案。"""
-    if not approval_show_timer(approval):
+    if not approval_show_timer():
         return ""
 
     remaining = approval_remaining_sec(approval)
@@ -244,34 +256,9 @@ def approval_expiry_label(approval: dict[str, typing.Any] | None) -> str:
     return f"Expires in {seconds}s"
 
 
-def approval_show_timer(approval: dict[str, typing.Any] | None) -> bool:
-    """读取审批倒计时展示配置。"""
-    return _approval_bool(approval, "show_timer", default=True)
-
-
-def _approval_bool(
-    approval: dict[str, typing.Any] | None,
-    key: str,
-    *,
-    default: bool
-) -> bool:
-    """读取审批数据中的布尔配置。"""
-    if not isinstance(approval, dict) or key not in approval:
-        return default
-
-    value = approval.get(key)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in {"1", "true", "yes", "on"}:
-            return True
-        if text in {"0", "false", "no", "off"}:
-            return False
-    if isinstance(value, (int, float)):
-        return bool(value)
-
-    return default
+def approval_show_timer() -> bool:
+    """返回客户端审批倒计时展示配置。"""
+    return SHOW_APPROVAL_TIMER
 
 
 def _approval_expires_at_ms(approval: dict[str, typing.Any] | None) -> int | None:
@@ -433,33 +420,17 @@ def approval_prompt_text(
     )
 
 
-def approval_decisions(
-    approval: dict[str, typing.Any]
-) -> list[ApprovalDecisionValue]:
-    """读取可用审批选项，并补齐默认值。"""
-    raw    = approval.get("availableDecisions", approval.get("available_decisions"))
-    values = raw if isinstance(raw, list) else list(DEFAULT_APPROVAL_DECISIONS)
-
-    out: list[ApprovalDecisionValue] = []
-
-    for value in values:
-        normalized = _normalize_decision(value)
-        if normalized is not None and normalized not in out:
-            out.append(normalized)
-    if "decline" not in out:
-        out.append("decline")
-
-    return out or list(DEFAULT_APPROVAL_DECISIONS)
+def approval_decisions() -> list[ApprovalDecisionValue]:
+    """返回客户端固定配置的审批选项。"""
+    return list(DEFAULT_APPROVAL_DECISIONS)
 
 
-def approval_choice_text(
-    approval: dict[str, typing.Any]
-) -> str:
+def approval_choice_text() -> str:
     """构造审批选项纯文本。"""
     lines = []
-    for index, decision in enumerate(approval_decisions(approval), start=1):
+    for index, decision in enumerate(approval_decisions(), start=1):
         prefix = "›" if index == 1 else " "
-        lines.append(f"{prefix} {index}. {_decision_display_label(decision, approval=approval)}")
+        lines.append(f"{prefix} {index}. {_decision_display_label(decision)}")
     return "\n".join(lines) + "\n"
 
 
@@ -499,37 +470,23 @@ def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
 
 
 def _decision_display_label(
-    decision: str,
-    *,
-    approval: dict[str, typing.Any] | None = None
+    decision: str
 ) -> str:
     """返回审批选项的展示文案，包含可用快捷键提示。"""
-    label    = approval_decision_label(approval, decision)
+    label    = approval_decision_label(decision)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
     return f"{label} ({shortcut})" if shortcut else label
 
 
 def approval_decision_label(
-    approval: dict[str, typing.Any] | None,
     decision: str
 ) -> str:
-    """读取审批选项展示文案。"""
-    labels: dict = {}
-    if isinstance(approval, dict):
-        raw = approval.get("decision_labels", approval.get("decisionLabels"))
-        labels = raw if isinstance(raw, dict) else {}
-
-    custom = str(labels.get(decision) or "").strip()
-    return custom or DECISION_LABELS.get(decision, decision)
+    """返回客户端定义的审批选项展示文案。"""
+    return DECISION_LABELS.get(decision, decision)
 
 
 def approval_prompt(approval: dict[str, typing.Any] | None) -> str:
-    """读取审批询问文案，缺省时按命令数量生成。"""
-    if isinstance(approval, dict):
-        prompt = str(approval.get("prompt") or "").strip()
-        if prompt:
-            return prompt
-
+    """按工具类型生成客户端审批询问文案。"""
     noun = _approval_prompt_noun(approval or {})
     return f"Would you like to approve the following {noun}?"
 

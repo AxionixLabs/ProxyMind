@@ -13,6 +13,7 @@ from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.submission import TuiInterruptRequested
 from mind_app.tui.session import loop
+from mind_core.permissions import preset_permissions
 from mind_app.tui.session.turn import execute_tui_model_turn
 
 
@@ -86,6 +87,7 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
     task_event = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,

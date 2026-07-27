@@ -76,7 +76,10 @@ async def calling(
     if pref_config is None:
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
 
-    runner = resolve_mode_runner(mind, mode)
+    runner      = resolve_mode_runner(mind, mode)
+    permissions = kwargs.get("permissions") or mind.permissions
+
+    kwargs["permissions"] = permissions
 
     meta_in = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
     cid     = meta_in.get("cid") if isinstance(meta_in, dict) else None
@@ -95,7 +98,8 @@ async def calling(
         cid=meta["cid"],
         sid=meta["sid"],
         message_chars=len(message),
-        access_mode=kwargs.get("access_mode"),
+        sandbox_mode=permissions.sandbox_mode,
+        approval_policy=permissions.approval_policy,
     )
 
     owns_event_report = False
