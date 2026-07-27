@@ -248,8 +248,23 @@ def test_cli_help_separates_argument_and_option_blocks(
     ) in exec_help
     assert "  --mode <MODE>\n          Run mode [default: xtra]" in exec_help
     root_help = create_cli_parser().format_help()
-    assert "  -s, --sandbox <SANDBOX_MODE>" in root_help
-    assert "  -a, --ask-for-approval <APPROVAL_POLICY>" in root_help
+    normalized_root_help = " ".join(root_help.split())
+    assert (
+        "-s, --sandbox <SANDBOX_MODE> Select the sandbox policy to use when "
+        "executing model-generated shell commands [possible values: "
+        "read-only, workspace-write, danger-full-access]"
+    ) in normalized_root_help
+    assert (
+        "-a, --ask-for-approval <APPROVAL_POLICY> Configure when the model "
+        "requires human approval before executing a command Possible values: "
+        "- untrusted: Only run \"trusted\" commands (e.g. ls, cat, sed) "
+        "without asking for user approval. Will escalate to the user if the "
+        "model proposes a command that is not in the \"trusted\" set "
+        "- on-request: The model decides when to ask the user for approval "
+        "- never: Never ask for user approval. Execution failures are "
+        "immediately returned to the model"
+    ) in normalized_root_help
+    assert "Possible values:\n          - untrusted:" in root_help
 
 
 def test_cli_help_uses_accent_and_muted_terminal_colors(monkeypatch) -> None:

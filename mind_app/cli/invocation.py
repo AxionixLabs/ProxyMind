@@ -64,13 +64,28 @@ def add_invocation_options(container: ArgumentContainer) -> None:
         *SANDBOX_FLAGS,
         choices=("read-only", "workspace-write", "danger-full-access"),
         metavar="SANDBOX_MODE",
-        help="Select the sandbox policy for local commands",
+        help=(
+            "Select the sandbox policy to use when executing model-generated "
+            "shell commands\n\n"
+            "[possible values: read-only, workspace-write, "
+            "danger-full-access]"
+        ),
     )
     container.add_argument(
         *APPROVAL_FLAGS,
         choices=("untrusted", "on-request", "never"),
         metavar="APPROVAL_POLICY",
-        help="Configure when local commands require approval",
+        help=(
+            "Configure when the model requires human approval before "
+            "executing a command\n\n"
+            "Possible values:\n"
+            "- untrusted:  Only run \"trusted\" commands (e.g. ls, cat, sed) "
+            "without asking for user approval. Will escalate to the user if "
+            "the model proposes a command that is not in the \"trusted\" set\n"
+            "- on-request: The model decides when to ask the user for approval\n"
+            "- never:      Never ask for user approval. Execution failures are "
+            "immediately returned to the model"
+        ),
     )
 
 
