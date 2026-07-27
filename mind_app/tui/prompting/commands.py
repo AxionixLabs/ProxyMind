@@ -16,7 +16,8 @@ from .skills import (
 StreamCommandPolicy = typing.Literal[
     "reject",
     "background_barrier",
-    "interrupt"
+    "interrupt",
+    "local_snapshot",
 ]
 
 
@@ -96,6 +97,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "ps", "/ps", "管理后台命令",
         surface_on_bare=True,
+        stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
         "mcp", "/mcp", "管理外部 MCP 服务",

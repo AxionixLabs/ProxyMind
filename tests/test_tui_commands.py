@@ -110,6 +110,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_policy("/helix-link") == "background_barrier"
     assert stream_command_policy("/mcp start") == "background_barrier"
     assert stream_command_policy("/mcp force") == "background_barrier"
+    assert stream_command_policy("/ps") == "local_snapshot"
     assert stream_command_policy("/compact") == "reject"
     assert stream_command_policy("/fork") == "reject"
     assert stream_command_policy("/mcp restart") == "reject"

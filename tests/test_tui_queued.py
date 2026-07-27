@@ -208,6 +208,26 @@ def test_streaming_background_command_is_dispatched_outside_message_queue() -> N
     )
 
 
+def test_streaming_ps_is_dispatched_without_queuing_command_block() -> None:
+    runtime = TuiRuntime()
+    handler = Mock(return_value=True)
+    runtime.bind_stream_command_handler(handler)
+    runtime.set_execution_active(True)
+    runtime.screen.input.buffer.text = "/ps"
+
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+
+    handler.assert_called_once_with("/ps")
+    assert runtime.submissions.message_queue.empty()
+    assert not runtime.submissions.queued_messages.active
+
+    runtime.set_execution_active(False)
+
+    assert "/ps" not in _fragments_text(
+        runtime.document.fragments(width=100)
+    )
+
+
 def test_background_status_waits_for_stream_boundary() -> None:
     runtime = TuiRuntime()
     sink = TuiApplicationSink(runtime)

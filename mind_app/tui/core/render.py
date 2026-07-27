@@ -92,7 +92,7 @@ def clip_fragments(parts: FormattedText, *, width: int) -> FormattedText:
         for char in str(text).replace("\n", " "):
             char_width = max(0, get_cwidth(char))
             if used + char_width > limit:
-                return out
+                return _merge_fragments(out)
             out.append((style, char))
             used += char_width
 

@@ -692,6 +692,8 @@ def test_tui_application_body_styles_do_not_use_bold() -> None:
 
     assert style.get_attrs_for_style_str("class:queue.label").bold
     assert style.get_attrs_for_style_str("class:ps.title").bold
+    assert style.get_attrs_for_style_str("class:shell.title.action").bold
+    assert style.get_attrs_for_style_str("class:ps.output").dim
 
 
 def test_activity_completion_does_not_change_input_stack_height() -> None:

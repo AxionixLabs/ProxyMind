@@ -192,7 +192,8 @@ class TuiSubmissionFlow(object):
             and self._stream_command_handler(submission.value)
         )
         if handled:
-            self._queue_command_block(query_block(submission.visible_text))
+            if policy != "local_snapshot":
+                self._queue_command_block(query_block(submission.visible_text))
             return None
 
         label = stream_command_label(submission.value)

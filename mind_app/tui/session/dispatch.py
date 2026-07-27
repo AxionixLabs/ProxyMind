@@ -4,6 +4,7 @@
 import re
 import enum
 import typing
+import asyncio
 from engine.file_assist import FileAssist
 from mind_app.frontend import ApplicationView
 from mind_app.history import INTERACTIVE_HISTORY_SOURCES
@@ -68,7 +69,10 @@ from ..features.permissions import (
     choose_permissions_mode,
     render_permissions_status
 )
-from ..features.processes import manage_exec_sessions
+from ..features.processes import (
+    append_exec_stream_snapshot,
+    manage_exec_sessions
+)
 from ..features.shell import run_shell_escape
 from ..features.tools import print_available_tools
 from ..prompting.commands import (
@@ -125,6 +129,8 @@ class TuiCommandDispatcher(object):
 
         self.foreground_tasks = foreground_tasks
         self.application      = mind.frontend.application
+
+        self._process_snapshot_task: asyncio.Task[None] | None = None
 
     async def dispatch(self, prompt_text: str) -> DispatchAction:
         """处理一项输入并返回会话循环的下一步。"""
@@ -345,6 +351,36 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         return DispatchAction.MODEL_TURN
+
+    def handle_stream_command(
+        self,
+        value: str,
+        cancel_turn: typing.Callable[[], bool]
+    ) -> bool:
+        """分派模型流式期间可执行的本地命令。"""
+        command = str(value or "").strip().casefold()
+        if matches_command(command, "ps"):
+            self._start_process_snapshot()
+            return True
+        return self.foreground_tasks.handle_stream_command(value, cancel_turn)
+
+    def _start_process_snapshot(self) -> None:
+        """启动不接管输入焦点的后台终端快照任务。"""
+        previous = self._process_snapshot_task
+        if previous is not None and not previous.done():
+            previous.cancel()
+
+        task = self.runtime.start_background_task(
+            append_exec_stream_snapshot(self.runtime, self.mind),
+            name="tui background terminals snapshot",
+        )
+        self._process_snapshot_task = task
+        task.add_done_callback(self._forget_process_snapshot)
+
+    def _forget_process_snapshot(self, task: asyncio.Task[None]) -> None:
+        """回收已完成的后台终端快照任务。"""
+        if self._process_snapshot_task is task:
+            self._process_snapshot_task = None
 
     async def _choose_effort(self) -> None:
         """选择并持久化模型推理强度。"""

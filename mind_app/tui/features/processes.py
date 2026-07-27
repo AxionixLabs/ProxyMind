@@ -6,7 +6,7 @@ import shutil
 import typing
 import asyncio
 from prompt_toolkit.formatted_text import StyleAndTextTuples
-from mind_app.presentation.models import TextSpan
+from prompt_toolkit.utils import get_cwidth
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_nova import const
 from mind_app.frontend import (
@@ -19,7 +19,10 @@ from ..core.models import (
     MenuRequest
 )
 from ..core.process_viewer import ProcessViewerRequest
-from ..core.render import clip_text
+from ..core.render import (
+    clip_fragments,
+    clip_text
+)
 from .context import exec_status_display_label
 from .summary import (
     CommandSummary,
@@ -27,33 +30,29 @@ from .summary import (
     command_summary_title_parts,
     render_command_summary
 )
-from ..core.styles import (
-    BRIGHT_STYLE,
-    MUTED_STYLE,
-    fragment_block
-)
-
-PS_PANEL_TICK_SEC: float         = 0.12
-PS_OUTPUT_LIMIT: int             = 60000
-PS_VISIBLE_OUTPUT_LINES: int     = 8
-PS_MENU_VISIBLE_LIMIT: int       = 8
-PROCESS_STATUS_ACTIVE_SEC: float = 0.5
-PROCESS_STATUS_IDLE_SEC: float   = 1.0
-
-PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
-    fragments=(("", " "),),
-    max_height=1,
-)
-
-_STOP_ALL_ACTION = object()
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
+PS_PANEL_TICK_SEC: float         = 0.12
+PS_OUTPUT_LIMIT: int             = 60000
+PS_VISIBLE_OUTPUT_LINES: int     = 8
+PS_STREAM_VISIBLE_PROCESSES: int = 3
+PS_STREAM_OUTPUT_LINES: int      = 3
+PROCESS_STATUS_ACTIVE_SEC: float = 0.5
+PROCESS_STATUS_IDLE_SEC: float   = 1.0
+
+PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
+    fragments=(("", " \n "),),
+    max_height=2,
+)
+
+_STOP_ALL_ACTION = object()
+
 
 async def monitor_exec_status(
     runtime: "TuiRuntime",
-    mind: typing.Any,
+    mind: typing.Any
 ) -> None:
     """同步后台命令会话摘要到 TUI 专属状态行。"""
     try:
@@ -95,7 +94,7 @@ async def manage_exec_sessions(
     sessions    = _running_items(snapshot)
 
     if not sessions:
-        render_no_background_commands(application)
+        render_no_background_terminals(application, command="/ps")
         return True
 
     selection = await runtime.select_menu(MenuRequest(
@@ -161,7 +160,7 @@ async def stop_all_exec_sessions(
         sessions = _running_items(snapshot)
 
     if not sessions:
-        render_no_background_commands(application)
+        render_no_background_terminals(application)
         return True
 
     count        = len(sessions)
@@ -203,15 +202,168 @@ async def stop_all_exec_sessions(
     return True
 
 
-def render_no_background_commands(application: ApplicationSink) -> None:
-    """渲染当前没有后台命令的状态。"""
+def render_no_background_terminals(
+    application: ApplicationSink,
+    *,
+    command: str | None = None,
+) -> None:
+    """渲染当前没有后台终端的状态。"""
+    block = _no_background_terminals_block(command=command)
+
     application.emit(ApplicationView(
         type="tui.exec.empty",
-        renderable=fragment_block(
-            TextSpan("Background commands", BRIGHT_STYLE),
-            TextSpan("\n\n  • ", MUTED_STYLE),
-            TextSpan("No background commands running.", MUTED_STYLE),
-        ),
+        renderable=block,
+    ))
+
+
+async def append_exec_stream_snapshot(
+    runtime: "TuiRuntime",
+    mind: typing.Any,
+) -> None:
+    """在模型流式期间追加后台终端的近期输出摘要。"""
+    try:
+        listing = await mind.native_coding.running_exec_sessions()
+        sessions = _running_items(listing)
+
+        if not sessions:
+            block = _no_background_terminals_block(command="/ps")
+        else:
+            visible_sessions = sessions[:PS_STREAM_VISIBLE_PROCESSES]
+            snapshots = await asyncio.gather(*(
+                _load_exec_stream_snapshot(mind, session)
+                for session in visible_sessions
+            ))
+            block = exec_stream_snapshots_block(
+                snapshots,
+                omitted_count=max(0, len(sessions) - len(visible_sessions)),
+                terminal_width=runtime.terminal_width,
+            )
+
+    except Exception as exc:
+        block = _exec_stream_snapshot_error_block(
+            exc,
+            terminal_width=runtime.terminal_width,
+        )
+
+    runtime.append_block(block, kind="operation")
+
+
+async def _load_exec_stream_snapshot(
+    mind: typing.Any,
+    session: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """读取单个后台终端快照并保留列表中的摘要字段。"""
+    session_id = str(session.get("session_id") or "").strip()
+    try:
+        snapshot = await mind.native_coding.exec_session_output_snapshot(
+            session_id=session_id,
+            max_output_chars=PS_OUTPUT_LIMIT,
+        )
+    except Exception as exc:
+        return {
+            **session,
+            "ok": False,
+            "reason": _inline_text(exc) or type(exc).__name__,
+        }
+
+    if not isinstance(snapshot, dict):
+        return {
+            **session,
+            "ok": False,
+            "reason": "snapshot unavailable",
+        }
+    return {**session, **snapshot}
+
+
+def exec_stream_snapshots_block(
+    snapshots: typing.Sequence[dict[str, typing.Any]],
+    *,
+    omitted_count: int = 0,
+    terminal_width: int | None = None,
+) -> FragmentBlock:
+    """生成模型流式期间使用的后台终端摘要。"""
+    width = _terminal_width(terminal_width)
+    fragments: list[tuple[str, str]] = [
+        ("class:prompt.command.slash", "/ps"),
+        ("", "\n\n"),
+        ("class:ps.title", "Background terminals"),
+        ("", "\n\n"),
+    ]
+    rows: list[StyleAndTextTuples] = []
+
+    for snapshot in snapshots:
+        command = _clip_inline(
+            snapshot.get("command") or "(unknown command)",
+            width - 4,
+        )
+        rows.append([
+            ("class:ps.stream", "  • "),
+            ("class:ps.stream.command", command),
+        ])
+
+        if snapshot.get("ok") is False:
+            output_lines = [
+                _inline_text(snapshot.get("reason")) or "snapshot failed"
+            ]
+        else:
+            output_lines = _panel_output_lines(
+                snapshot,
+                limit=PS_STREAM_OUTPUT_LINES,
+            ) or ["(waiting for output)"]
+
+        for index, line in enumerate(output_lines):
+            prefix = "    ↳ " if index == 0 else "      "
+            rows.append([(
+                "class:ps.stream",
+                f"{prefix}{_clip_inline(line, width - get_cwidth(prefix))}",
+            )])
+
+    if omitted_count > 0:
+        rows.append([(
+            "class:ps.stream",
+            f"  … and {omitted_count} more running",
+        )])
+
+    for index, row in enumerate(rows):
+        fragments.extend(row)
+        if index < len(rows) - 1:
+            fragments.append(("", "\n"))
+
+    return FragmentBlock(tuple(fragments))
+
+
+def _no_background_terminals_block(
+    *,
+    command: str | None,
+) -> FragmentBlock:
+    """生成当前没有后台终端的状态块。"""
+    fragments: list[tuple[str, str]] = []
+    if command:
+        fragments.extend([
+            ("class:prompt.command.slash", command),
+            ("", "\n\n"),
+        ])
+    fragments.extend([
+        ("class:ps.title", "Background terminals"),
+        ("", "\n\n"),
+        ("class:ps.meta", "  • No background terminals running."),
+    ])
+    return FragmentBlock(tuple(fragments))
+
+
+def _exec_stream_snapshot_error_block(
+    error: BaseException,
+    *,
+    terminal_width: int,
+) -> FragmentBlock:
+    """生成后台终端快照读取失败状态块。"""
+    detail = _clip_inline(error, max(1, terminal_width - 4))
+    return FragmentBlock((
+        ("class:prompt.command.slash", "/ps"),
+        ("", "\n\n"),
+        ("class:ps.title", "Background terminals"),
+        ("", "\n\n"),
+        ("class:ps.stream", f"  • {detail or type(error).__name__}"),
     ))
 
 
@@ -399,49 +551,6 @@ async def _watch_exec_session(
             runtime.dismiss_process_viewer()
 
 
-def render_exec_session_menu(
-    sessions: list[dict[str, typing.Any]],
-    selected: int,
-    *,
-    terminal_width: int | None = None
-) -> StyleAndTextTuples:
-    """生成 exec_command 会话菜单内容。"""
-    width         = _terminal_width(terminal_width)
-    command_width = max(12, width - 30)
-
-    start, visible = _visible_session_window(sessions, selected)
-
-    end = start + len(visible)
-
-    lines: StyleAndTextTuples = [
-        ("class:ps.title", "Background Commands"),
-        ("", "\n"),
-        ("class:ps.status", _session_menu_status(len(sessions), start, end)),
-        ("", "\n"),
-        ("class:ps.help", "↑/↓ select · Enter view · q close"),
-        ("", "\n"),
-    ]
-
-    for visible_index, item in enumerate(visible):
-        index  = start + visible_index
-        active = index == selected
-
-        prefix_style = "class:ps.index.active" if active else "class:ps.index"
-        row_style    = "class:ps.active" if active else "class:ps.command"
-        marker       = ">" if active else " "
-        pid          = str(item.get("pid") or "-")
-        command      = _clip_inline(item.get("command"), command_width)
-
-        lines.extend([
-            (prefix_style, f"{marker} {index + 1} "),
-            ("class:ps.pid", f" pid={pid.rjust(5)}  "),
-            (row_style, command),
-            ("", "\n"),
-        ])
-
-    return lines
-
-
 def render_exec_session_panel(
     state: dict[str, typing.Any],
     *,
@@ -453,18 +562,10 @@ def render_exec_session_panel(
     if not isinstance(snapshot, dict):
         snapshot = {}
 
-    body_height = max(1, height - 4)
+    body_height = max(1, height - 2)
     width       = _terminal_width(terminal_width)
 
-    title = _clip_inline(
-        _panel_title(snapshot, terminal_width=width),
-        width,
-    )
-
-    meta = _clip_inline(
-        _panel_meta(snapshot, terminal_width=width),
-        width,
-    )
+    title = _panel_title_fragments(snapshot, terminal_width=width)
 
     help_text = _clip_inline(
         "Enter/Esc/q background · Ctrl+C stop · output is tailed",
@@ -472,9 +573,7 @@ def render_exec_session_panel(
     )
 
     lines: StyleAndTextTuples = [
-        ("class:ps.title", title),
-        ("", "\n"),
-        ("class:ps.meta", meta),
+        *title,
         ("", "\n"),
         (
             "class:ps.help",
@@ -512,7 +611,7 @@ def exec_session_live_block(
 
     fragments = render_exec_session_panel(
         {"snapshot": current},
-        height=PS_VISIBLE_OUTPUT_LINES + 4,
+        height=PS_VISIBLE_OUTPUT_LINES + 2,
         terminal_width=terminal_width,
     )
     return FragmentBlock(tuple(fragments))
@@ -679,70 +778,70 @@ def _origin_label(origin: typing.Any) -> str:
     return "shell" if str(origin or "") == "tui_shell" else "tool"
 
 
-def _visible_session_window(
-    sessions: list[dict[str, typing.Any]],
-    selected: int
-) -> tuple[int, list[dict[str, typing.Any]]]:
-    """返回当前菜单可见窗口。"""
-    total = len(sessions)
-    if total <= PS_MENU_VISIBLE_LIMIT:
-        return 0, list(sessions)
-
-    active = min(total - 1, max(0, int(selected or 0)))
-    half   = PS_MENU_VISIBLE_LIMIT // 2
-    start  = active - half
-    start  = max(0, min(start, total - PS_MENU_VISIBLE_LIMIT))
-    end    = start + PS_MENU_VISIBLE_LIMIT
-
-    return start, list(sessions[start:end])
-
-
-def _session_menu_status(total: int, start: int, end: int) -> str:
-    """返回 exec_command 菜单状态行。"""
-    if total <= PS_MENU_VISIBLE_LIMIT:
-        return f"running={total}"
-    return f"running={total} · showing={start + 1}-{end}"
-
-
-def _panel_title(
+def _panel_title_fragments(
     snapshot: dict[str, typing.Any],
     *,
     terminal_width: int
-) -> str:
-    """生成查看面板标题。"""
-    sid     = str(snapshot.get("session_id") or "").strip()
-    status  = str(snapshot.get("status") or "unknown").strip()
-    kind    = _session_kind(snapshot)
-    command = _clip_inline(snapshot.get("command"), max(12, terminal_width - 32))
+) -> StyleAndTextTuples:
+    """生成查看面板的分段样式标题。"""
+    status = _inline_text(snapshot.get("status")) or "unknown"
+    pid = _inline_text(snapshot.get("pid")) or "-"
 
-    if command:
-        return f"{kind} {status} · {sid} · {command}"
-
-    return f"{kind} {status} · {sid}"
-
-
-def _panel_meta(
-    snapshot: dict[str, typing.Any],
-    *,
-    terminal_width: int
-) -> str:
-    """生成查看面板状态行。"""
-    pid = snapshot.get("pid")
-    cwd = _clip_inline(snapshot.get("cwd"), max(8, terminal_width - 45))
-
-    exit_code = snapshot.get("exit_code")
-
-    parts = [
-        f"pid={pid if pid is not None else '-'}",
-        f"cwd={cwd or '-'}",
+    fragments: StyleAndTextTuples = [
+        ("class:shell.title.action", _session_kind(snapshot)),
+        ("class:ps.meta", f" {status}"),
+    ]
+    fields: list[tuple[str, str]] = [
+        ("class:ps.meta", f"pid={pid}"),
     ]
 
-    if exit_code is not None:
-        parts.append(f"exit={exit_code}")
-    if bool(snapshot.get("truncated")):
-        parts.append("truncated=true")
+    sid = _inline_text(snapshot.get("session_id"))
+    if sid:
+        fields.append(("class:ps.meta", sid))
 
-    return " · ".join(parts)
+    exit_code = snapshot.get("exit_code")
+    if exit_code is not None:
+        fields.append(("class:ps.meta", f"exit={_inline_text(exit_code)}"))
+    if bool(snapshot.get("truncated")):
+        fields.append(("class:ps.warning", "truncated=true"))
+
+    command = _inline_text(snapshot.get("command"))
+    if command:
+        fields.append(("class:ps.command", command))
+
+    for field in fields:
+        fragments.append(("class:ps.separator", " · "))
+        fragments.append(field)
+
+    return _clip_panel_title(fragments, width=terminal_width)
+
+
+def _clip_panel_title(
+    fragments: StyleAndTextTuples,
+    *,
+    width: int,
+) -> StyleAndTextTuples:
+    """裁剪标题片段并使省略标记继承末尾字段样式。"""
+    limit = max(0, int(width))
+    text = "".join(value for _style, value in fragments)
+    if get_cwidth(text) <= limit:
+        return fragments
+
+    omitted = "…"
+    omitted_width = get_cwidth(omitted)
+    if limit <= omitted_width:
+        return [("class:ps.meta", omitted)] if limit else []
+
+    clipped = clip_fragments(
+        list(fragments),
+        width=limit - omitted_width,
+    )
+    if not clipped:
+        return [("class:ps.meta", omitted)]
+
+    style, text = clipped[-1]
+    clipped[-1] = style, f"{text}{omitted}"
+    return clipped
 
 
 def _exec_session_status_suffix(snapshot: dict[str, typing.Any]) -> str:

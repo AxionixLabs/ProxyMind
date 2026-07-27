@@ -131,7 +131,7 @@ async def run_tui_loop(
                 pref_config=state.pref_config,
                 permissions=state.permissions,
             ),
-            stream_command_handler=foreground_tasks.handle_stream_command,
+            stream_command_handler=dispatcher.handle_stream_command,
             show_interrupt_notice=lambda: not mind.task_event.is_set(),
         )
         exit_reason = runtime.consume_exit_request()
