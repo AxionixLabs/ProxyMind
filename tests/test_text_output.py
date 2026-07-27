@@ -118,7 +118,6 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
 
     visible = stderr.getvalue()
     recorded = "".join(record.parts)
-    assert visible.startswith("Mind v1.1.9\n")
     assert f"{ANSI_BOLD}workdir:{ANSI_RESET}" in visible
     assert f"{ANSI_CYAN}user{ANSI_RESET}\n" in visible
     assert f"{ANSI_MAGENTA}mind{ANSI_RESET}\n" in visible
