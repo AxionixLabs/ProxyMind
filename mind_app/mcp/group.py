@@ -42,8 +42,10 @@ from .status import (
     should_reraise_external
 )
 
-EXTERNAL_MCP_CONNECT_CONCURRENCY   = 4
+EXTERNAL_MCP_CONNECT_CONCURRENCY   = 2
+EXTERNAL_MCP_STDIO_CONCURRENCY     = 1
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
+EXTERNAL_MCP_TOOL_YIELD_INTERVAL   = 32
 
 _STREAMABLE_HTTP_LOGGER_NAME = "mcp.client.streamable_http"
 _SESSION_TERMINATION_WARNING = "Session termination failed:"
@@ -82,9 +84,11 @@ class ExternalMcpGroup(object):
 
     def __init__(self) -> None:
         """初始化外部 MCP 工具索引和资源释放栈。"""
-        self.tools: dict[str, mcp_types.Tool] = {}
+        self.tools: dict[str, mcp_types.Tool]               = {}
         self.server_stats: dict[str, dict[str, typing.Any]] = {}
+
         self._tool_to_session: dict[str, ClientSession] = {}
+
         self._exit_stack = contextlib.AsyncExitStack()
 
     async def __aenter__(self) -> "ExternalMcpGroup":
@@ -96,7 +100,7 @@ class ExternalMcpGroup(object):
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_tb: TracebackType | None
     ) -> bool | None:
         """退出时关闭所有已建立的外部连接，并清空工具索引。"""
         try:
@@ -115,7 +119,7 @@ class ExternalMcpGroup(object):
     @staticmethod
     async def _establish_session(
         server_params: typing.Any,
-        session_params: ClientSessionParameters,
+        session_params: ClientSessionParameters
     ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
         """按服务传输类型建立 MCP 会话，并返回尚未转交所有权的资源栈。"""
         session_stack = contextlib.AsyncExitStack()
@@ -182,7 +186,7 @@ class ExternalMcpGroup(object):
         session: ClientSession,
         *,
         transport: str | None = None,
-        rules: dict[str, list[str]] | None = None,
+        rules: dict[str, list[str]] | None = None
     ) -> tuple[dict[str, mcp_types.Tool], int]:
         """读取单个外部服务的工具列表，并生成待提交的工具映射。"""
         tools_temp: dict[str, mcp_types.Tool] = {}
@@ -207,19 +211,20 @@ class ExternalMcpGroup(object):
             )
             return tools_temp, 0
 
-        for tool in tools:
-            if not is_mcp_tool_allowed(tool.name, rules):
-                continue
+        for index, tool in enumerate(tools, start=1):
+            if is_mcp_tool_allowed(tool.name, rules):
+                # 对外展示的工具名会加服务前缀，原始名称保留给会话调用。
+                name = tool_name_hook(tool.name, server_info)
+                meta = dict(tool.meta or {})
+                meta.setdefault("server", alias)
 
-            # 对外展示的工具名会加服务前缀，原始工具名保留在 tool.name 中用于调用。
-            name = tool_name_hook(tool.name, server_info)
-            meta = dict(tool.meta or {})
-            meta.setdefault("server", alias)
+                if transport:
+                    meta.setdefault("transport", str(transport).strip().lower())
 
-            if transport:
-                meta.setdefault("transport", str(transport).strip().lower())
+                tools_temp[name] = tool.model_copy(update={"meta": meta})
 
-            tools_temp[name] = tool.model_copy(update={"meta": meta})
+            if index % EXTERNAL_MCP_TOOL_YIELD_INTERVAL == 0:
+                await asyncio.sleep(0)
 
         return tools_temp, len(tools)
 
@@ -231,7 +236,7 @@ class ExternalMcpGroup(object):
         progress_callback: typing.Any = None,
         *,
         meta: dict[str, typing.Any] | None = None,
-        args: dict[str, typing.Any] | None = None,
+        args: dict[str, typing.Any] | None = None
     ) -> mcp_types.CallToolResult:
         """根据聚合后的工具名找到真实会话，并使用服务原始工具名发起调用。"""
         session           = self._tool_to_session[name]
@@ -309,25 +314,38 @@ async def _connect_external_server(
     group: ExternalMcpGroup,
     server: dict[str, typing.Any],
     limiter: asyncio.Semaphore,
-    status: ExternalMcpStatus | None,
+    stdio_limiter: asyncio.Semaphore,
+    status: ExternalMcpStatus | None
 ) -> bool:
     """在独立启动时限内连接一个外部 MCP 服务并更新状态。"""
-    name        = str(server.get("name") or "server")
-    transport   = str(server.get("transport") or "streamable_http")
-    start_limit = startup_timeout_sec(server)
-    preflight_limit = min(start_limit, EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC)
-    phase       = "preflight"
+    name = str(server.get("name") or "server")
 
+    transport = str(
+        server.get("transport") or "streamable_http"
+    ).strip().lower()
+
+    start_limit     = startup_timeout_sec(server)
+    preflight_limit = min(start_limit, EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC)
+
+    phase = "preflight"
     try:
         async with asyncio.timeout(preflight_limit):
             await preflight_server(server)
 
         phase = "startup"
-        async with limiter:
-            async with asyncio.timeout(start_limit):
-                alias, tool_count, discovered_count = await group.connect_with_alias(
-                    server
-                )
+        if transport == "stdio":
+            async with stdio_limiter:
+                async with limiter:
+                    async with asyncio.timeout(start_limit):
+                        alias, tool_count, discovered_count = (
+                            await group.connect_with_alias(server)
+                        )
+        else:
+            async with limiter:
+                async with asyncio.timeout(start_limit):
+                    alias, tool_count, discovered_count = (
+                        await group.connect_with_alias(server)
+                    )
 
         if status is not None:
             status.mark_ready(
@@ -372,7 +390,7 @@ async def _connect_external_server(
 @asynccontextmanager
 async def open_optional_external_mcp_group(
     servers: list[dict[str, typing.Any]],
-    status: ExternalMcpStatus | None = None,
+    status: ExternalMcpStatus | None = None
 ) -> typing.AsyncIterator[typing.Optional[ExternalMcpGroup]]:
     """尽力打开外部 MCP group；没有可用外部服务时返回 None，让主流程只用本地 MCP。"""
     enabled: list[dict[str, typing.Any]] = []
@@ -406,13 +424,16 @@ async def open_optional_external_mcp_group(
         yield None
         return
 
-    limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
+    limiter       = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
+    stdio_limiter = asyncio.Semaphore(EXTERNAL_MCP_STDIO_CONCURRENCY)
+
     connect_tasks = [
         asyncio.create_task(
             _connect_external_server(
                 group,
                 server,
                 limiter,
+                stdio_limiter,
                 status,
             ),
             name=f"external MCP {server.get('name') or 'server'}",

@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
+import time
 from types import SimpleNamespace
 
 import pytest
 from mcp import types as mcp_types
 
 from mind_app.mcp import group as mcp_group
+from mind_app.mcp import config as mcp_config
 from mind_app.mcp.group import ExternalMcpGroup, open_optional_external_mcp_group
 from mind_app.mcp.status import ExternalMcpStatus
 
@@ -20,6 +22,18 @@ def _servers(count: int, *, startup_timeout_sec: float = 1.0) -> list[dict]:
             "transport": "streamable_http",
             "url": f"https://server-{index}.example.test/mcp",
             "startup_timeout_sec": startup_timeout_sec,
+        }
+        for index in range(count)
+    ]
+
+
+def _stdio_servers(count: int) -> list[dict]:
+    return [
+        {
+            "name": f"stdio-{index}",
+            "enabled": True,
+            "transport": "stdio",
+            "command": "server",
         }
         for index in range(count)
     ]
@@ -70,6 +84,84 @@ async def test_external_mcp_connects_six_servers_with_bounded_concurrency(
     snapshot = status.snapshot()
     assert state["maximum"] == mcp_group.EXTERNAL_MCP_CONNECT_CONCURRENCY
     assert [item["state"] for item in snapshot["items"]] == ["ready"] * 6
+
+
+@pytest.mark.anyio
+async def test_external_mcp_serializes_stdio_process_startup(monkeypatch) -> None:
+    servers = _stdio_servers(4)
+    state = {"active": 0, "maximum": 0}
+
+    async def preflight(_server) -> None:
+        return None
+
+    async def connect(_group, server) -> tuple[str, int, int]:
+        state["active"] += 1
+        state["maximum"] = max(state["maximum"], state["active"])
+        await asyncio.sleep(0.01)
+        state["active"] -= 1
+        return server["name"], 1, 1
+
+    monkeypatch.setattr(mcp_group, "preflight_server", preflight)
+    monkeypatch.setattr(ExternalMcpGroup, "connect_with_alias", connect)
+
+    async with open_optional_external_mcp_group(servers) as group:
+        assert group is not None
+
+    assert state["maximum"] == mcp_group.EXTERNAL_MCP_STDIO_CONCURRENCY
+
+
+@pytest.mark.anyio
+async def test_queued_stdio_does_not_occupy_general_connection_slot(
+    monkeypatch,
+) -> None:
+    servers = [
+        *_stdio_servers(2),
+        _servers(1)[0],
+    ]
+    remote_started = asyncio.Event()
+
+    async def preflight(_server) -> None:
+        return None
+
+    async def connect(_group, server) -> tuple[str, int, int]:
+        if server["name"] == "stdio-0":
+            await asyncio.wait_for(remote_started.wait(), timeout=0.2)
+        elif server["name"] == "server-0":
+            remote_started.set()
+        await asyncio.sleep(0)
+        return server["name"], 1, 1
+
+    monkeypatch.setattr(mcp_group, "preflight_server", preflight)
+    monkeypatch.setattr(ExternalMcpGroup, "connect_with_alias", connect)
+
+    async with open_optional_external_mcp_group(servers) as group:
+        assert group is not None
+
+    assert remote_started.is_set()
+
+
+@pytest.mark.anyio
+async def test_stdio_preflight_does_not_block_event_loop(monkeypatch) -> None:
+    marker_reached = False
+
+    def blocking_preflight(_server) -> None:
+        time.sleep(0.02)
+
+    async def mark_scheduled() -> None:
+        nonlocal marker_reached
+        await asyncio.sleep(0)
+        marker_reached = True
+
+    monkeypatch.setattr(mcp_config, "preflight_stdio_server", blocking_preflight)
+
+    marker = asyncio.create_task(mark_scheduled())
+    await mcp_config.preflight_server({
+        "transport": "stdio",
+        "command": "server",
+    })
+
+    assert marker.done()
+    assert marker_reached
 
 
 @pytest.mark.anyio
@@ -222,3 +314,35 @@ async def test_external_mcp_filters_discovered_tools_before_registration() -> No
         "mcp__zentao__get_bug",
         "mcp__zentao__list_projects",
     ]
+
+
+@pytest.mark.anyio
+async def test_external_mcp_tool_collection_yields_to_event_loop() -> None:
+    class Session(object):
+        def get_server_capabilities(self):
+            return SimpleNamespace(tools=object())
+
+        async def list_tools(self):
+            return SimpleNamespace(tools=[
+                mcp_types.Tool(name=f"tool_{index}", inputSchema={})
+                for index in range(64)
+            ])
+
+    marker_reached = False
+
+    async def mark_scheduled() -> None:
+        nonlocal marker_reached
+        await asyncio.sleep(0)
+        marker_reached = True
+
+    marker = asyncio.create_task(mark_scheduled())
+    group = ExternalMcpGroup()
+    tools, discovered_count = await group._collect_tools(
+        mcp_types.Implementation(name="docs", version="1"),
+        Session(),
+    )
+
+    assert marker.done()
+    assert marker_reached
+    assert discovered_count == 64
+    assert len(tools) == 64

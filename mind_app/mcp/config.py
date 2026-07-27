@@ -11,9 +11,9 @@ import socket
 import asyncio
 import hashlib
 import contextlib
-from fnmatch import fnmatchcase
 from pathlib import Path
 from datetime import timedelta
+from fnmatch import fnmatchcase
 from urllib.parse import urlsplit
 from mcp import types as mcp_types
 from mcp.client.stdio import StdioServerParameters
@@ -349,7 +349,8 @@ def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
 async def preflight_server(server: dict[str, typing.Any]) -> None:
     """对外部 MCP 服务执行连接前检查。"""
     if str(server.get("transport") or "").strip().lower() == "stdio":
-        return preflight_stdio_server(server)
+        await asyncio.to_thread(preflight_stdio_server, server)
+        return None
 
     url    = str(server.get("url") or "").strip()
     parsed = urlsplit(url)
