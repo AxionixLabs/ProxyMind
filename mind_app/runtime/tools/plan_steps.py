@@ -20,8 +20,8 @@ from .execution_policy import (
 )
 from .router import execute_tool
 
-FAILURE_PREVIEW_LIMIT = 8
-RESULT_TEXT_LIMIT     = 800
+ERROR_PREVIEW_LIMIT = 8
+FAILURE_GROUP_LIMIT = 8
 
 
 @dataclass(slots=True)
@@ -32,6 +32,7 @@ class PlanStepResult:
     tool: str
     ok: bool
     text: str
+    result: dict[str, typing.Any]
     cost_ms: int = 0
 
 
@@ -41,6 +42,7 @@ class PlanExecutionReport:
     ok: bool
     text: str
     data: dict[str, typing.Any]
+    attachments: list[dict[str, typing.Any]]
     cost_ms: int
     results: list[PlanStepResult]
 
@@ -51,7 +53,7 @@ class PlanExecutionReport:
             "ok"          : self.ok,
             "tool"        : "plan_steps",
             "text"        : self.text,
-            "attachments" : [],
+            "attachments" : self.attachments,
             "data"        : self.data
         }
 
@@ -84,7 +86,6 @@ class StepPlanExecutor:
         valid, plan, errors = normalize_plan_arguments(arguments)
 
         results = await self.execute_plan(plan, call_id=call_id) if valid else []
-
         cost_ms = int((time.perf_counter() - started_at) * 1000)
 
         return self._build_report(
@@ -195,12 +196,15 @@ class StepPlanExecutor:
                 invocation=invocation,
             )
 
+            normalized = normalize_call_tool_result(result)
+
             step_result = PlanStepResult(
                 run=run_index,
                 index=step_index,
                 tool=name,
                 ok=result.isError is not True,
-                text=self._result_text(result),
+                text=normalized.display_text,
+                result=dict(normalized.fields),
                 cost_ms=int((time.perf_counter() - started_at) * 1000)
             )
             self._log_step_result(step_result)
@@ -226,7 +230,13 @@ class StepPlanExecutor:
             index=step_index,
             tool=name,
             ok=False,
-            text=text
+            text=text,
+            result={
+                "ok"          : False,
+                "text"        : text,
+                "attachments" : [],
+                "data"        : {"error": text},
+            },
         )
         self._log_step_result(step_result)
         return step_result
@@ -240,7 +250,7 @@ class StepPlanExecutor:
         errors: list[str],
         cost_ms: int
     ) -> PlanExecutionReport:
-        """根据计划和步骤结果生成有界汇总。"""
+        """根据计划和步骤结果生成执行汇总与回传数据。"""
         steps          = _plan_steps(plan)
         requested_runs = int(plan.get("loops") or 1)
         step_count     = len(steps)
@@ -251,8 +261,6 @@ class StepPlanExecutor:
             index: [] for index in range(1, step_count + 1)
         }
 
-        failures: list[dict[str, typing.Any]] = []
-
         ok_count: int = 0
 
         for item in results:
@@ -260,14 +268,6 @@ class StepPlanExecutor:
             results_by_step.setdefault(item.index, []).append(item)
             if item.ok:
                 ok_count += 1
-            else:
-                failures.append({
-                    "run": item.run,
-                    "step": item.index,
-                    "tool": item.tool,
-                    "text": cls._bounded_text(item.text),
-                    "cost_ms": item.cost_ms
-                })
 
         fail_count = len(results) - ok_count
 
@@ -279,20 +279,44 @@ class StepPlanExecutor:
         stopped = bool(fail_count and plan.get("stop_on_fail", True))
         ok      = not errors and fail_count == 0
 
-        step_results: list[dict[str, typing.Any]] = []
+        step_summaries: list[dict[str, typing.Any]] = []
 
         for step_index, step in enumerate(steps, start=1):
             items = results_by_step[step_index]
-            last  = items[-1] if items else None
 
-            step_results.append({
+            step_summaries.append({
                 "index"      : step_index,
                 "tool"       : str(step.get("tool") or ""),
                 "call_count" : len(items),
                 "ok_count"   : sum(1 for item in items if item.ok),
                 "fail_count" : sum(1 for item in items if not item.ok),
-                "last_text"  : cls._bounded_text(last.text if last else "")
+                "elapsed_ms" : sum(item.cost_ms for item in items),
             })
+
+        complete_results: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]]      = []
+
+        if requested_runs == 1:
+            for item in results:
+                result_fields = dict(item.result)
+
+                result_attachments = [
+                    dict(attachment)
+                    for attachment in result_fields.get("attachments", [])
+                    if isinstance(attachment, dict)
+                ]
+                result_fields["attachments"] = result_attachments
+
+                attachments.extend(result_attachments)
+
+                complete_results.append({
+                    "run"     : item.run,
+                    "step"    : item.index,
+                    "tool"    : item.tool,
+                    "ok"      : item.ok,
+                    "cost_ms" : item.cost_ms,
+                    "result"  : result_fields,
+                })
 
         text = cls._report_text(
             errors=errors,
@@ -307,24 +331,35 @@ class StepPlanExecutor:
         )
 
         data = {
-            "requested_runs"   : requested_runs,
-            "completed_runs"   : completed_runs,
-            "attempted_runs"   : max(calls_by_run, default=0),
-            "steps_per_run"    : step_count,
-            "call_count"       : len(results),
-            "ok_count"         : ok_count,
-            "fail_count"       : fail_count,
-            "stopped"          : stopped,
-            "elapsed_ms"       : cost_ms,
-            "step_results"     : step_results,
-            "failures"         : failures[:FAILURE_PREVIEW_LIMIT],
-            "omitted_failures" : max(0, len(failures) - FAILURE_PREVIEW_LIMIT),
-            "errors"           : errors[:FAILURE_PREVIEW_LIMIT]
+            "requested_runs" : requested_runs,
+            "completed_runs" : completed_runs,
+            "attempted_runs" : max(calls_by_run, default=0),
+            "steps_per_run"  : step_count,
+            "call_count"     : len(results),
+            "ok_count"       : ok_count,
+            "fail_count"     : fail_count,
+            "stopped"        : stopped,
+            "elapsed_ms"     : cost_ms,
+            "result_mode"    : "full" if requested_runs == 1 else "aggregate",
+            "steps"          : step_summaries,
+            "errors"         : errors[:ERROR_PREVIEW_LIMIT]
         }
+
+        if requested_runs == 1:
+            data["results"] = complete_results
+        else:
+            failure_groups = cls._failure_groups(results)
+            data["failure_groups"] = failure_groups[:FAILURE_GROUP_LIMIT]
+            data["omitted_failure_groups"] = max(
+                0,
+                len(failure_groups) - FAILURE_GROUP_LIMIT,
+            )
+
         return PlanExecutionReport(
             ok=ok,
             text=text,
             data=data,
+            attachments=attachments,
             cost_ms=cost_ms,
             results=results
         )
@@ -345,7 +380,7 @@ class StepPlanExecutor:
     ) -> str:
         """生成计划执行的最终摘要。"""
         if errors:
-            return f"plan rejected · {'; '.join(errors[:FAILURE_PREVIEW_LIMIT])}"
+            return f"plan rejected · {'; '.join(errors[:ERROR_PREVIEW_LIMIT])}"
         if ok:
             return (
                 f"{completed_runs}/{requested_runs} runs · {call_count} calls · "
@@ -372,17 +407,38 @@ class StepPlanExecutor:
         )
 
     @staticmethod
-    def _result_text(result: typing.Any) -> str:
-        """从 MCP 工具结果中读取文本摘要。"""
-        return normalize_call_tool_result(result).display_text
+    def _failure_groups(
+        results: list[PlanStepResult],
+    ) -> list[dict[str, typing.Any]]:
+        """按步骤、工具和原因归并重复失败。"""
+        groups: list[dict[str, typing.Any]] = []
 
-    @staticmethod
-    def _bounded_text(value: typing.Any) -> str:
-        """把结果文本压缩为有界单行摘要。"""
-        text = " ".join(str(value or "").split())
-        if len(text) <= RESULT_TEXT_LIMIT:
-            return text
-        return f"{text[:RESULT_TEXT_LIMIT - 3]}..."
+        groups_by_key: dict[tuple[int, str, str], dict[str, typing.Any]] = {}
+
+        for item in results:
+            if item.ok:
+                continue
+
+            key   = (item.index, item.tool, item.text)
+            group = groups_by_key.get(key)
+
+            if group is None:
+                group = {
+                    "step"      : item.index,
+                    "tool"      : item.tool,
+                    "reason"    : item.text,
+                    "count"     : 0,
+                    "first_run" : item.run,
+                    "last_run"  : item.run,
+                }
+                groups_by_key[key] = group
+                groups.append(group)
+
+            group["count"]     = int(group["count"]) + 1
+            group["first_run"] = min(int(group["first_run"]), item.run)
+            group["last_run"]  = max(int(group["last_run"]), item.run)
+
+        return groups
 
     @staticmethod
     def _duration_text(cost_ms: int) -> str:
@@ -402,6 +458,7 @@ class StepPlanExecutor:
         if is_execution_ignored(policy_result):
             return str(policy_result.get("reason") or "execution ignored")
         return str(policy_result.get("error") or "execution denied")
+
 
 def _plan_steps(plan: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
     """读取已标准化计划中的步骤列表。"""

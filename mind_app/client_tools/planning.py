@@ -18,7 +18,11 @@ PLAN_STEPS_INPUT_SCHEMA: dict[str, typing.Any] = {
         "loops": {
             "type": "integer",
             "minimum": 1,
-            "description": "循环执行 steps 的次数。"
+            "description": (
+                "循环执行 steps 的次数，默认为 1。loops=1 时回传每个步骤的"
+                "完整结果；loops>1 时仅回传数字统计和去重后的失败原因，"
+                "不回传成功步骤的具体输出。"
+            )
         },
         "stop_on_fail": {
             "type": "boolean",
@@ -166,7 +170,9 @@ def planning_tools() -> list[ClientTool]:
             description=(
                 "宏步骤循环器。提交一个按顺序执行的工具调用计划。"
                 " steps 中每项包含 tool 和 args；不允许嵌套 plan_steps。"
-                " 支持重复执行整组步骤，并汇总执行结果。"
+                " loops=1 时回传每个步骤的完整结果；loops>1 时仅回传数字"
+                "统计和去重后的失败原因，不回传成功步骤的具体输出。"
+                " 需要读取步骤具体输出时使用 loops=1。"
             ),
             input_schema=PLAN_STEPS_INPUT_SCHEMA,
             meta={
