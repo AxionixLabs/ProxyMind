@@ -221,7 +221,7 @@ def skill_completions(
         if not query or skill.name.lower().startswith(query)
     ]
 
-    for skill in matches[:8]:
+    for skill in matches:
         yield Completion(
             f"${skill.name} ",
             start_position=-len(token),

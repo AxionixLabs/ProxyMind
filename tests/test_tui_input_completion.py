@@ -376,6 +376,38 @@ async def test_skill_prefix_selects_first_match_without_rewriting_input() -> Non
 
 
 @pytest.mark.anyio
+async def test_skill_menu_keeps_all_matches_beyond_visible_height() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills(tuple(
+            skill_spec(f"skill-{index:02d}")
+            for index in range(1, 13)
+        ))
+
+        runtime.screen.application.output.get_size = lambda: Size(
+            rows=10,
+            columns=100,
+        )
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert len(buffer.complete_state.completions) == 12
+            assert runtime.screen._completion_height() == 7
+            assert runtime.screen.completion_menu.content.right_margins
+
+            runtime.input_model._select_completion(buffer, 11)
+
+            assert buffer.complete_state.current_completion.text == "$skill-12 "
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_complete_skill_remains_selected_until_it_is_accepted() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

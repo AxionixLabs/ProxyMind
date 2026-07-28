@@ -348,8 +348,6 @@ class TuiScreen(object):
             extra_filter=Condition(self._native_completion_visible),
         )
 
-        typing.cast(Window, self.completion_menu.content).right_margins.clear()
-
         self.completion_menu_row = ConditionalContainer(
             VSplit([
                 Window(
