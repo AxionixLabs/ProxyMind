@@ -2,9 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.permissions import PermissionSettings
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.execution import TurnContext
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -28,7 +28,7 @@ class PlanToolCallRunner:
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         report: typing.Any,
-        permissions: PermissionSettings
+        turn_context: TurnContext
     ) -> None:
         self.output_control = output_control
         self.status_control = status_control
@@ -38,7 +38,7 @@ class PlanToolCallRunner:
             session=session,
             tools=tools,
             report=report,
-            permissions=permissions,
+            turn_context=turn_context,
         )
 
     async def handle(
@@ -65,8 +65,6 @@ class PlanToolCallRunner:
         try:
             report = await self.executor.execute_tool_call(
                 arguments=arguments,
-                cid=str(event.get("cid") or ""),
-                sid=str(event.get("sid") or ""),
                 call_id=str(event.get("call_id") or ""),
             )
         finally:

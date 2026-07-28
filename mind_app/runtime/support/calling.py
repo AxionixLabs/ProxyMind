@@ -9,6 +9,10 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
 )
+from ..execution import (
+    AgentContext,
+    TurnContext
+)
 from ...modes.result import RunResult
 from ...stream_events.worked import emit_worked_footer
 from engine.observability import (
@@ -87,8 +91,26 @@ async def calling(
 
     kwargs["metadata"] = meta = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid, title=message, source="calling")
+        **mind.begin_conversation_turn(
+            cid=cid,
+            sid=sid,
+            title=message,
+            source="calling",
+        )
     }
+
+    turn_context = TurnContext.create(
+        agent=AgentContext.root(meta["sid"]),
+        cid=meta["cid"],
+        sid=meta["sid"],
+        mode=mode,
+        source="calling",
+        pref_config=pref_config,
+        cwd=mind.history_workspace,
+        permissions=permissions,
+        turn_id=kwargs.pop("turn_id", None),
+    )
+    kwargs["turn_context"] = turn_context
 
     started_at = time.perf_counter()
 
@@ -97,6 +119,8 @@ async def calling(
         mode=mode,
         cid=meta["cid"],
         sid=meta["sid"],
+        turn_id=turn_context.turn_id,
+        agent_id=turn_context.agent.agent_id,
         message_chars=len(message),
         sandbox_mode=permissions.sandbox_mode,
         approval_policy=permissions.approval_policy,

@@ -10,6 +10,7 @@ from mind_app.modes import stream
 from mind_app.modes.result import RunResult
 from mind_app.output.session import OutputSession
 from mind_app.runtime.mcp import tool_runtime
+from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_core.permissions import preset_permissions
 
 
@@ -99,6 +100,17 @@ async def _run_stream(
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = _mind()
+    permissions = preset_permissions("auto")
+    turn_context = TurnContext.create(
+        agent=AgentContext.root("sid_test"),
+        cid="cid_test",
+        sid="sid_test",
+        mode="xtra",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=permissions,
+    )
     result = await stream.stream_looper(
         mind,
         SimpleNamespace(),
@@ -108,7 +120,8 @@ async def _run_stream(
         [],
         exec_env={},
         skills=[{"name": "test"}],
-        permissions=preset_permissions("auto"),
+        permissions=permissions,
+        turn_context=turn_context,
         session_factory=lambda *_args, **_kwargs: _output_session(),
     )
     return result, mind

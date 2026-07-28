@@ -174,7 +174,7 @@ class Mind(object):
             await task
             raise
 
-    def begin_session(
+    def begin_conversation_turn(
         self,
         cid: typing.Optional[str] = None,
         sid: typing.Optional[str] = None,
@@ -182,8 +182,8 @@ class Mind(object):
         title: str = "",
         source: str = "begin"
     ) -> dict[str, str]:
-        """初始化或续用当前会话标识。"""
-        metadata = self.conversation.begin(cid=cid, sid=sid)
+        """为新轮次初始化或续用当前会话标识。"""
+        metadata = self.conversation.begin_turn(cid=cid, sid=sid)
 
         self._touch_history_session(metadata, title=title, source=source)
 

@@ -18,7 +18,12 @@ from engine.observability import (
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from mind_nova.requests.reports import open_report_session
+from mind_core.permissions import PermissionSettings
 from mind_app.frontend import ApplicationView
+from mind_app.runtime.execution import (
+    AgentContext,
+    TurnContext
+)
 from mind_app.stream_events.failure_display import render_failure_block
 from .code_sources import (
     CodeSourceResolved,
@@ -57,6 +62,10 @@ class FlowRuntime:
     pref_config: dict[str, typing.Any]
     event_report: EventReport
     runner: typing.Callable[..., typing.Awaitable[RunResult]]
+    metadata: dict[str, str]
+    agent: AgentContext
+    permissions: PermissionSettings
+    cwd: str
     failures: int = 0
 
 
@@ -147,6 +156,40 @@ def _first_flow_title(code_sources: list[CodeSourceResolved]) -> str:
     return code_sources[0].content if code_sources else ""
 
 
+async def _run_flow_turn(
+    runtime: FlowRuntime,
+    session: McpSessionLike,
+    message: str,
+    tools: list[dict[str, typing.Any]],
+    **kwargs: typing.Any
+) -> RunResult:
+    """为编排中的单次模型请求创建独立轮次上下文。"""
+    turn_context = TurnContext.create(
+        agent=runtime.agent,
+        cid=runtime.metadata["cid"],
+        sid=runtime.metadata["sid"],
+        mode=runtime.mode,
+        source="flow",
+        pref_config=runtime.pref_config,
+        cwd=runtime.cwd,
+        permissions=runtime.permissions,
+    )
+
+    runner_kwargs = dict(kwargs)
+    runner_kwargs.pop("turn_id", None)
+    runner_kwargs.pop("turn_context", None)
+
+    return await runtime.runner(
+        session,
+        runtime.mode,
+        runtime.pref_config,
+        message,
+        tools,
+        turn_context=turn_context,
+        **runner_kwargs,
+    )
+
+
 async def _run_virtual_message(
     mind: "Mind",
     runtime: FlowRuntime,
@@ -183,14 +226,7 @@ async def _run_virtual_message(
     failure_error: typing.Optional[str] = None
 
     try:
-        result = await runtime.runner(
-            session,
-            runtime.mode,
-            runtime.pref_config,
-            msg,
-            tools,
-            **kwargs
-        )
+        result = await _run_flow_turn(runtime, session, msg, tools, **kwargs)
         if not result.ok:
             failure_error = result.error or f"run {result.status}"
             _emit_diagnostic(
@@ -305,13 +341,12 @@ async def _run_flow_item(
             await mind.start_anim(runtime.mode)
 
             try:
-                result = await runtime.runner(
+                result = await _run_flow_turn(
+                    runtime,
                     session,
-                    runtime.mode,
-                    runtime.pref_config,
                     final_msg,
                     tools,
-                    **kwargs
+                    **kwargs,
                 )
                 if not result.ok:
                     raise RuntimeError(result.error or f"run {result.status}")
@@ -694,9 +729,17 @@ async def _prepare_flow_context(
 
     metadata = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid, title=first_title, source="flow")
+        **mind.begin_conversation_turn(
+            cid=cid,
+            sid=sid,
+            title=first_title,
+            source="flow",
+        )
     }
     kwargs["metadata"] = metadata
+
+    permissions = kwargs.get("permissions") or mind.permissions
+    kwargs["permissions"] = permissions
 
     report_url = await _open_flow_report_url(mode, metadata)
 
@@ -711,7 +754,11 @@ async def _prepare_flow_context(
         mode=mode,
         pref_config=pref_config,
         event_report=event_report,
-        runner=runner
+        runner=runner,
+        metadata=metadata,
+        agent=AgentContext.root(metadata["sid"]),
+        permissions=permissions,
+        cwd=mind.history_workspace,
     )
     return FlowExecutionContext(
         code_sources=code_sources,

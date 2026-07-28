@@ -7,6 +7,7 @@ import asyncio
 import functools
 from dataclasses import dataclass
 from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.execution import ToolInvocation
 from mind_app.mcp.tool_result import (
     normalize_call_tool_result,
     normalize_tool_fields
@@ -24,9 +25,6 @@ from engine.observability import (
     observe,
     observe_exception
 )
-
-if typing.TYPE_CHECKING:
-    from mind_core.permissions import PermissionSettings
 
 _COMMON_PROMOTED_RESULT_KEYS = (
     "path",
@@ -266,27 +264,23 @@ async def run_tool_step(
     status_control: OutputStatusPort,
     presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
-    name: str,
-    arguments: dict[str, typing.Any],
-    meta: typing.Optional[dict[str, typing.Any]],
+    invocation: ToolInvocation,
     pref_config: dict[str, typing.Any],
     enable_progress_notify: bool = False,
-    status_text: typing.Optional[str] = None,
-    execution: dict[str, typing.Any] | None = None,
-    cid: str | None = None,
-    sid: str | None = None,
-    call_id: str | None = None,
-    permissions: "PermissionSettings | None" = None
+    status_text: typing.Optional[str] = None
 ) -> ToolRunResult:
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
+    name       = invocation.name
 
     observe(
         "tool.start",
         tool=name,
-        call_id=call_id,
-        cid=cid,
-        sid=sid,
+        call_id=invocation.call_id,
+        turn_id=invocation.turn.turn_id,
+        agent_id=invocation.turn.agent.agent_id,
+        cid=invocation.turn.cid,
+        sid=invocation.turn.sid,
     )
 
     try:
@@ -298,9 +292,7 @@ async def run_tool_step(
             result = await execute_tool(
                 session,
                 tools=tools,
-                name=name,
-                arguments=arguments,
-                meta=meta,
+                invocation=invocation,
                 enable_progress_notify=enable_progress_notify,
                 stream_callback=functools.partial(
                     show_tool_progress,
@@ -308,11 +300,6 @@ async def run_tool_step(
                     source="tool",
                     tool_name=name,
                 ),
-                execution=execution,
-                cid=cid,
-                sid=sid,
-                call_id=call_id,
-                permissions=permissions,
             )
             ok = not result.isError
 
@@ -346,7 +333,8 @@ async def run_tool_step(
             "tool.interrupted",
             level="WARNING",
             tool=name,
-            call_id=call_id,
+            call_id=invocation.call_id,
+            turn_id=invocation.turn.turn_id,
             elapsed_ms=int((time.time() - started_at) * 1000),
         )
         raise
@@ -355,7 +343,8 @@ async def run_tool_step(
             "tool.failed",
             error,
             tool=name,
-            call_id=call_id,
+            call_id=invocation.call_id,
+            turn_id=invocation.turn.turn_id,
             elapsed_ms=int((time.time() - started_at) * 1000),
         )
         raise
@@ -365,7 +354,8 @@ async def run_tool_step(
     observe(
         "tool.complete",
         tool=name,
-        call_id=call_id,
+        call_id=invocation.call_id,
+        turn_id=invocation.turn.turn_id,
         ok=ok,
         elapsed_ms=cost_ms,
     )

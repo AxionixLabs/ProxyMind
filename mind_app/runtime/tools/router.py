@@ -4,15 +4,12 @@
 import typing
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
+from mind_app.runtime.execution import ToolInvocation
 from mcp.types import CallToolResult
 from .notify import (
     emit_tool_progress,
     supports_tool_progress
 )
-
-if typing.TYPE_CHECKING:
-    from mind_core.permissions import PermissionSettings
-
 
 def is_hosted_tool(
     tools: list[dict[str, typing.Any]],
@@ -29,26 +26,22 @@ async def execute_tool(
     session: McpSessionLike,
     *,
     tools: list[dict[str, typing.Any]],
-    name: str,
-    arguments: dict[str, typing.Any],
-    meta: typing.Optional[dict[str, typing.Any]] = None,
+    invocation: ToolInvocation,
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
-    enable_progress_notify: bool = False,
-    execution: dict[str, typing.Any] | None = None,
-    cid: str | None = None,
-    sid: str | None = None,
-    call_id: str | None = None,
-    permissions: "PermissionSettings | None" = None
+    enable_progress_notify: bool = False
 ) -> CallToolResult:
     """统一工具执行入口。"""
-    if is_hosted_tool(tools, name, meta=meta):
-        raise RuntimeError(f"Hosted tool is not configured for local execution: {name}")
+    if is_hosted_tool(tools, invocation.name, meta=invocation.meta):
+        raise RuntimeError(
+            f"Hosted tool is not configured for local execution: {invocation.name}"
+        )
 
     progress_callback = None
-    if enable_progress_notify and supports_tool_progress(name):
+
+    if enable_progress_notify and supports_tool_progress(invocation.name):
         async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
             await emit_tool_progress(
-                tool_name=name,
+                tool_name=invocation.name,
                 progress=progress,
                 total=total,
                 message=message,
@@ -56,14 +49,14 @@ async def execute_tool(
             )
 
     return await session.call_tool(
-        name,
-        arguments,
+        invocation.name,
+        invocation.arguments,
         progress_callback=progress_callback,
-        execution=execution,
-        cid=cid,
-        sid=sid,
-        call_id=call_id,
-        permissions=permissions,
+        execution=invocation.execution,
+        cid=invocation.turn.cid,
+        sid=invocation.turn.sid,
+        call_id=invocation.call_id,
+        permissions=invocation.turn.permissions,
     )
 
 

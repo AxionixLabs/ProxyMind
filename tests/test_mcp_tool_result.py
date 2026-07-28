@@ -7,7 +7,9 @@ from mind_app.mcp.tool_result import (
     normalize_call_tool_result,
     normalize_tool_fields,
 )
+from mind_app.runtime.execution import AgentContext, ToolInvocation, TurnContext
 from mind_app.runtime.tools.run import run_tool_step
+from mind_core.permissions import preset_permissions
 
 
 def test_normalize_external_structured_result_keeps_text_and_data() -> None:
@@ -128,8 +130,11 @@ def test_normalize_empty_error_result_remains_visible() -> None:
 
 @pytest.mark.anyio
 async def test_external_structured_result_is_visible_after_tool_run() -> None:
+    calls = []
+
     class Session(object):
-        async def call_tool(self, *_args, **_kwargs):
+        async def call_tool(self, *args, **kwargs):
+            calls.append((args, kwargs))
             return mcp_types.CallToolResult(
                 content=[],
                 structuredContent={"answer": 42},
@@ -142,20 +147,39 @@ async def test_external_structured_result_is_visible_after_tool_run() -> None:
         async def end_status(self) -> None:
             return None
 
+    turn_context = TurnContext.create(
+        agent=AgentContext.root("sid_test"),
+        cid="cid_test",
+        sid="sid_test",
+        mode="xtra",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=preset_permissions("auto"),
+    )
+
     tool_run = await run_tool_step(
         Session(),
         output_control=object(),
         status_control=Status(),
         presentation=object(),
         tools=[{"name": "mcp__docs__lookup"}],
-        name="mcp__docs__lookup",
-        arguments={"query": "answer"},
-        meta=None,
+        invocation=ToolInvocation(
+            turn=turn_context,
+            call_id="call_test",
+            name="mcp__docs__lookup",
+            arguments={"query": "answer"},
+        ),
         pref_config={},
     )
 
     assert tool_run.fields["data"] == {"answer": 42}
     assert '"answer": 42' in tool_run.text
+    assert calls[0][0] == ("mcp__docs__lookup", {"query": "answer"})
+    assert calls[0][1]["cid"] == "cid_test"
+    assert calls[0][1]["sid"] == "sid_test"
+    assert calls[0][1]["call_id"] == "call_test"
+    assert calls[0][1]["permissions"] is turn_context.permissions
 
 
 if __name__ == '__main__':

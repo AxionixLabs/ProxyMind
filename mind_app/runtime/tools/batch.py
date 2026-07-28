@@ -9,7 +9,7 @@ from dataclasses import (
 )
 from engine.enhance import exchange_arguments
 from mind_app.mcp.contracts import McpSessionLike
-from mind_core.permissions import PermissionSettings
+from mind_app.runtime.execution import ToolInvocation
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -40,10 +40,7 @@ class BatchToolResult:
 class PendingToolCall:
     """已下发但尚未执行的客户端工具调用。"""
     event: dict[str, typing.Any]
-    name: str
-    arguments: dict[str, typing.Any]
-    meta: dict[str, typing.Any] | None
-    execution: dict[str, typing.Any] | None
+    invocation: ToolInvocation
     use_coding_trace: bool
 
 
@@ -96,22 +93,16 @@ class ToolBatchExecutor:
         status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
-        mode: str,
         pref_config: dict[str, typing.Any],
-        metadata: dict[str, typing.Any],
         report: typing.Any,
-        permissions: PermissionSettings
     ) -> None:
         self.session        = session
         self.output_control = output_control
         self.status_control = status_control
         self.presentation   = presentation
         self.tools          = tools
-        self.mode           = mode
         self.pref_config    = pref_config
-        self.metadata       = metadata
         self.report         = report
-        self.permissions    = permissions
 
     @staticmethod
     async def post_tool_result(
@@ -148,19 +139,20 @@ class ToolBatchExecutor:
     ) -> BatchToolResult:
         """执行单个客户端工具并回填结果。"""
         event            = pending.event
-        name             = pending.name
-        arguments        = dict(pending.arguments)
-        event_execution  = pending.execution
+        invocation       = pending.invocation
+        name             = invocation.name
+        arguments        = dict(invocation.arguments)
+        event_execution  = invocation.execution
         use_coding_trace = pending.use_coding_trace
         cost_ms          = 0
-        call_id          = str(event.get("call_id") or "")
+        call_id          = invocation.call_id
 
         try:
             if display:
                 self.output_control.record_tool_arguments(
                     name,
                     arguments,
-                    call_id=str(event.get("call_id") or "")
+                    call_id=call_id,
                 )
                 if not use_coding_trace:
                     await show_tool_start(
@@ -170,7 +162,8 @@ class ToolBatchExecutor:
                         call_id=call_id,
                     )
 
-            arguments = exchange_arguments(name, arguments, self.report)
+            arguments  = exchange_arguments(name, arguments, self.report)
+            invocation = invocation.with_arguments(arguments)
 
             tool_run = await run_tool_step(
                 self.session,
@@ -178,17 +171,10 @@ class ToolBatchExecutor:
                 status_control=self.status_control,
                 presentation=self.presentation,
                 tools=self.tools,
-                name=name,
-                arguments=arguments,
-                meta=pending.meta,
+                invocation=invocation,
                 pref_config=self.pref_config,
                 enable_progress_notify=True,
                 status_text=None,
-                execution=event_execution,
-                cid=str(event.get("cid") or ""),
-                sid=str(event.get("sid") or ""),
-                call_id=str(event.get("call_id") or ""),
-                permissions=self.permissions,
             )
 
             ok      = tool_run.ok
@@ -246,8 +232,12 @@ class ToolBatchExecutor:
         lock = AsyncRWLock()
 
         async def run_one(pending: PendingToolCall) -> BatchToolResult:
-            parallel = supports_parallel(pending.name, pending.meta)
-            rw_ctx   = lock.read() if parallel else lock.write()
+            parallel = supports_parallel(
+                pending.invocation.name,
+                pending.invocation.meta,
+            )
+
+            rw_ctx = lock.read() if parallel else lock.write()
 
             async with rw_ctx:
                 return await self.execute_call(pending, display=display_each)

@@ -38,6 +38,10 @@ from ..presentation.run_views import (
     build_run_started_view,
 )
 from ..runtime.support.loop_support import finish_failure
+from ..runtime.execution import (
+    ToolInvocation,
+    TurnContext
+)
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
 from ..runtime.tools.run import server_tool_output_result
@@ -85,13 +89,31 @@ async def stream_looper(
 
     started_at = time.perf_counter()
 
-    event_count = 0
+    event_count: int = 0
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
+    turn_context = kwargs.pop("turn_context", None)
+
+    if not isinstance(turn_context, TurnContext):
+        raise TypeError("turn_context is required")
+    if turn_context.mode != mode:
+        raise ValueError("turn context mode does not match stream mode")
+
+    kwargs["turn_id"]     = turn_context.turn_id
+    kwargs["permissions"] = turn_context.permissions
+
+    metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
+
+    metadata = {
+        **metadata,
+        "cid": turn_context.cid,
+        "sid": turn_context.sid,
+    }
+    kwargs["metadata"] = metadata
+
     if ev_report:
-        request_turn_id = str(kwargs.get("turn_id") or "").strip()
-        kwargs["turn_id"] = ev_report.begin_turn(request_turn_id or None)
+        ev_report.begin_turn(turn_context.turn_id)
 
     if not isinstance(kwargs.get("exec_env"), dict):
         service_env = (
@@ -154,14 +176,13 @@ async def stream_looper(
     try:
         await output_control.open()
 
-        metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
-
         observe(
             "stream.start",
             mode=mode,
             cid=metadata.get("cid"),
             sid=metadata.get("sid"),
-            turn_id=kwargs.get("turn_id"),
+            turn_id=turn_context.turn_id,
+            agent_id=turn_context.agent.agent_id,
             tools=len(tools),
             skills=len(kwargs.get("skills") or []),
         )
@@ -193,11 +214,8 @@ async def stream_looper(
             status_control=status_control,
             presentation=presentation,
             tools=tools,
-            mode=mode,
             pref_config=pref_config,
-            metadata=metadata,
             report=mind.report,
-            permissions=kwargs["permissions"],
         )
         plan_tool_runner = PlanToolCallRunner(
             session=session,
@@ -206,7 +224,7 @@ async def stream_looper(
             presentation=presentation,
             tools=tools,
             report=mind.report,
-            permissions=kwargs["permissions"],
+            turn_context=turn_context,
         )
 
         async for event in stream_chat(mode, pref_config, message, tools, **kwargs):
@@ -491,10 +509,14 @@ async def stream_looper(
 
                 pending_call = PendingToolCall(
                     event=event,
-                    name=name,
-                    arguments=arguments,
-                    meta=effective_meta,
-                    execution=event_execution,
+                    invocation=ToolInvocation(
+                        turn=turn_context,
+                        call_id=str(event.get("call_id") or ""),
+                        name=name,
+                        arguments=arguments,
+                        meta=effective_meta,
+                        execution=event_execution,
+                    ),
                     use_coding_trace=use_coding_trace
                 )
 

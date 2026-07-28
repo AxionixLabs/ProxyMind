@@ -10,11 +10,15 @@ from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.mcp.tool_store import has_tool
-from mind_core.permissions import PermissionSettings
+from mind_app.runtime.execution import (
+    ToolInvocation,
+    TurnContext
+)
 from .execution_policy import (
     is_execution_ignored,
     validate_execution_policy
 )
+from .router import execute_tool
 
 FAILURE_PREVIEW_LIMIT = 8
 RESULT_TEXT_LIMIT     = 800
@@ -61,19 +65,17 @@ class StepPlanExecutor:
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
         report: typing.Any,
-        permissions: PermissionSettings
+        turn_context: TurnContext
     ) -> None:
-        self.session     = session
-        self.tools       = tools
-        self.report      = report
-        self.permissions = permissions
+        self.session      = session
+        self.tools        = tools
+        self.report       = report
+        self.turn_context = turn_context
 
     async def execute_tool_call(
         self,
         *,
         arguments: dict[str, typing.Any],
-        cid: str | None = None,
-        sid: str | None = None,
         call_id: str | None = None,
     ) -> PlanExecutionReport:
         """执行一次 plan_steps 工具调用并返回统一报告。"""
@@ -81,9 +83,7 @@ class StepPlanExecutor:
 
         valid, plan, errors = normalize_plan_arguments(arguments)
 
-        results = await self.execute_plan(
-            plan, cid=cid, sid=sid, call_id=call_id
-        ) if valid else []
+        results = await self.execute_plan(plan, call_id=call_id) if valid else []
 
         cost_ms = int((time.perf_counter() - started_at) * 1000)
 
@@ -98,9 +98,7 @@ class StepPlanExecutor:
         self,
         plan: dict[str, typing.Any],
         *,
-        cid: str | None = None,
-        sid: str | None = None,
-        call_id: str | None = None,
+        call_id: str | None = None
     ) -> list[PlanStepResult]:
         """按计划声明顺序执行所有步骤。"""
         loops        = int(plan.get("loops") or 1)
@@ -120,8 +118,6 @@ class StepPlanExecutor:
                     run_index,
                     step_index,
                     step,
-                    cid=cid,
-                    sid=sid,
                     call_id=call_id,
                 )
                 results.append(result)
@@ -137,8 +133,6 @@ class StepPlanExecutor:
         step_index: int,
         step: dict[str, typing.Any],
         *,
-        cid: str | None,
-        sid: str | None,
         call_id: str | None,
     ) -> PlanStepResult:
         """执行计划中的单个步骤。"""
@@ -181,20 +175,24 @@ class StepPlanExecutor:
 
             started_at = time.perf_counter()
 
-            runtime: dict[str, typing.Any] = {}
-            if execution is not None:
-                runtime = {
-                    "execution" : execution,
-                    "cid"       : cid,
-                    "sid"       : sid,
-                    "call_id"   : call_id
-                }
+            step_call_id = ":".join((
+                str(call_id or "plan"),
+                str(run_index),
+                str(step_index),
+            ))
 
-            result = await self.session.call_tool(
-                name,
-                exchanged_args,
-                permissions=self.permissions,
-                **runtime,
+            invocation = ToolInvocation(
+                turn=self.turn_context,
+                call_id=step_call_id,
+                name=name,
+                arguments=exchanged_args,
+                execution=execution,
+            )
+
+            result = await execute_tool(
+                self.session,
+                tools=self.tools,
+                invocation=invocation,
             )
 
             step_result = PlanStepResult(

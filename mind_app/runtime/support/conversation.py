@@ -32,13 +32,13 @@ class ConversationState(object):
         self.reset_count  = int(reset_count or 0)
         self.reset_reason = str(reset_reason or "")
 
-    def begin(
+    def begin_turn(
         self,
         *,
         cid: typing.Optional[str] = None,
         sid: typing.Optional[str] = None
     ) -> dict[str, str]:
-        """初始化、续用或绑定外部传入的会话标识。"""
+        """为新轮次初始化、续用或绑定会话标识。"""
         external_cid = self._clean(cid)
         external_sid = self._clean(sid)
 

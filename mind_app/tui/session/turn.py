@@ -4,20 +4,27 @@
 import asyncio
 import typing
 
-from mind_app.frontend import ApplicationSink, ApplicationView
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
-from mind_nova import const
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
+from mind_nova import const
 from mind_core.permissions import PermissionSettings
+from ...runtime.execution import (
+    AgentContext,
+    TurnContext
+)
 from ...runtime.support.calling import resolve_mode_runner
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    fragment_block,
+    fragment_block
 )
 
 if typing.TYPE_CHECKING:
@@ -107,11 +114,31 @@ async def run_tui_model_turn(
 
     async def run_turn_with_session(
         session: McpSessionLike,
-        tools: list[dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]]
     ) -> None:
-        runner        = resolve_mode_runner(mind, run_mode)
-        turn_metadata = mind.begin_session(title=session_title, source="tui")
-        ev_report     = EventReport(run_mode, turn_metadata["cid"], turn_metadata["sid"])
+        runner = resolve_mode_runner(mind, run_mode)
+
+        turn_metadata = mind.begin_conversation_turn(
+            title=session_title,
+            source="tui",
+        )
+
+        turn_context = TurnContext.create(
+            agent=AgentContext.root(turn_metadata["sid"]),
+            cid=turn_metadata["cid"],
+            sid=turn_metadata["sid"],
+            mode=run_mode,
+            source="tui",
+            pref_config=pref_config,
+            cwd=mind.history_workspace,
+            permissions=permissions,
+        )
+
+        ev_report = EventReport(
+            run_mode,
+            turn_metadata["cid"],
+            turn_metadata["sid"],
+        )
 
         await ev_report.open()
 
@@ -126,7 +153,8 @@ async def run_tui_model_turn(
                 permissions=permissions,
                 attachments=attachments,
                 metadata=turn_metadata,
-                ev_report=ev_report
+                ev_report=ev_report,
+                turn_context=turn_context,
             )
 
         finally:
