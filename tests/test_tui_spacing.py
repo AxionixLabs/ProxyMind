@@ -369,6 +369,94 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
 
 
 @pytest.mark.anyio
+async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=30, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                runtime.append_block(_block("approved"), kind="approval")
+                runtime.append_block(_block("tool result"), kind="operation")
+                runtime.append_block(
+                    _block("\n".join(f"first {index}" for index in range(30))),
+                    kind="assistant",
+                )
+                runtime.append_block(_block("Finished first"), kind="system")
+
+                terminal_size = Size(rows=10, columns=40)
+                runtime.set_execution_active(False)
+                await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_prefix_count == 2
+                assert [
+                    item.kind for item in runtime.document.visible_blocks
+                ] == ["assistant", "system"]
+                assert "first 29" in _document_text(runtime.document)
+
+                runtime.set_execution_active(True)
+                runtime.append_block(_block("next question"), kind="user")
+                runtime.append_block(
+                    _block("\n".join(f"second {index}" for index in range(30))),
+                    kind="assistant",
+                )
+                runtime.append_block(_block("Finished second"), kind="system")
+                runtime.set_execution_active(False)
+                await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_prefix_count == 5
+                assert [
+                    item.kind for item in runtime.document.visible_blocks
+                ] == ["assistant", "system"]
+                visible = _document_text(runtime.document)
+                assert "first 29" not in visible
+                assert "second 29" in visible
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=10, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                for index in range(6):
+                    runtime.append_block(
+                        _block(f"block {index}\n" + "line\n" * 3),
+                        kind="operation",
+                    )
+
+                runtime.set_execution_active(False)
+                assert runtime.viewport.scrollback_task is not None
+                runtime.set_execution_active(True)
+
+                await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_prefix_count == 0
+
+                runtime.set_execution_active(False)
+                await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_prefix_count > 0
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

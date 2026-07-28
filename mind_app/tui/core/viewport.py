@@ -105,9 +105,7 @@ class TuiTranscriptViewport(object):
         if (
             self._is_closing()
             or not self._is_application_active()
-            or self._is_scrollback_deferred()
-            or self.document.active_block is not None
-            or self.view_row is not None
+            or self._should_defer_scrollback()
             or (task is not None and not task.done())
             or self._scrollback_prefix_count() <= 0
         ):
@@ -131,13 +129,13 @@ class TuiTranscriptViewport(object):
 
         try:
             while self._is_application_active() and not self._is_closing():
-                if (
-                    self.document.active_block is not None
-                    or self.view_row is not None
-                ):
+                if self._should_defer_scrollback():
                     return None
 
                 async with in_terminal(render_cli_done=False):
+                    if self._should_defer_scrollback():
+                        return None
+
                     count = self._scrollback_prefix_count()
                     if count <= 0:
                         return None
@@ -171,8 +169,16 @@ class TuiTranscriptViewport(object):
                     self.schedule_scrollback_flush()
             self._invalidate()
 
+    def _should_defer_scrollback(self) -> bool:
+        """判断当前交互状态是否要求延迟原生滚屏提交。"""
+        return bool(
+            self._is_scrollback_deferred()
+            or self.document.active_block is not None
+            or self.view_row is not None
+        )
+
     def _scrollback_prefix_count(self) -> int:
-        """计算当前需要提交到原生滚屏区的稳定块数量。"""
+        """计算滚屏前缀数量，并保留首个超出视口的完整块。"""
         if self.document.active_block is not None:
             return 0
 
@@ -210,6 +216,7 @@ class TuiTranscriptViewport(object):
 
             candidate = block_rows + separator_rows + kept_rows
             if candidate > available:
+                first_kept = index
                 break
 
             kept_rows  = candidate
