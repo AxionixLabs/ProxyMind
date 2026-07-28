@@ -60,6 +60,24 @@ async def wait_for_submission(runtime: TuiRuntime):
     raise AssertionError("submission did not become ready")
 
 
+@pytest.mark.anyio
+async def test_bracketed_paste_sanitizes_control_characters() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text(
+                "\x1b[200~BugID\t提交时间\r\n. 3117\t已解决\x00\x1b[201~"
+            )
+            await wait_for_input_text(
+                runtime,
+                "BugID   提交时间\n. 3117  已解决",
+            )
+        finally:
+            await runtime.close()
+
+
 def rendered_input_line(runtime: TuiRuntime) -> str:
     """返回最近一次渲染中的首行输入文本。"""
     screen = runtime.screen.application.renderer.last_rendered_screen

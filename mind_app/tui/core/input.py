@@ -23,6 +23,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from mind_core.skills import SkillSpec
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 from ..prompting.commands import (
     SlashCommandCompleter,
     completion_changes_input,
@@ -721,7 +722,7 @@ class TuiInputModel(object):
         @bindings.add(Keys.BracketedPaste, eager=True)
         def _(event) -> None:
             buffer = event.app.current_buffer
-            data = (event.data or "").replace("\r\n", "\n").replace("\r", "\n")
+            data = sanitize_terminal_text(event.data or "")
             buffer.cancel_completion()
             if not buffer.text and data.startswith("!"):
                 self.set_shell_mode(True)
