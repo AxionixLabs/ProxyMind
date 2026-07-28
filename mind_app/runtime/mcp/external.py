@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_app.mcp.config import normalize_mcp_servers
 from mind_app.mcp.group import (
     ExternalMcpGroup,
@@ -124,7 +124,7 @@ class ExternalMcpRuntime(object):
             await self._stop_unlocked()
             if isinstance(
                 exc,
-                (asyncio.CancelledError, KeyboardInterrupt, SystemExit, ApplicationError),
+                (asyncio.CancelledError, KeyboardInterrupt, SystemExit, AppError),
             ):
                 observe_exception("external_mcp.start.failed", exc)
                 raise

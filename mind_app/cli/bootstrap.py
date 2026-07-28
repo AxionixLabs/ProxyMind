@@ -7,7 +7,7 @@ import asyncio
 from pathlib import Path
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
@@ -119,7 +119,7 @@ async def _run_application(
     try:
         app_layout = resolve_application_layout(entry_file=entry_file)
     except ValueError as error:
-        raise ApplicationError(f"Application entry is unsupported: {error}") from error
+        raise AppError(f"Application entry is unsupported: {error}") from error
 
     platform = app_layout.platform
     supports = str(app_layout.supports)
@@ -135,7 +135,7 @@ async def _run_application(
             packaged=packaged,
         )
     if runtime_spec is None:
-        raise ApplicationError(f"This platform is not supported: {platform}.")
+        raise AppError(f"This platform is not supported: {platform}.")
 
     home    = ensure_mind_home()
     reports = mind_reports_dir()
@@ -149,7 +149,7 @@ async def _run_application(
         )
         config_resolution = config_session.resolve()
     except (OSError, TypeError, ValueError) as error:
-        raise ApplicationError(f"Configuration is invalid: {error}") from error
+        raise AppError(f"Configuration is invalid: {error}") from error
 
     report = RunReport(str(reports))
     power  = os.cpu_count() or 1

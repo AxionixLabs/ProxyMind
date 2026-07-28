@@ -16,7 +16,7 @@ from .arguments import (
 )
 from .commands import (
     AgentListenCommand,
-    BatchCommand,
+    FlowCommand,
     CliInvocation,
     CompletionCommand,
     COMPLETION_SHELLS,
@@ -346,8 +346,8 @@ def _parse_cli_command(
             include_non_interactive=bool(values["include_non_interactive"]),
         )
 
-    if command == "batch":
-        return BatchCommand(
+    if command == "flow":
+        return FlowCommand(
             sources=_sources(parser, values),
             mode=_run_mode(parser, values),
             helix=bool(values["helix"]),

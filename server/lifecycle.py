@@ -7,7 +7,7 @@ import asyncio
 import uvicorn
 import contextlib
 from loguru import logger
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from engine.ports import port_available
 from mind_core.config_session import ConfigSession
 from .app import create_app
@@ -98,17 +98,17 @@ class ConfigServiceRuntime(object):
             task = self.task
             if task is not None and task.done():
                 if task.cancelled():
-                    raise ApplicationError("Config service stopped before ready")
+                    raise AppError("Config service stopped before ready")
                 error = task.exception()
                 if error is not None:
-                    raise ApplicationError(f"Config service stopped: {type(error).__name__}: {error}") from error
-                raise ApplicationError("Config service stopped before ready")
+                    raise AppError(f"Config service stopped: {type(error).__name__}: {error}") from error
+                raise AppError("Config service stopped before ready")
 
             if await self.probe_ready():
                 return None
             await asyncio.sleep(interval)
 
-        raise ApplicationError("Config service not ready")
+        raise AppError("Config service not ready")
 
     async def probe_ready(self) -> bool:
         """探测配置服务是否已响应。"""
@@ -128,7 +128,7 @@ class ConfigServiceRuntime(object):
             if await port_available(port, host=self.host):
                 return port
 
-        raise ApplicationError(
+        raise AppError(
             f"Config service has no available port from "
             f"{self.preferred_port} to {end_port - 1}"
         )

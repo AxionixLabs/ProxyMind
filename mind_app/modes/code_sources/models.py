@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from engine.errors import ApplicationError
+from engine.errors import AppError
 
 
 @dataclass(slots=True)
@@ -37,17 +37,17 @@ class CodeSourceAuth:
     @classmethod
     def from_input(cls, value: typing.Any) -> "CodeSourceAuth":
         if not isinstance(value, dict):
-            raise ApplicationError("code source auth must be an object")
+            raise AppError("code source auth must be an object")
 
         allowed = {"type", "token", "username", "password"}
 
         extra = set(value) - allowed
         if extra:
-            raise ApplicationError(f"Unsupported code source auth field(s): {', '.join(sorted(extra))}")
+            raise AppError(f"Unsupported code source auth field(s): {', '.join(sorted(extra))}")
 
         auth_type = str(value.get("type") or "").strip().lower()
         if auth_type not in {"bearer", "basic"}:
-            raise ApplicationError("code source auth.type must be bearer or basic")
+            raise AppError("code source auth.type must be bearer or basic")
 
         auth = cls(
             type=auth_type,
@@ -58,13 +58,13 @@ class CodeSourceAuth:
 
         if auth.type == "bearer":
             if not str(auth.token or "").strip():
-                raise ApplicationError("bearer auth requires token")
+                raise AppError("bearer auth requires token")
             return auth
 
         if not str(auth.username or "").strip():
-            raise ApplicationError("basic auth requires username")
+            raise AppError("basic auth requires username")
         if auth.password is None:
-            raise ApplicationError("basic auth requires password")
+            raise AppError("basic auth requires password")
 
         return auth
 
@@ -103,7 +103,7 @@ class CodeSourcePayload:
             return value
 
         if not isinstance(value, dict):
-            raise ApplicationError("code source payload must be an object")
+            raise AppError("code source payload must be an object")
 
         allowed = {
             "kind", "name", "path", "content", "url", "headers",
@@ -111,15 +111,15 @@ class CodeSourcePayload:
         }
         extra = set(value) - allowed
         if extra:
-            raise ApplicationError(f"Unsupported code source field(s): {', '.join(sorted(extra))}")
+            raise AppError(f"Unsupported code source field(s): {', '.join(sorted(extra))}")
 
         kind = str(value.get("kind") or "").strip().lower()
         if kind not in {"file", "stdin", "inline", "url"}:
-            raise ApplicationError("code source kind must be file, stdin, inline, or url")
+            raise AppError("code source kind must be file, stdin, inline, or url")
 
         headers_raw = value.get("headers")
         if headers_raw is not None and not isinstance(headers_raw, dict):
-            raise ApplicationError("code source headers must be an object")
+            raise AppError("code source headers must be an object")
 
         payload = cls(
             kind=kind,
@@ -136,7 +136,7 @@ class CodeSourcePayload:
 
         if payload.kind == "file":
             if not str(payload.path or "").strip():
-                raise ApplicationError("file source requires path")
+                raise AppError("file source requires path")
             return payload
 
         if payload.kind == "stdin":
@@ -144,11 +144,11 @@ class CodeSourcePayload:
 
         if payload.kind == "inline":
             if not str(payload.content or "").strip():
-                raise ApplicationError("inline source requires content")
+                raise AppError("inline source requires content")
             return payload
 
         if not str(payload.url or "").strip():
-            raise ApplicationError("url source requires url")
+            raise AppError("url source requires url")
 
         return payload
 

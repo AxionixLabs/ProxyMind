@@ -4,7 +4,7 @@
 import time
 import typing
 import asyncio
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from engine.observability import (
     observe,
     observe_exception
@@ -194,10 +194,10 @@ class AgentExecutor(object):
         )
 
         if profile is not None:
-            runner = mind.mind_pack(profile, mode, metadata=metadata)
+            runner = mind.run_flow(profile, mode, metadata=metadata)
         else:
             if message is None:
-                raise ApplicationError("mind.forward resolved empty message")
+                raise AppError("mind.forward resolved empty message")
             runner = mind.calling(message=message, mode=mode, metadata=metadata)
 
         if timeout_sec is not None:
@@ -206,7 +206,7 @@ class AgentExecutor(object):
             result = await runner
 
         if not result.ok:
-            raise ApplicationError(result.error or f"run {result.status}")
+            raise AppError(result.error or f"run {result.status}")
 
         await client.send_mind_completed(
             connection,

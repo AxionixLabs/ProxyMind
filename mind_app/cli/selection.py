@@ -4,7 +4,7 @@
 import typing
 from .commands import (
     AgentListenCommand,
-    BatchCommand,
+    FlowCommand,
     CliCommand,
     DoctorCommand,
     ExecCommand,
@@ -42,7 +42,7 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
         return "rich"
     if isinstance(command, ExecCommand):
         return command.output_format
-    if isinstance(command, BatchCommand):
+    if isinstance(command, FlowCommand):
         return "text"
     if isinstance(command, (InteractiveCommand, ResumeCommand)):
         return "tui"

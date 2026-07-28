@@ -4,7 +4,7 @@
 import time
 import typing
 import asyncio
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_core.preference import apply_primary_model_override
 from engine.observability import (
     observe,
@@ -12,7 +12,7 @@ from engine.observability import (
 )
 from .commands import (
     AgentListenCommand,
-    BatchCommand,
+    FlowCommand,
     ExecCommand,
     InteractiveCommand,
     ResumeCommand,
@@ -35,7 +35,7 @@ async def run_selected_mode(
     """按命令行参数分派到直接执行或交互模式。"""
     if isinstance(command, AgentListenCommand):
         selected_mode = "agent"
-    elif isinstance(command, (ExecCommand, BatchCommand)):
+    elif isinstance(command, (ExecCommand, FlowCommand)):
         selected_mode = command.mode
     elif isinstance(command, (InteractiveCommand, ResumeCommand)):
         selected_mode = "tui"
@@ -77,8 +77,8 @@ async def run_selected_mode(
                 **calling_kwargs,
             )
             mind.exit_code = run_result.exit_code
-        elif isinstance(command, BatchCommand):
-            run_result = await mind.mind_pack(
+        elif isinstance(command, FlowCommand):
+            run_result = await mind.run_flow(
                 list(command.sources),
                 command.mode,
             )
@@ -100,7 +100,7 @@ async def run_selected_mode(
                     source="tui:resume",
                 )
                 if resumed is None:
-                    raise ApplicationError("Session could not be resumed.")
+                    raise AppError("Session could not be resumed.")
                 await _run_tui_session(
                     mind,
                     prompt=command.prompt,
@@ -173,7 +173,7 @@ async def _select_resume_session(
             sources=sources,
         )
         if record is None:
-            raise ApplicationError(
+            raise AppError(
                 "Session is unavailable for the selected working directory."
             )
         return record
@@ -184,7 +184,7 @@ async def _select_resume_session(
         limit=1 if command.last else HISTORY_LIMIT,
     )
     if not records:
-        raise ApplicationError("No resumable sessions were found.")
+        raise AppError("No resumable sessions were found.")
     if command.last:
         return records[0]
 

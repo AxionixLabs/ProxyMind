@@ -10,7 +10,7 @@ from datetime import timedelta
 from types import TracebackType
 from contextlib import asynccontextmanager
 from mcp import ClientSession, types as mcp_types
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from engine.observability import (
     observe,
     observe_exception
@@ -453,7 +453,7 @@ async def open_optional_external_mcp_group(
 
         if failed_required:
             names = ", ".join(failed_required)
-            raise ApplicationError(
+            raise AppError(
                 f"Required MCP server failed to start: {names}"
             )
 

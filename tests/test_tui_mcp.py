@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import mcp
 
@@ -202,7 +202,7 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
     mind = SimpleNamespace(
         external_mcp=SimpleNamespace(started=True),
         stop_external_mcp_runtime=AsyncMock(
-            side_effect=ApplicationError("cleanup failed"),
+            side_effect=AppError("cleanup failed"),
         ),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
@@ -210,7 +210,7 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
         ),
     )
 
-    with pytest.raises(ApplicationError) as captured:
+    with pytest.raises(AppError) as captured:
         await mcp.run_mcp_action(mind, "stop")
     await mcp.finish_mcp_activity(mind, "stop")
     mcp.render_mcp_action_failure(mind, "stop", captured.value)

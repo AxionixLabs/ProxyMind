@@ -11,7 +11,7 @@ from urllib.parse import (
     urlsplit,
     urlunsplit
 )
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_app.mcp.registry import McpServerRegistry
 from mind_app.paths import mind_config_path
 from mind_core.config import ConfigOverride
@@ -153,7 +153,7 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
 
     else:
         if command.url is None:
-            raise ApplicationError("MCP server target is incomplete")
+            raise AppError("MCP server target is incomplete")
 
         config = {
             "url"     : command.url,
@@ -248,7 +248,7 @@ def run_mcp_registry_command(
             return 0
 
     except (OSError, TypeError, ValueError) as error:
-        raise ApplicationError(str(error)) from error
+        raise AppError(str(error)) from error
 
     typing.assert_never(command)
 

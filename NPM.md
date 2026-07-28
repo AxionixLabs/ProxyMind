@@ -4,7 +4,7 @@
 
 ```bash
 npm login
-npm config set //registry.npmjs.org/:_authToken "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"
+npm config set //registry.npmjs.org/:_authToken "npm_xxx"
 ```
 
 **Windows：**

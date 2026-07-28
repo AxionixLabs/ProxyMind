@@ -11,7 +11,7 @@ from pathlib import Path
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.ports import terminate_port_process
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
 from mind_core.permissions import PermissionSettings
@@ -331,7 +331,7 @@ class Mind(object):
             )
         except (OSError, sqlite3.Error, ValueError) as error:
             observe_exception("conversation.fork.prepare_failed", error)
-            raise ApplicationError("Unable to persist the conversation fork request.") from error
+            raise AppError("Unable to persist the conversation fork request.") from error
 
     def clear_conversation_fork(
         self,
@@ -431,7 +431,7 @@ class Mind(object):
     def require_service_runtime_context(self) -> "ServiceRuntimeContext":
         """返回已绑定的服务运行时上下文，未绑定时抛出错误。"""
         if self.service_runtime_context is None:
-            raise ApplicationError("Service runtime context is not bound")
+            raise AppError("Service runtime context is not bound")
         return self.service_runtime_context
 
     def link_service_mcp(
@@ -678,7 +678,7 @@ class Mind(object):
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""
         if self.server_manager is None:
-            raise ApplicationError("Server manager is not bound")
+            raise AppError("Server manager is not bound")
 
         observe("helix.restart.start")
         await self.stop_keepalive_supervisor()
@@ -686,7 +686,7 @@ class Mind(object):
         try:
             await self.server_manager.restart()
             if not await self.server_manager.wait_until_ready(10.0, 0.3):
-                raise ApplicationError("Server not ready after reboot")
+                raise AppError("Server not ready after reboot")
         finally:
             self.start_keepalive_supervisor()
 
@@ -695,7 +695,7 @@ class Mind(object):
     async def stop_service_runtime(self) -> None:
         """停止已绑定的后台进程，并关闭对应保活任务。"""
         if self.server_manager is None:
-            raise ApplicationError("Server manager is not bound")
+            raise AppError("Server manager is not bound")
 
         observe("helix.stop.start")
 
@@ -879,17 +879,17 @@ class Mind(object):
             **kwargs
         )
 
-    async def mind_pack(
+    async def run_flow(
         self,
         code: list[typing.Any],
         mode: RunMode,
         *_,
         **kwargs
     ) -> "RunResult":
-        """批处理入口：委托给批处理模块。"""
-        from .modes.batch import mind_pack as run_mind_pack
+        """星图编排入口：委托给编排执行模块。"""
+        from .modes.flow import run_flow
 
-        return await run_mind_pack(self, code, mode, **kwargs)
+        return await run_flow(self, code, mode, **kwargs)
 
     async def agent_loop(self) -> None:
         """订阅模式入口：委托给订阅模式模块。"""

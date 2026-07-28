@@ -7,7 +7,7 @@ import shutil
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_app.mcp.config import normalize_mcp_servers
 from mind_app.presentation.models import (
     StyledBlock,
@@ -493,7 +493,7 @@ def run_doctor_command(
     try:
         layout = resolve_application_layout(entry_file=entry_file)
     except ValueError as error:
-        raise ApplicationError(f"Application entry is unsupported: {error}") from error
+        raise AppError(f"Application entry is unsupported: {error}") from error
 
     runtime_spec = None
 

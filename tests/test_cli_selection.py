@@ -14,7 +14,7 @@ from mind_app.cli import (
 from mind_app.cli import frontend as cli_frontend
 from mind_app.cli.commands import (
     AgentListenCommand,
-    BatchCommand,
+    FlowCommand,
     CliInvocation,
     CompletionCommand,
     DoctorCommand,
@@ -48,7 +48,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.application_paths import ApplicationLayout
 from mind_core.config import ConfigOverride
 from mind_core.permissions import preset_permissions
-from engine.errors import ApplicationError
+from engine.errors import AppError
 
 
 def test_gravity_option_is_removed() -> None:
@@ -141,12 +141,12 @@ def test_legacy_access_option_is_removed() -> None:
     with pytest.raises(SystemExit):
         parse_cli_command(["exec", "hello", "--access", "full"])
     assert parse_cli_command([
-        "batch",
+        "flow",
         "first.md",
         "second.md",
         "--mode",
         "chat",
-    ]) == BatchCommand(
+    ]) == FlowCommand(
         sources=("first.md", "second.md"),
         mode="chat",
     )
@@ -157,6 +157,11 @@ def test_legacy_access_option_is_removed() -> None:
         output_format="json"
     )
     assert parse_cli_command(["mcp-server"]) == McpServerCommand()
+
+
+def test_batch_command_is_removed() -> None:
+    with pytest.raises(SystemExit):
+        parse_cli_command(["batch", "cases.md", "--mode", "chat"])
 
 
 def test_shared_runtime_options_merge_across_exec_command_boundary() -> None:
@@ -305,7 +310,7 @@ def test_root_help_flags_share_output(monkeypatch, capsys, flag: str) -> None:
             ("resume", "--help"),
             "Usage: mind resume [OPTIONS] [SESSION_ID] [PROMPT]",
         ),
-        (("batch", "--help"), "Usage: mind batch [OPTIONS] <SOURCE>..."),
+        (("flow", "--help"), "Usage: mind flow [OPTIONS] <SOURCE>..."),
         (("agent", "--help"), "Usage: mind agent <COMMAND> [ARGS]"),
         (("agent", "listen", "--help"), "Usage: mind agent listen [OPTIONS]"),
         (("helix", "--help"), "Usage: mind helix <COMMAND> [ARGS]"),
@@ -461,6 +466,29 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
 
 
 @pytest.mark.anyio
+async def test_flow_cli_mode_runs_schematic_sources() -> None:
+    run_result = RunResult(status="completed", assistant_text="done")
+    mind = SimpleNamespace(
+        run_flow=AsyncMock(return_value=run_result),
+        exit_code=99,
+        permissions=preset_permissions("auto"),
+    )
+    command = FlowCommand(
+        sources=("first.md", "second.md"),
+        mode="fast",
+    )
+
+    result = await run_selected_mode(mind, command)
+
+    assert result is run_result
+    assert mind.exit_code == 0
+    mind.run_flow.assert_awaited_once_with(
+        ["first.md", "second.md"],
+        "fast",
+    )
+
+
+@pytest.mark.anyio
 async def test_direct_cli_mode_applies_temporary_model_override() -> None:
     run_result = RunResult(status="completed", assistant_text="done")
     fresh_pref_config = AsyncMock(return_value={
@@ -606,7 +634,7 @@ def test_tui_frontend_requires_interactive_terminal(
         SimpleNamespace(isatty=lambda: stdout_tty),
     )
 
-    with pytest.raises(ApplicationError, match="interactive stdin and stdout"):
+    with pytest.raises(AppError, match="interactive stdin and stdout"):
         resolve_cli_frontend("tui")
 
 

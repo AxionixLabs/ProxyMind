@@ -33,8 +33,8 @@ if typing.TYPE_CHECKING:
 
 
 @dataclass(slots=True)
-class PackConfig:
-    """批处理配置：收敛 pack 文件中的运行参数。"""
+class FlowConfig:
+    """星图编排配置：收敛执行源中的运行参数。"""
     repeat: int
     attempts: int
     pattern: typing.Optional[re.Pattern[str]]
@@ -51,8 +51,8 @@ class PackConfig:
 
 
 @dataclass(slots=True)
-class PackRuntime:
-    """批处理运行时：收敛会话、偏好配置和事件上报依赖。"""
+class FlowRuntime:
+    """星图编排运行时：收敛会话、偏好配置和事件上报依赖。"""
     mode: RunMode
     pref_config: dict[str, typing.Any]
     event_report: EventReport
@@ -61,18 +61,18 @@ class PackRuntime:
 
 
 @dataclass(slots=True)
-class PackExecutionContext:
-    """批处理执行上下文：收敛源、配置、报告和运行态。"""
+class FlowExecutionContext:
+    """星图编排执行上下文：收敛源、配置、报告和运行态。"""
     code_sources: list[CodeSourceResolved]
     pref_config: dict[str, typing.Any]
     metadata: dict[str, str]
     report_url: str | None
     event_report: EventReport
-    runtime: PackRuntime
+    runtime: FlowRuntime
 
 
-def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
-    """把 pack 配置字典标准化为结构化配置。"""
+def _build_flow_config(cfg: dict[str, typing.Any]) -> FlowConfig:
+    """把星图配置字典标准化为结构化配置。"""
     try:
         repeat = int(cfg.get("repeat") or 1)
     except (TypeError, ValueError):
@@ -94,7 +94,7 @@ def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
         "1", "true", "yes", "on"
     }
 
-    return PackConfig(
+    return FlowConfig(
         repeat=repeat,
         attempts=attempts,
         pattern=name_pattern,
@@ -112,7 +112,7 @@ def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
 
 
 def _emit_diagnostic(event_report: EventReport, event_type: str, **payload: typing.Any) -> None:
-    """发送批处理诊断事件，统一补齐时间戳。"""
+    """发送星图编排诊断事件，统一补齐时间戳。"""
     if isinstance(payload.get("run"), int):
         event_report.set_round(payload["run"])
         payload.setdefault("round", payload["run"])
@@ -120,7 +120,7 @@ def _emit_diagnostic(event_report: EventReport, event_type: str, **payload: typi
     event_report.emit({"type": event_type, "ts": time.time(), **payload})
 
 
-def _build_task_message(item: PackItem, config: PackConfig) -> str:
+def _build_task_message(item: PackItem, config: FlowConfig) -> str:
     """组装单个任务的最终提示词。"""
     prefix = (item.meta.get("prefix") or config.global_prefix or "").strip()
     suffix = (item.meta.get("suffix") or config.global_suffix or "").strip()
@@ -137,8 +137,8 @@ def _build_task_message(item: PackItem, config: PackConfig) -> str:
     return final_msg
 
 
-def _first_pack_title(code_sources: list[CodeSourceResolved]) -> str:
-    """从批处理源里取第一条真实任务消息作为 history 标题。"""
+def _first_flow_title(code_sources: list[CodeSourceResolved]) -> str:
+    """从星图执行源里取第一条真实任务消息作为 history 标题。"""
     for source in code_sources:
         items, _ = Pack.pack_parse(source.content)
         if items:
@@ -149,7 +149,7 @@ def _first_pack_title(code_sources: list[CodeSourceResolved]) -> str:
 
 async def _run_virtual_message(
     mind: "Mind",
-    runtime: PackRuntime,
+    runtime: FlowRuntime,
     source: CodeSourceResolved,
     item_count: int,
     session: McpSessionLike,
@@ -165,7 +165,7 @@ async def _run_virtual_message(
         return None
 
     observe(
-        "batch.virtual.start",
+        "flow.virtual.start",
         name=name,
         source=source.name,
         source_kind=source.kind,
@@ -224,7 +224,7 @@ async def _run_virtual_message(
     if failure_error:
         runtime.failures += 1
         observe(
-            "batch.virtual.failed",
+            "flow.virtual.failed",
             level="ERROR",
             name=name,
             source=source.name,
@@ -240,10 +240,10 @@ async def _run_virtual_message(
     )
 
 
-async def _run_pack_item(
+async def _run_flow_item(
     mind: "Mind",
-    runtime: PackRuntime,
-    config: PackConfig,
+    runtime: FlowRuntime,
+    config: FlowConfig,
     source: CodeSourceResolved,
     item: PackItem,
     *,
@@ -269,7 +269,7 @@ async def _run_pack_item(
         )
 
         observe(
-            "batch.item.start",
+            "flow.item.start",
             item=item.name,
             index=index,
             total=total,
@@ -371,7 +371,7 @@ async def _run_pack_item(
 
             if attempt_error:
                 observe(
-                    "batch.item.attempt_failed",
+                    "flow.item.attempt_failed",
                     level="WARNING",
                     item=item.name,
                     item_run=item_run,
@@ -400,7 +400,7 @@ async def _run_pack_item(
             )
 
             observe(
-                "batch.item.failed",
+                "flow.item.failed",
                 level="ERROR",
                 item=item.name,
                 item_run=item_run,
@@ -415,22 +415,22 @@ async def _run_pack_item(
     return True
 
 
-async def _run_pack_source(
+async def _run_flow_source(
     mind: "Mind",
-    runtime: PackRuntime,
+    runtime: FlowRuntime,
     source: CodeSourceResolved,
     session: McpSessionLike,
     tools: list[dict[str, typing.Any]],
     **kwargs
 ) -> None:
-    """执行单个 pack 源，负责 round/item/hook 的整体编排。"""
+    """执行单个星图源，负责 round、item 和 hook 的整体编排。"""
     items, raw_cfg = Pack.pack_parse(source.content)
 
-    config = _build_pack_config(raw_cfg)
+    config = _build_flow_config(raw_cfg)
 
     if not items:
         observe(
-            "batch.source.empty",
+            "flow.source.empty",
             level="WARNING",
             source=source.name,
             source_kind=source.kind,
@@ -440,7 +440,7 @@ async def _run_pack_source(
 
     _emit_diagnostic(
         runtime.event_report,
-        event_type="batch.start",
+        event_type="flow.start",
         file=source.display_origin,
         items=item_total,
         repeat=config.repeat
@@ -483,7 +483,7 @@ async def _run_pack_source(
             )
 
             observe(
-                "batch.run.start",
+                "flow.run.start",
                 run=run,
                 total_runs=config.repeat,
                 items=item_total,
@@ -504,7 +504,7 @@ async def _run_pack_source(
                         reason="filter"
                     )
                     observe(
-                        "batch.item.skipped",
+                        "flow.item.skipped",
                         item=item.name,
                         index=index,
                         total=item_total,
@@ -547,7 +547,7 @@ async def _run_pack_source(
                 )
 
                 try:
-                    should_continue = await _run_pack_item(
+                    should_continue = await _run_flow_item(
                         mind,
                         runtime,
                         config,
@@ -632,24 +632,24 @@ async def _run_pack_source(
     finally:
         _emit_diagnostic(
             runtime.event_report,
-            event_type="batch.done",
+            event_type="flow.done",
             file=source.display_origin,
             items=item_total,
             repeat=config.repeat
         )
 
 
-async def _open_pack_report_url(
+async def _open_flow_report_url(
     mode: RunMode,
     metadata: dict[str, str]
 ) -> str | None:
-    """打开批处理报告会话并返回可访问地址。"""
+    """打开星图编排报告会话并返回可访问地址。"""
     try:
         report_data = await open_report_session(
             mode,
             metadata["cid"],
             metadata["sid"],
-            proto=f"{const.APP_NAME}.batch"
+            proto=f"{const.APP_NAME}.flow"
         )
         report_url_raw = report_data.get("report_url")
         report_url     = report_url_raw.strip() if isinstance(report_url_raw, str) else None
@@ -657,7 +657,7 @@ async def _open_pack_report_url(
 
         if not report_url:
             observe(
-                "batch.report.missing_url",
+                "flow.report.missing_url",
                 level="WARNING",
                 cid=metadata["cid"],
                 sid=metadata["sid"],
@@ -666,7 +666,7 @@ async def _open_pack_report_url(
         return report_url
     except Exception as exc:
         observe_exception(
-            "batch.report.failed",
+            "flow.report.failed",
             exc,
             level="WARNING",
             cid=metadata["cid"],
@@ -675,13 +675,13 @@ async def _open_pack_report_url(
         return None
 
 
-async def _prepare_pack_context(
+async def _prepare_flow_context(
     mind: "Mind",
     code: list[typing.Any],
     mode: RunMode,
     kwargs: dict[str, typing.Any]
-) -> PackExecutionContext:
-    """准备批处理执行所需上下文。"""
+) -> FlowExecutionContext:
+    """准备星图编排执行所需上下文。"""
     code_sources = await resolve_code_sources(code)
     pref_config  = await mind.fresh_pref_config(ttl_sec=0.0)
     runner       = resolve_mode_runner(mind, mode)
@@ -690,30 +690,30 @@ async def _prepare_pack_context(
     cid     = meta_in.get("cid") if isinstance(meta_in, dict) else None
     sid     = meta_in.get("sid") if isinstance(meta_in, dict) else None
 
-    first_title = _first_pack_title(code_sources)
+    first_title = _first_flow_title(code_sources)
 
     metadata = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid, title=first_title, source="batch")
+        **mind.begin_session(cid=cid, sid=sid, title=first_title, source="flow")
     }
     kwargs["metadata"] = metadata
 
-    report_url = await _open_pack_report_url(mode, metadata)
+    report_url = await _open_flow_report_url(mode, metadata)
 
-    event_report = EventReport(mode, metadata["cid"], metadata["sid"], proto=f"{const.APP_NAME}.batch")
+    event_report = EventReport(mode, metadata["cid"], metadata["sid"], proto=f"{const.APP_NAME}.flow")
 
     kwargs["ev_report"] = event_report
     await event_report.open()
 
     event_report.begin_turn(round_no=1)
 
-    runtime = PackRuntime(
+    runtime = FlowRuntime(
         mode=mode,
         pref_config=pref_config,
         event_report=event_report,
         runner=runner
     )
-    return PackExecutionContext(
+    return FlowExecutionContext(
         code_sources=code_sources,
         pref_config=pref_config,
         metadata=metadata,
@@ -723,46 +723,46 @@ async def _prepare_pack_context(
     )
 
 
-async def _run_pack_sources(
+async def _run_flow_sources(
     mind: "Mind",
-    context: PackExecutionContext,
+    context: FlowExecutionContext,
     session: McpSessionLike,
     tools: list[dict[str, typing.Any]],
     kwargs: dict[str, typing.Any]
 ) -> None:
-    """顺序执行批处理源。"""
+    """顺序执行星图源。"""
     for source in context.code_sources:
-        await _run_pack_source(
+        await _run_flow_source(
             mind, context.runtime, source, session, tools, **kwargs
         )
 
 
-async def _close_pack_report(
+async def _close_flow_report(
     mind: "Mind",
     event_report: EventReport
 ) -> None:
-    """关闭批处理事件报告。"""
+    """关闭星图编排事件报告。"""
     await mind.await_cleanup(event_report.flush())
     await mind.await_cleanup(event_report.close())
 
 
-async def mind_pack(
+async def run_flow(
     mind: "Mind",
     code: list[typing.Any],
     mode: RunMode,
     *_,
     **kwargs
 ) -> RunResult:
-    """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
+    """星图编排入口：绑定会话、事件流和执行源。"""
     started_at = time.perf_counter()
 
-    observe("batch.start", mode=mode, requested_sources=len(code))
+    observe("flow.start", mode=mode, requested_sources=len(code))
 
     try:
-        context = await _prepare_pack_context(mind, code, mode, kwargs)
+        context = await _prepare_flow_context(mind, code, mode, kwargs)
     except (asyncio.CancelledError, KeyboardInterrupt) as error:
         observe_exception(
-            "batch.interrupted",
+            "flow.interrupted",
             error,
             level="WARNING",
             mode=mode,
@@ -772,7 +772,7 @@ async def mind_pack(
         raise
     except BaseException as error:
         observe_exception(
-            "batch.failed",
+            "flow.failed",
             error,
             mode=mode,
             phase="prepare",
@@ -781,7 +781,7 @@ async def mind_pack(
         raise
 
     observe(
-        "batch.prepared",
+        "flow.prepared",
         mode=mode,
         sources=len(context.code_sources),
         cid=context.metadata.get("cid"),
@@ -790,21 +790,21 @@ async def mind_pack(
 
     def before_user_flow() -> None:
         if context.report_url:
-            observe("batch.report.available")
+            observe("flow.report.available")
 
     async def function(
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
     ) -> None:
-        """在共享 MCP 会话中顺序执行多个 pack 文件。"""
-        await _run_pack_sources(mind, context, session, tools, kwargs)
+        """在共享 MCP 会话中顺序执行多个星图源。"""
+        await _run_flow_sources(mind, context, session, tools, kwargs)
 
     try:
         await mind.with_mcp_session(context.pref_config, function, before_user_flow=before_user_flow)
 
     except (asyncio.CancelledError, KeyboardInterrupt) as error:
         observe_exception(
-            "batch.interrupted",
+            "flow.interrupted",
             error,
             level="WARNING",
             mode=mode,
@@ -816,7 +816,7 @@ async def mind_pack(
     except BaseException as exc:
         error = Pack.brief_err(exc)
         observe_exception(
-            "batch.failed",
+            "flow.failed",
             exc,
             mode=mode,
             phase="execute",
@@ -825,14 +825,14 @@ async def mind_pack(
 
         _emit_diagnostic(
             context.event_report,
-            event_type="batch.failed",
+            event_type="flow.failed",
             error=error
         )
 
         mind.frontend.application.emit(ApplicationView(
-            type="batch.failed",
+            type="flow.failed",
             renderable=render_failure_block(
-                "batch.failed",
+                "flow.failed",
                 error,
                 terminal_width=mind.frontend.application.viewport.width,
             ),
@@ -848,7 +848,7 @@ async def mind_pack(
     else:
         if context.runtime.failures:
             observe(
-                "batch.failed",
+                "flow.failed",
                 level="ERROR",
                 mode=mode,
                 sources=len(context.code_sources),
@@ -858,11 +858,11 @@ async def mind_pack(
             run_result = RunResult(
                 status="failed",
                 assistant_text=mind.last_assistant_reply_snapshot(),
-                error=f"{context.runtime.failures} batch step(s) failed",
+                error=f"{context.runtime.failures} flow step(s) failed",
             )
         else:
             observe(
-                "batch.complete",
+                "flow.complete",
                 mode=mode,
                 sources=len(context.code_sources),
                 elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -873,7 +873,7 @@ async def mind_pack(
             )
 
     finally:
-        await _close_pack_report(mind, context.event_report)
+        await _close_flow_report(mind, context.event_report)
 
     return run_result
 

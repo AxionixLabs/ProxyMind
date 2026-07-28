@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives import (
 from cryptography.hazmat.primitives.asymmetric import padding
 from engine.channel import Channel
 from engine.terminal import Terminal
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_nova import const
 
 AuthorizationDataEmitter = typing.Callable[[dict[str, typing.Any]], None]
@@ -142,7 +142,7 @@ def verify_signature(lic_input: typing.Union["Path", dict]) -> dict:
         auth_info = json.loads(data)
 
     except Exception as e:
-        raise ApplicationError(f"❌ 通行证无效 -> {e}")
+        raise AppError(f"❌ 通行证无效 -> {e}")
 
     return auth_info
 
@@ -158,7 +158,7 @@ async def verify_license(
     observe("license.check.start")
 
     if not lic_file.exists():
-        raise ApplicationError(f"❌ 需要申请通行证 ...")
+        raise AppError(f"❌ 需要申请通行证 ...")
 
     auth_info = verify_signature(lic_file)
 
@@ -167,9 +167,9 @@ async def verify_license(
     ).replace(tzinfo=timezone.utc)
 
     if not (now_time := network_time()):
-        raise ApplicationError(f"❌ 无法连接服务器 ...")
+        raise AppError(f"❌ 无法连接服务器 ...")
     if now_time > expire:
-        raise ApplicationError(f"⚠️ 通行证过期 -> {exp}")
+        raise AppError(f"⚠️ 通行证过期 -> {exp}")
 
     observe("license.check.complete", expires=exp)
 
@@ -194,7 +194,7 @@ async def save_lic_file(lic_file: "Path", lic_data: typing.Any) -> typing.Option
             json.dumps(lic_data, indent=2), encoding=const.CHARSET
         )
     except Exception as e:
-        raise ApplicationError(f"❌ {e}")
+        raise AppError(f"❌ {e}")
 
 
 async def send(
@@ -209,9 +209,9 @@ async def send(
         return response.json()
 
     except httpx.HTTPStatusError as e:
-        raise ApplicationError(f"❌ {e.response.status_code} -> {e.response.text}")
+        raise AppError(f"❌ {e.response.status_code} -> {e.response.text}")
     except Exception as e:
-        raise ApplicationError(f"❌ {e}")
+        raise AppError(f"❌ {e}")
 
 
 async def receive_license(

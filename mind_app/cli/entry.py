@@ -4,7 +4,7 @@
 import sys
 import typing
 import asyncio
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from .commands import (
     AgentListenCommand,
@@ -191,7 +191,7 @@ def run(
                 config_overrides=invocation.config_overrides,
                 config_profile=invocation.profile,
             ))
-    except ApplicationError as error:
+    except AppError as error:
         emit_entry_failure(command, error, phase="runtime")
         emit_entry_outro(command)
         return 1

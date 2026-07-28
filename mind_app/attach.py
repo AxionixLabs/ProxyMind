@@ -6,7 +6,7 @@ import base64
 import typing
 import mimetypes
 from pathlib import Path
-from engine.errors import ApplicationError
+from engine.errors import AppError
 
 
 class Attach(object):
@@ -94,7 +94,7 @@ class Attach(object):
         """解析附件路径，并按需校验文件是否存在。"""
         text = self._strip_wrapped_quotes(raw_path)
         if not text:
-            raise ApplicationError("attach invalid: /attach <path>")
+            raise AppError("attach invalid: /attach <path>")
 
         path = Path(text).expanduser()
         if not path.is_absolute():
@@ -106,7 +106,7 @@ class Attach(object):
             path = path.absolute()
 
         if must_exist and not path.exists():
-            raise ApplicationError(f"attach file not found: {path}")
+            raise AppError(f"attach file not found: {path}")
 
         return path
 
@@ -114,7 +114,7 @@ class Attach(object):
         """解析 glob 表达式的基准路径字符串。"""
         text = self._strip_wrapped_quotes(raw_path)
         if not text:
-            raise ApplicationError("attach invalid: /attach <path>")
+            raise AppError("attach invalid: /attach <path>")
 
         path = Path(text).expanduser()
         if not path.is_absolute():
@@ -135,7 +135,7 @@ class Attach(object):
             matched = self._dedupe_paths(matched)
             if matched:
                 return matched
-            raise ApplicationError(f"attach no files matched: {pattern}")
+            raise AppError(f"attach no files matched: {pattern}")
 
         path = self._resolve_attachment_path(raw_path, must_exist=True)
         if path.is_dir():
@@ -146,7 +146,7 @@ class Attach(object):
             ]
             if items:
                 return self._dedupe_paths(items)
-            raise ApplicationError(f"attach directory has no files: {path}")
+            raise AppError(f"attach directory has no files: {path}")
 
         return [path]
 
@@ -171,7 +171,7 @@ class Attach(object):
 
             try:
                 kind, mime_type = self._classify_attachment(path)
-            except ApplicationError as error:
+            except AppError as error:
                 skipped.append({
                     "local"    : local,
                     "filename" : path.name,
@@ -196,11 +196,11 @@ class Attach(object):
 
         if not added and not existing:
             if skipped:
-                raise ApplicationError(
+                raise AppError(
                     "attach no supported files found in selection: "
                     f"{', '.join(item['filename'] for item in skipped[:3])}"
                 )
-            raise ApplicationError("attach no files were added")
+            raise AppError("attach no files were added")
 
         return {
             "added"    : added,
@@ -212,22 +212,22 @@ class Attach(object):
         """按序号或路径移除一个待上传附件。"""
         text = self._strip_wrapped_quotes(query)
         if not text:
-            raise ApplicationError("detach invalid: /detach <index|path>")
+            raise AppError("detach invalid: /detach <index|path>")
         if text.startswith("<") and text.endswith(">"):
-            raise ApplicationError("detach invalid: /detach <index|path>")
+            raise AppError("detach invalid: /detach <index|path>")
 
         if text.isdigit():
             index = int(text) - 1
             if 0 <= index < len(self.pending):
                 return self.pending.pop(index)
-            raise ApplicationError(f"detach index out of range: {text}")
+            raise AppError(f"detach index out of range: {text}")
 
         local = str(self._resolve_attachment_path(text, must_exist=False))
         for index, item in enumerate(self.pending):
             if item.get("local") == local:
                 return self.pending.pop(index)
 
-        raise ApplicationError(f"detach missing attachment: {local}")
+        raise AppError(f"detach missing attachment: {local}")
 
     def clear_pending_attachments(self) -> int:
         """清空待上传附件并返回清理数量。"""
@@ -248,7 +248,7 @@ class Attach(object):
             try:
                 content = path.read_bytes()
             except OSError as error:
-                raise ApplicationError(
+                raise AppError(
                     f"attach file could not be read: {path}"
                 ) from error
 

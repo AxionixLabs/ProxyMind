@@ -4,7 +4,7 @@
 import os
 import contextlib
 from pathlib import Path
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from mind_core.application_paths import (
     APP_HOME_ENV,
     default_application_home
@@ -67,7 +67,7 @@ def ensure_mind_home() -> Path:
         ensure_writable_dir(mind_history_dir())
         return root
     except OSError as exc:
-        raise ApplicationError(
+        raise AppError(
             f"Home is not writable: {mind_home()} ({type(exc).__name__}: {exc})"
         ) from exc
 

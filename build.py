@@ -17,7 +17,7 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn
 )
-from engine.errors import ApplicationError
+from engine.errors import AppError
 from engine.terminal import Terminal
 from mind_nova import const
 
@@ -26,9 +26,12 @@ nuitka_version = "2.8.9"  # 编译器版本
 try:
     import nuitka
 except ImportError:
-    raise ApplicationError(f"Use Nuitka {nuitka_version} for stable builds")
+    raise AppError(f"Use Nuitka {nuitka_version} for stable builds")
 
 CONSOLE = Console()
+
+RENAME_RETRY_ATTEMPTS  = 12
+RENAME_RETRY_DELAY_SEC = 0.25
 
 
 def compile_log(value: typing.Any) -> None:
@@ -43,7 +46,7 @@ async def is_virtual_env() -> None:
     if sys.prefix != sys.base_prefix:
         return compile_log("[✓] 当前运行在虚拟环境中")
 
-    raise ApplicationError("[!] 当前不是虚拟环境")
+    raise AppError("[!] 当前不是虚拟环境")
 
 
 async def check_architecture(ops: str) -> None:
@@ -61,10 +64,10 @@ async def check_architecture(ops: str) -> None:
     if is_64bit:
         return compile_log(f"✅ 当前 Python 是 64 位，符合 {const.APP_DESC} 打包要求。")
 
-    raise ApplicationError(f"❌ 当前为 32 位 Python，建议更换为 64 位版本。")
+    raise AppError(f"❌ 当前为 32 位 Python，建议更换为 64 位版本。")
 
 
-async def find_site_packages() -> "Path":
+async def find_site_packages() -> Path:
     """
     自动查找当前虚拟环境中的 `site-packages` 路径。
     """
@@ -78,7 +81,7 @@ async def find_site_packages() -> "Path":
                 elif sub.name.lower().startswith("python"):
                     return (sub / base_site).resolve()
 
-    raise ApplicationError(f"[!] Site packages path not found in virtual environment")
+    raise AppError(f"[!] Site packages path not found in virtual environment")
 
 
 async def find_vcvars64() -> str:
@@ -87,7 +90,7 @@ async def find_vcvars64() -> str:
     """
     vswhere = Path(r"C:\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe")
     if not vswhere.exists():
-        raise ApplicationError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
+        raise AppError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
 
     cmd = [
         str(vswhere), "-latest", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
@@ -99,7 +102,7 @@ async def find_vcvars64() -> str:
     vcvars = Path(find_result.strip()) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
 
     if not vcvars.exists():
-        raise ApplicationError(f"找不到 vcvars64.bat -> {vcvars}")
+        raise AppError(f"找不到 vcvars64.bat -> {vcvars}")
 
     return str(vcvars)
 
@@ -110,7 +113,7 @@ async def find_dumpbin() -> str:
     """
     vswhere = Path(r"C:\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe")
     if not vswhere.exists():
-        raise ApplicationError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
+        raise AppError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
 
     cmd = [
         str(vswhere), "-latest", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
@@ -120,31 +123,76 @@ async def find_dumpbin() -> str:
     find_result = await Terminal.cmd_line(cmd)
 
     if not (tools_dir := Path(find_result.strip()) / "VC" / "Tools" / "MSVC").exists():
-        raise ApplicationError("找不到 MSVC 工具目录 -> VC/Tools/MSVC")
+        raise AppError("找不到 MSVC 工具目录 -> VC/Tools/MSVC")
 
     if not (version_dirs := [d for d in tools_dir.iterdir() if d.is_dir()]):
-        raise ApplicationError("未检测到任何 VC 工具版本目录")
+        raise AppError("未检测到任何 VC 工具版本目录")
 
     if not (dumpbin := sorted(version_dirs)[-1] / "bin" / "Hostx64" / "x64" / "dumpbin.exe").exists():
-        raise ApplicationError(f"找不到 dumpbin.exe -> {dumpbin}")
+        raise AppError(f"找不到 dumpbin.exe -> {dumpbin}")
 
     return str(dumpbin)
 
 
-async def rename_sensitive(src: "Path", dst: "Path") -> None:
-    """
-    执行双重重命名操作以避免系统锁定或覆盖冲突。
-    """
-    temporary = src.with_name(f"__temp_{time.strftime('%Y%m%d%H%M%S')}__")
+async def _rename_path_with_retry(src: Path, dst: Path) -> None:
+    """在 Windows 临时占用路径时按有限退避策略重试重命名。"""
+    last_error: PermissionError | None = None
+
+    for attempt in range(1, RENAME_RETRY_ATTEMPTS + 1):
+        try:
+            await asyncio.to_thread(src.rename, dst)
+            return None
+        except PermissionError as error:
+            last_error = error
+            if sys.platform != "win32" or attempt >= RENAME_RETRY_ATTEMPTS:
+                break
+
+            delay = min(RENAME_RETRY_DELAY_SEC * attempt, 1.0)
+
+            compile_log(
+                f"[!] 路径暂时被占用，{delay:.2f}s 后重试 "
+                f"({attempt}/{RENAME_RETRY_ATTEMPTS - 1})"
+            )
+            await asyncio.sleep(delay)
+
+    detail = str(last_error or "permission denied")
+
+    raise AppError(
+        f"无法重命名 {src} -> {dst}: {detail}。"
+        "请关闭正在访问构建目录的程序后重试。"
+    ) from last_error
+
+
+async def rename_sensitive(src: Path, dst: Path) -> None:
+    """通过临时路径完成可重试且可回滚的目录重命名。"""
+    if not src.exists():
+        raise AppError(f"待重命名路径不存在: {src}")
+    if dst.exists():
+        raise AppError(f"目标路径已存在: {dst}")
+
+    timestamp = time.strftime("%Y%m%d%H%M%S")
+    nonce     = time.time_ns() % 1_000_000_000
+    temporary = src.with_name(f"__temp_{timestamp}_{nonce:09d}__")
+
     compile_log(f"[✓] 生成临时目录 {temporary.name}")
 
-    src.rename(temporary)
+    await _rename_path_with_retry(src, temporary)
     compile_log(f"[✓] Rename completed {src.name} → {temporary.name}")
-    temporary.rename(dst)
+
+    try:
+        await _rename_path_with_retry(temporary, dst)
+    except BaseException:
+        try:
+            await _rename_path_with_retry(temporary, src)
+            compile_log(f"[!] Rename rolled back {temporary.name} → {src.name}")
+        except BaseException as rollback_error:
+            compile_log(f"[✗] Rename rollback failed: {rollback_error}")
+        raise
+
     compile_log(f"[✓] Rename completed {temporary.name} → {dst.name}")
 
 
-async def sweep_cache_tree(target: "Path") -> None:
+async def sweep_cache_tree(target: Path) -> None:
     """
     清理指定路径下所有名为 `*build` 的缓存目录。
     """
@@ -167,7 +215,7 @@ async def sweep_cache_tree(target: "Path") -> None:
             compile_log(f"[✓] 构建缓存已清理 {cache}")
 
 
-async def rename_so_files(ops: str, target: "Path") -> None:
+async def rename_so_files(ops: str, target: Path) -> None:
     """
     将 Darwin 系统下编译生成的 *.cpython-XXX-darwin.so 文件统一重命名为 *.so。
     """
@@ -184,7 +232,7 @@ async def rename_so_files(ops: str, target: "Path") -> None:
             compile_log(f"[✓] Renamed {file.name} → {new_name}")
 
 
-async def authorized_tools(ops: str, *args: "Path", **__) -> None:
+async def authorized_tools(ops: str, *args: Path, **__) -> None:
     """
     检查目录下的所有文件是否具备执行权限，如果文件没有执行权限，则自动添加 +x 权限。
     """
@@ -203,15 +251,15 @@ async def authorized_tools(ops: str, *args: "Path", **__) -> None:
         compile_log(f"[!] Authorize resp={resp}")
 
 
-async def edit_plist_fields(ops: str, app: str, updates: dict[str, str]) -> None:
+async def edit_plist_fields(ops: str, app: Path, updates: dict[str, str]) -> None:
     """
     编辑 macOS 应用的 Info.plist 文件字段。
     """
     if ops != "darwin":
         return None
 
-    if not (plist := Path(app) / "Contents" / "Info.plist").exists():
-        raise ApplicationError(f"未找到 Info.plist 文件: {plist}")
+    if not (plist := app / "Contents" / "Info.plist").exists():
+        raise AppError(f"未找到 Info.plist 文件: {plist}")
 
     # 读取原始 plist
     with plist.open("rb") as f:
@@ -240,7 +288,7 @@ async def packaging() -> tuple[
     list[str],
     tuple[Path, Path],
     list[str],
-    str,
+    str
 ]:
     """
     构建独立应用的打包编译命令与目录结构信息。
@@ -293,7 +341,7 @@ async def packaging() -> tuple[
         support = "macos"
 
     else:
-        raise ApplicationError(f"Unsupported platforms {ops}")
+        raise AppError(f"Unsupported platforms {ops}")
 
     compile_cmd += [
         f"--company-name={const.PUBLISHER}",
@@ -311,13 +359,13 @@ async def packaging() -> tuple[
     compile_log(f"folder={app}")
     compile_log(f"packet={site_packages}")
     compile_log(f"target={target}")
-    compile_log(f"rename={rename}")
-    compile_log(f"launch={launch}")
+    compile_log(f"rename={' -> '.join(str(path) for path in rename)}")
+    compile_log(f"launch={' -> '.join(str(path) for path in launch)}")
 
     writer = await Terminal.cmd_line([exe, "-m", "pip", "show", compile_cmd[2]])
     if ver := re.search(r"(?<=Version:\s).*", writer):
         if ver.group().strip() != nuitka_version:
-            raise ApplicationError(f"Use Nuitka {nuitka_version} for stable builds")
+            raise AppError(f"Use Nuitka {nuitka_version} for stable builds")
         compile_log(f"writer={writer}")
 
     return ops, app, site_packages, target, rename, compile_cmd, launch, arch_info, support
@@ -356,7 +404,7 @@ async def post_build() -> None:
                     compile_log(f"[!] Dependency not found -> {src.name}")
 
         if fail_list:
-            raise ApplicationError(f"[!] Incomplete dependencies required {fail_list}")
+            raise AppError(f"[!] Incomplete dependencies required {fail_list}")
 
     async def forward_dependencies() -> None:
         """
@@ -454,7 +502,7 @@ async def post_build() -> None:
 if __name__ == "__main__":
     try:
         asyncio.run(post_build())
-    except ApplicationError as _e:
+    except AppError as _e:
         compile_log(_e)
         CONSOLE.print(f"[bold #FF4444]{const.APP_DESC} build failed[/]")
         sys.exit(1)
