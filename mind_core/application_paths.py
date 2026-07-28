@@ -17,6 +17,7 @@ APP_HOME_ENV         = f"{const.APP_NAME.upper()}_HOME"
 def default_application_home() -> Path:
     """返回默认应用数据目录。"""
     configured = os.environ.get(APP_HOME_ENV)
+
     return Path(
         configured or Path.home() / f".{const.APP_NAME}"
     ).expanduser()
@@ -42,8 +43,10 @@ def _packaged_executable(entry_path: Path, executable: str | Path | None) -> Pat
     runtime_executable = Path(
         sys.executable if executable is None else executable
     ).expanduser()
+
     if runtime_executable.name.strip().lower() in PACKAGED_ENTRY_NAMES:
         return runtime_executable.resolve()
+
     return entry_path.expanduser().resolve()
 
 
@@ -52,7 +55,7 @@ def resolve_application_layout(
     entry_file: str | Path | None = None,
     argv0: str | Path | None = None,
     executable: str | Path | None = None,
-    platform: str | None = None,
+    platform: str | None = None
 ) -> ApplicationLayout:
     """根据源码或打包入口解析统一的应用资源布局。"""
     entry_path = Path(sys.argv[0] if argv0 is None else argv0)

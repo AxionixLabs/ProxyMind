@@ -37,7 +37,7 @@ async def ensure_asset(
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
     design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None,
+    progress: UpgradeProgress | None = None
 ) -> bool:
     """按入口场景确认所需资产存在，必要时触发升级流程。"""
     missing = packaged and not Path(asset).exists()
@@ -52,6 +52,7 @@ async def ensure_asset(
         resolved_progress = EntryUpgradeProgress(anim_manager, design)
 
     up: Upgrade = Upgrade()
+
     await up.upgrade_app(
         supports,
         progress=resolved_progress,

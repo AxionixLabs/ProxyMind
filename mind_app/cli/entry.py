@@ -26,6 +26,22 @@ if typing.TYPE_CHECKING:
     from mind_app.frontend.contracts import ApplicationSink
 
 
+def _entry_application(command: ParsedCommand) -> "ApplicationSink":
+    """创建入口异常和退场展示使用的输出端。"""
+    from rich.console import Console
+    from mind_app.frontend.sinks import (
+        ConsoleApplicationSink,
+        JsonApplicationSink
+    )
+
+    if isinstance(command, McpServerCommand):
+        return ConsoleApplicationSink(Console(file=sys.stderr))
+    if command_requests_json(command):
+        return JsonApplicationSink(sys.stdout)
+
+    return ConsoleApplicationSink()
+
+
 def command_requests_json(command: ParsedCommand) -> bool:
     """判断命令是否要求入口错误使用 JSON 输出。"""
     return (
@@ -42,7 +58,7 @@ def command_requests_json(command: ParsedCommand) -> bool:
 def command_requests_outro(
     command: ParsedCommand,
     *,
-    output_stream: object | None = None,
+    output_stream: object | None = None
 ) -> bool:
     """判断命令是否需要 Rich 退场展示。"""
     if not isinstance(command, (AgentListenCommand, HelixUpgradeCommand)):
@@ -51,28 +67,14 @@ def command_requests_outro(
     from .frontend import stream_is_interactive
 
     stream = sys.stdout if output_stream is None else output_stream
+
     return stream_is_interactive(stream)
-
-
-def _entry_application(command: ParsedCommand) -> "ApplicationSink":
-    """创建入口异常和退场展示使用的输出端。"""
-    from rich.console import Console
-    from mind_app.frontend.sinks import (
-        ConsoleApplicationSink,
-        JsonApplicationSink,
-    )
-
-    if isinstance(command, McpServerCommand):
-        return ConsoleApplicationSink(Console(file=sys.stderr))
-    if command_requests_json(command):
-        return JsonApplicationSink(sys.stdout)
-    return ConsoleApplicationSink()
 
 
 def emit_entry_outro(
     command: ParsedCommand,
     *,
-    output_stream: object | None = None,
+    output_stream: object | None = None
 ) -> None:
     """为需要动态展示的命令发送退场视图。"""
     if not command_requests_outro(command, output_stream=output_stream):
@@ -87,7 +89,7 @@ def emit_entry_failure(
     command: ParsedCommand,
     error: object,
     *,
-    phase: str,
+    phase: str
 ) -> None:
     """按照命令输出契约发送入口失败。"""
     from mind_app.frontend.contracts import ApplicationView
@@ -174,15 +176,16 @@ async def main(
 def run(
     *,
     entry_file: str | None = None,
-    arguments: typing.Sequence[str] | None = None,
+    arguments: typing.Sequence[str] | None = None
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
-    command = invocation.command
+    command    = invocation.command
 
     from loguru import logger
 
     logger.remove()
+
     try:
         with asyncio.Runner() as runner:
             exit_code = runner.run(main(

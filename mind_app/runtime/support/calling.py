@@ -48,21 +48,25 @@ async def run_mode_lifecycle(
     frontend_runtime = mind.frontend.runtime
     frontend_runtime.begin_terminal_progress()
 
+    completed: bool = False
+
     try:
         await mind.start_anim(mode)
         try:
             result = await runner(mode=mode, **kwargs)
         finally:
             await mind.await_cleanup(mind.stop_anim("wait"))
+
+        completed = True
+
+        return result
+
     finally:
         frontend_runtime.end_terminal_progress()
-
-    if mind.animate:
-        emit_worked_footer(
-            mind.frontend.application,
-            time.perf_counter() - started_at,
-        )
-    return result
+        if completed and mind.animate:
+            emit_worked_footer(
+                mind.frontend.application, time.perf_counter() - started_at
+            )
 
 
 async def calling(
@@ -137,7 +141,7 @@ async def calling(
 
     async def function(
         session: "McpSessionLike",
-        tools: list[dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]]
     ) -> RunResult:
         """在共享 MCP 会话中执行单次请求。"""
         return await run_mode_lifecycle(

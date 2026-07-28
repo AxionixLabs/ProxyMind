@@ -255,11 +255,13 @@ async def start_service_runtime(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
+
     finally:
         if not defer_activity_stop:
             await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
 
     mind.start_keepalive_supervisor()
+
     observe(
         "helix.start.complete",
         elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -280,6 +282,7 @@ async def prepare_and_start_service_runtime(
 ) -> bool:
     """确认下载授权后准备并启动服务运行时。"""
     started_at = time.perf_counter()
+
     observe(
         "helix.prepare.start",
         download_confirmed=download_confirmed,
@@ -333,6 +336,7 @@ async def prepare_and_start_service_runtime(
         linked=linked,
         elapsed_ms=int((time.perf_counter() - started_at) * 1000),
     )
+
     return linked
 
 

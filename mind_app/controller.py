@@ -677,18 +677,21 @@ class Mind(object):
 
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""
-        if self.server_manager is None:
+        server_manager = self.server_manager
+        if server_manager is None:
             raise AppError("Server manager is not bound")
 
         observe("helix.restart.start")
         await self.stop_keepalive_supervisor()
 
         try:
-            await self.server_manager.restart()
-            if not await self.server_manager.wait_until_ready(10.0, 0.3):
-                raise AppError("Server not ready after reboot")
+            await server_manager.restart()
+            ready = await server_manager.wait_until_ready(10.0, 0.3)
         finally:
             self.start_keepalive_supervisor()
+
+        if not ready:
+            raise AppError("Server not ready after reboot")
 
         observe("helix.restart.complete")
 
