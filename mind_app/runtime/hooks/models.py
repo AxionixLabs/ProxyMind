@@ -2,9 +2,52 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field
+)
+from mind_core.hooks import HookEventName
 
 ToolValue = typing.TypeVar("ToolValue")
+
+
+@dataclass(frozen=True, slots=True)
+class HookEventRequest:
+    """描述一次不绑定具体生命周期领域的 Hook 分发请求。"""
+    event: HookEventName
+    payload: dict[str, typing.Any]
+    match_value: str = ""
+    diagnostics: dict[str, typing.Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """复制可变输入，避免分发期间被外部修改。"""
+        object.__setattr__(self, "payload", dict(self.payload))
+        object.__setattr__(self, "diagnostics", dict(self.diagnostics))
+
+
+@dataclass(frozen=True, slots=True)
+class HookExecutionRecord:
+    """保存单个 Hook 的结构化执行结果。"""
+    hook_key: str
+    output: dict[str, typing.Any] = field(default_factory=dict)
+    error: str = ""
+    blocks_event: bool = False
+
+    def __post_init__(self) -> None:
+        """复制结构化输出，避免聚合期间被外部修改。"""
+        object.__setattr__(self, "output", dict(self.output))
+
+    @property
+    def ok(self) -> bool:
+        """返回 Hook 命令及其输出协议是否有效。"""
+        return not self.error
+
+
+@dataclass(frozen=True, slots=True)
+class HookDispatchResult:
+    """保存一次生命周期事件中全部匹配 Hook 的执行记录。"""
+    event: HookEventName
+    records: tuple[HookExecutionRecord, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

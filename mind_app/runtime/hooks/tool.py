@@ -9,8 +9,10 @@ import hashlib
 from dataclasses import dataclass
 from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.runtime.execution import ToolInvocation
+from mind_core.hooks import HookEventName
 from .models import (
     HookDecision,
+    HookEventRequest,
     ToolCallRunResult,
     ToolOutcome
 )
@@ -26,11 +28,75 @@ class _PreparedDecision:
     decision: HookDecision
 
 
+class ToolHookEvents:
+    """构建并聚合工具生命周期事件。"""
+
+    def __init__(self, runtime: HookRuntime) -> None:
+        self.runtime = runtime
+
+    async def pre_tool_use(self, invocation: ToolInvocation) -> HookDecision:
+        """执行工具前事件并聚合阻止决定。"""
+        if not self.runtime.has_matching("PreToolUse", invocation.name):
+            return HookDecision.allow()
+
+        dispatched = await self.runtime.dispatch(
+            _tool_event_request("PreToolUse", invocation)
+        )
+
+        reasons: list[str]     = []
+        denied_keys: list[str] = []
+
+        for record in dispatched.records:
+            if not record.ok:
+                if record.blocks_event:
+                    denied_keys.append(record.hook_key)
+                    reasons.append(_bounded_reason(f"hook failed: {record.error}"))
+                continue
+
+            output = record.output
+
+            denied = (
+                output.get("decision") in {"deny", "block"}
+                or output.get("continue") is False
+            )
+            if denied:
+                denied_keys.append(record.hook_key)
+                reasons.append(_bounded_reason(
+                    str(output.get("reason") or "tool use denied by hook")
+                ))
+
+        if denied_keys:
+            return HookDecision(
+                allowed=False,
+                reason="; ".join(reason for reason in reasons if reason),
+                hook_keys=tuple(denied_keys),
+            )
+        return HookDecision.allow()
+
+    async def post_tool_use(
+        self,
+        invocation: ToolInvocation,
+        outcome: ToolOutcome
+    ) -> None:
+        """执行工具后事件并忽略非阻断失败。"""
+        if not self.runtime.has_matching("PostToolUse", invocation.name):
+            return None
+
+        await self.runtime.dispatch(
+            _tool_event_request(
+                "PostToolUse",
+                invocation,
+                outcome=outcome,
+            )
+        )
+
+
 class ToolCallCoordinator:
     """协调工具调用的前置、执行和后置 Hook。"""
 
     def __init__(self, hooks: HookRuntime) -> None:
-        self.hooks = hooks
+        self.events = ToolHookEvents(hooks)
+
         self._prepared: dict[str, _PreparedDecision] = {}
 
     async def prepare(self, invocation: ToolInvocation) -> HookDecision:
@@ -61,7 +127,7 @@ class ToolCallCoordinator:
         try:
             value = await operation()
         except asyncio.CancelledError:
-            await self.hooks.post_tool_use(
+            await self.events.post_tool_use(
                 invocation,
                 ToolOutcome(
                     executed=True,
@@ -74,7 +140,7 @@ class ToolCallCoordinator:
             raise
 
         except BaseException as error:
-            await self.hooks.post_tool_use(
+            await self.events.post_tool_use(
                 invocation,
                 ToolOutcome(
                     executed=True,
@@ -85,7 +151,7 @@ class ToolCallCoordinator:
             )
             raise
 
-        await self.hooks.post_tool_use(
+        await self.events.post_tool_use(
             invocation,
             _outcome_from_value(value, duration_ms=_duration_ms(started_at)),
         )
@@ -101,7 +167,52 @@ class ToolCallCoordinator:
         ):
             return prepared.decision
 
-        return await self.hooks.pre_tool_use(invocation)
+        return await self.events.pre_tool_use(invocation)
+
+
+def _tool_event_request(
+    event: HookEventName,
+    invocation: ToolInvocation,
+    *,
+    outcome: ToolOutcome | None = None
+) -> HookEventRequest:
+    """构建不包含内部执行授权的工具生命周期请求。"""
+    turn = invocation.turn
+
+    payload: dict[str, typing.Any] = {
+        "session_id": turn.agent.root_session_id,
+        "turn_id": turn.turn_id,
+        "cwd": turn.cwd,
+        "model": turn.model,
+        "sandbox_mode": turn.permissions.sandbox_mode,
+        "permission_mode": turn.permissions.approval_policy,
+        "agent_id": turn.agent.agent_id,
+        "parent_agent_id": turn.agent.parent_agent_id,
+        "call_id": invocation.call_id,
+        "tool_name": invocation.name,
+        "tool_kind": _tool_kind(invocation.meta),
+        "tool_input": dict(invocation.arguments),
+    }
+
+    if outcome is not None:
+        payload["tool_outcome"] = {
+            "executed": outcome.executed,
+            "ok": outcome.ok,
+            "duration_ms": outcome.duration_ms,
+            "result": _bounded_result(outcome.result),
+            "error": outcome.error,
+            "cancelled": outcome.cancelled,
+        }
+
+    return HookEventRequest(
+        event=event,
+        payload=payload,
+        match_value=invocation.name,
+        diagnostics={
+            "tool": invocation.name,
+            "call_id": invocation.call_id,
+        },
+    )
 
 
 def _invocation_fingerprint(invocation: ToolInvocation) -> str:
@@ -119,6 +230,34 @@ def _invocation_fingerprint(invocation: ToolInvocation) -> str:
     ).encode("utf-8")
 
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _tool_kind(meta: dict[str, typing.Any] | None) -> str:
+    """从工具元数据中读取稳定类别。"""
+    if not isinstance(meta, dict):
+        return "local"
+    return str(meta.get("domain") or meta.get("class") or "local").strip() or "local"
+
+
+def _bounded_result(value: typing.Any, limit: int = 32768) -> typing.Any:
+    """返回适合 Hook 输入的有界结果。"""
+    try:
+        encoded = json.dumps(value, ensure_ascii=True, default=str)
+    except (TypeError, ValueError):
+        encoded = str(value)
+    if len(encoded) <= limit:
+        return value
+
+    return {
+        "summary": encoded[:limit],
+        "truncated": True,
+    }
+
+
+def _bounded_reason(value: str, limit: int = 2000) -> str:
+    """返回可安全回填的有界 Hook 原因。"""
+    text = str(value or "").strip()
+    return text if len(text) <= limit else f"{text[:limit]}..."
 
 
 def _duration_ms(started_at: float) -> int:

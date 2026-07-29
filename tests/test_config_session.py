@@ -123,7 +123,7 @@ def test_invalid_hook_matcher_is_rejected() -> None:
 
 
 def test_post_tool_hook_cannot_fail_closed() -> None:
-    with pytest.raises(ConfigValidationError, match="continue after tool execution"):
+    with pytest.raises(ConfigValidationError, match="continue for this event"):
         normalize_config({
             "hooks": {
                 "PostToolUse": [{

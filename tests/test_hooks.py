@@ -16,9 +16,17 @@ from mind_app.runtime.hooks.command import (
     HookCommandError,
     HookCommandExecutor
 )
+from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
+from mind_app.runtime.hooks.models import HookEventRequest
 from mind_app.runtime.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from mind_core.hooks import resolve_hook_definitions
+from mind_app.runtime.hooks.tool import (
+    ToolCallCoordinator,
+    ToolHookEvents
+)
+from mind_core.hooks import (
+    HOOK_EVENT_NAMES,
+    resolve_hook_definitions
+)
 from mind_core.permissions import preset_permissions
 
 
@@ -66,6 +74,62 @@ def _invocation(*, execution=None) -> ToolInvocation:
     )
 
 
+def test_runtime_event_specs_cover_config_event_catalog() -> None:
+    assert tuple(HOOK_EVENT_SPECS) == HOOK_EVENT_NAMES
+
+
+def test_runtime_reports_matching_active_hooks() -> None:
+    definitions = _definitions({
+        "PreToolUse": [
+            {"command": "enabled", "matcher": "shell_command"},
+            {
+                "command": "disabled",
+                "matcher": "apply_patch",
+                "enabled": False,
+            },
+        ],
+    })
+    runtime = HookRuntime(definitions)
+
+    assert runtime.has_matching("PreToolUse", "shell_command")
+    assert not runtime.has_matching("PreToolUse", "apply_patch")
+    assert not runtime.has_matching("PostToolUse", "shell_command")
+
+
+@pytest.mark.anyio
+async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> None:
+    definitions = _definitions({
+        "PreToolUse": [
+            {"command": "first", "matcher": "shell_.*"},
+            {"command": "other", "matcher": "apply_patch"},
+            {"command": "second", "matcher": "shell_command"},
+        ],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"decision": "allow"},
+        definitions[2].key: {"continue": True},
+    })
+
+    result = await HookRuntime(
+        definitions,
+        command_runner=runner,
+    ).dispatch(HookEventRequest(
+        event="PreToolUse",
+        match_value="shell_command",
+        payload={"cwd": ".", "hook_event_name": "invalid"},
+    ))
+
+    assert [record.hook_key for record in result.records] == [
+        definitions[0].key,
+        definitions[2].key,
+    ]
+    assert all(record.ok for record in result.records)
+    assert [call[1]["hook_event_name"] for call in runner.calls] == [
+        "PreToolUse",
+        "PreToolUse",
+    ]
+
+
 @pytest.mark.anyio
 async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> None:
     definitions = _definitions({
@@ -82,7 +146,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
     })
     runtime = HookRuntime(definitions, command_runner=runner)
 
-    decision = await runtime.pre_tool_use(
+    decision = await ToolHookEvents(runtime).pre_tool_use(
         _invocation(execution={"grantId": "secret-grant"})
     )
 
@@ -109,13 +173,33 @@ async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
         definitions[0].key: RuntimeError("broken hook"),
     })
 
-    decision = await HookRuntime(
+    decision = await ToolHookEvents(HookRuntime(
         definitions,
         command_runner=runner,
-    ).pre_tool_use(_invocation())
+    )).pre_tool_use(_invocation())
 
     assert not decision.allowed
     assert "broken hook" in decision.reason
+
+
+@pytest.mark.anyio
+async def test_pre_tool_use_continues_when_nonblocking_hook_fails() -> None:
+    definitions = _definitions({
+        "PreToolUse": [{
+            "command": "broken",
+            "on_error": "continue",
+        }],
+    })
+    runner = _CommandRunner(errors={
+        definitions[0].key: RuntimeError("broken hook"),
+    })
+
+    decision = await ToolHookEvents(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )).pre_tool_use(_invocation())
+
+    assert decision.allowed
 
 
 @pytest.mark.anyio
@@ -127,10 +211,10 @@ async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
         definitions[0].key: {"decision": "unknown"},
     })
 
-    decision = await HookRuntime(
+    decision = await ToolHookEvents(HookRuntime(
         definitions,
         command_runner=runner,
-    ).pre_tool_use(_invocation())
+    )).pre_tool_use(_invocation())
 
     assert not decision.allowed
     assert "decision must be allow, deny, or block" in decision.reason
@@ -169,6 +253,27 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
     assert runner.calls[1][1]["tool_outcome"]["result"]["data"] == {
         "answer": 42,
     }
+
+
+@pytest.mark.anyio
+async def test_post_tool_use_failure_does_not_replace_tool_result() -> None:
+    definitions = _definitions({
+        "PostToolUse": [{"command": "broken-post"}],
+    })
+    runner = _CommandRunner(errors={
+        definitions[0].key: RuntimeError("audit failed"),
+    })
+    coordinator = ToolCallCoordinator(
+        HookRuntime(definitions, command_runner=runner)
+    )
+
+    result = await coordinator.run(
+        _invocation(),
+        lambda: _return_value("done"),
+    )
+
+    assert result.allowed
+    assert result.value == "done"
 
 
 @pytest.mark.anyio

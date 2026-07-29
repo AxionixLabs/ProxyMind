@@ -18,11 +18,6 @@ HookFailurePolicy = typing.Literal[
     "block",
 ]
 
-HOOK_EVENT_NAMES: tuple[HookEventName, ...] = (
-    "PreToolUse",
-    "PostToolUse",
-)
-
 HOOK_FIELDS = frozenset({
     "command",
     "matcher",
@@ -36,6 +31,30 @@ MAX_HOOK_TIMEOUT_SEC = 300.0
 
 class HookConfigError(ValueError):
     """表示 Hook 配置不符合约束。"""
+
+
+@dataclass(frozen=True, slots=True)
+class HookEventConfigSpec:
+    """定义生命周期事件的配置约束。"""
+    name: HookEventName
+    default_on_error: HookFailurePolicy
+    allows_block_on_error: bool
+
+
+HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
+    "PreToolUse": HookEventConfigSpec(
+        name="PreToolUse",
+        default_on_error="block",
+        allows_block_on_error=True,
+    ),
+    "PostToolUse": HookEventConfigSpec(
+        name="PostToolUse",
+        default_on_error="continue",
+        allows_block_on_error=False,
+    ),
+}
+
+HOOK_EVENT_NAMES: tuple[HookEventName, ...] = tuple(HOOK_EVENT_CONFIG_SPECS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,14 +165,16 @@ def _normalize_hook_entry(
             f"{dotted}.timeout must be greater than 0 and at most {MAX_HOOK_TIMEOUT_SEC:g}"
         )
 
-    default_policy: HookFailurePolicy = "block" if event == "PreToolUse" else "continue"
+    event_spec = HOOK_EVENT_CONFIG_SPECS[event]
 
-    on_error = raw.get("on_error", default_policy)
+    on_error = raw.get("on_error", event_spec.default_on_error)
     if on_error not in {"continue", "block"}:
         raise HookConfigError(f"{dotted}.on_error must be continue or block")
 
-    if event == "PostToolUse" and on_error != "continue":
-        raise HookConfigError(f"{dotted}.on_error must be continue after tool execution")
+    if on_error == "block" and not event_spec.allows_block_on_error:
+        raise HookConfigError(
+            f"{dotted}.on_error must be continue for this event"
+        )
 
     enabled = raw.get("enabled", True)
     if not isinstance(enabled, bool):
