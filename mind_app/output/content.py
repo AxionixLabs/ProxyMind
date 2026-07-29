@@ -13,13 +13,28 @@ class AssistantTextDelta(object):
 
 
 @dataclass(frozen=True, slots=True)
+class AssistantSegmentCompleted(object):
+    """描述一段 assistant 正文已经完成。"""
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantOutputBoundary(object):
+    """描述 assistant 正文与后续结构化输出之间的边界。"""
+
+
+@dataclass(frozen=True, slots=True)
 class SourcesOutput(object):
     """描述当前回合引用的原始来源。"""
 
     sources: tuple[typing.Any, ...]
 
 
-ContentOutput: typing.TypeAlias = AssistantTextDelta | SourcesOutput
+ContentOutput: typing.TypeAlias = (
+    AssistantTextDelta
+    | AssistantSegmentCompleted
+    | AssistantOutputBoundary
+    | SourcesOutput
+)
 
 
 class ContentSink(typing.Protocol):

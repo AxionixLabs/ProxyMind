@@ -27,7 +27,10 @@ from mind_app.output.text import (
     TextOutputState,
     TextPresentationSink,
 )
-from mind_app.output.content import AssistantTextDelta
+from mind_app.output.content import (
+    AssistantSegmentCompleted,
+    AssistantTextDelta,
+)
 from mind_app.presentation.models import (
     GenericToolResultView,
     ProgressView,
@@ -234,13 +237,12 @@ async def test_text_output_emits_assistant_text_after_stream_settles() -> None:
         stderr=stderr,
     )
     content = TextContentSink(state)
-    control = TextOutputControl(state)
 
     await content.emit(AssistantTextDelta("first "))
     await content.emit(AssistantTextDelta("second"))
 
     assert stdout.getvalue() == ""
-    await control.settle_stream()
+    await content.emit(AssistantSegmentCompleted())
     assert stdout.getvalue() == "first second\n"
 
 

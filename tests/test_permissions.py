@@ -27,6 +27,10 @@ from mind_core.permissions import (
 )
 from mind_nova import const
 from mind_nova.requests.payload import build_chat_payload
+from mind_nova.stream_events import (
+    ToolCallEvent,
+    parse_stream_event,
+)
 
 
 @pytest.mark.parametrize(
@@ -82,8 +86,15 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
 
 
 def test_never_policy_rejects_approval_required_tool_call() -> None:
+    event = parse_stream_event({
+        "type": "tool.call",
+        "call_id": "call-1",
+        "approval_required": True,
+    })
+    assert isinstance(event, ToolCallEvent)
+
     decision = validate_tool_approval(
-        event={"call_id": "call-1", "approval_required": True},
+        event=event,
         name="shell_command",
         arguments={"command": "pytest -q"},
         store=ApprovalStore(),

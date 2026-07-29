@@ -30,6 +30,8 @@ from mind_app.presentation.models import (
 )
 from ..stream_io.output_record import StreamRecordWriter
 from .content import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
@@ -211,10 +213,6 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         self.state.settle_assistant()
         await self.state.close()
 
-    async def prepare_external_output(self) -> None:
-        """准备新的外部块输出。"""
-        self.state.settle_assistant()
-
     async def begin_tool_status(self) -> None:
         """文本模式不显示动态工具状态。"""
         return None
@@ -240,18 +238,10 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         _ = immediate
         return None
 
-    async def settle_stream(self) -> None:
-        """结束当前 assistant 文本段。"""
-        self.state.settle_assistant()
-
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的文本。"""
         if text:
             self.state.record_writer.write(_terminal_text(text), block=True)
-
-    def mark_stream_boundary(self) -> None:
-        """标记文本流边界。"""
-        self.state.settle_assistant()
 
     def record_tool_arguments(
         self,
@@ -298,8 +288,12 @@ class TextContentSink(ContentSink):
         if isinstance(output, AssistantTextDelta):
             self.state.append_assistant(output.text)
             return None
+        if isinstance(output, (AssistantSegmentCompleted, AssistantOutputBoundary)):
+            self.state.settle_assistant()
+            return None
         if isinstance(output, SourcesOutput):
             return None
+
         raise TypeError(f"Unsupported content output: {type(output).__name__}")
 
 

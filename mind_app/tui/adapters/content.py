@@ -2,6 +2,8 @@
 # Notes: ==== Mind™ ====
 
 from mind_app.output.content import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
@@ -21,6 +23,13 @@ class TuiContentSink(ContentSink):
         """发送 assistant 增量或来源展示块。"""
         if isinstance(output, AssistantTextDelta):
             await self.output.append_assistant_delta(output.text)
+            return None
+        if isinstance(output, AssistantSegmentCompleted):
+            await self.output.settle_stream()
+            self.output.mark_stream_boundary()
+            return None
+        if isinstance(output, AssistantOutputBoundary):
+            await self.output.prepare_external_output()
             return None
         if isinstance(output, SourcesOutput):
             await self.output.append_assistant_metadata(

@@ -16,17 +16,30 @@ from mind_app.approval.policy import (
 )
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
+from mind_nova.stream_events import (
+    TextDeltaEvent,
+    TextDoneEvent,
+    TextMetaEvent,
+    ToolApprovalRequiredEvent,
+    ToolBuiltinDoneEvent,
+    ToolCallEvent,
+    ToolEvent,
+    ToolOutputEvent,
+    TurnDoneEvent,
+    TurnFailedEvent
+)
 from mind_nova.requests.tools import (
     ToolApprovalExpired,
     post_tool_approval,
     post_tool_result
 )
 from ..output import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
     AssistantTextDelta,
     OutputControlPort,
     SourcesOutput
 )
-from ..output.rich import create_rich_output_session
 from ..output.session import OutputSession
 from .result import (
     RunResult,
@@ -56,18 +69,11 @@ from ..runtime.tools.execution_policy import (
     is_execution_ignored,
     validate_execution_policy
 )
-from ..runtime.tools.batch import (
-    PendingToolCall,
-    ToolBatchExecutor
-)
+from ..runtime.tools.client_call import ClientToolCallRunner
 from ..runtime.tools.plan_call import PlanToolCallRunner
 from ..runtime.support.idle_status import IdleStatusTimer
-from ..stream_events.responses_builtin import consume_builtin_done
 from ..stream_events.tool_trace import coding_trace_tool
-from ..stream_events.lifecycle import (
-    StreamEventContext,
-    handle_lifecycle_event
-)
+from ..stream_events.lifecycle import handle_lifecycle_event
 from ..stream_events.assistant_boundary import is_assistant_output_boundary
 from ..stream_state.segment import SegmentTracker
 from engine.observability import (
@@ -81,25 +87,22 @@ if typing.TYPE_CHECKING:
 
 def _tool_invocation_from_event(
     turn_context: TurnContext,
-    event: dict[str, typing.Any],
+    event: ToolEvent,
     tools: list[dict[str, typing.Any]],
     *,
-    arguments: dict[str, typing.Any]
+    arguments: dict[str, typing.Any] | None = None
 ) -> ToolInvocation:
     """从流式事件构建不暴露内部授权字段的工具调用上下文。"""
-    name           = str(event.get("name") or event.get("tool") or "").strip()
-    event_meta     = event.get("meta") if isinstance(event.get("meta"), dict) else None
-    local_meta     = meta_for_tool(tools, name)
-    effective_meta = {**(local_meta or {}), **(event_meta or {})} or None
-    execution      = event.get("execution") if isinstance(event.get("execution"), dict) else None
+    local_meta     = meta_for_tool(tools, event.name)
+    effective_meta = {**(local_meta or {}), **(event.meta or {})} or None
 
     return ToolInvocation(
         turn=turn_context,
-        call_id=str(event.get("call_id") or ""),
-        name=name,
-        arguments=arguments,
+        call_id=event.call_id,
+        name=event.name,
+        arguments=dict(event.arguments if arguments is None else arguments),
         meta=effective_meta,
-        execution=execution,
+        execution=event.execution,
     )
 
 
@@ -187,7 +190,7 @@ async def stream_looper(
         frontend = getattr(mind, "frontend", None)
         session_factory = getattr(frontend, "session_factory", None)
     if session_factory is None:
-        session_factory = create_rich_output_session
+        raise RuntimeError("stream output session factory is required")
 
     output_session: OutputSession = session_factory(
         mind.report.log_papers,
@@ -240,18 +243,6 @@ async def stream_looper(
             turn_id=str(kwargs.get("turn_id") or ""),
         ))
 
-        event_ctx = StreamEventContext(
-            mind=mind,
-            session=session,
-            output_control=output_control,
-            status_control=status_control,
-            presentation=presentation,
-            tracker=tracker,
-            mode=mode,
-            pref_config=pref_config,
-            metadata=metadata
-        )
-
         hook_context = HookExecutionContext.from_turn(turn_context)
 
         try:
@@ -266,7 +257,7 @@ async def stream_looper(
 
         tool_call_coordinator = ToolCallCoordinator(hook_scope)
 
-        tool_batch_executor = ToolBatchExecutor(
+        client_tool_runner = ClientToolCallRunner(
             session=session,
             output_control=output_control,
             status_control=status_control,
@@ -298,18 +289,18 @@ async def stream_looper(
                 observe(
                     "stream.first_event",
                     mode=mode,
-                    event_type=event.get("type"),
+                    event_type=event.type,
                     latency_ms=int((time.perf_counter() - started_at) * 1000),
                 )
                 if not mind.frontend.runtime.active:
                     await mind.stop_anim("wait")
                 first_frame = False
 
-            event_type = str(event.get("type") or "")
+            event_type = event.type
 
-            if is_assistant_output_boundary(event_type, event):
+            if is_assistant_output_boundary(event):
                 tracker.commit_assistant_output()
-                await output_control.prepare_external_output()
+                await content.emit(AssistantOutputBoundary())
 
             if event_type == "turn.start":
                 continue
@@ -318,9 +309,10 @@ async def stream_looper(
                 await status_control.begin_reply_wait_status()
                 continue
 
-            if event_type == "turn.failed":
-                turn_failed = True
-                failure_error = str(event.get("error") or "unknown error")
+            if isinstance(event, TurnFailedEvent):
+                turn_failed   = True
+                failure_error = event.error
+
                 observe(
                     "stream.turn_failed",
                     level="ERROR",
@@ -336,35 +328,33 @@ async def stream_looper(
                 )
                 continue
 
-            if event_type == "text.delta":
-                text = str(event.get("text") or "")
+            if isinstance(event, TextDeltaEvent):
                 tracker.on_text_delta(event)
-                await content.emit(AssistantTextDelta(text))
+                await content.emit(AssistantTextDelta(event.text))
                 idle_wait.reschedule()
                 continue
 
-            if event_type == "text.done":
+            if isinstance(event, TextDoneEvent):
                 tracker.on_text_done(event)
-                await output_control.settle_stream()
-                output_control.mark_stream_boundary()
+                await content.emit(AssistantSegmentCompleted())
                 await status_control.begin_reply_wait_status()
                 continue
 
-            if event_type == "text.meta":
+            if isinstance(event, TextMetaEvent):
                 tracker.on_text_meta(event)
                 continue
 
-            if event_type == "turn.done":
+            if isinstance(event, TurnDoneEvent):
                 turn_completed = True
-                turn_usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+                turn_usage = dict(event.usage)
                 break
 
             if event_type == "tool.builtin.call":
                 await status_control.begin_tool_status()
                 continue
 
-            if event_type == "tool.builtin.done":
-                consume_builtin_done(event, tracker)
+            if isinstance(event, ToolBuiltinDoneEvent):
+                tracker.on_builtin_done(event)
                 await status_control.end_status()
                 continue
 
@@ -376,23 +366,23 @@ async def stream_looper(
                 await status_control.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
-            if event_type == "tool.approval_required":
+            if isinstance(event, ToolApprovalRequiredEvent):
                 approval = approval_from_event(event)
                 await status_control.end_status(immediate=True)
 
                 approval_started_at = time.perf_counter()
 
                 approval_id      = approval_id_from_event(event)
-                approval_tool    = str(event.get("name") or event.get("tool") or "")
-                approval_call_id = str(event.get("call_id") or "")
+                approval_tool    = event.name
+                approval_call_id = event.call_id
 
                 permission_decision = None
 
                 decision_source: ApprovalSource = "user"
 
                 if approval_tool:
-                    approval_arguments = event.get("arguments")
-                    if not isinstance(approval_arguments, dict):
+                    approval_arguments = dict(event.arguments)
+                    if not approval_arguments:
                         raw_approval_arguments = approval.get("arguments")
                         approval_arguments = (
                             dict(raw_approval_arguments)
@@ -485,7 +475,9 @@ async def stream_looper(
                 )
 
                 approvals.mark_decision(
-                    call_id=str(event.get("call_id") or ""), approval=approval, decision=decision
+                    call_id=event.call_id,
+                    approval=approval,
+                    decision=decision,
                 )
 
                 await presentation.emit(build_approval_view(
@@ -495,9 +487,9 @@ async def stream_looper(
                 ))
                 try:
                     await post_tool_approval(
-                        event["cid"],
-                        event["sid"],
-                        event["call_id"],
+                        turn_context.cid,
+                        turn_context.sid,
+                        event.call_id,
                         approval_id,
                         decision=decision,
                         reason=reason
@@ -525,25 +517,22 @@ async def stream_looper(
                     await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
-            if event_type == "tool.call":
-                name      = str(event.get("name") or event.get("tool") or "").strip()
-                arguments = event.get("arguments", {})
+            if isinstance(event, ToolCallEvent):
+                name      = event.name
+                arguments = dict(event.arguments)
 
                 if not name:
                     await post_tool_result(
-                        event["cid"],
-                        event["sid"],
-                        event["call_id"],
+                        turn_context.cid,
+                        turn_context.sid,
+                        event.call_id,
                         "",
                         False,
                         {"error": "tool.call missing name/tool"},
-                        execution=event.get("execution") if isinstance(event.get("execution"), dict) else None
+                        execution=event.execution,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
-
-                if not isinstance(arguments, dict):
-                    arguments = {}
 
                 invocation = _tool_invocation_from_event(
                     turn_context,
@@ -553,12 +542,13 @@ async def stream_looper(
                 )
 
                 hook_decision = await tool_call_coordinator.prepare(invocation)
+
                 if not hook_decision.allowed:
                     await post_tool_result(
-                        event["cid"],
-                        event["sid"],
-                        event["call_id"],
-                        name,
+                        invocation.turn.cid,
+                        invocation.turn.sid,
+                        invocation.call_id,
+                        invocation.name,
                         False,
                         _hook_denied_result(hook_decision.reason),
                         execution=invocation.execution,
@@ -570,8 +560,7 @@ async def stream_looper(
                     async def execute_plan_call() -> typing.Any:
                         """执行已经获准的计划工具调用。"""
                         return await plan_tool_runner.handle(
-                            event=event,
-                            arguments=arguments,
+                            invocation=invocation,
                         )
 
                     hook_run = await tool_call_coordinator.run(
@@ -579,27 +568,31 @@ async def stream_looper(
                         execute_plan_call,
                     )
                     if not hook_run.allowed:
-                        await post_tool_result(
-                            event["cid"],
-                            event["sid"],
-                            event["call_id"],
-                            name,
-                            False,
-                            _hook_denied_result(hook_run.reason),
-                            execution=invocation.execution,
-                        )
+                        plan_ok     = False
+                        plan_result = _hook_denied_result(hook_run.reason)
+                    else:
+                        if hook_run.value is None:
+                            raise RuntimeError("plan tool execution returned no result")
+                        plan_ok     = hook_run.value.ok
+                        plan_result = hook_run.value.fields
+                    await post_tool_result(
+                        invocation.turn.cid,
+                        invocation.turn.sid,
+                        invocation.call_id,
+                        invocation.name,
+                        plan_ok,
+                        plan_result,
+                        execution=invocation.execution,
+                    )
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
-
-                event_meta      = event.get("meta") if isinstance(event.get("meta"), dict) else None
-                event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
 
                 approval_decision = validate_tool_approval(
                     event=event,
                     name=name,
                     arguments=arguments,
                     store=approvals,
-                    meta=event_meta,
+                    meta=event.meta,
                     local_meta=meta_for_tool(tools, name),
                     approval_policy=kwargs["permissions"].approval_policy,
                 )
@@ -609,7 +602,7 @@ async def stream_looper(
                         "approval.enforced",
                         action="wait",
                         tool=name,
-                        call_id=event.get("call_id"),
+                        call_id=event.call_id,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
@@ -620,62 +613,66 @@ async def stream_looper(
                         level="WARNING",
                         action="reject",
                         tool=name,
-                        call_id=event.get("call_id"),
+                        call_id=event.call_id,
                     )
                     await post_tool_result(
-                        event["cid"],
-                        event["sid"],
-                        event["call_id"],
-                        name,
+                        invocation.turn.cid,
+                        invocation.turn.sid,
+                        invocation.call_id,
+                        invocation.name,
                         False,
                         approval_decision.result or {},
-                        execution=event_execution
+                        execution=invocation.execution,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
 
                 if execution_policy_result := validate_execution_policy(
                     name=name,
-                    execution=event_execution
+                    execution=invocation.execution,
                 ):
                     if is_execution_ignored(execution_policy_result):
                         await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                         continue
                     await post_tool_result(
-                        event["cid"],
-                        event["sid"],
-                        event["call_id"],
-                        name,
+                        invocation.turn.cid,
+                        invocation.turn.sid,
+                        invocation.call_id,
+                        invocation.name,
                         False,
                         execution_policy_result,
-                        execution=event_execution
+                        execution=invocation.execution,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
 
                 use_coding_trace = coding_trace_tool(name)
 
-                pending_call = PendingToolCall(
-                    event=event,
-                    invocation=invocation,
-                    use_coding_trace=use_coding_trace
+                tool_result = await client_tool_runner.execute(
+                    invocation,
+                    use_coding_trace=use_coding_trace,
                 )
-
-                await tool_batch_executor.execute_call(pending_call)
+                await post_tool_result(
+                    invocation.turn.cid,
+                    invocation.turn.sid,
+                    invocation.call_id,
+                    tool_result.name,
+                    tool_result.ok,
+                    tool_result.fields,
+                    execution=invocation.execution,
+                )
                 await status_control.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
-            if event_type == "tool.output":
-                name = str(event.get("name") or event.get("tool") or "").strip()
+            if isinstance(event, ToolOutputEvent):
+                name = event.name
                 if not name:
                     continue
 
-                arguments = event.get("arguments")
-                if not isinstance(arguments, dict):
-                    arguments = {}
+                arguments = dict(event.arguments)
 
                 use_coding_trace = coding_trace_tool(name)
-                tool_run         = server_tool_output_result(name, event)
+                tool_run         = server_tool_output_result(name, event.payload)
 
                 if use_coding_trace:
                     await status_control.end_status()
@@ -686,13 +683,17 @@ async def stream_looper(
                     arguments,
                     tool_run,
                     use_coding_trace=use_coding_trace,
-                    call_id=str(event.get("call_id") or ""),
+                    call_id=event.call_id,
                 )
 
                 await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
-            if await handle_lifecycle_event(event_type, event, event_ctx):
+            if await handle_lifecycle_event(
+                event,
+                presentation=presentation,
+                status_control=status_control,
+            ):
                 continue
 
             continue

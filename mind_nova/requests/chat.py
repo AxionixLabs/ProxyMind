@@ -9,6 +9,10 @@ from mind_nova.requests.payload import (
 )
 from mind_nova.requests.streaming import streaming
 from mind_nova.services import service_endpoints
+from mind_nova.stream_events import (
+    ChatStreamEvent,
+    parse_stream_event
+)
 from mind_nova import const
 
 
@@ -21,7 +25,7 @@ async def stream_chat(
     timeout: float = 60.0,
     *_,
     **kwargs
-) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
+) -> typing.AsyncGenerator[ChatStreamEvent, None]:
     """流式获取 chat/fast/xtra 模式事件。"""
     headers = Channel.make_headers()
     payload = await build_chat_payload(
@@ -33,10 +37,15 @@ async def stream_chat(
         **kwargs
     )
 
-    async for event in streaming(service_endpoints.endpoint("/mind-chat"), headers, payload, timeout):
-        event_type = str(event.get("type") or "")
+    async for payload_event in streaming(
+        service_endpoints.endpoint("/mind-chat"),
+        headers,
+        payload,
+        timeout,
+    ):
+        event = parse_stream_event(payload_event)
 
-        if event_type == "ping":
+        if event.type == "ping":
             continue
 
         yield event

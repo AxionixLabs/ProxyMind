@@ -29,21 +29,9 @@ class SilentOutputControl(OutputControlPort, OutputStatusPort):
         _ = blink
         return None
 
-    async def prepare_external_output(self) -> None:
-        """忽略外部输出准备。"""
-        return None
-
-    async def settle_stream(self) -> None:
-        """忽略流式正文收束。"""
-        return None
-
     async def record_hidden_output(self, text: str) -> None:
         """忽略隐藏输出记录。"""
         _ = text
-        return None
-
-    def mark_stream_boundary(self) -> None:
-        """忽略流式边界标记。"""
         return None
 
     def record_tool_arguments(

@@ -12,6 +12,7 @@ from engine.observability import (
 from mind_nova.identifiers import short_uid
 from mind_nova.modes import RunMode
 from mind_nova.requests.reports import post_stream_event
+from mind_nova.stream_events import StreamEvent
 from mind_nova import const
 
 
@@ -63,13 +64,11 @@ class EventReport(object):
         if isinstance(round_no, int) and round_no > 0:
             self.round = round_no
 
-    def bind_event(self, event: dict[str, typing.Any]) -> None:
-        if not isinstance(event, dict):
-            return None
-
-        if proto := event.get("proto"):
-            self.proto = str(proto)
-        self.set_round(event.get("round"))
+    def bind_event(self, event: StreamEvent) -> None:
+        """绑定服务端事件携带的报告元数据。"""
+        if event.proto:
+            self.proto = event.proto
+        self.set_round(event.round)
 
     def emit(self, event: dict[str, typing.Any]) -> None:
         """

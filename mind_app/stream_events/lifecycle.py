@@ -2,41 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
-from mind_app.output import (
-    OutputControlPort,
-    OutputStatusPort,
-)
+from mind_nova.stream_events import StreamEvent
+from mind_app.output import OutputStatusPort
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.lifecycle_views import build_lifecycle_view
-
-if typing.TYPE_CHECKING:
-    from mind_app.mcp.contracts import McpSessionLike
-    from mind_app.controller import Mind
-    from mind_app.stream_state.segment import SegmentTracker
-
-
-@dataclass(slots=True)
-class StreamEventContext:
-    """流式事件处理上下文。"""
-
-    mind: "Mind"
-    session: "McpSessionLike"
-    output_control: OutputControlPort
-    status_control: OutputStatusPort
-    presentation: PresentationSink
-    tracker: "SegmentTracker"
-    mode: str
-    pref_config: dict[str, typing.Any]
-    metadata: dict[str, typing.Any]
-
-
-LifecycleHandler = typing.Callable[
-    [dict[str, typing.Any], StreamEventContext],
-    typing.Awaitable[bool]
-]
-
-LIFECYCLE_HANDLERS: dict[str, LifecycleHandler] = {}
 
 
 def _display_text(display: dict[str, typing.Any]) -> str:
@@ -50,11 +19,13 @@ def _display_text(display: dict[str, typing.Any]) -> str:
 
 
 async def _display_event(
-    event: dict[str, typing.Any],
-    ctx: StreamEventContext
+    event: StreamEvent,
+    *,
+    presentation: PresentationSink,
+    status_control: OutputStatusPort
 ) -> bool:
     """展示服务端显式声明需要显示的事件内容。"""
-    if not isinstance(display := event.get("display"), dict):
+    if not isinstance(display := event.display, dict):
         return False
 
     if not (text := _display_text(display)):
@@ -64,8 +35,8 @@ async def _display_event(
     if view is None:
         return False
 
-    await ctx.presentation.emit(view)
-    await ctx.status_control.begin_reply_wait_status(
+    await presentation.emit(view)
+    await status_control.begin_reply_wait_status(
         delay_sec=0.15,
         animate_after_sec=0.85,
     )
@@ -74,16 +45,17 @@ async def _display_event(
 
 
 async def handle_lifecycle_event(
-    event_type: str,
-    event: dict[str, typing.Any],
-    ctx: StreamEventContext,
+    event: StreamEvent,
+    *,
+    presentation: PresentationSink,
+    status_control: OutputStatusPort
 ) -> bool:
-    """分发已注册的非核心生命周期事件。"""
-    handler = LIFECYCLE_HANDLERS.get(event_type)
-    if handler is not None:
-        return await handler(event, ctx)
-
-    return await _display_event(event, ctx)
+    """展示非核心生命周期事件中的显式内容。"""
+    return await _display_event(
+        event,
+        presentation=presentation,
+        status_control=status_control,
+    )
 
 
 if __name__ == '__main__':

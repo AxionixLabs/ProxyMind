@@ -18,7 +18,7 @@ BLOCK_OUTPUT: typing.Final[OutputDisplay]  = "block"
 
 
 class OutputControlPort(ABC):
-    """描述单轮运行需要的正文、边界和审计能力。"""
+    """描述单轮运行需要的输出生命周期和审计能力。"""
 
     @abstractmethod
     async def open(self) -> None:
@@ -31,23 +31,8 @@ class OutputControlPort(ABC):
         ...
 
     @abstractmethod
-    async def prepare_external_output(self) -> None:
-        """准备输出外部内容。"""
-        ...
-
-    @abstractmethod
-    async def settle_stream(self) -> None:
-        """同步当前流式正文。"""
-        ...
-
-    @abstractmethod
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的输出内容。"""
-        ...
-
-    @abstractmethod
-    def mark_stream_boundary(self) -> None:
-        """标记下一段流式边界。"""
         ...
 
     @abstractmethod
@@ -106,6 +91,21 @@ class OutputPort(OutputControlPort, OutputStatusPort):
     def terminal_height(self) -> int | None:
         """返回当前终端高度。"""
         raise NotImplementedError
+
+    @abstractmethod
+    async def prepare_external_output(self) -> None:
+        """准备输出外部内容。"""
+        ...
+
+    @abstractmethod
+    async def settle_stream(self) -> None:
+        """同步当前流式正文。"""
+        ...
+
+    @abstractmethod
+    def mark_stream_boundary(self) -> None:
+        """标记下一段流式边界。"""
+        ...
 
     @abstractmethod
     async def feed(

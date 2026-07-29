@@ -2,6 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_nova.stream_events import (
+    TextDeltaEvent,
+    TextDoneEvent,
+    TextMetaEvent,
+    ToolBuiltinDoneEvent
+)
 
 
 class SegmentTracker(object):
@@ -44,32 +50,6 @@ class SegmentTracker(object):
             segment["source_count"] = source_count
         elif isinstance(segment.get("sources"), list):
             segment["source_count"] = len(segment["sources"])
-
-    @staticmethod
-    def _segment_sources_payload(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        sources = payload.get("sources")
-        source_count = payload.get("source_count")
-
-        data: dict[str, typing.Any] = {}
-        if isinstance(sources, list):
-            data["sources"] = sources
-        if isinstance(source_count, int) and source_count >= 0:
-            data["source_count"] = source_count
-        elif isinstance(sources, list):
-            data["source_count"] = len(sources)
-        return data
-
-    @classmethod
-    def _segment_meta_payload(cls, payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        data = cls._segment_sources_payload(payload)
-
-        annotations = payload.get("annotations")
-        citations = payload.get("citations")
-        if isinstance(annotations, list):
-            data["annotations"] = annotations
-        if isinstance(citations, list):
-            data["citations"] = citations
-        return data
 
     def _apply_pending_meta(
         self,
@@ -175,35 +155,43 @@ class SegmentTracker(object):
 
         return None
 
-    def on_text_delta(self, event: dict[str, typing.Any]) -> None:
-        text = str(event.get("text") or "")
-        if not text:
+    def on_text_delta(self, event: TextDeltaEvent) -> None:
+        if not event.text:
             return None
 
-        segment = self._resolve_segment(event.get("segment_id"), create=True, prefer_current=True)
+        segment = self._resolve_segment(
+            event.segment_id,
+            create=True,
+            prefer_current=True,
+        )
         if segment is not None:
-            segment["text"] += text
+            segment["text"] += event.text
             self._remember_output_segment(segment)
 
-    def on_text_done(self, event: dict[str, typing.Any]) -> None:
-        if segment := self._resolve_segment(event.get("segment_id"), prefer_current=True):
+    def on_text_done(self, event: TextDoneEvent) -> None:
+        if segment := self._resolve_segment(
+            event.segment_id,
+            prefer_current=True,
+        ):
             segment["done"] = True
         self.current_segment_key = None
 
-    def on_text_meta(self, event: dict[str, typing.Any]) -> None:
-        remote_segment_id = str(event.get("segment_id") or "").strip()
-        if not remote_segment_id:
+    def on_text_meta(self, event: TextMetaEvent) -> None:
+        if not event.segment_id:
             return None
 
-        payload = self._segment_meta_payload(event)
-        if segment := self._resolve_segment(remote_segment_id, prefer_current=True):
+        payload = self._typed_segment_meta_payload(event)
+        if segment := self._resolve_segment(event.segment_id, prefer_current=True):
             self._merge_segment_meta(segment, payload)
             return None
 
-        self.pending_meta_by_segment_id[remote_segment_id] = payload
+        self.pending_meta_by_segment_id[event.segment_id] = payload
 
-    def on_builtin_done(self, event: dict[str, typing.Any]) -> None:
-        meta = self._segment_sources_payload(event)
+    def on_builtin_done(self, event: ToolBuiltinDoneEvent) -> None:
+        meta = self._typed_sources_payload(
+            sources=event.sources,
+            source_count=event.source_count,
+        )
         if not meta:
             return None
 
@@ -215,6 +203,38 @@ class SegmentTracker(object):
             **(self.pending_segment_sources or {}),
             **meta
         }
+
+    @classmethod
+    def _typed_segment_meta_payload(
+        cls,
+        event: TextMetaEvent
+    ) -> dict[str, typing.Any]:
+        """把类型化正文元数据转换为段落存储字段。"""
+        data = cls._typed_sources_payload(
+            sources=event.sources,
+            source_count=event.source_count,
+        )
+        if event.annotations is not None:
+            data["annotations"] = list(event.annotations)
+        if event.citations is not None:
+            data["citations"] = list(event.citations)
+        return data
+
+    @staticmethod
+    def _typed_sources_payload(
+        *,
+        sources: tuple[typing.Any, ...] | None,
+        source_count: int | None,
+    ) -> dict[str, typing.Any]:
+        """把类型化来源元数据转换为段落存储字段。"""
+        data: dict[str, typing.Any] = {}
+        if sources is not None:
+            data["sources"] = list(sources)
+        if source_count is not None:
+            data["source_count"] = source_count
+        elif sources is not None:
+            data["source_count"] = len(sources)
+        return data
 
     def commit_assistant_output(self) -> None:
         """提交当前待复制的 assistant 输出块。"""

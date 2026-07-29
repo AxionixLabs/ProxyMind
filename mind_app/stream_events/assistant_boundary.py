@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
+from mind_nova.stream_events import StreamEvent
 
 ASSISTANT_OUTPUT_BOUNDARY_EVENTS: set[str] = {
     "tool.builtin.call",
@@ -12,9 +12,9 @@ ASSISTANT_OUTPUT_BOUNDARY_EVENTS: set[str] = {
 }
 
 
-def display_event_has_text(event: dict[str, typing.Any]) -> bool:
+def display_event_has_text(event: StreamEvent) -> bool:
     """判断事件是否包含需要展示的 lifecycle 文本。"""
-    display = event.get("display")
+    display = event.display
     if not isinstance(display, dict):
         return False
 
@@ -27,11 +27,10 @@ def display_event_has_text(event: dict[str, typing.Any]) -> bool:
 
 
 def is_assistant_output_boundary(
-    event_type: str,
-    event: dict[str, typing.Any]
+    event: StreamEvent,
 ) -> bool:
     """判断事件是否结束当前 assistant 输出块。"""
-    return event_type in ASSISTANT_OUTPUT_BOUNDARY_EVENTS or display_event_has_text(event)
+    return event.type in ASSISTANT_OUTPUT_BOUNDARY_EVENTS or display_event_has_text(event)
 
 
 if __name__ == '__main__':

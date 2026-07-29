@@ -10,8 +10,15 @@ from unittest.mock import (
 
 import pytest
 
+from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.modes import stream
 from mind_app.modes.result import RunResult
+from mind_app.output.content import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
+    AssistantTextDelta,
+    SourcesOutput,
+)
 from mind_app.output.session import OutputSession
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.execution import AgentContext, TurnContext
@@ -20,8 +27,11 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
+from mind_app.runtime.tools.client_call import ClientToolCallResult
+from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
+from mind_nova.stream_events import parse_stream_event
 
 
 class _OutputControl(object):
@@ -31,17 +41,8 @@ class _OutputControl(object):
     async def stop(self, *, blink: bool = True) -> None:
         _ = blink
 
-    async def prepare_external_output(self) -> None:
-        return None
-
-    async def settle_stream(self) -> None:
-        return None
-
     async def record_hidden_output(self, text: str) -> None:
         _ = text
-
-    def mark_stream_boundary(self) -> None:
-        return None
 
     def record_tool_arguments(self, *_args, **_kwargs) -> None:
         return None
@@ -92,7 +93,12 @@ def _mind() -> SimpleNamespace:
 
     return SimpleNamespace(
         report=SimpleNamespace(log_papers=[]),
-        frontend=SimpleNamespace(runtime=SimpleNamespace(active=True)),
+        frontend=SimpleNamespace(
+            runtime=SimpleNamespace(active=True),
+            interaction=SimpleNamespace(
+                request_approval=AsyncMock(return_value="accept"),
+            ),
+        ),
         stop_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
@@ -107,11 +113,13 @@ async def _run_stream(
     hooks: HookRuntime | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     async def stream_chat(*_args, **_kwargs):
-        for event in events:
-            yield event
+        for payload in events:
+            yield parse_stream_event(payload)
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = _mind()
+    output_session = _output_session()
+    mind.output_session = output_session
     permissions = preset_permissions("auto")
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -139,7 +147,7 @@ async def _run_stream(
         skills=[{"name": "test"}],
         permissions=permissions,
         turn_context=turn_context,
-        session_factory=lambda *_args, **_kwargs: _output_session(),
+        session_factory=lambda *_args, **_kwargs: output_session,
     )
     return result, mind
 
@@ -188,6 +196,11 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         usage={"output_tokens": 3},
     )
     assert mind.remembered == ["answer"]
+    assert mind.output_session.content.items == [
+        AssistantTextDelta("answer"),
+        AssistantSegmentCompleted(),
+        SourcesOutput(()),
+    ]
     mind.hook_scope.assert_called_once()
     assert mind.hook_scope.call_args.args[0].session_id == "sid_test"
 
@@ -209,6 +222,197 @@ async def test_stream_without_terminal_event_is_incomplete(monkeypatch) -> None:
 
     assert result.status == "incomplete"
     assert result.error == "stream ended before turn completion"
+
+
+@pytest.mark.anyio
+async def test_stream_emits_assistant_boundary_before_structured_output(monkeypatch) -> None:
+    result, mind = await _run_stream(monkeypatch, [
+        {"type": "text.delta", "text": "first"},
+        {"type": "text.done"},
+        {"type": "tool.builtin.call"},
+        {"type": "tool.builtin.done"},
+        {"type": "text.delta", "text": "second"},
+        {"type": "text.done"},
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert mind.output_session.content.items == [
+        AssistantTextDelta("first"),
+        AssistantSegmentCompleted(),
+        AssistantOutputBoundary(),
+        AssistantTextDelta("second"),
+        AssistantSegmentCompleted(),
+        SourcesOutput(()),
+    ]
+
+
+@pytest.mark.anyio
+async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) -> None:
+    invocations = []
+    posted = []
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        invocations.append(invocation)
+        return ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=True,
+            text="done",
+            call_id=invocation.call_id,
+            fields={"ok": True, "text": "done"},
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        posted.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.call",
+            "cid": "untrusted-cid",
+            "sid": "untrusted-sid",
+            "call_id": "call-client",
+            "name": "test_tool",
+            "arguments": {"value": 1},
+            "execution": {"target": "client"},
+        },
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert invocations[0].turn.cid == "cid_test"
+    assert invocations[0].turn.sid == "sid_test"
+    posted_args, posted_kwargs = posted[0]
+    assert posted_args == (
+        "cid_test",
+        "sid_test",
+        "call-client",
+        "test_tool",
+        True,
+        {"ok": True, "text": "done"},
+    )
+    assert posted_kwargs == {"execution": {"target": "client"}}
+
+
+@pytest.mark.anyio
+async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> None:
+    posted = []
+
+    async def handle(_runner, *, invocation):
+        assert invocation.name == PLAN_STEPS_TOOL
+        return PlanExecutionReport(
+            ok=True,
+            text="planned",
+            data={"steps": 1},
+            attachments=[],
+            cost_ms=5,
+            results=[],
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        posted.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.PlanToolCallRunner, "handle", handle)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.call",
+            "cid": "untrusted-cid",
+            "sid": "untrusted-sid",
+            "call_id": "call-plan",
+            "name": PLAN_STEPS_TOOL,
+            "arguments": {"steps": []},
+        },
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert posted[0][0][:5] == (
+        "cid_test",
+        "sid_test",
+        "call-plan",
+        PLAN_STEPS_TOOL,
+        True,
+    )
+    assert posted[0][0][5]["data"] == {"steps": 1}
+
+
+@pytest.mark.anyio
+async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -> None:
+    approval_posts = []
+    result_posts = []
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        return ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=True,
+            text="done",
+            call_id=invocation.call_id,
+            fields={"ok": True, "text": "done"},
+        )
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    async def post_tool_result(*args, **kwargs):
+        result_posts.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.approval_required",
+            "call_id": "call-approved",
+            "name": "test_tool",
+            "arguments": {"value": 1},
+            "approval": {
+                "id": "approval-1",
+                "tool": "test_tool",
+                "arguments": {"value": 1},
+            },
+        },
+        {
+            "type": "tool.call",
+            "call_id": "call-approved",
+            "name": "test_tool",
+            "arguments": {"value": 1},
+            "approval_id": "approval-1",
+            "approved": True,
+        },
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    mind.frontend.interaction.request_approval.assert_awaited_once()
+    assert approval_posts[0][0] == (
+        "cid_test",
+        "sid_test",
+        "call-approved",
+        "approval-1",
+    )
+    assert approval_posts[0][1] == {
+        "decision": "accept",
+        "reason": None,
+    }
+    assert result_posts[0][0][:5] == (
+        "cid_test",
+        "sid_test",
+        "call-approved",
+        "test_tool",
+        True,
+    )
 
 
 @pytest.mark.anyio
@@ -248,8 +452,8 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
         [
             {
                 "type": "tool.call",
-                "cid": "cid_test",
-                "sid": "sid_test",
+                "cid": "untrusted-cid",
+                "sid": "untrusted-sid",
                 "call_id": "call_test",
                 "name": "test_tool",
                 "arguments": {"value": 1},
@@ -261,7 +465,9 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
 
     assert result.status == "completed"
     assert len(runner.calls) == 1
-    assert posted[0][0][2:5] == (
+    assert posted[0][0][:5] == (
+        "cid_test",
+        "sid_test",
         "call_test",
         "test_tool",
         False,

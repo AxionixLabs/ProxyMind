@@ -10,6 +10,8 @@ from .contracts import (
     OutputStatusPort
 )
 from .content import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
@@ -23,6 +25,8 @@ from .session import (
 __all__ = [
     "BLOCK_OUTPUT",
     "STREAM_OUTPUT",
+    "AssistantOutputBoundary",
+    "AssistantSegmentCompleted",
     "AssistantTextDelta",
     "ContentOutput",
     "ContentSink",

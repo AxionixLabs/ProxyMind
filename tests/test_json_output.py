@@ -5,10 +5,12 @@ import json
 
 import pytest
 
-from mind_app.output.content import AssistantTextDelta
+from mind_app.output.content import (
+    AssistantSegmentCompleted,
+    AssistantTextDelta,
+)
 from mind_app.output.jsonl import (
     JsonContentSink,
-    JsonOutputControl,
     JsonOutputState,
 )
 
@@ -32,13 +34,12 @@ async def test_json_output_initializes_and_flushes_assistant_state() -> None:
     stdout = io.StringIO()
     state = JsonOutputState(_RecordWriter(), stdout)
     content = JsonContentSink(state)
-    control = JsonOutputControl(state)
 
     await content.emit(AssistantTextDelta("first "))
     await content.emit(AssistantTextDelta("second"))
 
     assert stdout.getvalue() == ""
-    await control.settle_stream()
+    await content.emit(AssistantSegmentCompleted())
 
     event = json.loads(stdout.getvalue())
     assert event["item"]["text"] == "first second"
@@ -49,11 +50,10 @@ async def test_json_output_preserves_structured_text_semantics() -> None:
     stdout = io.StringIO()
     state = JsonOutputState(_RecordWriter(), stdout)
     content = JsonContentSink(state)
-    control = JsonOutputControl(state)
     raw = "id\tdevice\x1b]52;c;payload\x1b\\"
 
     await content.emit(AssistantTextDelta(raw))
-    await control.settle_stream()
+    await content.emit(AssistantSegmentCompleted())
 
     event = json.loads(stdout.getvalue())
     assert event["item"]["text"] == raw

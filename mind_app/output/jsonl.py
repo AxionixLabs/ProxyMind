@@ -26,6 +26,8 @@ from mind_app.presentation.models import (
 )
 from ..stream_io.output_record import StreamRecordWriter
 from .content import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
@@ -187,10 +189,6 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
         self.state.flush_assistant()
         await self.state.close()
 
-    async def prepare_external_output(self) -> None:
-        """在外部事件前收束 assistant 文本。"""
-        self.state.flush_assistant()
-
     async def begin_tool_status(self) -> None:
         """忽略动态工具状态。"""
         return None
@@ -216,17 +214,9 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
         _ = immediate
         return None
 
-    async def settle_stream(self) -> None:
-        """收束 assistant 文本项目。"""
-        self.state.flush_assistant()
-
     async def record_hidden_output(self, text: str) -> None:
         """忽略不直接展示的审计文本。"""
         _ = text
-        return None
-
-    def mark_stream_boundary(self) -> None:
-        """标记正文输出边界。"""
         return None
 
     def record_tool_arguments(
@@ -284,6 +274,9 @@ class JsonContentSink(ContentSink):
         """接收正文增量。"""
         if isinstance(output, AssistantTextDelta):
             self.state.append_assistant(output.text)
+            return None
+        if isinstance(output, (AssistantSegmentCompleted, AssistantOutputBoundary)):
+            self.state.flush_assistant()
             return None
         if isinstance(output, SourcesOutput):
             return None

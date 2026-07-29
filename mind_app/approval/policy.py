@@ -8,6 +8,10 @@ from dataclasses import (
     field
 )
 from mind_nova.requests.permissions import ApprovalPolicy
+from mind_nova.stream_events import (
+    ToolApprovalRequiredEvent,
+    ToolCallEvent
+)
 from mind_app.stream_events.approval_trace import approval_summary
 from mind_nova import const
 from .models import (
@@ -87,43 +91,39 @@ class ApprovalStore(object):
         self.approved_by_call_id.pop(call_id, None)
 
 
-def approval_from_event(event: dict[str, typing.Any]) -> dict[str, typing.Any]:
+def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
     """把服务端审批事件归一化为审批卡和审批记录使用的 approval。"""
-    raw_approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
-    approval     = dict(raw_approval)
-    raw_meta     = event.get("meta") if isinstance(event.get("meta"), dict) else {}
+    approval = dict(event.approval)
+    raw_meta = event.meta or {}
 
     meta_approval = raw_meta.get("approval") if isinstance(raw_meta.get("approval"), dict) else {}
     for key, value in meta_approval.items():
         approval.setdefault(key, value)
 
-    if "arguments" not in approval and isinstance(event.get("arguments"), dict):
-        approval["arguments"] = event.get("arguments")
-    if "arguments" not in approval and isinstance(event.get("execution"), dict):
+    if "arguments" not in approval and event.arguments:
+        approval["arguments"] = dict(event.arguments)
+    if "arguments" not in approval and event.execution:
         canonical = (
-            event["execution"].get("canonicalArguments")
-            or event["execution"].get("canonical_arguments")
+            event.execution.get("canonicalArguments")
+            or event.execution.get("canonical_arguments")
         )
         if isinstance(canonical, dict):
             approval["arguments"] = canonical
 
     if "tool" not in approval:
-        approval["tool"] = str(event.get("tool") or event.get("name") or "").strip()
+        approval["tool"] = event.name
 
     return approval
 
 
-def approval_id_from_event(
-    event: dict[str, typing.Any]
-) -> str:
+def approval_id_from_event(event: ToolApprovalRequiredEvent) -> str:
     """从流式事件中读取审批 ID。"""
-    approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
-    return str(approval.get("id") or "").strip()
+    return str(event.approval.get("id") or "").strip()
 
 
 def validate_tool_approval(
     *,
-    event: dict[str, typing.Any],
+    event: ToolCallEvent,
     name: str,
     arguments: dict[str, typing.Any],
     store: ApprovalStore,
@@ -136,9 +136,9 @@ def validate_tool_approval(
     if not tool_name:
         return ApprovalDecision(action="allow")
 
-    call_id        = str(event.get("call_id") or "")
-    approval_id    = str(event.get("approval_id") or "").strip()
-    event_approved = bool(event.get("approved"))
+    call_id        = event.call_id
+    approval_id    = event.approval_id
+    event_approved = event.approved
 
     effective_meta = (
         {**local_meta, **meta}
@@ -193,20 +193,17 @@ def validate_tool_approval(
 
 def approval_required(
     *,
-    event: dict[str, typing.Any] | None = None,
+    event: ToolCallEvent | None = None,
     meta: dict[str, typing.Any] | None = None
 ) -> bool:
     """读取远端声明的工具审批策略。"""
-    event = event or {}
-    meta  = meta or {}
+    meta = meta or {}
 
-    return any(
+    return bool(event and event.approval_required) or any(
         _truthy_approval_required(value)
         for value in (
             meta.get("approvalRequired"),
             meta.get("approval_required"),
-            event.get("approvalRequired"),
-            event.get("approval_required")
         )
     )
 

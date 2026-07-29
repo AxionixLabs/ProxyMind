@@ -4,7 +4,10 @@
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp.contracts import McpSessionLike
-from mind_app.runtime.execution import TurnContext
+from mind_app.runtime.execution import (
+    ToolInvocation,
+    TurnContext
+)
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.output import (
     OutputControlPort,
@@ -12,7 +15,6 @@ from mind_app.output import (
 )
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.plan_views import build_plan_steps_start_view
-from mind_nova.requests.tools import post_tool_result
 from .display import show_tool_result
 from .plan_steps import (
     PlanExecutionReport,
@@ -21,7 +23,7 @@ from .plan_steps import (
 
 
 class PlanToolCallRunner:
-    """编排 plan_steps 的展示、执行和结果回传。"""
+    """编排 plan_steps 的展示和执行。"""
 
     def __init__(
         self,
@@ -50,16 +52,16 @@ class PlanToolCallRunner:
     async def handle(
         self,
         *,
-        event: dict[str, typing.Any],
-        arguments: dict[str, typing.Any]
+        invocation: ToolInvocation
     ) -> "PlanExecutionReport":
         """处理一次完整的 plan_steps 工具调用。"""
-        execution = event.get("execution")
+        arguments = dict(invocation.arguments)
+        call_id   = invocation.call_id
 
         self.output_control.record_tool_arguments(
             PLAN_STEPS_TOOL,
             arguments,
-            call_id=str(event.get("call_id") or "")
+            call_id=call_id,
         )
 
         await self.presentation.emit(
@@ -71,7 +73,7 @@ class PlanToolCallRunner:
         try:
             report = await self.executor.execute_tool_call(
                 arguments=arguments,
-                call_id=str(event.get("call_id") or ""),
+                call_id=call_id,
             )
         finally:
             await self.status_control.end_status(immediate=True)
@@ -81,17 +83,7 @@ class PlanToolCallRunner:
             PLAN_STEPS_TOOL,
             arguments,
             report,
-            call_id=str(event.get("call_id") or ""),
-        )
-
-        await post_tool_result(
-            event["cid"],
-            event["sid"],
-            event["call_id"],
-            PLAN_STEPS_TOOL,
-            report.ok,
-            report.fields,
-            execution=execution if isinstance(execution, dict) else None
+            call_id=call_id,
         )
         return report
 

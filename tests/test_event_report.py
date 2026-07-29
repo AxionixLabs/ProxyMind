@@ -6,6 +6,21 @@ import pytest
 
 from mind_nova import events
 from mind_nova.events import EventReport
+from mind_nova.stream_events import parse_stream_event
+
+
+def test_report_binds_typed_stream_metadata() -> None:
+    report = EventReport("fast", "cid", "sid")
+    event = parse_stream_event({
+        "type": "turn.start",
+        "proto": "stream.v2",
+        "round": 3,
+    })
+
+    report.bind_event(event)
+
+    assert report.proto == "stream.v2"
+    assert report.round == 3
 
 
 @pytest.mark.anyio

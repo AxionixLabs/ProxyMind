@@ -2,6 +2,8 @@
 # Notes: ==== Mind™ ====
 
 from .content import (
+    AssistantOutputBoundary,
+    AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
@@ -25,6 +27,15 @@ class TerminalContentSink(ContentSink):
         """把结构化正文内容映射到当前输出端。"""
         if isinstance(output, AssistantTextDelta):
             await self.output.feed(output.text, display=STREAM_OUTPUT)
+            return None
+
+        if isinstance(output, AssistantSegmentCompleted):
+            await self.output.settle_stream()
+            self.output.mark_stream_boundary()
+            return None
+
+        if isinstance(output, AssistantOutputBoundary):
+            await self.output.prepare_external_output()
             return None
 
         if isinstance(output, SourcesOutput):
