@@ -6,9 +6,31 @@ from dataclasses import (
     dataclass,
     field
 )
+from mind_core.hook_trust import HookTrustState
 from mind_core.hooks import HookEventName
 
 ToolValue = typing.TypeVar("ToolValue")
+
+
+@dataclass(frozen=True, slots=True)
+class HookRuntimeEntry:
+    """描述运行时中单个 Hook 的来源和激活状态。"""
+    key: str
+    event: HookEventName
+    source_scope: str
+    source_path: str | None
+    content_hash: str
+    enabled: bool
+    trust_state: HookTrustState
+    active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class HookRuntimeStatus:
+    """保存一个不可变 Hook 运行时状态视图。"""
+    installed_count: int
+    active_count: int
+    hooks: tuple[HookRuntimeEntry, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

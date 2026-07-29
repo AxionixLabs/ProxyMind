@@ -11,6 +11,10 @@ from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
+from mind_core.hook_trust import (
+    HookTrustStore,
+    default_hook_trust_path
+)
 from mind_core.permissions import (
     PermissionSettings,
     resolve_permissions
@@ -232,7 +236,12 @@ async def _run_application(
         power=power,
         output_mode=output_mode,
         permissions=permissions,
-        hooks=HookRuntime(config_resolution.hooks),
+        hooks=HookRuntime(
+            config_resolution.hooks,
+            trust_store=HookTrustStore(
+                default_hook_trust_path(config_session.store.path)
+            ),
+        ),
     )
 
 

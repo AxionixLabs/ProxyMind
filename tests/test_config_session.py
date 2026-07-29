@@ -9,6 +9,7 @@ from mind_core.config import (
 )
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
+from mind_core.config_layers import PROJECT_CONFIG_DIR
 
 
 def test_invalid_update_does_not_replace_user_document(tmp_path) -> None:
@@ -108,6 +109,60 @@ def test_cli_hook_override_replaces_runtime_definitions(tmp_path) -> None:
 
     assert [definition.command for definition in resolution.hooks] == ["check-cli"]
     assert [definition.source_scope for definition in resolution.hooks] == ["cli"]
+
+
+def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        "[[hooks.PreToolUse]]\n"
+        'matcher = "shell_command"\n'
+        'command = "check-project"\n',
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trusted
+    assert len(resolution.hooks) == 1
+    assert resolution.hooks[0].source_scope == "project"
+    assert resolution.hooks[0].source_path == str(project_config.resolve())
+
+
+def test_workspace_change_refreshes_project_hook_source(tmp_path) -> None:
+    projects = [tmp_path / "first", tmp_path / "second"]
+    for index, project_root in enumerate(projects):
+        (project_root / ".git").mkdir(parents=True)
+        project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+        project_config.parent.mkdir()
+        project_config.write_text(
+            "[[hooks.PreToolUse]]\n"
+            f'command = "check-{index}"\n',
+            encoding="utf-8",
+        )
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"}
+        for project_root in projects
+    })
+    session = ConfigSession(store, workspace=projects[0])
+
+    assert session.resolve().hooks[0].command == "check-0"
+
+    session.set_workspace(projects[1])
+
+    assert session.resolve().hooks[0].command == "check-1"
 
 
 def test_invalid_hook_matcher_is_rejected() -> None:

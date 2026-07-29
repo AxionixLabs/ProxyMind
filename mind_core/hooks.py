@@ -181,22 +181,28 @@ def _normalize_hook_entry(
         raise HookConfigError(f"{dotted}.enabled must be a boolean")
 
     return {
-        "command": command.strip(),
-        "matcher": matcher.strip(),
-        "timeout": timeout,
-        "on_error": on_error,
-        "enabled": enabled,
+        "command"  : command.strip(),
+        "matcher"  : matcher.strip(),
+        "timeout"  : timeout,
+        "on_error" : on_error,
+        "enabled"  : enabled
     }
 
 
 def _content_hash(value: dict[str, typing.Any]) -> str:
     """返回 Hook 内容的稳定摘要。"""
+    executable = {
+        key: item
+        for key, item in value.items()
+        if key != "enabled"
+    }
     encoded = json.dumps(
-        value,
+        executable,
         ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
     return hashlib.sha256(encoded).hexdigest()
 
 

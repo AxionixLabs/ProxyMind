@@ -46,6 +46,10 @@ class ConfigSession(object):
         """返回当前参与解析的配置来源。"""
         return self.resolve(create=create).layers
 
+    def set_workspace(self, workspace: Path | None) -> None:
+        """更新后续分层解析使用的工作目录。"""
+        self.resolver.set_workspace(workspace)
+
     def update_user(
         self,
         values: dict[tuple[str, ...], object]

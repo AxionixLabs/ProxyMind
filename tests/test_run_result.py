@@ -3,7 +3,10 @@
 import typing
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock
+)
 
 import pytest
 
@@ -87,6 +90,7 @@ def _mind() -> SimpleNamespace:
         report=SimpleNamespace(log_papers=[]),
         frontend=SimpleNamespace(runtime=SimpleNamespace(active=True)),
         stop_anim=AsyncMock(),
+        refresh_hooks=Mock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
         remembered=remembered,
@@ -178,6 +182,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         usage={"output_tokens": 3},
     )
     assert mind.remembered == ["answer"]
+    mind.refresh_hooks.assert_called_once_with()
 
 
 @pytest.mark.anyio

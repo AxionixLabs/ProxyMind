@@ -48,6 +48,7 @@ from .frontend.contracts import (
 )
 from .runtime.design import TerminalDesign
 from .runtime.hooks.runtime import HookRuntime
+from .runtime.hooks.models import HookRuntimeStatus
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -391,8 +392,11 @@ class Mind(object):
 
             previous_native_coding = self.native_coding
             self.history_workspace = normalized
-            self.native_coding     = NativeCoding(root=self.history_workspace)
-            self.client_tools      = self._build_client_tools()
+
+            self.config_session.set_workspace(Path(normalized))
+
+            self.native_coding = NativeCoding(root=self.history_workspace)
+            self.client_tools  = self._build_client_tools()
 
             try:
                 loop = asyncio.get_running_loop()
@@ -579,6 +583,11 @@ class Mind(object):
             return None
 
         self.pref_refreshed_at = time.monotonic()
+
+    def refresh_hooks(self) -> HookRuntimeStatus:
+        """重新解析配置并原子替换 Hook 运行时快照。"""
+        resolution = self.config_session.resolve()
+        return self.hooks.reload(resolution.hooks)
 
     async def fresh_pref_config(self, *, ttl_sec: typing.Optional[float] = None) -> dict[str, typing.Any]:
         """返回刷新后的偏好配置快照。"""

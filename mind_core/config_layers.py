@@ -37,7 +37,6 @@ PROJECT_RESTRICTED_ROOTS = frozenset({
     "service",
     "sandbox_mode",
     "approval_policy",
-    "hooks",
 })
 
 MCP_STDIO_FIELDS = frozenset({
@@ -87,6 +86,14 @@ class ConfigResolver(object):
         self.overrides = tuple(overrides)
         self.profile   = normalize_profile_name(profile)
 
+        self.workspace = (
+            Path(workspace).expanduser().resolve()
+            if workspace is not None
+            else None
+        )
+
+    def set_workspace(self, workspace: Path | None) -> None:
+        """更新后续配置解析使用的工作目录。"""
         self.workspace = (
             Path(workspace).expanduser().resolve()
             if workspace is not None
@@ -154,13 +161,22 @@ class ConfigResolver(object):
                 ):
                     if not path.is_file():
                         continue
+
                     project = _read_config(
                         ConfigStore(path),
                         create=False,
                     )
                     _validate_project_config(project, path)
+
                     merged = _merge_config(merged, project)
+
                     layers.append(ConfigLayer("project", path))
+
+                    hooks.extend(resolve_hook_definitions(
+                        project.get("hooks"),
+                        source_scope="project",
+                        source_path=path,
+                    ))
 
         if self.overrides:
             merged = apply_config_overrides(merged, self.overrides)
@@ -185,11 +201,14 @@ def normalize_profile_name(value: str | None) -> str | None:
     """校验可用于 Profile 文件名的名称。"""
     if value is None:
         return None
+
     name = str(value).strip()
+
     if not PROFILE_NAME_PATTERN.fullmatch(name):
         raise ValueError(
             "profile name may contain only letters, numbers, hyphens, and underscores"
         )
+
     return name
 
 

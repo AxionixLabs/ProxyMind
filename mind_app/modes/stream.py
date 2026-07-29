@@ -248,6 +248,17 @@ async def stream_looper(
             metadata=metadata
         )
 
+        refresh_hooks = getattr(mind, "refresh_hooks", None)
+        if callable(refresh_hooks):
+            try:
+                refresh_hooks()
+            except (OSError, TypeError, ValueError) as error:
+                observe_exception(
+                    "hooks.refresh.failed",
+                    error,
+                    level="WARNING",
+                )
+
         hook_runtime = getattr(mind, "hooks", None)
         if not isinstance(hook_runtime, HookRuntime):
             hook_runtime = HookRuntime.empty()

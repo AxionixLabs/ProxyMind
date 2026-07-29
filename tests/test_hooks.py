@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -42,6 +43,20 @@ class _CommandRunner:
         if error is not None:
             raise error
         return SimpleNamespace(data=dict(self.outputs.get(definition.key) or {}))
+
+
+class _BlockingRunner:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.commands = []
+
+    async def execute(self, definition, payload):
+        self.commands.append(definition.command)
+        if definition.command == "old":
+            self.started.set()
+            await self.release.wait()
+        return SimpleNamespace(data={})
 
 
 def _definitions(raw):
@@ -128,6 +143,25 @@ async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> N
         "PreToolUse",
         "PreToolUse",
     ]
+
+
+@pytest.mark.anyio
+async def test_runtime_reload_keeps_inflight_dispatch_on_original_snapshot() -> None:
+    old = _definitions({"PreToolUse": [{"command": "old"}]})
+    new = _definitions({"PreToolUse": [{"command": "new"}]})
+    runner = _BlockingRunner()
+    runtime = HookRuntime(old, command_runner=runner)
+    request = HookEventRequest(event="PreToolUse", payload={})
+
+    inflight = asyncio.create_task(runtime.dispatch(request))
+    await runner.started.wait()
+
+    runtime.reload(new)
+    runner.release.set()
+    await inflight
+    await runtime.dispatch(request)
+
+    assert runner.commands == ["old", "new"]
 
 
 @pytest.mark.anyio
