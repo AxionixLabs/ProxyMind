@@ -37,6 +37,7 @@ class HookConfigError(ValueError):
 class HookEventConfigSpec:
     """定义生命周期事件的配置约束。"""
     name: HookEventName
+    description: str
     default_on_error: HookFailurePolicy
     allows_block_on_error: bool
 
@@ -44,11 +45,13 @@ class HookEventConfigSpec:
 HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
     "PreToolUse": HookEventConfigSpec(
         name="PreToolUse",
+        description="Before a tool executes",
         default_on_error="block",
         allows_block_on_error=True,
     ),
     "PostToolUse": HookEventConfigSpec(
         name="PostToolUse",
+        description="After a tool executes",
         default_on_error="continue",
         allows_block_on_error=False,
     ),

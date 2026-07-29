@@ -49,7 +49,10 @@ from .frontend.contracts import (
 from .runtime.design import TerminalDesign
 from .runtime.hooks.runtime import HookRuntime
 from .runtime.hooks.registry import HookRegistry
-from .runtime.hooks.models import HookRuntimeStatus
+from .runtime.hooks.catalog import (
+    HookCatalogSnapshot,
+    HookCatalogStaleError
+)
 from .runtime.execution import TurnContext
 from .history import (
     ConversationHistoryStore,
@@ -591,22 +594,43 @@ class Mind(object):
 
     def hooks_for_turn(self, turn_context: TurnContext) -> HookRuntime:
         """为指定模型轮次构建固定的 Hook 运行时。"""
+        workspace  = self._hook_workspace(Path(turn_context.cwd))
         resolution = self.config_session.resolve(
-            workspace=Path(turn_context.cwd),
+            workspace=workspace
         )
-        runtime = self.hook_registry.build(resolution.hooks)
+
+        runtime    = self.hook_registry.build(resolution.hooks)
         self.hooks = runtime
+
         return runtime
+
+    def inspect_hooks(
+        self,
+        *,
+        workspace: Path | None = None
+    ) -> HookCatalogSnapshot:
+        """返回指定工作区的实时 Hook 管理快照。"""
+        target_workspace = self._hook_workspace(workspace)
+
+        resolution = self.config_session.resolve(
+            workspace=target_workspace
+        )
+
+        return self.hook_registry.inspect(
+            resolution.hooks,
+            workspace=target_workspace,
+        )
 
     def set_hook_trust(
         self,
         hook_key: str,
         *,
+        expected_content_hash: str,
         trusted: bool,
         workspace: Path | None = None
-    ) -> HookRuntimeStatus:
+    ) -> HookCatalogSnapshot:
         """更新指定工作区 Hook 的信任状态。"""
-        target_workspace = workspace or Path(self.history_workspace)
+        target_workspace = self._hook_workspace(workspace)
         resolution       = self.config_session.resolve(workspace=target_workspace)
 
         definition = next(
@@ -618,16 +642,30 @@ class Mind(object):
             None,
         )
         if definition is None:
-            raise ValueError(f"hook is unavailable: {hook_key}")
+            raise HookCatalogStaleError(
+                f"hook is unavailable: {hook_key}"
+            )
+
+        expected_hash = str(expected_content_hash or "").strip().lower()
+        if definition.content_hash != expected_hash:
+            raise HookCatalogStaleError(
+                f"hook content changed: {hook_key}"
+            )
 
         if trusted:
             self.hook_registry.trust(definition)
         else:
             self.hook_registry.revoke(definition)
 
-        runtime = self.hook_registry.build(resolution.hooks)
-        self.hooks = runtime
-        return runtime.status()
+        return self.hook_registry.inspect(
+            resolution.hooks,
+            workspace=target_workspace,
+        )
+
+    def _hook_workspace(self, workspace: Path | None) -> Path:
+        """返回 Hook 查询使用的绝对工作区路径。"""
+        target = workspace or Path(self.history_workspace)
+        return Path(target).expanduser().resolve()
 
     async def fresh_pref_config(self, *, ttl_sec: typing.Optional[float] = None) -> dict[str, typing.Any]:
         """返回刷新后的偏好配置快照。"""
@@ -653,7 +691,7 @@ class Mind(object):
         self,
         *,
         include_disabled: bool = False,
-        defer_activity_stop: bool = False,
+        defer_activity_stop: bool = False
     ) -> None:
         """重启应用生命周期级外部 MCP 运行时。"""
         if self.external_mcp is None:
