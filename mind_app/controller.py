@@ -48,7 +48,9 @@ from .frontend.contracts import (
 )
 from .runtime.design import TerminalDesign
 from .runtime.hooks.runtime import HookRuntime
+from .runtime.hooks.registry import HookRegistry
 from .runtime.hooks.models import HookRuntimeStatus
+from .runtime.execution import TurnContext
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -86,7 +88,12 @@ class Mind(object):
         self.pref: Preferences               = kwargs["pref"]
         self.config_session: ConfigSession   = kwargs["config_session"]
         self.permissions: PermissionSettings = kwargs["permissions"]
-        self.hooks: HookRuntime              = kwargs.get("hooks") or HookRuntime.empty()
+
+        self.hook_registry: HookRegistry = (
+            kwargs.get("hook_registry") or HookRegistry()
+        )
+
+        self.hooks: HookRuntime = kwargs.get("hooks") or HookRuntime.empty()
 
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
@@ -393,8 +400,6 @@ class Mind(object):
             previous_native_coding = self.native_coding
             self.history_workspace = normalized
 
-            self.config_session.set_workspace(Path(normalized))
-
             self.native_coding = NativeCoding(root=self.history_workspace)
             self.client_tools  = self._build_client_tools()
 
@@ -584,10 +589,45 @@ class Mind(object):
 
         self.pref_refreshed_at = time.monotonic()
 
-    def refresh_hooks(self) -> HookRuntimeStatus:
-        """重新解析配置并原子替换 Hook 运行时快照。"""
-        resolution = self.config_session.resolve()
-        return self.hooks.reload(resolution.hooks)
+    def hooks_for_turn(self, turn_context: TurnContext) -> HookRuntime:
+        """为指定模型轮次构建固定的 Hook 运行时。"""
+        resolution = self.config_session.resolve(
+            workspace=Path(turn_context.cwd),
+        )
+        runtime = self.hook_registry.build(resolution.hooks)
+        self.hooks = runtime
+        return runtime
+
+    def set_hook_trust(
+        self,
+        hook_key: str,
+        *,
+        trusted: bool,
+        workspace: Path | None = None
+    ) -> HookRuntimeStatus:
+        """更新指定工作区 Hook 的信任状态。"""
+        target_workspace = workspace or Path(self.history_workspace)
+        resolution       = self.config_session.resolve(workspace=target_workspace)
+
+        definition = next(
+            (
+                item
+                for item in resolution.hooks
+                if item.key == hook_key
+            ),
+            None,
+        )
+        if definition is None:
+            raise ValueError(f"hook is unavailable: {hook_key}")
+
+        if trusted:
+            self.hook_registry.trust(definition)
+        else:
+            self.hook_registry.revoke(definition)
+
+        runtime = self.hook_registry.build(resolution.hooks)
+        self.hooks = runtime
+        return runtime.status()
 
     async def fresh_pref_config(self, *, ttl_sec: typing.Optional[float] = None) -> dict[str, typing.Any]:
         """返回刷新后的偏好配置快照。"""

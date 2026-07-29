@@ -16,7 +16,7 @@ from .models import (
     ToolCallRunResult,
     ToolOutcome
 )
-from .runtime import HookRuntime
+from .runtime import HookDispatcher
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -31,7 +31,7 @@ class _PreparedDecision:
 class ToolHookEvents:
     """构建并聚合工具生命周期事件。"""
 
-    def __init__(self, runtime: HookRuntime) -> None:
+    def __init__(self, runtime: HookDispatcher) -> None:
         self.runtime = runtime
 
     async def pre_tool_use(self, invocation: ToolInvocation) -> HookDecision:
@@ -94,7 +94,7 @@ class ToolHookEvents:
 class ToolCallCoordinator:
     """协调工具调用的前置、执行和后置 Hook。"""
 
-    def __init__(self, hooks: HookRuntime) -> None:
+    def __init__(self, hooks: HookDispatcher) -> None:
         self.events = ToolHookEvents(hooks)
 
         self._prepared: dict[str, _PreparedDecision] = {}

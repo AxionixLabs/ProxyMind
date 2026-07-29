@@ -19,6 +19,7 @@ from mind_app.runtime.hooks.command import (
 )
 from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
 from mind_app.runtime.hooks.models import HookEventRequest
+from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.tool import (
     ToolCallCoordinator,
@@ -43,20 +44,6 @@ class _CommandRunner:
         if error is not None:
             raise error
         return SimpleNamespace(data=dict(self.outputs.get(definition.key) or {}))
-
-
-class _BlockingRunner:
-    def __init__(self) -> None:
-        self.started = asyncio.Event()
-        self.release = asyncio.Event()
-        self.commands = []
-
-    async def execute(self, definition, payload):
-        self.commands.append(definition.command)
-        if definition.command == "old":
-            self.started.set()
-            await self.release.wait()
-        return SimpleNamespace(data={})
 
 
 def _definitions(raw):
@@ -146,22 +133,38 @@ async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> N
 
 
 @pytest.mark.anyio
-async def test_runtime_reload_keeps_inflight_dispatch_on_original_snapshot() -> None:
-    old = _definitions({"PreToolUse": [{"command": "old"}]})
-    new = _definitions({"PreToolUse": [{"command": "new"}]})
-    runner = _BlockingRunner()
-    runtime = HookRuntime(old, command_runner=runner)
-    request = HookEventRequest(event="PreToolUse", payload={})
+async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> None:
+    old = _definitions({
+        "PreToolUse": [{"command": "old-pre"}],
+        "PostToolUse": [{"command": "old-post"}],
+    })
+    new = _definitions({
+        "PreToolUse": [{"command": "new-pre"}],
+        "PostToolUse": [{"command": "new-post"}],
+    })
+    runner = _CommandRunner()
+    registry = HookRegistry(command_runner=runner)
+    coordinator = ToolCallCoordinator(registry.build(old))
+    started = asyncio.Event()
+    release = asyncio.Event()
 
-    inflight = asyncio.create_task(runtime.dispatch(request))
-    await runner.started.wait()
+    async def operation():
+        started.set()
+        await release.wait()
+        return "done"
 
-    runtime.reload(new)
-    runner.release.set()
-    await inflight
-    await runtime.dispatch(request)
+    task = asyncio.create_task(coordinator.run(_invocation(), operation))
+    await started.wait()
 
-    assert runner.commands == ["old", "new"]
+    registry.build(new)
+    release.set()
+    result = await task
+
+    assert result.value == "done"
+    assert [call[0].command for call in runner.calls] == [
+        "old-pre",
+        "old-post",
+    ]
 
 
 @pytest.mark.anyio

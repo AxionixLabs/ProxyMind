@@ -42,7 +42,7 @@ from mind_core.permissions import (
     PermissionSettings,
     resolve_permissions
 )
-from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.registry import HookRegistry
 from mind_core.service_config import ServiceConfig
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
@@ -123,6 +123,12 @@ class MindMcpRuntime(object):
             session_factory=create_silent_output_session,
         )
 
+        hook_registry = HookRegistry(
+            trust_store=HookTrustStore(
+                default_hook_trust_path(config_session.store.path)
+            ),
+        )
+
         mind = Mind(
             const.SHOW_LEVEL,
             os.cpu_count() or 1,
@@ -137,12 +143,8 @@ class MindMcpRuntime(object):
             report=report,
             workspace_root=Path.cwd(),
             permissions=permissions,
-            hooks=HookRuntime(
-                config_resolution.hooks,
-                trust_store=HookTrustStore(
-                    default_hook_trust_path(config_session.store.path)
-                ),
-            ),
+            hooks=hook_registry.build(config_resolution.hooks),
+            hook_registry=hook_registry,
         )
 
         try:

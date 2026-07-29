@@ -6,10 +6,6 @@ import typing
 import asyncio
 from dataclasses import dataclass
 from engine.observability import observe_exception
-from mind_core.hook_trust import (
-    HookTrustSnapshot,
-    HookTrustStore
-)
 from mind_core.hooks import (
     HookDefinitionConfig,
     HookEventName
@@ -20,7 +16,6 @@ from .models import (
     HookDispatchResult,
     HookEventRequest,
     HookExecutionRecord,
-    HookRuntimeEntry,
     HookRuntimeStatus
 )
 
@@ -44,27 +39,68 @@ class _RegisteredHook:
     matcher: re.Pattern[str]
 
 
-@dataclass(frozen=True, slots=True)
-class _HookRuntimeSnapshot:
-    """保存单次事件分发使用的不可变运行时快照。"""
-    definitions: tuple[HookDefinitionConfig, ...]
-    active: tuple[_RegisteredHook, ...]
-    status: HookRuntimeStatus
+class HookDispatcher(typing.Protocol):
+    """定义生命周期事件使用的不可变分发接口。"""
+
+    def has_matching(
+        self,
+        event: HookEventName,
+        match_value: str = "",
+    ) -> bool:
+        """判断指定事件是否存在匹配 Hook。"""
+        ...
+
+    async def dispatch(self, request: HookEventRequest) -> HookDispatchResult:
+        """分发一次生命周期事件。"""
+        ...
 
 
+@dataclass(frozen=True, slots=True, init=False)
 class HookRuntime:
-    """匹配并执行当前进程启用的生命周期 Hook。"""
+    """匹配并执行一个轮次内固定的生命周期 Hook。"""
+    command_runner: HookCommandRunner
+    _definitions: tuple[HookDefinitionConfig, ...]
+    _active: tuple[_RegisteredHook, ...]
+    _status: HookRuntimeStatus
 
     def __init__(
         self,
         definitions: typing.Iterable[HookDefinitionConfig] = (),
         *,
         command_runner: HookCommandRunner | None = None,
-        trust_store: HookTrustStore | None = None
+        status: HookRuntimeStatus | None = None
     ) -> None:
-        self.command_runner = command_runner or HookCommandExecutor()
-        self.trust_store    = trust_store
-        self._snapshot      = self._build_snapshot(tuple(definitions))
+        resolved = tuple(definitions)
+
+        active_definitions = tuple(
+            definition
+            for definition in resolved
+            if definition.enabled
+        )
+
+        active = tuple(
+            _RegisteredHook(
+                definition=definition,
+                matcher=re.compile(definition.matcher or ".*"),
+            )
+            for definition in active_definitions
+        )
+
+        object.__setattr__(
+            self,
+            "command_runner",
+            command_runner or HookCommandExecutor(),
+        )
+        object.__setattr__(self, "_definitions", active_definitions)
+        object.__setattr__(self, "_active", active)
+        object.__setattr__(
+            self,
+            "_status",
+            status or HookRuntimeStatus(
+                installed_count=len(resolved),
+                active_count=len(active),
+            ),
+        )
 
     @classmethod
     def empty(cls) -> "HookRuntime":
@@ -74,34 +110,21 @@ class HookRuntime:
     @property
     def installed_count(self) -> int:
         """返回已解析 Hook 数量。"""
-        return self._snapshot.status.installed_count
+        return self._status.installed_count
 
     @property
     def active_count(self) -> int:
         """返回已启用 Hook 数量。"""
-        return self._snapshot.status.active_count
+        return self._status.active_count
 
     @property
     def definitions(self) -> tuple[HookDefinitionConfig, ...]:
-        """返回当前快照中的全部 Hook 定义。"""
-        return self._snapshot.definitions
+        """返回当前轮次中的活动 Hook 定义。"""
+        return self._definitions
 
     def status(self) -> HookRuntimeStatus:
         """返回当前不可变运行时状态视图。"""
-        return self._snapshot.status
-
-    def reload(
-        self,
-        definitions: typing.Iterable[HookDefinitionConfig]
-    ) -> HookRuntimeStatus:
-        """构造完整新快照后原子替换当前运行状态。"""
-        snapshot = self._build_snapshot(tuple(definitions))
-        self._snapshot = snapshot
-        return snapshot.status
-
-    def refresh_trust(self) -> HookRuntimeStatus:
-        """重新读取信任状态并保留当前 Hook 定义。"""
-        return self.reload(self.definitions)
+        return self._status
 
     def has_matching(
         self,
@@ -109,20 +132,18 @@ class HookRuntime:
         match_value: str = ""
     ) -> bool:
         """判断指定事件是否存在匹配的活动 Hook。"""
-        snapshot = self._snapshot
         return any(
             registered.definition.event == event
             and registered.matcher.search(match_value)
-            for registered in snapshot.active
+            for registered in self._active
         )
 
     async def dispatch(self, request: HookEventRequest) -> HookDispatchResult:
         """按事件规格执行全部匹配 Hook 并返回独立执行记录。"""
-        spec     = hook_event_spec(request.event)
-        snapshot = self._snapshot
+        spec = hook_event_spec(request.event)
 
         matching = self._matching(
-            snapshot.active,
+            self._active,
             request.event,
             request.match_value,
         )
@@ -186,51 +207,6 @@ class HookRuntime:
             for registered in active
             if registered.definition.event == event
             and registered.matcher.search(match_value)
-        )
-
-    def _build_snapshot(
-        self,
-        definitions: tuple[HookDefinitionConfig, ...]
-    ) -> _HookRuntimeSnapshot:
-        """解析信任状态并构建完整不可变运行时快照。"""
-        trust = (
-            self.trust_store.load()
-            if self.trust_store is not None
-            else HookTrustSnapshot()
-        )
-
-        active: list[_RegisteredHook]   = []
-        entries: list[HookRuntimeEntry] = []
-
-        for definition in definitions:
-            trust_state = trust.state(definition)
-
-            is_active = definition.enabled and trust_state != "untrusted"
-            if is_active:
-                active.append(_RegisteredHook(
-                    definition=definition,
-                    matcher=re.compile(definition.matcher or ".*"),
-                ))
-            entries.append(HookRuntimeEntry(
-                key=definition.key,
-                event=definition.event,
-                source_scope=definition.source_scope,
-                source_path=definition.source_path,
-                content_hash=definition.content_hash,
-                enabled=definition.enabled,
-                trust_state=trust_state,
-                active=is_active,
-            ))
-
-        status = HookRuntimeStatus(
-            installed_count=len(definitions),
-            active_count=len(active),
-            hooks=tuple(entries),
-        )
-        return _HookRuntimeSnapshot(
-            definitions=definitions,
-            active=tuple(active),
-            status=status,
         )
 
     @staticmethod

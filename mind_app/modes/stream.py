@@ -248,18 +248,21 @@ async def stream_looper(
             metadata=metadata
         )
 
-        refresh_hooks = getattr(mind, "refresh_hooks", None)
-        if callable(refresh_hooks):
+        hooks_for_turn = getattr(mind, "hooks_for_turn", None)
+
+        if callable(hooks_for_turn):
             try:
-                refresh_hooks()
+                hook_runtime = hooks_for_turn(turn_context)
             except (OSError, TypeError, ValueError) as error:
                 observe_exception(
-                    "hooks.refresh.failed",
+                    "hooks.resolve.failed",
                     error,
                     level="WARNING",
                 )
+                hook_runtime = HookRuntime.empty()
+        else:
+            hook_runtime = getattr(mind, "hooks", None)
 
-        hook_runtime = getattr(mind, "hooks", None)
         if not isinstance(hook_runtime, HookRuntime):
             hook_runtime = HookRuntime.empty()
 

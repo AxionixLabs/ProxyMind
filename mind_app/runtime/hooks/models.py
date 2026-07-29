@@ -31,6 +31,7 @@ class HookRuntimeStatus:
     installed_count: int
     active_count: int
     hooks: tuple[HookRuntimeEntry, ...] = ()
+    trust_error: str = ""
 
 
 @dataclass(frozen=True, slots=True)

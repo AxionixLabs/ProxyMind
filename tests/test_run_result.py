@@ -90,7 +90,6 @@ def _mind() -> SimpleNamespace:
         report=SimpleNamespace(log_papers=[]),
         frontend=SimpleNamespace(runtime=SimpleNamespace(active=True)),
         stop_anim=AsyncMock(),
-        refresh_hooks=Mock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
         remembered=remembered,
@@ -109,8 +108,7 @@ async def _run_stream(
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = _mind()
-    if hooks is not None:
-        mind.hooks = hooks
+    mind.hooks_for_turn = Mock(return_value=hooks or HookRuntime.empty())
     permissions = preset_permissions("auto")
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -182,7 +180,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         usage={"output_tokens": 3},
     )
     assert mind.remembered == ["answer"]
-    mind.refresh_hooks.assert_called_once_with()
+    mind.hooks_for_turn.assert_called_once()
 
 
 @pytest.mark.anyio

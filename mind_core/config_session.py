@@ -34,9 +34,17 @@ class ConfigSession(object):
             workspace=workspace,
         )
 
-    def resolve(self, *, create: bool = True) -> ConfigResolution:
+    def resolve(
+        self,
+        *,
+        create: bool = True,
+        workspace: Path | None = None
+    ) -> ConfigResolution:
         """返回包含来源信息的有效配置结果。"""
-        return self.resolver.resolve(create=create)
+        return self.resolver.resolve(
+            create=create,
+            workspace=workspace,
+        )
 
     def load(self, *, create: bool = True) -> dict[str, typing.Any]:
         """返回文件配置与进程覆盖合并后的有效快照。"""
@@ -45,10 +53,6 @@ class ConfigSession(object):
     def layers(self, *, create: bool = True) -> tuple[ConfigLayer, ...]:
         """返回当前参与解析的配置来源。"""
         return self.resolve(create=create).layers
-
-    def set_workspace(self, workspace: Path | None) -> None:
-        """更新后续分层解析使用的工作目录。"""
-        self.resolver.set_workspace(workspace)
 
     def update_user(
         self,

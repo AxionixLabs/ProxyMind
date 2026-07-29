@@ -139,7 +139,7 @@ def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
     assert resolution.hooks[0].source_path == str(project_config.resolve())
 
 
-def test_workspace_change_refreshes_project_hook_source(tmp_path) -> None:
+def test_workspace_override_selects_project_hook_source(tmp_path) -> None:
     projects = [tmp_path / "first", tmp_path / "second"]
     for index, project_root in enumerate(projects):
         (project_root / ".git").mkdir(parents=True)
@@ -160,9 +160,8 @@ def test_workspace_change_refreshes_project_hook_source(tmp_path) -> None:
 
     assert session.resolve().hooks[0].command == "check-0"
 
-    session.set_workspace(projects[1])
-
-    assert session.resolve().hooks[0].command == "check-1"
+    assert session.resolve(workspace=projects[1]).hooks[0].command == "check-1"
+    assert session.resolve().hooks[0].command == "check-0"
 
 
 def test_invalid_hook_matcher_is_rejected() -> None:

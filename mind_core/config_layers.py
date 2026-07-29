@@ -92,26 +92,31 @@ class ConfigResolver(object):
             else None
         )
 
-    def set_workspace(self, workspace: Path | None) -> None:
-        """更新后续配置解析使用的工作目录。"""
-        self.workspace = (
-            Path(workspace).expanduser().resolve()
-            if workspace is not None
-            else None
-        )
-
-    def resolve(self, *, create: bool = True) -> ConfigResolution:
+    def resolve(
+        self,
+        *,
+        create: bool = True,
+        workspace: Path | None = None
+    ) -> ConfigResolution:
         """解析配置层并返回有效配置。"""
         user = _read_config(self.store, create=create)
-        return self.resolve_user_config(user)
+        return self.resolve_user_config(user, workspace=workspace)
 
     def resolve_user_config(
         self,
         user: dict[str, typing.Any],
+        *,
+        workspace: Path | None = None
     ) -> ConfigResolution:
         """基于候选用户配置解析全部配置层。"""
         validate_config(user)
         merged = copy.deepcopy(user)
+
+        effective_workspace = (
+            Path(workspace).expanduser().resolve()
+            if workspace is not None
+            else self.workspace
+        )
 
         layers: list[ConfigLayer] = [ConfigLayer("user", self.store.path)]
 
@@ -148,16 +153,17 @@ class ConfigResolver(object):
         project_root: Path | None = None
         project_trusted: bool     = False
 
-        if self.workspace is not None:
+        if effective_workspace is not None:
             project_root = _find_project_root(
-                self.workspace,
+                effective_workspace,
                 _project_root_markers(merged),
             )
+
             project_trusted = _project_is_trusted(user, project_root)
             if project_trusted:
                 for path in _project_config_paths(
                     project_root,
-                    self.workspace,
+                    effective_workspace,
                 ):
                     if not path.is_file():
                         continue
