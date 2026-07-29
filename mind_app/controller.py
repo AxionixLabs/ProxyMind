@@ -32,7 +32,10 @@ from .runtime.support.calling import (
 )
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
-from .runtime.support.conversation import ConversationState
+from .runtime.support.conversation import (
+    ConversationState,
+    ConversationTurn
+)
 from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,
     ToolRuntime
@@ -194,9 +197,14 @@ class Mind(object):
         *,
         title: str = "",
         source: str = "begin"
-    ) -> dict[str, str]:
+    ) -> ConversationTurn:
         """为新轮次初始化或续用当前会话标识。"""
-        metadata = self.conversation.begin_turn(cid=cid, sid=sid)
+        turn = self.conversation.begin_turn(
+            cid=cid,
+            sid=sid,
+            start_reason=source,
+        )
+        metadata = turn.metadata()
 
         self._touch_history_session(metadata, title=title, source=source)
 
@@ -205,9 +213,11 @@ class Mind(object):
             cid=metadata.get("cid"),
             sid=metadata.get("sid"),
             source=source,
+            session_started=turn.session_started,
+            start_reason=turn.start_reason,
         )
 
-        return metadata
+        return turn
 
     def reset_conversation(
         self,
@@ -322,7 +332,11 @@ class Mind(object):
             )
             return None
 
-        self.conversation = ConversationState(cid=cid, sid=sid)
+        self.conversation = ConversationState(
+            cid=cid,
+            sid=sid,
+            start_reason=source,
+        )
 
         metadata = self.conversation.snapshot()
 

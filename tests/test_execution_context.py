@@ -25,6 +25,8 @@ def test_root_agent_and_turn_context_share_session_identity() -> None:
         cwd="D:/workspace",
         permissions=permissions,
         turn_id="turn_test",
+        session_started=True,
+        session_start_reason="initial",
     )
 
     assert agent.agent_id == ROOT_AGENT_ID
@@ -34,6 +36,8 @@ def test_root_agent_and_turn_context_share_session_identity() -> None:
     assert turn.turn_id == "turn_test"
     assert turn.model == "test-model"
     assert turn.permissions is permissions
+    assert turn.session_started is True
+    assert turn.session_start_reason == "initial"
 
 
 def test_turn_context_rejects_mismatched_root_session() -> None:
@@ -60,6 +64,7 @@ def test_tool_invocation_replaces_arguments_without_losing_context() -> None:
         pref_config={},
         cwd=".",
         permissions=preset_permissions("auto"),
+        session_start_reason="ignored",
     )
     invocation = ToolInvocation(
         turn=turn,
@@ -74,3 +79,5 @@ def test_tool_invocation_replaces_arguments_without_losing_context() -> None:
     assert updated.turn is turn
     assert updated.call_id == invocation.call_id
     assert updated.arguments == {"command": "rg FIXME"}
+    assert turn.session_started is False
+    assert turn.session_start_reason == ""

@@ -66,6 +66,7 @@ class FlowRuntime:
     agent: AgentContext
     permissions: PermissionSettings
     cwd: str
+    pending_session_start_reason: str | None
     failures: int = 0
 
 
@@ -164,6 +165,9 @@ async def _run_flow_turn(
     **kwargs: typing.Any
 ) -> RunResult:
     """为编排中的单次模型请求创建独立轮次上下文。"""
+    session_start_reason = runtime.pending_session_start_reason
+    runtime.pending_session_start_reason = None
+
     turn_context = TurnContext.create(
         agent=runtime.agent,
         cid=runtime.metadata["cid"],
@@ -173,6 +177,8 @@ async def _run_flow_turn(
         pref_config=runtime.pref_config,
         cwd=runtime.cwd,
         permissions=runtime.permissions,
+        session_started=session_start_reason is not None,
+        session_start_reason=session_start_reason or "",
     )
 
     runner_kwargs = dict(kwargs)
@@ -727,14 +733,15 @@ async def _prepare_flow_context(
 
     first_title = _first_flow_title(code_sources)
 
+    conversation_turn = mind.begin_conversation_turn(
+        cid=cid,
+        sid=sid,
+        title=first_title,
+        source="flow",
+    )
     metadata = {
         **meta_in,
-        **mind.begin_conversation_turn(
-            cid=cid,
-            sid=sid,
-            title=first_title,
-            source="flow",
-        )
+        **conversation_turn.metadata(),
     }
     kwargs["metadata"] = metadata
 
@@ -759,6 +766,11 @@ async def _prepare_flow_context(
         agent=AgentContext.root(metadata["sid"]),
         permissions=permissions,
         cwd=mind.history_workspace,
+        pending_session_start_reason=(
+            conversation_turn.start_reason
+            if conversation_turn.session_started
+            else None
+        ),
     )
     return FlowExecutionContext(
         code_sources=code_sources,

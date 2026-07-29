@@ -118,10 +118,11 @@ async def run_tui_model_turn(
     ) -> None:
         runner = resolve_mode_runner(mind, run_mode)
 
-        turn_metadata = mind.begin_conversation_turn(
+        conversation_turn = mind.begin_conversation_turn(
             title=session_title,
             source="tui",
         )
+        turn_metadata = conversation_turn.metadata()
 
         turn_context = TurnContext.create(
             agent=AgentContext.root(turn_metadata["sid"]),
@@ -132,6 +133,8 @@ async def run_tui_model_turn(
             pref_config=pref_config,
             cwd=mind.history_workspace,
             permissions=permissions,
+            session_started=conversation_turn.session_started,
+            session_start_reason=conversation_turn.start_reason,
         )
 
         ev_report = EventReport(

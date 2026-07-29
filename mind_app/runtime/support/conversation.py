@@ -3,8 +3,26 @@
 
 import time
 import typing
-from mind_nova.identifiers import new_cid, new_sid
+from dataclasses import dataclass
+from mind_nova.identifiers import (
+    new_cid,
+    new_sid
+)
 from mind_app.history.ids import valid_session_ids
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationTurn:
+    """描述一次会话轮次及其启动边界。"""
+    cid: str
+    sid: str
+    turn_index: int
+    session_started: bool
+    start_reason: str = ""
+
+    def metadata(self) -> dict[str, str]:
+        """返回不包含本地生命周期状态的会话标识。"""
+        return {"cid": self.cid, "sid": self.sid}
 
 
 class ConversationState(object):
@@ -18,7 +36,8 @@ class ConversationState(object):
         created_at: float = 0.0,
         turn_count: int = 0,
         reset_count: int = 0,
-        reset_reason: str = ""
+        reset_reason: str = "",
+        start_reason: str = ""
     ) -> None:
         self.cid = self._clean(cid)
         self.sid = self._clean(sid)
@@ -31,13 +50,15 @@ class ConversationState(object):
         self.turn_count   = int(turn_count or 0)
         self.reset_count  = int(reset_count or 0)
         self.reset_reason = str(reset_reason or "")
+        self.start_reason = str(start_reason or "").strip()
 
     def begin_turn(
         self,
         *,
         cid: typing.Optional[str] = None,
-        sid: typing.Optional[str] = None
-    ) -> dict[str, str]:
+        sid: typing.Optional[str] = None,
+        start_reason: str = ""
+    ) -> ConversationTurn:
         """为新轮次初始化、续用或绑定会话标识。"""
         external_cid = self._clean(cid)
         external_sid = self._clean(sid)
@@ -45,13 +66,32 @@ class ConversationState(object):
         if external_cid or external_sid:
             if not valid_session_ids(external_cid, external_sid):
                 raise ValueError("valid cid and sid are required")
-            self._bind_external(external_cid, external_sid)
+            self._bind_external(
+                external_cid,
+                external_sid,
+                start_reason=start_reason,
+            )
 
         elif not self.cid or not self.sid:
             self.reset(reason="initial")
 
+        session_started = self.turn_count == 0
+        boundary_reason = ""
+        if session_started:
+            boundary_reason = self.start_reason.strip() or "bound"
+
         self.turn_count += 1
-        return self.snapshot()
+        metadata = self.snapshot()
+        if session_started:
+            self.start_reason = ""
+
+        return ConversationTurn(
+            cid=metadata["cid"],
+            sid=metadata["sid"],
+            turn_index=self.turn_count,
+            session_started=session_started,
+            start_reason=boundary_reason,
+        )
 
     def reset(self, *, reason: str = "manual") -> dict[str, str]:
         """开始一个全新的对话。"""
@@ -63,17 +103,22 @@ class ConversationState(object):
 
         self.reset_count += 1
 
-        self.reset_reason = str(reason or "manual")
+        self.reset_reason = str(reason or "").strip() or "manual"
+        self.start_reason = self.reset_reason
 
         return self.snapshot()
 
     def snapshot(self) -> dict[str, str]:
         """返回当前会话标识快照。"""
+        created_session = not self.cid or not self.sid
         cid = self.cid or new_cid()
         sid = self.sid or new_sid(cid)
 
         self.cid = cid
         self.sid = sid
+
+        if created_session and self.turn_count == 0 and not self.start_reason:
+            self.start_reason = "initial"
 
         if not self.created_at:
             self.created_at = time.time()
@@ -95,14 +140,17 @@ class ConversationState(object):
     def _bind_external(
         self,
         cid: typing.Optional[str],
-        sid: typing.Optional[str]
+        sid: typing.Optional[str],
+        *,
+        start_reason: str
     ) -> None:
         """绑定外部请求带入的会话标识。"""
-        if cid and cid != self.cid:
+        if cid and (cid != self.cid or sid != self.sid):
             self.cid = cid
             self.sid = sid or new_sid(cid)
             self.created_at = time.time()
             self.turn_count = 0
+            self.start_reason = str(start_reason or "").strip() or "external"
             return None
 
         if cid:

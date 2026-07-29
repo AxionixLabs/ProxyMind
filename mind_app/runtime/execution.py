@@ -48,6 +48,8 @@ class TurnContext:
     model: str
     cwd: str
     permissions: PermissionSettings
+    session_started: bool = False
+    session_start_reason: str = ""
 
     @classmethod
     def create(
@@ -62,6 +64,8 @@ class TurnContext:
         cwd: str,
         permissions: PermissionSettings,
         turn_id: str | None = None,
+        session_started: bool = False,
+        session_start_reason: str = ""
     ) -> "TurnContext":
         """从会话与运行配置创建轮次上下文。"""
         normalized_cid     = str(cid or "").strip()
@@ -86,6 +90,12 @@ class TurnContext:
             model=model,
             cwd=str(cwd or "").strip(),
             permissions=permissions,
+            session_started=bool(session_started),
+            session_start_reason=(
+                str(session_start_reason or "").strip()
+                if session_started
+                else ""
+            ),
         )
 
 

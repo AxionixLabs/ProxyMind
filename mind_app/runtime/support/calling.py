@@ -93,14 +93,15 @@ async def calling(
     cid     = meta_in.get("cid") if isinstance(meta_in, dict) else None
     sid     = meta_in.get("sid") if isinstance(meta_in, dict) else None
 
+    conversation_turn = mind.begin_conversation_turn(
+        cid=cid,
+        sid=sid,
+        title=message,
+        source="calling",
+    )
     kwargs["metadata"] = meta = {
         **meta_in,
-        **mind.begin_conversation_turn(
-            cid=cid,
-            sid=sid,
-            title=message,
-            source="calling",
-        )
+        **conversation_turn.metadata(),
     }
 
     turn_context = TurnContext.create(
@@ -113,6 +114,8 @@ async def calling(
         cwd=mind.history_workspace,
         permissions=permissions,
         turn_id=kwargs.pop("turn_id", None),
+        session_started=conversation_turn.session_started,
+        session_start_reason=conversation_turn.start_reason,
     )
     kwargs["turn_context"] = turn_context
 
