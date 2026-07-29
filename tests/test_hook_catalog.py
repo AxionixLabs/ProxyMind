@@ -9,7 +9,7 @@ import pytest
 from mind_app.controller import Mind
 from mind_app.runtime.hooks.catalog import HookCatalogStaleError
 from mind_app.runtime.hooks.registry import HookRegistry
-from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import HookExecutionContext
 from mind_core.hook_trust import HookTrustStore
 from mind_core.hooks import resolve_hook_definitions
 
@@ -45,7 +45,6 @@ def _controller(
         resolve=Mock(return_value=SimpleNamespace(hooks=tuple(definitions))),
     )
     controller.hook_registry = registry
-    controller.hooks = HookRuntime.empty()
     return controller
 
 
@@ -78,19 +77,16 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
     assert catalog.hooks[1].on_error == "continue"
 
 
-def test_controller_inspection_does_not_replace_last_turn_runtime(tmp_path) -> None:
+def test_controller_inspection_uses_resolved_workspace(tmp_path) -> None:
     definitions = _definitions(tmp_path / "project.toml")
     controller = _controller(
         tmp_path,
         definitions,
         registry=HookRegistry(),
     )
-    previous = controller.hooks
-
     catalog = controller.inspect_hooks()
 
     assert catalog.workspace == str(tmp_path.resolve())
-    assert controller.hooks is previous
     controller.config_session.resolve.assert_called_once_with(
         workspace=tmp_path.resolve(),
     )
@@ -112,8 +108,6 @@ def test_controller_rejects_stale_hash_before_trusting_hook(tmp_path) -> None:
             trust_store=HookTrustStore(trust_path),
         ),
     )
-    previous = controller.hooks
-
     with pytest.raises(HookCatalogStaleError, match="content changed"):
         controller.set_hook_trust(
             changed.key,
@@ -131,4 +125,39 @@ def test_controller_rejects_stale_hash_before_trusting_hook(tmp_path) -> None:
 
     assert catalog.active_count == 1
     assert catalog.hooks[0].trust_state == "trusted"
-    assert controller.hooks is previous
+
+
+def test_controller_builds_isolated_hook_scopes_for_config_snapshots(tmp_path) -> None:
+    source_path = tmp_path / "user.toml"
+    old = resolve_hook_definitions(
+        {"PreToolUse": [{"command": "old"}]},
+        source_scope="user",
+        source_path=source_path,
+    )
+    new = resolve_hook_definitions(
+        {"PreToolUse": [{"command": "new"}]},
+        source_scope="user",
+        source_path=source_path,
+    )
+    controller = _controller(tmp_path, old, registry=HookRegistry())
+    controller.config_session.resolve.side_effect = [
+        SimpleNamespace(hooks=old),
+        SimpleNamespace(hooks=new),
+    ]
+    context = HookExecutionContext(
+        session_id="session",
+        turn_id="turn",
+        cwd=str(tmp_path),
+        model="model",
+        sandbox_mode="workspace-write",
+        permission_mode="on-request",
+        agent_id="root",
+    )
+
+    old_scope = controller.hook_scope(context)
+    new_scope = controller.hook_scope(context)
+
+    assert [item.command for item in old_scope.dispatcher.definitions] == ["old"]
+    assert [item.command for item in new_scope.dispatcher.definitions] == ["new"]
+    assert [item.command for item in old_scope.dispatcher.definitions] == ["old"]
+    assert not hasattr(controller, "hooks")

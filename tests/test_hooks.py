@@ -21,6 +21,10 @@ from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
 from mind_app.runtime.hooks.models import HookEventRequest
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope
+)
 from mind_app.runtime.hooks.tool import (
     ToolCallCoordinator,
     ToolHookEvents
@@ -56,7 +60,11 @@ def _definitions(raw):
     )
 
 
-def _invocation(*, execution=None) -> ToolInvocation:
+def _invocation(
+    *,
+    execution=None,
+    turn_id: str = "turn_test",
+) -> ToolInvocation:
     turn = TurnContext.create(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
@@ -66,7 +74,7 @@ def _invocation(*, execution=None) -> ToolInvocation:
         pref_config={"primary": {"model": "test-model"}},
         cwd=".",
         permissions=preset_permissions("auto"),
-        turn_id="turn_test",
+        turn_id=turn_id,
     )
     return ToolInvocation(
         turn=turn,
@@ -75,6 +83,17 @@ def _invocation(*, execution=None) -> ToolInvocation:
         arguments={"command": "rg TODO"},
         meta={"domain": "coding"},
         execution=execution,
+    )
+
+
+def _scope(
+    runtime: HookRuntime,
+    invocation: ToolInvocation | None = None,
+) -> HookExecutionScope:
+    invocation = invocation or _invocation()
+    return HookExecutionScope(
+        context=HookExecutionContext.from_turn(invocation.turn),
+        dispatcher=runtime,
     )
 
 
@@ -135,6 +154,40 @@ async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> N
 
 
 @pytest.mark.anyio
+async def test_scope_owns_common_payload_fields() -> None:
+    definitions = _definitions({
+        "PreToolUse": [{"command": "check"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"decision": "allow"},
+    })
+    scope = _scope(HookRuntime(definitions, command_runner=runner))
+
+    await scope.dispatch(
+        "PreToolUse",
+        payload={
+            "session_id": "spoofed",
+            "turn_id": "spoofed",
+            "tool_name": "shell_command",
+        },
+        match_value="shell_command",
+    )
+
+    payload = runner.calls[0][1]
+    assert payload["session_id"] == "sid_test"
+    assert payload["turn_id"] == "turn_test"
+    assert payload["agent_id"] == "root"
+
+
+@pytest.mark.anyio
+async def test_tool_hooks_reject_invocation_from_another_scope() -> None:
+    events = ToolHookEvents(_scope(HookRuntime.empty()))
+
+    with pytest.raises(ValueError, match="does not belong to hook scope"):
+        await events.pre_tool_use(_invocation(turn_id="other_turn"))
+
+
+@pytest.mark.anyio
 async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> None:
     old = _definitions({
         "PreToolUse": [{"command": "old-pre"}],
@@ -146,7 +199,7 @@ async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> Non
     })
     runner = _CommandRunner()
     registry = HookRegistry(command_runner=runner)
-    coordinator = ToolCallCoordinator(registry.build(old))
+    coordinator = ToolCallCoordinator(_scope(registry.build(old)))
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -185,7 +238,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
     })
     runtime = HookRuntime(definitions, command_runner=runner)
 
-    decision = await ToolHookEvents(runtime).pre_tool_use(
+    decision = await ToolHookEvents(_scope(runtime)).pre_tool_use(
         _invocation(execution={"grantId": "secret-grant"})
     )
 
@@ -212,10 +265,10 @@ async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
         definitions[0].key: RuntimeError("broken hook"),
     })
 
-    decision = await ToolHookEvents(HookRuntime(
+    decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )).pre_tool_use(_invocation())
+    ))).pre_tool_use(_invocation())
 
     assert not decision.allowed
     assert "broken hook" in decision.reason
@@ -233,10 +286,10 @@ async def test_pre_tool_use_continues_when_nonblocking_hook_fails() -> None:
         definitions[0].key: RuntimeError("broken hook"),
     })
 
-    decision = await ToolHookEvents(HookRuntime(
+    decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )).pre_tool_use(_invocation())
+    ))).pre_tool_use(_invocation())
 
     assert decision.allowed
 
@@ -250,10 +303,10 @@ async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
         definitions[0].key: {"decision": "unknown"},
     })
 
-    decision = await ToolHookEvents(HookRuntime(
+    decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )).pre_tool_use(_invocation())
+    ))).pre_tool_use(_invocation())
 
     assert not decision.allowed
     assert "decision must be allow, deny, or block" in decision.reason
@@ -277,10 +330,10 @@ async def test_permission_request_prioritizes_deny_over_allow() -> None:
         },
     })
 
-    decision = await ToolHookEvents(HookRuntime(
+    decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )).permission_request(_invocation(execution={"grantId": "secret"}))
+    ))).permission_request(_invocation(execution={"grantId": "secret"}))
 
     assert decision.action == "deny"
     assert decision.reason == "permission blocked"
@@ -295,7 +348,7 @@ async def test_permission_request_prioritizes_deny_over_allow() -> None:
 
 @pytest.mark.anyio
 async def test_permission_request_abstains_without_matching_hook() -> None:
-    decision = await ToolHookEvents(HookRuntime.empty()).permission_request(
+    decision = await ToolHookEvents(_scope(HookRuntime.empty())).permission_request(
         _invocation()
     )
 
@@ -312,10 +365,10 @@ async def test_permission_request_allows_when_a_hook_allows() -> None:
         definitions[0].key: {"decision": "allow"},
     })
 
-    decision = await ToolHookEvents(HookRuntime(
+    decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )).permission_request(_invocation())
+    ))).permission_request(_invocation())
 
     assert decision.action == "allow"
     assert decision.hook_keys == (definitions[0].key,)
@@ -333,10 +386,10 @@ async def test_permission_request_blocks_on_configured_hook_failure() -> None:
         definitions[0].key: RuntimeError("permission check failed"),
     })
 
-    decision = await ToolHookEvents(HookRuntime(
+    decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )).permission_request(_invocation())
+    ))).permission_request(_invocation())
 
     assert decision.action == "deny"
     assert "permission check failed" in decision.reason
@@ -356,10 +409,10 @@ async def test_permission_preparation_stops_after_pre_tool_denial() -> None:
         },
         definitions[1].key: {"decision": "allow"},
     })
-    coordinator = ToolCallCoordinator(HookRuntime(
+    coordinator = ToolCallCoordinator(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    ))
+    )))
 
     decision = await coordinator.prepare_permission(_invocation())
 
@@ -398,7 +451,7 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
     })
     runner = _CommandRunner()
     coordinator = ToolCallCoordinator(
-        HookRuntime(definitions, command_runner=runner)
+        _scope(HookRuntime(definitions, command_runner=runner))
     )
     invocation = _invocation()
 
@@ -434,7 +487,7 @@ async def test_post_tool_use_failure_does_not_replace_tool_result() -> None:
         definitions[0].key: RuntimeError("audit failed"),
     })
     coordinator = ToolCallCoordinator(
-        HookRuntime(definitions, command_runner=runner)
+        _scope(HookRuntime(definitions, command_runner=runner))
     )
 
     result = await coordinator.run(

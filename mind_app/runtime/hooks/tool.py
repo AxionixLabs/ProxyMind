@@ -9,15 +9,14 @@ import hashlib
 from dataclasses import dataclass
 from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.runtime.execution import ToolInvocation
-from mind_core.hooks import HookEventName
 from .models import (
     HookDecision,
-    HookEventRequest,
+    HookDispatchResult,
     HookPermissionDecision,
     ToolCallRunResult,
     ToolOutcome
 )
-from .runtime import HookDispatcher
+from .scope import HookExecutionScope
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -32,16 +31,19 @@ class _PreparedDecision:
 class ToolHookEvents:
     """构建并聚合工具生命周期事件。"""
 
-    def __init__(self, runtime: HookDispatcher) -> None:
-        self.runtime = runtime
+    def __init__(self, scope: HookExecutionScope) -> None:
+        self.scope = scope
 
     async def pre_tool_use(self, invocation: ToolInvocation) -> HookDecision:
         """执行工具前事件并聚合阻止决定。"""
-        if not self.runtime.has_matching("PreToolUse", invocation.name):
+        self.scope.require_turn(invocation.turn)
+        if not self.scope.has_matching("PreToolUse", invocation.name):
             return HookDecision.allow()
 
-        dispatched = await self.runtime.dispatch(
-            _tool_event_request("PreToolUse", invocation)
+        dispatched = await _dispatch_tool_event(
+            self.scope,
+            "PreToolUse",
+            invocation,
         )
 
         reasons: list[str]     = []
@@ -80,15 +82,15 @@ class ToolHookEvents:
         outcome: ToolOutcome
     ) -> None:
         """执行工具后事件并忽略非阻断失败。"""
-        if not self.runtime.has_matching("PostToolUse", invocation.name):
+        self.scope.require_turn(invocation.turn)
+        if not self.scope.has_matching("PostToolUse", invocation.name):
             return None
 
-        await self.runtime.dispatch(
-            _tool_event_request(
-                "PostToolUse",
-                invocation,
-                outcome=outcome,
-            )
+        await _dispatch_tool_event(
+            self.scope,
+            "PostToolUse",
+            invocation,
+            outcome=outcome,
         )
 
     async def permission_request(
@@ -96,14 +98,17 @@ class ToolHookEvents:
         invocation: ToolInvocation
     ) -> HookPermissionDecision:
         """执行工具授权事件并聚合三态决定。"""
-        if not self.runtime.has_matching(
+        self.scope.require_turn(invocation.turn)
+        if not self.scope.has_matching(
             "PermissionRequest",
             invocation.name,
         ):
             return HookPermissionDecision.abstain()
 
-        dispatched = await self.runtime.dispatch(
-            _tool_event_request("PermissionRequest", invocation)
+        dispatched = await _dispatch_tool_event(
+            self.scope,
+            "PermissionRequest",
+            invocation,
         )
 
         denied_keys: list[str]    = []
@@ -148,8 +153,8 @@ class ToolHookEvents:
 class ToolCallCoordinator:
     """协调工具调用的前置、执行和后置 Hook。"""
 
-    def __init__(self, hooks: HookDispatcher) -> None:
-        self.events = ToolHookEvents(hooks)
+    def __init__(self, scope: HookExecutionScope) -> None:
+        self.events = ToolHookEvents(scope)
 
         self._prepared: dict[str, _PreparedDecision] = {}
 
@@ -240,24 +245,19 @@ class ToolCallCoordinator:
         return await self.events.pre_tool_use(invocation)
 
 
-def _tool_event_request(
-    event: HookEventName,
+async def _dispatch_tool_event(
+    scope: HookExecutionScope,
+    event: typing.Literal[
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+    ],
     invocation: ToolInvocation,
     *,
     outcome: ToolOutcome | None = None
-) -> HookEventRequest:
-    """构建不包含内部执行授权的工具生命周期请求。"""
-    turn = invocation.turn
-
+) -> HookDispatchResult:
+    """分发不包含内部执行授权的工具事件。"""
     payload: dict[str, typing.Any] = {
-        "session_id": turn.agent.root_session_id,
-        "turn_id": turn.turn_id,
-        "cwd": turn.cwd,
-        "model": turn.model,
-        "sandbox_mode": turn.permissions.sandbox_mode,
-        "permission_mode": turn.permissions.approval_policy,
-        "agent_id": turn.agent.agent_id,
-        "parent_agent_id": turn.agent.parent_agent_id,
         "call_id": invocation.call_id,
         "tool_name": invocation.name,
         "tool_kind": _tool_kind(invocation.meta),
@@ -274,8 +274,8 @@ def _tool_event_request(
             "cancelled": outcome.cancelled,
         }
 
-    return HookEventRequest(
-        event=event,
+    return await scope.dispatch(
+        event,
         payload=payload,
         match_value=invocation.name,
         diagnostics={

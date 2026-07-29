@@ -10,8 +10,14 @@ from mind_app.client_tools.planning import (
     planning_tools,
 )
 from mind_app.runtime.tools.plan_steps import StepPlanExecutor
+from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope
+)
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from mind_core.permissions import preset_permissions
 
 
 class _PlanSession(object):
@@ -52,16 +58,26 @@ def _tool_result(
 
 def _executor(results: list[mcp_types.CallToolResult]) -> StepPlanExecutor:
     """构造只包含一个测试工具的步骤执行器。"""
+    turn_context = TurnContext.create(
+        agent=AgentContext.root("sid"),
+        cid="cid",
+        sid="sid",
+        mode="xtra",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=preset_permissions("auto"),
+        turn_id="turn",
+    )
     return StepPlanExecutor(
         session=_PlanSession(results),
         tools=[{"name": "test_tool"}],
         report=SimpleNamespace(),
-        turn_context=SimpleNamespace(
-            cid="cid",
-            sid="sid",
-            permissions=None,
-        ),
-        tool_call_coordinator=ToolCallCoordinator(HookRuntime.empty()),
+        turn_context=turn_context,
+        tool_call_coordinator=ToolCallCoordinator(HookExecutionScope(
+            context=HookExecutionContext.from_turn(turn_context),
+            dispatcher=HookRuntime.empty(),
+        )),
     )
 
 

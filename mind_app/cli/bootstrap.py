@@ -56,7 +56,6 @@ from ..runtime.mcp.service_runtime import (
     resolve_service_runtime
 )
 from ..runtime.design import TerminalDesign
-from ..runtime.hooks.runtime import HookRuntime
 from ..runtime.hooks.registry import HookRegistry
 from .commands import (
     AgentListenCommand,
@@ -228,8 +227,6 @@ async def _run_application(
             default_hook_trust_path(config_session.store.path)
         ),
     )
-    hooks = hook_registry.build(config_resolution.hooks)
-
     return await _run_controller(
         command,
         frontend=frontend,
@@ -245,7 +242,6 @@ async def _run_application(
         power=power,
         output_mode=output_mode,
         permissions=permissions,
-        hooks=hooks,
         hook_registry=hook_registry,
     )
 
@@ -266,7 +262,6 @@ async def _run_controller(
     power: int,
     output_mode: OutputMode,
     permissions: PermissionSettings,
-    hooks: HookRuntime,
     hook_registry: HookRegistry | None = None
 ) -> int:
     """创建 Controller 并运行用户命令。"""
@@ -287,7 +282,6 @@ async def _run_controller(
             design=design,
             report=report,
             permissions=permissions,
-            hooks=hooks,
             hook_registry=hook_registry or HookRegistry(),
         )
 

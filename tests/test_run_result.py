@@ -16,6 +16,10 @@ from mind_app.output.session import OutputSession
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope
+)
 from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
@@ -108,7 +112,6 @@ async def _run_stream(
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = _mind()
-    mind.hooks_for_turn = Mock(return_value=hooks or HookRuntime.empty())
     permissions = preset_permissions("auto")
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -120,6 +123,11 @@ async def _run_stream(
         cwd=".",
         permissions=permissions,
     )
+    hook_context = HookExecutionContext.from_turn(turn_context)
+    mind.hook_scope = Mock(return_value=HookExecutionScope(
+        context=hook_context,
+        dispatcher=hooks or HookRuntime.empty(),
+    ))
     result = await stream.stream_looper(
         mind,
         SimpleNamespace(),
@@ -180,7 +188,8 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         usage={"output_tokens": 3},
     )
     assert mind.remembered == ["answer"]
-    mind.hooks_for_turn.assert_called_once()
+    mind.hook_scope.assert_called_once()
+    assert mind.hook_scope.call_args.args[0].session_id == "sid_test"
 
 
 @pytest.mark.anyio

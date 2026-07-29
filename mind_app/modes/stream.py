@@ -43,7 +43,10 @@ from ..runtime.execution import (
     ToolInvocation,
     TurnContext
 )
-from ..runtime.hooks.runtime import HookRuntime
+from ..runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope
+)
 from ..runtime.hooks.tool import ToolCallCoordinator
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
@@ -249,25 +252,19 @@ async def stream_looper(
             metadata=metadata
         )
 
-        hooks_for_turn = getattr(mind, "hooks_for_turn", None)
+        hook_context = HookExecutionContext.from_turn(turn_context)
 
-        if callable(hooks_for_turn):
-            try:
-                hook_runtime = hooks_for_turn(turn_context)
-            except (OSError, TypeError, ValueError) as error:
-                observe_exception(
-                    "hooks.resolve.failed",
-                    error,
-                    level="WARNING",
-                )
-                hook_runtime = HookRuntime.empty()
-        else:
-            hook_runtime = getattr(mind, "hooks", None)
+        try:
+            hook_scope = mind.hook_scope(hook_context)
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "hooks.resolve.failed",
+                error,
+                level="WARNING",
+            )
+            hook_scope = HookExecutionScope.empty(hook_context)
 
-        if not isinstance(hook_runtime, HookRuntime):
-            hook_runtime = HookRuntime.empty()
-
-        tool_call_coordinator = ToolCallCoordinator(hook_runtime)
+        tool_call_coordinator = ToolCallCoordinator(hook_scope)
 
         tool_batch_executor = ToolBatchExecutor(
             session=session,

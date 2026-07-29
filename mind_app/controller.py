@@ -47,13 +47,15 @@ from .frontend.contracts import (
     Frontend
 )
 from .runtime.design import TerminalDesign
-from .runtime.hooks.runtime import HookRuntime
 from .runtime.hooks.registry import HookRegistry
+from .runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope
+)
 from .runtime.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
 )
-from .runtime.execution import TurnContext
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -95,8 +97,6 @@ class Mind(object):
         self.hook_registry: HookRegistry = (
             kwargs.get("hook_registry") or HookRegistry()
         )
-
-        self.hooks: HookRuntime = kwargs.get("hooks") or HookRuntime.empty()
 
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
@@ -151,8 +151,6 @@ class Mind(object):
             workspace=self.history_workspace,
             animate=self.animate,
             client_tools=len(self.client_tools.list_tools().tools),
-            hooks_installed=self.hooks.installed_count,
-            hooks_active=self.hooks.active_count,
         )
 
     @property
@@ -592,17 +590,21 @@ class Mind(object):
 
         self.pref_refreshed_at = time.monotonic()
 
-    def hooks_for_turn(self, turn_context: TurnContext) -> HookRuntime:
-        """为指定模型轮次构建固定的 Hook 运行时。"""
-        workspace  = self._hook_workspace(Path(turn_context.cwd))
+    def hook_scope(
+        self,
+        context: HookExecutionContext
+    ) -> HookExecutionScope:
+        """为指定执行上下文构建固定的 Hook 作用域。"""
+        workspace  = self._hook_workspace(Path(context.cwd))
+
         resolution = self.config_session.resolve(
             workspace=workspace
         )
 
-        runtime    = self.hook_registry.build(resolution.hooks)
-        self.hooks = runtime
-
-        return runtime
+        return HookExecutionScope(
+            context=context,
+            dispatcher=self.hook_registry.build(resolution.hooks),
+        )
 
     def inspect_hooks(
         self,

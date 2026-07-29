@@ -653,7 +653,6 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         power=1,
         output_mode="rich",
         permissions=preset_permissions("auto"),
-        hooks=SimpleNamespace(),
     )
 
     controller.start_config_service.assert_awaited_once_with()

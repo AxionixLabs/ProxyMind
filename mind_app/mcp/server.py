@@ -143,7 +143,6 @@ class MindMcpRuntime(object):
             report=report,
             workspace_root=Path.cwd(),
             permissions=permissions,
-            hooks=hook_registry.build(config_resolution.hooks),
             hook_registry=hook_registry,
         )
 
