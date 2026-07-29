@@ -603,6 +603,62 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
     assert design is not None
 
 
+@pytest.mark.anyio
+async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None:
+    frontend = SimpleNamespace(runtime=SimpleNamespace(open=AsyncMock()))
+    controller = SimpleNamespace(
+        frontend=frontend,
+        bind_server_manager=Mock(),
+        bind_service_runtime_context=Mock(),
+        start_config_service=AsyncMock(),
+        start_external_mcp_runtime=AsyncMock(),
+        external_mcp=None,
+        is_service_mcp_linked=lambda: False,
+        set_history_workspace=Mock(),
+        exit_code=0,
+    )
+    preference = SimpleNamespace(load_pref=AsyncMock())
+
+    monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
+    monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(bootstrap, "process_env", lambda: {})
+    monkeypatch.setattr(
+        bootstrap,
+        "fetch_runtime_workspace_root",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ServiceConfig",
+        lambda _session: SimpleNamespace(
+            load_domain=AsyncMock(return_value="https://example.test"),
+        ),
+    )
+    monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
+    monkeypatch.setattr(bootstrap, "run_selected_mode", AsyncMock())
+    monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
+
+    await bootstrap._run_controller(
+        AgentListenCommand(),
+        frontend=frontend,
+        design=None,
+        animation=SimpleNamespace(),
+        home=tmp_path,
+        reports=tmp_path,
+        preference=preference,
+        config_session=SimpleNamespace(),
+        report=SimpleNamespace(close=Mock()),
+        runtime_spec=SimpleNamespace(launch_command=[]),
+        service_context=SimpleNamespace(),
+        power=1,
+        output_mode="rich",
+        permissions=preset_permissions("auto"),
+        hooks=SimpleNamespace(),
+    )
+
+    controller.start_config_service.assert_awaited_once_with()
+
+
 def test_doctor_json_uses_application_json_sink(monkeypatch) -> None:
     stream = StringIO()
     monkeypatch.setattr(cli_frontend.sys, "stdout", stream)

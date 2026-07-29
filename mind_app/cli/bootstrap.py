@@ -58,6 +58,7 @@ from ..runtime.mcp.service_runtime import (
 from ..runtime.design import TerminalDesign
 from ..runtime.hooks.runtime import HookRuntime
 from .commands import (
+    AgentListenCommand,
     ApplicationCommand,
     HelixUpgradeCommand,
     RuntimeCommand,
@@ -307,7 +308,7 @@ async def _run_controller(
             if not helix_linked:
                 _emit_helix_skipped(controller)
 
-        if output_mode == "tui":
+        if output_mode == "tui" or isinstance(command, AgentListenCommand):
             await controller.start_config_service()
 
         runtime_workspace_root = await fetch_runtime_workspace_root()
