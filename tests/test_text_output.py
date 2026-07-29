@@ -28,6 +28,11 @@ from mind_app.output.text import (
     TextPresentationSink,
 )
 from mind_app.output.content import AssistantTextDelta
+from mind_app.presentation.models import (
+    GenericToolResultView,
+    ProgressView,
+    TracePreview,
+)
 from mind_app.presentation.run_views import build_run_started_view
 from mind_app.runtime.support.calling import run_mode_lifecycle
 from mind_app.stream_events.worked import worked_footer_text
@@ -154,6 +159,69 @@ async def test_text_output_strips_external_ansi_and_resets_on_close() -> None:
     assert "\x1b[31m" not in stderr.getvalue()
     assert "\x1b[35m" not in stdout.getvalue()
     assert "\x1b[" not in "".join(record.parts)
+
+
+def test_text_tool_labels_are_colored_without_mcp_prefix_or_color_leak() -> None:
+    stderr = io.StringIO()
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=True,
+    )
+    control = TextOutputControl(state)
+
+    control.record_tool_arguments("mcp__docs__search", {})
+    control.record_tool_arguments(
+        "exec_command",
+        {"command": "pytest -q", "cwd": "D:/workspace"},
+    )
+
+    assert stderr.getvalue() == (
+        f"{ANSI_CYAN}mcp__docs__search{ANSI_RESET}\n"
+        f"{ANSI_CYAN}exec{ANSI_RESET}\n"
+        "pytest -q in D:/workspace\n"
+    )
+    assert "mcp:" not in stderr.getvalue()
+    assert "".join(record.parts) == (
+        "mcp__docs__search\n"
+        "exec\n"
+        "pytest -q in D:/workspace\n"
+    )
+
+
+@pytest.mark.anyio
+async def test_text_tool_events_color_only_the_tool_name() -> None:
+    stderr = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=True,
+    )
+    sink = TextPresentationSink(state)
+
+    await sink.emit(GenericToolResultView(
+        name="mcp__docs__search",
+        text="result",
+        ok=True,
+        title="",
+        preview=TracePreview(),
+    ))
+    await sink.emit(ProgressView(
+        text="loading",
+        source="tool",
+        tool_name="mcp__docs__search",
+    ))
+
+    assert stderr.getvalue() == (
+        f"{ANSI_CYAN}mcp__docs__search{ANSI_RESET} succeeded:\n"
+        "result\n"
+        f"{ANSI_CYAN}mcp__docs__search{ANSI_RESET}\n"
+        "loading\n"
+    )
+    assert "mcp:" not in stderr.getvalue()
 
 
 @pytest.mark.anyio

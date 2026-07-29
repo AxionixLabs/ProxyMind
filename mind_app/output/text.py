@@ -87,14 +87,9 @@ def _line(value: typing.Any) -> str:
     return sanitize_terminal_line(value)
 
 
-def _tool_label(name: str) -> str:
-    """根据工具名称生成展示标签。"""
-    normalized = _line(name).lower()
-
-    if normalized in {"web_search", "search_query"} or normalized.startswith("web_"):
-        return "web search:"
-
-    return f"mcp: {normalized or 'tool'}"
+def _tool_name(name: str) -> str:
+    """返回适合终端展示的工具名称。"""
+    return _line(name) or "tool"
 
 
 def _payload(data: typing.Any) -> dict[str, typing.Any]:
@@ -268,17 +263,17 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         """输出工具调用标题和参数摘要。"""
         self.state.settle_assistant()
 
-        tool = _line(name) or "tool"
+        tool = _tool_name(name)
         args = arguments if isinstance(arguments, dict) else {}
 
         if tool in {"shell_command", "exec_command", "write_stdin"}:
             command = _line(args.get("command") or args.get("cmd") or tool)
             cwd = _line(args.get("cwd") or ".")
-            self.state.process(f"exec\n{command} in {cwd}\n")
-        elif tool == "apply_patch":
-            self.state.process("apply patch\n")
+            self.state.process("exec", style=ANSI_CYAN)
+            self.state.process(f"\n{command} in {cwd}\n")
         else:
-            self.state.process(f"{_tool_label(tool)}\n")
+            self.state.process(tool, style=ANSI_CYAN)
+            self.state.process("\n")
 
         safe_call_id = sanitize_terminal_line(call_id)
 
@@ -344,17 +339,19 @@ class TextPresentationSink(PresentationSink):
             return None
         if isinstance(view, GenericToolResultView):
             status = "succeeded" if view.ok else "failed"
-            self.state.process(f"{_tool_label(view.name)} {status}:\n{view.text}\n")
+            self.state.process(_tool_name(view.name), style=ANSI_CYAN)
+            self.state.process(f" {status}:\n{view.text}\n")
             return None
         if isinstance(view, FailureView):
             self.state.settle_assistant()
             self.state.process(f"ERROR:\n{view.error}\n")
             return None
         if isinstance(view, LifecycleView):
-            self.state.process(f"mcp:\n{view.text}\n")
+            self.state.process(f"{view.text}\n")
             return None
         if isinstance(view, ProgressView):
-            self.state.process(f"mcp: {view.tool_name}\n{view.text}\n")
+            self.state.process(_tool_name(view.tool_name), style=ANSI_CYAN)
+            self.state.process(f"\n{view.text}\n")
             return None
         if isinstance(view, ApprovalView):
             self.state.process(f"warning:\n{view.decision}\n")
@@ -368,11 +365,12 @@ class TextPresentationSink(PresentationSink):
             ) + "\n")
             return None
         if isinstance(view, BatchStartView):
-            self.state.process(f"mcp: batch ({len(view.calls)} calls)\n")
+            self.state.process(f"batch ({len(view.calls)} calls)\n")
             return None
         if isinstance(view, BatchCompletedView):
-            self.state.process(f"mcp: batch completed ({len(view.results)} results)\n")
+            self.state.process(f"batch completed ({len(view.results)} results)\n")
             return None
+
         raise TypeError(f"Unsupported presentation view: {type(view).__name__}")
 
     def _native_result(self, view: NativeToolResultView) -> None:
@@ -397,7 +395,9 @@ class TextPresentationSink(PresentationSink):
                 if exit_code is not None
                 else f" failed in {elapsed}ms:"
             )
+
         self.state.process(status + "\n")
+
         output = _tool_output(data)
         if output:
             self.state.process(output + "\n")
