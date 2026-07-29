@@ -38,6 +38,7 @@ from mind_core.permissions import (
     PermissionSettings,
     resolve_permissions
 )
+from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_core.service_config import ServiceConfig
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
@@ -132,6 +133,7 @@ class MindMcpRuntime(object):
             report=report,
             workspace_root=Path.cwd(),
             permissions=permissions,
+            hooks=HookRuntime(config_resolution.hooks),
         )
 
         try:

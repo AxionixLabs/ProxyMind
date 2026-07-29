@@ -5,6 +5,7 @@ import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import TurnContext
+from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -13,7 +14,10 @@ from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.plan_views import build_plan_steps_start_view
 from mind_nova.requests.tools import post_tool_result
 from .display import show_tool_result
-from .plan_steps import StepPlanExecutor
+from .plan_steps import (
+    PlanExecutionReport,
+    StepPlanExecutor
+)
 
 
 class PlanToolCallRunner:
@@ -28,7 +32,8 @@ class PlanToolCallRunner:
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         report: typing.Any,
-        turn_context: TurnContext
+        turn_context: TurnContext,
+        tool_call_coordinator: ToolCallCoordinator
     ) -> None:
         self.output_control = output_control
         self.status_control = status_control
@@ -39,6 +44,7 @@ class PlanToolCallRunner:
             tools=tools,
             report=report,
             turn_context=turn_context,
+            tool_call_coordinator=tool_call_coordinator,
         )
 
     async def handle(
@@ -46,7 +52,7 @@ class PlanToolCallRunner:
         *,
         event: dict[str, typing.Any],
         arguments: dict[str, typing.Any]
-    ) -> None:
+    ) -> "PlanExecutionReport":
         """处理一次完整的 plan_steps 工具调用。"""
         execution = event.get("execution")
 
@@ -87,6 +93,7 @@ class PlanToolCallRunner:
             report.fields,
             execution=execution if isinstance(execution, dict) else None
         )
+        return report
 
 
 if __name__ == '__main__':

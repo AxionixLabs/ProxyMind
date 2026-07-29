@@ -42,6 +42,8 @@ from ..runtime.execution import (
     ToolInvocation,
     TurnContext
 )
+from ..runtime.hooks.runtime import HookRuntime
+from ..runtime.hooks.tool import ToolCallCoordinator
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
 from ..runtime.tools.run import server_tool_output_result
@@ -71,6 +73,43 @@ from engine.observability import (
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
+
+
+def _tool_invocation_from_event(
+    turn_context: TurnContext,
+    event: dict[str, typing.Any],
+    tools: list[dict[str, typing.Any]],
+    *,
+    arguments: dict[str, typing.Any]
+) -> ToolInvocation:
+    """从流式事件构建不暴露内部授权字段的工具调用上下文。"""
+    name           = str(event.get("name") or event.get("tool") or "").strip()
+    event_meta     = event.get("meta") if isinstance(event.get("meta"), dict) else None
+    local_meta     = meta_for_tool(tools, name)
+    effective_meta = {**(local_meta or {}), **(event_meta or {})} or None
+    execution      = event.get("execution") if isinstance(event.get("execution"), dict) else None
+
+    return ToolInvocation(
+        turn=turn_context,
+        call_id=str(event.get("call_id") or ""),
+        name=name,
+        arguments=arguments,
+        meta=effective_meta,
+        execution=execution,
+    )
+
+
+def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
+    """构建前置 Hook 阻止工具时的标准结果。"""
+    text = str(reason or "tool use denied by hook")
+    return {
+        "ok": False,
+        "text": text,
+        "data": {
+            "hook_denied": True,
+            "error": text,
+        },
+    }
 
 
 async def stream_looper(
@@ -208,6 +247,13 @@ async def stream_looper(
             pref_config=pref_config,
             metadata=metadata
         )
+
+        hook_runtime = getattr(mind, "hooks", None)
+        if not isinstance(hook_runtime, HookRuntime):
+            hook_runtime = HookRuntime.empty()
+
+        tool_call_coordinator = ToolCallCoordinator(hook_runtime)
+
         tool_batch_executor = ToolBatchExecutor(
             session=session,
             output_control=output_control,
@@ -216,6 +262,7 @@ async def stream_looper(
             tools=tools,
             pref_config=pref_config,
             report=mind.report,
+            tool_call_coordinator=tool_call_coordinator,
         )
         plan_tool_runner = PlanToolCallRunner(
             session=session,
@@ -225,6 +272,7 @@ async def stream_looper(
             tools=tools,
             report=mind.report,
             turn_context=turn_context,
+            tool_call_coordinator=tool_call_coordinator,
         )
 
         async for event in stream_chat(mode, pref_config, message, tools, **kwargs):
@@ -326,6 +374,26 @@ async def stream_looper(
                 approval_tool    = str(event.get("name") or event.get("tool") or "")
                 approval_call_id = str(event.get("call_id") or "")
 
+                hook_decision = None
+
+                if approval_tool:
+                    approval_arguments = event.get("arguments")
+                    if not isinstance(approval_arguments, dict):
+                        raw_approval_arguments = approval.get("arguments")
+                        approval_arguments = (
+                            dict(raw_approval_arguments)
+                            if isinstance(raw_approval_arguments, dict)
+                            else {}
+                        )
+                    hook_decision = await tool_call_coordinator.prepare(
+                        _tool_invocation_from_event(
+                            turn_context,
+                            event,
+                            tools,
+                            arguments=approval_arguments,
+                        )
+                    )
+
                 observe(
                     "approval.requested",
                     tool=approval_tool,
@@ -333,7 +401,9 @@ async def stream_looper(
                     approval_id=approval_id,
                 )
 
-                if kwargs["permissions"].approval_policy == "never":
+                if hook_decision is not None and not hook_decision.allowed:
+                    decision = "decline"
+                elif kwargs["permissions"].approval_policy == "never":
                     decision = "decline"
                 else:
                     decision = await mind.frontend.interaction.request_approval(approval)
@@ -366,8 +436,9 @@ async def stream_looper(
                 approved = decision in {"accept", "acceptForSession"}
 
                 reason = (
-                    None
-                    if approved
+                    hook_decision.reason
+                    if hook_decision is not None and not hook_decision.allowed
+                    else None if approved
                     else "approval policy is never"
                     if kwargs["permissions"].approval_policy == "never"
                     else "user denied"
@@ -433,11 +504,49 @@ async def stream_looper(
                 if not isinstance(arguments, dict):
                     arguments = {}
 
-                if name == PLAN_STEPS_TOOL:
-                    await plan_tool_runner.handle(
-                        event=event,
-                        arguments=arguments
+                invocation = _tool_invocation_from_event(
+                    turn_context,
+                    event,
+                    tools,
+                    arguments=arguments,
+                )
+
+                hook_decision = await tool_call_coordinator.prepare(invocation)
+                if not hook_decision.allowed:
+                    await post_tool_result(
+                        event["cid"],
+                        event["sid"],
+                        event["call_id"],
+                        name,
+                        False,
+                        _hook_denied_result(hook_decision.reason),
+                        execution=invocation.execution,
                     )
+                    await status_control.begin_reply_wait_status(delay_sec=0.15)
+                    continue
+
+                if name == PLAN_STEPS_TOOL:
+                    async def execute_plan_call() -> typing.Any:
+                        """执行已经获准的计划工具调用。"""
+                        return await plan_tool_runner.handle(
+                            event=event,
+                            arguments=arguments,
+                        )
+
+                    hook_run = await tool_call_coordinator.run(
+                        invocation,
+                        execute_plan_call,
+                    )
+                    if not hook_run.allowed:
+                        await post_tool_result(
+                            event["cid"],
+                            event["sid"],
+                            event["call_id"],
+                            name,
+                            False,
+                            _hook_denied_result(hook_run.reason),
+                            execution=invocation.execution,
+                        )
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
 
@@ -504,19 +613,10 @@ async def stream_looper(
                     continue
 
                 use_coding_trace = coding_trace_tool(name)
-                local_tool_meta  = meta_for_tool(tools, name)
-                effective_meta   = {**(local_tool_meta or {}),**(event_meta or {})} or None
 
                 pending_call = PendingToolCall(
                     event=event,
-                    invocation=ToolInvocation(
-                        turn=turn_context,
-                        call_id=str(event.get("call_id") or ""),
-                        name=name,
-                        arguments=arguments,
-                        meta=effective_meta,
-                        execution=event_execution,
-                    ),
+                    invocation=invocation,
                     use_coding_trace=use_coding_trace
                 )
 

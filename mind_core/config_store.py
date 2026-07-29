@@ -37,6 +37,8 @@ domain = ""
 enabled = []
 disabled = []
 
+[hooks]
+
 [mcp_servers]
 
 [hosted_tools.groups]

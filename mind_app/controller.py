@@ -47,6 +47,7 @@ from .frontend.contracts import (
     Frontend
 )
 from .runtime.design import TerminalDesign
+from .runtime.hooks.runtime import HookRuntime
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -84,6 +85,7 @@ class Mind(object):
         self.pref: Preferences               = kwargs["pref"]
         self.config_session: ConfigSession   = kwargs["config_session"]
         self.permissions: PermissionSettings = kwargs["permissions"]
+        self.hooks: HookRuntime              = kwargs.get("hooks") or HookRuntime.empty()
 
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
@@ -138,6 +140,8 @@ class Mind(object):
             workspace=self.history_workspace,
             animate=self.animate,
             client_tools=len(self.client_tools.list_tools().tools),
+            hooks_installed=self.hooks.installed_count,
+            hooks_active=self.hooks.active_count,
         )
 
     @property

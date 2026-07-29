@@ -12,6 +12,10 @@ from mind_core.provider_config import (
     DEFAULT_ROUTE_NAME,
     SUPPORTED_REASONING_EFFORTS
 )
+from mind_core.hooks import (
+    HookConfigError,
+    normalize_hook_table
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +141,7 @@ def _default_effective_config() -> dict[str, typing.Any]:
             "enabled"  : [],
             "disabled" : []
         },
+        "hooks": {},
         "mcp_servers": {},
         "hosted_tools": {
             "groups": {
@@ -174,6 +179,7 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
             "enabled": _as_str_list(skills.get("enabled")),
             "disabled": _as_str_list(skills.get("disabled"))
         },
+        "hooks": normalize_hook_table(data.get("hooks")),
         "mcp_servers": copy.deepcopy(mcp_servers),
         "hosted_tools": _normalize_hosted_tools(hosted)
     }
@@ -215,6 +221,7 @@ TABLE_CONFIG_PATHS = (
     ("hosted_tools", "groups"),
     ("mcp_servers",),
     ("projects",),
+    ("hooks",),
 )
 
 ROOT_CONFIG_FIELDS = frozenset({
@@ -231,6 +238,7 @@ ROOT_CONFIG_FIELDS = frozenset({
     "hosted_tools",
     "mcp_servers",
     "projects",
+    "hooks",
 })
 
 SERVICE_FIELDS           = frozenset({"domain"})
@@ -302,6 +310,12 @@ def validate_config_value(
 ) -> None:
     """按照应用配置 schema 校验一个点路径值。"""
     dotted = ".".join(path)
+    if path == ("hooks",):
+        try:
+            normalize_hook_table(value)
+        except HookConfigError as error:
+            raise ConfigValidationError(str(error)) from error
+        return None
     if path in STRING_CONFIG_PATHS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
@@ -377,6 +391,11 @@ def validate_config_value(
 def _validate_known_config(config: dict[str, typing.Any]) -> None:
     """校验文件中已经出现的受支持配置字段。"""
     _validate_known_fields(config, ROOT_CONFIG_FIELDS, "config")
+
+    try:
+        normalize_hook_table(config.get("hooks"))
+    except HookConfigError as error:
+        raise ConfigValidationError(str(error)) from error
 
     for path in TABLE_CONFIG_PATHS:
         present, value = _raw_path_value(config, path)

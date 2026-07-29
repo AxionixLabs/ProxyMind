@@ -52,6 +52,7 @@ from ..runtime.mcp.service_runtime import (
     resolve_service_runtime
 )
 from ..runtime.design import TerminalDesign
+from ..runtime.hooks.runtime import HookRuntime
 from .commands import (
     ApplicationCommand,
     HelixUpgradeCommand,
@@ -231,6 +232,7 @@ async def _run_application(
         power=power,
         output_mode=output_mode,
         permissions=permissions,
+        hooks=HookRuntime(config_resolution.hooks),
     )
 
 
@@ -249,7 +251,8 @@ async def _run_controller(
     service_context: ServiceRuntimeContext,
     power: int,
     output_mode: OutputMode,
-    permissions: PermissionSettings
+    permissions: PermissionSettings,
+    hooks: HookRuntime
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     try:
@@ -269,6 +272,7 @@ async def _run_controller(
             design=design,
             report=report,
             permissions=permissions,
+            hooks=hooks,
         )
 
     except BaseException as error:

@@ -10,6 +10,7 @@ from dataclasses import (
 from engine.enhance import exchange_arguments
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import ToolInvocation
+from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -34,6 +35,7 @@ class BatchToolResult:
     text: str
     cost_ms: int = 0
     call_id: str = ""
+    fields: dict[str, typing.Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -95,14 +97,16 @@ class ToolBatchExecutor:
         tools: list[dict[str, typing.Any]],
         pref_config: dict[str, typing.Any],
         report: typing.Any,
+        tool_call_coordinator: ToolCallCoordinator
     ) -> None:
-        self.session        = session
-        self.output_control = output_control
-        self.status_control = status_control
-        self.presentation   = presentation
-        self.tools          = tools
-        self.pref_config    = pref_config
-        self.report         = report
+        self.session               = session
+        self.output_control        = output_control
+        self.status_control        = status_control
+        self.presentation          = presentation
+        self.tools                 = tools
+        self.pref_config           = pref_config
+        self.report                = report
+        self.tool_call_coordinator = tool_call_coordinator
 
     @staticmethod
     async def post_tool_result(
@@ -131,7 +135,7 @@ class ToolBatchExecutor:
             execution=execution
         )
 
-    async def execute_call(
+    async def _execute_allowed_call(
         self,
         pending: PendingToolCall,
         *,
@@ -220,6 +224,61 @@ class ToolBatchExecutor:
             text=str(text or ""),
             cost_ms=cost_ms,
             call_id=call_id,
+            fields=fields,
+        )
+
+    async def execute_call(
+        self,
+        pending: PendingToolCall,
+        *,
+        display: bool = True,
+    ) -> BatchToolResult:
+        """执行经过前置 Hook 检查的客户端工具调用。"""
+        async def operation() -> BatchToolResult:
+            """执行已经获准的工具调用。"""
+            return await self._execute_allowed_call(pending, display=display)
+
+        hook_run = await self.tool_call_coordinator.run(
+            pending.invocation,
+            operation,
+        )
+        if not hook_run.allowed:
+            return await self.deny_call(pending, hook_run.reason)
+        if hook_run.value is None:
+            raise RuntimeError("tool execution returned no result")
+        return hook_run.value
+
+    async def deny_call(
+        self,
+        pending: PendingToolCall,
+        reason: str,
+    ) -> BatchToolResult:
+        """回填被前置 Hook 阻止的工具调用。"""
+        invocation = pending.invocation
+        text       = str(reason or "tool use denied by hook")
+
+        fields = {
+            "ok": False,
+            "text": text,
+            "data": {
+                "hook_denied": True,
+                "error": text,
+            },
+        }
+        await self.post_tool_result(
+            pending.event,
+            invocation.name,
+            False,
+            fields,
+            invocation.execution,
+        )
+        return BatchToolResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=False,
+            text=text,
+            call_id=invocation.call_id,
+            fields=fields,
         )
 
     async def execute_batch(

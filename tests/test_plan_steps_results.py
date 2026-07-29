@@ -10,6 +10,8 @@ from mind_app.client_tools.planning import (
     planning_tools,
 )
 from mind_app.runtime.tools.plan_steps import StepPlanExecutor
+from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.tool import ToolCallCoordinator
 
 
 class _PlanSession(object):
@@ -59,6 +61,7 @@ def _executor(results: list[mcp_types.CallToolResult]) -> StepPlanExecutor:
             sid="sid",
             permissions=None,
         ),
+        tool_call_coordinator=ToolCallCoordinator(HookRuntime.empty()),
     )
 
 

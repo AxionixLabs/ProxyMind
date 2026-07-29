@@ -17,6 +17,10 @@ from mind_core.config_store import (
     ConfigStore,
     ConfigStoreError
 )
+from mind_core.hooks import (
+    HookDefinitionConfig,
+    resolve_hook_definitions
+)
 from mind_nova import const
 
 ConfigScope = typing.Literal["user", "profile", "project", "cli"]
@@ -33,6 +37,7 @@ PROJECT_RESTRICTED_ROOTS = frozenset({
     "service",
     "sandbox_mode",
     "approval_policy",
+    "hooks",
 })
 
 MCP_STDIO_FIELDS = frozenset({
@@ -62,6 +67,7 @@ class ConfigResolution(object):
     """保存有效配置及其来源信息。"""
     config: dict[str, typing.Any]
     layers: tuple[ConfigLayer, ...]
+    hooks: tuple[HookDefinitionConfig, ...] = ()
     project_root: Path | None = None
     project_trusted: bool = False
 
@@ -102,6 +108,12 @@ class ConfigResolver(object):
 
         layers: list[ConfigLayer] = [ConfigLayer("user", self.store.path)]
 
+        hooks: list[HookDefinitionConfig] = list(resolve_hook_definitions(
+            user.get("hooks"),
+            source_scope="user",
+            source_path=self.store.path,
+        ))
+
         if self.profile is not None:
             profile_store = ConfigStore(
                 self.store.path.parent / f"{self.profile}.config.toml"
@@ -115,8 +127,16 @@ class ConfigResolver(object):
                 raise ConfigStoreError(
                     f"config profile is unavailable: {self.profile}"
                 ) from error
+
             merged = _merge_config(merged, profile)
+
             layers.append(ConfigLayer("profile", profile_store.path))
+
+            hooks.extend(resolve_hook_definitions(
+                profile.get("hooks"),
+                source_scope="profile",
+                source_path=profile_store.path,
+            ))
 
         project_root: Path | None = None
         project_trusted: bool     = False
@@ -144,11 +164,18 @@ class ConfigResolver(object):
 
         if self.overrides:
             merged = apply_config_overrides(merged, self.overrides)
+            if any(override.path == ("hooks",) for override in self.overrides):
+                hooks = list(resolve_hook_definitions(
+                    merged.get("hooks"),
+                    source_scope="cli",
+                    source_path=None,
+                ))
             layers.append(ConfigLayer("cli", None))
 
         return ConfigResolution(
             config=normalize_config(merged),
             layers=tuple(layers),
+            hooks=tuple(hooks),
             project_root=project_root,
             project_trusted=project_trusted,
         )
@@ -189,7 +216,9 @@ def _merge_config(
         child_path = (*path, key)
         current    = result.get(key)
 
-        if isinstance(current, dict) and isinstance(value, dict):
+        if path == ("hooks",) and isinstance(current, list) and isinstance(value, list):
+            result[key] = [*copy.deepcopy(current), *copy.deepcopy(value)]
+        elif isinstance(current, dict) and isinstance(value, dict):
             if len(child_path) == 2 and child_path[0] == "mcp_servers":
                 current = _mcp_transport_base(current, value)
             result[key] = _merge_config(current, value, child_path)

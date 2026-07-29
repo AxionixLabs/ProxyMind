@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import typing
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,6 +12,8 @@ from mind_app.modes.result import RunResult
 from mind_app.output.session import OutputSession
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.execution import AgentContext, TurnContext
+from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
 
@@ -93,6 +96,8 @@ def _mind() -> SimpleNamespace:
 async def _run_stream(
     monkeypatch,
     events: list[dict[str, typing.Any]],
+    *,
+    hooks: HookRuntime | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     async def stream_chat(*_args, **_kwargs):
         for event in events:
@@ -100,6 +105,8 @@ async def _run_stream(
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = _mind()
+    if hooks is not None:
+        mind.hooks = hooks
     permissions = preset_permissions("auto")
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -190,3 +197,61 @@ async def test_stream_without_terminal_event_is_incomplete(monkeypatch) -> None:
 
     assert result.status == "incomplete"
     assert result.error == "stream ended before turn completion"
+
+
+@pytest.mark.anyio
+async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, _definition, payload):
+            self.calls.append(payload)
+            return SimpleNamespace(data={
+                "decision": "deny",
+                "reason": "blocked by test hook",
+            })
+
+    runner = CommandRunner()
+    definitions = resolve_hook_definitions(
+        {
+            "PreToolUse": [{
+                "command": "check",
+                "matcher": "test_tool",
+            }],
+        },
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+    posted = []
+
+    async def post_tool_result(*args, **kwargs):
+        posted.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.call",
+                "cid": "cid_test",
+                "sid": "sid_test",
+                "call_id": "call_test",
+                "name": "test_tool",
+                "arguments": {"value": 1},
+            },
+            {"type": "turn.done"},
+        ],
+        hooks=HookRuntime(definitions, command_runner=runner),
+    )
+
+    assert result.status == "completed"
+    assert len(runner.calls) == 1
+    assert posted[0][0][2:5] == (
+        "call_test",
+        "test_tool",
+        False,
+    )
+    assert posted[0][0][5]["data"]["hook_denied"] is True

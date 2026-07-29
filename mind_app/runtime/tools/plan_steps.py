@@ -14,6 +14,7 @@ from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext
 )
+from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from .execution_policy import (
     is_execution_ignored,
     validate_execution_policy
@@ -67,12 +68,14 @@ class StepPlanExecutor:
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
         report: typing.Any,
-        turn_context: TurnContext
+        turn_context: TurnContext,
+        tool_call_coordinator: ToolCallCoordinator
     ) -> None:
-        self.session      = session
-        self.tools        = tools
-        self.report       = report
-        self.turn_context = turn_context
+        self.session               = session
+        self.tools                 = tools
+        self.report                = report
+        self.turn_context          = turn_context
+        self.tool_call_coordinator = tool_call_coordinator
 
     async def execute_tool_call(
         self,
@@ -170,10 +173,6 @@ class StepPlanExecutor:
             )
 
         try:
-            exchanged_args = exchange_arguments(name, arguments, self.report)
-            if not isinstance(exchanged_args, dict):
-                raise TypeError(f"invalid arguments for {name}")
-
             started_at = time.perf_counter()
 
             step_call_id = ":".join((
@@ -186,15 +185,36 @@ class StepPlanExecutor:
                 turn=self.turn_context,
                 call_id=step_call_id,
                 name=name,
-                arguments=exchanged_args,
+                arguments=arguments,
                 execution=execution,
             )
 
-            result = await execute_tool(
-                self.session,
-                tools=self.tools,
-                invocation=invocation,
+            async def execute_step() -> typing.Any:
+                """交换参数后执行当前计划步骤。"""
+                exchanged_args = exchange_arguments(name, arguments, self.report)
+                if not isinstance(exchanged_args, dict):
+                    raise TypeError(f"invalid arguments for {name}")
+                return await execute_tool(
+                    self.session,
+                    tools=self.tools,
+                    invocation=invocation.with_arguments(exchanged_args),
+                )
+
+            hook_run = await self.tool_call_coordinator.run(
+                invocation,
+                execute_step,
             )
+            if not hook_run.allowed:
+                return await self._failure(
+                    run_index,
+                    step_index,
+                    name,
+                    hook_run.reason,
+                )
+
+            result = hook_run.value
+            if result is None:
+                raise RuntimeError(f"empty tool result for {name}")
 
             normalized = normalize_call_tool_result(result)
 
