@@ -145,6 +145,8 @@ async def run_tui_model_turn(
 
         await ev_report.open()
 
+        interrupted: bool = False
+
         try:
             await mind.run_mode_lifecycle(
                 runner,
@@ -160,9 +162,11 @@ async def run_tui_model_turn(
                 turn_context=turn_context,
             )
 
+        except asyncio.CancelledError:
+            interrupted = True
+            raise
         finally:
-            await ev_report.flush()
-            await ev_report.close()
+            await mind.await_cleanup(ev_report.close(drain=not interrupted))
 
     await mind.with_mcp_session(pref_config, run_turn_with_session)
 

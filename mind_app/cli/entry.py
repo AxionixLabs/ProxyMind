@@ -2,8 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import sys
+import signal
 import typing
 import asyncio
+import threading
+from types import FrameType
 from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from .commands import (
@@ -24,6 +27,64 @@ from .parser import parse_cli_invocation
 
 if typing.TYPE_CHECKING:
     from mind_app.frontend.contracts import ApplicationSink
+
+InterruptHandler: typing.TypeAlias = (
+    typing.Callable[[int, FrameType | None], typing.Any]
+    | int
+    | signal.Handlers
+    | None
+)
+
+
+class _InterruptController(object):
+    """把进程中断转换为可控的异步任务取消。"""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.loop = loop
+        self.main_task: asyncio.Task[int] | None = None
+        self.interrupt_count = 0
+
+    def bind_main_task(self, task: asyncio.Task[int]) -> None:
+        """绑定进程级主任务。"""
+        self.main_task = task
+
+    def handle(self, _signum: int, _frame: FrameType | None) -> None:
+        """在线程安全边界内调度中断处理。"""
+        self.interrupt_count += 1
+        cancel_all = self.interrupt_count > 1
+        try:
+            self.loop.call_soon_threadsafe(self._cancel_tasks, cancel_all)
+        except RuntimeError:
+            return None
+
+    def _cancel_tasks(self, cancel_all: bool) -> None:
+        """首次取消主任务，后续取消当前事件循环的全部任务。"""
+        main_task = self.main_task
+        if not cancel_all and main_task is not None:
+            if not main_task.done():
+                main_task.cancel()
+            return None
+
+        for task in asyncio.all_tasks(self.loop):
+            task.cancel()
+
+    def install(self) -> InterruptHandler:
+        """在主线程默认信号策略下安装处理器。"""
+        if threading.current_thread() is not threading.main_thread():
+            return None
+
+        previous = signal.getsignal(signal.SIGINT)
+        if previous is not signal.default_int_handler:
+            return None
+
+        signal.signal(signal.SIGINT, self.handle)
+        return previous
+
+    @staticmethod
+    def restore(previous: InterruptHandler) -> None:
+        """恢复安装前的信号处理器。"""
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
 
 
 def _entry_application(command: ParsedCommand) -> "ApplicationSink":
@@ -173,6 +234,28 @@ async def main(
     )
 
 
+async def _run_main(
+    interrupts: _InterruptController,
+    command: ParsedCommand,
+    *,
+    entry_file: str | None,
+    config_overrides: tuple[ConfigOverride, ...],
+    config_profile: str | None,
+) -> int:
+    """绑定主任务并进入命令路由。"""
+    task = asyncio.current_task()
+    if task is None:
+        raise RuntimeError("Process task is unavailable")
+
+    interrupts.bind_main_task(task)
+    return await main(
+        command,
+        entry_file=entry_file,
+        config_overrides=config_overrides,
+        config_profile=config_profile,
+    )
+
+
 def run(
     *,
     entry_file: str | None = None,
@@ -186,9 +269,15 @@ def run(
 
     logger.remove()
 
+    interrupts: _InterruptController | None = None
+    previous_interrupt_handler: InterruptHandler = None
+
     try:
         with asyncio.Runner() as runner:
-            exit_code = runner.run(main(
+            interrupts = _InterruptController(runner.get_loop())
+            previous_interrupt_handler = interrupts.install()
+            exit_code = runner.run(_run_main(
+                interrupts,
                 command,
                 entry_file=entry_file,
                 config_overrides=invocation.config_overrides,
@@ -202,6 +291,9 @@ def run(
         emit_entry_interruption(command)
         emit_entry_outro(command)
         return 130
+    finally:
+        if interrupts is not None:
+            interrupts.restore(previous_interrupt_handler)
 
     emit_entry_outro(command)
     return exit_code

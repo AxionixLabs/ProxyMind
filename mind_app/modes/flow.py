@@ -798,11 +798,12 @@ async def _run_flow_sources(
 
 async def _close_flow_report(
     mind: "Mind",
-    event_report: EventReport
+    event_report: EventReport,
+    *,
+    drain: bool
 ) -> None:
     """关闭星图编排事件报告。"""
-    await mind.await_cleanup(event_report.flush())
-    await mind.await_cleanup(event_report.close())
+    await mind.await_cleanup(event_report.close(drain=drain))
 
 
 async def run_flow(
@@ -858,10 +859,13 @@ async def run_flow(
         """在共享 MCP 会话中顺序执行多个星图源。"""
         await _run_flow_sources(mind, context, session, tools, kwargs)
 
+    interrupted: bool = False
+
     try:
         await mind.with_mcp_session(context.pref_config, function, before_user_flow=before_user_flow)
 
     except (asyncio.CancelledError, KeyboardInterrupt) as error:
+        interrupted = True
         observe_exception(
             "flow.interrupted",
             error,
@@ -932,7 +936,11 @@ async def run_flow(
             )
 
     finally:
-        await _close_flow_report(mind, context.event_report)
+        await _close_flow_report(
+            mind,
+            context.event_report,
+            drain=not interrupted,
+        )
 
     return run_result
 

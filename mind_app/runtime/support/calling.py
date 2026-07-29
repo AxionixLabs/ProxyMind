@@ -158,9 +158,12 @@ async def calling(
             **kwargs
         )
 
+    interrupted: bool = False
+
     try:
         result = await mind.with_mcp_session(pref_config, function)
     except asyncio.CancelledError:
+        interrupted = True
         observe(
             "call.interrupted",
             level="WARNING",
@@ -171,6 +174,8 @@ async def calling(
         )
         raise
     except BaseException as error:
+        interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
+
         observe_exception(
             "call.failed",
             error,
@@ -180,6 +185,7 @@ async def calling(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
+
     else:
         observe(
             "call.complete",
@@ -192,8 +198,7 @@ async def calling(
         return result
     finally:
         if owns_event_report:
-            await event_report.flush()
-            await event_report.close()
+            await mind.await_cleanup(event_report.close(drain=not interrupted))
 
 
 if __name__ == '__main__':

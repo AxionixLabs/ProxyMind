@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+import contextlib
 from engine.observability import (
     observe,
     observe_exception
@@ -107,7 +108,20 @@ class EventReport(object):
         """启动后台发送 worker（建议在 pack_start 前调用）"""
         if self.worker and not self.worker.done():
             return None
-        self.worker = asyncio.create_task(self.work())
+        self.worker = asyncio.create_task(self.work(), name="event report worker")
+        self.worker.add_done_callback(self._worker_done)
+
+    @staticmethod
+    def _worker_done(worker: asyncio.Task[None]) -> None:
+        """回收后台任务异常，避免事件循环输出未取回异常。"""
+        if worker.cancelled():
+            return None
+
+        error = worker.exception()
+        if error is None or isinstance(error, (KeyboardInterrupt, SystemExit)):
+            return None
+
+        observe_exception("event_report.worker_failed", error, level="WARNING")
 
     async def work(self) -> None:
         """单 worker：严格按队列顺序发送"""
@@ -122,7 +136,12 @@ class EventReport(object):
 
             try:
                 await post_stream_event(self.mode, self.cid, self.sid, ev, timeout=self.timeout)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise asyncio.CancelledError from e
                 observe_exception(
                     "event_report.post_failed",
                     e,
@@ -134,15 +153,58 @@ class EventReport(object):
                 self.q.task_done()
 
     async def flush(self) -> None:
-        """等待队列清空（所有已 emit 的事件都发完）"""
-        await self.q.join()
+        """等待队列清空，并在 worker 提前结束时立即失败。"""
+        worker = self.worker
+        if worker is None:
+            await self.q.join()
+            return None
 
-    async def close(self) -> None:
-        """优雅停止：先 flush，再退出 worker"""
-        await self.flush()
+        joined = asyncio.create_task(self.q.join())
+        try:
+            done, _ = await asyncio.wait(
+                (joined, worker),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if worker in done:
+                await worker
+            await joined
+        finally:
+            if not joined.done():
+                joined.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await joined
+
+    @staticmethod
+    async def _cancel_worker(worker: asyncio.Task[None]) -> None:
+        """取消 worker，并仅吸收预期的任务取消异常。"""
+        if not worker.done():
+            worker.cancel()
+
+        try:
+            await worker
+        except asyncio.CancelledError:
+            return None
+
+    async def close(self, *, drain: bool = True) -> None:
+        """停止 worker，并按需发送队列中的剩余事件。"""
+        worker = self.worker
+        if worker is None:
+            return None
+
         self.stop.set()
-        if self.worker:
-            await self.worker
+        try:
+            if not drain:
+                await self._cancel_worker(worker)
+                return None
+
+            try:
+                await self.flush()
+                await worker
+            finally:
+                if not worker.done():
+                    await self._cancel_worker(worker)
+        finally:
+            self.worker = None
 
 
 if __name__ == '__main__':
