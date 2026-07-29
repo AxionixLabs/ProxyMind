@@ -4,6 +4,7 @@
 import typing
 from mind_nova import const
 from mind_app.presentation.models import (
+    ApprovalSource,
     TextSpan,
     TextStyle
 )
@@ -77,17 +78,32 @@ def _approval_command_summary(approval: dict[str, typing.Any]) -> str:
 def render_approval_approved_trace(
     approval: dict[str, typing.Any],
     *,
-    decision: str = "accept"
+    decision: str = "accept",
+    source: ApprovalSource = "user"
 ) -> str:
     """生成审批通过后的轨迹标题。"""
     summary = approval_summary(approval)
-    scope   = "for this session" if decision == "acceptForSession" else "this time"
+    if source == "hook":
+        return f"✔ Hook approved {summary}".rstrip()
+    if source == "policy":
+        return f"✔ Approval policy approved {summary}".rstrip()
+
+    scope = "for this session" if decision == "acceptForSession" else "this time"
     return f"✔ You approved {const.APP_NAME} to run {summary} {scope}".rstrip()
 
 
-def render_approval_denied_trace(approval: dict[str, typing.Any]) -> str:
+def render_approval_denied_trace(
+    approval: dict[str, typing.Any],
+    *,
+    source: ApprovalSource = "user"
+) -> str:
     """生成审批拒绝后的轨迹标题。"""
     summary = approval_summary(approval)
+    if source == "hook":
+        return f"• Hook denied {summary}".rstrip()
+    if source == "policy":
+        return f"• Approval policy denied {summary}".rstrip()
+
     return f"• You denied {const.APP_NAME} to run {summary}".rstrip()
 
 

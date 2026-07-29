@@ -4,6 +4,7 @@
 import typing
 from .models import (
     ApprovalDecision,
+    ApprovalSource,
     ApprovalState,
     ApprovalView
 )
@@ -13,6 +14,7 @@ def build_approval_view(
     approval: typing.Any,
     *,
     decision: str,
+    source: ApprovalSource = "user"
 ) -> ApprovalView:
     """构建工具审批结果的结构化展示数据。"""
     normalized_approval = dict(approval) if isinstance(approval, dict) else {}
@@ -22,6 +24,7 @@ def build_approval_view(
         approval=normalized_approval,
         decision=normalized_decision,
         state=_approval_state(normalized_decision),
+        source=source,
     )
 
 

@@ -11,6 +11,12 @@ from mind_core.hooks import HookEventName
 
 ToolValue = typing.TypeVar("ToolValue")
 
+HookPermissionAction = typing.Literal[
+    "allow",
+    "deny",
+    "abstain",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class HookRuntimeEntry:
@@ -84,6 +90,19 @@ class HookDecision:
     def allow(cls) -> "HookDecision":
         """返回允许继续执行的决定。"""
         return cls(allowed=True)
+
+
+@dataclass(frozen=True, slots=True)
+class HookPermissionDecision:
+    """表示 Hook 链路对当前授权请求的三态决定。"""
+    action: HookPermissionAction
+    reason: str = ""
+    hook_keys: tuple[str, ...] = ()
+
+    @classmethod
+    def abstain(cls) -> "HookPermissionDecision":
+        """返回交由原审批链路处理的决定。"""
+        return cls(action="abstain")
 
 
 @dataclass(frozen=True, slots=True)

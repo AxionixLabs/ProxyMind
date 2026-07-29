@@ -22,10 +22,14 @@ def render_approval_view(view: ApprovalView) -> StyledBlock:
         title = render_approval_approved_trace(
             view.approval,
             decision=view.decision,
+            source=view.source,
         )
         style_state = "approved"
     else:
-        title       = render_approval_denied_trace(view.approval)
+        title       = render_approval_denied_trace(
+            view.approval,
+            source=view.source,
+        )
         style_state = "denied"
 
     return StyledBlock(

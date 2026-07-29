@@ -336,6 +336,7 @@ class JsonPresentationSink(PresentationSink):
                 "name": "approval",
                 "decision": view.decision,
                 "status": view.state,
+                "source": view.source,
             })
             return None
         if isinstance(view, PlanStepsStartView):

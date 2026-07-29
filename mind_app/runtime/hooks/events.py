@@ -58,10 +58,41 @@ def _normalize_unrestricted_output(
     return dict(data)
 
 
+def _normalize_permission_output(
+    data: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """校验并规范化工具审批 Hook 的输出。"""
+    raw_decision = data.get("decision")
+    if raw_decision is None:
+        decision = "abstain"
+    elif isinstance(raw_decision, str):
+        decision = raw_decision.strip().lower() or "abstain"
+        if decision not in {"allow", "deny", "abstain"}:
+            raise ValueError(
+                "hook decision must be allow, deny, or abstain"
+            )
+    else:
+        raise ValueError("hook decision must be a string")
+
+    raw_reason = data.get("reason", "")
+    if not isinstance(raw_reason, str):
+        raise ValueError("hook reason must be a string")
+
+    return {
+        **data,
+        "decision": decision,
+        "reason": raw_reason,
+    }
+
+
 HOOK_EVENT_SPECS: dict[HookEventName, HookEventSpec] = {
     "PreToolUse": HookEventSpec(
         name="PreToolUse",
         normalize_output=_normalize_pre_tool_output,
+    ),
+    "PermissionRequest": HookEventSpec(
+        name="PermissionRequest",
+        normalize_output=_normalize_permission_output,
     ),
     "PostToolUse": HookEventSpec(
         name="PostToolUse",

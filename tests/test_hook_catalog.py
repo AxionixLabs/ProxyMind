@@ -69,6 +69,7 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
         for item in catalog.events
     ] == [
         ("PreToolUse", 1, 0, "Before a tool executes"),
+        ("PermissionRequest", 0, 0, "When permission is requested"),
         ("PostToolUse", 1, 1, "After a tool executes"),
     ]
     assert catalog.hooks[0].command == "check-project"

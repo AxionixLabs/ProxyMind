@@ -25,6 +25,8 @@ from mind_app.runtime.hooks.tool import (
     ToolCallCoordinator,
     ToolHookEvents
 )
+from mind_app.presentation.approval_views import build_approval_view
+from mind_app.presentation.renderers.approval import render_approval_view
 from mind_core.hooks import (
     HOOK_EVENT_NAMES,
     resolve_hook_definitions
@@ -255,6 +257,137 @@ async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
 
     assert not decision.allowed
     assert "decision must be allow, deny, or block" in decision.reason
+
+
+@pytest.mark.anyio
+async def test_permission_request_prioritizes_deny_over_allow() -> None:
+    definitions = _definitions({
+        "PermissionRequest": [
+            {"command": "allow", "matcher": "shell_.*"},
+            {"command": "abstain", "matcher": "shell_command"},
+            {"command": "deny", "matcher": "shell_command"},
+        ],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"decision": "allow"},
+        definitions[1].key: {},
+        definitions[2].key: {
+            "decision": "deny",
+            "reason": "permission blocked",
+        },
+    })
+
+    decision = await ToolHookEvents(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )).permission_request(_invocation(execution={"grantId": "secret"}))
+
+    assert decision.action == "deny"
+    assert decision.reason == "permission blocked"
+    assert decision.hook_keys == (definitions[2].key,)
+    assert len(runner.calls) == 3
+    payload = runner.calls[0][1]
+    assert payload["hook_event_name"] == "PermissionRequest"
+    assert payload["tool_input"] == {"command": "rg TODO"}
+    assert "execution" not in payload
+    assert "secret" not in str(payload)
+
+
+@pytest.mark.anyio
+async def test_permission_request_abstains_without_matching_hook() -> None:
+    decision = await ToolHookEvents(HookRuntime.empty()).permission_request(
+        _invocation()
+    )
+
+    assert decision.action == "abstain"
+    assert decision.hook_keys == ()
+
+
+@pytest.mark.anyio
+async def test_permission_request_allows_when_a_hook_allows() -> None:
+    definitions = _definitions({
+        "PermissionRequest": [{"command": "allow"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"decision": "allow"},
+    })
+
+    decision = await ToolHookEvents(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )).permission_request(_invocation())
+
+    assert decision.action == "allow"
+    assert decision.hook_keys == (definitions[0].key,)
+
+
+@pytest.mark.anyio
+async def test_permission_request_blocks_on_configured_hook_failure() -> None:
+    definitions = _definitions({
+        "PermissionRequest": [{
+            "command": "broken",
+            "on_error": "block",
+        }],
+    })
+    runner = _CommandRunner(errors={
+        definitions[0].key: RuntimeError("permission check failed"),
+    })
+
+    decision = await ToolHookEvents(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )).permission_request(_invocation())
+
+    assert decision.action == "deny"
+    assert "permission check failed" in decision.reason
+    assert decision.hook_keys == (definitions[0].key,)
+
+
+@pytest.mark.anyio
+async def test_permission_preparation_stops_after_pre_tool_denial() -> None:
+    definitions = _definitions({
+        "PreToolUse": [{"command": "deny-pre"}],
+        "PermissionRequest": [{"command": "allow-permission"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "decision": "deny",
+            "reason": "blocked before approval",
+        },
+        definitions[1].key: {"decision": "allow"},
+    })
+    coordinator = ToolCallCoordinator(HookRuntime(
+        definitions,
+        command_runner=runner,
+    ))
+
+    decision = await coordinator.prepare_permission(_invocation())
+
+    assert decision.action == "deny"
+    assert decision.reason == "blocked before approval"
+    assert decision.hook_keys == (definitions[0].key,)
+    assert [call[0].event for call in runner.calls] == ["PreToolUse"]
+
+
+def test_hook_driven_approval_has_neutral_actor_text() -> None:
+    approval = {
+        "tool": "shell_command",
+        "arguments": {"command": "pytest -q"},
+    }
+
+    denied = render_approval_view(build_approval_view(
+        approval,
+        decision="decline",
+        source="hook",
+    ))
+    approved = render_approval_view(build_approval_view(
+        approval,
+        decision="accept",
+        source="hook",
+    ))
+
+    assert denied.plain_text == "• Hook denied pytest -q"
+    assert approved.plain_text == "✔ Hook approved pytest -q"
 
 
 @pytest.mark.anyio

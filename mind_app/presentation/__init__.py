@@ -4,6 +4,7 @@
 from .models import (
     ApprovalDecision,
     ApprovalState,
+    ApprovalSource,
     ApprovalView,
     BatchCallView,
     BatchCompletedView,
@@ -29,6 +30,7 @@ from .models import (
 __all__ = [
     "ApprovalDecision",
     "ApprovalState",
+    "ApprovalSource",
     "ApprovalView",
     "BatchCallView",
     "BatchCompletedView",

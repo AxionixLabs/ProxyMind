@@ -13,6 +13,7 @@ from mind_core.hooks import HookEventName
 from .models import (
     HookDecision,
     HookEventRequest,
+    HookPermissionDecision,
     ToolCallRunResult,
     ToolOutcome
 )
@@ -90,6 +91,59 @@ class ToolHookEvents:
             )
         )
 
+    async def permission_request(
+        self,
+        invocation: ToolInvocation
+    ) -> HookPermissionDecision:
+        """执行工具授权事件并聚合三态决定。"""
+        if not self.runtime.has_matching(
+            "PermissionRequest",
+            invocation.name,
+        ):
+            return HookPermissionDecision.abstain()
+
+        dispatched = await self.runtime.dispatch(
+            _tool_event_request("PermissionRequest", invocation)
+        )
+
+        denied_keys: list[str]    = []
+        denied_reasons: list[str] = []
+        allowed_keys: list[str]   = []
+
+        for record in dispatched.records:
+            if not record.ok:
+                if record.blocks_event:
+                    denied_keys.append(record.hook_key)
+                    denied_reasons.append(_bounded_reason(
+                        f"hook failed: {record.error}"
+                    ))
+                continue
+
+            decision = record.output.get("decision")
+            if decision == "deny":
+                denied_keys.append(record.hook_key)
+                denied_reasons.append(_bounded_reason(
+                    str(
+                        record.output.get("reason")
+                        or "permission denied by hook"
+                    )
+                ))
+            elif decision == "allow":
+                allowed_keys.append(record.hook_key)
+
+        if denied_keys:
+            return HookPermissionDecision(
+                action="deny",
+                reason="; ".join(denied_reasons),
+                hook_keys=tuple(denied_keys),
+            )
+        if allowed_keys:
+            return HookPermissionDecision(
+                action="allow",
+                hook_keys=tuple(allowed_keys),
+            )
+        return HookPermissionDecision.abstain()
+
 
 class ToolCallCoordinator:
     """协调工具调用的前置、执行和后置 Hook。"""
@@ -108,6 +162,22 @@ class ToolCallCoordinator:
                 decision=decision,
             )
         return decision
+
+    async def prepare_permission(
+        self,
+        invocation: ToolInvocation
+    ) -> HookPermissionDecision:
+        """按工具前置和授权顺序聚合审批 Hook 决定。"""
+        pre_tool = await self.prepare(invocation)
+
+        if not pre_tool.allowed:
+            return HookPermissionDecision(
+                action="deny",
+                reason=pre_tool.reason,
+                hook_keys=pre_tool.hook_keys,
+            )
+
+        return await self.events.permission_request(invocation)
 
     async def run(
         self,

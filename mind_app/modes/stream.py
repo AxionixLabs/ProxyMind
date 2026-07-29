@@ -33,6 +33,7 @@ from .result import (
     RunStatus
 )
 from ..presentation.approval_views import build_approval_view
+from ..presentation.models import ApprovalSource
 from ..presentation.run_views import (
     build_run_completed_view,
     build_run_started_view
@@ -388,7 +389,9 @@ async def stream_looper(
                 approval_tool    = str(event.get("name") or event.get("tool") or "")
                 approval_call_id = str(event.get("call_id") or "")
 
-                hook_decision = None
+                permission_decision = None
+
+                decision_source: ApprovalSource = "user"
 
                 if approval_tool:
                     approval_arguments = event.get("arguments")
@@ -399,12 +402,17 @@ async def stream_looper(
                             if isinstance(raw_approval_arguments, dict)
                             else {}
                         )
-                    hook_decision = await tool_call_coordinator.prepare(
-                        _tool_invocation_from_event(
-                            turn_context,
-                            event,
-                            tools,
-                            arguments=approval_arguments,
+
+                    approval_invocation = _tool_invocation_from_event(
+                        turn_context,
+                        event,
+                        tools,
+                        arguments=approval_arguments,
+                    )
+
+                    permission_decision = (
+                        await tool_call_coordinator.prepare_permission(
+                            approval_invocation
                         )
                     )
 
@@ -415,10 +423,21 @@ async def stream_looper(
                     approval_id=approval_id,
                 )
 
-                if hook_decision is not None and not hook_decision.allowed:
+                if (
+                    permission_decision is not None
+                    and permission_decision.action == "deny"
+                ):
                     decision = "decline"
+                    decision_source = "hook"
+                elif (
+                    permission_decision is not None
+                    and permission_decision.action == "allow"
+                ):
+                    decision = "accept"
+                    decision_source = "hook"
                 elif kwargs["permissions"].approval_policy == "never":
                     decision = "decline"
+                    decision_source = "policy"
                 else:
                     decision = await mind.frontend.interaction.request_approval(approval)
 
@@ -428,6 +447,12 @@ async def stream_looper(
                     call_id=approval_call_id,
                     approval_id=approval_id,
                     decision=decision,
+                    decision_source=decision_source,
+                    hook_keys=(
+                        list(permission_decision.hook_keys)
+                        if permission_decision is not None
+                        else []
+                    ),
                     elapsed_ms=int((time.perf_counter() - approval_started_at) * 1000),
                 )
 
@@ -443,6 +468,7 @@ async def stream_looper(
                     await presentation.emit(build_approval_view(
                         approval,
                         decision=decision,
+                        source=decision_source,
                     ))
                     await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                     continue
@@ -450,8 +476,11 @@ async def stream_looper(
                 approved = decision in {"accept", "acceptForSession"}
 
                 reason = (
-                    hook_decision.reason
-                    if hook_decision is not None and not hook_decision.allowed
+                    permission_decision.reason
+                    if (
+                        permission_decision is not None
+                        and permission_decision.action == "deny"
+                    )
                     else None if approved
                     else "approval policy is never"
                     if kwargs["permissions"].approval_policy == "never"
@@ -465,6 +494,7 @@ async def stream_looper(
                 await presentation.emit(build_approval_view(
                     approval,
                     decision=decision,
+                    source=decision_source,
                 ))
                 try:
                     await post_tool_approval(

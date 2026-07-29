@@ -10,6 +10,7 @@ from pathlib import Path
 
 HookEventName = typing.Literal[
     "PreToolUse",
+    "PermissionRequest",
     "PostToolUse",
 ]
 
@@ -47,6 +48,12 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         name="PreToolUse",
         description="Before a tool executes",
         default_on_error="block",
+        allows_block_on_error=True,
+    ),
+    "PermissionRequest": HookEventConfigSpec(
+        name="PermissionRequest",
+        description="When permission is requested",
+        default_on_error="continue",
         allows_block_on_error=True,
     ),
     "PostToolUse": HookEventConfigSpec(
