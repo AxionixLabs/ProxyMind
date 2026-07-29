@@ -52,6 +52,7 @@ from ..features.helix import (
     unlink_helix_runtime
 )
 from ..features.history import choose_history_session
+from ..features.hooks import manage_hooks
 from ..features.mcp import (
     McpAction,
     choose_mcp_action,
@@ -201,6 +202,10 @@ class TuiCommandDispatcher(object):
                 run_mode=self.state.mode,
                 pref_config=self.state.pref_config,
             )
+            return DispatchAction.HANDLED
+
+        if matches_command(command, "hooks"):
+            await manage_hooks(self.runtime, self.mind)
             return DispatchAction.HANDLED
 
         if matches_command(command, "diff"):

@@ -89,6 +89,10 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "tools", "/tools", "查看可用 MCP 工具",
     ),
     TuiCommandSpec(
+        "hooks", "/hooks", "管理生命周期 Hooks",
+        surface_on_bare=True,
+    ),
+    TuiCommandSpec(
         "diff", "/diff", "查看本轮补丁净差异",
     ),
     TuiCommandSpec(

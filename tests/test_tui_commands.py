@@ -43,6 +43,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/preferences",
         "/compact",
         "/tools",
+        "/hooks",
         "/diff",
         "/copy",
         "/ps",
@@ -62,6 +63,7 @@ def test_helix_prefix_keeps_command_order() -> None:
     completions = _completions("/h")
 
     assert [item.display_text for item in completions] == [
+        "/hooks",
         "/helix-link",
         "/helix-unlink",
         "/helix-home",
@@ -93,7 +95,15 @@ def test_command_matching_distinguishes_empty_and_argument_states() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["/permissions", "/effort", "/resume", "/ps", "/mcp", "/helix-link"],
+    [
+        "/permissions",
+        "/effort",
+        "/resume",
+        "/hooks",
+        "/ps",
+        "/mcp",
+        "/helix-link",
+    ],
 )
 def test_bare_surface_commands_stage_their_submission(value) -> None:
     assert submission_uses_transient_surface(value)
@@ -112,6 +122,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_policy("/mcp force") == "background_barrier"
     assert stream_command_policy("/ps") == "local_snapshot"
     assert stream_command_policy("/compact") == "reject"
+    assert stream_command_policy("/hooks") == "reject"
     assert stream_command_policy("/fork") == "reject"
     assert stream_command_policy("/mcp restart") == "reject"
     assert stream_command_policy("! rg foo") == "reject"
@@ -173,6 +184,33 @@ async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
         "Unrecognized command '/今天天气'. "
         'Type "/" for a list of supported commands.'
     )
+
+
+@pytest.mark.anyio
+async def test_dispatcher_routes_hooks_to_the_management_surface(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    runtime = SimpleNamespace()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+    manage = AsyncMock()
+    monkeypatch.setattr(dispatch_module, "manage_hooks", manage)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/hooks")
+
+    assert action is DispatchAction.HANDLED
+    manage.assert_awaited_once_with(runtime, mind)
 
 
 @pytest.mark.anyio
