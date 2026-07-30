@@ -107,7 +107,7 @@ class TuiTranscriptViewport(object):
             or not self._is_application_active()
             or self._should_defer_scrollback()
             or (task is not None and not task.done())
-            or self._scrollback_prefix_count() <= 0
+            or self._scrollback_prefix_line_count() <= 0
         ):
             return None
 
@@ -136,23 +136,16 @@ class TuiTranscriptViewport(object):
                     if self._should_defer_scrollback():
                         return None
 
-                    count = self._scrollback_prefix_count()
-                    if count <= 0:
+                    line_count = self._scrollback_prefix_line_count()
+                    if line_count <= 0:
                         return None
 
-                    fragments = self.document.scrollback_prefix_fragments(count)
-                    retained  = self.document.visible_blocks[count:]
-
-                    separator = (
-                        "\n\n"
-                        if not retained or retained[0].gap_before
-                        else "\n"
+                    fragments = self.document.scrollback_prefix_fragments(
+                        line_count
                     )
-                    self._get_application().print_text([
-                        *fragments,
-                        ("", separator),
-                    ])
-                    self.document.commit_scrollback_prefix(count)
+                    # print_text 统一补一个结尾换行，批次只提供行间换行。
+                    self._get_application().print_text(fragments)
+                    self.document.commit_scrollback_prefix(line_count)
                     self.view_row = None
 
         except asyncio.CancelledError:
@@ -177,52 +170,63 @@ class TuiTranscriptViewport(object):
             or self.view_row is not None
         )
 
-    def _scrollback_prefix_count(self) -> int:
-        """计算滚屏前缀数量，并保留首个超出视口的完整块。"""
+    def _scrollback_prefix_line_count(self) -> int:
+        """计算可写入滚屏区的完整稳定逻辑行数量。"""
         if self.document.active_block is not None:
             return 0
 
-        blocks    = self.document.visible_blocks
+        lines     = self.document.visible_stable_lines()
         submitted = self._submitted_query_block
 
-        if blocks and submitted is not None and blocks[-1].block is submitted:
-            blocks = blocks[:-1]
-
-        if not blocks:
+        if not lines:
             return 0
 
-        available  = self._get_available_height()
-        kept_rows  = 0
-        first_kept = len(blocks)
+        max_retirable = len(lines)
+        if submitted is not None:
+            submitted_offset = self.document.visible_line_offset_for_block(
+                submitted
+            )
+            if submitted_offset is not None:
+                max_retirable = min(max_retirable, submitted_offset)
+        if max_retirable <= 0:
+            return 0
 
-        for index in range(len(blocks) - 1, -1, -1):
-            text = fragments_text(blocks[index].block.fragments).strip("\r\n")
+        available = max(0, self._get_available_height())
+        if available <= 0:
+            return max_retirable
 
-            block_rows = display_line_count(
-                text,
+        kept_rows: int = 0
+
+        for index in range(len(lines) - 1, -1, -1):
+            line = lines[index]
+            rows = max(1, display_line_count(
+                fragments_text(line),
                 width=self._get_terminal_width(),
                 continuation_widths=fragment_continuation_widths(
-                    list(blocks[index].block.fragments),
+                    line,
                     prefix_style=ASSISTANT_PREFIX_CLASS,
                     prefix_width=2,
                 ),
-            )
+            ))
 
-            separator_rows = (
-                1
-                if first_kept < len(blocks) and blocks[first_kept].gap_before
-                else 0
-            )
-
-            candidate = block_rows + separator_rows + kept_rows
+            candidate = rows + kept_rows
             if candidate > available:
-                first_kept = index
+                retire_count = min(index + 1, len(lines) - 1)
                 break
 
-            kept_rows  = candidate
-            first_kept = index
+            kept_rows = candidate
+        else:
+            return 0
 
-        return first_kept
+        retire_count = min(retire_count, max_retirable)
+
+        while (
+            retire_count < max_retirable
+            and not fragments_text(lines[retire_count]).strip()
+        ):
+            retire_count += 1
+
+        return retire_count
 
     def clear_visible(self) -> None:
         """清理当前终端画布并保留完整会话归档。"""

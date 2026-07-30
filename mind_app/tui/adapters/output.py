@@ -68,8 +68,9 @@ class TuiOutputControl(OutputControlPort):
 
         self._stream_render_handle: asyncio.TimerHandle | None = None
 
-        self._stream_rendered_at: float     = 0.0
-        self._stream_render_cost_sec: float = 0.0
+        self._stream_rendered_at: float         = 0.0
+        self._stream_render_cost_sec: float     = 0.0
+        self._final_block: FragmentBlock | None = None
 
     @property
     def terminal_width(self) -> int | None:
@@ -106,6 +107,8 @@ class TuiOutputControl(OutputControlPort):
         if not text:
             return None
 
+        self._final_block = None
+
         self.record_writer.write(text)
 
         if self.animate:
@@ -126,9 +129,15 @@ class TuiOutputControl(OutputControlPort):
     async def settle_stream(self) -> None:
         """立即同步当前流式内容。"""
         self._cancel_stream_render()
+        self._finish_assistant_filter(render=False)
+
         if self.assistant.active:
             self.assistant.reveal_all()
-            self._render_active(cursor=False)
+            self._final_block = self._render_final_block()
+            self.runtime.set_active_renderable(
+                self._final_block,
+                kind="assistant",
+            )
 
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的块状内容。"""
@@ -213,6 +222,17 @@ class TuiOutputControl(OutputControlPort):
             self.runtime.clear_active_renderable()
             return False
 
+        block = self._final_block or self._render_final_block()
+
+        self.runtime.commit_active_renderable(block)
+        self.assistant.clear()
+        self._assistant_filter.reset()
+        self._final_block = None
+
+        return True
+
+    def _render_final_block(self) -> FragmentBlock:
+        """把当前完整正文渲染为可直接提交的最终块。"""
         text = self.assistant.text
 
         try:
@@ -222,13 +242,7 @@ class TuiOutputControl(OutputControlPort):
                 StyledBlock(plain_text=text),
             ))
 
-        block = _assistant_prefixed_block(rendered)
-
-        self.runtime.commit_active_renderable(block)
-        self.assistant.clear()
-        self._assistant_filter.reset()
-
-        return True
+        return _assistant_prefixed_block(rendered)
 
     def _finish_assistant_filter(self, *, render: bool) -> None:
         """收束流式控制序列，并按需刷新新增的换行。"""
@@ -237,6 +251,7 @@ class TuiOutputControl(OutputControlPort):
             return None
 
         self.record_writer.write(tail)
+        self._final_block = None
         self.assistant.append(tail)
         self.assistant.reveal_all()
 

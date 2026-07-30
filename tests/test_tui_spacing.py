@@ -44,6 +44,8 @@ from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
     display_line_count,
     fragment_continuation_widths,
+    join_formatted_lines,
+    split_formatted_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.screen import _erase_terminal_scrollback
@@ -56,6 +58,27 @@ def _block(text: str) -> FragmentBlock:
 
 def _document_text(document: TuiDocument) -> str:
     return "".join(text for _style, text in document.fragments(width=80))
+
+
+def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
+    fragments = [
+        ("class:first", "one\n"),
+        ("class:second", "\ntwo"),
+    ]
+
+    lines = split_formatted_lines(fragments)
+
+    assert lines == [
+        [("class:first", "one")],
+        [],
+        [("class:second", "two")],
+    ]
+    assert join_formatted_lines(lines) == [
+        ("class:first", "one"),
+        ("", "\n"),
+        ("", "\n"),
+        ("class:second", "two"),
+    ]
 
 
 @pytest.mark.parametrize("first_kind", get_args(TuiBlockKind))
@@ -206,18 +229,22 @@ def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
     document.append_block(_block("first"), kind="assistant")
     document.append_block(_block("second"), kind="operation")
 
-    document.commit_scrollback_prefix(1)
+    assert "".join(
+        text for _style, text in document.scrollback_prefix_fragments(2)
+    ) == "first\n"
+
+    document.commit_scrollback_prefix(2)
 
     assert len(document.blocks) == 2
-    assert document.scrollback_prefix_count == 1
-    assert document.cleared_prefix_count == 0
+    assert document.scrollback_line_count == 2
+    assert document.cleared_line_count == 0
     assert "first" not in _document_text(document)
     assert "second" in _document_text(document)
 
     document.clear_visible_prefix()
 
-    assert document.scrollback_prefix_count == 1
-    assert document.cleared_prefix_count == 2
+    assert document.scrollback_line_count == 2
+    assert document.cleared_line_count == 3
     assert _document_text(document) == ""
 
     document.append_block(_block("third"), kind="assistant")
@@ -230,7 +257,7 @@ def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
 
     document.commit_scrollback_prefix(1)
 
-    assert document.scrollback_prefix_count == 3
+    assert document.scrollback_line_count == 5
     assert "".join(
         text for _style, text in document.all_fragments(width=80)
     ) == "first\n\nsecond\n\nthird"
@@ -245,8 +272,8 @@ def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
         runtime.viewport.clear_visible()
 
         assert _document_text(runtime.document) == "streaming"
-        assert runtime.document.scrollback_prefix_count == 0
-        assert runtime.document.cleared_prefix_count == 1
+        assert runtime.document.scrollback_line_count == 0
+        assert runtime.document.cleared_line_count == 1
 
         runtime.commit_active_renderable(_block("completed"))
         runtime.append_block(_block("new result"), kind="operation")
@@ -256,8 +283,8 @@ def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
         runtime.viewport.clear_visible()
 
         assert _document_text(runtime.document) == ""
-        assert runtime.document.scrollback_prefix_count == 0
-        assert runtime.document.cleared_prefix_count == 3
+        assert runtime.document.scrollback_line_count == 0
+        assert runtime.document.cleared_line_count == 5
         assert clear.call_count == 2
 
     runtime.append_block(_block("after clear"), kind="assistant")
@@ -345,14 +372,14 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
                         )
 
                     await asyncio.sleep(0.02)
-                    assert runtime.document.scrollback_prefix_count == 0
+                    assert runtime.document.scrollback_line_count == 0
                     assert not print_text.called
 
                     set_busy(False)
                     await asyncio.sleep(0.02)
 
                 assert len(runtime.document.blocks) == 6
-                assert runtime.document.scrollback_prefix_count > 0
+                assert runtime.document.scrollback_line_count > 0
                 assert print_text.called
                 printed = "".join(
                     text
@@ -394,10 +421,7 @@ async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize()
                 runtime.set_execution_active(False)
                 await asyncio.sleep(0.02)
 
-                assert runtime.document.scrollback_prefix_count == 2
-                assert [
-                    item.kind for item in runtime.document.visible_blocks
-                ] == ["assistant", "system"]
+                assert runtime.document.scrollback_line_count > 2
                 assert "first 29" in _document_text(runtime.document)
 
                 runtime.set_execution_active(True)
@@ -410,13 +434,112 @@ async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize()
                 runtime.set_execution_active(False)
                 await asyncio.sleep(0.02)
 
-                assert runtime.document.scrollback_prefix_count == 5
-                assert [
-                    item.kind for item in runtime.document.visible_blocks
-                ] == ["assistant", "system"]
+                assert runtime.document.scrollback_line_count > 5
                 visible = _document_text(runtime.document)
                 assert "first 29" not in visible
                 assert "second 29" in visible
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_single_oversized_block_retires_complete_logical_lines() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        source = "\n".join(f"line {index:02d}" for index in range(80))
+        expected = "\n".join([
+            "• line 00",
+            *(f"  line {index:02d}" for index in range(1, 80)),
+        ])
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    runtime.set_execution_active(True)
+                    await output.append_assistant_delta(source)
+                    await output.settle_stream()
+                    await output.prepare_external_output()
+
+                    assert not print_text.called
+
+                    runtime.set_execution_active(False)
+                    await asyncio.sleep(0.02)
+
+                assert print_text.call_count == 1
+
+                printed = "".join(
+                    text for _style, text in print_text.call_args.args[0]
+                )
+                visible = _document_text(runtime.document)
+
+                assert printed.startswith("• line 00\n")
+                assert not printed.endswith("\n")
+                assert visible.endswith("line 79")
+                assert f"{printed}\n{visible}" == expected
+                assert runtime.document.scrollback_line_count > 0
+                assert display_line_count(
+                    visible,
+                    width=runtime.terminal_width,
+                ) <= runtime.screen.transcript_available_height()
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_line_scrollback_resize_never_reprints_retired_content() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=12, columns=40)
+        source = "\n".join(f"entry {index:02d}" for index in range(60))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    runtime.append_block(_block(source), kind="assistant")
+                    await asyncio.sleep(0.02)
+                    first_count = runtime.document.scrollback_line_count
+
+                    terminal_size = Size(rows=20, columns=40)
+                    runtime.viewport.schedule_scrollback_flush()
+                    await asyncio.sleep(0.02)
+                    assert runtime.document.scrollback_line_count == first_count
+
+                    terminal_size = Size(rows=8, columns=40)
+                    runtime.viewport.schedule_scrollback_flush()
+                    await asyncio.sleep(0.02)
+
+                chunks = [
+                    "".join(text for _style, text in call.args[0])
+                    for call in print_text.call_args_list
+                ]
+                visible = _document_text(runtime.document)
+
+                assert len(chunks) == 2
+                assert "\n".join([*chunks, visible]) == source
+                assert runtime.document.scrollback_line_count > first_count
+                assert "".join(
+                    text
+                    for _style, text in runtime.document.all_fragments(width=40)
+                ) == source
             finally:
                 await runtime.close()
 
@@ -446,12 +569,12 @@ async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
 
                 await asyncio.sleep(0.02)
 
-                assert runtime.document.scrollback_prefix_count == 0
+                assert runtime.document.scrollback_line_count == 0
 
                 runtime.set_execution_active(False)
                 await asyncio.sleep(0.02)
 
-                assert runtime.document.scrollback_prefix_count > 0
+                assert runtime.document.scrollback_line_count > 0
             finally:
                 await runtime.close()
 
@@ -531,7 +654,7 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                     kind="assistant",
                 )
                 await asyncio.sleep(0.02)
-                committed_count = runtime.document.scrollback_prefix_count
+                committed_count = runtime.document.scrollback_line_count
                 assert committed_count > 0
                 assert len(runtime.document.blocks) == 2
                 assert "line" in "".join(
@@ -546,7 +669,7 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                     if runtime.screen.application.render_counter > render_count:
                         break
 
-                assert runtime.document.scrollback_prefix_count > committed_count
+                assert runtime.document.scrollback_line_count > committed_count
                 assert len(runtime.document.blocks) == 3
             finally:
                 await runtime.close()
@@ -632,7 +755,7 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
                         break
 
                 assert not runtime.document.has_visible_content
-                assert runtime.document.cleared_prefix_count == 1
+                assert runtime.document.cleared_line_count == 1
                 assert runtime.screen.input.buffer.text == "draft input"
 
                 runtime.append_block(_block("new answer"), kind="assistant")
@@ -641,11 +764,11 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
                 pipe_input.send_text("\x0c")
                 for _ in range(100):
                     await asyncio.sleep(0.01)
-                    if runtime.document.cleared_prefix_count == 2:
+                    if runtime.document.cleared_line_count == 3:
                         break
 
                 assert not runtime.document.has_visible_content
-                assert runtime.document.cleared_prefix_count == 2
+                assert runtime.document.cleared_line_count == 3
                 assert runtime.screen.input.buffer.text == "draft input"
                 assert "previous answer" in "".join(
                     text
@@ -1127,6 +1250,23 @@ async def test_assistant_commit_renders_markdown_without_final_units_bridge() ->
     assert "".join(text for _style, text in fragments) == "• bold and code"
     assert any("bold" in style and text == "bold" for style, text in fragments)
     assert any("fg:" in style and text == "code" for style, text in fragments)
+
+
+@pytest.mark.anyio
+async def test_settled_markdown_frame_is_reused_when_committed() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("**bold** and `code`")
+    await output.settle_stream()
+
+    active = runtime.document.active_block
+    assert active is not None
+    assert "".join(text for _style, text in active.fragments) == "• bold and code"
+
+    await output.prepare_external_output()
+
+    assert runtime.document.blocks[-1].block is active
 
 
 @pytest.mark.anyio

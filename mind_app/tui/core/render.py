@@ -48,6 +48,45 @@ def fragments_text(parts: typing.Iterable[tuple[str, str]]) -> str:
     return "".join(text for _style, text in parts)
 
 
+def split_formatted_lines(parts: FormattedText) -> list[FormattedText]:
+    """按显式换行拆分格式化片段并保留每行样式。"""
+    lines: list[FormattedText] = []
+    current: FormattedText     = []
+
+    found: bool = False
+
+    for style, text in parts:
+        if not text:
+            continue
+
+        found  = True
+        chunks = text.split("\n")
+
+        for index, chunk in enumerate(chunks):
+            if chunk:
+                current.append((style, chunk))
+            if index < len(chunks) - 1:
+                lines.append(current)
+                current = []
+
+    if found:
+        lines.append(current)
+
+    return lines
+
+
+def join_formatted_lines(lines: typing.Iterable[FormattedText]) -> FormattedText:
+    """连接格式化逻辑行并在相邻行之间插入换行。"""
+    out: FormattedText = []
+
+    for index, line in enumerate(lines):
+        if index:
+            out.append(("", "\n"))
+        out.extend(line)
+
+    return out
+
+
 def clip_text(text: typing.Any, *, width: int) -> str:
     """按终端显示宽度裁剪单行文本并保留省略标记。"""
     value = str(text or "").replace("\n", " ")
