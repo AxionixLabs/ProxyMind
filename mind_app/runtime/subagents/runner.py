@@ -60,6 +60,8 @@ class SubagentRunner:
         """执行子轮次并完整分发开始和停止通知。"""
         if execution.context.agent.depth == 0:
             raise ValueError("subagent execution requires a child agent context")
+        if not execution.message.strip():
+            raise ValueError("subagent task is required")
 
         hook_context = HookExecutionContext.from_turn(execution.context)
 

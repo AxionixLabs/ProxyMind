@@ -326,3 +326,30 @@ async def test_subagent_runner_rejects_root_turn_before_side_effects() -> None:
     assert operation_calls == []
     assert controller.scope_contexts == []
     assert controller.sessions == []
+
+
+@pytest.mark.anyio
+async def test_subagent_runner_rejects_empty_task_before_side_effects() -> None:
+    controller = _Controller(HookRuntime.empty())
+    prepared = _execution()
+    execution = TurnExecution(
+        context=prepared.context,
+        message="",
+    )
+    operation_calls = []
+
+    async def operation(*_args):
+        operation_calls.append(True)
+        return RunResult(status="completed")
+
+    with pytest.raises(ValueError, match="task is required"):
+        await SubagentRunner(controller).run(
+            {},
+            execution,
+            operation,
+            event_report=_Report(),
+        )
+
+    assert operation_calls == []
+    assert controller.scope_contexts == []
+    assert controller.sessions == []

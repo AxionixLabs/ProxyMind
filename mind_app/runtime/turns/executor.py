@@ -32,8 +32,8 @@ class TurnExecution:
         """固定执行元数据并校验会话标识一致。"""
         if not isinstance(self.context, TurnContext):
             raise TypeError("turn context is required")
-        if not str(self.message or "").strip():
-            raise ValueError("turn message is required")
+        if not isinstance(self.message, str):
+            raise TypeError("turn message must be a string")
 
         metadata = dict(self.metadata)
 

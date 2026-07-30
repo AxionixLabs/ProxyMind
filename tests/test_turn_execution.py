@@ -89,6 +89,23 @@ def test_turn_execution_fixes_context_session_metadata() -> None:
         )
 
 
+def test_turn_execution_allows_empty_text_but_requires_string() -> None:
+    prepared = _child_execution()
+
+    empty = TurnExecution(
+        context=prepared.context,
+        message="",
+    )
+
+    assert empty.message == ""
+
+    with pytest.raises(TypeError, match="message must be a string"):
+        TurnExecution(
+            context=prepared.context,
+            message=None,
+        )
+
+
 @pytest.mark.anyio
 async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> None:
     mind = _ExecutionController()

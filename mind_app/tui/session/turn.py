@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
-
+import asyncio
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -19,6 +18,10 @@ from ...runtime.execution import (
     TurnContext
 )
 from ...runtime.support.calling import resolve_mode_runner
+from ...runtime.turns.executor import (
+    TurnExecution,
+    execute_turn
+)
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
     BRIGHT_STYLE,
@@ -29,6 +32,7 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
+    from ...modes.result import RunResult
 
 
 async def execute_tui_model_turn(
@@ -40,11 +44,12 @@ async def execute_tui_model_turn(
         [str, typing.Callable[[], bool]],
         bool,
     ] | None = None,
-    show_interrupt_notice: typing.Callable[[], bool] = lambda: True,
+    show_interrupt_notice: typing.Callable[[], bool] = lambda: True
 ) -> None:
     """执行可由主输入区定向取消的单个模型轮次。"""
     task = asyncio.create_task(turn, name="tui model turn")
-    interrupted = False
+
+    interrupted: bool = False
 
     def cancel_turn() -> bool:
         """取消模型任务并记录响应中断来源。"""
@@ -55,10 +60,12 @@ async def execute_tui_model_turn(
 
     runtime.set_execution_active(True)
     runtime.bind_interrupt_handler(cancel_turn)
+
     if stream_command_handler is not None:
         runtime.bind_stream_command_handler(
             lambda value: stream_command_handler(value, cancel_turn)
         )
+
     try:
         await task
     except asyncio.CancelledError:
@@ -67,9 +74,11 @@ async def execute_tui_model_turn(
         interrupted = True
     else:
         interrupted = runtime.consume_turn_interrupt()
+
     finally:
         if not interrupted:
             runtime.consume_turn_interrupt()
+
         runtime.bind_stream_command_handler(None)
         runtime.bind_interrupt_handler(None)
         runtime.set_execution_active(False)
@@ -96,7 +105,7 @@ async def run_tui_model_turn(
     pref_config: dict[str, typing.Any],
     permissions: PermissionSettings
 ) -> None:
-    """为单轮 TUI 输入建立 MCP 会话并执行模型流程。"""
+    """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     attachments: list[dict[str, typing.Any]] = []
     if mind.attach.has_pending_attachments():
         attachments = mind.attach.consume_pending_attachments()
@@ -112,63 +121,59 @@ async def run_tui_model_turn(
         or "Image"
     )
 
-    async def run_turn_with_session(
+    runner = resolve_mode_runner(mind, run_mode)
+
+    conversation_turn = mind.begin_conversation_turn(
+        title=session_title,
+        source="tui",
+    )
+    turn_metadata = conversation_turn.metadata()
+
+    turn_context = TurnContext.create(
+        agent=AgentContext.root(turn_metadata["sid"]),
+        cid=turn_metadata["cid"],
+        sid=turn_metadata["sid"],
+        mode=run_mode,
+        source="tui",
+        pref_config=pref_config,
+        cwd=mind.history_workspace,
+        permissions=permissions,
+        session_started=conversation_turn.session_started,
+        session_start_reason=conversation_turn.start_reason,
+    )
+    execution = TurnExecution(
+        context=turn_context,
+        message=message_text,
+        metadata=turn_metadata,
+    )
+
+    async def run_tui_turn(
+        prepared: TurnExecution,
         session: McpSessionLike,
-        tools: list[dict[str, typing.Any]]
-    ) -> None:
-        runner = resolve_mode_runner(mind, run_mode)
-
-        conversation_turn = mind.begin_conversation_turn(
-            title=session_title,
-            source="tui",
-        )
-        turn_metadata = conversation_turn.metadata()
-
-        turn_context = TurnContext.create(
-            agent=AgentContext.root(turn_metadata["sid"]),
-            cid=turn_metadata["cid"],
-            sid=turn_metadata["sid"],
-            mode=run_mode,
-            source="tui",
+        tools: list[dict[str, typing.Any]],
+        event_report: EventReport
+    ) -> "RunResult":
+        """使用 TUI 前端生命周期执行已经准备好的根轮次。"""
+        return await mind.run_mode_lifecycle(
+            runner,
+            mode=prepared.context.mode,
+            session=session,
             pref_config=pref_config,
-            cwd=mind.history_workspace,
-            permissions=permissions,
-            session_started=conversation_turn.session_started,
-            session_start_reason=conversation_turn.start_reason,
+            message=prepared.message,
+            tools=tools,
+            permissions=prepared.context.permissions,
+            attachments=attachments,
+            metadata=dict(prepared.metadata),
+            ev_report=event_report,
+            turn_context=prepared.context,
         )
 
-        ev_report = EventReport(
-            run_mode,
-            turn_metadata["cid"],
-            turn_metadata["sid"],
-        )
-
-        await ev_report.open()
-
-        interrupted: bool = False
-
-        try:
-            await mind.run_mode_lifecycle(
-                runner,
-                mode=run_mode,
-                session=session,
-                pref_config=pref_config,
-                message=message_text,
-                tools=tools,
-                permissions=permissions,
-                attachments=attachments,
-                metadata=turn_metadata,
-                ev_report=ev_report,
-                turn_context=turn_context,
-            )
-
-        except asyncio.CancelledError:
-            interrupted = True
-            raise
-        finally:
-            await mind.await_cleanup(ev_report.close(drain=not interrupted))
-
-    await mind.with_mcp_session(pref_config, run_turn_with_session)
+    await execute_turn(
+        mind,
+        pref_config,
+        execution,
+        run_tui_turn,
+    )
 
 
 if __name__ == '__main__':
