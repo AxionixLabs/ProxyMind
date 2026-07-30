@@ -143,12 +143,19 @@ async def stream_looper(
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
-    turn_context = kwargs.pop("turn_context", None)
+    turn_context        = kwargs.pop("turn_context", None)
+    provided_hook_scope = kwargs.pop("hook_scope", None)
 
     if not isinstance(turn_context, TurnContext):
         raise TypeError("turn_context is required")
+
     if turn_context.mode != mode:
         raise ValueError("turn context mode does not match stream mode")
+
+    if provided_hook_scope is not None:
+        if not isinstance(provided_hook_scope, HookExecutionScope):
+            raise TypeError("hook_scope must be a HookExecutionScope")
+        provided_hook_scope.require_turn(turn_context)
 
     kwargs["turn_id"]     = turn_context.turn_id
     kwargs["permissions"] = turn_context.permissions
@@ -250,17 +257,20 @@ async def stream_looper(
             turn_id=str(kwargs.get("turn_id") or ""),
         ))
 
-        hook_context = HookExecutionContext.from_turn(turn_context)
+        if provided_hook_scope is None:
+            hook_context = HookExecutionContext.from_turn(turn_context)
 
-        try:
-            hook_scope = mind.hook_scope(hook_context)
-        except (OSError, TypeError, ValueError) as error:
-            observe_exception(
-                "hooks.resolve.failed",
-                error,
-                level="WARNING",
-            )
-            hook_scope = HookExecutionScope.empty(hook_context)
+            try:
+                hook_scope = mind.hook_scope(hook_context)
+            except (OSError, TypeError, ValueError) as error:
+                observe_exception(
+                    "hooks.resolve.failed",
+                    error,
+                    level="WARNING",
+                )
+                hook_scope = HookExecutionScope.empty(hook_context)
+        else:
+            hook_scope = provided_hook_scope
 
         tool_call_coordinator = ToolCallCoordinator(hook_scope)
         turn_hook_events = TurnHookEvents(hook_scope)

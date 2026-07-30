@@ -232,6 +232,7 @@ def _hook_context(
         agent_type=agent.agent_type,
         agent_depth=agent.depth,
         parent_agent_id=agent.parent_agent_id,
+        root_session_id=agent.root_session_id,
     )
 
 

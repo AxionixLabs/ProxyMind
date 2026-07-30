@@ -30,6 +30,7 @@ class HookExecutionContext:
     agent_type: str
     agent_depth: int
     parent_agent_id: str | None = None
+    root_session_id: str = ""
     turn_id: str = ""
     session_started: bool = False
     session_start_reason: str = ""
@@ -38,7 +39,8 @@ class HookExecutionContext:
     def from_turn(cls, turn: TurnContext) -> "HookExecutionContext":
         """从模型轮次创建 Hook 执行上下文。"""
         return cls(
-            session_id=turn.agent.root_session_id,
+            session_id=turn.sid,
+            root_session_id=turn.agent.root_session_id,
             conversation_id=turn.cid,
             turn_id=turn.turn_id,
             cwd=turn.cwd,
@@ -59,6 +61,7 @@ class HookExecutionContext:
         """返回命令 Hook 可见的公共字段。"""
         return {
             "session_id"           : self.session_id,
+            "root_session_id"      : self.root_session_id or self.session_id,
             "conversation_id"      : self.conversation_id,
             "turn_id"              : self.turn_id,
             "cwd"                  : self.cwd,
@@ -115,9 +118,9 @@ class HookExecutionScope:
         ))
 
     def require_turn(self, turn: TurnContext) -> None:
-        """验证工具调用属于当前固定轮次。"""
+        """验证模型轮次属于当前固定作用域。"""
         if HookExecutionContext.from_turn(turn) != self.context:
-            raise ValueError("tool invocation does not belong to hook scope")
+            raise ValueError("turn does not belong to hook scope")
 
 
 if __name__ == '__main__':

@@ -4,10 +4,12 @@ import pytest
 
 from mind_app.runtime.execution import (
     ROOT_AGENT_ID,
+    ROOT_AGENT_TYPE,
     AgentContext,
     ToolInvocation,
     TurnContext,
 )
+from mind_app.runtime.hooks.scope import HookExecutionContext
 from mind_core.permissions import preset_permissions
 
 
@@ -52,6 +54,102 @@ def test_turn_context_rejects_mismatched_root_session() -> None:
             cwd=".",
             permissions=preset_permissions("read-only"),
         )
+
+
+def test_child_agent_preserves_root_identity_and_advances_depth() -> None:
+    root = AgentContext.root("sid_root")
+    child = root.child("explore", agent_id="agent_child")
+    nested = child.child("review", agent_id="agent_nested")
+
+    assert child.root_session_id == "sid_root"
+    assert child.parent_agent_id == ROOT_AGENT_ID
+    assert child.depth == 1
+    assert nested.root_session_id == "sid_root"
+    assert nested.parent_agent_id == "agent_child"
+    assert nested.depth == 2
+
+
+def test_agent_context_normalizes_identity_fields() -> None:
+    child = AgentContext.root(" sid_root ").child(
+        " explore ",
+        agent_id=" agent_child ",
+    )
+
+    assert child.agent_id == "agent_child"
+    assert child.agent_type == "explore"
+    assert child.root_session_id == "sid_root"
+    assert child.parent_agent_id == ROOT_AGENT_ID
+
+
+def test_child_turn_can_use_an_independent_session() -> None:
+    child = AgentContext.root("sid_root").child(
+        "explore",
+        agent_id="agent_child",
+    )
+
+    turn = TurnContext.create(
+        agent=child,
+        cid="cid_child",
+        sid="sid_child",
+        mode="xtra",
+        source="subagent",
+        pref_config={},
+        cwd=".",
+        permissions=preset_permissions("auto"),
+    )
+
+    assert turn.sid == "sid_child"
+    assert turn.agent.root_session_id == "sid_root"
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"depth": 1}, "parent id"),
+        ({"parent_agent_id": "parent"}, "cannot have a parent"),
+        ({"depth": True}, "non-negative integer"),
+        ({}, "reserved root identity"),
+    ],
+)
+def test_agent_context_rejects_invalid_hierarchy(values, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        AgentContext(
+            agent_id="agent",
+            agent_type="explore",
+            root_session_id="sid_root",
+            **values,
+        )
+
+
+def test_child_agent_rejects_reserved_root_type() -> None:
+    with pytest.raises(ValueError, match="reserved root identity"):
+        AgentContext.root("sid_root").child(
+            ROOT_AGENT_TYPE,
+            agent_id="agent_child",
+        )
+
+
+def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
+    child = AgentContext.root("sid_root").child(
+        "explore",
+        agent_id="agent_child",
+    )
+    turn = TurnContext.create(
+        agent=child,
+        cid="cid_child",
+        sid="sid_child",
+        mode="xtra",
+        source="subagent",
+        pref_config={},
+        cwd=".",
+        permissions=preset_permissions("auto"),
+    )
+
+    context = HookExecutionContext.from_turn(turn)
+
+    assert context.session_id == "sid_child"
+    assert context.root_session_id == "sid_root"
+    assert context.payload()["root_session_id"] == "sid_root"
 
 
 def test_tool_invocation_replaces_arguments_without_losing_context() -> None:

@@ -112,6 +112,10 @@ async def _run_stream(
     events: list[dict[str, typing.Any]],
     *,
     hooks: HookRuntime | None = None,
+    hook_scope_factory: typing.Callable[
+        [HookExecutionContext],
+        HookExecutionScope,
+    ] | None = None,
     session_started: bool = False,
     stream_factory: typing.Callable[
         ..., typing.AsyncIterator[typing.Any]
@@ -146,6 +150,16 @@ async def _run_stream(
         context=hook_context,
         dispatcher=hooks or HookRuntime.empty(),
     ))
+    stream_options = {
+        "exec_env": {},
+        "skills": [{"name": "test"}],
+        "permissions": permissions,
+        "turn_context": turn_context,
+        "session_factory": lambda *_args, **_kwargs: output_session,
+    }
+    if hook_scope_factory is not None:
+        stream_options["hook_scope"] = hook_scope_factory(hook_context)
+
     result = await stream.stream_looper(
         mind,
         SimpleNamespace(),
@@ -153,11 +167,7 @@ async def _run_stream(
         {},
         "hello",
         [],
-        exec_env={},
-        skills=[{"name": "test"}],
-        permissions=permissions,
-        turn_context=turn_context,
-        session_factory=lambda *_args, **_kwargs: output_session,
+        **stream_options,
     )
     return result, mind
 
@@ -256,6 +266,88 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     assert runner.calls[1][1]["prompt"] == "hello"
     assert runner.calls[2][1]["outcome"] == "completed"
     assert runner.calls[2][1]["usage"] == {"output_tokens": 2}
+
+
+@pytest.mark.anyio
+async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.events = []
+
+        async def execute(self, definition, _payload):
+            self.events.append(definition.event)
+            return SimpleNamespace(data={})
+
+    injected_runner = CommandRunner()
+    resolved_runner = CommandRunner()
+    injected_definitions = resolve_hook_definitions(
+        {
+            "UserPromptSubmit": [{"command": "injected-prompt"}],
+            "Stop": [{"command": "injected-stop"}],
+        },
+        source_scope="user",
+        source_path=Path("injected.toml"),
+    )
+    resolved_definitions = resolve_hook_definitions(
+        {
+            "UserPromptSubmit": [{"command": "resolved-prompt"}],
+            "Stop": [{"command": "resolved-stop"}],
+        },
+        source_scope="user",
+        source_path=Path("resolved.toml"),
+    )
+    injected_runtime = HookRuntime(
+        injected_definitions,
+        command_runner=injected_runner,
+    )
+    resolved_runtime = HookRuntime(
+        resolved_definitions,
+        command_runner=resolved_runner,
+    )
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done"}],
+        hooks=resolved_runtime,
+        hook_scope_factory=lambda context: HookExecutionScope(
+            context=context,
+            dispatcher=injected_runtime,
+        ),
+    )
+
+    assert result.status == "completed"
+    assert injected_runner.events == ["UserPromptSubmit", "Stop"]
+    assert resolved_runner.events == []
+    mind.hook_scope.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_rejects_hook_scope_from_another_turn(monkeypatch) -> None:
+    def mismatched_scope(context):
+        other_turn = TurnContext.create(
+            agent=context_agent,
+            cid=context.conversation_id,
+            sid=context.session_id,
+            mode="xtra",
+            source="test",
+            pref_config={},
+            cwd=context.cwd,
+            permissions=preset_permissions("auto"),
+            turn_id="other_turn",
+        )
+        return HookExecutionScope(
+            context=HookExecutionContext.from_turn(other_turn),
+            dispatcher=HookRuntime.empty(),
+        )
+
+    context_agent = AgentContext.root("sid_test")
+
+    with pytest.raises(ValueError, match="does not belong to hook scope"):
+        await _run_stream(
+            monkeypatch,
+            [{"type": "turn.done"}],
+            hook_scope_factory=mismatched_scope,
+        )
 
 
 @pytest.mark.anyio

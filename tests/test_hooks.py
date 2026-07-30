@@ -182,6 +182,7 @@ async def test_scope_owns_common_payload_fields() -> None:
 
     payload = runner.calls[0][1]
     assert payload["session_id"] == "sid_test"
+    assert payload["root_session_id"] == "sid_test"
     assert payload["conversation_id"] == "cid_test"
     assert payload["turn_id"] == "turn_test"
     assert payload["agent_id"] == "root"

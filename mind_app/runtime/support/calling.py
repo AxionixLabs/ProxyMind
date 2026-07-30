@@ -3,8 +3,6 @@
 
 import time
 import typing
-import asyncio
-from mind_nova.events import EventReport
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -13,16 +11,17 @@ from ..execution import (
     AgentContext,
     TurnContext
 )
+from ..turns.executor import (
+    TurnExecution,
+    execute_turn
+)
 from ...modes.result import RunResult
 from ...stream_events.worked import emit_worked_footer
-from engine.observability import (
-    observe,
-    observe_exception
-)
 
 if typing.TYPE_CHECKING:
-    from mind_app.mcp.contracts import McpSessionLike
     from mind_app.controller import Mind
+    from mind_app.mcp.contracts import McpSessionLike
+    from mind_nova.events import EventReport
 
 
 def resolve_mode_runner(
@@ -84,14 +83,12 @@ async def calling(
     if pref_config is None:
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
 
-    runner      = resolve_mode_runner(mind, mode)
-    permissions = kwargs.get("permissions") or mind.permissions
-
-    kwargs["permissions"] = permissions
-
-    meta_in = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
-    cid     = meta_in.get("cid") if isinstance(meta_in, dict) else None
-    sid     = meta_in.get("sid") if isinstance(meta_in, dict) else None
+    runner       = resolve_mode_runner(mind, mode)
+    permissions  = kwargs.pop("permissions", None) or mind.permissions
+    raw_metadata = kwargs.pop("metadata", None)
+    meta_in      = raw_metadata if isinstance(raw_metadata, dict) else {}
+    cid          = meta_in.get("cid") if isinstance(meta_in, dict) else None
+    sid          = meta_in.get("sid") if isinstance(meta_in, dict) else None
 
     conversation_turn = mind.begin_conversation_turn(
         cid=cid,
@@ -99,7 +96,7 @@ async def calling(
         title=message,
         source="calling",
     )
-    kwargs["metadata"] = meta = {
+    meta = {
         **meta_in,
         **conversation_turn.metadata(),
     }
@@ -117,88 +114,42 @@ async def calling(
         session_started=conversation_turn.session_started,
         session_start_reason=conversation_turn.start_reason,
     )
-    kwargs["turn_context"] = turn_context
-
-    started_at = time.perf_counter()
-
-    observe(
-        "call.start",
-        mode=mode,
-        cid=meta["cid"],
-        sid=meta["sid"],
-        turn_id=turn_context.turn_id,
-        agent_id=turn_context.agent.agent_id,
-        message_chars=len(message),
-        sandbox_mode=permissions.sandbox_mode,
-        approval_policy=permissions.approval_policy,
+    execution = TurnExecution(
+        context=turn_context,
+        message=message,
+        metadata=meta,
     )
+    event_report = kwargs.pop("ev_report", None)
 
-    owns_event_report = False
-
-    event_report = kwargs.get("ev_report")
-    if not event_report:
-        event_report = EventReport(mode, meta["cid"], meta["sid"])
-        kwargs["ev_report"] = event_report
-        await event_report.open()
-        owns_event_report = True
-
-    async def function(
+    async def run_root_turn(
+        prepared: TurnExecution,
         session: "McpSessionLike",
-        tools: list[dict[str, typing.Any]]
+        tools: list[dict[str, typing.Any]],
+        report: "EventReport"
     ) -> RunResult:
-        """在共享 MCP 会话中执行单次请求。"""
+        """使用主前端生命周期执行根模型轮次。"""
         return await run_mode_lifecycle(
             mind,
             runner,
             session=session,
-            mode=mode,
+            mode=prepared.context.mode,
             pref_config=pref_config,
-            message=message,
+            message=prepared.message,
             tools=tools,
+            permissions=prepared.context.permissions,
+            metadata=dict(prepared.metadata),
+            turn_context=prepared.context,
+            ev_report=report,
             **kwargs
         )
 
-    interrupted: bool = False
-
-    try:
-        result = await mind.with_mcp_session(pref_config, function)
-    except asyncio.CancelledError:
-        interrupted = True
-        observe(
-            "call.interrupted",
-            level="WARNING",
-            mode=mode,
-            cid=meta["cid"],
-            sid=meta["sid"],
-            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-        )
-        raise
-    except BaseException as error:
-        interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
-
-        observe_exception(
-            "call.failed",
-            error,
-            mode=mode,
-            cid=meta["cid"],
-            sid=meta["sid"],
-            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-        )
-        raise
-
-    else:
-        observe(
-            "call.complete",
-            mode=mode,
-            cid=meta["cid"],
-            sid=meta["sid"],
-            outcome=result.status,
-            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-        )
-        return result
-    finally:
-        if owns_event_report:
-            await mind.await_cleanup(event_report.close(drain=not interrupted))
+    return await execute_turn(
+        mind,
+        pref_config,
+        execution,
+        run_root_turn,
+        event_report=event_report,
+    )
 
 
 if __name__ == '__main__':
