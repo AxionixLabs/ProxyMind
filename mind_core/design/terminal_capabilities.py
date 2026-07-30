@@ -55,6 +55,7 @@ HIGH_CAPABILITY_TERMINALS = frozenset({
     TerminalKind.FOOT,
     TerminalKind.RIO,
     TerminalKind.WARP,
+    TerminalKind.APPLE_TERMINAL,
 })
 
 

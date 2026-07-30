@@ -201,7 +201,17 @@ def test_approval_surface_uses_no_background() -> None:
     assert question.color == "4DE3FF"
 
 
-def test_truecolor_terminal_uses_background_derived_surface_color() -> None:
+@pytest.mark.parametrize(
+    ("kind", "name"),
+    (
+        (TerminalKind.WINDOWS_TERMINAL, "Windows Terminal"),
+        (TerminalKind.APPLE_TERMINAL, "Apple Terminal"),
+    ),
+)
+def test_truecolor_terminal_uses_background_derived_surface_color(
+    kind: TerminalKind,
+    name: str,
+) -> None:
     empty = Style.from_dict({})
     style = build_tui_application_style(
         empty,
@@ -209,8 +219,8 @@ def test_truecolor_terminal_uses_background_derived_surface_color() -> None:
         empty,
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(
-                TerminalKind.WINDOWS_TERMINAL,
-                "Windows Terminal",
+                kind,
+                name,
             ),
             color_level=TerminalColorLevel.TRUECOLOR,
             theme=TerminalTheme(background=(0, 0, 0)),

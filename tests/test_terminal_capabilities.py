@@ -31,6 +31,7 @@ class _InteractiveStream(object):
         ({"TERM": "xterm-foot"}, TerminalKind.FOOT),
         ({"TERM_PROGRAM": "Rio"}, TerminalKind.RIO),
         ({"TERM_PROGRAM": "WarpTerminal"}, TerminalKind.WARP),
+        ({"TERM_PROGRAM": "Apple_Terminal"}, TerminalKind.APPLE_TERMINAL),
     ),
 )
 def test_known_high_capability_terminal_identity(environ, expected) -> None:
@@ -69,6 +70,7 @@ def test_tmux_uses_outer_client_terminal_identity() -> None:
         ({"FORCE_COLOR": "3"}, TerminalColorLevel.TRUECOLOR),
         ({"NO_COLOR": "1", "COLORTERM": "truecolor"}, TerminalColorLevel.UNKNOWN),
         ({"WT_SESSION": "1"}, TerminalColorLevel.TRUECOLOR),
+        ({"TERM_PROGRAM": "Apple_Terminal"}, TerminalColorLevel.TRUECOLOR),
         ({"COLORTERM": "truecolor"}, TerminalColorLevel.TRUECOLOR),
         ({"TERM": "xterm-256color"}, TerminalColorLevel.ANSI256),
         ({"TERM": "xterm-color"}, TerminalColorLevel.ANSI16),
@@ -82,7 +84,10 @@ def test_terminal_color_level_honors_overrides_and_capabilities(
     assert detect_terminal_color_level(environ) == expected
 
 
-def test_capability_detection_requires_theme_probe_for_dynamic_surface() -> None:
+@pytest.mark.parametrize("program", ("WezTerm", "Apple_Terminal"))
+def test_supported_terminal_requires_theme_probe_for_dynamic_surface(
+    program: str,
+) -> None:
     stream = _InteractiveStream()
     calls: list[float] = []
 
@@ -96,7 +101,7 @@ def test_capability_detection_requires_theme_probe_for_dynamic_surface() -> None
     capabilities = detect_terminal_capabilities(
         input_stream=stream,
         output_stream=stream,
-        environ={"TERM_PROGRAM": "WezTerm"},
+        environ={"TERM_PROGRAM": program},
         color_probe=probe,
     )
 
