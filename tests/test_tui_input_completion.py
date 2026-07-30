@@ -151,7 +151,7 @@ def test_completion_surface_has_no_async_footer_gap() -> None:
     assert "".join(
         text
         for _style, text in runtime.screen._completion_fallback_fragments()
-    ).startswith("/mcp")
+    ).lstrip().startswith("/mcp")
 
 
 @pytest.mark.anyio
@@ -232,7 +232,7 @@ async def test_slash_completion_aligns_with_input_command() -> None:
 
         await runtime.open()
         try:
-            pipe_input.send_text("/s")
+            pipe_input.send_text("/sk")
             await wait_for_completion(runtime)
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
@@ -246,9 +246,17 @@ async def test_slash_completion_aligns_with_input_command() -> None:
             ]
             menu_position = screen.visible_windows_to_write_positions[menu_window]
 
-            assert input_line == "› /s"
+            assert input_line == "› /sk"
             assert completion_line.lstrip().startswith("/skills")
             assert input_line.index("/") == completion_line.index("/")
+            assert menu_position.xpos == input_line.index("/") - 1
+            assert "class:completion-menu.completion.current" in (
+                screen.data_buffer[menu_position.ypos][menu_position.xpos].style
+            )
+            meta_column = input_line.index("/") + len("/skills") + 1
+            assert "class:completion-menu.meta.completion.current" in (
+                screen.data_buffer[menu_position.ypos][meta_column].style
+            )
             assert menu_position.ypos == bottom_position.ypos + 1
         finally:
             await runtime.close()
@@ -271,10 +279,24 @@ async def test_exact_slash_completion_aligns_with_input_command() -> None:
                 runtime,
                 runtime.screen.completion_fallback_window,
             )
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            fallback_position = screen.visible_windows_to_write_positions[
+                runtime.screen.completion_fallback_window
+            ]
 
             assert input_line == "› /skills"
             assert completion_line.lstrip().startswith("/skills")
             assert input_line.index("/") == completion_line.index("/")
+            assert fallback_position.xpos == input_line.index("/") - 1
+            assert "class:completion-menu.completion.current" in (
+                screen.data_buffer[fallback_position.ypos][
+                    fallback_position.xpos
+                ].style
+            )
+            meta_column = input_line.index("/") + len("/skills") + 1
+            assert "class:completion-menu.meta.completion.current" in (
+                screen.data_buffer[fallback_position.ypos][meta_column].style
+            )
         finally:
             await runtime.close()
 
@@ -315,7 +337,7 @@ async def test_tab_completes_selected_slash_command_without_submitting() -> None
             assert "".join(
                 text
                 for _style, text in runtime.screen._completion_fallback_fragments()
-            ).startswith("/fast")
+            ).lstrip().startswith("/fast")
         finally:
             await runtime.close()
 
@@ -370,7 +392,7 @@ async def test_unknown_slash_command_renders_non_selectable_empty_state() -> Non
             assert buffer.complete_state is None
             assert runtime.screen._completion_fallback_visible()
             assert runtime.screen._completion_fallback_fragments() == [
-                ("class:completion-menu.empty", "no matches"),
+                ("class:completion-menu.empty", " no matches"),
             ]
             assert rendered_window_line(
                 runtime,
@@ -472,7 +494,7 @@ async def test_unknown_skill_renders_non_selectable_empty_state() -> None:
 
             assert runtime.screen.input.buffer.complete_state is None
             assert runtime.screen._completion_fallback_fragments() == [
-                ("class:completion-menu.empty", "no matches"),
+                ("class:completion-menu.empty", " no matches"),
             ]
         finally:
             await runtime.close()

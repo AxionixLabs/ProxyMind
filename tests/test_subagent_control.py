@@ -1,0 +1,350 @@
+# -*- coding: utf-8 -*-
+
+import asyncio
+
+import pytest
+
+from mind_app.runtime.execution import AgentContext
+from mind_app.runtime.subagents.control import (
+    AgentControl,
+    AgentDepthError,
+    AgentLimitError,
+    AgentStateError,
+)
+
+
+def _control(
+    *,
+    max_open_agents: int = 4,
+    max_depth: int = 2,
+) -> AgentControl:
+    return AgentControl(
+        AgentContext.root("sid_root"),
+        max_open_agents=max_open_agents,
+        max_depth=max_depth,
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_control_runs_child_and_records_result() -> None:
+    control = _control()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def operation(context):
+        assert context.parent_agent_id == "root"
+        assert context.root_session_id == "sid_root"
+        started.set()
+        await release.wait()
+        return {"answer": 42}
+
+    spawned = await control.spawn(
+        control.root,
+        "explorer",
+        operation,
+        agent_id="agent_one",
+    )
+
+    assert spawned.status == "pending"
+    await started.wait()
+    assert (await control.get(spawned.agent_id)).status == "running"
+
+    release.set()
+    waited = await control.wait([spawned.agent_id], timeout_sec=1)
+
+    assert not waited.timed_out
+    assert len(waited.snapshots) == 1
+    assert waited.snapshots[0].status == "completed"
+    assert waited.snapshots[0].result == {"answer": 42}
+
+
+@pytest.mark.anyio
+async def test_agent_control_reuses_open_agent_for_new_submission() -> None:
+    control = _control()
+
+    first = await control.spawn(
+        control.root,
+        "worker",
+        lambda context: _return_value("first"),
+        agent_id="agent_reused",
+    )
+    first_result = await control.wait([first.agent_id], timeout_sec=1)
+    first_submission = first_result.snapshots[0].submission_id
+
+    submitted = await control.submit(
+        first.agent_id,
+        lambda context: _return_value("second"),
+    )
+    second_result = await control.wait([first.agent_id], timeout_sec=1)
+
+    assert submitted.context is first.context
+    assert submitted.submission_id != first_submission
+    assert second_result.snapshots[0].status == "completed"
+    assert second_result.snapshots[0].result == "second"
+
+
+@pytest.mark.anyio
+async def test_completed_agent_keeps_slot_until_closed() -> None:
+    control = _control(max_open_agents=1)
+
+    first = await control.spawn(
+        control.root,
+        "worker",
+        lambda context: _return_value("done"),
+        agent_id="agent_first",
+    )
+    await control.wait([first.agent_id], timeout_sec=1)
+
+    with pytest.raises(AgentLimitError, match="limit reached"):
+        await control.spawn(
+            control.root,
+            "worker",
+            lambda context: _return_value("blocked"),
+        )
+
+    assert await control.count_open() == 1
+    assert (await control.close(first.agent_id)).status == "closed"
+    assert await control.count_open() == 0
+
+    second = await control.spawn(
+        control.root,
+        "worker",
+        lambda context: _return_value("new"),
+        agent_id="agent_second",
+    )
+    assert second.status == "pending"
+    await control.close(second.agent_id)
+
+
+@pytest.mark.anyio
+async def test_agent_control_records_operation_failure() -> None:
+    control = _control()
+
+    async def fail(context):
+        raise RuntimeError("operation failed")
+
+    spawned = await control.spawn(
+        control.root,
+        "reviewer",
+        fail,
+        agent_id="agent_failed",
+    )
+    waited = await control.wait([spawned.agent_id], timeout_sec=1)
+    snapshot = waited.snapshots[0]
+
+    assert snapshot.status == "failed"
+    assert snapshot.result is None
+    assert snapshot.error == "RuntimeError: operation failed"
+
+
+@pytest.mark.anyio
+async def test_agent_wait_returns_first_final_target_and_times_out() -> None:
+    control = _control()
+    first_release = asyncio.Event()
+    second_release = asyncio.Event()
+
+    first = await control.spawn(
+        control.root,
+        "worker",
+        lambda context: first_release.wait(),
+        agent_id="agent_slow",
+    )
+    second = await control.spawn(
+        control.root,
+        "worker",
+        lambda context: second_release.wait(),
+        agent_id="agent_fast",
+    )
+
+    timed_out = await control.wait([first.agent_id], timeout_sec=0.01)
+    assert timed_out.timed_out
+    assert timed_out.snapshots == ()
+
+    second_release.set()
+    waited = await control.wait(
+        [first.agent_id, second.agent_id],
+        timeout_sec=1,
+    )
+
+    assert not waited.timed_out
+    assert [snapshot.agent_id for snapshot in waited.snapshots] == [
+        second.agent_id,
+    ]
+    await control.close_all()
+
+
+@pytest.mark.anyio
+async def test_interrupt_cancels_active_turn_without_closing_agent() -> None:
+    control = _control()
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def operation(context):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    spawned = await control.spawn(
+        control.root,
+        "worker",
+        operation,
+        agent_id="agent_interrupt",
+    )
+    await started.wait()
+
+    interrupted = await control.interrupt(spawned.agent_id)
+
+    assert interrupted.status == "interrupted"
+    assert stopped.is_set()
+    assert await control.count_open() == 1
+    await control.close(spawned.agent_id)
+
+
+@pytest.mark.anyio
+async def test_interrupt_waits_for_cancellation_before_new_submission() -> None:
+    control = _control()
+    started = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    finish_cleanup = asyncio.Event()
+
+    async def operation(context):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            await finish_cleanup.wait()
+        return "finished"
+
+    spawned = await control.spawn(
+        control.root,
+        "worker",
+        operation,
+        agent_id="agent_stubborn",
+    )
+    await started.wait()
+
+    interrupt = asyncio.create_task(control.interrupt(spawned.agent_id))
+    await cancellation_seen.wait()
+
+    with pytest.raises(AgentStateError, match="busy"):
+        await control.submit(
+            spawned.agent_id,
+            lambda context: _return_value("overlap"),
+        )
+
+    finish_cleanup.set()
+    snapshot = await interrupt
+
+    assert snapshot.status == "completed"
+    assert snapshot.result == "finished"
+
+
+@pytest.mark.anyio
+async def test_closing_task_keeps_slot_until_cleanup_finishes() -> None:
+    control = _control(max_open_agents=1)
+    started = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    finish_cleanup = asyncio.Event()
+
+    async def operation(context):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            await finish_cleanup.wait()
+
+    spawned = await control.spawn(
+        control.root,
+        "worker",
+        operation,
+        agent_id="agent_closing",
+    )
+    await started.wait()
+
+    close = asyncio.create_task(control.close(spawned.agent_id))
+    await cancellation_seen.wait()
+
+    with pytest.raises(AgentLimitError, match="limit reached"):
+        await control.spawn(
+            control.root,
+            "worker",
+            lambda context: _return_value(None),
+        )
+
+    finish_cleanup.set()
+    assert (await close).status == "closed"
+    assert await control.count_open() == 0
+
+
+@pytest.mark.anyio
+async def test_closing_parent_cancels_complete_subtree() -> None:
+    control = _control(max_open_agents=3, max_depth=2)
+    parent_started = asyncio.Event()
+    child_started = asyncio.Event()
+
+    async def parent_operation(context):
+        parent_started.set()
+        await asyncio.Event().wait()
+
+    async def child_operation(context):
+        child_started.set()
+        await asyncio.Event().wait()
+
+    parent = await control.spawn(
+        control.root,
+        "worker",
+        parent_operation,
+        agent_id="agent_parent",
+    )
+    await parent_started.wait()
+    child = await control.spawn(
+        parent.context,
+        "explorer",
+        child_operation,
+        agent_id="agent_child",
+    )
+    await child_started.wait()
+
+    closed = await control.close(parent.agent_id)
+    snapshots = await control.snapshots()
+
+    assert closed.status == "closed"
+    assert {snapshot.agent_id: snapshot.status for snapshot in snapshots} == {
+        parent.agent_id: "closed",
+        child.agent_id: "closed",
+    }
+    assert await control.count_open() == 0
+
+
+@pytest.mark.anyio
+async def test_agent_control_enforces_depth_and_root_session() -> None:
+    control = _control(max_depth=1)
+    parent = await control.spawn(
+        control.root,
+        "worker",
+        lambda context: _return_value(None),
+        agent_id="agent_parent",
+    )
+    await control.wait([parent.agent_id], timeout_sec=1)
+
+    with pytest.raises(AgentDepthError, match="exceeds limit"):
+        await control.spawn(
+            parent.context,
+            "worker",
+            lambda context: _return_value(None),
+        )
+
+    with pytest.raises(AgentStateError, match="another root session"):
+        await control.spawn(
+            AgentContext.root("sid_other"),
+            "worker",
+            lambda context: _return_value(None),
+        )
+
+
+async def _return_value(value):
+    return value

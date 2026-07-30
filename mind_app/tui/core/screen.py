@@ -44,6 +44,7 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.shortcuts import print_formatted_text
+from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import TextArea
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_text
@@ -97,6 +98,7 @@ class TuiScreen(object):
     INPUT_MAX_LINES: typing.Final[int]               = 8
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
+    COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
     CONTENT_INPUT_GAP_HEIGHT: typing.Final[int]      = 1
     OVERLAY_INPUT_GAP_HEIGHT: typing.Final[int]      = 1
     COMMAND_SURFACE_GAP_HEIGHT: typing.Final[int]    = 2
@@ -371,11 +373,10 @@ class TuiScreen(object):
             style="class:completion-menu",
         )
 
-        # fallback 控件不会像 CompletionsMenu 一样自带一列前导留白。
         self.completion_fallback_row = ConditionalContainer(
             VSplit([
                 Window(
-                    width=Dimension.exact(2),
+                    width=Dimension.exact(1),
                     char=" ",
                     dont_extend_width=True,
                 ),
@@ -859,7 +860,7 @@ class TuiScreen(object):
 
         if not completions:
             return PromptFormattedText([
-                ("class:completion-menu.empty", "no matches"),
+                ("class:completion-menu.empty", " no matches"),
             ])
 
         if (
@@ -872,18 +873,24 @@ class TuiScreen(object):
             return PromptFormattedText()
 
         completion = completions[0]
+        display_width = get_cwidth(completion.display_text)
+        command_width = max(
+            self.COMPLETION_COLUMN_MIN_WIDTH,
+            display_width + 2,
+        )
+        command_padding = " " * (command_width - display_width - 1)
 
         fragments: StyleAndTextTuples = [
             (
                 "class:completion-menu.completion.current",
-                f"{completion.display_text}  ",
+                f" {completion.display_text}{command_padding}",
             ),
         ]
 
         if completion.display_meta_text:
             fragments.append((
                 "class:completion-menu.meta.completion.current",
-                f"{completion.display_meta_text} ",
+                f" {completion.display_meta_text} ",
             ))
 
         return PromptFormattedText(fragments)
