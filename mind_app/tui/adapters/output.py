@@ -43,6 +43,7 @@ STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
 STREAM_RENDER_LONG_TEXT_SIZE = 2000
 STREAM_REVEAL_CELLS_PER_SEC  = 80
 STREAM_REVEAL_MAX_LAG_SEC    = 0.2
+STREAM_CURSOR_RETIRE_FRAMES  = 2
 
 
 class TuiOutputControl(OutputControlPort):
@@ -67,6 +68,7 @@ class TuiOutputControl(OutputControlPort):
         self._cursor = random.choice(("█", "▉", "▋"))
 
         self._stream_render_handle: asyncio.TimerHandle | None = None
+        self._stream_cursor_retire_handle: asyncio.TimerHandle | None = None
 
         self._stream_rendered_at: float         = 0.0
         self._stream_render_cost_sec: float     = 0.0
@@ -113,6 +115,7 @@ class TuiOutputControl(OutputControlPort):
 
         if self.animate:
             self.assistant.append(text)
+            self._cancel_stream_cursor_retire()
             self._schedule_stream_render()
             return None
 
@@ -272,9 +275,14 @@ class TuiOutputControl(OutputControlPort):
                 or elapsed >= interval
             )
         ):
-            self._render_stream_frame()
+            cursor_visible = self._render_stream_frame()
+
             self._stream_rendered_at = loop.time()
             self._schedule_pending_stream_frame(loop)
+            self._schedule_stream_cursor_retire(
+                loop,
+                cursor_visible=cursor_visible,
+            )
             return None
 
         if self._stream_render_handle is None:
@@ -292,20 +300,28 @@ class TuiOutputControl(OutputControlPort):
             self._stream_rendered_at = 0.0
             return None
 
-        self._render_stream_frame()
+        cursor_visible = self._render_stream_frame()
+
         self._stream_rendered_at = loop.time()
         self._schedule_pending_stream_frame(loop)
+        self._schedule_stream_cursor_retire(
+            loop,
+            cursor_visible=cursor_visible,
+        )
 
-    def _render_stream_frame(self) -> None:
-        """渲染流式帧并记录本帧耗时。"""
+    def _render_stream_frame(self) -> bool:
+        """渲染流式帧、记录耗时并返回光标展示状态。"""
         started_at = time.perf_counter()
 
         self.assistant.reveal(self._stream_reveal_cells())
-        self._render_active(cursor=True)
+        cursor_visible = self._render_active(cursor=True)
+
         self._stream_render_cost_sec = max(
             0.0,
             time.perf_counter() - started_at,
         )
+
+        return cursor_visible
 
     def _stream_render_interval(self) -> float:
         """按正文规模和上一帧成本返回流式刷新间隔。"""
@@ -314,6 +330,7 @@ class TuiOutputControl(OutputControlPort):
             or self._stream_render_cost_sec >= STREAM_RENDER_COST_LIMIT_SEC
         ):
             return STREAM_RENDER_SLOW_SEC
+
         return STREAM_RENDER_REGULAR_SEC
 
     def _stream_reveal_cells(self) -> int:
@@ -331,6 +348,7 @@ class TuiOutputControl(OutputControlPort):
         )
 
         retained = regular * lag_frames
+
         return max(regular, pending - retained)
 
     def _schedule_pending_stream_frame(
@@ -343,19 +361,65 @@ class TuiOutputControl(OutputControlPort):
             or self._stream_render_handle is not None
         ):
             return None
+
         self._stream_render_handle = loop.call_later(
             self._stream_render_interval(),
             self._flush_stream_render,
             loop,
         )
 
+    def _schedule_stream_cursor_retire(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        *,
+        cursor_visible: bool
+    ) -> None:
+        """在正文积压清空后延迟隐藏打字机光标。"""
+        if (
+            not cursor_visible
+            or self.assistant.pending_length > 0
+            or self._stream_cursor_retire_handle is not None
+        ):
+            return None
+
+        delay = STREAM_CURSOR_RETIRE_FRAMES * self._stream_render_interval()
+
+        self._stream_cursor_retire_handle = loop.call_later(
+            delay,
+            self._retire_stream_cursor,
+            self.assistant.revealed_end,
+        )
+
+    def _retire_stream_cursor(self, expected_revealed_end: int) -> None:
+        """在正文揭示位置未变化时隐藏打字机光标。"""
+        self._stream_cursor_retire_handle = None
+
+        if (
+            not self.assistant.active
+            or self.assistant.pending_length > 0
+            or self.assistant.revealed_end != expected_revealed_end
+        ):
+            return None
+
+        self._render_active(cursor=False)
+
+    def _cancel_stream_cursor_retire(self) -> None:
+        """取消待执行的打字机光标退场。"""
+        handle = self._stream_cursor_retire_handle
+        self._stream_cursor_retire_handle = None
+
+        if handle is not None:
+            handle.cancel()
+
     def _cancel_stream_render(self) -> None:
-        """取消待展示帧并重置流式刷新时钟。"""
+        """取消待展示帧和光标退场并重置流式刷新时钟。"""
         handle = self._stream_render_handle
 
         self._stream_render_handle   = None
         self._stream_rendered_at     = 0.0
         self._stream_render_cost_sec = 0.0
+
+        self._cancel_stream_cursor_retire()
 
         if handle is not None:
             handle.cancel()
@@ -363,26 +427,29 @@ class TuiOutputControl(OutputControlPort):
     def _render_active(
         self,
         *,
-        cursor: bool,
-    ) -> None:
-        """刷新当前流式内容并按需附加打字机光标。"""
+        cursor: bool
+    ) -> bool:
+        """刷新当前流式内容并返回打字机光标是否可见。"""
         block = StyledBlock(plain_text=self.assistant.visible_text)
 
         fragments = _assistant_prefixed_fragments(
             list(styled_block_fragments(block))
         )
 
-        if cursor and _cursor_keeps_display_height(
+        cursor_visible = cursor and _cursor_keeps_display_height(
             fragments,
             self._cursor,
             width=self.terminal_width,
-        ):
+        )
+        if cursor_visible:
             fragments.append((prompt_style(TYPEWRITER_CURSOR_STYLE), self._cursor))
 
         self.runtime.set_active_renderable(
             FragmentBlock(tuple(fragments)),
             kind="assistant",
         )
+
+        return cursor_visible
 
     @staticmethod
     def _audit_payload(arguments: dict[str, typing.Any]) -> str:
@@ -413,7 +480,7 @@ def _cursor_keeps_display_height(
     fragments: list[tuple[str, str]],
     cursor: str,
     *,
-    width: int | None,
+    width: int | None
 ) -> bool:
     """判断打字机光标是否不会单独增加正文显示行。"""
     if width is None:
@@ -465,7 +532,7 @@ def _assistant_prefixed_fragments(
 def _assistant_continuation_fragments(
     fragments: list[tuple[str, str]],
     *,
-    indent_style: str,
+    indent_style: str
 ) -> list[tuple[str, str]]:
     """在助手正文每个显式续行前补充两个空格。"""
     out: list[tuple[str, str]] = []

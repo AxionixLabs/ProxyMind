@@ -1162,6 +1162,43 @@ async def test_animated_stream_drains_backlog_without_more_deltas() -> None:
     assert _document_text(runtime.document) == f"• {source}"
 
 
+@pytest.mark.anyio
+async def test_animated_stream_cursor_retires_after_backlog_drains() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+    output._cursor = "█"
+
+    await output.append_assistant_delta("done")
+
+    assert output.assistant.pending_length == 0
+    assert _document_text(runtime.document) == "• done█"
+    assert output._stream_cursor_retire_handle is not None
+
+    await asyncio.sleep(0.12)
+
+    assert _document_text(runtime.document) == "• done"
+    assert output._stream_cursor_retire_handle is None
+
+
+@pytest.mark.anyio
+async def test_new_delta_cancels_stream_cursor_retirement() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+
+    await output.append_assistant_delta("done")
+    retire_handle = output._stream_cursor_retire_handle
+
+    assert retire_handle is not None
+
+    await output.append_assistant_delta(" next")
+
+    assert retire_handle.cancelled()
+    assert output._stream_cursor_retire_handle is None
+
+    await output.settle_stream()
+    assert _document_text(runtime.document) == "• done next"
+
+
 def test_stream_render_budget_adapts_to_size_and_render_cost() -> None:
     output = TuiOutputControl("", runtime=TuiRuntime(), animate=True)
 
