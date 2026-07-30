@@ -58,6 +58,25 @@ def _normalize_unrestricted_output(
     return dict(data)
 
 
+def _normalize_gate_output(
+    data: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """校验并规范化前置生命周期 Hook 的继续决定。"""
+    continuation = data.get("continue", True)
+    if not isinstance(continuation, bool):
+        raise ValueError("hook continue must be a boolean")
+
+    raw_reason = data.get("reason", "")
+    if not isinstance(raw_reason, str):
+        raise ValueError("hook reason must be a string")
+
+    return {
+        **data,
+        "continue" : continuation,
+        "reason"   : raw_reason
+    }
+
+
 def _normalize_permission_output(
     data: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
@@ -96,6 +115,34 @@ HOOK_EVENT_SPECS: dict[HookEventName, HookEventSpec] = {
     ),
     "PostToolUse": HookEventSpec(
         name="PostToolUse",
+        normalize_output=_normalize_unrestricted_output,
+    ),
+    "PreCompact": HookEventSpec(
+        name="PreCompact",
+        normalize_output=_normalize_gate_output,
+    ),
+    "PostCompact": HookEventSpec(
+        name="PostCompact",
+        normalize_output=_normalize_unrestricted_output,
+    ),
+    "SessionStart": HookEventSpec(
+        name="SessionStart",
+        normalize_output=_normalize_unrestricted_output,
+    ),
+    "UserPromptSubmit": HookEventSpec(
+        name="UserPromptSubmit",
+        normalize_output=_normalize_gate_output,
+    ),
+    "SubagentStart": HookEventSpec(
+        name="SubagentStart",
+        normalize_output=_normalize_unrestricted_output,
+    ),
+    "SubagentStop": HookEventSpec(
+        name="SubagentStop",
+        normalize_output=_normalize_unrestricted_output,
+    ),
+    "Stop": HookEventSpec(
+        name="Stop",
         normalize_output=_normalize_unrestricted_output,
     ),
 }

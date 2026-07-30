@@ -61,6 +61,10 @@ from ..runtime.hooks.scope import (
     HookExecutionScope
 )
 from ..runtime.hooks.tool import ToolCallCoordinator
+from ..runtime.hooks.turn import (
+    PromptHookBlockedError,
+    TurnHookEvents
+)
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
 from ..runtime.tools.run import server_tool_output_result
@@ -198,10 +202,10 @@ async def stream_looper(
     )
 
     output_control: OutputControlPort = output_session.control
-    status_control = output_session.status
 
-    presentation = output_session.presentation
-    content      = output_session.content
+    status_control = output_session.status
+    presentation   = output_session.presentation
+    content        = output_session.content
 
     interrupted: bool    = False
     first_frame: bool    = True
@@ -209,11 +213,14 @@ async def stream_looper(
     turn_failed: bool    = False
 
     turn_usage: dict[str, typing.Any] = {}
+
     failure_error: str | None = None
-    result_status: RunStatus = "incomplete"
+    result_status: RunStatus  = "incomplete"
+
+    turn_hook_events: TurnHookEvents | None = None
 
     approvals: ApprovalStore = ApprovalStore()
-    tracker = SegmentTracker()
+    tracker: SegmentTracker  = SegmentTracker()
 
     idle_wait = IdleStatusTimer(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
@@ -256,6 +263,9 @@ async def stream_looper(
             hook_scope = HookExecutionScope.empty(hook_context)
 
         tool_call_coordinator = ToolCallCoordinator(hook_scope)
+        turn_hook_events = TurnHookEvents(hook_scope)
+
+        await turn_hook_events.begin(message)
 
         client_tool_runner = ClientToolCallRunner(
             session=session,
@@ -698,6 +708,23 @@ async def stream_looper(
 
             continue
 
+    except PromptHookBlockedError as error:
+        result_status = "failed"
+        failure_error = str(error)
+        observe(
+            "stream.prompt_blocked",
+            level="WARNING",
+            mode=mode,
+            turn_id=turn_context.turn_id,
+        )
+        await finish_failure(
+            status_control,
+            presentation,
+            ev_report,
+            phase="turn.prompt_blocked",
+            error=failure_error,
+        )
+
     except asyncio.CancelledError:
         interrupted = True
         observe(
@@ -763,6 +790,21 @@ async def stream_looper(
         )
 
     finally:
+        if turn_hook_events is not None:
+            stop_outcome = "interrupted" if interrupted else result_status
+            try:
+                await mind.await_cleanup(turn_hook_events.stop(
+                    outcome=stop_outcome,
+                    error=failure_error,
+                    usage=turn_usage,
+                ))
+            except Exception as error:
+                observe_exception(
+                    "hooks.stop.failed",
+                    error,
+                    level="WARNING",
+                    turn_id=turn_context.turn_id,
+                )
         await idle_wait.cancel()
         await mind.await_cleanup(output_control.stop(blink=not interrupted))
 

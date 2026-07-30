@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from mind_app.modes import compact as compact_mode
+from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.tui.features import conversation
+from mind_core.hooks import resolve_hook_definitions
+from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
@@ -23,6 +28,8 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     class MindStub(object):
         animate = True
         conversation = ConversationStub()
+        history_workspace = "."
+        permissions = preset_permissions("auto")
 
         def __init__(self):
             self.views = []
@@ -40,7 +47,10 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
         async def await_cleanup(self, awaitable):
             await awaitable
 
-    monkeypatch.setattr(conversation, "stream_compact_events", empty_stream)
+        def hook_scope(self, context):
+            return HookExecutionScope.empty(context)
+
+    monkeypatch.setattr(compact_mode, "stream_compact_events", empty_stream)
 
     mind = MindStub()
     status = await conversation.compact_current_conversation(
@@ -74,6 +84,8 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
 
     class MindStub(object):
         animate = False
+        history_workspace = "."
+        permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
             snapshot=lambda: {"cid": "cid", "sid": "sid"},
         )
@@ -84,7 +96,13 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
                 application=SimpleNamespace(emit=self.views.append),
             )
 
-    monkeypatch.setattr(conversation, "stream_compact_events", completed_stream)
+        async def await_cleanup(self, awaitable):
+            await awaitable
+
+        def hook_scope(self, context):
+            return HookExecutionScope.empty(context)
+
+    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
 
     mind = MindStub()
     result = await conversation.compact_current_conversation(
@@ -114,6 +132,8 @@ async def test_compact_cancellation_clears_animation_without_failure(
 
     class MindStub(object):
         animate = True
+        history_workspace = "."
+        permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
             snapshot=lambda: {"cid": "cid", "sid": "sid"},
         )
@@ -134,7 +154,10 @@ async def test_compact_cancellation_clears_animation_without_failure(
         async def await_cleanup(self, awaitable):
             await awaitable
 
-    monkeypatch.setattr(conversation, "stream_compact_events", pending_stream)
+        def hook_scope(self, context):
+            return HookExecutionScope.empty(context)
+
+    monkeypatch.setattr(compact_mode, "stream_compact_events", pending_stream)
 
     mind = MindStub()
     task = asyncio.create_task(conversation.compact_current_conversation(
@@ -154,6 +177,146 @@ async def test_compact_cancellation_clears_animation_without_failure(
     assert mind.stopped == [("compact", False)]
     assert any(view.type == "tui.compact.interrupted" for view in mind.views)
     assert not any(view.type == "tui.compact.status" for view in mind.views)
+
+
+@pytest.mark.anyio
+async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -> None:
+    remote_calls = []
+
+    async def remote_stream(_payload):
+        remote_calls.append(True)
+        if False:
+            yield {}
+
+    definitions = resolve_hook_definitions(
+        {
+            "PreCompact": [{
+                "command": "guard",
+                "matcher": "manual",
+            }],
+            "PostCompact": [{
+                "command": "audit",
+                "matcher": "manual",
+            }],
+        },
+        source_scope="user",
+        source_path=tmp_path / "hooks.toml",
+    )
+
+    class Runner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, definition, payload):
+            self.calls.append((definition.event, payload))
+            return SimpleNamespace(data={
+                "continue": False,
+                "reason": "keep current context",
+            })
+
+    runner = Runner()
+    runtime = HookRuntime(definitions, command_runner=runner)
+
+    class MindStub(object):
+        history_workspace = str(tmp_path)
+        permissions = preset_permissions("auto")
+        conversation = SimpleNamespace(
+            snapshot=lambda: {"cid": "cid", "sid": "sid"},
+        )
+
+        async def await_cleanup(self, awaitable):
+            await awaitable
+
+        def hook_scope(self, context):
+            return HookExecutionScope(context=context, dispatcher=runtime)
+
+    monkeypatch.setattr(compact_mode, "stream_compact_events", remote_stream)
+
+    result = await compact_mode.compact_conversation(
+        MindStub(),
+        run_mode="chat",
+        pref_config={},
+        source="test",
+    )
+
+    assert not result.ok
+    assert result.message == "Context compaction blocked: keep current context"
+    assert not remote_calls
+    assert [event for event, _payload in runner.calls] == ["PreCompact"]
+
+
+@pytest.mark.anyio
+async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> None:
+    async def remote_stream(_payload):
+        yield {
+            "type": "conversation.compact",
+            "message": "Context compacted.",
+            "before_items": 12,
+            "after_items": 4,
+        }
+
+    definitions = resolve_hook_definitions(
+        {
+            "PreCompact": [{
+                "command": "guard",
+                "matcher": "manual",
+            }],
+            "PostCompact": [{
+                "command": "audit",
+                "matcher": "manual",
+            }],
+        },
+        source_scope="user",
+        source_path=tmp_path / "hooks.toml",
+    )
+
+    class Runner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, definition, payload):
+            self.calls.append((definition.event, payload))
+            return SimpleNamespace(data={})
+
+    runner = Runner()
+    runtime = HookRuntime(definitions, command_runner=runner)
+
+    class MindStub(object):
+        history_workspace = str(tmp_path)
+        permissions = preset_permissions("auto")
+        conversation = SimpleNamespace(
+            snapshot=lambda: {"cid": "cid", "sid": "sid"},
+        )
+
+        async def await_cleanup(self, awaitable):
+            await awaitable
+
+        def hook_scope(self, context):
+            return HookExecutionScope(context=context, dispatcher=runtime)
+
+    monkeypatch.setattr(compact_mode, "stream_compact_events", remote_stream)
+
+    result = await compact_mode.compact_conversation(
+        MindStub(),
+        run_mode="xtra",
+        pref_config={"primary": {"model": "test-model"}},
+        source="test",
+    )
+
+    assert result.ok
+    assert [event for event, _payload in runner.calls] == [
+        "PreCompact",
+        "PostCompact",
+    ]
+    pre_payload = runner.calls[0][1]
+    post_payload = runner.calls[1][1]
+    assert pre_payload["conversation_id"] == "cid"
+    assert pre_payload["session_id"] == "sid"
+    assert pre_payload["model"] == "test-model"
+    assert pre_payload["source"] == "test"
+    assert post_payload["outcome"] == "completed"
+    assert post_payload["before_items"] == 12
+    assert post_payload["after_items"] == 4
 
 
 if __name__ == '__main__':

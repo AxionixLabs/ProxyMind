@@ -19,39 +19,60 @@ from .runtime import (
 class HookExecutionContext:
     """描述一个 Hook 执行作用域的公共上下文。"""
     session_id: str
+    conversation_id: str
     cwd: str
     model: str
+    mode: str
+    source: str
     sandbox_mode: str
     permission_mode: str
     agent_id: str
+    agent_type: str
+    agent_depth: int
     parent_agent_id: str | None = None
     turn_id: str = ""
+    session_started: bool = False
+    session_start_reason: str = ""
 
     @classmethod
     def from_turn(cls, turn: TurnContext) -> "HookExecutionContext":
         """从模型轮次创建 Hook 执行上下文。"""
         return cls(
             session_id=turn.agent.root_session_id,
+            conversation_id=turn.cid,
             turn_id=turn.turn_id,
             cwd=turn.cwd,
             model=turn.model,
+            mode=turn.mode,
+            source=turn.source,
             sandbox_mode=turn.permissions.sandbox_mode,
             permission_mode=turn.permissions.approval_policy,
             agent_id=turn.agent.agent_id,
+            agent_type=turn.agent.agent_type,
+            agent_depth=turn.agent.depth,
             parent_agent_id=turn.agent.parent_agent_id,
+            session_started=turn.session_started,
+            session_start_reason=turn.session_start_reason,
         )
 
     def payload(self) -> dict[str, typing.Any]:
         """返回命令 Hook 可见的公共字段。"""
         return {
-            "session_id": self.session_id,
-            "turn_id": self.turn_id,
-            "cwd": self.cwd,
-            "model": self.model,
-            "sandbox_mode": self.sandbox_mode,
-            "permission_mode": self.permission_mode,
-            "agent_id": self.agent_id,
-            "parent_agent_id": self.parent_agent_id,
+            "session_id"           : self.session_id,
+            "conversation_id"      : self.conversation_id,
+            "turn_id"              : self.turn_id,
+            "cwd"                  : self.cwd,
+            "model"                : self.model,
+            "mode"                 : self.mode,
+            "source"               : self.source,
+            "sandbox_mode"         : self.sandbox_mode,
+            "permission_mode"      : self.permission_mode,
+            "agent_id"             : self.agent_id,
+            "agent_type"           : self.agent_type,
+            "agent_depth"          : self.agent_depth,
+            "parent_agent_id"      : self.parent_agent_id,
+            "session_started"      : self.session_started,
+            "session_start_reason" : self.session_start_reason
         }
 
 

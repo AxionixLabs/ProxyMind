@@ -186,3 +186,28 @@ def test_post_tool_hook_cannot_fail_closed() -> None:
                 }],
             },
         })
+
+
+def test_hook_event_rejects_matcher_without_match_subject() -> None:
+    with pytest.raises(ConfigValidationError, match="matcher is not supported"):
+        normalize_config({
+            "hooks": {
+                "UserPromptSubmit": [{
+                    "command": "check-prompt",
+                    "matcher": "secret",
+                }],
+            },
+        })
+
+
+def test_session_start_hook_accepts_reason_matcher() -> None:
+    config = normalize_config({
+        "hooks": {
+            "SessionStart": [{
+                "command": "prepare-session",
+                "matcher": "initial|reset",
+            }],
+        },
+    })
+
+    assert config["hooks"]["SessionStart"][0]["matcher"] == "initial|reset"

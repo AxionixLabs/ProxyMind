@@ -111,6 +111,7 @@ async def _run_stream(
     events: list[dict[str, typing.Any]],
     *,
     hooks: HookRuntime | None = None,
+    session_started: bool = False,
 ) -> tuple[RunResult, SimpleNamespace]:
     async def stream_chat(*_args, **_kwargs):
         for payload in events:
@@ -130,6 +131,8 @@ async def _run_stream(
         pref_config={},
         cwd=".",
         permissions=permissions,
+        session_started=session_started,
+        session_start_reason="initial" if session_started else "",
     )
     hook_context = HookExecutionContext.from_turn(turn_context)
     mind.hook_scope = Mock(return_value=HookExecutionScope(
@@ -203,6 +206,89 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
     ]
     mind.hook_scope.assert_called_once()
     assert mind.hook_scope.call_args.args[0].session_id == "sid_test"
+
+
+@pytest.mark.anyio
+async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, definition, payload):
+            self.calls.append((definition.event, payload))
+            return SimpleNamespace(data={})
+
+    runner = CommandRunner()
+    definitions = resolve_hook_definitions(
+        {
+            "SessionStart": [{
+                "command": "start",
+                "matcher": "initial",
+            }],
+            "UserPromptSubmit": [{"command": "prompt"}],
+            "Stop": [{"command": "stop"}],
+        },
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done", "usage": {"output_tokens": 2}}],
+        hooks=HookRuntime(definitions, command_runner=runner),
+        session_started=True,
+    )
+
+    assert result.status == "completed"
+    assert [event for event, _payload in runner.calls] == [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+    ]
+    assert runner.calls[0][1]["session_started"] is True
+    assert runner.calls[1][1]["prompt"] == "hello"
+    assert runner.calls[2][1]["outcome"] == "completed"
+    assert runner.calls[2][1]["usage"] == {"output_tokens": 2}
+
+
+@pytest.mark.anyio
+async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, definition, payload):
+            self.calls.append((definition.event, payload))
+            if definition.event == "UserPromptSubmit":
+                return SimpleNamespace(data={
+                    "continue": False,
+                    "reason": "prompt blocked",
+                })
+            return SimpleNamespace(data={})
+
+    runner = CommandRunner()
+    definitions = resolve_hook_definitions(
+        {
+            "UserPromptSubmit": [{"command": "prompt"}],
+            "Stop": [{"command": "stop"}],
+        },
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done"}],
+        hooks=HookRuntime(definitions, command_runner=runner),
+    )
+
+    assert result.status == "failed"
+    assert result.error == "prompt blocked"
+    assert [event for event, _payload in runner.calls] == [
+        "UserPromptSubmit",
+        "Stop",
+    ]
+    assert runner.calls[1][1]["outcome"] == "failed"
 
 
 @pytest.mark.anyio

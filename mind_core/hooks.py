@@ -12,6 +12,13 @@ HookEventName = typing.Literal[
     "PreToolUse",
     "PermissionRequest",
     "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SessionStart",
+    "UserPromptSubmit",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
 ]
 
 HookFailurePolicy = typing.Literal[
@@ -41,6 +48,7 @@ class HookEventConfigSpec:
     description: str
     default_on_error: HookFailurePolicy
     allows_block_on_error: bool
+    allows_matcher: bool
 
 
 HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
@@ -49,18 +57,70 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         description="Before a tool executes",
         default_on_error="block",
         allows_block_on_error=True,
+        allows_matcher=True,
     ),
     "PermissionRequest": HookEventConfigSpec(
         name="PermissionRequest",
         description="When permission is requested",
         default_on_error="continue",
         allows_block_on_error=True,
+        allows_matcher=True,
     ),
     "PostToolUse": HookEventConfigSpec(
         name="PostToolUse",
         description="After a tool executes",
         default_on_error="continue",
         allows_block_on_error=False,
+        allows_matcher=True,
+    ),
+    "PreCompact": HookEventConfigSpec(
+        name="PreCompact",
+        description="Before context compaction",
+        default_on_error="block",
+        allows_block_on_error=True,
+        allows_matcher=True,
+    ),
+    "PostCompact": HookEventConfigSpec(
+        name="PostCompact",
+        description="After context compaction",
+        default_on_error="continue",
+        allows_block_on_error=False,
+        allows_matcher=True,
+    ),
+    "SessionStart": HookEventConfigSpec(
+        name="SessionStart",
+        description="When a new session starts",
+        default_on_error="continue",
+        allows_block_on_error=False,
+        allows_matcher=True,
+    ),
+    "UserPromptSubmit": HookEventConfigSpec(
+        name="UserPromptSubmit",
+        description="When the user submits a prompt",
+        default_on_error="block",
+        allows_block_on_error=True,
+        allows_matcher=False,
+    ),
+    "SubagentStart": HookEventConfigSpec(
+        name="SubagentStart",
+        description="When a subagent is created",
+        default_on_error="continue",
+        allows_block_on_error=False,
+        allows_matcher=True,
+    ),
+    "SubagentStop": HookEventConfigSpec(
+        name="SubagentStop",
+        description="Right before a subagent ends its turn",
+        default_on_error="continue",
+        allows_block_on_error=False,
+        allows_matcher=True,
+    ),
+    "Stop": HookEventConfigSpec(
+        name="Stop",
+        description="Right before Codex ends its turn",
+        default_on_error="continue",
+        allows_block_on_error=False,
+        allows_matcher=False,
     ),
 }
 
@@ -161,6 +221,11 @@ def _normalize_hook_entry(
     matcher = raw.get("matcher", "")
     if not isinstance(matcher, str):
         raise HookConfigError(f"{dotted}.matcher must be a string")
+    matcher = matcher.strip()
+
+    event_spec = HOOK_EVENT_CONFIG_SPECS[event]
+    if matcher and not event_spec.allows_matcher:
+        raise HookConfigError(f"{dotted}.matcher is not supported for this event")
     try:
         re.compile(matcher or ".*")
     except re.error as error:
@@ -174,8 +239,6 @@ def _normalize_hook_entry(
         raise HookConfigError(
             f"{dotted}.timeout must be greater than 0 and at most {MAX_HOOK_TIMEOUT_SEC:g}"
         )
-
-    event_spec = HOOK_EVENT_CONFIG_SPECS[event]
 
     on_error = raw.get("on_error", event_spec.default_on_error)
     if on_error not in {"continue", "block"}:
@@ -192,7 +255,7 @@ def _normalize_hook_entry(
 
     return {
         "command"  : command.strip(),
-        "matcher"  : matcher.strip(),
+        "matcher"  : matcher,
         "timeout"  : timeout,
         "on_error" : on_error,
         "enabled"  : enabled

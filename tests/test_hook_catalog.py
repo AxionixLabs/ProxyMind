@@ -70,6 +70,13 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
         ("PreToolUse", 1, 0, "Before a tool executes"),
         ("PermissionRequest", 0, 0, "When permission is requested"),
         ("PostToolUse", 1, 1, "After a tool executes"),
+        ("PreCompact", 0, 0, "Before context compaction"),
+        ("PostCompact", 0, 0, "After context compaction"),
+        ("SessionStart", 0, 0, "When a new session starts"),
+        ("UserPromptSubmit", 0, 0, "When the user submits a prompt"),
+        ("SubagentStart", 0, 0, "When a subagent is created"),
+        ("SubagentStop", 0, 0, "Right before a subagent ends its turn"),
+        ("Stop", 0, 0, "Right before Codex ends its turn"),
     ]
     assert catalog.hooks[0].command == "check-project"
     assert catalog.hooks[0].matcher == "shell_command"
@@ -146,12 +153,17 @@ def test_controller_builds_isolated_hook_scopes_for_config_snapshots(tmp_path) -
     ]
     context = HookExecutionContext(
         session_id="session",
+        conversation_id="conversation",
         turn_id="turn",
         cwd=str(tmp_path),
         model="model",
+        mode="chat",
+        source="test",
         sandbox_mode="workspace-write",
         permission_mode="on-request",
         agent_id="root",
+        agent_type="root",
+        agent_depth=0,
     )
 
     old_scope = controller.hook_scope(context)

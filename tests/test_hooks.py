@@ -29,6 +29,10 @@ from mind_app.runtime.hooks.tool import (
     ToolCallCoordinator,
     ToolHookEvents
 )
+from mind_app.runtime.hooks.turn import (
+    PromptHookBlockedError,
+    TurnHookEvents
+)
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
 from mind_core.hooks import (
@@ -64,6 +68,7 @@ def _invocation(
     *,
     execution=None,
     turn_id: str = "turn_test",
+    session_started: bool = False,
 ) -> ToolInvocation:
     turn = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -75,6 +80,8 @@ def _invocation(
         cwd=".",
         permissions=preset_permissions("auto"),
         turn_id=turn_id,
+        session_started=session_started,
+        session_start_reason="initial" if session_started else "",
     )
     return ToolInvocation(
         turn=turn,
@@ -175,8 +182,65 @@ async def test_scope_owns_common_payload_fields() -> None:
 
     payload = runner.calls[0][1]
     assert payload["session_id"] == "sid_test"
+    assert payload["conversation_id"] == "cid_test"
     assert payload["turn_id"] == "turn_test"
     assert payload["agent_id"] == "root"
+    assert payload["agent_type"] == "root"
+    assert payload["agent_depth"] == 0
+    assert payload["mode"] == "xtra"
+    assert payload["source"] == "test"
+
+
+@pytest.mark.anyio
+async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
+    definitions = _definitions({
+        "SessionStart": [{
+            "command": "start",
+            "matcher": "initial",
+        }],
+        "UserPromptSubmit": [{"command": "prompt"}],
+        "Stop": [{"command": "stop"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[1].key: {"continue": True},
+    })
+    events = TurnHookEvents(_scope(
+        HookRuntime(definitions, command_runner=runner),
+        _invocation(session_started=True),
+    ))
+
+    await events.begin("hello")
+    await events.stop(outcome="completed", usage={"output_tokens": 3})
+
+    assert [call[0].event for call in runner.calls] == [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+    ]
+    assert runner.calls[0][1]["reason"] == "initial"
+    assert runner.calls[1][1]["prompt"] == "hello"
+    assert runner.calls[2][1]["outcome"] == "completed"
+    assert runner.calls[2][1]["usage"] == {"output_tokens": 3}
+
+
+@pytest.mark.anyio
+async def test_turn_prompt_hook_blocks_on_explicit_decision() -> None:
+    definitions = _definitions({
+        "UserPromptSubmit": [{"command": "prompt"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "continue": False,
+            "reason": "prompt blocked",
+        },
+    })
+    events = TurnHookEvents(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )))
+
+    with pytest.raises(PromptHookBlockedError, match="prompt blocked"):
+        await events.begin("hello")
 
 
 @pytest.mark.anyio

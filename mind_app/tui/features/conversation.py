@@ -19,13 +19,13 @@ from mind_app.runtime.support.clipboard import (
 )
 from mind_core.mcp_status import external_mcp_status_view
 from mind_nova.modes import RunMode
-from mind_nova.requests.compact import (
-    build_compact_payload,
-    stream_compact_events
-)
 from mind_nova.requests.fork import (
     ConversationForkRequestError,
     request_conversation_fork
+)
+from ...modes.compact import (
+    CompactResult,
+    compact_conversation
 )
 
 from ..core.models import FragmentBlock
@@ -158,71 +158,24 @@ async def compact_current_conversation(
     pref_config: dict[str, typing.Any],
 ) -> CompactLiveStatus:
     """压缩当前会话上下文。"""
-    metadata = mind.conversation.snapshot()
-
-    payload = build_compact_payload({
-        "mode": run_mode,
-        "cid": metadata["cid"],
-        "sid": metadata["sid"],
-        "llm_conf": pref_config,
-        "strategy": "memento",
-    })
-
-    terminal_event: bool = False
-
     status = CompactLiveStatus()
-    observe(
-        "compact.start",
-        mode=run_mode,
-        cid=metadata["cid"],
-        sid=metadata["sid"],
+
+    if compact_animation_enabled(mind):
+        observe("compact.animation.start")
+        await mind.start_compact_anim(status.snapshot)
+
+    result = await compact_conversation(
+        mind,
+        run_mode=run_mode,
+        pref_config=pref_config,
+        source="tui",
+        on_progress=status.running,
     )
 
-    try:
-        if compact_animation_enabled(mind):
-            observe("compact.animation.start")
-            await mind.start_compact_anim(status.snapshot)
-
-        async for event in stream_compact_events(payload):
-            event_type = str(event.get("type") or "")
-            message    = str(event.get("message") or "").strip()
-
-            if event_type == "conversation.compact.started":
-                status.running(message)
-                observe("compact.remote.started")
-                continue
-
-            if event_type == "conversation.compact.failed":
-                status.failed(message)
-                terminal_event = True
-                observe("compact.failed", level="ERROR", reason=message or "remote_failed")
-                break
-
-            if event_type == "conversation.compact":
-                status.completed(message, compact_event_detail(event))
-                terminal_event = True
-                observe(
-                    "compact.complete",
-                    before_items=event.get("before_items"),
-                    after_items=event.get("after_items"),
-                )
-                break
-
-        if not terminal_event:
-            status.failed("Context compaction failed. Please try again.")
-            observe("compact.failed", level="ERROR", reason="missing_terminal_event")
-    except asyncio.CancelledError:
-        observe("compact.interrupted", level="WARNING")
-        raise
-    except Exception as error:
-        message = str(error).strip()
-        detail = (
-            f": {type(error).__name__}: {message}"
-            if message
-            else f": {type(error).__name__}"
-        )
-        status.failed(f"Context compaction failed{detail}")
-        observe_exception("compact.failed", error)
+    if result.ok:
+        status.completed(result.message, compact_result_detail(result))
+    else:
+        status.failed(result.message)
 
     return status
 
@@ -424,10 +377,10 @@ def render_compact_interrupted(mind: "Mind") -> None:
     _present(mind, view_type="tui.gap")
 
 
-def compact_event_detail(event: dict[str, typing.Any]) -> str:
+def compact_result_detail(result: CompactResult) -> str:
     """返回压缩完成事件的简短统计。"""
-    before_items = event.get("before_items")
-    after_items  = event.get("after_items")
+    before_items = result.before_items
+    after_items  = result.after_items
 
     if isinstance(before_items, int) and isinstance(after_items, int):
         return f" · {before_items} -> {after_items} items"
