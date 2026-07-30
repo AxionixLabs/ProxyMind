@@ -9,6 +9,7 @@ from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.errors import AppError
 from mind_core.config import ConfigOverride
+from mind_core.agent_config import AgentSettings
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.hook_trust import (
@@ -243,6 +244,7 @@ async def _run_application(
         output_mode=output_mode,
         permissions=permissions,
         hook_registry=hook_registry,
+        agent_settings=AgentSettings.from_config(config_resolution.config),
     )
 
 
@@ -262,7 +264,8 @@ async def _run_controller(
     power: int,
     output_mode: OutputMode,
     permissions: PermissionSettings,
-    hook_registry: HookRegistry | None = None
+    hook_registry: HookRegistry | None = None,
+    agent_settings: AgentSettings | None = None
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     try:
@@ -283,6 +286,7 @@ async def _run_controller(
             report=report,
             permissions=permissions,
             hook_registry=hook_registry or HookRegistry(),
+            agent_settings=agent_settings or AgentSettings(),
         )
 
     except BaseException as error:

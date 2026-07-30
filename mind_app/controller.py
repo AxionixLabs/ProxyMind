@@ -14,6 +14,7 @@ from engine.ports import terminate_port_process
 from engine.errors import AppError
 from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
+from mind_core.agent_config import AgentSettings
 from mind_core.permissions import PermissionSettings
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
@@ -45,6 +46,7 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
+from .runtime.subagents.runtime import SubagentRuntime
 from .frontend.contracts import (
     ActivityStatusKind,
     Frontend
@@ -123,6 +125,14 @@ class Mind(object):
         self.frontend: Frontend = kwargs["frontend"]
 
         self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
+
+        self.subagents: SubagentRuntime = (
+            kwargs.get("subagent_runtime")
+            or SubagentRuntime(
+                self,
+                settings=kwargs.get("agent_settings") or AgentSettings(),
+            )
+        )
 
         self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
@@ -752,6 +762,8 @@ class Mind(object):
         observe("runtime.close.start")
         try:
             await self.cancel_service_runtime_startup()
+
+            await self.subagents.shutdown()
 
             with contextlib.suppress(Exception):
                 await self.native_coding.close()

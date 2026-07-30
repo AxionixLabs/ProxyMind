@@ -6,6 +6,10 @@ import asyncio
 from dataclasses import dataclass
 from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import AgentContext
+from mind_app.runtime.subagents.thread import (
+    AgentThreadContext,
+    AgentTurnContext
+)
 
 AgentStatus = typing.Literal[
     "pending",
@@ -44,18 +48,18 @@ class AgentStateError(AgentControlError):
     """表示执行主体当前状态不允许指定操作。"""
 
 
-class AgentTurnOperation(typing.Protocol):
-    """定义在固定执行主体身份下运行单轮任务的操作。"""
+AgentTurnResultValue = typing.TypeVar("AgentTurnResultValue")
 
-    async def __call__(self, context: AgentContext) -> typing.Any:
-        """执行单轮任务并返回结果。"""
-        ...
+AgentTurnOperation = typing.Callable[
+    [AgentTurnContext],
+    typing.Awaitable[AgentTurnResultValue],
+]
 
 
 @dataclass(frozen=True, slots=True)
 class AgentSnapshot:
     """保存执行主体当前状态的不可变快照。"""
-    context: AgentContext
+    thread: AgentThreadContext
     status: AgentStatus
     submission_id: str = ""
     result: typing.Any = None
@@ -64,7 +68,12 @@ class AgentSnapshot:
     @property
     def agent_id(self) -> str:
         """返回执行主体标识。"""
-        return self.context.agent_id
+        return self.thread.agent.agent_id
+
+    @property
+    def context(self) -> AgentContext:
+        """返回执行主体身份。"""
+        return self.thread.agent
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,28 +87,36 @@ class _AgentRecord:
     """保存根会话树内部的可变执行状态。"""
 
     __slots__ = (
-        "context",
+        "thread",
         "status",
         "submission_id",
+        "turn_count",
         "task",
         "result",
         "error",
     )
 
-    context: AgentContext
+    thread: AgentThreadContext
     status: AgentStatus
     submission_id: str
+    turn_count: int
     task: asyncio.Task[None] | None
     result: typing.Any
     error: str
 
-    def __init__(self, context: AgentContext) -> None:
-        self.context       = context
+    def __init__(self, thread: AgentThreadContext) -> None:
+        self.thread        = thread
         self.status        = "pending"
         self.submission_id = ""
+        self.turn_count    = 0
         self.task          = None
         self.result        = None
         self.error         = ""
+
+    @property
+    def context(self) -> AgentContext:
+        """返回线程中的执行主体身份。"""
+        return self.thread.agent
 
 
 class AgentControl:
@@ -135,6 +152,8 @@ class AgentControl:
 
         self._records: dict[str, _AgentRecord] = {}
 
+        self._shutdown: bool = False
+
     @property
     def root(self) -> AgentContext:
         """返回根执行主体身份。"""
@@ -152,37 +171,34 @@ class AgentControl:
 
     async def spawn(
         self,
-        parent: AgentContext,
-        agent_type: str,
-        operation: AgentTurnOperation,
-        *,
-        agent_id: str | None = None
+        thread: AgentThreadContext,
+        operation: AgentTurnOperation[AgentTurnResultValue]
     ) -> AgentSnapshot:
         """分配子执行主体并提交首轮任务。"""
         if not callable(operation):
             raise TypeError("agent operation must be callable")
 
         async with self._condition:
-            self._require_parent(parent)
+            self._require_active()
+            self._require_thread_parent(thread)
 
-            child_depth = parent.depth + 1
-            if child_depth > self._max_depth:
+            if thread.agent.depth > self._max_depth:
                 raise AgentDepthError(
-                    f"agent depth {child_depth} exceeds limit {self._max_depth}"
+                    f"agent depth {thread.agent.depth} "
+                    f"exceeds limit {self._max_depth}"
                 )
             if self._open_count() >= self._max_open_agents:
                 raise AgentLimitError(
                     f"open agent limit reached: {self._max_open_agents}"
                 )
 
-            context = parent.child(agent_type, agent_id=agent_id)
-            if context.agent_id in self._records:
+            if thread.agent.agent_id in self._records:
                 raise AgentStateError(
-                    f"agent id already exists: {context.agent_id}"
+                    f"agent id already exists: {thread.agent.agent_id}"
                 )
 
-            record = _AgentRecord(context=context)
-            self._records[context.agent_id] = record
+            record = _AgentRecord(thread=thread)
+            self._records[thread.agent.agent_id] = record
             self._start(record, operation)
             self._condition.notify_all()
             return self._snapshot(record)
@@ -190,13 +206,14 @@ class AgentControl:
     async def submit(
         self,
         agent_id: str,
-        operation: AgentTurnOperation
+        operation: AgentTurnOperation[AgentTurnResultValue]
     ) -> AgentSnapshot:
         """在已开放的执行主体上提交新一轮任务。"""
         if not callable(operation):
             raise TypeError("agent operation must be callable")
 
         async with self._condition:
+            self._require_active()
             record = self._require_record(agent_id)
             if record.status in {"pending", "running"}:
                 raise AgentStateError(f"agent is busy: {record.context.agent_id}")
@@ -325,18 +342,29 @@ class AgentControl:
         await self._close_records(None)
         return await self.snapshots()
 
+    async def shutdown(self) -> tuple[AgentSnapshot, ...]:
+        """终止控制器并关闭全部子执行主体。"""
+        async with self._condition:
+            self._shutdown = True
+            self._condition.notify_all()
+        await self._close_records(None)
+        return await self.snapshots()
+
     def _start(
         self,
         record: _AgentRecord,
-        operation: AgentTurnOperation
+        operation: AgentTurnOperation[AgentTurnResultValue]
     ) -> None:
         """在持锁状态下启动一次轮次任务。"""
         submission_id = short_uid(12)
 
         record.status        = "pending"
         record.submission_id = submission_id
-        record.result        = None
-        record.error         = ""
+
+        record.turn_count += 1
+
+        record.result = None
+        record.error  = ""
 
         record.task = asyncio.create_task(
             self._run_turn(
@@ -351,7 +379,7 @@ class AgentControl:
         self,
         agent_id: str,
         submission_id: str,
-        operation: AgentTurnOperation
+        operation: AgentTurnOperation[AgentTurnResultValue]
     ) -> None:
         """执行任务并提交与当前轮次匹配的终态。"""
         async with self._condition:
@@ -362,11 +390,18 @@ class AgentControl:
                 or record.status != "pending"
             ):
                 return None
+
             record.status = "running"
+
+            turn_context = AgentTurnContext(
+                thread=record.thread,
+                submission_id=submission_id,
+                turn_index=record.turn_count,
+            )
             self._condition.notify_all()
 
         try:
-            result = await operation(record.context)
+            result = await operation(turn_context)
         except asyncio.CancelledError:
             await self._finish(
                 agent_id,
@@ -466,20 +501,32 @@ class AgentControl:
             for agent_id, task in tasks:
                 await self._clear_task(agent_id, task)
 
-    def _require_parent(self, parent: AgentContext) -> None:
-        """验证父级属于当前根会话树且尚未关闭。"""
-        if parent.root_session_id != self._root.root_session_id:
+    def _require_thread_parent(self, thread: AgentThreadContext) -> None:
+        """验证线程身份及父级属于当前根会话树。"""
+        context = thread.agent
+        if context.root_session_id != self._root.root_session_id:
             raise AgentStateError("parent belongs to another root session")
-        if parent.agent_id == self._root.agent_id:
-            if parent != self._root:
-                raise AgentStateError("root parent context does not match")
+        if context.parent_agent_id == self._root.agent_id:
+            if context.depth != 1:
+                raise AgentDepthError("root child depth must be one")
             return None
 
-        record = self._records.get(parent.agent_id)
-        if record is None or record.context != parent:
-            raise AgentNotFoundError(f"parent agent not found: {parent.agent_id}")
+        record = self._records.get(context.parent_agent_id)
+        if record is None:
+            raise AgentNotFoundError(
+                f"parent agent not found: {context.parent_agent_id}"
+            )
+        if context.depth != record.context.depth + 1:
+            raise AgentDepthError("child depth does not match parent depth")
         if record.status == "closed":
-            raise AgentStateError(f"parent agent is closed: {parent.agent_id}")
+            raise AgentStateError(
+                f"parent agent is closed: {context.parent_agent_id}"
+            )
+
+    def _require_active(self) -> None:
+        """确认控制器仍可接受新任务。"""
+        if self._shutdown:
+            raise AgentStateError("agent control is shut down")
 
     def _require_record(self, agent_id: str) -> _AgentRecord:
         """返回规范标识对应的内部记录。"""
@@ -521,7 +568,7 @@ class AgentControl:
     def _snapshot(record: _AgentRecord) -> AgentSnapshot:
         """从内部记录创建不可变状态快照。"""
         return AgentSnapshot(
-            context=record.context,
+            thread=record.thread,
             status=record.status,
             submission_id=record.submission_id,
             result=record.result,

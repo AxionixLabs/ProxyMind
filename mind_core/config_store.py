@@ -39,6 +39,11 @@ disabled = []
 
 [hooks]
 
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 4
+max_depth = 1
+
 [mcp_servers]
 
 [hosted_tools.groups]

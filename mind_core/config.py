@@ -16,6 +16,10 @@ from mind_core.hooks import (
     HookConfigError,
     normalize_hook_table
 )
+from mind_core.agent_config import (
+    AgentConfigError,
+    normalize_agent_table
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +146,7 @@ def _default_effective_config() -> dict[str, typing.Any]:
             "disabled" : []
         },
         "hooks": {},
+        "agents": normalize_agent_table(None),
         "mcp_servers": {},
         "hosted_tools": {
             "groups": {
@@ -180,6 +185,7 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
             "disabled": _as_str_list(skills.get("disabled"))
         },
         "hooks": normalize_hook_table(data.get("hooks")),
+        "agents": normalize_agent_table(data.get("agents")),
         "mcp_servers": copy.deepcopy(mcp_servers),
         "hosted_tools": _normalize_hosted_tools(hosted)
     }
@@ -203,8 +209,14 @@ STRING_CONFIG_PATHS = frozenset({
 
 BOOL_CONFIG_PATHS = frozenset({
     ("model_enabled",),
+    ("agents", "enabled"),
     ("hosted_tools", "groups", "perf_engine"),
     ("hosted_tools", "groups", "sandbox_cloud"),
+})
+
+INTEGER_CONFIG_PATHS = frozenset({
+    ("agents", "max_concurrent_threads_per_session"),
+    ("agents", "max_depth"),
 })
 
 STRING_LIST_CONFIG_PATHS = frozenset({
@@ -222,6 +234,7 @@ TABLE_CONFIG_PATHS = (
     ("mcp_servers",),
     ("projects",),
     ("hooks",),
+    ("agents",),
 )
 
 ROOT_CONFIG_FIELDS = frozenset({
@@ -239,6 +252,7 @@ ROOT_CONFIG_FIELDS = frozenset({
     "mcp_servers",
     "projects",
     "hooks",
+    "agents",
 })
 
 SERVICE_FIELDS           = frozenset({"domain"})
@@ -316,6 +330,12 @@ def validate_config_value(
         except HookConfigError as error:
             raise ConfigValidationError(str(error)) from error
         return None
+    if path == ("agents",):
+        try:
+            normalize_agent_table(value)
+        except AgentConfigError as error:
+            raise ConfigValidationError(str(error)) from error
+        return None
     if path in STRING_CONFIG_PATHS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
@@ -378,6 +398,14 @@ def validate_config_value(
             raise ConfigValidationError(f"{dotted} must be a boolean")
         return None
 
+    if path in INTEGER_CONFIG_PATHS:
+        field = path[-1]
+        try:
+            normalize_agent_table({field: value})
+        except AgentConfigError as error:
+            raise ConfigValidationError(str(error)) from error
+        return None
+
     if path in STRING_LIST_CONFIG_PATHS:
         if not isinstance(value, list) or not all(
             isinstance(item, str) for item in value
@@ -397,6 +425,11 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
     except HookConfigError as error:
         raise ConfigValidationError(str(error)) from error
 
+    try:
+        normalize_agent_table(config.get("agents"))
+    except AgentConfigError as error:
+        raise ConfigValidationError(str(error)) from error
+
     for path in TABLE_CONFIG_PATHS:
         present, value = _raw_path_value(config, path)
         if present and not isinstance(value, dict):
@@ -407,6 +440,7 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
     for path in (
         *STRING_CONFIG_PATHS,
         *BOOL_CONFIG_PATHS,
+        *INTEGER_CONFIG_PATHS,
         *STRING_LIST_CONFIG_PATHS,
     ):
         present, value = _raw_path_value(config, path)
