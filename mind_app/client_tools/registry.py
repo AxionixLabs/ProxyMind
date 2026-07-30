@@ -4,6 +4,7 @@
 import typing
 from pathlib import Path
 from mcp import types as mcp_types
+from mind_app.runtime.execution import TurnContext
 from .types import (
     ClientTool,
     ClientToolRuntime
@@ -12,10 +13,6 @@ from .coding import coding_tools
 from .planning import planning_tools
 from .update_plan import update_plan_tools
 from .view_image import view_image_tools
-
-if typing.TYPE_CHECKING:
-    from mind_core.permissions import PermissionSettings
-
 
 class ClientToolRegistry:
     """客户端工具的注册表与分发器。"""
@@ -54,10 +51,8 @@ class ClientToolRegistry:
         progress_callback: typing.Any = None,
         meta: dict[str, typing.Any] | None = None,
         execution: dict[str, typing.Any] | None = None,
-        cid: str | None = None,
-        sid: str | None = None,
         call_id: str | None = None,
-        permissions: "PermissionSettings | None" = None
+        turn_context: TurnContext | None = None
     ) -> mcp_types.CallToolResult:
         """分发一次客户端工具调用。"""
         key  = str(name or "").strip()
@@ -65,17 +60,17 @@ class ClientToolRegistry:
 
         if tool is None:
             raise KeyError(f"unknown client tool: {name}")
+        if not isinstance(turn_context, TurnContext):
+            raise TypeError("client tool turn context is required")
 
         runtime = ClientToolRuntime(
             session=session,
+            turn_context=turn_context,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
             execution=execution,
-            cid=cid,
-            sid=sid,
             call_id=call_id,
-            permissions=permissions,
         )
         return await tool.handler(dict(arguments or {}), runtime)
 
@@ -83,7 +78,7 @@ class ClientToolRegistry:
 def default_registry(
     native_coding: typing.Any = None,
     *,
-    execution_root: str | Path | None = None,
+    execution_root: str | Path | None = None
 ) -> ClientToolRegistry:
     """构建默认客户端工具注册表。"""
     root_source = execution_root

@@ -15,10 +15,13 @@ from mind_app.approval.policy import (
 from mind_app.client_tools.coding.native import (
     coding_tools,
     validate_unsandboxed_process_authorization,
-    validate_workspace_write_authorization,
 )
 from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.native_coding.execution_authorization import ExecutionAuthorizationError
+from mind_app.runtime.execution import (
+    AgentContext,
+    TurnContext,
+)
 from mind_core.permissions import (
     PermissionSettings,
     permission_label,
@@ -31,6 +34,28 @@ from mind_nova.stream_events import (
     ToolCallEvent,
     parse_stream_event,
 )
+
+
+def _client_runtime(
+    permissions: PermissionSettings,
+    *,
+    execution: dict | None = None,
+) -> ClientToolRuntime:
+    turn_context = TurnContext.create(
+        agent=AgentContext.root("sid_test"),
+        cid="cid_test",
+        sid="sid_test",
+        mode="xtra",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=permissions,
+    )
+    return ClientToolRuntime(
+        session=SimpleNamespace(),
+        turn_context=turn_context,
+        execution=execution,
+    )
 
 
 @pytest.mark.parametrize(
@@ -111,10 +136,7 @@ async def test_read_only_sandbox_rejects_local_mutating_capabilities(
     tool_name,
 ) -> None:
     tool = next(tool for tool in coding_tools() if tool.name == tool_name)
-    runtime = ClientToolRuntime(
-        session=SimpleNamespace(),
-        permissions=preset_permissions("read-only"),
-    )
+    runtime = _client_runtime(preset_permissions("read-only"))
 
     result = await tool.handler({}, runtime)
 
@@ -151,9 +173,8 @@ def test_unsandboxed_process_rejects_unapproved_restricted_modes(
     reasons,
     error_reason,
 ) -> None:
-    runtime = ClientToolRuntime(
-        session=SimpleNamespace(),
-        permissions=permissions,
+    runtime = _client_runtime(
+        permissions,
         execution={"state": state, "reasons": reasons},
     )
 
@@ -181,9 +202,8 @@ def test_unsandboxed_process_accepts_authorized_modes(
     state,
     reasons,
 ) -> None:
-    runtime = ClientToolRuntime(
-        session=SimpleNamespace(),
-        permissions=permissions,
+    runtime = _client_runtime(
+        permissions,
         execution={"state": state, "reasons": reasons},
     )
 
@@ -210,12 +230,3 @@ def test_approval_card_presentation_is_owned_by_client() -> None:
     assert approval_decisions() == [
         "accept", "acceptForSession", "decline"
     ]
-
-
-def test_workspace_write_requires_permission_context() -> None:
-    runtime = ClientToolRuntime(session=SimpleNamespace())
-
-    with pytest.raises(ExecutionAuthorizationError) as exc_info:
-        validate_workspace_write_authorization(runtime)
-
-    assert exc_info.value.reason == "execution_permissions_required"

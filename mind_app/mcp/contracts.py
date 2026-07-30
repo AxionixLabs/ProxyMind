@@ -5,7 +5,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
-    from mind_core.permissions import PermissionSettings
+    from mind_app.runtime.execution import TurnContext
 
 
 class McpSessionLike(typing.Protocol):
@@ -25,10 +25,8 @@ class McpSessionLike(typing.Protocol):
         meta: dict[str, typing.Any] | None = None,
         args: dict[str, typing.Any] | None = None,
         execution: dict[str, typing.Any] | None = None,
-        cid: str | None = None,
-        sid: str | None = None,
         call_id: str | None = None,
-        permissions: "PermissionSettings | None" = None
+        turn_context: "TurnContext | None" = None
     ) -> "mcp_types.CallToolResult":
         """调用指定 MCP 工具并返回执行结果。"""
         ...

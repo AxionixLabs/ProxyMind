@@ -53,10 +53,8 @@ async def execute_tool(
         invocation.arguments,
         progress_callback=progress_callback,
         execution=invocation.execution,
-        cid=invocation.turn.cid,
-        sid=invocation.turn.sid,
         call_id=invocation.call_id,
-        permissions=invocation.turn.permissions,
+        turn_context=invocation.turn,
     )
 
 

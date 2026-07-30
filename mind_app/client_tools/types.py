@@ -9,22 +9,19 @@ from dataclasses import (
 from mcp import types as mcp_types
 
 if typing.TYPE_CHECKING:
-    from mind_core.permissions import PermissionSettings
+    from mind_app.runtime.execution import TurnContext
 
 
 @dataclass(slots=True)
 class ClientToolRuntime:
     """客户端工具处理函数可使用的运行上下文。"""
-
     session: typing.Any
+    turn_context: "TurnContext"
     read_timeout_seconds: typing.Any = None
     progress_callback: typing.Any = None
     meta: dict[str, typing.Any] | None = None
     execution: dict[str, typing.Any] | None = None
-    cid: str | None = None
-    sid: str | None = None
     call_id: str | None = None
-    permissions: "PermissionSettings | None" = None
 
 
 ClientToolHandler = typing.Callable[

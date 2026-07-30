@@ -176,10 +176,11 @@ async def test_external_structured_result_is_visible_after_tool_run() -> None:
     assert tool_run.fields["data"] == {"answer": 42}
     assert '"answer": 42' in tool_run.text
     assert calls[0][0] == ("mcp__docs__lookup", {"query": "answer"})
-    assert calls[0][1]["cid"] == "cid_test"
-    assert calls[0][1]["sid"] == "sid_test"
     assert calls[0][1]["call_id"] == "call_test"
-    assert calls[0][1]["permissions"] is turn_context.permissions
+    assert calls[0][1]["turn_context"] is turn_context
+    assert "cid" not in calls[0][1]
+    assert "sid" not in calls[0][1]
+    assert "permissions" not in calls[0][1]
 
 
 if __name__ == '__main__':

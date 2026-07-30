@@ -10,7 +10,7 @@ from .contracts import McpSessionLike
 from .status import should_reraise_external
 
 if typing.TYPE_CHECKING:
-    from mind_core.permissions import PermissionSettings
+    from mind_app.runtime.execution import TurnContext
 
 
 class CompositeToolSession(McpSessionLike):
@@ -110,10 +110,8 @@ class CompositeToolSession(McpSessionLike):
         meta: dict[str, typing.Any] | None = None,
         args: dict[str, typing.Any] | None = None,
         execution: dict[str, typing.Any] | None = None,
-        cid: str | None = None,
-        sid: str | None = None,
         call_id: str | None = None,
-        permissions: "PermissionSettings | None" = None
+        turn_context: "TurnContext | None" = None
     ) -> mcp_types.CallToolResult:
         """根据工具名称选择外部会话或本地会话执行调用。"""
         payload = arguments if args is None else args
@@ -127,10 +125,8 @@ class CompositeToolSession(McpSessionLike):
                 progress_callback=progress_callback,
                 meta=meta,
                 execution=execution,
-                cid=cid,
-                sid=sid,
                 call_id=call_id,
-                permissions=permissions,
+                turn_context=turn_context,
             )
 
         if self.external_group is not None and name in self.external_group.tools:

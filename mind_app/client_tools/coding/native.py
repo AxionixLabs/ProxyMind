@@ -107,22 +107,14 @@ def sandbox_failure_result(
 
 def read_only_sandbox(runtime: ClientToolRuntime) -> bool:
     """判断当前客户端工具是否运行在只读沙箱中。"""
-    return bool(
-        runtime.permissions is not None
-        and runtime.permissions.sandbox_mode == "read-only"
-    )
+    return runtime.turn_context.permissions.sandbox_mode == "read-only"
 
 
 def validate_unsandboxed_process_authorization(
     runtime: ClientToolRuntime
 ) -> None:
     """校验无系统进程沙箱时的本地进程执行权限。"""
-    permissions = runtime.permissions
-    if permissions is None:
-        raise ExecutionAuthorizationError(
-            "execution_permissions_required",
-            "local process execution requires permission settings"
-        )
+    permissions = runtime.turn_context.permissions
 
     sandbox_mode = permissions.sandbox_mode
     if sandbox_mode == "read-only":
@@ -131,14 +123,16 @@ def validate_unsandboxed_process_authorization(
             "read-only mode does not allow local process execution"
         )
 
-    execution = runtime.execution if isinstance(runtime.execution, dict) else {}
-    state = str(execution.get("state") or "").strip().lower()
+    execution   = runtime.execution if isinstance(runtime.execution, dict) else {}
+    state       = str(execution.get("state") or "").strip().lower()
     raw_reasons = execution.get("reasons")
+
     reasons = {
         str(reason).strip()
         for reason in raw_reasons
         if str(reason).strip()
     } if isinstance(raw_reasons, list) else set()
+
     approved = state == "approved" or (
         state == "allowed" and "session_approval_matched" in reasons
     )
@@ -161,12 +155,7 @@ def validate_unsandboxed_process_authorization(
 
 def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
     """校验客户端工作区写入权限。"""
-    permissions = runtime.permissions
-    if permissions is None:
-        raise ExecutionAuthorizationError(
-            "execution_permissions_required",
-            "workspace write requires permission settings"
-        )
+    permissions = runtime.turn_context.permissions
     if permissions.sandbox_mode == "read-only":
         raise ExecutionAuthorizationError(
             "sandbox_read_only",
@@ -181,7 +170,8 @@ def trusted_canonical(
     require_grant: bool = True,
 ) -> dict[str, typing.Any]:
     """从可信运行上下文读取并校验 canonical 参数。"""
-    validate_runtime_identity(cid=runtime.cid, sid=runtime.sid, call_id=runtime.call_id)
+    turn = runtime.turn_context
+    validate_runtime_identity(cid=turn.cid, sid=turn.sid, call_id=runtime.call_id)
     validate_execution_authorization(runtime.execution, require_grant=require_grant)
     return canonical_arguments(runtime.execution, tool=tool)
 
@@ -289,8 +279,8 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         raw = await coding.exec_command(
             **args,
             execution=runtime.execution,
-            cid=str(runtime.cid or ""),
-            sid=str(runtime.sid or ""),
+            cid=runtime.turn_context.cid,
+            sid=runtime.turn_context.sid,
         )
 
         return build_coding_result(
@@ -307,8 +297,11 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         """写入或轮询命令会话。"""
         try:
             reject_model_execution(arguments)
+
+            turn = runtime.turn_context
+
             validate_runtime_identity(
-                cid=runtime.cid, sid=runtime.sid, call_id=runtime.call_id
+                cid=turn.cid, sid=turn.sid, call_id=runtime.call_id
             )
 
             args = canonical_arguments(runtime.execution, tool="write_stdin")
@@ -333,8 +326,8 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         raw = await coding.write_stdin(
             **args,
             execution=runtime.execution,
-            cid=str(runtime.cid or ""),
-            sid=str(runtime.sid or ""),
+            cid=runtime.turn_context.cid,
+            sid=runtime.turn_context.sid,
             call_id=str(runtime.call_id or ""),
         )
 
