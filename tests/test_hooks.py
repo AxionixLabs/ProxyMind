@@ -161,6 +161,97 @@ async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> N
 
 
 @pytest.mark.anyio
+async def test_runtime_launches_matching_hooks_concurrently() -> None:
+    definitions = _definitions({
+        "PostToolUse": [
+            {"command": "first"},
+            {"command": "second"},
+        ],
+    })
+
+    class ConcurrentRunner:
+        def __init__(self) -> None:
+            self.started = 0
+            self.all_started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def execute(self, definition, payload):
+            self.started += 1
+            if self.started == len(definitions):
+                self.all_started.set()
+            await self.release.wait()
+            return SimpleNamespace(data={"command": definition.command})
+
+    runner = ConcurrentRunner()
+    dispatch = asyncio.create_task(HookRuntime(
+        definitions,
+        command_runner=runner,
+    ).dispatch(HookEventRequest(
+        event="PostToolUse",
+        match_value="shell_command",
+        payload={"cwd": "."},
+    )))
+
+    await asyncio.wait_for(runner.all_started.wait(), timeout=1)
+    assert not dispatch.done()
+
+    runner.release.set()
+    result = await dispatch
+
+    assert [record.output["command"] for record in result.records] == [
+        "first",
+        "second",
+    ]
+
+
+@pytest.mark.anyio
+async def test_runtime_cancellation_stops_all_matching_hooks() -> None:
+    definitions = _definitions({
+        "PostToolUse": [
+            {"command": "first"},
+            {"command": "second"},
+        ],
+    })
+
+    class BlockingRunner:
+        def __init__(self) -> None:
+            self.started = 0
+            self.all_started = asyncio.Event()
+            self.cancelled = []
+
+        async def execute(self, definition, payload):
+            self.started += 1
+            if self.started == len(definitions):
+                self.all_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled.append(definition.key)
+                raise
+
+    runner = BlockingRunner()
+    dispatch = asyncio.create_task(HookRuntime(
+        definitions,
+        command_runner=runner,
+    ).dispatch(HookEventRequest(
+        event="PostToolUse",
+        match_value="shell_command",
+        payload={"cwd": "."},
+    )))
+
+    await asyncio.wait_for(runner.all_started.wait(), timeout=1)
+    dispatch.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await dispatch
+
+    assert set(runner.cancelled) == {
+        definitions[0].key,
+        definitions[1].key,
+    }
+
+
+@pytest.mark.anyio
 async def test_scope_owns_common_payload_fields() -> None:
     definitions = _definitions({
         "PreToolUse": [{"command": "check"}],
@@ -654,6 +745,30 @@ async def test_command_executor_rejects_invalid_json(tmp_path) -> None:
             definition,
             {"cwd": str(tmp_path)},
         )
+
+
+@pytest.mark.anyio
+async def test_command_executor_terminates_timed_out_hook(tmp_path) -> None:
+    script = tmp_path / "slow_hook.py"
+    script.write_text(
+        "import time\n"
+        "time.sleep(10)\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "PostToolUse": [{
+            "command": subprocess.list2cmdline([sys.executable, str(script)]),
+            "timeout": 0.05,
+        }],
+    })[0]
+
+    started_at = asyncio.get_running_loop().time()
+    with pytest.raises(HookCommandError, match="timed out"):
+        await HookCommandExecutor().execute(
+            definition,
+            {"cwd": str(tmp_path)},
+        )
+    assert asyncio.get_running_loop().time() - started_at < 2
 
 
 async def _return_value(value):

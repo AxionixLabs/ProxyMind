@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import json
+import signal
 import typing
 import asyncio
 import contextlib
+import subprocess
 from dataclasses import dataclass
 from mind_core.hooks import HookDefinitionConfig
 
@@ -45,6 +48,7 @@ class HookCommandExecutor:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **self._process_group_options(),
             )
         except (OSError, ValueError) as error:
             raise HookCommandError(f"hook command could not start: {error}") from error
@@ -53,9 +57,15 @@ class HookCommandExecutor:
             self._read_limited(process.stdout),
             name="hook stdout",
         )
+
         stderr_task = asyncio.create_task(
             self._read_limited(process.stderr),
             name="hook stderr",
+        )
+
+        wait_task = asyncio.create_task(
+            self._wait_for_process(process, stdout_task, stderr_task),
+            name="hook process",
         )
 
         try:
@@ -64,20 +74,38 @@ class HookCommandExecutor:
                 await process.stdin.drain()
                 process.stdin.close()
 
-            return_code, stdout, stderr = await asyncio.wait_for(
-                self._wait_for_process(process, stdout_task, stderr_task),
+            completed, _ = await asyncio.wait(
+                (wait_task,),
                 timeout=definition.timeout_sec,
             )
+            if not completed:
+                raise asyncio.TimeoutError
+            return_code, stdout, stderr = await wait_task
         except asyncio.TimeoutError as error:
-            await self._terminate(process, stdout_task, stderr_task)
+            await self._terminate(
+                process,
+                wait_task,
+                stdout_task,
+                stderr_task,
+            )
             raise HookCommandError(
                 f"hook command timed out after {definition.timeout_sec:g}s"
             ) from error
         except asyncio.CancelledError:
-            await self._terminate(process, stdout_task, stderr_task)
+            await self._terminate(
+                process,
+                wait_task,
+                stdout_task,
+                stderr_task,
+            )
             raise
         except BaseException:
-            await self._terminate(process, stdout_task, stderr_task)
+            await self._terminate(
+                process,
+                wait_task,
+                stdout_task,
+                stderr_task,
+            )
             raise
 
         stderr_text = stderr.decode("utf-8", errors="replace").strip()
@@ -132,18 +160,72 @@ class HookCommandExecutor:
     @staticmethod
     async def _terminate(
         process: asyncio.subprocess.Process,
-        *tasks: "asyncio.Task[bytes]",
+        *tasks: "asyncio.Task[typing.Any]",
     ) -> None:
-        """停止进程并回收输出读取任务。"""
+        """停止进程树并回收输出读取任务。"""
         if process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
+            await HookCommandExecutor._terminate_process_tree(process)
         await process.wait()
 
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    @staticmethod
+    def _process_group_options() -> dict[str, typing.Any]:
+        """返回当前平台创建独立 Hook 进程组所需的参数。"""
+        if os.name == "nt":
+            return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        return {"start_new_session": True}
+
+    @staticmethod
+    async def _terminate_process_tree(
+        process: asyncio.subprocess.Process,
+    ) -> None:
+        """终止指定 Hook 进程及其派生进程。"""
+        if os.name == "nt":
+            break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if break_signal is not None:
+                with contextlib.suppress(
+                    ProcessLookupError,
+                    RuntimeError,
+                    ValueError,
+                    OSError,
+                ):
+                    process.send_signal(break_signal)
+                for _ in range(10):
+                    if process.returncode is not None:
+                        return None
+                    await asyncio.sleep(0.05)
+
+            try:
+                killer = await asyncio.create_subprocess_exec(
+                    "taskkill",
+                    "/PID",
+                    str(process.pid),
+                    "/T",
+                    "/F",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                killer_wait = asyncio.create_task(killer.wait())
+                completed, _ = await asyncio.wait(
+                    (killer_wait,),
+                    timeout=2,
+                )
+                if not completed and killer.returncode is None:
+                    killer.kill()
+                await killer_wait
+            except (OSError, RuntimeError, ValueError):
+                pass
+        else:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(process.pid, signal.SIGKILL)
+
+        if process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
 
 
 if __name__ == '__main__':

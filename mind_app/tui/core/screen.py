@@ -371,10 +371,11 @@ class TuiScreen(object):
             style="class:completion-menu",
         )
 
+        # fallback 控件不会像 CompletionsMenu 一样自带一列前导留白。
         self.completion_fallback_row = ConditionalContainer(
             VSplit([
                 Window(
-                    width=Dimension.exact(1),
+                    width=Dimension.exact(2),
                     char=" ",
                     dont_extend_width=True,
                 ),

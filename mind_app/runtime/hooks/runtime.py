@@ -155,44 +155,73 @@ class HookRuntime:
             "hook_event_name": request.event,
         }
 
-        records: list[HookExecutionRecord] = []
+        tasks = tuple(
+            asyncio.create_task(
+                self._execute_hook(
+                    registered,
+                    request,
+                    payload,
+                    spec.normalize_output,
+                ),
+                name=f"hook {request.event}",
+            )
+            for registered in matching
+        )
 
-        for registered in matching:
-            definition = registered.definition
-
-            try:
-                result = await self.command_runner.execute(
-                    definition,
-                    dict(payload),
-                )
-
-                raw_output = getattr(result, "data", None)
-                if not isinstance(raw_output, dict):
-                    raise ValueError("hook output must be a JSON object")
-
-                output = spec.normalize_output(raw_output)
-
-            except asyncio.CancelledError:
-                raise
-
-            except Exception as error:
-                self._observe_failure(definition, request, error)
-                error_text = str(error).strip() or type(error).__name__
-                records.append(HookExecutionRecord(
-                    hook_key=definition.key,
-                    error=error_text,
-                    blocks_event=definition.on_error == "block",
-                ))
-                continue
-
-            records.append(HookExecutionRecord(
-                hook_key=definition.key,
-                output=output,
-            ))
+        try:
+            records = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
         return HookDispatchResult(
             event=request.event,
             records=tuple(records),
+        )
+
+    async def _execute_hook(
+        self,
+        registered: _RegisteredHook,
+        request: HookEventRequest,
+        payload: dict[str, typing.Any],
+        normalize_output: typing.Callable[
+            [dict[str, typing.Any]],
+            dict[str, typing.Any],
+        ]
+    ) -> HookExecutionRecord:
+        """执行单个 Hook 并转换为独立执行记录。"""
+        definition = registered.definition
+
+        try:
+            result = await self.command_runner.execute(
+                definition,
+                dict(payload),
+            )
+
+            raw_output = getattr(result, "data", None)
+            if not isinstance(raw_output, dict):
+                raise ValueError("hook output must be a JSON object")
+
+            output = normalize_output(raw_output)
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception as error:
+            self._observe_failure(definition, request, error)
+            error_text = str(error).strip() or type(error).__name__
+            return HookExecutionRecord(
+                hook_key=definition.key,
+                error=error_text,
+                blocks_event=definition.on_error == "block",
+            )
+
+        return HookExecutionRecord(
+            hook_key=definition.key,
+            output=output,
         )
 
     @staticmethod

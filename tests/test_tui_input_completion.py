@@ -255,6 +255,31 @@ async def test_slash_completion_aligns_with_input_command() -> None:
 
 
 @pytest.mark.anyio
+async def test_exact_slash_completion_aligns_with_input_command() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/skills")
+            await wait_for_input_text(runtime, "/skills")
+            runtime.screen.application.invalidate()
+            await asyncio.sleep(0)
+
+            input_line = rendered_input_line(runtime)
+            completion_line = rendered_window_line(
+                runtime,
+                runtime.screen.completion_fallback_window,
+            )
+
+            assert input_line == "› /skills"
+            assert completion_line.lstrip().startswith("/skills")
+            assert input_line.index("/") == completion_line.index("/")
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_slash_prefix_selects_first_match_without_rewriting_input() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
