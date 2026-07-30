@@ -16,7 +16,6 @@ from .arguments import (
 )
 from .commands import (
     AgentListenCommand,
-    FlowCommand,
     CliInvocation,
     CompletionCommand,
     COMPLETION_SHELLS,
@@ -180,24 +179,6 @@ def _run_mode(
     parser.error(f"invalid mode: {value}")
 
 
-def _sources(
-    parser: argparse.ArgumentParser,
-    values: dict[str, object],
-) -> tuple[str, ...]:
-    """读取并验证批处理来源列表。"""
-    value = values.get("sources")
-    if not isinstance(value, list):
-        parser.error("invalid sources: expected one or more strings")
-
-    sources: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            parser.error("invalid sources: expected one or more strings")
-        sources.append(item)
-
-    return tuple(sources)
-
-
 def _help_topics(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
@@ -344,13 +325,6 @@ def _parse_cli_command(
             last=last,
             all_workspaces=bool(values["all_workspaces"]),
             include_non_interactive=bool(values["include_non_interactive"]),
-        )
-
-    if command == "flow":
-        return FlowCommand(
-            sources=_sources(parser, values),
-            mode=_run_mode(parser, values),
-            helix=bool(values["helix"]),
         )
 
     if command == "agent" and values.get("agent_command") == "listen":

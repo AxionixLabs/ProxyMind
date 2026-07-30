@@ -18,7 +18,6 @@ from .invocation import (
 EXEC_HELP          = "Run a task non-interactively"
 RESUME_HELP        = "Resume a previous interactive session"
 COMPLETION_HELP    = "Generate shell completion scripts"
-FLOW_HELP          = "Run one or more schematics"
 AGENT_HELP         = "Manage remote task subscriptions"
 AGENT_LISTEN_HELP  = "Listen for remotely dispatched tasks"
 HELIX_HELP         = "Manage the Helix provider"
@@ -171,42 +170,6 @@ def create_cli_parser() -> CliArgumentParser:
     )
     _add_prompt_context_options(resume_options)
     resume_options.add_argument(
-        "-h",
-        "--help",
-        action="help",
-        help=OPTION_HELP,
-    )
-
-    flow_parser = subparsers.add_parser(
-        "flow",
-        prog=f"{const.APP_NAME} flow",
-        help=FLOW_HELP,
-        description="Load and run one or more schematics in the selected mode.",
-        help_title=f"{const.APP_DESC} Flow",
-        usage="%(prog)s [OPTIONS] <SOURCE>...",
-        add_help=False,
-    )
-    flow_arguments = flow_parser.add_argument_group("Arguments")
-    flow_arguments.add_argument(
-        "sources",
-        nargs="+",
-        metavar="SOURCE",
-        help="Schematic file, '-', inline: content, or URL",
-    )
-    flow_options = flow_parser.add_argument_group("Options")
-    flow_options.add_argument(
-        "--mode",
-        choices=MODES,
-        required=True,
-        metavar="MODE",
-        help="Run mode for the flow",
-    )
-    flow_options.add_argument(
-        "--helix",
-        action="store_true",
-        help="Start or reuse the local Helix runtime and attach its MCP tools",
-    )
-    flow_options.add_argument(
         "-h",
         "--help",
         action="help",
@@ -709,7 +672,6 @@ def create_cli_parser() -> CliArgumentParser:
         ("exec",): exec_parser,
         ("e",): exec_parser,
         ("resume",): resume_parser,
-        ("flow",): flow_parser,
         ("agent",): agent_parser,
         ("agent", "listen"): listen_parser,
         ("helix",): helix_parser,

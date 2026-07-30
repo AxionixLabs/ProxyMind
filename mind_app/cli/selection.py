@@ -4,7 +4,6 @@
 import typing
 from .commands import (
     AgentListenCommand,
-    FlowCommand,
     CliCommand,
     DoctorCommand,
     ExecCommand,
@@ -28,26 +27,19 @@ OutputMode = typing.Literal[
 
 def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
     """根据命令入口选择输出模式。"""
-    if isinstance(command, DoctorCommand):
-        return command.output_format
-    if isinstance(command, (McpListCommand, McpGetCommand)):
-        return command.output_format
-    if isinstance(command, (
-        McpAddCommand,
-        McpRemoveCommand,
-        McpSetEnabledCommand,
-    )):
-        return "text"
-    if isinstance(command, (HelixUpgradeCommand, AgentListenCommand)):
-        return "rich"
-    if isinstance(command, ExecCommand):
-        return command.output_format
-    if isinstance(command, FlowCommand):
-        return "text"
-    if isinstance(command, (InteractiveCommand, ResumeCommand)):
-        return "tui"
-
-    typing.assert_never(command)
+    match command:
+        case (DoctorCommand() | McpListCommand() | McpGetCommand()) as output_command:
+            return output_command.output_format
+        case McpAddCommand() | McpRemoveCommand() | McpSetEnabledCommand():
+            return "text"
+        case HelixUpgradeCommand() | AgentListenCommand():
+            return "rich"
+        case ExecCommand() as output_command:
+            return output_command.output_format
+        case InteractiveCommand() | ResumeCommand():
+            return "tui"
+        case _ as unreachable:
+            typing.assert_never(unreachable)
 
 
 def output_mode_uses_animation(mode: OutputMode) -> bool:

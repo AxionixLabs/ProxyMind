@@ -12,7 +12,6 @@ from engine.observability import (
 )
 from .commands import (
     AgentListenCommand,
-    FlowCommand,
     ExecCommand,
     InteractiveCommand,
     ResumeCommand,
@@ -35,7 +34,7 @@ async def run_selected_mode(
     """按命令行参数分派到直接执行或交互模式。"""
     if isinstance(command, AgentListenCommand):
         selected_mode = "agent"
-    elif isinstance(command, (ExecCommand, FlowCommand)):
+    elif isinstance(command, ExecCommand):
         selected_mode = command.mode
     elif isinstance(command, (InteractiveCommand, ResumeCommand)):
         selected_mode = "tui"
@@ -75,12 +74,6 @@ async def run_selected_mode(
                 mode=command.mode,
                 attachments=attachments,
                 **calling_kwargs,
-            )
-            mind.exit_code = run_result.exit_code
-        elif isinstance(command, FlowCommand):
-            run_result = await mind.run_flow(
-                list(command.sources),
-                command.mode,
             )
             mind.exit_code = run_result.exit_code
         elif isinstance(command, InteractiveCommand):

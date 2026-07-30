@@ -989,18 +989,6 @@ class Mind(object):
             **kwargs
         )
 
-    async def run_flow(
-        self,
-        code: list[typing.Any],
-        mode: RunMode,
-        *_,
-        **kwargs
-    ) -> "RunResult":
-        """星图编排入口：委托给编排执行模块。"""
-        from .modes.flow import run_flow
-
-        return await run_flow(self, code, mode, **kwargs)
-
     async def agent_loop(self) -> None:
         """订阅模式入口：委托给订阅模式模块。"""
         from .modes.agent import run_agent_loop

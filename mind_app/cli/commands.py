@@ -63,14 +63,6 @@ class ExecCommand(object):
 
 
 @dataclass(frozen=True, slots=True)
-class FlowCommand(object):
-    """描述星图编排执行入口。"""
-    sources: tuple[str, ...]
-    mode: RunMode
-    helix: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class AgentListenCommand(object):
     """描述远端任务订阅入口。"""
     helix: bool = False
@@ -147,7 +139,6 @@ RuntimeCommand: typing.TypeAlias = (
     InteractiveCommand
     | ResumeCommand
     | ExecCommand
-    | FlowCommand
     | AgentListenCommand
 )
 
@@ -184,7 +175,7 @@ class CliInvocation(object):
 
 def command_uses_helix(command: RuntimeCommand) -> bool:
     """返回命令是否要求启动并接入 Helix。"""
-    if isinstance(command, (ExecCommand, FlowCommand, AgentListenCommand)):
+    if isinstance(command, (ExecCommand, AgentListenCommand)):
         return command.helix
     return False
 

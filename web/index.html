@@ -698,7 +698,6 @@
               <div class="status-list-row">
                 <span class="status-pill">Workspace</span>
                 <span class="status-pill">Preferences</span>
-                <span class="status-pill">Code Studio</span>
               </div>
             </div>
             <div class="tip" id="entry-tip"></div>
@@ -719,7 +718,6 @@
       nav: [
         {title: "Workspace", href: "/"},
         {title: "Preferences", href: "/pref"},
-        {title: "Code Studio", href: "/code"},
         {title: "Agent", href: "/agent"}
       ],
       overview: [
@@ -734,18 +732,13 @@
           href: "/pref"
         },
         {
-          title: "Code Studio",
-          description: "Compose and refine content.",
-          href: "/code"
-        },
-        {
           title: "Agent",
           description: "Inspect current subscription access.",
           href: "/agent"
         }
       ],
       tipLines: [
-        "Keyboard: <code>R</code> refresh, <code>P</code> preferences, <code>C</code> code, <code>A</code> agent."
+        "Keyboard: <code>R</code> refresh, <code>P</code> preferences, <code>A</code> agent."
       ]
     };
 
@@ -951,7 +944,6 @@
           });
       }
       if (k === "p") location.href = "/pref";
-      if (k === "c") location.href = "/code";
       if (k === "a") location.href = "/agent";
     });
   </script>

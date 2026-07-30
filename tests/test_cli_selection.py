@@ -14,13 +14,18 @@ from mind_app.cli import (
 from mind_app.cli import frontend as cli_frontend
 from mind_app.cli.commands import (
     AgentListenCommand,
-    FlowCommand,
+    CliCommand,
     CliInvocation,
     CompletionCommand,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
     InteractiveCommand,
+    McpAddCommand,
+    McpGetCommand,
+    McpListCommand,
+    McpRemoveCommand,
+    McpSetEnabledCommand,
     McpServerCommand,
     ResumeCommand,
 )
@@ -38,7 +43,7 @@ from mind_app.cli.parser import (
     parse_cli_command,
     parse_cli_invocation
 )
-from mind_app.cli.selection import resolve_cli_output_mode
+from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_mode
 from mind_app.modes.result import RunResult
 from mind_app.frontend.contracts import PassiveFrontendRuntime
@@ -140,16 +145,6 @@ def test_permission_options_are_process_level_config_overrides() -> None:
 def test_legacy_access_option_is_removed() -> None:
     with pytest.raises(SystemExit):
         parse_cli_command(["exec", "hello", "--access", "full"])
-    assert parse_cli_command([
-        "flow",
-        "first.md",
-        "second.md",
-        "--mode",
-        "chat",
-    ]) == FlowCommand(
-        sources=("first.md", "second.md"),
-        mode="chat",
-    )
     assert parse_cli_command(["agent", "listen"]) == AgentListenCommand()
     assert parse_cli_command(["helix", "upgrade"]) == HelixUpgradeCommand()
     assert parse_cli_command(["doctor"]) == DoctorCommand()
@@ -302,6 +297,16 @@ def test_root_help_flags_share_output(monkeypatch, capsys, flag: str) -> None:
     assert capsys.readouterr().out.startswith("Mind CLI\n\n")
 
 
+def test_root_help_does_not_expose_removed_flow_command(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    with pytest.raises(SystemExit) as exit_info:
+        parse_cli_command(["--help"])
+
+    assert exit_info.value.code == 0
+    assert "flow" not in capsys.readouterr().out.lower()
+
+
 @pytest.mark.parametrize(
     ("arguments", "usage"),
     (
@@ -310,7 +315,6 @@ def test_root_help_flags_share_output(monkeypatch, capsys, flag: str) -> None:
             ("resume", "--help"),
             "Usage: mind resume [OPTIONS] [SESSION_ID] [PROMPT]",
         ),
-        (("flow", "--help"), "Usage: mind flow [OPTIONS] <SOURCE>..."),
         (("agent", "--help"), "Usage: mind agent <COMMAND> [ARGS]"),
         (("agent", "listen", "--help"), "Usage: mind agent listen [OPTIONS]"),
         (("helix", "--help"), "Usage: mind helix <COMMAND> [ARGS]"),
@@ -466,29 +470,6 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
 
 
 @pytest.mark.anyio
-async def test_flow_cli_mode_runs_schematic_sources() -> None:
-    run_result = RunResult(status="completed", assistant_text="done")
-    mind = SimpleNamespace(
-        run_flow=AsyncMock(return_value=run_result),
-        exit_code=99,
-        permissions=preset_permissions("auto"),
-    )
-    command = FlowCommand(
-        sources=("first.md", "second.md"),
-        mode="fast",
-    )
-
-    result = await run_selected_mode(mind, command)
-
-    assert result is run_result
-    assert mind.exit_code == 0
-    mind.run_flow.assert_awaited_once_with(
-        ["first.md", "second.md"],
-        "fast",
-    )
-
-
-@pytest.mark.anyio
 async def test_direct_cli_mode_applies_temporary_model_override() -> None:
     run_result = RunResult(status="completed", assistant_text="done")
     fresh_pref_config = AsyncMock(return_value={
@@ -601,6 +582,33 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
     assert isinstance(frontend.application, ConsoleApplicationSink)
     assert isinstance(frontend.runtime, PassiveFrontendRuntime)
     assert design is not None
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    (
+        (InteractiveCommand(), "tui"),
+        (ResumeCommand(), "tui"),
+        (ExecCommand(prompt="inspect"), "text"),
+        (ExecCommand(prompt="inspect", output_format="json"), "json"),
+        (AgentListenCommand(), "rich"),
+        (HelixUpgradeCommand(), "rich"),
+        (DoctorCommand(), "text"),
+        (DoctorCommand(output_format="json"), "json"),
+        (McpListCommand(), "text"),
+        (McpListCommand(output_format="json"), "json"),
+        (McpGetCommand(name="playwright"), "text"),
+        (McpGetCommand(name="playwright", output_format="json"), "json"),
+        (McpAddCommand(name="playwright"), "text"),
+        (McpRemoveCommand(name="playwright"), "text"),
+        (McpSetEnabledCommand(name="playwright", enabled=True), "text"),
+    ),
+)
+def test_each_cli_command_resolves_its_output_mode(
+    command: CliCommand,
+    expected: OutputMode,
+) -> None:
+    assert resolve_cli_output_mode(command) == expected
 
 
 @pytest.mark.anyio

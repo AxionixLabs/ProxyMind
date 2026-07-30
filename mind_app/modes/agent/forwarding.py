@@ -42,27 +42,6 @@ class AgentForwardHandler(typing.Protocol):
         ...
 
 
-def normalize_forward_profiles(payload: dict[str, typing.Any]) -> list[str] | None:
-    """把服务端 `mind.forward.payload.profile` 归一化为输入入口列表。"""
-    profile_raw = payload.get("profile")
-    if profile_raw in (None, ""):
-        return None
-    if not isinstance(profile_raw, list):
-        raise ValueError("mind.forward payload.profile must be a list when provided")
-
-    normalized: list[str] = []
-    for index, item in enumerate(profile_raw):
-        if not isinstance(item, str):
-            raise ValueError(f"mind.forward payload.profile[{index}] must be a string")
-
-        entry = item.strip()
-        if not entry:
-            raise ValueError(f"mind.forward payload.profile[{index}] must be a non-empty string")
-        normalized.append(entry)
-
-    return normalized or None
-
-
 def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
     """提取服务端下发的任务意图摘要。"""
     intent_raw = payload.get("intent")
@@ -83,9 +62,7 @@ def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
 
 def normalize_forward_target(
     payload: dict[str, typing.Any]
-) -> tuple[
-    RunMode, str | None, list[typing.Any] | None, str | None
-]:
+) -> tuple[RunMode, str, str | None]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
     mode_raw = payload.get("mode")
     if not isinstance(mode_raw, str):
@@ -96,28 +73,17 @@ def normalize_forward_target(
 
     mode = typing.cast(RunMode, mode)
 
-    message_raw = payload.get("message")
-    if message_raw in (None, ""):
-        message = None
-    elif isinstance(message_raw, str):
-        message = message_raw
-    else:
-        raise ValueError("mind.forward payload.message must be a string when provided")
+    message = payload.get("message")
+    if not isinstance(message, str):
+        raise ValueError("mind.forward payload.message must be a string")
+    if not message.strip():
+        raise ValueError("mind.forward payload.message must be non-empty")
 
     metadata_raw = payload.get("metadata")
     if metadata_raw is not None and not isinstance(metadata_raw, dict):
         raise ValueError("mind.forward payload.metadata must be an object")
 
-    profile_entries = normalize_forward_profiles(payload)
-    intent_summary  = resolve_intent_summary(payload)
-
-    if str(message or "").strip():
-        return mode, message, None, intent_summary
-
-    if profile_entries:
-        return mode, None, profile_entries, intent_summary
-
-    raise ValueError("mind.forward requires non-empty message or payload.profile")
+    return mode, message, resolve_intent_summary(payload)
 
 
 def resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
@@ -156,7 +122,7 @@ class AgentExecutor(object):
         live_status: AgentLiveStatus | None = None
     ) -> None:
         """执行一条服务端下发的本地任务。"""
-        mode, message, profile, intent_summary = normalize_forward_target(request.payload)
+        mode, message, intent_summary = normalize_forward_target(request.payload)
 
         timeout_sec      = resolve_forward_timeout_sec(request.payload)
         metadata_raw     = request.payload.get("metadata")
@@ -175,8 +141,7 @@ class AgentExecutor(object):
             call_id=request.call_id,
             message_id=request.message_id,
             mode=mode,
-            message_chars=len(message or ""),
-            profile_items=len(profile or []),
+            message_chars=len(message),
             timeout_sec=timeout_sec or 0,
             metadata_fields=len(forward_metadata),
         )
@@ -193,12 +158,7 @@ class AgentExecutor(object):
             call_id=request.call_id
         )
 
-        if profile is not None:
-            runner = mind.run_flow(profile, mode, metadata=metadata)
-        else:
-            if message is None:
-                raise AppError("mind.forward resolved empty message")
-            runner = mind.calling(message=message, mode=mode, metadata=metadata)
+        runner = mind.calling(message=message, mode=mode, metadata=metadata)
 
         if timeout_sec is not None:
             result = await asyncio.wait_for(runner, timeout=timeout_sec)
