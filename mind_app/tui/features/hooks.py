@@ -78,7 +78,10 @@ def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
                 label=item.event,
                 detail=(
                     f"installed={item.installed_count} "
-                    f"active={item.active_count} | {item.description}"
+                    f"active={item.active_count} | "
+                    f"{item.control_policy} | "
+                    f"match={item.matcher_subject or '-'} | "
+                    f"{item.description}"
                 ),
             )
             for item in catalog.events
@@ -149,7 +152,7 @@ def hook_list_menu(
                 label=item.command,
                 detail=(
                     f"{_hook_state(item)} | {item.source_scope} | "
-                    f"matcher={item.matcher or '*'}"
+                    f"{_matcher_summary(item)}"
                 ),
             )
             for item in hooks
@@ -193,7 +196,7 @@ def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
     """生成单个 Hook 的详情和信任操作菜单。"""
     body = (
         f"Command: {entry.command}",
-        f"Matcher: {entry.matcher or '*'}",
+        _matcher_detail(entry),
         f"Source: {entry.source_scope}",
         f"Path: {entry.source_path or '-'}",
         f"Enabled: {str(entry.enabled).lower()}",
@@ -260,6 +263,20 @@ def _hook_state(entry: HookCatalogEntry) -> str:
         return "disabled"
 
     return entry.trust_state
+
+
+def _matcher_summary(entry: HookCatalogEntry) -> str:
+    """返回带匹配对象的简短匹配规则。"""
+    if entry.matcher_subject is None:
+        return "matcher=-"
+    return f"matcher[{entry.matcher_subject}]={entry.matcher or '*'}"
+
+
+def _matcher_detail(entry: HookCatalogEntry) -> str:
+    """返回带匹配对象的匹配规则详情。"""
+    if entry.matcher_subject is None:
+        return "Matcher: -"
+    return f"Matcher ({entry.matcher_subject}): {entry.matcher or '*'}"
 
 
 def render_hook_trust_status(

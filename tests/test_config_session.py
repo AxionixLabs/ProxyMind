@@ -10,6 +10,7 @@ from mind_core.config import (
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.config_layers import PROJECT_CONFIG_DIR
+from mind_core.hooks import HOOK_EVENT_CONFIG_SPECS
 
 
 def test_invalid_update_does_not_replace_user_document(tmp_path) -> None:
@@ -176,30 +177,6 @@ def test_invalid_hook_matcher_is_rejected() -> None:
         })
 
 
-def test_post_tool_hook_cannot_fail_closed() -> None:
-    with pytest.raises(ConfigValidationError, match="continue for this event"):
-        normalize_config({
-            "hooks": {
-                "PostToolUse": [{
-                    "command": "audit",
-                    "on_error": "block",
-                }],
-            },
-        })
-
-
-def test_hook_event_rejects_matcher_without_match_subject() -> None:
-    with pytest.raises(ConfigValidationError, match="matcher is not supported"):
-        normalize_config({
-            "hooks": {
-                "UserPromptSubmit": [{
-                    "command": "check-prompt",
-                    "matcher": "secret",
-                }],
-            },
-        })
-
-
 def test_session_start_hook_accepts_reason_matcher() -> None:
     config = normalize_config({
         "hooks": {
@@ -211,3 +188,61 @@ def test_session_start_hook_accepts_reason_matcher() -> None:
     })
 
     assert config["hooks"]["SessionStart"][0]["matcher"] == "initial|reset"
+
+
+def test_hook_event_contracts_are_explicit() -> None:
+    expected = {
+        "PreToolUse": ("tool_name", "gate", "block", True),
+        "PermissionRequest": ("tool_name", "permission", "continue", True),
+        "PostToolUse": ("tool_name", "notify", "continue", False),
+        "PreCompact": ("compact_trigger", "gate", "block", True),
+        "PostCompact": ("compact_trigger", "notify", "continue", False),
+        "SessionStart": ("session_reason", "notify", "continue", False),
+        "UserPromptSubmit": (None, "gate", "block", True),
+        "SubagentStart": ("agent_type", "notify", "continue", False),
+        "SubagentStop": ("agent_type", "notify", "continue", False),
+        "Stop": (None, "notify", "continue", False),
+    }
+
+    assert {
+        event: (
+            spec.matcher_subject,
+            spec.control_policy,
+            spec.default_on_error,
+            spec.allows_block_on_error,
+        )
+        for event, spec in HOOK_EVENT_CONFIG_SPECS.items()
+    } == expected
+
+
+@pytest.mark.parametrize("event", ["UserPromptSubmit", "Stop"])
+def test_hook_event_without_match_subject_rejects_matcher(event) -> None:
+    with pytest.raises(ConfigValidationError, match="matcher is not supported"):
+        normalize_config({
+            "hooks": {
+                event: [{
+                    "command": "check",
+                    "matcher": "value",
+                }],
+            },
+        })
+
+
+@pytest.mark.parametrize("event", [
+    "PostToolUse",
+    "PostCompact",
+    "SessionStart",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
+])
+def test_notification_hook_cannot_fail_closed(event) -> None:
+    with pytest.raises(ConfigValidationError, match="continue for this event"):
+        normalize_config({
+            "hooks": {
+                event: [{
+                    "command": "notify",
+                    "on_error": "block",
+                }],
+            },
+        })

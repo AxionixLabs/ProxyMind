@@ -4,8 +4,10 @@
 from dataclasses import dataclass
 from mind_core.hook_trust import HookTrustState
 from mind_core.hooks import (
+    HookControlPolicy,
     HookEventName,
-    HookFailurePolicy
+    HookFailurePolicy,
+    HookMatcherSubject
 )
 
 
@@ -20,6 +22,7 @@ class HookCatalogEntry:
     event: HookEventName
     command: str
     matcher: str
+    matcher_subject: HookMatcherSubject | None
     timeout_sec: float
     on_error: HookFailurePolicy
     source_scope: str
@@ -35,6 +38,8 @@ class HookEventSummary:
     """汇总一个生命周期事件的安装和激活数量。"""
     event: HookEventName
     description: str
+    matcher_subject: HookMatcherSubject | None
+    control_policy: HookControlPolicy
     installed_count: int
     active_count: int
 

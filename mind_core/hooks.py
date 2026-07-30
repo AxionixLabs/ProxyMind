@@ -26,6 +26,19 @@ HookFailurePolicy = typing.Literal[
     "block",
 ]
 
+HookMatcherSubject = typing.Literal[
+    "tool_name",
+    "compact_trigger",
+    "session_reason",
+    "agent_type",
+]
+
+HookControlPolicy = typing.Literal[
+    "gate",
+    "permission",
+    "notify",
+]
+
 HOOK_FIELDS = frozenset({
     "command",
     "matcher",
@@ -47,8 +60,13 @@ class HookEventConfigSpec:
     name: HookEventName
     description: str
     default_on_error: HookFailurePolicy
-    allows_block_on_error: bool
-    allows_matcher: bool
+    matcher_subject: HookMatcherSubject | None
+    control_policy: HookControlPolicy
+
+    @property
+    def allows_block_on_error(self) -> bool:
+        """返回事件是否允许失败时阻断主流程。"""
+        return self.control_policy != "notify"
 
 
 HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
@@ -56,71 +74,71 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         name="PreToolUse",
         description="Before a tool executes",
         default_on_error="block",
-        allows_block_on_error=True,
-        allows_matcher=True,
+        matcher_subject="tool_name",
+        control_policy="gate",
     ),
     "PermissionRequest": HookEventConfigSpec(
         name="PermissionRequest",
         description="When permission is requested",
         default_on_error="continue",
-        allows_block_on_error=True,
-        allows_matcher=True,
+        matcher_subject="tool_name",
+        control_policy="permission",
     ),
     "PostToolUse": HookEventConfigSpec(
         name="PostToolUse",
         description="After a tool executes",
         default_on_error="continue",
-        allows_block_on_error=False,
-        allows_matcher=True,
+        matcher_subject="tool_name",
+        control_policy="notify",
     ),
     "PreCompact": HookEventConfigSpec(
         name="PreCompact",
         description="Before context compaction",
         default_on_error="block",
-        allows_block_on_error=True,
-        allows_matcher=True,
+        matcher_subject="compact_trigger",
+        control_policy="gate",
     ),
     "PostCompact": HookEventConfigSpec(
         name="PostCompact",
         description="After context compaction",
         default_on_error="continue",
-        allows_block_on_error=False,
-        allows_matcher=True,
+        matcher_subject="compact_trigger",
+        control_policy="notify",
     ),
     "SessionStart": HookEventConfigSpec(
         name="SessionStart",
         description="When a new session starts",
         default_on_error="continue",
-        allows_block_on_error=False,
-        allows_matcher=True,
+        matcher_subject="session_reason",
+        control_policy="notify",
     ),
     "UserPromptSubmit": HookEventConfigSpec(
         name="UserPromptSubmit",
         description="When the user submits a prompt",
         default_on_error="block",
-        allows_block_on_error=True,
-        allows_matcher=False,
+        matcher_subject=None,
+        control_policy="gate",
     ),
     "SubagentStart": HookEventConfigSpec(
         name="SubagentStart",
         description="When a subagent is created",
         default_on_error="continue",
-        allows_block_on_error=False,
-        allows_matcher=True,
+        matcher_subject="agent_type",
+        control_policy="notify",
     ),
     "SubagentStop": HookEventConfigSpec(
         name="SubagentStop",
         description="Right before a subagent ends its turn",
         default_on_error="continue",
-        allows_block_on_error=False,
-        allows_matcher=True,
+        matcher_subject="agent_type",
+        control_policy="notify",
     ),
     "Stop": HookEventConfigSpec(
         name="Stop",
         description="Right before Codex ends its turn",
         default_on_error="continue",
-        allows_block_on_error=False,
-        allows_matcher=False,
+        matcher_subject=None,
+        control_policy="notify",
     ),
 }
 
@@ -224,7 +242,7 @@ def _normalize_hook_entry(
     matcher = matcher.strip()
 
     event_spec = HOOK_EVENT_CONFIG_SPECS[event]
-    if matcher and not event_spec.allows_matcher:
+    if matcher and event_spec.matcher_subject is None:
         raise HookConfigError(f"{dotted}.matcher is not supported for this event")
     try:
         re.compile(matcher or ".*")

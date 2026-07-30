@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 import typing
 from pathlib import Path
 from types import SimpleNamespace
@@ -112,10 +113,16 @@ async def _run_stream(
     *,
     hooks: HookRuntime | None = None,
     session_started: bool = False,
+    stream_factory: typing.Callable[
+        ..., typing.AsyncIterator[typing.Any]
+    ] | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
-    async def stream_chat(*_args, **_kwargs):
-        for payload in events:
-            yield parse_stream_event(payload)
+    if stream_factory is None:
+        async def stream_chat(*_args, **_kwargs):
+            for payload in events:
+                yield parse_stream_event(payload)
+    else:
+        stream_chat = stream_factory
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = _mind()
@@ -289,6 +296,76 @@ async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
         "Stop",
     ]
     assert runner.calls[1][1]["outcome"] == "failed"
+
+
+@pytest.mark.anyio
+async def test_stop_hook_failure_does_not_replace_completed_result(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, definition, _payload):
+            if definition.event == "Stop":
+                raise RuntimeError("stop hook failed")
+            return SimpleNamespace(data={})
+
+    definitions = resolve_hook_definitions(
+        {"Stop": [{"command": "stop"}]},
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done", "usage": {"output_tokens": 2}}],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+    )
+
+    assert result == RunResult(
+        status="completed",
+        usage={"output_tokens": 2},
+    )
+
+
+@pytest.mark.anyio
+async def test_stream_cancellation_reports_interrupted_stop_hook(
+    monkeypatch,
+) -> None:
+    started = asyncio.Event()
+
+    async def pending_stream(*_args, **_kwargs):
+        started.set()
+        await asyncio.Future()
+        if False:
+            yield None
+
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, definition, payload):
+            self.calls.append((definition.event, payload))
+            return SimpleNamespace(data={})
+
+    runner = CommandRunner()
+    definitions = resolve_hook_definitions(
+        {"Stop": [{"command": "stop"}]},
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+    task = asyncio.create_task(_run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=runner),
+        stream_factory=pending_stream,
+    ))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert [event for event, _payload in runner.calls] == ["Stop"]
+    assert runner.calls[0][1]["outcome"] == "interrupted"
 
 
 @pytest.mark.anyio

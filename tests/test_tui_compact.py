@@ -13,6 +13,49 @@ from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
 
+class _RecordingHookRunner(object):
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def execute(self, definition, payload):
+        self.calls.append((definition.event, payload))
+        return SimpleNamespace(data={})
+
+
+class _HookedCompactMind(object):
+    def __init__(self, tmp_path, runtime) -> None:
+        self.history_workspace = str(tmp_path)
+        self.permissions = preset_permissions("auto")
+        self.conversation = SimpleNamespace(
+            snapshot=lambda: {"cid": "cid", "sid": "sid"},
+        )
+        self._runtime = runtime
+
+    async def await_cleanup(self, awaitable):
+        await awaitable
+
+    def hook_scope(self, context):
+        return HookExecutionScope(context=context, dispatcher=self._runtime)
+
+
+def _compact_hook_runtime(tmp_path, runner) -> HookRuntime:
+    definitions = resolve_hook_definitions(
+        {
+            "PreCompact": [{
+                "command": "guard",
+                "matcher": "manual",
+            }],
+            "PostCompact": [{
+                "command": "audit",
+                "matcher": "manual",
+            }],
+        },
+        source_scope="user",
+        source_path=tmp_path / "hooks.toml",
+    )
+    return HookRuntime(definitions, command_runner=runner)
+
+
 @pytest.mark.anyio
 async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch) -> None:
     snapshots = []
@@ -317,6 +360,80 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     assert post_payload["outcome"] == "completed"
     assert post_payload["before_items"] == 12
     assert post_payload["after_items"] == 4
+
+
+@pytest.mark.anyio
+async def test_compact_failure_reports_failed_post_hook(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    async def failed_stream(_payload):
+        yield {
+            "type": "conversation.compact.failed",
+            "message": "remote compact failed",
+        }
+
+    runner = _RecordingHookRunner()
+    mind = _HookedCompactMind(
+        tmp_path,
+        _compact_hook_runtime(tmp_path, runner),
+    )
+    monkeypatch.setattr(compact_mode, "stream_compact_events", failed_stream)
+
+    result = await compact_mode.compact_conversation(
+        mind,
+        run_mode="chat",
+        pref_config={},
+        source="test",
+    )
+
+    assert result.outcome == "failed"
+    assert result.message == "remote compact failed"
+    assert [event for event, _payload in runner.calls] == [
+        "PreCompact",
+        "PostCompact",
+    ]
+    assert runner.calls[1][1]["outcome"] == "failed"
+    assert runner.calls[1][1]["message"] == "remote compact failed"
+
+
+@pytest.mark.anyio
+async def test_compact_cancellation_reports_interrupted_post_hook(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    started = asyncio.Event()
+
+    async def pending_stream(_payload):
+        started.set()
+        await asyncio.Future()
+        if False:
+            yield {}
+
+    runner = _RecordingHookRunner()
+    mind = _HookedCompactMind(
+        tmp_path,
+        _compact_hook_runtime(tmp_path, runner),
+    )
+    monkeypatch.setattr(compact_mode, "stream_compact_events", pending_stream)
+    task = asyncio.create_task(compact_mode.compact_conversation(
+        mind,
+        run_mode="chat",
+        pref_config={},
+        source="test",
+    ))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert [event for event, _payload in runner.calls] == [
+        "PreCompact",
+        "PostCompact",
+    ]
+    assert runner.calls[1][1]["outcome"] == "interrupted"
+    assert runner.calls[1][1]["message"] == "Context compaction interrupted."
 
 
 if __name__ == '__main__':

@@ -31,6 +31,7 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
         event="PreToolUse",
         command="python check_hook.py",
         matcher="shell_command",
+        matcher_subject="tool_name",
         timeout_sec=5.0,
         on_error="continue",
         source_scope="project",
@@ -48,12 +49,16 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
             HookEventSummary(
                 event="PreToolUse",
                 description="Before a tool executes",
+                matcher_subject="tool_name",
+                control_policy="gate",
                 installed_count=1,
                 active_count=int(trusted),
             ),
             HookEventSummary(
                 event="PostToolUse",
                 description="After a tool executes",
+                matcher_subject="tool_name",
+                control_policy="notify",
                 installed_count=0,
                 active_count=0,
             ),
@@ -93,8 +98,13 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     )
     assert runtime.requests[0].title == "Hooks"
     assert runtime.requests[0].status == "installed=1 active=0"
+    assert "gate | match=tool_name" in runtime.requests[0].options[0].detail
     assert runtime.requests[1].title == "PreToolUse"
     assert runtime.requests[2].body[0] == "Command: python check_hook.py"
+    assert runtime.requests[1].options[0].detail.endswith(
+        "matcher[tool_name]=shell_command"
+    )
+    assert runtime.requests[2].body[1] == "Matcher (tool_name): shell_command"
     assert [view.type for view in views] == ["tui.hooks.status", "tui.gap"]
 
 

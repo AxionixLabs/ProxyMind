@@ -224,6 +224,56 @@ async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
 
 
 @pytest.mark.anyio
+async def test_turn_hooks_skip_session_start_for_existing_session() -> None:
+    definitions = _definitions({
+        "SessionStart": [{
+            "command": "start",
+            "matcher": "initial",
+        }],
+        "UserPromptSubmit": [{"command": "prompt"}],
+    })
+    runner = _CommandRunner()
+    events = TurnHookEvents(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )))
+
+    await events.begin("hello")
+
+    assert [call[0].event for call in runner.calls] == ["UserPromptSubmit"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("on_error", "blocked"),
+    [("block", True), ("continue", False)],
+)
+async def test_turn_prompt_hook_applies_failure_policy(
+    on_error,
+    blocked,
+) -> None:
+    definitions = _definitions({
+        "UserPromptSubmit": [{
+            "command": "broken",
+            "on_error": on_error,
+        }],
+    })
+    runner = _CommandRunner(errors={
+        definitions[0].key: RuntimeError("prompt hook failed"),
+    })
+    events = TurnHookEvents(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )))
+
+    if blocked:
+        with pytest.raises(PromptHookBlockedError, match="prompt hook failed"):
+            await events.begin("hello")
+    else:
+        await events.begin("hello")
+
+
+@pytest.mark.anyio
 async def test_turn_prompt_hook_blocks_on_explicit_decision() -> None:
     definitions = _definitions({
         "UserPromptSubmit": [{"command": "prompt"}],

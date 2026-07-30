@@ -4,7 +4,9 @@
 import typing
 from dataclasses import dataclass
 from mind_core.hooks import (
+    HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
+    HookControlPolicy,
     HookEventName
 )
 
@@ -18,7 +20,20 @@ HookOutputNormalizer = typing.Callable[
 class HookEventSpec:
     """定义单个生命周期事件的输出协议。"""
     name: HookEventName
+    control_policy: HookControlPolicy
     normalize_output: HookOutputNormalizer
+
+
+def _event_spec(
+    name: HookEventName,
+    normalize_output: HookOutputNormalizer
+) -> HookEventSpec:
+    """根据配置目录构建生命周期事件运行规格。"""
+    return HookEventSpec(
+        name=name,
+        control_policy=HOOK_EVENT_CONFIG_SPECS[name].control_policy,
+        normalize_output=normalize_output,
+    )
 
 
 def _normalize_pre_tool_output(
@@ -105,46 +120,19 @@ def _normalize_permission_output(
 
 
 HOOK_EVENT_SPECS: dict[HookEventName, HookEventSpec] = {
-    "PreToolUse": HookEventSpec(
-        name="PreToolUse",
-        normalize_output=_normalize_pre_tool_output,
+    "PreToolUse": _event_spec("PreToolUse", _normalize_pre_tool_output),
+    "PermissionRequest": _event_spec(
+        "PermissionRequest",
+        _normalize_permission_output,
     ),
-    "PermissionRequest": HookEventSpec(
-        name="PermissionRequest",
-        normalize_output=_normalize_permission_output,
-    ),
-    "PostToolUse": HookEventSpec(
-        name="PostToolUse",
-        normalize_output=_normalize_unrestricted_output,
-    ),
-    "PreCompact": HookEventSpec(
-        name="PreCompact",
-        normalize_output=_normalize_gate_output,
-    ),
-    "PostCompact": HookEventSpec(
-        name="PostCompact",
-        normalize_output=_normalize_unrestricted_output,
-    ),
-    "SessionStart": HookEventSpec(
-        name="SessionStart",
-        normalize_output=_normalize_unrestricted_output,
-    ),
-    "UserPromptSubmit": HookEventSpec(
-        name="UserPromptSubmit",
-        normalize_output=_normalize_gate_output,
-    ),
-    "SubagentStart": HookEventSpec(
-        name="SubagentStart",
-        normalize_output=_normalize_unrestricted_output,
-    ),
-    "SubagentStop": HookEventSpec(
-        name="SubagentStop",
-        normalize_output=_normalize_unrestricted_output,
-    ),
-    "Stop": HookEventSpec(
-        name="Stop",
-        normalize_output=_normalize_unrestricted_output,
-    ),
+    "PostToolUse": _event_spec("PostToolUse", _normalize_unrestricted_output),
+    "PreCompact": _event_spec("PreCompact", _normalize_gate_output),
+    "PostCompact": _event_spec("PostCompact", _normalize_unrestricted_output),
+    "SessionStart": _event_spec("SessionStart", _normalize_unrestricted_output),
+    "UserPromptSubmit": _event_spec("UserPromptSubmit", _normalize_gate_output),
+    "SubagentStart": _event_spec("SubagentStart", _normalize_unrestricted_output),
+    "SubagentStop": _event_spec("SubagentStop", _normalize_unrestricted_output),
+    "Stop": _event_spec("Stop", _normalize_unrestricted_output),
 }
 
 

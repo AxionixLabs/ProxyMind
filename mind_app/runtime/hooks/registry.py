@@ -98,6 +98,8 @@ class HookRegistry:
             HookEventSummary(
                 event=event,
                 description=spec.description,
+                matcher_subject=spec.matcher_subject,
+                control_policy=spec.control_policy,
                 installed_count=sum(
                     item.definition.event == event
                     for item in resolved
@@ -169,12 +171,14 @@ class HookRegistry:
     def _catalog_entry(item: _ResolvedHook) -> HookCatalogEntry:
         """把解析结果转换为管理视图条目。"""
         definition = item.definition
+        event_spec = HOOK_EVENT_CONFIG_SPECS[definition.event]
 
         return HookCatalogEntry(
             key=definition.key,
             event=definition.event,
             command=definition.command,
             matcher=definition.matcher,
+            matcher_subject=event_spec.matcher_subject,
             timeout_sec=definition.timeout_sec,
             on_error=definition.on_error,
             source_scope=definition.source_scope,
