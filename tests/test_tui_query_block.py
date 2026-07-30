@@ -166,14 +166,22 @@ async def test_menu_discards_staged_command_before_activating() -> None:
 
 
 @pytest.mark.anyio
-async def test_mcp_action_keeps_normal_transcript_submission() -> None:
+@pytest.mark.parametrize(
+    "command",
+    ["/fast", "/model gpt-test", "/mcp status", "/q", "quit"],
+)
+async def test_registered_command_stays_pending_until_dispatch_finishes(
+    command,
+) -> None:
     runtime = TuiRuntime()
-    runtime.submissions.message_queue.put_nowait("/mcp status")
+    runtime.submissions.message_queue.put_nowait(command)
 
     await runtime.read_message(PromptContext(mode="chat", model="test"))
 
+    assert runtime.document.has_pending_submission
+    assert not runtime.document.blocks
+
+    runtime.discard_pending_submission()
+
     assert not runtime.document.has_pending_submission
-    assert runtime.document.blocks[-1].kind == "user"
-    assert "".join(
-        text for _style, text in runtime.document.blocks[-1].block.fragments
-    ) == "/mcp status"
+    assert not runtime.document.has_conversation

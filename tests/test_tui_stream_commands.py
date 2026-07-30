@@ -228,7 +228,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     "command",
     ["/mcp start", "/mcp force", "/mcp restart"],
 )
-async def test_idle_mcp_start_queues_query_until_result_is_committed(
+async def test_idle_mcp_start_commits_result_before_next_query(
     monkeypatch,
     command,
 ) -> None:
@@ -293,6 +293,7 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
 
     document = fragments_text(runtime.document.fragments(width=100))
     assert document.index("External MCP ready") < document.index("› hi")
+    assert command not in document
     assert model_started.is_set()
 
 

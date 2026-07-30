@@ -37,7 +37,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
 
     assert summary.type == "tui.tools.summary"
     assert text == (
-        "Tools · mode=chat total=3 external=1\n"
+        "/tools · 3 available · mode=chat external=1\n"
         "search (external · stdio · 1)\n"
         "  • external_search\n"
         "coding (local · builtin · 2)\n"

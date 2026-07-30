@@ -18,7 +18,10 @@ from prompt_toolkit.styles import (
     Style,
     merge_styles
 )
-from ..prompting.commands import resolve_slash_command
+from ..prompting.commands import (
+    canonical_command_label,
+    resolve_slash_command
+)
 from .models import FragmentBlock
 
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
@@ -28,6 +31,7 @@ BODY_STYLE    = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
+COMMAND_STYLE = TextStyle(foreground="#C4A7E7", bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
 
@@ -284,6 +288,18 @@ def query_block(text: str) -> FragmentBlock:
         fragments.append((text_style, line))
 
     return FragmentBlock(tuple(fragments))
+
+
+def command_result_block(
+    command: str,
+    *parts: str | TextSpan
+) -> FragmentBlock:
+    """生成带规范命令名称的稳定结果块。"""
+    return fragment_block(
+        TextSpan(f"{canonical_command_label(command)} ", COMMAND_STYLE),
+        TextSpan("· ", MUTED_STYLE),
+        *parts,
+    )
 
 
 if __name__ == '__main__':

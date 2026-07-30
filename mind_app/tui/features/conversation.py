@@ -31,11 +31,12 @@ from mind_nova.requests.fork import (
 from ..core.models import FragmentBlock
 from ..core.styles import (
     ACCENT_STYLE,
+    BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     WARNING_STYLE,
-    fragment_block,
-    text_block
+    command_result_block,
+    fragment_block
 )
 
 if typing.TYPE_CHECKING:
@@ -447,18 +448,27 @@ async def copy_last_assistant_reply(mind: "Mind") -> None:
     """复制最近一次模型回复到剪贴板。"""
     text = mind.last_assistant_reply_snapshot()
     if not text:
-        _present(mind, text_block("No assistant message to copy.", MUTED_STYLE))
+        _present(mind, command_result_block(
+            "/copy",
+            TextSpan("No assistant message to copy.", MUTED_STYLE),
+        ))
         _present(mind, view_type="tui.gap")
         return None
 
     try:
         await copy_text_to_clipboard(text)
     except ClipboardError as error:
-        _present(mind, text_block(f"Copy failed: {error}", FAILURE_STYLE))
+        _present(mind, command_result_block(
+            "/copy",
+            TextSpan(f"Failed: {error}", FAILURE_STYLE),
+        ))
         _present(mind, view_type="tui.gap")
         return None
 
-    _present(mind, text_block("Copied last message to clipboard", ACCENT_STYLE))
+    _present(mind, command_result_block(
+        "/copy",
+        TextSpan("Copied", BRIGHT_STYLE),
+    ))
     _present(mind, view_type="tui.gap")
 
 

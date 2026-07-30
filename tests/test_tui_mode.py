@@ -32,7 +32,7 @@ def test_mode_status_matches_other_command_statuses(mode, label) -> None:
     text = "".join(value for _style, value in status.renderable.fragments)
 
     assert status.type == "tui.mode.status"
-    assert text == f"Mode · {label}"
+    assert text == f"/{mode} · Mode: {label}"
     assert gap.type == "tui.gap"
 
 
@@ -75,7 +75,7 @@ async def test_mode_command_renders_status_and_updates_prompt_context(
         for _style, value in statuses[0].renderable.fragments
     )
 
-    assert text == "Mode · Fast"
+    assert text == "/fast · Mode: Fast"
     assert runtime.context.mode == "fast"
 
 

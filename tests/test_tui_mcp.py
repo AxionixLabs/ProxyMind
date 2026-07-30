@@ -332,6 +332,35 @@ def test_external_mcp_start_result_is_committed_to_tui(
     assert status.renderable.plain_text == expected
 
 
+def test_mcp_force_result_keeps_activity_prefix() -> None:
+    views = []
+    mind = SimpleNamespace(
+        external_mcp=SimpleNamespace(last_start_snapshot={
+            "done": True,
+            "items": [{
+                "name": "docs",
+                "state": "ready",
+                "tools": 4,
+                "discovered": 4,
+                "filtered": 0,
+            }],
+        }),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    mcp.render_mcp_action_result(mind, "force", was_started=False)
+
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == (
+        "■ External MCP ready · 1/1 servers · 4 tools"
+    )
+
+
 def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
     views = []
     mind = SimpleNamespace(
@@ -362,7 +391,7 @@ def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
     assert "".join(
         text for _style, text in views[0].renderable.fragments
     ) == (
-        "External MCP · started=false configured=2 tools=0 filtered=0\n"
+        "/mcp status · started=false configured=2 tools=0 filtered=0\n"
         "Configured servers\n"
         "  • playwright (stdio · disabled)\n"
         "  • docs (streamable_http · enabled)\n"

@@ -293,7 +293,7 @@ async def test_stream_quit_command_cancels_turn_without_queueing_message() -> No
     assert not runtime.execution_active
     assert not runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
-    assert "/quit" in _document_text(runtime)
+    assert "/quit" not in _document_text(runtime)
     application.emit.assert_not_called()
 
 

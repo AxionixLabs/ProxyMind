@@ -22,7 +22,7 @@ def test_elevated_permissions_status_renders_on_one_line() -> None:
 
     assert status.type == "tui.permissions.status"
     assert text == (
-        "Permissions · Full Access · sandbox=danger-full-access"
+        "/permissions · Full Access · sandbox=danger-full-access"
         " · approval=never"
     )
     assert gap.type == "tui.gap"

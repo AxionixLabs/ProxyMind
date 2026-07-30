@@ -23,6 +23,7 @@ from ..core.styles import (
     FAILURE_STYLE,
     MUTED_STYLE,
     WARNING_STYLE,
+    command_result_block,
     fragment_block,
     text_block
 )
@@ -293,13 +294,13 @@ def render_mcp_action_result(
         return None
 
     if not render_external_mcp_start_status(mind):
-        render_mcp_status(mind)
+        render_mcp_status(mind, command=None)
 
 
 def render_mcp_action_failure(
     mind: typing.Any,
     action: McpAction,
-    error: BaseException,
+    error: BaseException
 ) -> None:
     """展示外部 MCP 操作失败的最终结果。"""
     if action == "stop":
@@ -382,15 +383,12 @@ def render_external_mcp_stop_status(
         )
         view = McpStatusView(summary=summary, level="ready", done=True)
 
-    _present_external_mcp_result(
-        mind,
-        view,
-    )
+    _present_external_mcp_result(mind, view)
 
 
 def _present_external_mcp_result(
     mind: typing.Any,
-    view: McpStatusView,
+    view: McpStatusView
 ) -> bool:
     """提交一项外部 MCP 最终状态。"""
     block = render_mcp_status_block(view)
@@ -402,21 +400,32 @@ def _present_external_mcp_result(
     return True
 
 
-def render_mcp_status(mind: typing.Any) -> None:
+def render_mcp_status(
+    mind: typing.Any,
+    *,
+    command: str | None = "/mcp status"
+) -> None:
     """展示外部 MCP 服务状态。"""
     summary     = summarize_external_runtime(mind)
     configured  = summary["configured"]
     tool_groups = summary["tool_groups"]
 
     if summary["config_error"]:
-        _present(mind, text_block(summary["config_error"], FAILURE_STYLE))
+        block = (
+            command_result_block(
+                command,
+                TextSpan(summary["config_error"], FAILURE_STYLE),
+            )
+            if command is not None
+            else text_block(summary["config_error"], FAILURE_STYLE)
+        )
+        _present(mind, block)
         _present(mind, view_type="tui.gap")
         return None
 
     parts = [
-        TextSpan("External MCP ", ACCENT_STYLE),
         TextSpan(
-            f"· started={str(summary['started']).lower()} "
+            f"started={str(summary['started']).lower()} "
             f"configured={len(configured)} tools={summary['tool_count']} "
             f"filtered={summary['filtered_count']}",
             MUTED_STYLE,
@@ -468,7 +477,16 @@ def render_mcp_status(mind: typing.Any) -> None:
             TextSpan("No external MCP servers connected.", MUTED_STYLE),
         ])
 
-    _present(mind, fragment_block(*parts))
+    block = (
+        command_result_block(command, *parts)
+        if command is not None
+        else fragment_block(
+            TextSpan("External MCP ", ACCENT_STYLE),
+            TextSpan("· ", MUTED_STYLE),
+            *parts,
+        )
+    )
+    _present(mind, block)
     _present(mind, view_type="tui.gap")
 
 

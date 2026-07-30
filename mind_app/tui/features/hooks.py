@@ -17,12 +17,11 @@ from ..core.models import (
     MenuRequest
 )
 from ..core.styles import (
-    ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    fragment_block
+    command_result_block
 )
 
 if typing.TYPE_CHECKING:
@@ -272,11 +271,10 @@ def render_hook_trust_status(
     """展示 Hook 信任更新结果。"""
     application.emit(ApplicationView(
         type="tui.hooks.status",
-        renderable=fragment_block(
-            TextSpan("Hooks ", ACCENT_STYLE),
-            TextSpan("| ", MUTED_STYLE),
+        renderable=command_result_block(
+            "/hooks",
             TextSpan("trusted" if trusted else "untrusted", BRIGHT_STYLE),
-            TextSpan(" | ", MUTED_STYLE),
+            TextSpan(" · ", MUTED_STYLE),
             TextSpan(entry.command, BODY_STYLE),
         ),
     ))
@@ -292,10 +290,10 @@ def render_hooks_failure(
 
     application.emit(ApplicationView(
         type="tui.hooks.failure",
-        renderable=fragment_block(
-            TextSpan("Hooks failed ", FAILURE_STYLE),
-            TextSpan("| ", MUTED_STYLE),
-            TextSpan(message, BODY_STYLE),
+        renderable=command_result_block(
+            "/hooks",
+            TextSpan("Failed", FAILURE_STYLE),
+            TextSpan(f" · {message}", BODY_STYLE),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

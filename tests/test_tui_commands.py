@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,10 +9,13 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from engine.errors import AppError
+from mind_core.skills import SkillSpec
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
+from mind_app.tui.features.skills import choose_skill
 from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
+    canonical_command_label,
     command_names,
     is_unrecognized_slash_command,
     parameterized_command_texts,
@@ -56,7 +60,54 @@ def test_root_command_completion_order_is_stable() -> None:
         "/shutdown",
         "/quit",
     ]
-    assert next(item for item in completions if item.display_text == "/skills").text == "$"
+    assert next(
+        item for item in completions
+        if item.display_text == "/skills"
+    ).text == "/skills"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("/q", "/quit"),
+        ("quit", "/quit"),
+        ("/MCP STATUS", "/mcp status"),
+        ("/model gpt-test", "/model"),
+    ),
+)
+def test_command_labels_use_canonical_names(value: str, expected: str) -> None:
+    assert canonical_command_label(value) == expected
+
+
+@pytest.mark.anyio
+async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
+    runtime = TuiRuntime()
+    skill = SkillSpec(
+        name="review",
+        description="Review the current changes",
+        source="project",
+        root=Path("skills/review"),
+        entry=Path("skills/review/SKILL.md"),
+    )
+    runtime.input_model.set_skills((skill,))
+    runtime.select_menu = AsyncMock(return_value=skill)
+
+    selected = await choose_skill(runtime)
+
+    assert selected is skill
+    assert runtime.screen.input.buffer.text == "$review "
+    request = runtime.select_menu.await_args.args[0]
+    assert request.title == "Skills"
+    assert request.options[0].label == "review"
+
+
+@pytest.mark.anyio
+async def test_cancelled_skills_menu_keeps_input_empty() -> None:
+    runtime = TuiRuntime()
+    runtime.select_menu = AsyncMock(return_value=None)
+
+    assert await choose_skill(runtime) is None
+    assert runtime.screen.input.buffer.text == ""
 
 
 def test_helix_prefix_keeps_command_order() -> None:
@@ -211,6 +262,31 @@ async def test_dispatcher_routes_hooks_to_the_management_surface(
 
     assert action is DispatchAction.HANDLED
     manage.assert_awaited_once_with(runtime, mind)
+
+
+@pytest.mark.anyio
+async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    runtime = SimpleNamespace()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+    choose = AsyncMock()
+    monkeypatch.setattr(dispatch_module, "choose_skill", choose)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/skills")
+
+    assert action is DispatchAction.HANDLED
+    choose.assert_awaited_once_with(runtime)
 
 
 @pytest.mark.anyio

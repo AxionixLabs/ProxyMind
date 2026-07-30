@@ -128,4 +128,4 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     assert [view.type for view in views] == ["tui.hooks.failure", "tui.gap"]
     assert "".join(
         text for _style, text in views[0].renderable.fragments
-    ) == "Hooks failed | hook content changed"
+    ) == "/hooks · Failed · hook content changed"

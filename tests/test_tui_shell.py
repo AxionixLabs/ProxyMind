@@ -70,8 +70,7 @@ async def test_ps_without_sessions_renders_command_and_empty_terminal_state() ->
     assert handled
     fragments = application.views[-1].renderable.fragments
     assert "".join(text for _style, text in fragments) == (
-        "/ps\n\n"
-        "Background terminals\n\n"
+        "/ps · Background terminals\n\n"
         "  • No background terminals running."
     )
     assert fragments[0] == ("class:prompt.command.slash", "/ps")
@@ -134,7 +133,7 @@ async def test_streaming_ps_appends_dimmed_process_summaries_without_menu() -> N
     assert runtime.document.active_kind == "assistant"
     fragments = runtime.document.fragments(width=80)
     text = "".join(value for _style, value in fragments)
-    assert "model stream\n\n/ps\n\nBackground terminals" in text
+    assert "model stream\n\n/ps · Background terminals" in text
     assert "  • adb logcat\n    ↳ process 0 line 2" in text
     assert "      process 0 line 3\n      process 0 line 4" in text
     assert "  • npm run dev\n    ↳ process 1 line 2" in text

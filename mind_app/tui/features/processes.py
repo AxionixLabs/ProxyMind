@@ -86,7 +86,7 @@ async def monitor_exec_status(
 
 async def manage_exec_sessions(
     runtime: "TuiRuntime",
-    mind: typing.Any,
+    mind: typing.Any
 ) -> bool:
     """在主 TUI 中查看或停止后台命令会话。"""
     application = mind.frontend.application
@@ -205,7 +205,7 @@ async def stop_all_exec_sessions(
 def render_no_background_terminals(
     application: ApplicationSink,
     *,
-    command: str | None = None,
+    command: str | None = None
 ) -> None:
     """渲染当前没有后台终端的状态。"""
     block = _no_background_terminals_block(command=command)
@@ -218,11 +218,11 @@ def render_no_background_terminals(
 
 async def append_exec_stream_snapshot(
     runtime: "TuiRuntime",
-    mind: typing.Any,
+    mind: typing.Any
 ) -> None:
     """在模型流式期间追加后台终端的近期输出摘要。"""
     try:
-        listing = await mind.native_coding.running_exec_sessions()
+        listing  = await mind.native_coding.running_exec_sessions()
         sessions = _running_items(listing)
 
         if not sessions:
@@ -250,10 +250,11 @@ async def append_exec_stream_snapshot(
 
 async def _load_exec_stream_snapshot(
     mind: typing.Any,
-    session: dict[str, typing.Any],
+    session: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """读取单个后台终端快照并保留列表中的摘要字段。"""
     session_id = str(session.get("session_id") or "").strip()
+
     try:
         snapshot = await mind.native_coding.exec_session_output_snapshot(
             session_id=session_id,
@@ -279,16 +280,18 @@ def exec_stream_snapshots_block(
     snapshots: typing.Sequence[dict[str, typing.Any]],
     *,
     omitted_count: int = 0,
-    terminal_width: int | None = None,
+    terminal_width: int | None = None
 ) -> FragmentBlock:
     """生成模型流式期间使用的后台终端摘要。"""
     width = _terminal_width(terminal_width)
+
     fragments: list[tuple[str, str]] = [
         ("class:prompt.command.slash", "/ps"),
-        ("", "\n\n"),
+        ("class:ps.meta", " · "),
         ("class:ps.title", "Background terminals"),
         ("", "\n\n"),
     ]
+
     rows: list[StyleAndTextTuples] = []
 
     for snapshot in snapshots:
@@ -334,33 +337,43 @@ def exec_stream_snapshots_block(
 
 def _no_background_terminals_block(
     *,
-    command: str | None,
+    command: str | None
 ) -> FragmentBlock:
     """生成当前没有后台终端的状态块。"""
     fragments: list[tuple[str, str]] = []
+
     if command:
         fragments.extend([
             ("class:prompt.command.slash", command),
+            ("class:ps.meta", " · "),
+            ("class:ps.title", "Background terminals"),
             ("", "\n\n"),
         ])
-    fragments.extend([
-        ("class:ps.title", "Background terminals"),
-        ("", "\n\n"),
-        ("class:ps.meta", "  • No background terminals running."),
-    ])
+    else:
+        fragments.extend([
+            ("class:ps.title", "Background terminals"),
+            ("", "\n\n"),
+        ])
+
+    fragments.append((
+        "class:ps.meta",
+        "  • No background terminals running.",
+    ))
+
     return FragmentBlock(tuple(fragments))
 
 
 def _exec_stream_snapshot_error_block(
     error: BaseException,
     *,
-    terminal_width: int,
+    terminal_width: int
 ) -> FragmentBlock:
     """生成后台终端快照读取失败状态块。"""
     detail = _clip_inline(error, max(1, terminal_width - 4))
+
     return FragmentBlock((
         ("class:prompt.command.slash", "/ps"),
-        ("", "\n\n"),
+        ("class:ps.meta", " · "),
         ("class:ps.title", "Background terminals"),
         ("", "\n\n"),
         ("class:ps.stream", f"  • {detail or type(error).__name__}"),
@@ -369,7 +382,7 @@ def _exec_stream_snapshot_error_block(
 
 def render_exec_sessions_stopped(
     application: ApplicationSink,
-    result: typing.Any,
+    result: typing.Any
 ) -> None:
     """渲染批量停止后台命令的结果。"""
     data      = result if isinstance(result, dict) else {}
@@ -543,9 +556,12 @@ async def _watch_exec_session(
                     _watch_detached_exec_session(runtime, mind, session_id),
                 )
             return "detach"
+
         runtime.dismiss_process_viewer()
         settled = True
+
         return True
+
     finally:
         if not settled:
             runtime.dismiss_process_viewer()
@@ -563,8 +579,8 @@ def render_exec_session_panel(
         snapshot = {}
 
     body_height = max(1, height - 2)
-    width       = _terminal_width(terminal_width)
 
+    width = _terminal_width(terminal_width)
     title = _panel_title_fragments(snapshot, terminal_width=width)
 
     help_text = _clip_inline(
@@ -614,6 +630,7 @@ def exec_session_live_block(
         height=PS_VISIBLE_OUTPUT_LINES + 2,
         terminal_width=terminal_width,
     )
+
     return FragmentBlock(tuple(fragments))
 
 
@@ -632,7 +649,7 @@ def exec_session_summary_block(
 def exec_session_detached_block(
     snapshot: dict[str, typing.Any],
     *,
-    terminal_width: int | None = None,
+    terminal_width: int | None = None
 ) -> FragmentBlock:
     """生成命令转入后台后的稳定摘要块。"""
     session_id = str(snapshot.get("session_id") or "").strip()
@@ -689,6 +706,7 @@ def exec_session_summary_lines(
         return [
             f"{_session_kind(snapshot)} exited with code {int(exit_code or 0)}"
         ]
+
     return ["(no output)"]
 
 
@@ -706,20 +724,23 @@ def _running_items(snapshot: typing.Any) -> list[dict[str, typing.Any]]:
 
 def _result_items(
     result: typing.Any,
-    key: str,
+    key: str
 ) -> list[dict[str, typing.Any]]:
     """从批量操作结果提取结构化项目。"""
     if not isinstance(result, dict):
         return []
+
     items = result.get(key)
+
     if not isinstance(items, list):
         return []
+
     return [item for item in items if isinstance(item, dict)]
 
 
 async def _interrupt_exec_session(
     mind: typing.Any,
-    session_id: str,
+    session_id: str
 ) -> dict[str, typing.Any]:
     """中断进程会话并返回收束后快照。"""
     await mind.native_coding.control_exec_session(
@@ -736,10 +757,12 @@ async def _interrupt_exec_session(
             return snapshot
         if str(snapshot.get("status") or "") == "exited":
             return snapshot
+
     await mind.native_coding.control_exec_session(
         session_id=session_id,
         control="terminate",
     )
+
     return await mind.native_coding.exec_session_output_snapshot(
         session_id=session_id,
         max_output_chars=PS_OUTPUT_LIMIT,
@@ -749,7 +772,7 @@ async def _interrupt_exec_session(
 async def _watch_detached_exec_session(
     runtime: "TuiRuntime",
     mind: typing.Any,
-    session_id: str,
+    session_id: str
 ) -> None:
     """在后台会话退出后提交一次完成摘要。"""
     while True:
@@ -785,7 +808,7 @@ def _panel_title_fragments(
 ) -> StyleAndTextTuples:
     """生成查看面板的分段样式标题。"""
     status = _inline_text(snapshot.get("status")) or "unknown"
-    pid = _inline_text(snapshot.get("pid")) or "-"
+    pid    = _inline_text(snapshot.get("pid")) or "-"
 
     fragments: StyleAndTextTuples = [
         ("class:shell.title.action", _session_kind(snapshot)),
@@ -819,16 +842,19 @@ def _panel_title_fragments(
 def _clip_panel_title(
     fragments: StyleAndTextTuples,
     *,
-    width: int,
+    width: int
 ) -> StyleAndTextTuples:
     """裁剪标题片段并使省略标记继承末尾字段样式。"""
     limit = max(0, int(width))
-    text = "".join(value for _style, value in fragments)
+    text  = "".join(value for _style, value in fragments)
+
     if get_cwidth(text) <= limit:
         return fragments
 
     omitted = "…"
+
     omitted_width = get_cwidth(omitted)
+
     if limit <= omitted_width:
         return [("class:ps.meta", omitted)] if limit else []
 
@@ -840,7 +866,9 @@ def _clip_panel_title(
         return [("class:ps.meta", omitted)]
 
     style, text = clipped[-1]
+
     clipped[-1] = style, f"{text}{omitted}"
+
     return clipped
 
 

@@ -39,11 +39,11 @@ from .render import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
 from .styles import query_block
-from ..prompting.commands import submission_uses_transient_surface
+from ..prompting.commands import resolve_tui_command
 from .submission import (
     TuiInputClosed,
     TuiInterruptRequested,
-    TuiSubmissionFlow,
+    TuiSubmissionFlow
 )
 from .task_state import TuiTaskState
 from .viewport import TuiTranscriptViewport
@@ -100,7 +100,6 @@ class TuiRuntime(object):
                 block,
                 kind="notice",
             ),
-            queue_command_block=self.queue_background_block,
             invalidate=self.invalidate,
         )
 
@@ -395,6 +394,16 @@ class TuiRuntime(object):
         if self.document.discard_submission():
             self.invalidate()
 
+    def replace_input_text(self, text: str) -> None:
+        """替换主输入内容并把光标移动到末尾。"""
+        value = str(text)
+
+        buffer = self.screen.input.buffer
+        buffer.text = value
+        buffer.cursor_position = len(value)
+
+        self.invalidate()
+
     def set_active_renderable(
         self,
         block: FragmentBlock,
@@ -612,7 +621,7 @@ class TuiRuntime(object):
         if visible:
             block = query_block(visible)
             self.document.stage_submission(block)
-            if submission_uses_transient_surface(value):
+            if resolve_tui_command(value) is not None:
                 self.invalidate()
             else:
                 committed = self.document.commit_submission()

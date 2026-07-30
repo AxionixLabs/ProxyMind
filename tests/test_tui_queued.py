@@ -188,7 +188,7 @@ def test_streaming_rejected_command_never_enters_message_queue(command) -> None:
     assert command_fragment[0] == "class:prompt.command.slash"
 
 
-def test_streaming_background_command_is_dispatched_outside_message_queue() -> None:
+def test_streaming_background_command_is_not_echoed_to_transcript() -> None:
     runtime = TuiRuntime()
     handler = Mock(return_value=True)
     runtime.bind_stream_command_handler(handler)
@@ -203,7 +203,7 @@ def test_streaming_background_command_is_dispatched_outside_message_queue() -> N
 
     runtime.set_execution_active(False)
 
-    assert "/helix-link" in _fragments_text(
+    assert "/helix-link" not in _fragments_text(
         runtime.document.fragments(width=100)
     )
 

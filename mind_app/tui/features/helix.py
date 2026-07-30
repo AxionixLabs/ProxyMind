@@ -36,6 +36,8 @@ from ..core.styles import (
     FAILURE_STYLE,
     MUTED_STYLE,
     WARNING_STYLE,
+    BRIGHT_STYLE,
+    command_result_block,
     fragment_block,
     text_block
 )
@@ -224,15 +226,20 @@ def unlink_helix_runtime(mind: "Mind") -> None:
     """从当前工具会话移除 Helix MCP，不停止本地服务。"""
     was_linked = mind.is_service_mcp_linked()
     mind.unlink_service_mcp()
+
     state = "unlinked" if was_linked else "already unlinked"
-    _present(mind, _label_detail("Helix", state))
+
+    _present(mind, command_result_block(
+        "/helix-unlink",
+        TextSpan(state.capitalize(), BRIGHT_STYLE),
+    ))
     _present(mind, view_type="tui.gap")
 
 
 def render_helix_interrupted(
     mind: "Mind",
     *,
-    label: str = "Helix MCP",
+    label: str = "Helix MCP"
 ) -> None:
     """展示 Helix 前台操作被用户中断的状态。"""
     _present(
@@ -264,6 +271,7 @@ def render_helix_home_result(mind: "Mind", url: str | None) -> None:
         _present(mind, _label_detail("Helix", "skipped"))
     else:
         _present(mind, _label_detail("Helix Home", url))
+
     _present(mind, view_type="tui.gap")
 
 

@@ -29,7 +29,6 @@ class TuiCommandSpec(object):
     completion_meta: str
     aliases: tuple[str, ...] = ()
     completion_text: str | None = None
-    completion_match: str | None = None
     parameterized: bool = False
     subcommands: tuple[str, ...] = ()
     surface_on_bare: bool = False
@@ -124,8 +123,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "skills", "/skills", "打开 skills 列表",
-        completion_text="$",
-        completion_match="/skills",
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "shutdown", "/shutdown", "停止本地后台服务并退出",
@@ -169,10 +167,10 @@ def matches_command(value: str, key: str) -> bool:
     return value in command_names(key)
 
 
-def resolve_slash_command(value: str) -> TuiCommandSpec | None:
-    """返回完整输入匹配的斜杠命令描述。"""
+def resolve_tui_command(value: str) -> TuiCommandSpec | None:
+    """返回完整输入匹配的 TUI 命令描述。"""
     normalized = str(value or "").strip().casefold()
-    if not normalized.startswith("/"):
+    if not normalized:
         return None
 
     direct = _COMMAND_BY_NAME.get(normalized)
@@ -190,6 +188,30 @@ def resolve_slash_command(value: str) -> TuiCommandSpec | None:
         return command
 
     return None
+
+
+def resolve_slash_command(value: str) -> TuiCommandSpec | None:
+    """返回完整输入匹配的斜杠命令描述。"""
+    normalized = str(value or "").strip()
+    if not normalized.startswith("/"):
+        return None
+    return resolve_tui_command(normalized)
+
+
+def canonical_command_label(value: str) -> str:
+    """返回命令输入对应的规范展示名称。"""
+    normalized = str(value or "").strip().casefold()
+
+    command = resolve_tui_command(normalized)
+    if command is None:
+        return normalized.split(maxsplit=1)[0] if normalized else "command"
+
+    parts = normalized.split()
+
+    if command.subcommands and len(parts) >= 2:
+        return f"{command.command} {parts[1]}"
+
+    return command.command
 
 
 def is_unrecognized_slash_command(value: str) -> bool:
@@ -279,8 +301,6 @@ def _completion_items() -> tuple[dict[str, str], ...]:
             "meta"    : command.completion_meta
         }
 
-        if command.completion_match:
-            item["match"] = command.completion_match
         items.append(item)
 
         items.extend(
@@ -332,7 +352,7 @@ class SlashCommandCompleter(Completer):
 
     def menu_completions(
         self,
-        document,
+        document
     ) -> tuple[Completion, ...] | None:
         """返回当前命令或 skill 查询的全部菜单项。"""
         completions = self.skill_completions(document)
@@ -342,7 +362,7 @@ class SlashCommandCompleter(Completer):
 
     def skill_completions(
         self,
-        document,
+        document
     ) -> tuple[Completion, ...] | None:
         """返回 skill 查询阶段的全部匹配项。"""
         text = document.text_before_cursor
@@ -352,7 +372,7 @@ class SlashCommandCompleter(Completer):
 
     def slash_completions(
         self,
-        document,
+        document
     ) -> tuple[Completion, ...] | None:
         """返回命令名输入阶段的全部斜杠命令匹配项。"""
         text     = document.text_before_cursor
@@ -379,7 +399,6 @@ class SlashCommandCompleter(Completer):
                 item for item in self.COMMANDS
                 if item["display"].casefold().startswith(folded)
                 or item["text"].casefold().startswith(folded)
-                or str(item.get("match") or "").casefold().startswith(folded)
             ]
 
             candidates.sort(

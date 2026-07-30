@@ -90,7 +90,9 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
     assert mind.started[0]()["items"][0]["name"] == "Fork"
     assert mind.stopped == ("compact", False)
     result = next(view for view in mind.views if view.type == "tui.fork.status")
-    assert result.renderable.plain_text == "■ Conversation forked. · 24 items"
+    assert result.renderable.plain_text == (
+        "■ Conversation forked. · 24 items"
+    )
 
 
 @pytest.mark.anyio

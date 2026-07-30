@@ -13,13 +13,16 @@ from ..core.models import (
     MenuRequest
 )
 from mind_core.provider_config import DEFAULT_REASONING_EFFORT
-from .context import normalize_reasoning_effort, save_primary_pref_field
+from .context import (
+    normalize_reasoning_effort,
+    save_primary_pref_field
+)
 from ..core.styles import (
     ACCENT_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
-    fragment_block,
-    text_block,
+    command_result_block,
+    text_block
 )
 
 if typing.TYPE_CHECKING:
@@ -92,12 +95,16 @@ async def persist_primary_pref(
         )
         await mind.refresh_pref_if_stale(ttl_sec=0.0)
     except (OSError, TypeError, ValueError) as pref_save_error:
+        command = "/effort" if command_name == "model-effort" else f"/{command_name}"
         application.emit(ApplicationView(
             type="tui.command",
-            renderable=text_block(
-                f"{command_name} save failed: "
-                f"{type(pref_save_error).__name__}: {pref_save_error}",
-                FAILURE_STYLE,
+            renderable=command_result_block(
+                command,
+                TextSpan(
+                    f"Failed: {type(pref_save_error).__name__}: "
+                    f"{pref_save_error}",
+                    FAILURE_STYLE,
+                ),
             ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
@@ -132,9 +139,9 @@ def render_model_effort_status(
     normalized = normalize_reasoning_effort(effort)
     application.emit(ApplicationView(
         type="tui.model_effort",
-        renderable=fragment_block(
-            TextSpan("Reasoning Effort ", ACCENT_STYLE),
-            TextSpan(f"· {normalized}", BRIGHT_STYLE),
+        renderable=command_result_block(
+            "/effort",
+            TextSpan(normalized, BRIGHT_STYLE),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

@@ -21,9 +21,8 @@ from ..core.models import (
     MenuRequest
 )
 from ..core.styles import (
-    BRIGHT_STYLE,
     MUTED_STYLE,
-    fragment_block
+    command_result_block
 )
 
 if typing.TYPE_CHECKING:
@@ -87,9 +86,9 @@ def render_permissions_status(
 
     application.emit(ApplicationView(
         type="tui.permissions.status",
-        renderable=fragment_block(
-            TextSpan("Permissions ", title_style),
-            TextSpan(f"· {label}", BRIGHT_STYLE),
+        renderable=command_result_block(
+            "/permissions",
+            TextSpan(label, title_style),
             TextSpan(f" · {detail}", MUTED_STYLE),
         ),
     ))

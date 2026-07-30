@@ -9,14 +9,14 @@ from mind_app.frontend import (
 )
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
-from mind_app.stream_events.failure_display import render_failure_display_parts
 from mind_nova.modes import RunMode
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
+    FAILURE_STYLE,
     MUTED_STYLE,
-    fragment_block,
+    command_result_block
 )
 
 GROUP_DISPLAY_LIMIT = 12
@@ -26,7 +26,7 @@ if typing.TYPE_CHECKING:
 
 
 def summarize_tool_groups(
-    tools: list[dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]]
 ) -> list[dict[str, typing.Any]]:
     """按 external/server 或 domain/class 汇总工具列表。"""
     grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
@@ -49,6 +49,7 @@ def summarize_tool_groups(
         grouped[key].append(name)
 
     result: list[dict[str, typing.Any]] = []
+
     for (source, label, detail), names in grouped.items():
         result.append({
             "source" : source,
@@ -84,9 +85,8 @@ def render_tools_summary(
     )
 
     parts = [
-        TextSpan("Tools ", ACCENT_STYLE),
         TextSpan(
-            f"· mode={mode} total={total} external={external_total}",
+            f"{total} available · mode={mode} external={external_total}",
             MUTED_STYLE,
         ),
     ]
@@ -122,7 +122,7 @@ def render_tools_summary(
 
     application.emit(ApplicationView(
         type="tui.tools.summary",
-        renderable=fragment_block(*parts),
+        renderable=command_result_block("/tools", *parts),
     ))
     application.emit(ApplicationView(type="tui.gap"))
     return None
@@ -132,12 +132,12 @@ async def print_available_tools(
     mind: "Mind",
     *,
     run_mode: RunMode,
-    pref_config: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any]
 ) -> None:
     """建立一次 MCP 会话并打印当前模式可见工具。"""
     async def render_tools_with_session(
         session: McpSessionLike,
-        tools: list[dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]]
     ) -> None:
         _ = session
         render_tools_summary(
@@ -152,19 +152,20 @@ async def print_available_tools(
         raise
     except BaseException as tool_error:
         message = str(tool_error).strip()
+
         error = (
             f"{type(tool_error).__name__}: {message}"
             if message
             else type(tool_error).__name__
         )
+
         application = mind.frontend.application
         application.emit(ApplicationView(
             type="tui.command",
-            renderable=fragment_block(*render_failure_display_parts(
-                "tools.failed",
-                error,
-                terminal_width=application.viewport.width,
-            )),
+            renderable=command_result_block(
+                "/tools",
+                TextSpan(f"Failed: {error}", FAILURE_STYLE),
+            ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
 

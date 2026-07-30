@@ -3,9 +3,16 @@
 
 import typing
 from mind_app.frontend import ApplicationView
-from mind_app.presentation.models import TextStyle
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from ..core.models import FragmentBlock
-from ..core.styles import prompt_style
+from ..core.styles import (
+    MUTED_STYLE,
+    command_result_block,
+    prompt_style
+)
 
 DIFF_DISPLAY_MAX_LINES = 300
 DIFF_DISPLAY_MAX_CHARS = 40_000
@@ -17,13 +24,17 @@ if typing.TYPE_CHECKING:
 def print_current_apply_patch_diff(mind: "Mind") -> None:
     """展示当前 apply_patch 净差异。"""
     application = mind.frontend.application
+
     snapshot = mind.native_coding.patch_diff_snapshot()
     if bool(snapshot.get("invalidated")):
         application.emit(ApplicationView(
             type="tui.diff.unavailable",
-            renderable=_text_block(
-                "Diff unavailable: current apply_patch delta is not exact.",
-                TextStyle(foreground="#7F8C9A", dim=True),
+            renderable=command_result_block(
+                "/diff",
+                TextSpan(
+                    "Unavailable: current apply_patch delta is not exact.",
+                    MUTED_STYLE,
+                ),
             ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
@@ -33,9 +44,9 @@ def print_current_apply_patch_diff(mind: "Mind") -> None:
     if not diff_text.strip():
         application.emit(ApplicationView(
             type="tui.diff.empty",
-            renderable=_text_block(
-                "No apply_patch diff in current turn.",
-                TextStyle(foreground="#7F8C9A", dim=True),
+            renderable=command_result_block(
+                "/diff",
+                TextSpan("No apply_patch changes in current turn.", MUTED_STYLE),
             ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
@@ -47,16 +58,13 @@ def print_current_apply_patch_diff(mind: "Mind") -> None:
 
     application.emit(ApplicationView(
         type="tui.diff.title",
-        renderable=_text_block(
-            "Diff · current apply_patch changes",
-            TextStyle(foreground="#AFC7D8", bold=True),
-        ),
-    ))
-    application.emit(ApplicationView(
-        type="tui.diff.stat",
-        renderable=_text_block(
-            f"{files} {'file' if files == 1 else 'files'} changed · +{added} -{removed}",
-            TextStyle(foreground="#7F8C9A"),
+        renderable=command_result_block(
+            "/diff",
+            TextSpan(
+                f"{files} {'file' if files == 1 else 'files'} changed"
+                f" · +{added} -{removed}",
+                MUTED_STYLE,
+            ),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

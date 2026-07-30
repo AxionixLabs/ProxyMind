@@ -8,9 +8,8 @@ from mind_app.frontend import (
 from mind_app.presentation.models import TextSpan
 from mind_nova.modes import RunMode
 from ..core.styles import (
-    ACCENT_STYLE,
     BRIGHT_STYLE,
-    fragment_block
+    command_result_block
 )
 
 MODE_LABELS: dict[RunMode, str] = {
@@ -22,14 +21,14 @@ MODE_LABELS: dict[RunMode, str] = {
 
 def render_mode_status(
     application: ApplicationSink,
-    mode: RunMode,
+    mode: RunMode
 ) -> None:
     """展示当前运行模式。"""
     application.emit(ApplicationView(
         type="tui.mode.status",
-        renderable=fragment_block(
-            TextSpan("Mode ", ACCENT_STYLE),
-            TextSpan(f"· {MODE_LABELS[mode]}", BRIGHT_STYLE),
+        renderable=command_result_block(
+            f"/{mode}",
+            TextSpan(f"Mode: {MODE_LABELS[mode]}", BRIGHT_STYLE),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

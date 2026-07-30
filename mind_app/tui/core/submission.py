@@ -14,7 +14,6 @@ from .queued import (
     TuiQueuedMessages,
     TuiSubmission
 )
-from .styles import query_block
 from ..prompting.commands import (
     StreamCommandPolicy,
     is_unrecognized_slash_command,
@@ -67,7 +66,6 @@ class TuiSubmissionFlow(object):
         is_submission_deferred: typing.Callable[[], bool],
         get_input_buffer: typing.Callable[[], Buffer],
         append_notice: typing.Callable[[FragmentBlock], None],
-        queue_command_block: typing.Callable[[FragmentBlock], None],
         invalidate: typing.Callable[[], None]
     ) -> None:
         self.input_model = input_model
@@ -90,7 +88,6 @@ class TuiSubmissionFlow(object):
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer       = get_input_buffer
         self._append_notice          = append_notice
-        self._queue_command_block    = queue_command_block
 
         self._invalidate = invalidate
         self._exit_event = asyncio.Event()
@@ -136,7 +133,7 @@ class TuiSubmissionFlow(object):
         buffer: Buffer,
         *,
         editable_text: str,
-        message: str,
+        message: str
     ) -> bool:
         """拒绝无效输入并显示一项输入提示。"""
         self.input_model.rollback_submission_history(editable_text)
@@ -192,8 +189,6 @@ class TuiSubmissionFlow(object):
             and self._stream_command_handler(submission.value)
         )
         if handled:
-            if policy != "local_snapshot":
-                self._queue_command_block(query_block(submission.visible_text))
             return None
 
         label = stream_command_label(submission.value)
@@ -272,7 +267,7 @@ class TuiSubmissionFlow(object):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None,
+        handler: typing.Callable[[], bool] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         self._interrupt_handler = (
@@ -281,7 +276,7 @@ class TuiSubmissionFlow(object):
 
     def bind_stream_command_handler(
         self,
-        handler: typing.Callable[[str], bool] | None,
+        handler: typing.Callable[[str], bool] | None
     ) -> None:
         """绑定或清除忙碌期间的命令分派函数。"""
         self._stream_command_handler = (
@@ -424,7 +419,7 @@ class TuiSubmissionFlow(object):
 
     def bind_pending_attachment_check(
         self,
-        check: typing.Callable[[], bool] | None,
+        check: typing.Callable[[], bool] | None
     ) -> None:
         """绑定或清除待发送附件状态判断。"""
         self._has_pending_attachments = (

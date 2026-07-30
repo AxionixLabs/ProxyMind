@@ -17,12 +17,11 @@ from server import config_service_base_url
 from ..core.models import FragmentBlock
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
-    ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    fragment_block,
+    command_result_block,
     text_block
 )
 from ..features.context import ignored_tui_input
@@ -75,6 +74,7 @@ from ..features.processes import (
     manage_exec_sessions
 )
 from ..features.shell import run_shell_escape
+from ..features.skills import choose_skill
 from ..features.tools import print_available_tools
 from ..prompting.commands import (
     command_spec,
@@ -165,9 +165,13 @@ class TuiCommandDispatcher(object):
                 reason="command:/new",
                 source="tui:new",
             )
-            self._present(_label_detail(
-                "New conversation",
-                f"cid={metadata['cid']} sid={metadata['sid']}",
+            self._present(command_result_block(
+                "/new",
+                TextSpan("New conversation", BRIGHT_STYLE),
+                TextSpan(
+                    f" · cid={metadata['cid']} sid={metadata['sid']}",
+                    MUTED_STYLE,
+                ),
             ))
             self._present()
             return DispatchAction.HANDLED
@@ -175,7 +179,10 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "shutdown"):
             self.mind.stop_runtime_on_exit = True
             self.mind.task_event.set()
-            self._present(_label_detail("Shutdown", "stop backend runtime"))
+            self._present(command_result_block(
+                "/shutdown",
+                TextSpan("Stopping backend runtime", BRIGHT_STYLE),
+            ))
             self._present()
             return DispatchAction.EXIT
 
@@ -216,6 +223,10 @@ class TuiCommandDispatcher(object):
             await copy_last_assistant_reply(self.mind)
             return DispatchAction.HANDLED
 
+        if matches_command(command, "skills"):
+            await choose_skill(self.runtime)
+            return DispatchAction.HANDLED
+
         if matches_command(command, "effort"):
             await self._choose_effort()
             return DispatchAction.HANDLED
@@ -231,7 +242,10 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "preferences"):
             preferences_url = f"{config_service_base_url()}/pref"
-            self._present(_label_detail("Preferences", preferences_url))
+            self._present(command_result_block(
+                "/preferences",
+                TextSpan(preferences_url, BRIGHT_STYLE),
+            ))
             await FileAssist.open_url(preferences_url)
             self._present()
             return DispatchAction.HANDLED
@@ -440,8 +454,8 @@ class TuiCommandDispatcher(object):
 
         self.state.merge_primary(saved, overrides={"model": model})
         self.state.apply_prompt_context(self.runtime)
-        self._present(fragment_block(
-            TextSpan("Model saved ", ACCENT_STYLE),
+        self._present(command_result_block(
+            "/model",
             TextSpan(model or "(empty)", BRIGHT_STYLE),
         ))
         self._present()
@@ -469,9 +483,12 @@ class TuiCommandDispatcher(object):
             sources=INTERACTIVE_HISTORY_SOURCES,
         )
         if not records:
-            self._present(text_block(
-                "No resumable conversations in the last 24 hours.",
-                MUTED_STYLE,
+            self._present(command_result_block(
+                "/resume",
+                TextSpan(
+                    "No resumable conversations in the last 24 hours.",
+                    MUTED_STYLE,
+                ),
             ))
             self._present()
             return None
@@ -483,15 +500,20 @@ class TuiCommandDispatcher(object):
 
         resumed = self.mind.resume_conversation(selected, source="tui:resume")
         if resumed is None:
-            self._present(text_block(
-                "Resume failed: invalid session cursor.",
-                FAILURE_STYLE,
+            self._present(command_result_block(
+                "/resume",
+                TextSpan("Failed: invalid session cursor.", FAILURE_STYLE),
             ))
             self._present()
             return None
-        self._present(_label_detail(
-            "Resumed",
-            f"cid={resumed['cid']} sid={resumed['sid']}",
+
+        self._present(command_result_block(
+            "/resume",
+            TextSpan("Resumed", BRIGHT_STYLE),
+            TextSpan(
+                f" · cid={resumed['cid']} sid={resumed['sid']}",
+                MUTED_STYLE,
+            ),
         ))
         self._present()
 
@@ -510,14 +532,6 @@ class TuiCommandDispatcher(object):
             type=resolved_type,
             renderable=renderable,
         ))
-
-
-def _label_detail(label: str, detail: str) -> FragmentBlock:
-    """生成标题和次要详情组成的会话状态块。"""
-    return fragment_block(
-        TextSpan(f"{label} ", ACCENT_STYLE),
-        TextSpan(f"· {detail}", MUTED_STYLE),
-    )
 
 
 if __name__ == '__main__':
