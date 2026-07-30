@@ -13,7 +13,8 @@ from ..execution import (
 )
 from ..turns.executor import (
     TurnExecution,
-    execute_turn
+    execute_turn,
+    resolve_turn_hook_scope
 )
 from ...modes.result import RunResult
 from ...stream_events.worked import emit_worked_footer
@@ -117,6 +118,7 @@ async def calling(
     execution = TurnExecution(
         context=turn_context,
         message=message,
+        hook_scope=resolve_turn_hook_scope(mind, turn_context),
         metadata=meta,
     )
     event_report = kwargs.pop("ev_report", None)
@@ -134,11 +136,8 @@ async def calling(
             session=session,
             mode=prepared.context.mode,
             pref_config=pref_config,
-            message=prepared.message,
             tools=tools,
-            permissions=prepared.context.permissions,
-            metadata=dict(prepared.metadata),
-            turn_context=prepared.context,
+            turn_execution=prepared,
             ev_report=report,
             **kwargs
         )

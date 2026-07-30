@@ -72,6 +72,7 @@ SessionResult = typing.TypeVar("SessionResult")
 if typing.TYPE_CHECKING:
     from .modes.result import RunResult
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
+    from .runtime.turns.executor import TurnExecution
     from server import ConfigServiceRuntime
 
 
@@ -971,9 +972,9 @@ class Mind(object):
         session: McpSessionLike,
         mode: typing.Literal["chat", "fast", "xtra"],
         pref_config: dict[str, typing.Any],
-        message: str,
         tools: list[dict[str, typing.Any]],
         *_,
+        turn_execution: "TurnExecution",
         **kwargs
     ) -> "RunResult":
         """流式执行入口：委托给流式模式模块。"""
@@ -984,8 +985,8 @@ class Mind(object):
             session,
             mode,
             pref_config,
-            message,
             tools,
+            turn_execution=turn_execution,
             **kwargs
         )
 

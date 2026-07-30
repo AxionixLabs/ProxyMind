@@ -12,7 +12,10 @@ from mind_app.runtime.hooks.catalog import (
     HookCatalogStaleError,
     HookEventSummary
 )
-from mind_app.tui.features.hooks import manage_hooks
+from mind_app.tui.features.hooks import (
+    hook_event_menu,
+    manage_hooks,
+)
 
 
 class _Runtime(object):
@@ -64,6 +67,43 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
             ),
         ),
         hooks=(entry,),
+    )
+
+
+def test_hook_event_menu_localizes_descriptions_and_aligns_large_counts(
+    tmp_path,
+) -> None:
+    catalog = HookCatalogSnapshot(
+        workspace=str(tmp_path),
+        installed_count=9999,
+        active_count=9999,
+        events=(
+            HookEventSummary(
+                event="PreToolUse",
+                description="Before a tool executes",
+                matcher_subject="tool_name",
+                control_policy="gate",
+                installed_count=9999,
+                active_count=9999,
+            ),
+            HookEventSummary(
+                event="PostToolUse",
+                description="After a tool executes",
+                matcher_subject="tool_name",
+                control_policy="notify",
+                installed_count=0,
+                active_count=0,
+            ),
+        ),
+    )
+
+    menu = hook_event_menu(catalog)
+
+    assert menu.options[0].detail == (
+        "installed=9999 active=9999 | gate | match=tool_name | 工具执行前"
+    )
+    assert menu.options[1].detail == (
+        "installed=   0 active=   0 | notify | match=tool_name | 工具执行后"
     )
 
 

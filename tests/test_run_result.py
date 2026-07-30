@@ -28,6 +28,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
+from mind_app.runtime.turns.executor import TurnExecution
 from mind_app.runtime.tools.client_call import ClientToolCallResult
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hooks import resolve_hook_definitions
@@ -146,26 +147,31 @@ async def _run_stream(
         session_start_reason="initial" if session_started else "",
     )
     hook_context = HookExecutionContext.from_turn(turn_context)
-    mind.hook_scope = Mock(return_value=HookExecutionScope(
-        context=hook_context,
-        dispatcher=hooks or HookRuntime.empty(),
-    ))
+    hook_scope = (
+        hook_scope_factory(hook_context)
+        if hook_scope_factory is not None
+        else HookExecutionScope(
+            context=hook_context,
+            dispatcher=hooks or HookRuntime.empty(),
+        )
+    )
+    turn_execution = TurnExecution(
+        context=turn_context,
+        message="hello",
+        hook_scope=hook_scope,
+    )
     stream_options = {
         "exec_env": {},
         "skills": [{"name": "test"}],
-        "permissions": permissions,
-        "turn_context": turn_context,
+        "turn_execution": turn_execution,
         "session_factory": lambda *_args, **_kwargs: output_session,
     }
-    if hook_scope_factory is not None:
-        stream_options["hook_scope"] = hook_scope_factory(hook_context)
 
     result = await stream.stream_looper(
         mind,
         SimpleNamespace(),
         "xtra",
         {},
-        "hello",
         [],
         **stream_options,
     )
@@ -221,8 +227,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         AssistantSegmentCompleted(),
         SourcesOutput(()),
     ]
-    mind.hook_scope.assert_called_once()
-    assert mind.hook_scope.call_args.args[0].session_id == "sid_test"
+    assert not hasattr(mind, "hook_scope")
 
 
 @pytest.mark.anyio
@@ -318,36 +323,7 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
     assert result.status == "completed"
     assert injected_runner.events == ["UserPromptSubmit", "Stop"]
     assert resolved_runner.events == []
-    mind.hook_scope.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_stream_rejects_hook_scope_from_another_turn(monkeypatch) -> None:
-    def mismatched_scope(context):
-        other_turn = TurnContext.create(
-            agent=context_agent,
-            cid=context.conversation_id,
-            sid=context.session_id,
-            mode="xtra",
-            source="test",
-            pref_config={},
-            cwd=context.cwd,
-            permissions=preset_permissions("auto"),
-            turn_id="other_turn",
-        )
-        return HookExecutionScope(
-            context=HookExecutionContext.from_turn(other_turn),
-            dispatcher=HookRuntime.empty(),
-        )
-
-    context_agent = AgentContext.root("sid_test")
-
-    with pytest.raises(ValueError, match="does not belong to hook scope"):
-        await _run_stream(
-            monkeypatch,
-            [{"type": "turn.done"}],
-            hook_scope_factory=mismatched_scope,
-        )
+    assert not hasattr(mind, "hook_scope")
 
 
 @pytest.mark.anyio

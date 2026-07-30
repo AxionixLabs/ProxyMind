@@ -20,7 +20,8 @@ from ...runtime.execution import (
 from ...runtime.support.calling import resolve_mode_runner
 from ...runtime.turns.executor import (
     TurnExecution,
-    execute_turn
+    execute_turn,
+    resolve_turn_hook_scope
 )
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
@@ -144,6 +145,7 @@ async def run_tui_model_turn(
     execution = TurnExecution(
         context=turn_context,
         message=message_text,
+        hook_scope=resolve_turn_hook_scope(mind, turn_context),
         metadata=turn_metadata,
     )
 
@@ -159,13 +161,10 @@ async def run_tui_model_turn(
             mode=prepared.context.mode,
             session=session,
             pref_config=pref_config,
-            message=prepared.message,
             tools=tools,
-            permissions=prepared.context.permissions,
             attachments=attachments,
-            metadata=dict(prepared.metadata),
             ev_report=event_report,
-            turn_context=prepared.context,
+            turn_execution=prepared,
         )
 
     await execute_turn(

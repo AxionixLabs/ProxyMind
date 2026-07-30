@@ -5,10 +5,6 @@ import typing
 import asyncio
 from engine.observability import observe_exception
 from mind_nova.events import EventReport
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.turns.executor import (
     TurnExecution,
@@ -34,7 +30,6 @@ class SubagentOperation(typing.Protocol[TurnResultValue]):
     async def __call__(
         self,
         execution: TurnExecution,
-        hook_scope: HookExecutionScope,
         session: "McpSessionLike",
         tools: list[dict[str, typing.Any]],
         event_report: EventReport
@@ -63,19 +58,7 @@ class SubagentRunner:
         if not execution.message.strip():
             raise ValueError("subagent task is required")
 
-        hook_context = HookExecutionContext.from_turn(execution.context)
-
-        try:
-            hook_scope = self._controller.hook_scope(hook_context)
-        except (OSError, TypeError, ValueError) as error:
-            observe_exception(
-                "hooks.resolve.failed",
-                error,
-                level="WARNING",
-            )
-            hook_scope = HookExecutionScope.empty(hook_context)
-
-        hook_events = SubagentHookEvents(hook_scope)
+        hook_events = SubagentHookEvents(execution.hook_scope)
 
         outcome: SubagentOutcome = "failed"
 
@@ -83,16 +66,15 @@ class SubagentRunner:
         usage: dict[str, typing.Any] = {}
         attempted: bool              = False
 
-        async def run_with_scope(
+        async def run_child_turn(
             prepared: TurnExecution,
             session: "McpSessionLike",
             tools: list[dict[str, typing.Any]],
             report: EventReport
         ) -> TurnResultValue:
-            """把固定 Hook 作用域交给具体子轮次操作。"""
+            """执行使用固定轮次上下文的子轮次操作。"""
             return await operation(
                 prepared,
-                hook_scope,
                 session,
                 tools,
                 report,
@@ -107,7 +89,7 @@ class SubagentRunner:
                 self._controller,
                 pref_config,
                 execution,
-                run_with_scope,
+                run_child_turn,
                 event_report=event_report,
             )
         except asyncio.CancelledError:

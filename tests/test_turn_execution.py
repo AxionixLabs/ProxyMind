@@ -14,12 +14,18 @@ from mind_app.runtime.execution import (
     AgentContext,
     TurnContext
 )
+from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope,
+)
 from mind_app.runtime.support.calling import calling
 from mind_app.runtime.support.conversation import ConversationTurn
 from mind_app.runtime.turns import executor as turn_executor
 from mind_app.runtime.turns.executor import (
     TurnExecution,
-    execute_turn
+    execute_turn,
+    resolve_turn_hook_scope,
 )
 from mind_core.permissions import preset_permissions
 
@@ -49,6 +55,13 @@ class _ExecutionController(object):
         await awaitable
 
 
+def _empty_hook_scope(context: TurnContext) -> HookExecutionScope:
+    return HookExecutionScope(
+        context=HookExecutionContext.from_turn(context),
+        dispatcher=HookRuntime.empty(),
+    )
+
+
 def _child_execution() -> TurnExecution:
     agent = AgentContext.root("sid_root").child(
         "explore",
@@ -68,6 +81,7 @@ def _child_execution() -> TurnExecution:
     return TurnExecution(
         context=context,
         message="inspect workspace",
+        hook_scope=_empty_hook_scope(context),
         metadata={"origin": "test"},
     )
 
@@ -85,6 +99,7 @@ def test_turn_execution_fixes_context_session_metadata() -> None:
         TurnExecution(
             context=execution.context,
             message=execution.message,
+            hook_scope=execution.hook_scope,
             metadata={"sid": "sid_other"},
         )
 
@@ -95,6 +110,7 @@ def test_turn_execution_allows_empty_text_but_requires_string() -> None:
     empty = TurnExecution(
         context=prepared.context,
         message="",
+        hook_scope=prepared.hook_scope,
     )
 
     assert empty.message == ""
@@ -103,6 +119,29 @@ def test_turn_execution_allows_empty_text_but_requires_string() -> None:
         TurnExecution(
             context=prepared.context,
             message=None,
+            hook_scope=prepared.hook_scope,
+        )
+
+
+def test_turn_execution_rejects_hook_scope_from_another_turn() -> None:
+    prepared = _child_execution()
+    other_context = TurnContext.create(
+        agent=prepared.context.agent,
+        cid=prepared.context.cid,
+        sid=prepared.context.sid,
+        mode=prepared.context.mode,
+        source=prepared.context.source,
+        pref_config={},
+        cwd=prepared.context.cwd,
+        permissions=prepared.context.permissions,
+        turn_id="turn_other",
+    )
+
+    with pytest.raises(ValueError, match="does not belong to hook scope"):
+        TurnExecution(
+            context=prepared.context,
+            message=prepared.message,
+            hook_scope=_empty_hook_scope(other_context),
         )
 
 
@@ -160,6 +199,7 @@ async def test_concurrent_turn_executions_keep_contexts_isolated() -> None:
     second = TurnExecution(
         context=second_context,
         message="review workspace",
+        hook_scope=_empty_hook_scope(second_context),
         metadata={"origin": "review"},
     )
     started = []
@@ -253,6 +293,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     )
     report = _Report()
     captured = []
+    resolved_scopes = []
 
     async def stream_looper(*_args, **kwargs):
         captured.append(kwargs)
@@ -263,6 +304,14 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
 
     async def await_cleanup(awaitable) -> None:
         await awaitable
+
+    def hook_scope(context):
+        scope = HookExecutionScope(
+            context=context,
+            dispatcher=HookRuntime.empty(),
+        )
+        resolved_scopes.append(scope)
+        return scope
 
     mind = SimpleNamespace(
         permissions=permissions,
@@ -281,6 +330,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
         stop_anim=AsyncMock(),
         animate=False,
         frontend=SimpleNamespace(runtime=runtime),
+        hook_scope=Mock(side_effect=hook_scope),
     )
 
     result = await calling(
@@ -299,17 +349,47 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
         title="hello",
         source="calling",
     )
-    context = captured[0]["turn_context"]
+    streamed_execution = captured[0]["turn_execution"]
+    context = streamed_execution.context
     assert context.agent.agent_id == "root"
     assert context.sid == "sid_root"
-    assert captured[0]["metadata"] == {
+    assert streamed_execution.hook_scope is resolved_scopes[0]
+    mind.hook_scope.assert_called_once_with(
+        HookExecutionContext.from_turn(context)
+    )
+    assert dict(streamed_execution.metadata) == {
         "origin": "test",
         "cid": "cid_root",
         "sid": "sid_root",
     }
+    assert "message" not in captured[0]
+    assert "metadata" not in captured[0]
+    assert "permissions" not in captured[0]
+    assert "turn_context" not in captured[0]
+    assert "hook_scope" not in captured[0]
     assert captured[0]["ev_report"] is report
     assert report.closed == []
     runtime.begin_terminal_progress.assert_called_once_with()
     runtime.end_terminal_progress.assert_called_once_with()
     mind.start_anim.assert_awaited_once_with("xtra")
     mind.stop_anim.assert_awaited_once_with("wait")
+
+
+def test_turn_hook_scope_resolution_failure_uses_empty_snapshot() -> None:
+    context = _child_execution().context
+    controller = SimpleNamespace(
+        hook_scope=Mock(side_effect=ValueError("invalid hooks")),
+    )
+
+    scope = resolve_turn_hook_scope(controller, context)
+    execution = TurnExecution(
+        context=context,
+        message="inspect workspace",
+        hook_scope=scope,
+    )
+
+    assert execution.hook_scope is scope
+    assert scope.has_matching("UserPromptSubmit") is False
+    controller.hook_scope.assert_called_once_with(
+        HookExecutionContext.from_turn(context)
+    )

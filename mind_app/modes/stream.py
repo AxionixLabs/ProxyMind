@@ -56,10 +56,6 @@ from ..runtime.execution import (
     ToolInvocation,
     TurnContext
 )
-from ..runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
 from ..runtime.hooks.tool import ToolCallCoordinator
 from ..runtime.hooks.turn import (
     PromptHookBlockedError,
@@ -75,6 +71,7 @@ from ..runtime.tools.execution_policy import (
 )
 from ..runtime.tools.client_call import ClientToolCallRunner
 from ..runtime.tools.plan_call import PlanToolCallRunner
+from ..runtime.turns.executor import TurnExecution
 from ..runtime.support.idle_status import IdleStatusTimer
 from ..stream_events.tool_trace import coding_trace_tool
 from ..stream_events.lifecycle import handle_lifecycle_event
@@ -128,9 +125,9 @@ async def stream_looper(
     session: McpSessionLike,
     mode: typing.Literal["chat", "fast", "xtra"],
     pref_config: dict[str, typing.Any],
-    message: str,
     tools: list[dict[str, typing.Any]],
     *_,
+    turn_execution: TurnExecution,
     **kwargs
 ) -> RunResult:
     """流式模式执行器：处理流式事件、工具调用和输出上报。"""
@@ -143,31 +140,21 @@ async def stream_looper(
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
-    turn_context        = kwargs.pop("turn_context", None)
-    provided_hook_scope = kwargs.pop("hook_scope", None)
+    if not isinstance(turn_execution, TurnExecution):
+        raise TypeError("turn_execution is required")
 
-    if not isinstance(turn_context, TurnContext):
-        raise TypeError("turn_context is required")
+    turn_context = turn_execution.context
+    hook_scope   = turn_execution.hook_scope
+    message      = turn_execution.message
 
     if turn_context.mode != mode:
         raise ValueError("turn context mode does not match stream mode")
 
-    if provided_hook_scope is not None:
-        if not isinstance(provided_hook_scope, HookExecutionScope):
-            raise TypeError("hook_scope must be a HookExecutionScope")
-        provided_hook_scope.require_turn(turn_context)
-
     kwargs["turn_id"]     = turn_context.turn_id
     kwargs["permissions"] = turn_context.permissions
 
-    metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
-
-    metadata = {
-        **metadata,
-        "cid": turn_context.cid,
-        "sid": turn_context.sid,
-    }
-    kwargs["metadata"] = metadata
+    metadata = dict(turn_execution.metadata)
+    kwargs["metadata"]    = metadata
 
     if ev_report:
         ev_report.begin_turn(turn_context.turn_id)
@@ -256,21 +243,6 @@ async def stream_looper(
             permissions=kwargs["permissions"],
             turn_id=str(kwargs.get("turn_id") or ""),
         ))
-
-        if provided_hook_scope is None:
-            hook_context = HookExecutionContext.from_turn(turn_context)
-
-            try:
-                hook_scope = mind.hook_scope(hook_context)
-            except (OSError, TypeError, ValueError) as error:
-                observe_exception(
-                    "hooks.resolve.failed",
-                    error,
-                    level="WARNING",
-                )
-                hook_scope = HookExecutionScope.empty(hook_context)
-        else:
-            hook_scope = provided_hook_scope
 
         tool_call_coordinator = ToolCallCoordinator(hook_scope)
         turn_hook_events = TurnHookEvents(hook_scope)

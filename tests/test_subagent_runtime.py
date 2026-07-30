@@ -12,7 +12,10 @@ from mind_app.runtime.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from mind_app.runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope,
+)
 from mind_app.runtime.subagents.runner import SubagentRunner
 from mind_app.runtime.turns.executor import TurnExecution
 from mind_core.hooks import resolve_hook_definitions
@@ -39,17 +42,8 @@ class _CommandRunner:
 
 
 class _Controller:
-    def __init__(self, dispatcher) -> None:
-        self.dispatcher = dispatcher
-        self.scope_contexts = []
+    def __init__(self) -> None:
         self.sessions = []
-
-    def hook_scope(self, context):
-        self.scope_contexts.append(context)
-        return HookExecutionScope(
-            context=context,
-            dispatcher=self.dispatcher,
-        )
 
     async def with_mcp_session(self, pref_config, function):
         self.sessions.append(pref_config)
@@ -68,7 +62,11 @@ def _definitions(raw):
     )
 
 
-def _execution(*, agent_type: str = "explore") -> TurnExecution:
+def _execution(
+    *,
+    agent_type: str = "explore",
+    dispatcher: HookRuntime | None = None,
+) -> TurnExecution:
     agent = AgentContext.root("sid_root").child(
         agent_type,
         agent_id="agent_child",
@@ -84,7 +82,14 @@ def _execution(*, agent_type: str = "explore") -> TurnExecution:
         permissions=preset_permissions("auto"),
         turn_id="turn_child",
     )
-    return TurnExecution(context=context, message="inspect workspace")
+    return TurnExecution(
+        context=context,
+        message="inspect workspace",
+        hook_scope=HookExecutionScope(
+            context=HookExecutionContext.from_turn(context),
+            dispatcher=dispatcher or HookRuntime.empty(),
+        ),
+    )
 
 
 def _root_execution() -> TurnExecution:
@@ -98,7 +103,14 @@ def _root_execution() -> TurnExecution:
         cwd=".",
         permissions=preset_permissions("auto"),
     )
-    return TurnExecution(context=context, message="root task")
+    return TurnExecution(
+        context=context,
+        message="root task",
+        hook_scope=HookExecutionScope(
+            context=HookExecutionContext.from_turn(context),
+            dispatcher=HookRuntime.empty(),
+        ),
+    )
 
 
 def _runtime(raw, timeline, *, errors=None):
@@ -117,14 +129,13 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
         "SubagentStart": [{"command": "start", "matcher": "explore"}],
         "SubagentStop": [{"command": "stop", "matcher": "explore"}],
     }, timeline)
-    execution = _execution()
-    controller = _Controller(runtime)
+    execution = _execution(dispatcher=runtime)
+    controller = _Controller()
 
-    async def operation(prepared, hook_scope, session, tools, report):
+    async def operation(prepared, session, tools, report):
         timeline.append("operation")
         assert prepared is execution
-        assert hook_scope.context is controller.scope_contexts[0]
-        assert hook_scope.dispatcher is runtime
+        assert prepared.hook_scope.dispatcher is runtime
         assert session == "session"
         assert tools == [{"name": "tool"}]
         assert isinstance(report, _Report)
@@ -143,7 +154,6 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
 
     assert result.status == "completed"
     assert timeline == ["SubagentStart", "operation", "SubagentStop"]
-    assert len(controller.scope_contexts) == 1
     assert controller.sessions == [{"primary": {"model": "test-model"}}]
 
     start_payload = command_runner.calls[0][1]
@@ -171,8 +181,8 @@ async def test_subagent_runner_skips_non_matching_hooks() -> None:
         "SubagentStart": [{"command": "start", "matcher": "review"}],
         "SubagentStop": [{"command": "stop", "matcher": "review"}],
     }, timeline)
-    execution = _execution()
-    controller = _Controller(runtime)
+    execution = _execution(dispatcher=runtime)
+    controller = _Controller()
 
     async def operation(*_args):
         timeline.append("operation")
@@ -202,8 +212,8 @@ async def test_subagent_hook_command_failures_do_not_replace_result() -> None:
         errors={definition.key: RuntimeError("hook failed") for definition in definitions},
     )
     runtime = HookRuntime(definitions, command_runner=command_runner)
-    execution = _execution()
-    controller = _Controller(runtime)
+    execution = _execution(dispatcher=runtime)
+    controller = _Controller()
 
     async def operation(*_args):
         timeline.append("operation")
@@ -226,8 +236,8 @@ async def test_subagent_runner_reports_failed_result() -> None:
     _definitions_value, command_runner, runtime = _runtime({
         "SubagentStop": [{"command": "stop"}],
     }, timeline)
-    execution = _execution()
-    controller = _Controller(runtime)
+    execution = _execution(dispatcher=runtime)
+    controller = _Controller()
 
     async def operation(*_args):
         return RunResult(
@@ -257,8 +267,8 @@ async def test_subagent_runner_preserves_operation_failure() -> None:
         "SubagentStart": [{"command": "start"}],
         "SubagentStop": [{"command": "stop"}],
     }, timeline)
-    execution = _execution()
-    controller = _Controller(runtime)
+    execution = _execution(dispatcher=runtime)
+    controller = _Controller()
 
     async def operation(*_args):
         timeline.append("operation")
@@ -285,8 +295,8 @@ async def test_subagent_runner_dispatches_stop_after_cancellation() -> None:
         "SubagentStart": [{"command": "start"}],
         "SubagentStop": [{"command": "stop"}],
     }, timeline)
-    execution = _execution()
-    controller = _Controller(runtime)
+    execution = _execution(dispatcher=runtime)
+    controller = _Controller()
 
     async def operation(*_args):
         timeline.append("operation")
@@ -308,7 +318,7 @@ async def test_subagent_runner_dispatches_stop_after_cancellation() -> None:
 
 @pytest.mark.anyio
 async def test_subagent_runner_rejects_root_turn_before_side_effects() -> None:
-    controller = _Controller(HookRuntime.empty())
+    controller = _Controller()
     operation_calls = []
 
     async def operation(*_args):
@@ -324,17 +334,17 @@ async def test_subagent_runner_rejects_root_turn_before_side_effects() -> None:
         )
 
     assert operation_calls == []
-    assert controller.scope_contexts == []
     assert controller.sessions == []
 
 
 @pytest.mark.anyio
 async def test_subagent_runner_rejects_empty_task_before_side_effects() -> None:
-    controller = _Controller(HookRuntime.empty())
+    controller = _Controller()
     prepared = _execution()
     execution = TurnExecution(
         context=prepared.context,
         message="",
+        hook_scope=prepared.hook_scope,
     )
     operation_calls = []
 
@@ -351,5 +361,4 @@ async def test_subagent_runner_rejects_empty_task_before_side_effects() -> None:
         )
 
     assert operation_calls == []
-    assert controller.scope_contexts == []
     assert controller.sessions == []

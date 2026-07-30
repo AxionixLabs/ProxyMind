@@ -30,6 +30,19 @@ if typing.TYPE_CHECKING:
 
 _BACK_ACTION = object()
 
+_EVENT_DESCRIPTIONS = {
+    "PreToolUse"        : "工具执行前",
+    "PermissionRequest" : "请求工具权限时",
+    "PostToolUse"       : "工具执行后",
+    "PreCompact"        : "上下文压缩前",
+    "PostCompact"       : "上下文压缩后",
+    "SessionStart"      : "新会话启动时",
+    "UserPromptSubmit"  : "用户提交提示词时",
+    "SubagentStart"     : "子代理创建时",
+    "SubagentStop"      : "子代理结束当前轮次前",
+    "Stop"              : "当前轮次结束前",
+}
+
 
 async def manage_hooks(
     runtime: "TuiRuntime",
@@ -58,6 +71,15 @@ async def manage_hooks(
 
 def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
     """生成 Hook 事件汇总菜单。"""
+    installed_width = max(
+        (len(str(item.installed_count)) for item in catalog.events),
+        default=1,
+    )
+    active_width = max(
+        (len(str(item.active_count)) for item in catalog.events),
+        default=1,
+    )
+
     body = (
         (f"Trust store: {catalog.trust_error}",)
         if catalog.trust_error
@@ -77,11 +99,11 @@ def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
                 value=item.event,
                 label=item.event,
                 detail=(
-                    f"installed={item.installed_count} "
-                    f"active={item.active_count} | "
+                    f"installed={item.installed_count:>{installed_width}} "
+                    f"active={item.active_count:>{active_width}} | "
                     f"{item.control_policy} | "
                     f"match={item.matcher_subject or '-'} | "
-                    f"{item.description}"
+                    f"{_EVENT_DESCRIPTIONS.get(item.event, item.description)}"
                 ),
             )
             for item in catalog.events

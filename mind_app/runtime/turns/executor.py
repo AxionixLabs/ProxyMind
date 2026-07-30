@@ -15,6 +15,10 @@ from engine.observability import (
 )
 from mind_nova.events import EventReport
 from mind_app.runtime.execution import TurnContext
+from mind_app.runtime.hooks.scope import (
+    HookExecutionContext,
+    HookExecutionScope
+)
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
@@ -23,9 +27,10 @@ if typing.TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class TurnExecution:
-    """保存一次已经完成身份和会话分配的模型执行。"""
+    """保存已经固定身份、会话和 Hook 作用域的模型执行。"""
     context: TurnContext
     message: str
+    hook_scope: HookExecutionScope
     metadata: typing.Mapping[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -34,6 +39,10 @@ class TurnExecution:
             raise TypeError("turn context is required")
         if not isinstance(self.message, str):
             raise TypeError("turn message must be a string")
+        if not isinstance(self.hook_scope, HookExecutionScope):
+            raise TypeError("turn hook scope is required")
+
+        self.hook_scope.require_turn(self.context)
 
         metadata = dict(self.metadata)
 
@@ -49,6 +58,24 @@ class TurnExecution:
             metadata[key] = value
 
         object.__setattr__(self, "metadata", MappingProxyType(metadata))
+
+
+def resolve_turn_hook_scope(
+    controller: "Mind",
+    context: TurnContext
+) -> HookExecutionScope:
+    """解析并固定模型轮次使用的 Hook 作用域。"""
+    hook_context = HookExecutionContext.from_turn(context)
+
+    try:
+        return controller.hook_scope(hook_context)
+    except (OSError, TypeError, ValueError) as error:
+        observe_exception(
+            "hooks.resolve.failed",
+            error,
+            level="WARNING",
+        )
+        return HookExecutionScope.empty(hook_context)
 
 
 class TurnResult(typing.Protocol):

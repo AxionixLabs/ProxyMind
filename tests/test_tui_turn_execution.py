@@ -5,6 +5,8 @@ import asyncio
 import pytest
 
 from mind_app.modes.result import RunResult
+from mind_app.runtime.hooks.runtime import HookRuntime
+from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.support.conversation import ConversationTurn
 from mind_app.runtime.turns import executor as turn_executor
 from mind_app.tui.session.turn import run_tui_model_turn
@@ -49,6 +51,7 @@ class _TuiController:
         self.sessions = []
         self.lifecycle_calls = []
         self.conversation_calls = []
+        self.hook_scopes = []
 
     def begin_conversation_turn(self, *, title: str, source: str):
         self.events.append("conversation")
@@ -60,6 +63,14 @@ class _TuiController:
             session_started=True,
             start_reason="initial",
         )
+
+    def hook_scope(self, context):
+        scope = HookExecutionScope(
+            context=context,
+            dispatcher=HookRuntime.empty(),
+        )
+        self.hook_scopes.append(scope)
+        return scope
 
     async def with_mcp_session(self, pref_config, function):
         self.events.append("session")
@@ -115,17 +126,25 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
 
     runner, call = controller.lifecycle_calls[0]
     assert runner is controller.stream_looper
-    assert call["message"] == ""
     assert call["attachments"] == [{
         "filename": "screen.png",
         "kind": "image",
     }]
-    assert call["metadata"] == {"cid": "cid_tui", "sid": "sid_tui"}
     assert call["ev_report"] is report
-    assert call["turn_context"].sid == "sid_tui"
-    assert call["turn_context"].source == "tui"
-    assert call["turn_context"].session_started is True
-    assert call["turn_context"].permissions is permissions
+    execution = call["turn_execution"]
+    assert execution.message == ""
+    assert execution.metadata == {"cid": "cid_tui", "sid": "sid_tui"}
+    assert execution.context.sid == "sid_tui"
+    assert execution.context.source == "tui"
+    assert execution.context.session_started is True
+    assert execution.context.permissions is permissions
+    assert execution.hook_scope is controller.hook_scopes[0]
+    assert len(controller.hook_scopes) == 1
+    assert "message" not in call
+    assert "metadata" not in call
+    assert "permissions" not in call
+    assert "turn_context" not in call
+    assert "hook_scope" not in call
 
 
 @pytest.mark.anyio
