@@ -66,6 +66,7 @@ async def request_conversation_fork(
     sid: str,
     request_id: str,
     before_turn_id: str | None = None,
+    require_prompt: bool = True,
     timeout: float = 30.0
 ) -> dict[str, typing.Any]:
     """请求服务端复制当前会话上下文。"""
@@ -159,9 +160,12 @@ async def request_conversation_fork(
         try:
             prompt = _parse_resubmittable_prompt(prompt)
         except (TypeError, ValueError) as error:
-            raise ConversationForkRequestError(
-                "Conversation fork returned an invalid prompt.",
-            ) from error
+            if not require_prompt:
+                prompt = None
+            else:
+                raise ConversationForkRequestError(
+                    "Conversation fork returned an invalid prompt.",
+                ) from error
     elif prompt is not None:
         raise ConversationForkRequestError(
             "Conversation fork returned an unexpected prompt.",
@@ -181,6 +185,11 @@ def _parse_resubmittable_prompt(value: typing.Any) -> ResubmittablePrompt:
     message     = value.get("message")
     attachments = value.get("attachments")
     extras      = value.get("extras")
+
+    if attachments is None:
+        attachments = []
+    if extras is None:
+        extras = {}
 
     if not isinstance(message, str):
         raise TypeError("fork prompt message must be a string")

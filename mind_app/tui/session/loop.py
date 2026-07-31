@@ -5,6 +5,7 @@ import typing
 import asyncio
 from mind_app.frontend import ApplicationView
 from mind_nova.identifiers import short_uid
+from mind_nova.requests.fork import ResubmittablePrompt
 from ..core.runtime import (
     TuiRuntime,
     require_tui_runtime
@@ -241,6 +242,11 @@ async def _handle_transcript_backtrack(
             run_mode=state.mode,
             before_turn_id=request.turn_id,
             bind_target=False,
+            fallback_prompt=ResubmittablePrompt(
+                message=request.prompt,
+                attachments=request.attachments,
+                extras=request.extras,
+            ),
         ),
         finish_activity=lambda: finish_fork_activity(mind),
         on_succeeded=lambda status: _finish_transcript_backtrack(

@@ -224,7 +224,8 @@ async def fork_current_conversation(
     *,
     run_mode: RunMode,
     before_turn_id: str = "",
-    bind_target: bool = True
+    bind_target: bool = True,
+    fallback_prompt: ResubmittablePrompt | None = None
 ) -> ForkLiveStatus:
     """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
     source   = mind.conversation.snapshot()
@@ -258,12 +259,16 @@ async def fork_current_conversation(
             sid=source["sid"],
             request_id=request_id,
             before_turn_id=boundary or None,
+            require_prompt=fallback_prompt is None,
         )
 
         target_cid   = str(result.get("cid") or "").strip()
         target_sid   = str(result.get("sid") or "").strip()
         copied_items = _positive_int(result.get("copied_items"))
         prompt       = result.get("prompt")
+
+        if boundary and not isinstance(prompt, ResubmittablePrompt):
+            prompt = fallback_prompt
 
         if boundary and not isinstance(prompt, ResubmittablePrompt):
             mind.clear_conversation_fork(
