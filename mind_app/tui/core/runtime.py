@@ -31,7 +31,8 @@ from .terminal_input import clear_pending_input
 from .activity import TuiActivity
 from .document import (
     TuiBlockKind,
-    TuiDocument
+    TuiDocument,
+    TuiDocumentState
 )
 from .input import TuiInputModel
 from .interrupt import TuiExitReason
@@ -545,19 +546,37 @@ class TuiRuntime(object):
         request: TranscriptBacktrackRequest
     ) -> bool:
         """截断已分叉的本地正文并恢复选中的用户输入。"""
-        changed = self.document.truncate_before_turn(request.turn_id)
+        document_state: TuiDocumentState = self.document.capture_state()
 
-        self.replace_input_text(request.prompt)
+        buffer       = self.screen.input.buffer
+        input_text   = buffer.text
+        input_cursor = buffer.cursor_position
+        view_row     = self.viewport.view_row
 
-        if not changed:
-            return False
+        try:
+            if not self.document.truncate_before_turn(request.turn_id):
+                return False
 
-        self.viewport.reset_view()
-        self.screen.transcript_overlay.content_changed()
-        self.screen.clear_terminal_scrollback()
-        self.viewport.stable_content_changed()
+            self.replace_input_text(request.prompt)
+            self.viewport.reset_view()
+            self.screen.transcript_overlay.content_changed()
+            self.screen.clear_terminal_scrollback()
+            self.viewport.stable_content_changed()
+            return True
+        except BaseException:
+            self.viewport.pause_scrollback()
+            self.document.restore_state(document_state)
 
-        return True
+            buffer.text = input_text
+            buffer.cursor_position = min(input_cursor, len(input_text))
+
+            self.viewport.view_row = view_row
+
+            with contextlib.suppress(Exception):
+                self.screen.transcript_overlay.content_changed()
+
+            self.invalidate()
+            raise
 
     def can_apply_transcript_backtrack(
         self,
@@ -579,6 +598,7 @@ class TuiRuntime(object):
             attachments=attachments,
             extras=extras,
         )
+
         if changed:
             self.screen.transcript_overlay.content_changed()
         return changed
@@ -655,9 +675,12 @@ class TuiRuntime(object):
         """从主输入区打开完整记录并选择最近用户轮次。"""
         if not self.screen.set_transcript_overlay(True):
             return None
+
         self.viewport.pause_scrollback()
+
         if self.screen.transcript_overlay.begin_or_step_backtrack():
             return None
+
         self.screen.set_transcript_overlay(False)
         self.viewport.schedule_scrollback_flush()
 
@@ -688,17 +711,21 @@ class TuiRuntime(object):
         else:
             self.submissions.clear_queued_submission_marker()
             self._flush_background_blocks()
+
         self.invalidate()
+
         if not self.execution_active:
             self.viewport.schedule_scrollback_flush()
 
     def set_foreground_active(self, active: bool) -> None:
         """更新下一轮开始前的前台屏障状态。"""
         self.task_state.set_foreground_running(active)
+
         if not self.submission_deferred:
             self.submissions.clear_queued_submission_marker()
             self._flush_background_blocks()
             self.viewport.schedule_scrollback_flush()
+
         self.invalidate()
 
     def bind_interrupt_handler(
@@ -753,11 +780,14 @@ class TuiRuntime(object):
 
         application = self.screen.application
         application.erase_when_done = erase
+
         if not application.is_done:
             with contextlib.suppress(Exception):
                 application.exit(result=None)
+
         await asyncio.gather(task, return_exceptions=True)
-        self._application_task = None
+
+        self._application_task      = None
         application.erase_when_done = False
 
     async def _play_startup_animation(self) -> None:

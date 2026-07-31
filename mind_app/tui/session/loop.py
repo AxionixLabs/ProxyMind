@@ -295,33 +295,36 @@ def _finish_transcript_backtrack(
             )
             return None
 
-        bound = mind.bind_conversation(
-            target_session[0],
-            target_session[1],
-            source="tui",
-        )
-
-        if bound is None:
-            render_fork_failure(
-                mind,
-                RuntimeError("Conversation fork returned invalid session IDs."),
+        try:
+            bound = mind.bind_conversation(
+                target_session[0],
+                target_session[1],
+                source="tui",
             )
-            return None
+            if bound is None:
+                raise RuntimeError(
+                    "Conversation fork returned invalid session IDs."
+                )
 
-        if not runtime.apply_transcript_backtrack(canonical_request):
-            mind.bind_conversation(
-                source_session[0],
-                source_session[1],
-                source="tui:backtrack-rollback",
-            )
-            render_fork_failure(
-                mind,
-                RuntimeError("Conversation backtrack could not be committed."),
-            )
-            return None
+            if not runtime.apply_transcript_backtrack(canonical_request):
+                raise RuntimeError(
+                    "Conversation backtrack could not be committed."
+                )
 
-        mind.attach.replace_pending_attachments(prompt.attachments)
-        state.replace_pending_prompt_extras(prompt.extras)
+            mind.attach.replace_pending_attachments(prompt.attachments)
+            state.replace_pending_prompt_extras(prompt.extras)
+        except Exception as error:
+            try:
+                mind.bind_conversation(
+                    source_session[0],
+                    source_session[1],
+                    source="tui:backtrack-rollback",
+                )
+            except Exception as rollback_error:
+                error = RuntimeError(
+                    f"{error}; rollback failed: {rollback_error}"
+                )
+            render_fork_failure(mind, error)
         return None
 
     render_fork_result(mind, status)

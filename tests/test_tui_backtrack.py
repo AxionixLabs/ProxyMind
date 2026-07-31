@@ -2,7 +2,10 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -217,6 +220,55 @@ def test_apply_transcript_backtrack_removes_selected_turn_and_tail() -> None:
     assert runtime.document.cleared_line_count == 0
 
 
+def test_apply_transcript_backtrack_false_keeps_input_and_document() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("header"), kind="system")
+    _append_turn(runtime, "turn_one", "first prompt")
+    runtime.replace_input_text("draft")
+
+    changed = runtime.apply_transcript_backtrack(
+        TranscriptBacktrackRequest(
+            turn_id="missing_turn",
+            prompt="canonical draft",
+        )
+    )
+
+    assert not changed
+    assert runtime.screen.input.buffer.text == "draft"
+    assert [item.kind for item in runtime.document.blocks] == [
+        "system",
+        "user",
+        "assistant",
+    ]
+
+
+def test_apply_transcript_backtrack_restores_state_after_viewport_error() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("header"), kind="system")
+    _append_turn(runtime, "turn_one", "first prompt")
+    runtime.replace_input_text("draft")
+    runtime.viewport.view_row = 4
+    runtime.screen.clear_terminal_scrollback = Mock(
+        side_effect=RuntimeError("terminal unavailable")
+    )
+
+    with pytest.raises(RuntimeError, match="terminal unavailable"):
+        runtime.apply_transcript_backtrack(
+            TranscriptBacktrackRequest(
+                turn_id="turn_one",
+                prompt="canonical draft",
+            )
+        )
+
+    assert runtime.screen.input.buffer.text == "draft"
+    assert runtime.viewport.view_row == 4
+    assert [item.kind for item in runtime.document.blocks] == [
+        "system",
+        "user",
+        "assistant",
+    ]
+
+
 def test_attachment_only_turn_creates_selectable_transcript_cell(tmp_path) -> None:
     runtime = TuiRuntime()
     image = tmp_path / "screen.png"
@@ -411,10 +463,102 @@ async def test_backtrack_request_restores_full_local_draft_before_fork() -> None
     }
 
 
+@pytest.mark.anyio
+async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("header"), kind="system")
+    _append_turn(runtime, "turn_one", "local prompt")
+    runtime.apply_transcript_backtrack = Mock(return_value=False)
+
+    attach = Attach()
+    state = TuiSessionState(
+        pref_config={},
+        model="",
+        workspace_label="",
+        permissions=preset_permissions("auto"),
+    )
+    bound = []
+    views = []
+
+    def bind_conversation(cid, sid, *, source):
+        bound.append((cid, sid, source))
+        return {"cid": cid, "sid": sid}
+
+    mind = SimpleNamespace(
+        attach=attach,
+        bind_conversation=bind_conversation,
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    status = ForkLiveStatus()
+    status.completed(
+        0,
+        prompt=ResubmittablePrompt(
+            message="canonical prompt",
+            attachments=(),
+            extras={},
+        ),
+        source_session=("cid_source_12345678", "sid_source_1_abcdef"),
+        target_session=("cid_target_87654321", "sid_target_2_fedcba"),
+    )
+
+    class ForegroundStub(object):
+        def start(self, _name, operation, **callbacks) -> None:
+            self.operation = operation
+            self.callbacks = callbacks
+
+        async def wait(self) -> None:
+            result = await self.operation()
+            self.callbacks["on_succeeded"](result)
+
+    monkeypatch.setattr(
+        loop,
+        "fork_current_conversation",
+        AsyncMock(return_value=status),
+    )
+
+    request = TranscriptBacktrackRequest(
+        turn_id="turn_one",
+        prompt="local prompt",
+        attachments=({"kind": "file", "file_key": "file_123"},),
+        extras={"selection": {"x": 10, "y": 20}},
+    )
+    await loop._handle_transcript_backtrack(
+        mind,
+        runtime,
+        state,
+        ForegroundStub(),
+        request,
+    )
+
+    assert bound == [
+        ("cid_target_87654321", "sid_target_2_fedcba", "tui"),
+        (
+            "cid_source_12345678",
+            "sid_source_1_abcdef",
+            "tui:backtrack-rollback",
+        ),
+    ]
+    assert runtime.screen.input.buffer.text == "local prompt"
+    assert attach.consume_pending_attachments() == [{
+        "kind": "file",
+        "file_key": "file_123",
+    }]
+    assert state.consume_pending_prompt_extras() == {
+        "selection": {"x": 10, "y": 20},
+    }
+    assert any(view.type == "tui.fork.status" for view in views)
+
+
 def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None:
     runtime = TuiRuntime()
     _append_turn(runtime, "turn_one", "local prompt")
-    runtime.apply_transcript_backtrack = Mock(return_value=False)
+    runtime.apply_transcript_backtrack = Mock(
+        side_effect=RuntimeError("terminal unavailable")
+    )
     views = []
     bound = []
     attach = Attach()

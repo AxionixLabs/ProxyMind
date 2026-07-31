@@ -50,6 +50,25 @@ class TranscriptSnapshot(object):
     active_revision: int
 
 
+@dataclass(frozen=True, slots=True)
+class TuiDocumentState(object):
+    """保存正文提交事务所需的全部可恢复状态。"""
+    blocks: tuple[TranscriptBlock, ...]
+    scrollback_line_count: int
+    cleared_line_count: int
+    active_block: FragmentBlock | None
+    active_transcript_block: FragmentBlock | None
+    active_kind: TuiBlockKind | None
+    active_gap_before: bool
+    active_transcript_revision: int
+    stable_transcript_revision: int
+    pending_submission: FragmentBlock | None
+    active_tail: tuple[TranscriptBlock, ...]
+    stable_lines: tuple[FormattedText, ...]
+    stable_snapshot_cells: tuple[TranscriptBlock, ...]
+    stable_snapshot_revision: int
+
+
 class TuiDocument(object):
     """管理稳定正文、动态正文和全局段间距。"""
 
@@ -404,6 +423,42 @@ class TuiDocument(object):
             and not self._active_tail
             and self._turn_boundary(normalized_turn_id) is not None
         )
+
+    def capture_state(self) -> TuiDocumentState:
+        """捕获正文在一次提交前的可恢复状态。"""
+        return TuiDocumentState(
+            blocks=deepcopy(tuple(self.blocks)),
+            scrollback_line_count=self.scrollback_line_count,
+            cleared_line_count=self.cleared_line_count,
+            active_block=deepcopy(self.active_block),
+            active_transcript_block=deepcopy(self.active_transcript_block),
+            active_kind=self.active_kind,
+            active_gap_before=self.active_gap_before,
+            active_transcript_revision=self.active_transcript_revision,
+            stable_transcript_revision=self.stable_transcript_revision,
+            pending_submission=deepcopy(self._pending_submission),
+            active_tail=deepcopy(tuple(self._active_tail)),
+            stable_lines=deepcopy(tuple(self._stable_lines)),
+            stable_snapshot_cells=deepcopy(self._stable_snapshot_cells),
+            stable_snapshot_revision=self._stable_snapshot_revision,
+        )
+
+    def restore_state(self, state: TuiDocumentState) -> None:
+        """恢复正文提交前的可恢复状态。"""
+        self.blocks = deepcopy(list(state.blocks))
+        self.scrollback_line_count = state.scrollback_line_count
+        self.cleared_line_count = state.cleared_line_count
+        self.active_block = deepcopy(state.active_block)
+        self.active_transcript_block = deepcopy(state.active_transcript_block)
+        self.active_kind = state.active_kind
+        self.active_gap_before = state.active_gap_before
+        self.active_transcript_revision = state.active_transcript_revision
+        self.stable_transcript_revision = state.stable_transcript_revision
+        self._pending_submission = deepcopy(state.pending_submission)
+        self._active_tail = deepcopy(list(state.active_tail))
+        self._stable_lines = deepcopy(list(state.stable_lines))
+        self._stable_snapshot_cells = deepcopy(state.stable_snapshot_cells)
+        self._stable_snapshot_revision = state.stable_snapshot_revision
 
     def bind_turn_payload(
         self,
