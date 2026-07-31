@@ -71,6 +71,19 @@ def test_input_schema_rejects_unknown_fields() -> None:
         )
 
 
+def test_session_end_input_rejects_unknown_reason() -> None:
+    payload = _prompt_input(
+        hook_event_name="SessionEnd",
+        reason="reset",
+        transcript_path="",
+        last_assistant_message="",
+    )
+    payload.pop("prompt")
+
+    with pytest.raises(ValueError, match="must be one of exit, archive"):
+        validate_hook_input("SessionEnd", payload)
+
+
 def test_output_schema_validates_event_specific_output() -> None:
     validate_hook_output("PreToolUse", {
         "hookSpecificOutput": {

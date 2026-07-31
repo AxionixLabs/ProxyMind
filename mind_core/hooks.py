@@ -19,6 +19,7 @@ HookEventName = typing.Literal[
     "SubagentStart",
     "SubagentStop",
     "Stop",
+    "SessionEnd",
 ]
 
 HookFailurePolicy = typing.Literal[
@@ -145,6 +146,13 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         description="Right before Codex ends its turn",
         default_on_error="continue",
         matcher_subject=None,
+        control_policy="notify",
+    ),
+    "SessionEnd": HookEventConfigSpec(
+        name="SessionEnd",
+        description="When a root session ends",
+        default_on_error="continue",
+        matcher_subject="session_reason",
         control_policy="notify",
     ),
 }

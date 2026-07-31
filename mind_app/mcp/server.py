@@ -160,6 +160,7 @@ class MindMcpRuntime(object):
 
     async def close(self) -> None:
         """关闭主控制器持有的外部 MCP、工具和报告资源。"""
+        await self.mind.end_conversation(reason="exit")
         await self.mind.close_runtime_resources()
 
     async def execute(
@@ -243,7 +244,7 @@ class MindMcpRuntime(object):
         self.mind.set_history_workspace(workspace)
 
         if requested_session_id is None:
-            metadata = self.mind.reset_conversation(
+            metadata = await self.mind.reset_conversation(
                 reason="mcp_tool_call",
                 source="mcp_server",
             )
@@ -256,7 +257,7 @@ class MindMcpRuntime(object):
                 return self._failed(
                     "session_id is unavailable for this working directory"
                 )
-            metadata = self.mind.resume_conversation(
+            metadata = await self.mind.resume_conversation(
                 record,
                 source="mcp_server",
             )

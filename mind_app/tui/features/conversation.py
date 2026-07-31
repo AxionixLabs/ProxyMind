@@ -310,7 +310,7 @@ async def fork_current_conversation(
         bound_sid = target_sid
 
         if bind_target:
-            bound = mind.bind_conversation(
+            bound = await mind.bind_conversation(
                 target_cid,
                 target_sid,
                 source="tui",

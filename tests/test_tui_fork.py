@@ -49,7 +49,7 @@ class ForkMindStub(object):
         assert before_turn_id in {"", "turn_selected"}
         return "fork_request_0001"
 
-    def bind_conversation(self, cid, sid, *, source):
+    async def bind_conversation(self, cid, sid, *, source):
         self.bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 

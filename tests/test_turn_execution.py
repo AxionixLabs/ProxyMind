@@ -337,7 +337,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     mind = SimpleNamespace(
         permissions=permissions,
         history_workspace="D:/workspace",
-        begin_conversation_turn=Mock(return_value=ConversationTurn(
+        begin_conversation_turn=AsyncMock(return_value=ConversationTurn(
             cid="cid_root",
             sid="sid_root",
             turn_index=1,

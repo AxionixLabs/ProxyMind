@@ -56,6 +56,10 @@ from mind_core.permissions import preset_permissions
 from engine.errors import AppError
 
 
+async def _await_cleanup(awaitable) -> None:
+    await awaitable
+
+
 def test_gravity_option_is_removed() -> None:
     parser = create_cli_parser()
 
@@ -517,7 +521,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     mind = SimpleNamespace(
         history_workspace=r"D:\workspace",
         recent_conversation_sessions=Mock(return_value=[record]),
-        resume_conversation=Mock(return_value=metadata),
+        resume_conversation=AsyncMock(return_value=metadata),
         attach=SimpleNamespace(add_pending_attachments=attachments),
         task_event=asyncio.Event(),
         permissions=preset_permissions("auto"),
@@ -786,6 +790,10 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
+        await_cleanup=_await_cleanup,
+        end_conversation=AsyncMock(
+            side_effect=lambda **_kwargs: events.append("session"),
+        ),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
         ),
@@ -802,7 +810,8 @@ async def test_tui_finalization_prints_summary_after_cleanup(
         completed=True,
     )
 
-    assert events == ["runtime", "resources", "summary"]
+    assert events == ["session", "runtime", "resources", "summary"]
+    mind.end_conversation.assert_awaited_once_with(reason="exit")
     runtime.print_exit_summary.assert_called_once_with("sid_test_1_abcdef")
 
 
@@ -814,6 +823,10 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
     runtime.print_exit_summary = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
+        await_cleanup=_await_cleanup,
+        end_conversation=AsyncMock(
+            side_effect=lambda **_kwargs: events.append("session"),
+        ),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
         ),
@@ -827,7 +840,7 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
         completed=True,
     )
 
-    assert events == ["runtime", "resources"]
+    assert events == ["session", "runtime", "resources"]
     runtime.print_exit_summary.assert_not_called()
 
 
@@ -838,6 +851,8 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     runtime.print_exit_summary = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
+        await_cleanup=_await_cleanup,
+        end_conversation=AsyncMock(),
         close_runtime_resources=AsyncMock(),
         exit_code=0,
     )
@@ -849,6 +864,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     )
 
     runtime.close.assert_awaited_once_with()
+    mind.end_conversation.assert_awaited_once_with(reason="error")
     mind.close_runtime_resources.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
 
@@ -860,6 +876,8 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
     runtime.print_exit_summary = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
+        await_cleanup=_await_cleanup,
+        end_conversation=AsyncMock(),
         close_runtime_resources=AsyncMock(),
         exit_code=0,
     )
@@ -873,3 +891,28 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
 
     mind.close_runtime_resources.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_finalization_closes_resources_when_session_end_fails() -> None:
+    runtime = TuiRuntime()
+    runtime.close = AsyncMock()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        await_cleanup=_await_cleanup,
+        end_conversation=AsyncMock(
+            side_effect=RuntimeError("session end failed"),
+        ),
+        close_runtime_resources=AsyncMock(),
+        exit_code=1,
+    )
+
+    with pytest.raises(RuntimeError, match="session end failed"):
+        await bootstrap.finalize_application(
+            mind,
+            output_mode="text",
+            completed=False,
+        )
+
+    runtime.close.assert_awaited_once_with()
+    mind.close_runtime_resources.assert_awaited_once_with()

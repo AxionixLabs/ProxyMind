@@ -89,6 +89,7 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
         ("SubagentStart", 0, 0, "When a subagent is created"),
         ("SubagentStop", 0, 0, "Right before a subagent ends its turn"),
         ("Stop", 0, 0, "Right before Codex ends its turn"),
+        ("SessionEnd", 0, 0, "When a root session ends"),
     ]
     assert catalog.hooks[0].command == "check-project"
     assert catalog.hooks[0].matcher == "shell_command"

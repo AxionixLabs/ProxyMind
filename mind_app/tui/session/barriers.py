@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+import inspect
 from engine.observability import (
     observe,
     observe_exception
@@ -38,7 +39,12 @@ if typing.TYPE_CHECKING:
 
 CancelCleanup    = typing.Callable[[], typing.Awaitable[None]]
 ActivityFinisher = typing.Callable[[], typing.Awaitable[None]]
-SucceededHandler = typing.Callable[[typing.Any], None]
+
+SucceededHandler = typing.Callable[
+    [typing.Any],
+    typing.Awaitable[None] | None
+]
+
 FailedHandler    = typing.Callable[[BaseException], None]
 CancelledHandler = typing.Callable[[], None]
 
@@ -281,7 +287,9 @@ class TuiForegroundTasks(object):
 
         else:
             if on_succeeded is not None:
-                on_succeeded(result)
+                handled = on_succeeded(result)
+                if inspect.isawaitable(handled):
+                    await handled
             observe(
                 "operation.complete",
                 operation=key,

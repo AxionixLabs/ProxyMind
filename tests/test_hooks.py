@@ -30,6 +30,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
+from mind_app.runtime.hooks.session import SessionLifecycleGateway
 from mind_app.runtime.hooks.tool import (
     ToolCallCoordinator,
     ToolHookEvents
@@ -132,6 +133,54 @@ def _scope(
 
 def test_runtime_event_specs_cover_config_event_catalog() -> None:
     assert tuple(HOOK_EVENT_SPECS) == HOOK_EVENT_NAMES
+
+
+@pytest.mark.anyio
+async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
+    definitions = _definitions({
+        "SessionEnd": [_hook("audit", matcher="exit")],
+    })
+    runner = _CommandRunner()
+    runtime = HookRuntime(definitions, command_runner=runner)
+    context = _scope(runtime).context
+    cleaned = []
+
+    async def cleanup_session(session_id):
+        cleaned.append(session_id)
+
+    gateway = SessionLifecycleGateway(
+        scope_factory=lambda event_context: HookExecutionScope(
+            context=event_context,
+            dispatcher=runtime,
+        ),
+        cleanup_session=cleanup_session,
+    )
+
+    first = await gateway.end(
+        7,
+        context,
+        reason="exit",
+        transcript_path="D:/logs/transcript.log",
+        last_assistant_message="final answer",
+    )
+    second = await gateway.end(
+        7,
+        context,
+        reason="exit",
+        transcript_path="D:/logs/transcript.log",
+        last_assistant_message="final answer",
+    )
+
+    assert first is True
+    assert second is False
+    assert cleaned == ["sid_test"]
+    assert len(runner.calls) == 1
+    payload = runner.calls[0][1]
+    assert payload["session_id"] == "sid_test"
+    assert payload["root_session_id"] == "sid_test"
+    assert payload["reason"] == "exit"
+    assert payload["transcript_path"] == "D:/logs/transcript.log"
+    assert payload["last_assistant_message"] == "final answer"
 
 
 def test_runtime_reports_matching_active_hooks() -> None:

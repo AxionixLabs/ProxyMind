@@ -355,7 +355,8 @@ def test_restored_attachments_are_resubmitted_without_reencoding() -> None:
     assert not attach.has_pending_attachments()
 
 
-def test_successful_backtrack_installs_canonical_prompt() -> None:
+@pytest.mark.anyio
+async def test_successful_backtrack_installs_canonical_prompt() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("header"), kind="system")
     _append_turn(runtime, "turn_one", "local prompt")
@@ -383,11 +384,11 @@ def test_successful_backtrack_installs_canonical_prompt() -> None:
     )
     bound = []
 
-    def bind_conversation(cid, sid, *, source):
+    async def bind_conversation(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
-    loop._finish_transcript_backtrack(
+    await loop._finish_transcript_backtrack(
         SimpleNamespace(
             attach=attach,
             bind_conversation=bind_conversation,
@@ -482,7 +483,7 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
     bound = []
     views = []
 
-    def bind_conversation(cid, sid, *, source):
+    async def bind_conversation(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
@@ -512,7 +513,7 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
 
         async def wait(self) -> None:
             result = await self.operation()
-            self.callbacks["on_succeeded"](result)
+            await self.callbacks["on_succeeded"](result)
 
     monkeypatch.setattr(
         loop,
@@ -553,7 +554,8 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
     assert any(view.type == "tui.fork.status" for view in views)
 
 
-def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None:
+@pytest.mark.anyio
+async def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None:
     runtime = TuiRuntime()
     _append_turn(runtime, "turn_one", "local prompt")
     runtime.apply_transcript_backtrack = Mock(
@@ -580,11 +582,11 @@ def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None:
         target_session=("cid_target_87654321", "sid_target_2_fedcba"),
     )
 
-    def bind_conversation(cid, sid, *, source):
+    async def bind_conversation(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
-    loop._finish_transcript_backtrack(
+    await loop._finish_transcript_backtrack(
         SimpleNamespace(
             attach=attach,
             bind_conversation=bind_conversation,

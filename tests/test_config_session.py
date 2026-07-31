@@ -239,6 +239,7 @@ def test_hook_event_contracts_are_explicit() -> None:
         "SubagentStart": ("agent_type", "notify", "continue", False),
         "SubagentStop": ("agent_type", "notify", "continue", False),
         "Stop": (None, "notify", "continue", False),
+        "SessionEnd": ("session_reason", "notify", "continue", False),
     }
 
     assert {
@@ -272,6 +273,7 @@ def test_hook_event_without_match_subject_rejects_matcher(event) -> None:
     "SubagentStart",
     "SubagentStop",
     "Stop",
+    "SessionEnd",
 ])
 def test_notification_hook_cannot_fail_closed(event) -> None:
     with pytest.raises(ConfigValidationError, match="continue for this event"):

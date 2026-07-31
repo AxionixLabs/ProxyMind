@@ -262,14 +262,14 @@ async def _handle_transcript_backtrack(
     await foreground_tasks.wait()
 
 
-def _finish_transcript_backtrack(
+async def _finish_transcript_backtrack(
     mind: "Mind",
     runtime: TuiRuntime,
     state: TuiSessionState,
     request: TranscriptBacktrackRequest,
     status: ForkLiveStatus
 ) -> None:
-    """在远端分支结束后同步本地正文或展示失败。"""
+    """在远端分支结束后提交本地正文或展示失败。"""
     if status.succeeded:
         prompt = status.prompt
 
@@ -302,7 +302,7 @@ def _finish_transcript_backtrack(
             return None
 
         try:
-            bound = mind.bind_conversation(
+            bound = await mind.bind_conversation(
                 target_session[0],
                 target_session[1],
                 source="tui",
@@ -321,7 +321,7 @@ def _finish_transcript_backtrack(
             state.replace_pending_prompt_extras(prompt.extras)
         except Exception as error:
             try:
-                mind.bind_conversation(
+                await mind.bind_conversation(
                     source_session[0],
                     source_session[1],
                     source="tui:backtrack-rollback",

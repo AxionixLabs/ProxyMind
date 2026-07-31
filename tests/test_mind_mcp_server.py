@@ -66,9 +66,9 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(return_value=metadata),
+        reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
-        resume_conversation=Mock(),
+        resume_conversation=AsyncMock(),
         calling=AsyncMock(return_value=result),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
@@ -105,9 +105,9 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
         history_workspace=str(tmp_path),
         permissions=PermissionSettings("workspace-write", "on-request"),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(return_value=metadata),
+        reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
-        resume_conversation=Mock(),
+        resume_conversation=AsyncMock(),
         calling=AsyncMock(return_value=RunResult(status="completed")),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
@@ -141,9 +141,9 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(),
+        reset_conversation=AsyncMock(),
         find_conversation_session=Mock(return_value=record),
-        resume_conversation=Mock(return_value=metadata),
+        resume_conversation=AsyncMock(return_value=metadata),
         calling=AsyncMock(return_value=result),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
@@ -175,9 +175,9 @@ async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(),
+        reset_conversation=AsyncMock(),
         find_conversation_session=Mock(return_value=None),
-        resume_conversation=Mock(),
+        resume_conversation=AsyncMock(),
         calling=AsyncMock(),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
@@ -216,9 +216,9 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(return_value=metadata),
+        reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
-        resume_conversation=Mock(),
+        resume_conversation=AsyncMock(),
         calling=AsyncMock(side_effect=wait_forever),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
@@ -270,9 +270,9 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(return_value=metadata),
+        reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
-        resume_conversation=Mock(),
+        resume_conversation=AsyncMock(),
         calling=AsyncMock(side_effect=wait_forever),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))

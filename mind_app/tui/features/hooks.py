@@ -41,6 +41,7 @@ _EVENT_DESCRIPTIONS = {
     "SubagentStart"     : "子代理创建时",
     "SubagentStop"      : "子代理结束当前轮次前",
     "Stop"              : "当前轮次结束前",
+    "SessionEnd"        : "根会话结束时",
 }
 
 

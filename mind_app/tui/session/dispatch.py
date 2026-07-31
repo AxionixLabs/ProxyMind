@@ -167,7 +167,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.EXIT
 
         if matches_command(command, "new"):
-            metadata = self.mind.reset_conversation(
+            metadata = await self.mind.reset_conversation(
                 reason="command:/new",
                 source="tui:new",
             )
@@ -528,7 +528,10 @@ class TuiCommandDispatcher(object):
             self._present()
             return None
 
-        resumed = self.mind.resume_conversation(selected, source="tui:resume")
+        resumed = await self.mind.resume_conversation(
+            selected,
+            source="tui:resume",
+        )
         if resumed is None:
             self._present(command_result_block(
                 "/resume",

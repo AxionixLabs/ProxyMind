@@ -188,6 +188,18 @@ HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
         _STOP_INPUT_PROPERTIES,
         required=_STOP_INPUT_PROPERTIES,
     ),
+    "SessionEnd": _input_schema(
+        "SessionEnd",
+        {
+            "reason": {
+                "type": "string",
+                "enum": ["exit", "archive", "idle", "deleted", "error"],
+            },
+            "transcript_path": _STRING,
+            "last_assistant_message": _STRING,
+        },
+        required=("reason", "transcript_path", "last_assistant_message"),
+    ),
 }
 
 _BASE_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
@@ -329,6 +341,7 @@ HOOK_OUTPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
         _CONTINUATION_PROPERTIES,
         _CONTEXT_OUTPUT_PROPERTIES,
     ),
+    "SessionEnd": _output_schema("SessionEnd"),
 }
 
 

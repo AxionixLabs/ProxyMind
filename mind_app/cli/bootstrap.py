@@ -76,6 +76,8 @@ from .selection import (
     resolve_cli_output_mode
 )
 
+CleanupResult = typing.TypeVar("CleanupResult")
+
 
 def _emit_helix_skipped(controller: Mind) -> None:
     """输出 Helix 启动被跳过的状态。"""
@@ -98,11 +100,13 @@ def _emit_helix_skipped(controller: Mind) -> None:
     controller.frontend.application.emit(ApplicationView(type="spacer"))
 
 
-async def _await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+async def _await_cleanup(
+    awaitable: typing.Awaitable[CleanupResult],
+) -> CleanupResult:
     """在取消态下等待清理任务执行完成。"""
     task = asyncio.ensure_future(awaitable)
     try:
-        await asyncio.shield(task)
+        return await asyncio.shield(task)
     except asyncio.CancelledError:
         await task
         raise
@@ -479,10 +483,19 @@ async def finalize_application(
         exit_code=controller.exit_code,
     )
     try:
-        await controller.frontend.runtime.close()
-    except BaseException as error:
-        observe_exception("frontend.close.failed", error)
-        raise
+        try:
+            await controller.await_cleanup(controller.end_conversation(
+                reason="exit" if completed else "error",
+            ))
+        except BaseException as error:
+            observe_exception("session.close.failed", error)
+            raise
+        finally:
+            try:
+                await controller.frontend.runtime.close()
+            except BaseException as error:
+                observe_exception("frontend.close.failed", error)
+                raise
     finally:
         await controller.close_runtime_resources()
 

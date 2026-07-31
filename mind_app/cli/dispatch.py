@@ -88,7 +88,7 @@ async def run_selected_mode(
             if record is None:
                 mind.task_event.set()
             else:
-                resumed = mind.resume_conversation(
+                resumed = await mind.resume_conversation(
                     record,
                     source="tui:resume",
                 )

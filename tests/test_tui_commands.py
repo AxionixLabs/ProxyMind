@@ -255,7 +255,7 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
             application=SimpleNamespace(emit=views.append),
         ),
         attach=attach,
-        reset_conversation=Mock(return_value={
+        reset_conversation=AsyncMock(return_value={
             "cid": "cid_new_12345678",
             "sid": "sid_new_1_abcdef",
         }),
@@ -293,7 +293,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
         attach=attach,
         history_workspace="D:/workspace",
         recent_conversation_sessions=Mock(return_value=[record]),
-        resume_conversation=Mock(return_value=record),
+        resume_conversation=AsyncMock(return_value=record),
     )
     monkeypatch.setattr(
         dispatch_module,

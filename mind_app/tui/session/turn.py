@@ -135,7 +135,7 @@ async def run_tui_model_turn(
     runner = resolve_mode_runner(mind, run_mode)
     extras = dict(prompt_extras or {})
 
-    conversation_turn = mind.begin_conversation_turn(
+    conversation_turn = await mind.begin_conversation_turn(
         title=session_title,
         source="tui",
     )

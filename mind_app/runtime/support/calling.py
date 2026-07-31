@@ -91,7 +91,7 @@ async def calling(
     cid          = meta_in.get("cid") if isinstance(meta_in, dict) else None
     sid          = meta_in.get("sid") if isinstance(meta_in, dict) else None
 
-    conversation_turn = mind.begin_conversation_turn(
+    conversation_turn = await mind.begin_conversation_turn(
         cid=cid,
         sid=sid,
         title=message,

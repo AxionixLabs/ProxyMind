@@ -58,6 +58,10 @@ from .runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
+from .runtime.hooks.session import (
+    SessionEndReason,
+    SessionLifecycleGateway
+)
 from .runtime.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
@@ -71,6 +75,7 @@ from .history.ids import valid_session_ids
 from .mcp.contracts import McpSessionLike
 
 SessionResult = typing.TypeVar("SessionResult")
+CleanupResult = typing.TypeVar("CleanupResult")
 
 if typing.TYPE_CHECKING:
     from .modes.result import RunResult
@@ -118,6 +123,13 @@ class Mind(object):
 
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
+
+        self._conversation_lifecycle_id: int = 0
+
+        self.session_lifecycle = SessionLifecycleGateway(
+            scope_factory=self.hook_scope,
+            cleanup_session=self.hook_registry.cleanup_session,
+        )
 
         self.report: RunReport = kwargs.get("report") or RunReport(self.src_total_place)
 
@@ -197,16 +209,18 @@ class Mind(object):
             observe_exception("keepalive.task.failed", error, level="WARNING")
 
     @staticmethod
-    async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+    async def await_cleanup(
+        awaitable: typing.Awaitable[CleanupResult],
+    ) -> CleanupResult:
         """在取消态下也等待清理逻辑执行完成。"""
         task = asyncio.ensure_future(awaitable)
         try:
-            await asyncio.shield(task)
+            return await asyncio.shield(task)
         except asyncio.CancelledError:
             await task
             raise
 
-    def begin_conversation_turn(
+    async def begin_conversation_turn(
         self,
         cid: typing.Optional[str] = None,
         sid: typing.Optional[str] = None,
@@ -215,6 +229,23 @@ class Mind(object):
         source: str = "begin"
     ) -> ConversationTurn:
         """为新轮次初始化或续用当前会话标识。"""
+        external_cid = str(cid or "").strip()
+        external_sid = str(sid or "").strip()
+        if external_cid or external_sid:
+            if not valid_session_ids(external_cid, external_sid):
+                raise ValueError("valid cid and sid are required")
+            if (
+                self.conversation.cid
+                and self.conversation.sid
+                and (
+                    external_cid != self.conversation.cid
+                    or external_sid != self.conversation.sid
+                )
+            ):
+                await self.end_conversation(reason="archive")
+                self._conversation_lifecycle_id += 1
+                self.last_assistant_reply = ""
+
         turn = self.conversation.begin_turn(
             cid=cid,
             sid=sid,
@@ -235,14 +266,17 @@ class Mind(object):
 
         return turn
 
-    def reset_conversation(
+    async def reset_conversation(
         self,
         *,
         reason: str = "manual",
         source: str = "reset"
     ) -> dict[str, str]:
         """开始一个新的模型对话。"""
+        await self.end_conversation(reason="archive")
         metadata = self.conversation.reset(reason=reason)
+        self._conversation_lifecycle_id += 1
+        self.last_assistant_reply = ""
 
         self._touch_history_session(metadata, source=source)
 
@@ -304,7 +338,7 @@ class Mind(object):
             return None
         return record
 
-    def resume_conversation(
+    async def resume_conversation(
         self,
         record: dict[str, typing.Any],
         *,
@@ -324,12 +358,12 @@ class Mind(object):
             )
             return None
 
-        metadata = self.bind_conversation(cid, sid, source=source)
+        metadata = await self.bind_conversation(cid, sid, source=source)
         if metadata is not None:
             observe("history.resumed", cid=cid, sid=sid)
         return metadata
 
-    def bind_conversation(
+    async def bind_conversation(
         self,
         cid: str,
         sid: str,
@@ -348,11 +382,20 @@ class Mind(object):
             )
             return None
 
+        if self.conversation.cid == cid and self.conversation.sid == sid:
+            metadata = self.conversation.snapshot()
+            self._touch_history_session(metadata, source=source)
+            observe("conversation.reused", cid=cid, sid=sid, source=source)
+            return metadata
+
+        await self.end_conversation(reason="archive")
         self.conversation = ConversationState(
             cid=cid,
             sid=sid,
             start_reason=source,
         )
+        self._conversation_lifecycle_id += 1
+        self.last_assistant_reply = ""
 
         metadata = self.conversation.snapshot()
 
@@ -361,6 +404,56 @@ class Mind(object):
         observe("conversation.bound", cid=cid, sid=sid, source=source)
 
         return metadata
+
+    async def end_conversation(self, *, reason: SessionEndReason) -> None:
+        """结束当前已经开始的根会话。"""
+        conversation = self.conversation
+        cid = str(conversation.cid or "").strip()
+        sid = str(conversation.sid or "").strip()
+        if conversation.turn_count <= 0 or not valid_session_ids(cid, sid):
+            return None
+
+        await self.session_lifecycle.end(
+            self._conversation_lifecycle_id,
+            self._session_hook_context(cid=cid, sid=sid),
+            reason=reason,
+            transcript_path=str(self.report.log_papers or ""),
+            last_assistant_message=self.last_assistant_reply_snapshot(),
+        )
+
+    def _session_hook_context(
+        self,
+        *,
+        cid: str,
+        sid: str,
+    ) -> HookExecutionContext:
+        """构建根会话生命周期事件使用的固定上下文。"""
+        pref_config = self.pref.to_config()
+        primary = (
+            pref_config.get("primary")
+            if isinstance(pref_config, dict)
+            else None
+        )
+        model = (
+            str(primary.get("model") or "").strip()
+            if isinstance(primary, dict)
+            else ""
+        )
+        return HookExecutionContext(
+            session_id=sid,
+            root_session_id=sid,
+            conversation_id=cid,
+            turn_id="",
+            cwd=self.history_workspace,
+            model=model,
+            mode=DEFAULT_RUN_MODE,
+            source="session",
+            sandbox_mode=self.permissions.sandbox_mode,
+            permission_mode=self.permissions.approval_policy,
+            agent_id="root",
+            agent_type="root",
+            agent_depth=0,
+        )
 
     def prepare_conversation_fork(
         self,

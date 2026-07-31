@@ -53,7 +53,7 @@ class _TuiController:
         self.conversation_calls = []
         self.hook_scopes = []
 
-    def begin_conversation_turn(self, *, title: str, source: str):
+    async def begin_conversation_turn(self, *, title: str, source: str):
         self.events.append("conversation")
         self.conversation_calls.append((title, source))
         return ConversationTurn(
