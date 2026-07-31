@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from mind_app.runtime.hooks.effects import normalize_business_block
 from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
 from mind_app.runtime.hooks.protocol import (
     HOOK_INPUT_SCHEMAS,
@@ -97,3 +98,37 @@ def test_output_schema_rejects_unknown_fields() -> None:
 def test_output_schema_rejects_invalid_decision() -> None:
     with pytest.raises(ValueError, match="must be one of allow, deny, block"):
         validate_hook_output("PreToolUse", {"decision": "unknown"})
+
+
+def test_output_schema_accepts_transport_spill_metadata() -> None:
+    validate_hook_output("SessionStart", {
+        "stdout": "output spilled",
+        "outputSpill": {
+            "stdout": {
+                "path": "D:/tmp/stdout.log",
+                "size_bytes": 300000,
+                "head": "first",
+                "tail": "last",
+            },
+        },
+    })
+
+
+def test_business_block_maps_to_permission_denial() -> None:
+    normalized = normalize_business_block(
+        "PermissionRequest",
+        reason="policy denied",
+    )
+
+    assert normalized.effect.decision == "deny"
+    assert not normalized.effect.continue_execution
+
+
+def test_business_block_maps_stop_to_continuation() -> None:
+    normalized = normalize_business_block(
+        "Stop",
+        reason="continue checking",
+    )
+
+    assert normalized.effect.decision == "block"
+    assert normalized.effect.continuation_prompt == "continue checking"

@@ -21,6 +21,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.subagents = SimpleNamespace(
         shutdown=lambda: step("subagents"),
     )
+    controller.hook_registry = SimpleNamespace(
+        close=lambda: step("hooks"),
+    )
     controller.native_coding = SimpleNamespace(
         close=lambda: step("native_coding"),
     )
@@ -37,6 +40,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     assert timeline == [
         "service_startup",
         "subagents",
+        "hooks",
         "native_coding",
         "external_mcp",
         "config_service",

@@ -10,6 +10,27 @@ from .models import (
 )
 
 
+def normalize_business_block(
+    event: HookEventName,
+    *,
+    reason: str,
+    transport_output: dict[str, typing.Any] | None = None
+) -> HookNormalizedOutput:
+    """把命令退出码表达的业务阻断转换为统一输出。"""
+    output = dict(transport_output or {})
+    output["reason"] = str(reason or "").strip() or "hook blocked execution"
+
+    if event == "PermissionRequest":
+        output["decision"] = "deny"
+    elif event in {"Stop", "SubagentStop"}:
+        output["decision"] = "block"
+        output["continuationPrompt"] = output["reason"]
+    else:
+        output["continue"] = False
+
+    return normalize_hook_output(event, output)
+
+
 def normalize_hook_output(
     event: HookEventName,
     data: dict[str, typing.Any]

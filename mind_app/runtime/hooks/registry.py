@@ -80,6 +80,16 @@ class HookRegistry:
             status=status,
         )
 
+    async def cleanup_session(self, session_id: str) -> None:
+        """清理指定会话产生的 Hook 临时输出。"""
+        if isinstance(self._command_runner, HookCommandExecutor):
+            await self._command_runner.cleanup_session(session_id)
+
+    async def close(self) -> None:
+        """关闭 Hook 命令执行器持有的临时资源。"""
+        if isinstance(self._command_runner, HookCommandExecutor):
+            await self._command_runner.close()
+
     def inspect(
         self,
         definitions: typing.Iterable[HookDefinitionConfig],

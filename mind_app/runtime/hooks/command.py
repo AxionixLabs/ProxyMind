@@ -10,8 +10,14 @@ import contextlib
 import subprocess
 from dataclasses import dataclass
 from mind_core.hooks import HookDefinitionConfig
+from mind_nova import const
+from .output_spill import (
+    CapturedHookOutput,
+    HookOutputSpillStore
+)
 
-MAX_HOOK_OUTPUT_BYTES = 256 * 1024
+HOOK_BUSINESS_BLOCK_EXIT_CODE = 2
+MAX_HOOK_DIAGNOSTIC_CHARS     = 8 * 1024
 
 
 class HookCommandError(RuntimeError):
@@ -23,10 +29,19 @@ class HookCommandOutput:
     """保存命令 Hook 返回的结构化输出。"""
     data: dict[str, typing.Any]
     stderr: str = ""
+    business_block: bool = False
+    block_reason: str = ""
 
 
 class HookCommandExecutor:
     """通过本地子进程执行命令 Hook。"""
+
+    def __init__(
+        self,
+        *,
+        spill_store: HookOutputSpillStore | None = None
+    ) -> None:
+        self._spill_store = spill_store or HookOutputSpillStore()
 
     async def execute(
         self,
@@ -39,8 +54,10 @@ class HookCommandExecutor:
             ensure_ascii=True,
             separators=(",", ":"),
             default=str,
-        ).encode("utf-8")
-        handler = definition.handler
+        ).encode(const.CHARSET)
+
+        handler    = definition.handler
+        session_id = str(payload.get("session_id") or "")
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -55,12 +72,20 @@ class HookCommandExecutor:
             raise HookCommandError(f"hook command could not start: {error}") from error
 
         stdout_task = asyncio.create_task(
-            self._read_limited(process.stdout),
+            self._spill_store.capture(
+                process.stdout,
+                session_id=session_id,
+                channel="stdout",
+            ),
             name="hook stdout",
         )
 
         stderr_task = asyncio.create_task(
-            self._read_limited(process.stderr),
+            self._spill_store.capture(
+                process.stderr,
+                session_id=session_id,
+                channel="stderr",
+            ),
             name="hook stderr",
         )
 
@@ -109,30 +134,49 @@ class HookCommandExecutor:
             )
             raise
 
-        stderr_text = stderr.decode("utf-8", errors="replace").strip()
-        if return_code != 0:
-            raise HookCommandError(
-                f"hook command exited with code {return_code}"
+        stderr_text = stderr.text()
+        spill_data  = self._spill_data(stdout, stderr)
+
+        if return_code == HOOK_BUSINESS_BLOCK_EXIT_CODE:
+            reason = stderr_text or stdout.text() or "hook command blocked execution"
+            return HookCommandOutput(
+                data=spill_data,
+                stderr=stderr_text,
+                business_block=True,
+                block_reason=self._bounded_diagnostic(reason),
             )
 
-        stdout_text = stdout.decode("utf-8", errors="strict").strip()
-        if not stdout_text:
-            return HookCommandOutput(data={}, stderr=stderr_text)
+        if return_code != 0:
+            diagnostic = stderr_text or stdout.text()
 
-        try:
-            data = json.loads(stdout_text)
-        except (UnicodeError, json.JSONDecodeError) as error:
-            raise HookCommandError(f"hook output is not valid JSON: {error}") from error
-        if not isinstance(data, dict):
-            raise HookCommandError("hook output must be a JSON object")
+            suffix = (
+                f": {self._bounded_diagnostic(diagnostic)}"
+                if diagnostic
+                else ""
+            )
+            raise HookCommandError(
+                f"hook command exited with code {return_code}{suffix}"
+            )
+
+        data = self._parse_stdout(stdout)
+        data.update(spill_data)
+
         return HookCommandOutput(data=data, stderr=stderr_text)
+
+    async def cleanup_session(self, session_id: str) -> None:
+        """清理指定会话产生的大输出临时文件。"""
+        await self._spill_store.cleanup_session(session_id)
+
+    async def close(self) -> None:
+        """清理执行器持有的全部大输出临时文件。"""
+        await self._spill_store.close()
 
     @staticmethod
     async def _wait_for_process(
         process: asyncio.subprocess.Process,
-        stdout_task: "asyncio.Task[bytes]",
-        stderr_task: "asyncio.Task[bytes]",
-    ) -> tuple[int, bytes, bytes]:
+        stdout_task: "asyncio.Task[CapturedHookOutput]",
+        stderr_task: "asyncio.Task[CapturedHookOutput]"
+    ) -> tuple[int, CapturedHookOutput, CapturedHookOutput]:
         """等待进程和输出读取任务全部结束。"""
         return_code, stdout, stderr = await asyncio.gather(
             process.wait(),
@@ -142,26 +186,50 @@ class HookCommandExecutor:
         return int(return_code), stdout, stderr
 
     @staticmethod
-    async def _read_limited(
-        stream: asyncio.StreamReader | None,
-    ) -> bytes:
-        """读取有界命令输出。"""
-        if stream is None:
-            return b""
+    def _parse_stdout(output: CapturedHookOutput) -> dict[str, typing.Any]:
+        """把小输出解析为 JSON，把大输出或普通文本转换为上下文。"""
+        stdout_text = output.text()
+        if not stdout_text:
+            return {}
+        if output.spill is not None:
+            return {"stdout": stdout_text}
 
-        output = bytearray()
-        while chunk := await stream.read(65536):
-            output.extend(chunk)
-            if len(output) > MAX_HOOK_OUTPUT_BYTES:
-                raise HookCommandError(
-                    f"hook output exceeds {MAX_HOOK_OUTPUT_BYTES} bytes"
-                )
-        return bytes(output)
+        try:
+            data = json.loads(stdout_text)
+        except json.JSONDecodeError:
+            return {"stdout": stdout_text}
+        if not isinstance(data, dict):
+            raise HookCommandError("hook output must be a JSON object")
+        return data
+
+    @staticmethod
+    def _spill_data(
+        stdout: CapturedHookOutput,
+        stderr: CapturedHookOutput
+    ) -> dict[str, typing.Any]:
+        """返回 stdout 和 stderr 的结构化 spill 信息。"""
+        spills = {
+            channel: captured.spill.metadata()
+            for channel, captured in (
+                ("stdout", stdout),
+                ("stderr", stderr),
+            )
+            if captured.spill is not None
+        }
+        return {"outputSpill": spills} if spills else {}
+
+    @staticmethod
+    def _bounded_diagnostic(value: str) -> str:
+        """返回适合错误和审计记录的有界诊断文本。"""
+        text = str(value or "").strip()
+        if len(text) <= MAX_HOOK_DIAGNOSTIC_CHARS:
+            return text
+        return f"{text[:MAX_HOOK_DIAGNOSTIC_CHARS]}..."
 
     @staticmethod
     async def _terminate(
         process: asyncio.subprocess.Process,
-        *tasks: "asyncio.Task[typing.Any]",
+        *tasks: "asyncio.Task[typing.Any]"
     ) -> None:
         """停止进程树并回收输出读取任务。"""
         if process.returncode is None:

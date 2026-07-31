@@ -195,17 +195,37 @@ _BASE_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
     "reason": _STRING,
     "stopReason": _STRING,
 }
+
 _CONTEXT_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
     "additionalContext": _CONTEXT,
     "additional_context": _CONTEXT,
     "systemMessage": _STRING,
     "system_message": _STRING,
-    "stdout": _STRING,
 }
+
+_SPILL_DETAIL_SCHEMA = _object_schema(
+    {
+        "path": _STRING,
+        "size_bytes": _INTEGER,
+        "head": _STRING,
+        "tail": _STRING,
+    },
+    required=("path", "size_bytes", "head", "tail"),
+)
+
+_COMMAND_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
+    "stdout": _STRING,
+    "outputSpill": _object_schema({
+        "stdout": _SPILL_DETAIL_SCHEMA,
+        "stderr": _SPILL_DETAIL_SCHEMA,
+    }),
+}
+
 _UPDATED_INPUT_PROPERTIES: dict[str, JsonSchema] = {
     "updatedInput": _OBJECT,
     "updated_input": _OBJECT,
 }
+
 _REPLACEMENT_PROPERTIES: dict[str, JsonSchema] = {
     "replacementResult": _ANY,
     "replacement_result": _ANY,
@@ -214,6 +234,7 @@ _REPLACEMENT_PROPERTIES: dict[str, JsonSchema] = {
     "suppressOriginalOutput": _BOOLEAN,
     "suppress_original_output": _BOOLEAN,
 }
+
 _CONTINUATION_PROPERTIES: dict[str, JsonSchema] = {
     "continuationPrompt": _STRING,
     "continuation_prompt": _STRING,
@@ -230,9 +251,14 @@ def _output_schema(
     *groups: dict[str, JsonSchema],
 ) -> JsonSchema:
     """构建事件输出 schema。"""
-    properties: dict[str, JsonSchema] = {}
+    properties = {
+        **_COMMAND_OUTPUT_PROPERTIES,
+        **_BASE_OUTPUT_PROPERTIES,
+    }
+
     for group in groups:
         properties.update(group)
+
     properties["hookSpecificOutput"] = _object_schema({
         "hookEventName": {
             "type": "string",
@@ -240,6 +266,7 @@ def _output_schema(
         },
         **properties,
     })
+
     return _object_schema(properties)
 
 

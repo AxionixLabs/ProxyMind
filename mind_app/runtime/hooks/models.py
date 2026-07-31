@@ -112,12 +112,14 @@ class HookExecutionRecord:
     hook_key: str
     output: dict[str, typing.Any] = field(default_factory=dict)
     effect: HookOutputEffect = field(default_factory=HookOutputEffect)
+    stderr: str = ""
     error: str = ""
     blocks_event: bool = False
 
     def __post_init__(self) -> None:
         """复制结构化输出，避免聚合期间被外部修改。"""
         object.__setattr__(self, "output", dict(self.output))
+        object.__setattr__(self, "stderr", str(self.stderr or "").strip())
 
     @property
     def ok(self) -> bool:

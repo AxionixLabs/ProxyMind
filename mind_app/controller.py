@@ -779,6 +779,7 @@ class Mind(object):
             await self.cancel_service_runtime_startup()
 
             await self.subagents.shutdown()
+            await self.hook_registry.close()
 
             with contextlib.suppress(Exception):
                 await self.native_coding.close()

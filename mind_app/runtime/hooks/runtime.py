@@ -5,12 +5,16 @@ import re
 import typing
 import asyncio
 from dataclasses import dataclass
-from engine.observability import observe_exception
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_core.hooks import (
     HookDefinitionConfig,
     HookEventName
 )
 from .command import HookCommandExecutor
+from .effects import normalize_business_block
 from .events import hook_event_spec
 from .models import (
     HookDispatchResult,
@@ -194,7 +198,8 @@ class HookRuntime:
         ]
     ) -> HookExecutionRecord:
         """执行单个 Hook 并转换为独立执行记录。"""
-        definition = registered.definition
+        definition  = registered.definition
+        stderr_text = ""
 
         try:
             result = await self.command_runner.execute(
@@ -206,7 +211,18 @@ class HookRuntime:
             if not isinstance(raw_output, dict):
                 raise ValueError("hook output must be a JSON object")
 
-            normalized = normalize_output(raw_output)
+            stderr_text = str(getattr(result, "stderr", "") or "").strip()
+            if stderr_text:
+                self._observe_stderr(definition, request, stderr_text)
+
+            if bool(getattr(result, "business_block", False)):
+                normalized = normalize_business_block(
+                    request.event,
+                    reason=str(getattr(result, "block_reason", "") or ""),
+                    transport_output=raw_output,
+                )
+            else:
+                normalized = normalize_output(raw_output)
 
         except asyncio.CancelledError:
             raise
@@ -216,6 +232,7 @@ class HookRuntime:
             error_text = str(error).strip() or type(error).__name__
             return HookExecutionRecord(
                 hook_key=definition.key,
+                stderr=stderr_text,
                 error=error_text,
                 blocks_event=definition.on_error == "block",
             )
@@ -224,6 +241,7 @@ class HookRuntime:
             hook_key=definition.key,
             output=normalized.output,
             effect=normalized.effect,
+            stderr=stderr_text,
         )
 
     @staticmethod
@@ -262,6 +280,27 @@ class HookRuntime:
             level="WARNING",
             **fields,
         )
+
+    @staticmethod
+    def _observe_stderr(
+        definition: HookDefinitionConfig,
+        request: HookEventRequest,
+        stderr: str
+    ) -> None:
+        """把命令标准错误写入 Hook 审计事件。"""
+        fields = {
+            "hook_key"   : definition.key,
+            "hook_event" : definition.event,
+            "stderr"     : stderr[:8192]
+        }
+
+        fields.update({
+            key: value
+            for key, value in request.diagnostics.items()
+            if key not in fields
+        })
+
+        observe("hook.stderr", level="WARNING", **fields)
 
 
 if __name__ == '__main__':

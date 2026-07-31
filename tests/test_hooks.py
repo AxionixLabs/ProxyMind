@@ -23,6 +23,7 @@ from mind_app.runtime.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
+from mind_app.runtime.hooks.output_spill import HookOutputSpillStore
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import (
@@ -852,7 +853,7 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_command_executor_rejects_invalid_json(tmp_path) -> None:
+async def test_command_executor_uses_non_json_stdout_as_context(tmp_path) -> None:
     script = tmp_path / "invalid_hook.py"
     script.write_text("print('not-json')\n", encoding="utf-8")
     definition = _definitions({
@@ -861,11 +862,98 @@ async def test_command_executor_rejects_invalid_json(tmp_path) -> None:
         )],
     })[0]
 
-    with pytest.raises(HookCommandError, match="not valid JSON"):
+    output = await HookCommandExecutor().execute(
+        definition,
+        {"cwd": str(tmp_path)},
+    )
+
+    assert output.data == {"stdout": "not-json"}
+
+
+@pytest.mark.anyio
+async def test_command_executor_exit_two_is_business_block(tmp_path) -> None:
+    script = tmp_path / "blocking_hook.py"
+    script.write_text(
+        "import sys\n"
+        "print('policy denied', file=sys.stderr)\n"
+        "raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "PreToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+
+    result = await HookRuntime(
+        (definition,),
+        command_runner=HookCommandExecutor(),
+    ).dispatch(HookEventRequest(
+        event="PreToolUse",
+        payload={"cwd": str(tmp_path), "session_id": "sid"},
+    ))
+
+    assert result.records[0].ok
+    assert result.records[0].stderr == "policy denied"
+    assert not result.records[0].effect.continue_execution
+    assert result.records[0].effect.reason == "policy denied"
+
+
+@pytest.mark.anyio
+async def test_command_executor_other_nonzero_exit_is_failure(tmp_path) -> None:
+    script = tmp_path / "failed_hook.py"
+    script.write_text(
+        "import sys\n"
+        "print('runtime failed', file=sys.stderr)\n"
+        "raise SystemExit(3)\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "PreToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+
+    with pytest.raises(HookCommandError, match="code 3: runtime failed"):
         await HookCommandExecutor().execute(
             definition,
-            {"cwd": str(tmp_path)},
+            {"cwd": str(tmp_path), "session_id": "sid"},
         )
+
+
+@pytest.mark.anyio
+async def test_command_executor_spills_large_stdout_by_session(tmp_path) -> None:
+    script = tmp_path / "large_hook.py"
+    script.write_text(
+        "print('HEAD-' + ('x' * 160) + '-TAIL')\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "SessionStart": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+    executor = HookCommandExecutor(spill_store=HookOutputSpillStore(
+        threshold_bytes=64,
+        root=tmp_path / "spill",
+    ))
+
+    output = await executor.execute(
+        definition,
+        {"cwd": str(tmp_path), "session_id": "sid"},
+    )
+
+    spill = output.data["outputSpill"]["stdout"]
+    spill_path = Path(spill["path"])
+    assert spill_path.exists()
+    assert spill["size_bytes"] > 64
+    assert spill["head"].startswith("HEAD-")
+    assert spill["tail"].endswith("-TAIL")
+    assert str(spill_path) in output.data["stdout"]
+
+    await executor.cleanup_session("sid")
+
+    assert not spill_path.exists()
 
 
 @pytest.mark.anyio
