@@ -19,9 +19,11 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
     PROCESS_VIEWER_FOCUS_REQUEST,
+    PS_OUTPUT_LIMIT,
     append_exec_stream_snapshot,
     exec_session_live_block,
     exec_session_summary_block,
+    exec_session_transcript_block,
     manage_exec_sessions,
     render_exec_session_panel,
     render_exec_sessions_stopped,
@@ -128,7 +130,7 @@ async def test_streaming_ps_appends_dimmed_process_summaries_without_menu() -> N
     for index in range(3):
         output_snapshot.assert_any_await(
             session_id=f"exec_{index}",
-            max_output_chars=60000,
+            max_output_chars=PS_OUTPUT_LIMIT,
         )
     assert runtime.document.active_kind == "assistant"
     fragments = runtime.document.fragments(width=80)
@@ -552,11 +554,15 @@ async def test_detaching_shell_viewer_keeps_session_for_ps() -> None:
         native_coding=native_coding,
     )
     committed = []
+
+    def commit_process_viewer(block, *, transcript_block=None) -> None:
+        committed.append((block, transcript_block))
+
     runtime = SimpleNamespace(
         view_process=AsyncMock(return_value="detach"),
-        update_process_viewer=lambda block: None,
+        update_process_viewer=lambda block, transcript_block=None: None,
         resolve_process_viewer=lambda value: None,
-        commit_process_viewer=committed.append,
+        commit_process_viewer=commit_process_viewer,
         dismiss_process_viewer=lambda: None,
         cancel_background_session_task=lambda session_id: None,
         start_background_session_task=(
@@ -574,11 +580,13 @@ async def test_detaching_shell_viewer_keeps_session_for_ps() -> None:
     assert viewed
     assert native_coding.exec_session_output_snapshot.await_count >= 1
     assert len(committed) == 1
-    text = "".join(value for _style, value in committed[0].fragments)
+    block, transcript_block = committed[0]
+    text = "".join(value for _style, value in block.fragments)
     assert "Shell" in text
     assert " · background · " not in text
     assert "exec_background" in text
     assert "ready" in text
+    assert transcript_block == exec_session_transcript_block(snapshot)
 
 
 def test_background_completion_waits_for_stream_boundary() -> None:
@@ -589,11 +597,11 @@ def test_background_completion_waits_for_stream_boundary() -> None:
     runtime.queue_background_block(block)
 
     assert not runtime.document.blocks
-    assert runtime._background_blocks == [block]
+    assert runtime._background_blocks == [(block, block)]
 
     runtime.set_execution_active(False)
 
-    assert runtime.document.blocks[-1].block == block
+    assert runtime.document.blocks[-1].display_block == block
     assert not runtime._background_blocks
 
 
@@ -645,6 +653,23 @@ def test_process_stream_panel_uses_two_clipped_header_lines() -> None:
     assert all(get_cwidth(line) <= 60 for line in lines)
 
 
+def test_process_transcript_keeps_full_command_and_retained_output() -> None:
+    command = "Get-ChildItem\n| Select-Object Name"
+    output = "\n".join(f"line {index}" for index in range(40))
+
+    block = exec_session_transcript_block({
+        "command": command,
+        "output": output,
+        "output_lines": ["tail only"],
+    })
+    text = "".join(value for _style, value in block.fragments)
+
+    assert text.startswith(f"$ {command}\n")
+    assert "line 0" in text
+    assert "line 39" in text
+    assert "tail only" not in text
+
+
 def test_foreground_completion_commits_before_barrier_release() -> None:
     runtime = TuiRuntime()
     block = FragmentBlock((("class:ps.title", "Operation ready"),))
@@ -652,7 +677,7 @@ def test_foreground_completion_commits_before_barrier_release() -> None:
 
     runtime.queue_background_block(block)
 
-    assert runtime.document.blocks[-1].block == block
+    assert runtime.document.blocks[-1].display_block == block
     assert not runtime._background_blocks
 
 
@@ -687,7 +712,7 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
     runtime.commit_process_viewer(final_block)
 
     assert runtime.document.active_block is None
-    assert runtime.document.blocks[-1].block == final_block
+    assert runtime.document.blocks[-1].display_block == final_block
     assert runtime.screen.input_area.filter()
 
 
@@ -731,7 +756,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
     assert runtime.screen.input_area.filter()
     text = "".join(
         value
-        for _style, value in runtime.document.blocks[-1].block.fragments
+        for _style, value in runtime.document.blocks[-1].display_block.fragments
     )
     assert "git pull" in text
     assert "Already up to date." in text

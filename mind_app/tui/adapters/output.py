@@ -194,9 +194,12 @@ class TuiOutputControl(OutputControlPort):
         block: StyledBlock,
         *,
         block_kind: TuiBlockKind = "operation",
+        transcript_block: StyledBlock | None = None
     ) -> None:
         """提交正文后追加一个结构化展示块。"""
-        block = sanitize_styled_block(block)
+        block            = sanitize_styled_block(block)
+        transcript_block = sanitize_styled_block(transcript_block or block)
+
         if not block.plain_text:
             return None
 
@@ -209,6 +212,9 @@ class TuiOutputControl(OutputControlPort):
                 block,
             )),
             kind=block_kind,
+            transcript_block=FragmentBlock(styled_block_fragments(
+                transcript_block,
+            )),
         )
 
     def flush(self) -> None:

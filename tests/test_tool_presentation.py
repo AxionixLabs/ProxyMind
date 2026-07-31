@@ -5,6 +5,11 @@ from mind_app.presentation.renderers.tool import (
     render_native_tool_result_view,
     render_tool_start_view,
 )
+from mind_app.presentation.batch_views import build_batch_start_view
+from mind_app.presentation.renderers.dispatch import (
+    render_presentation_transcript_view,
+    render_presentation_view,
+)
 from mind_app.presentation.styles import (
     ACTION_TOOL_CALLING_STYLE,
     ACTION_TOOL_INVOKED_STYLE,
@@ -21,6 +26,24 @@ from mind_app.presentation.tool_views import (
 
 def _span_style(block, text: str):
     return next(span.style for span in block.spans if span.text == text)
+
+
+def test_batch_start_transcript_keeps_full_nested_arguments() -> None:
+    command = "echo " + "value-" * 40
+    view = build_batch_start_view([(
+        "shell_command",
+        {
+            "command": command,
+            "metadata": {"target": "nested-value"},
+        },
+    )])
+
+    display = render_presentation_view(view)[0].plain_text
+    transcript = render_presentation_transcript_view(view)[0].plain_text
+
+    assert command not in display
+    assert command in transcript
+    assert '"target": "nested-value"' in transcript
 
 
 def test_tool_start_uses_calling_copy_and_pending_colors() -> None:

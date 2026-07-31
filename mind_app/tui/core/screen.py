@@ -5,9 +5,14 @@ import sys
 import shutil
 import typing
 import contextlib
+from dataclasses import dataclass
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.data_structures import Point
+from prompt_toolkit.cursor_shapes import CursorShape
+from prompt_toolkit.data_structures import (
+    Point,
+    Size
+)
 from prompt_toolkit.filters import (
     Condition,
     has_focus,
@@ -40,6 +45,7 @@ from prompt_toolkit.layout.processors import (
     AfterInput,
     ConditionalProcessor
 )
+from prompt_toolkit.layout.screen import Screen
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
@@ -90,11 +96,22 @@ from .styles import (
     build_tui_application_style,
     exit_summary_fragments
 )
+from .transcript_overlay import TuiTranscriptOverlay
+
+
+@dataclass(frozen=True, slots=True)
+class _InlineRendererState(object):
+    """保存进入完整终端画面前的 renderer diff 状态。"""
+    cursor_pos: Point
+    last_screen: Screen | None
+    last_size: Size | None
+    last_style: str | None
+    last_cursor_shape: CursorShape | None
+    min_available_height: int
 
 
 class TuiScreen(object):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
-
     INPUT_MAX_LINES: typing.Final[int]               = 8
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
@@ -123,11 +140,12 @@ class TuiScreen(object):
         clear_exit_confirmation: typing.Callable[[], None],
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
+        toggle_transcript_overlay: typing.Callable[[], None],
         input_obj: Input | None = None,
         output_obj: Output | None = None,
         terminal_capabilities: TerminalCapabilities = (
             DEGRADED_TERMINAL_CAPABILITIES
-        ),
+        )
     ) -> None:
         self.input_model     = input_model
         self.document        = document
@@ -144,7 +162,8 @@ class TuiScreen(object):
         self._clear_exit_confirmation  = clear_exit_confirmation
         self._clear_visible_transcript = clear_visible_transcript
 
-        self._scroll_transcript_page = scroll_transcript_page
+        self._scroll_transcript_page    = scroll_transcript_page
+        self._toggle_transcript_overlay = toggle_transcript_overlay
 
         self._transcript_only: bool = False
 
@@ -208,7 +227,7 @@ class TuiScreen(object):
 
         self.bottom_pane = TuiBottomPane(
             focus_surface=self._focus_bottom_surface,
-            focus_input=lambda: self.application.layout.focus(self.input),
+            focus_input=self._focus_input,
             invalidate=self.invalidate,
         )
 
@@ -250,6 +269,19 @@ class TuiScreen(object):
             key_bindings=self.process_viewer.key_bindings,
         )
 
+        self.transcript_overlay = TuiTranscriptOverlay(
+            document=self.document,
+            get_width=lambda: self.terminal_width,
+            get_height=lambda: self._transcript_overlay_height(),
+            invalidate=self.invalidate,
+        )
+        self.transcript_overlay_control = FormattedTextControl(
+            self.transcript_overlay.visible_fragments,
+            focusable=True,
+            modal=True,
+            key_bindings=self._transcript_overlay_key_bindings(),
+        )
+
         self.transcript_window = Window(
             content=self.transcript_control,
             height=self._transcript_dimension,
@@ -257,6 +289,52 @@ class TuiScreen(object):
             always_hide_cursor=True,
             dont_extend_height=True,
             get_line_prefix=self._transcript_line_prefix,
+        )
+        self.transcript_overlay_window = Window(
+            content=self.transcript_overlay_control,
+            height=self._transcript_overlay_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+            char=" ",
+        )
+        self.transcript_overlay_header = Window(
+            content=FormattedTextControl(
+                self._transcript_overlay_header_fragments
+            ),
+            height=self._transcript_overlay_header_dimension,
+            dont_extend_height=True,
+            char=" ",
+        )
+        self.transcript_overlay_footer = HSplit(
+            [
+                Window(
+                    content=FormattedTextControl(
+                        self._transcript_overlay_separator_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    content=FormattedTextControl(
+                        self._transcript_overlay_primary_help_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    content=FormattedTextControl(
+                        self._transcript_overlay_secondary_help_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+            ],
+            height=self._transcript_overlay_footer_dimension,
+            window_too_small=Window(),
         )
         self.status_window = Window(
             content=self.status_control,
@@ -438,6 +516,31 @@ class TuiScreen(object):
             height=self._canvas_dimension,
             window_too_small=Window(),
         )
+        self.transcript_overlay_canvas = HSplit(
+            [
+                self.transcript_overlay_header,
+                self.transcript_overlay_window,
+                self.transcript_overlay_footer,
+            ],
+            align=VerticalAlign.TOP,
+            height=self._transcript_overlay_canvas_dimension,
+            window_too_small=Window(),
+        )
+        self.root = HSplit(
+            [
+                ConditionalContainer(
+                    self.canvas,
+                    filter=Condition(lambda: not self.transcript_overlay.active),
+                ),
+                ConditionalContainer(
+                    self.transcript_overlay_canvas,
+                    filter=Condition(lambda: self.transcript_overlay.active),
+                ),
+            ],
+            align=VerticalAlign.TOP,
+            height=self._root_dimension,
+            window_too_small=Window(),
+        )
 
         dummy_io = (
             input_obj is None
@@ -449,7 +552,7 @@ class TuiScreen(object):
         application_output = output_obj or (DummyOutput() if dummy_io else None)
 
         self.application: Application[None] = Application(
-            layout=Layout(self.canvas, focused_element=self.input),
+            layout=Layout(self.root, focused_element=self.input),
             key_bindings=merge_key_bindings([
                 self.input_model.key_bindings,
                 self._transcript_key_bindings(),
@@ -467,7 +570,10 @@ class TuiScreen(object):
             input=application_input,
             output=application_output,
         )
+
         self.application.ttimeoutlen = self.ESCAPE_SEQUENCE_TIMEOUT_SEC
+
+        self._inline_renderer_state: _InlineRendererState | None = None
 
     @property
     def terminal_width(self) -> int:
@@ -505,6 +611,77 @@ class TuiScreen(object):
         """切换为只保留正文的终端画布。"""
         self._transcript_only = bool(active)
         self.invalidate()
+
+    def set_transcript_overlay(self, active: bool) -> bool:
+        """切换完整会话记录、终端画面和键盘焦点。"""
+        active = bool(active)
+        if active == self.transcript_overlay.active:
+            return False
+        if active and self._transcript_overlay_blocked():
+            return False
+
+        if active:
+            self._enter_transcript_screen()
+            self.transcript_overlay.open()
+            self.application.layout.focus(self.transcript_overlay_control)
+        else:
+            self.transcript_overlay.close()
+            self._leave_transcript_screen()
+            surface = self.bottom_pane.active_surface
+            if surface is None:
+                self._focus_input()
+            else:
+                self._focus_bottom_surface(surface)
+        self.invalidate()
+        return True
+
+    def _enter_transcript_screen(self) -> None:
+        """保存 inline 渲染状态并准备完整终端画面。"""
+        renderer = self.application.renderer
+        if self._inline_renderer_state is not None:
+            return None
+
+        # prompt_toolkit 没有运行中切换全屏的公开接口；固定版本下保留
+        # inline diff 状态，退出 alternate screen 后才能原位继续渲染。
+        self._inline_renderer_state = _InlineRendererState(
+            cursor_pos=renderer._cursor_pos,
+            last_screen=renderer._last_screen,
+            last_size=renderer._last_size,
+            last_style=renderer._last_style,
+            last_cursor_shape=renderer._last_cursor_shape,
+            min_available_height=renderer._min_available_height,
+        )
+
+        self.application.full_screen = True
+        renderer.full_screen = True
+        renderer._cursor_pos = Point(x=0, y=0)
+        renderer._last_screen = None
+        renderer._last_size = None
+        renderer._last_style = None
+        renderer._last_cursor_shape = None
+        renderer._min_available_height = self.terminal_height
+
+    def _leave_transcript_screen(self) -> None:
+        """退出完整终端画面并恢复 inline 渲染状态。"""
+        renderer = self.application.renderer
+        state = self._inline_renderer_state
+
+        if renderer._in_alternate_screen:
+            renderer.output.quit_alternate_screen()
+            renderer._in_alternate_screen = False
+            renderer.output.flush()
+
+        self.application.full_screen = False
+        renderer.full_screen = False
+
+        if state is not None:
+            renderer._cursor_pos = state.cursor_pos
+            renderer._last_screen = state.last_screen
+            renderer._last_size = state.last_size
+            renderer._last_style = state.last_style
+            renderer._last_cursor_shape = state.last_cursor_shape
+            renderer._min_available_height = state.min_available_height
+        self._inline_renderer_state = None
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
@@ -558,12 +735,31 @@ class TuiScreen(object):
     def _focus_bottom_surface(self, surface: BottomSurface) -> None:
         """把焦点切换到指定的底部临时交互表面。"""
         self._clear_exit_confirmation()
+
+        if (
+            hasattr(self, "transcript_overlay")
+            and self.transcript_overlay.active
+        ):
+            self.application.layout.focus(self.transcript_overlay_control)
+            return None
+
         controls = {
             "approval": self.approval_control,
             "menu": self.menu_control,
             "process_viewer": self.process_viewer_control,
         }
         self.application.layout.focus(controls[surface])
+
+    def _focus_input(self) -> None:
+        """把焦点路由到当前顶层记录或主输入控件。"""
+        if (
+            hasattr(self, "transcript_overlay")
+            and self.transcript_overlay.active
+        ):
+            self.application.layout.focus(self.transcript_overlay_control)
+            return None
+
+        self.application.layout.focus(self.input)
 
     def _input_line_prefix(
         self,
@@ -583,8 +779,12 @@ class TuiScreen(object):
         wrap_count: int
     ) -> StyleAndTextTuples:
         """让助手正文自动折行后继续与首行正文对齐。"""
-        if wrap_count <= 0 or not self._assistant_line(line_number):
+        if (
+            wrap_count <= 0
+            or not self._assistant_line(self.transcript_fragments(), line_number)
+        ):
             return []
+
         return [(ASSISTANT_PREFIX_CLASS, "  ")]
 
     def _transcript_fragments(self) -> FormattedText:
@@ -595,12 +795,16 @@ class TuiScreen(object):
         """返回当前输入轮次固定的占位文案。"""
         return [("class:placeholder", f" {self._get_placeholder_text()}")]
 
-    def _assistant_line(self, target_line: int) -> bool:
+    @staticmethod
+    def _assistant_line(
+        fragments: FormattedText,
+        target_line: int
+    ) -> bool:
         """判断指定正文逻辑行是否属于助手正文块。"""
         line_number   = 0
         at_line_start = True
 
-        for style, text in self.transcript_fragments():
+        for style, text in fragments:
             parts = text.split("\n")
             last_index = len(parts) - 1
             for index, part in enumerate(parts):
@@ -694,6 +898,13 @@ class TuiScreen(object):
         bindings     = KeyBindings()
         input_active = has_focus(INPUT_BUFFER_NAME)
 
+        overlay_available = Condition(
+            lambda: (
+                not self.transcript_overlay.active
+                and not self._transcript_overlay_blocked()
+            )
+        )
+
         @bindings.add("c-l", eager=True, filter=input_active)
         def _(event) -> None:
             _ = event
@@ -709,11 +920,161 @@ class TuiScreen(object):
             _ = event
             self._scroll_transcript_page(1)
 
+        @bindings.add("c-t", eager=True, filter=overlay_available)
+        def _(event) -> None:
+            _ = event
+            self._toggle_transcript_overlay()
+
+        return bindings
+
+    def _transcript_overlay_key_bindings(self) -> KeyBindings:
+        """创建完整会话记录的模态按键。"""
+        bindings = KeyBindings()
+
+        @bindings.add("c-t", eager=True)
+        @bindings.add("escape", eager=True)
+        @bindings.add("q", eager=True)
+        @bindings.add("c-c", eager=True)
+        def _(event) -> None:
+            _ = event
+            self._toggle_transcript_overlay()
+
+        @bindings.add("up", eager=True)
+        @bindings.add("k", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.scroll_line(-1)
+
+        @bindings.add("down", eager=True)
+        @bindings.add("j", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.scroll_line(1)
+
+        @bindings.add("pageup", eager=True)
+        @bindings.add("c-b", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.scroll_page(-1)
+
+        @bindings.add("pagedown", eager=True)
+        @bindings.add(" ", eager=True)
+        @bindings.add("c-f", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.scroll_page(1)
+
+        @bindings.add("c-u", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.scroll_half_page(-1)
+
+        @bindings.add("c-d", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.scroll_half_page(1)
+
+        @bindings.add("home", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.jump_top()
+
+        @bindings.add("end", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.jump_bottom()
+
         return bindings
 
     def _canvas_dimension(self) -> Dimension:
         """返回随内容自然增长并受终端高度限制的画布高度。"""
         return Dimension.exact(self._visible_height())
+
+    def _root_dimension(self) -> Dimension:
+        """返回当前主画布或完整记录画布所需高度。"""
+        if self.transcript_overlay.active:
+            return self._transcript_overlay_canvas_dimension()
+        return self._canvas_dimension()
+
+    def _transcript_overlay_height(self) -> int:
+        """返回完整记录正文区域可用高度。"""
+        return max(
+            0,
+            self.terminal_height
+            - self._transcript_overlay_header_height()
+            - self._transcript_overlay_footer_height(),
+        )
+
+    def _transcript_overlay_header_height(self) -> int:
+        """返回完整记录标题区域高度。"""
+        return min(1, self.terminal_height)
+
+    def _transcript_overlay_footer_height(self) -> int:
+        """返回完整记录底栏高度。"""
+        return min(4, max(0, self.terminal_height - 1))
+
+    def _transcript_overlay_header_dimension(self) -> Dimension:
+        """返回完整记录标题区域尺寸。"""
+        return Dimension.exact(self._transcript_overlay_header_height())
+
+    def _transcript_overlay_footer_dimension(self) -> Dimension:
+        """返回完整记录底栏尺寸。"""
+        return Dimension.exact(self._transcript_overlay_footer_height())
+
+    def _transcript_overlay_dimension(self) -> Dimension:
+        """返回完整记录正文区域尺寸。"""
+        return Dimension.exact(self._transcript_overlay_height())
+
+    def _transcript_overlay_canvas_dimension(self) -> Dimension:
+        """返回完整记录画布尺寸。"""
+        return Dimension.exact(self.terminal_height)
+
+    def _transcript_overlay_header_fragments(self) -> FormattedText:
+        """生成标题覆盖在装饰图案上的单行页眉。"""
+        width = self.terminal_width
+        pattern = ("/ " * ((width + 1) // 2))[:width]
+        title = "/ T R A N S C R I P T"
+        if len(title) >= width:
+            return [("class:transcript.overlay.title", title[:width])]
+        return [
+            ("class:transcript.overlay.title", title),
+            ("class:transcript.overlay.rule", pattern[len(title):]),
+        ]
+
+    def _transcript_overlay_separator_fragments(self) -> FormattedText:
+        """生成包含滚动百分比的底栏分隔线。"""
+        width = self.terminal_width
+        percentage = self.transcript_overlay.scroll_percentage()
+        progress = f" {percentage}% "
+        progress_start = max(0, width - len(progress) - 1)
+        return [
+            ("class:transcript.overlay.rule", "─" * progress_start),
+            ("class:transcript.overlay.progress", progress),
+            (
+                "class:transcript.overlay.rule",
+                "─" * max(0, width - progress_start - len(progress)),
+            ),
+        ]
+
+    @staticmethod
+    def _transcript_overlay_primary_help_fragments() -> FormattedText:
+        """生成完整记录的滚动提示。"""
+        return [
+            (
+                "class:transcript.overlay.help",
+                " Up/Down to scroll   PgUp/PgDn to page   Home/End to jump",
+            )
+        ]
+
+    @staticmethod
+    def _transcript_overlay_secondary_help_fragments() -> FormattedText:
+        """生成完整记录的跳转和退出提示。"""
+        return [
+            (
+                "class:transcript.overlay.help",
+                " Esc/Q/Ctrl+C/Ctrl+T to quit   Ctrl+U/D half page",
+            )
+        ]
 
     def _transcript_dimension(self) -> Dimension:
         """返回正文当前内容在画布中占用的高度。"""
@@ -819,6 +1180,14 @@ class TuiScreen(object):
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""
         return bool(self.bottom_pane.transient_active or self._completion_visible())
+
+    def _transcript_overlay_blocked(self) -> bool:
+        """判断当前临时表面是否禁止打开完整会话记录。"""
+        return bool(
+            self.bottom_pane.is_active("approval")
+            or self.bottom_pane.is_active("menu")
+            or self._completion_visible()
+        )
 
     def _completion_visible(self) -> bool:
         """判断输入框是否存在可展示的补全候选项。"""

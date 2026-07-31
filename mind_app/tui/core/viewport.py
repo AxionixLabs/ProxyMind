@@ -31,6 +31,7 @@ class TuiTranscriptViewport(object):
         document: TuiDocument,
         is_application_active: typing.Callable[[], bool],
         is_scrollback_deferred: typing.Callable[[], bool],
+        is_transcript_overlay_active: typing.Callable[[], bool],
         is_closing: typing.Callable[[], bool],
         get_application: typing.Callable[[], Application[None]],
         get_terminal_width: typing.Callable[[], int],
@@ -42,9 +43,10 @@ class TuiTranscriptViewport(object):
     ) -> None:
         self.document = document
 
-        self._is_application_active  = is_application_active
-        self._is_scrollback_deferred = is_scrollback_deferred
-        self._is_closing             = is_closing
+        self._is_application_active        = is_application_active
+        self._is_scrollback_deferred       = is_scrollback_deferred
+        self._is_transcript_overlay_active = is_transcript_overlay_active
+        self._is_closing                   = is_closing
 
         self._get_application          = get_application
         self._get_terminal_width       = get_terminal_width
@@ -78,7 +80,7 @@ class TuiTranscriptViewport(object):
         """清除刚提交用户输入的保留标记。"""
         self._submitted_query_block = None
 
-    def discard_submitted_query(self) -> None:
+    def discard_submitted_query(self) -> bool:
         """在二级交互接管时撤下刚提交的用户输入块。"""
         block = self._submitted_query_block
 
@@ -87,6 +89,9 @@ class TuiTranscriptViewport(object):
         if block is not None and self.document.discard_trailing_block(block):
             self.view_row = None
             self._invalidate()
+            return True
+
+        return False
 
     def content_appended(self) -> None:
         """在稳定正文追加后清除提交标记并安排滚屏。"""
@@ -120,6 +125,12 @@ class TuiTranscriptViewport(object):
             name="tui scrollback flush",
             context=context.copy(),
         )
+
+    def pause_scrollback(self) -> None:
+        """取消正在等待的原生滚屏提交。"""
+        task = self._scrollback_task
+        if task is not None and not task.done():
+            task.cancel()
 
     async def _flush_scrollback(self) -> None:
         """原子提交溢出的稳定正文并推进文档提交游标。"""
@@ -166,6 +177,7 @@ class TuiTranscriptViewport(object):
         """判断当前交互状态是否要求延迟原生滚屏提交。"""
         return bool(
             self._is_scrollback_deferred()
+            or self._is_transcript_overlay_active()
             or self.document.active_block is not None
             or self.view_row is not None
         )

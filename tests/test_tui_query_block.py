@@ -55,7 +55,7 @@ def test_unknown_slash_command_stays_editable_and_never_enters_queue() -> None:
     assert runtime.submissions.message_queue.empty()
     assert not runtime.submissions.queued_messages.active
     assert runtime.document.blocks[-1].kind == "notice"
-    assert runtime.document.blocks[-1].block.fragments == (
+    assert runtime.document.blocks[-1].display_block.fragments == (
         ("class:input.notice.hint", "•"),
         (
             "class:input.notice.hint",
@@ -64,7 +64,7 @@ def test_unknown_slash_command_stays_editable_and_never_enters_queue() -> None:
         ),
     )
     assert "".join(
-        text for _style, text in runtime.document.blocks[-1].block.fragments
+        text for _style, text in runtime.document.blocks[-1].display_block.fragments
     ) == (
         "• Unrecognized command '/今天天气'. "
         'Type "/" for a list of supported commands.'
@@ -83,7 +83,7 @@ def test_root_slash_is_rejected_with_hint_before_queueing() -> None:
     assert runtime.submissions.message_queue.empty()
     assert not runtime.submissions.queued_messages.active
     assert "".join(
-        text for _style, text in runtime.document.blocks[-1].block.fragments
+        text for _style, text in runtime.document.blocks[-1].display_block.fragments
     ) == (
         "• Choose a slash command from the menu or type its full name."
     )

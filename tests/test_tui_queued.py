@@ -182,7 +182,7 @@ def test_streaming_rejected_command_never_enters_message_queue(command) -> None:
     )
     command_fragment = next(
         fragment
-        for fragment in runtime.document.blocks[-1].block.fragments
+        for fragment in runtime.document.blocks[-1].display_block.fragments
         if fragment[1] == command
     )
     assert command_fragment[0] == "class:prompt.command.slash"

@@ -51,7 +51,7 @@ async def test_tui_intro_animates_and_commits_one_stable_block(monkeypatch) -> N
     assert runtime.document.active_block is None
     assert len(runtime.document.blocks) == 1
     assert runtime.document.blocks[0].kind == "system"
-    assert fragments_text(runtime.document.blocks[0].block.fragments) == final_text
+    assert fragments_text(runtime.document.blocks[0].display_block.fragments) == final_text
 
     await runtime._play_startup_animation()
     assert len(runtime.document.blocks) == 1
@@ -95,7 +95,7 @@ async def test_runtime_open_waits_for_intro_before_flushing_pending_views(
 
         assert runtime.document.active_block is None
         assert [
-            fragments_text(item.block.fragments)
+            fragments_text(item.display_block.fragments)
             for item in runtime.document.blocks
         ] == [
             f">_ {const.APP_DESC} (v{const.APP_VERSION})",

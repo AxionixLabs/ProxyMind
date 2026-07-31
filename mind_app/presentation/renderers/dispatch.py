@@ -22,6 +22,7 @@ from ..models import (
 from .approval import render_approval_view
 from .batch import (
     render_batch_completed_view,
+    render_batch_start_transcript_view,
     render_batch_start_view
 )
 from .lifecycle import (
@@ -34,8 +35,11 @@ from .plan import (
 )
 from .progress import render_progress_view
 from .tool import (
+    render_generic_tool_result_transcript_view,
     render_generic_tool_result_view,
+    render_native_tool_result_transcript_view,
     render_native_tool_result_view,
+    render_tool_start_transcript_view,
     render_tool_start_view
 )
 from ..terminal_text import sanitize_styled_block
@@ -59,11 +63,39 @@ def render_presentation_view(
     )
 
 
+def render_presentation_transcript_view(
+    view: PresentationView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
+) -> tuple[StyledBlock, ...]:
+    """把结构化展示数据转换为不省略原始内容的记录块。"""
+    if isinstance(view, ToolStartView):
+        blocks = (render_tool_start_transcript_view(view),)
+    elif isinstance(view, GenericToolResultView):
+        blocks = (render_generic_tool_result_transcript_view(view),)
+    elif isinstance(view, NativeToolResultView):
+        blocks = render_native_tool_result_transcript_view(view)
+    elif isinstance(view, BatchStartView):
+        blocks = (render_batch_start_transcript_view(view),)
+    else:
+        blocks = _render_presentation_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+
+    return tuple(
+        sanitize_styled_block(block, measure_width=measure_width)
+        for block in blocks
+    )
+
+
 def _render_presentation_view(
     view: PresentationView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> tuple[StyledBlock, ...]:
     """把展示视图转换为尚未执行终端清理的文本块。"""
     if isinstance(view, (RunStartedView, RunCompletedView)):

@@ -38,11 +38,6 @@ def download_progress_block(
     if stage == "downloading":
         spans.append(TextSpan(" · ", MUTED))
         spans.extend(_transfer_spans(state, include_speed=True))
-    else:
-        spans.extend([
-            TextSpan(" · ", MUTED),
-            TextSpan(str(state.get("filename") or "runtime package"), BRIGHT),
-        ])
 
     return _styled_block(spans)
 
@@ -51,17 +46,16 @@ def download_summary_block(
     state: dict[str, typing.Any],
 ) -> StyledBlock | None:
     """生成运行时下载结束后的稳定摘要。"""
-    stage    = str(state.get("stage") or "").strip().lower()
-    filename = str(state.get("filename") or "runtime package")
+    stage = str(state.get("stage") or "").strip().lower()
 
     if stage == "done":
-        status       = "complete"
+        status = "complete"
         status_style = SUCCESS
     elif stage == "failed":
         status = "failed"
         status_style = FAILURE
     elif stage == "cancelled":
-        status       = "cancelled"
+        status = "cancelled"
         status_style = WARNING
     else:
         return None
@@ -69,8 +63,6 @@ def download_summary_block(
     spans = [
         TextSpan("Download ", MUTED),
         TextSpan(status, status_style),
-        TextSpan(" · ", MUTED),
-        TextSpan(filename, BRIGHT),
     ]
 
     if int(state.get("done") or 0) > 0 or int(state.get("total") or 0) > 0:

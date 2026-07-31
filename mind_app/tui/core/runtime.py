@@ -80,7 +80,10 @@ class TuiRuntime(object):
 
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
-        self._background_blocks: list[FragmentBlock]                  = []
+
+        self._background_blocks: list[
+            tuple[FragmentBlock, FragmentBlock]
+        ] = []
 
         self._open_callbacks: list[typing.Callable[[], None]] = []
         self._startup_animations: list[StartupAnimation]      = []
@@ -107,6 +110,9 @@ class TuiRuntime(object):
             document=self.document,
             is_application_active=lambda: self.active,
             is_scrollback_deferred=lambda: self.submission_deferred,
+            is_transcript_overlay_active=(
+                lambda: self.screen.transcript_overlay.active
+            ),
             is_closing=lambda: self._closing,
             get_application=lambda: self.screen.application,
             get_terminal_width=lambda: self.terminal_width,
@@ -143,6 +149,7 @@ class TuiRuntime(object):
             clear_exit_confirmation=self.submissions.clear_exit_confirmation,
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
+            toggle_transcript_overlay=self.toggle_transcript_overlay,
             input_obj=input_obj,
             output_obj=output_obj,
             terminal_capabilities=terminal_capabilities,
@@ -245,7 +252,8 @@ class TuiRuntime(object):
         if self.document.discard_submission():
             self.invalidate()
             return None
-        self.viewport.discard_submitted_query()
+        if self.viewport.discard_submitted_query():
+            self.screen.transcript_overlay.content_changed()
 
     def _application_task_exception(self) -> BaseException | None:
         """返回输入应用已经产生的终止异常。"""
@@ -260,10 +268,16 @@ class TuiRuntime(object):
         """在流式正文结束后提交已完成的后台摘要。"""
         if self.submission_deferred or self.document.active_block is not None:
             return None
+
         blocks = tuple(self._background_blocks)
         self._background_blocks.clear()
-        for block in blocks:
-            self.append_block(block, kind="notice")
+
+        for block, transcript_block in blocks:
+            self.append_block(
+                block,
+                kind="notice",
+                transcript_block=transcript_block,
+            )
 
     def _background_task_done(self, task: asyncio.Task[None]) -> None:
         """回收已完成的 TUI 后台任务。"""
@@ -296,26 +310,49 @@ class TuiRuntime(object):
         self,
         request: ProcessViewerRequest,
         block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
     ) -> asyncio.Future[typing.Any]:
         """同步激活进程查看器并返回等待结果。"""
         self._discard_submitted_query()
-        self.set_active_renderable(block, kind="operation")
+
+        self.set_active_renderable(
+            block,
+            kind="operation",
+            transcript_block=transcript_block,
+        )
+
         return self.screen.process_viewer.begin(request)
 
-    def update_process_viewer(self, block: FragmentBlock) -> None:
+    def update_process_viewer(
+        self,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """替换当前动态进程正文。"""
-        self.set_active_renderable(block, kind="operation")
+        self.set_active_renderable(
+            block,
+            kind="operation",
+            transcript_block=transcript_block,
+        )
 
     def resolve_process_viewer(self, value: typing.Any = None) -> None:
         """提交当前进程查看动作并解除等待。"""
         self.screen.process_viewer.resolve(value)
 
-    def commit_process_viewer(self, block: FragmentBlock) -> None:
+    def commit_process_viewer(
+        self,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """原位提交进程摘要并恢复主输入区域。"""
         if self.document.active_kind != "operation":
             raise RuntimeError("cannot commit a process without active output")
-        self.document.commit_active(block)
+        self.document.commit_active(block, transcript_block=transcript_block)
         self.screen.process_viewer.settle()
+        self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
 
@@ -324,16 +361,31 @@ class TuiRuntime(object):
         changed = self.document.active_kind == "operation"
         if changed:
             self.document.clear_active()
+
         self.screen.process_viewer.settle()
+
         if changed:
+            self.screen.transcript_overlay.content_changed()
             self.viewport.stable_content_changed()
             self._flush_background_blocks()
 
-    def commit_process_result(self, block: FragmentBlock) -> None:
+    def commit_process_result(
+        self,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """用稳定进程摘要替换刚提交的命令输入。"""
         self._discard_submitted_query()
-        self.document.set_active(block, kind="operation")
-        self.document.commit_active(block)
+
+        self.document.set_active(
+            block,
+            kind="operation",
+            transcript_block=transcript_block,
+        )
+
+        self.document.commit_active(block, transcript_block=transcript_block)
+        self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
 
@@ -341,7 +393,7 @@ class TuiRuntime(object):
         self,
         coroutine: typing.Coroutine[typing.Any, typing.Any, None],
         *,
-        name: str,
+        name: str
     ) -> asyncio.Task[None]:
         """启动由 TUI 生命周期管理的后台任务。"""
         task = asyncio.create_task(coroutine, name=name)
@@ -372,21 +424,38 @@ class TuiRuntime(object):
         if task is not None and not task.done():
             task.cancel()
 
-    def queue_background_block(self, block: FragmentBlock) -> None:
+    def queue_background_block(
+        self,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """在不打断流式正文的边界提交后台摘要。"""
+        transcript_block = transcript_block or block
         if self.execution_active or self.document.active_block is not None:
-            self._background_blocks.append(block)
+            self._background_blocks.append((block, transcript_block))
             return None
-        self.append_block(block, kind="notice")
+
+        self.append_block(
+            block,
+            kind="notice",
+            transcript_block=transcript_block,
+        )
 
     def append_block(
         self,
         block: FragmentBlock,
         *,
         kind: TuiBlockKind = "system",
+        transcript_block: FragmentBlock | None = None
     ) -> None:
         """向会话内容追加一个稳定展示块。"""
-        if self.document.append_block(block, kind=kind):
+        if self.document.append_block(
+            block,
+            kind=kind,
+            transcript_block=transcript_block,
+        ):
+            self.screen.transcript_overlay.content_changed()
             self.viewport.content_appended()
 
     def discard_pending_submission(self) -> None:
@@ -408,25 +477,51 @@ class TuiRuntime(object):
         self,
         block: FragmentBlock,
         *,
-        kind: TuiBlockKind = "assistant"
+        kind: TuiBlockKind = "assistant",
+        transcript_block: FragmentBlock | None = None
     ) -> None:
         """替换当前流式展示块。"""
-        self.document.set_active(block, kind=kind)
+        self.document.set_active(
+            block,
+            kind=kind,
+            transcript_block=transcript_block,
+        )
+
+        self.screen.transcript_overlay.content_changed()
         self.invalidate()
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
         self.screen.invalidate()
 
-    def commit_active_renderable(self, block: FragmentBlock) -> None:
+    def toggle_transcript_overlay(self) -> None:
+        """切换完整会话记录并协调原生滚屏任务。"""
+        active = not self.screen.transcript_overlay.active
+
+        if not self.screen.set_transcript_overlay(active):
+            return None
+
+        if active:
+            self.viewport.pause_scrollback()
+        else:
+            self.viewport.schedule_scrollback_flush()
+
+    def commit_active_renderable(
+        self,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
-        self.document.commit_active(block)
+        self.document.commit_active(block, transcript_block=transcript_block)
+        self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
 
     def clear_active_renderable(self) -> None:
         """清空当前流式展示块。"""
         self.document.clear_active()
+        self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
 
@@ -579,6 +674,10 @@ class TuiRuntime(object):
 
         self.document.discard_submission()
         self.screen.bottom_pane.clear()
+
+        if self.screen.transcript_overlay.active:
+            self.screen.set_transcript_overlay(False)
+
         self.screen.set_transcript_only(preserve_transcript)
 
         background_tasks = tuple(self._background_tasks)
@@ -626,6 +725,7 @@ class TuiRuntime(object):
             else:
                 committed = self.document.commit_submission()
                 if committed is not None:
+                    self.screen.transcript_overlay.content_changed()
                     self.viewport.content_appended()
                     self.viewport.mark_submitted_query(committed)
 
@@ -673,10 +773,17 @@ class TuiRuntime(object):
     async def view_process(
         self,
         request: ProcessViewerRequest,
-        block: FragmentBlock
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
     ) -> typing.Any:
         """显示动态进程正文并等待查看器动作。"""
-        future = self.begin_process_viewer(request, block)
+        future = self.begin_process_viewer(
+            request,
+            block,
+            transcript_block=transcript_block,
+        )
+
         try:
             return await future
         except BaseException:

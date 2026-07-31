@@ -35,7 +35,7 @@ if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
 PS_PANEL_TICK_SEC: float         = 0.12
-PS_OUTPUT_LIMIT: int             = 60000
+PS_OUTPUT_LIMIT: int             = 120000
 PS_VISIBLE_OUTPUT_LINES: int     = 8
 PS_STREAM_VISIBLE_PROCESSES: int = 3
 PS_STREAM_OUTPUT_LINES: int      = 3
@@ -445,7 +445,7 @@ async def watch_exec_session(
         runtime.commit_process_result(exec_session_summary_block(
             initial,
             terminal_width=application.viewport.width,
-        ))
+        ), transcript_block=exec_session_transcript_block(initial))
         return "exited"
 
     state: dict[str, typing.Any] = {
@@ -479,16 +479,19 @@ async def _watch_exec_session(
         state.get("snapshot"),
         terminal_width=application.viewport.width,
     )
+    transcript_block = exec_session_transcript_block(state.get("snapshot"))
 
     if activate_immediately:
         viewer_task = runtime.begin_process_viewer(
             PROCESS_VIEWER_FOCUS_REQUEST,
             live_block,
+            transcript_block=transcript_block,
         )
     else:
         viewer_task = asyncio.create_task(runtime.view_process(
             PROCESS_VIEWER_FOCUS_REQUEST,
             live_block,
+            transcript_block=transcript_block,
         ))
 
     async def poll() -> None:
@@ -508,7 +511,7 @@ async def _watch_exec_session(
             runtime.update_process_viewer(exec_session_live_block(
                 current_snapshot,
                 terminal_width=application.viewport.width,
-            ))
+            ), transcript_block=exec_session_transcript_block(current_snapshot))
 
             if str(current_snapshot.get("status") or "").strip() == "exited":
                 runtime.resolve_process_viewer(current_snapshot)
@@ -537,7 +540,7 @@ async def _watch_exec_session(
             runtime.commit_process_viewer(exec_session_summary_block(
                 result,
                 terminal_width=application.viewport.width,
-            ))
+            ), transcript_block=exec_session_transcript_block(result))
             settled = True
             return "exited"
         if result == "detach":
@@ -546,7 +549,7 @@ async def _watch_exec_session(
                 runtime.commit_process_viewer(exec_session_detached_block(
                     snapshot,
                     terminal_width=application.viewport.width,
-                ))
+                ), transcript_block=exec_session_transcript_block(snapshot))
             else:
                 runtime.dismiss_process_viewer()
             settled = True
@@ -630,6 +633,40 @@ def exec_session_live_block(
         height=PS_VISIBLE_OUTPUT_LINES + 2,
         terminal_width=terminal_width,
     )
+
+    return FragmentBlock(tuple(fragments))
+
+
+def exec_session_transcript_block(snapshot: typing.Any) -> FragmentBlock:
+    """生成包含完整命令和已保留输出的进程记录块。"""
+    current = snapshot if isinstance(snapshot, dict) else {}
+
+    command = str(
+        current.get("command")
+        or current.get("session_id")
+        or "command"
+    ).strip()
+
+    output = current.get("output")
+    if output is None:
+        raw_lines = current.get("output_lines")
+        output = (
+            "\n".join(str(line) for line in raw_lines)
+            if isinstance(raw_lines, list)
+            else ""
+        )
+
+    fragments: list[tuple[str, str]] = [
+        ("class:prompt.command.slash", "$ "),
+        ("class:prompt.command", command),
+    ]
+
+    output_text = str(output or "").strip("\n")
+    if output_text:
+        fragments.extend([
+            ("", "\n"),
+            ("class:ps.output", output_text),
+        ])
 
     return FragmentBlock(tuple(fragments))
 
@@ -780,14 +817,20 @@ async def _watch_detached_exec_session(
             session_id=session_id,
             max_output_chars=PS_OUTPUT_LIMIT,
         )
+
         if snapshot.get("ok") is False:
             return None
+
         if str(snapshot.get("status") or "").strip() == "exited":
-            runtime.queue_background_block(command_summary_text(
-                exec_session_command_summary(snapshot),
-                terminal_width=mind.frontend.application.viewport.width,
-            ))
+            runtime.queue_background_block(
+                command_summary_text(
+                    exec_session_command_summary(snapshot),
+                    terminal_width=mind.frontend.application.viewport.width,
+                ),
+                transcript_block=exec_session_transcript_block(snapshot),
+            )
             return None
+
         await asyncio.sleep(0.25)
 
 

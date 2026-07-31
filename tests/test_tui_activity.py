@@ -521,7 +521,7 @@ async def test_runtime_download_holds_final_status_for_inbuild_handoff(
     progress = TuiUpgradeProgress(runtime)
     state = {
         "stage": "downloading",
-        "filename": "helix-runtime.zip",
+        "filename": "helix.dist",
         "phase": 0.5,
         "done": 5 * 1024 * 1024,
         "total": 10 * 1024 * 1024,
@@ -534,6 +534,7 @@ async def test_runtime_download_holds_final_status_for_inbuild_handoff(
     assert "downloading" in active_text
     assert "50.0%" in active_text
     assert "5.0 MB / 10.0 MB · 2.0 MB/s" in active_text
+    assert "helix.dist" not in active_text
     assert "Internal MCP" not in active_text
     assert all(
         "bold" not in style
@@ -546,8 +547,27 @@ async def test_runtime_download_holds_final_status_for_inbuild_handoff(
 
     assert runtime.screen.activity_block is not None
     expected = "complete" if final_stage == "done" else final_stage
-    assert expected in _block_text(runtime.screen.activity_block)
+    final_text = _block_text(runtime.screen.activity_block)
+    assert expected in final_text
+    assert "helix.dist" not in final_text
     assert not runtime.document.blocks
+
+
+@pytest.mark.parametrize(
+    "stage",
+    ["warming", "connecting", "verifying", "extracting", "installing", "cleaning"],
+)
+def test_runtime_download_stages_hide_package_name(stage: str) -> None:
+    block = _download_block({
+        "stage": stage,
+        "filename": "helix.app",
+        "phase": 0.5,
+        "done": 5,
+        "total": 10,
+        "speed": 2,
+    }, phase=0.1)
+
+    assert "helix.app" not in _block_text(block)
 
 
 @pytest.mark.anyio

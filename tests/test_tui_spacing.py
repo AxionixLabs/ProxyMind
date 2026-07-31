@@ -40,6 +40,7 @@ from mind_app.tui.core.document import (
     TuiDocument,
 )
 from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
     display_line_count,
@@ -58,6 +59,28 @@ def _block(text: str) -> FragmentBlock:
 
 def _document_text(document: TuiDocument) -> str:
     return "".join(text for _style, text in document.fragments(width=80))
+
+
+def _transcript_text(document: TuiDocument) -> str:
+    return "".join(
+        text for _style, text in document.transcript_fragments(width=80)
+    )
+
+
+class _AlternateScreenOutput(DummyOutput):
+    def __init__(self, *, columns: int = 80, rows: int = 24) -> None:
+        self.size = Size(rows=rows, columns=columns)
+        self.enter_count = 0
+        self.quit_count = 0
+
+    def get_size(self) -> Size:
+        return self.size
+
+    def enter_alternate_screen(self) -> None:
+        self.enter_count += 1
+
+    def quit_alternate_screen(self) -> None:
+        self.quit_count += 1
 
 
 def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
@@ -113,7 +136,7 @@ def test_document_sanitizes_control_sequences_across_fragments() -> None:
 
     document.append_block(block, kind="operation")
 
-    stored = document.blocks[0].block
+    stored = document.blocks[0].display_block
     text = "".join(value for _style, value in stored.fragments)
     assert text == "safe    device"
     assert "\x1b" not in text
@@ -130,8 +153,47 @@ def test_document_preserves_safe_fragment_boundaries_and_identity() -> None:
 
     document.append_block(block, kind="notice")
 
-    assert document.blocks[0].block is block
-    assert document.blocks[0].block.fragments == block.fragments
+    assert document.blocks[0].display_block is block
+    assert document.blocks[0].display_block.fragments == block.fragments
+
+
+def test_document_keeps_display_and_transcript_blocks_in_one_archive() -> None:
+    document = TuiDocument()
+    display = _block("short output")
+    transcript = _block("full output\nline two")
+
+    document.append_block(
+        display,
+        kind="operation",
+        transcript_block=transcript,
+    )
+
+    assert _document_text(document) == "short output"
+    assert _transcript_text(document) == "full output\nline two"
+    assert document.blocks[0].display_block is display
+    assert document.blocks[0].transcript_block is transcript
+
+
+def test_document_refreshes_active_transcript_revision() -> None:
+    document = TuiDocument()
+    document.append_block(_block("stable"), kind="assistant")
+    stable_cells = document.transcript_snapshot().stable_cells
+    document.set_active(
+        _block("running"),
+        kind="operation",
+        transcript_block=_block("$ command\nfirst"),
+    )
+    revision = document.transcript_revision
+
+    document.set_active(
+        _block("running"),
+        kind="operation",
+        transcript_block=_block("$ command\nfirst\nsecond"),
+    )
+
+    assert document.transcript_revision > revision
+    assert document.transcript_snapshot().stable_cells is stable_cells
+    assert _transcript_text(document) == "stable\n\n$ command\nfirst\nsecond"
 
 
 def test_document_detects_only_user_or_assistant_conversation() -> None:
@@ -783,6 +845,773 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
 
 
 @pytest.mark.anyio
+async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=72, rows=18)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.append_block(
+            _block("compact"),
+            kind="operation",
+            transcript_block=_block("full output"),
+        )
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x14")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.active:
+                    break
+
+            assert runtime.screen.transcript_overlay.active
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if output.enter_count:
+                    break
+
+            assert output.enter_count == 1
+            assert runtime.screen.application.full_screen
+            assert runtime.screen.application.renderer.full_screen
+            assert runtime.screen.application.renderer.last_rendered_screen is not None
+            assert runtime.screen.application.renderer.last_rendered_screen.height == 18
+            rendered_screen = runtime.screen.application.renderer.last_rendered_screen
+            rendered_text = "\n".join(
+                "".join(
+                    rendered_screen.data_buffer[row][column].char
+                    for column in range(72)
+                )
+                for row in range(18)
+            )
+            assert "T R A N S C R I P T" in rendered_text
+            assert rendered_text.splitlines()[0].startswith(
+                "/ T R A N S C R I P T"
+            )
+            assert "full output" in rendered_text
+            assert "Esc/Q/Ctrl+C/Ctrl+T to quit" in rendered_text
+            assert "100%" in rendered_text
+            assert any(
+                "─" in line and "100%" in line
+                for line in rendered_text.splitlines()
+            )
+            assert "full output" in "".join(
+                text
+                for _style, text in runtime.screen.transcript_overlay.fragments()
+            )
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.transcript_overlay_control
+            )
+
+            pipe_input.send_text("\x1b")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if not runtime.screen.transcript_overlay.active:
+                    break
+
+            assert not runtime.screen.transcript_overlay.active
+            assert output.quit_count == 1
+            assert not runtime.screen.application.full_screen
+            assert not runtime.screen.application.renderer.full_screen
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.input.control
+            )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_ctrl_t_over_process_viewer_tracks_active_output() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        await runtime.open()
+        try:
+            viewer = runtime.begin_process_viewer(
+                ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+                _block("running"),
+                transcript_block=_block("$ command\nlive output"),
+            )
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.process_viewer_control
+            )
+
+            pipe_input.send_text("\x14")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.active:
+                    break
+
+            assert runtime.screen.transcript_overlay.active
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.transcript_overlay_control
+            )
+            assert "$ command\nlive output" in "".join(
+                text
+                for _style, text in runtime.screen.transcript_overlay.fragments()
+            )
+
+            runtime.update_process_viewer(
+                _block("running"),
+                transcript_block=_block("$ command\nlive output\nnext line"),
+            )
+            assert "next line" in "".join(
+                text
+                for _style, text in runtime.screen.transcript_overlay.fragments()
+            )
+
+            pipe_input.send_text("\x1b")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if not runtime.screen.transcript_overlay.active:
+                    break
+
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.process_viewer_control
+            )
+
+            runtime.resolve_process_viewer("done")
+            assert await viewer == "done"
+            runtime.commit_process_viewer(
+                _block("completed"),
+                transcript_block=_block("$ command\ncomplete output"),
+            )
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.input.control
+            )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_process_completion_keeps_transcript_screen_focused() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        await runtime.open()
+        try:
+            viewer = runtime.begin_process_viewer(
+                ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+                _block("running"),
+                transcript_block=_block("$ command\nlive output"),
+            )
+            runtime.toggle_transcript_overlay()
+
+            runtime.resolve_process_viewer("done")
+            assert await viewer == "done"
+            runtime.commit_process_viewer(
+                _block("completed"),
+                transcript_block=_block("$ command\ncomplete output"),
+            )
+
+            assert runtime.screen.transcript_overlay.active
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.transcript_overlay_control
+            )
+            assert "complete output" in "".join(
+                text
+                for _style, text in runtime.screen.transcript_overlay.fragments()
+            )
+
+            runtime.toggle_transcript_overlay()
+            assert runtime.screen.application.layout.current_control == (
+                runtime.screen.input.control
+            )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.parametrize("surface", ["approval", "menu"])
+def test_transcript_overlay_does_not_cover_blocking_surface(surface: str) -> None:
+    runtime = TuiRuntime()
+    runtime.screen.bottom_pane.activate(surface)
+
+    runtime.toggle_transcript_overlay()
+
+    assert not runtime.screen.transcript_overlay.active
+    assert runtime.screen.bottom_pane.active_surface == surface
+
+
+@pytest.mark.anyio
+async def test_runtime_close_leaves_active_transcript_screen() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=64, rows=16)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        await runtime.open()
+
+        runtime.toggle_transcript_overlay()
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if output.enter_count:
+                break
+
+        assert output.enter_count == 1
+
+        await runtime.close()
+
+        assert output.quit_count == 1
+        assert not runtime.screen.transcript_overlay.active
+        assert not runtime.screen.application.renderer.full_screen
+
+
+@pytest.mark.anyio
+async def test_transcript_screen_repeatedly_restores_inline_renderer() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=64, rows=16)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.append_block(_block("conversation"), kind="assistant")
+        await runtime.open()
+        try:
+            for cycle in range(1, 6):
+                output.size = Size(
+                    rows=15 + cycle,
+                    columns=60 + cycle * 3,
+                )
+                runtime.toggle_transcript_overlay()
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    screen = runtime.screen.application.renderer.last_rendered_screen
+                    if (
+                        output.enter_count == cycle
+                        and screen is not None
+                        and screen.height == output.size.rows
+                    ):
+                        break
+
+                assert runtime.screen.transcript_overlay.active
+                assert runtime.screen.application.full_screen
+                assert runtime.screen.application.renderer.full_screen
+                assert output.enter_count == cycle
+
+                runtime.toggle_transcript_overlay()
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    if (
+                        output.quit_count == cycle
+                        and not runtime.screen.application.renderer.full_screen
+                    ):
+                        break
+
+                assert not runtime.screen.transcript_overlay.active
+                assert not runtime.screen.application.full_screen
+                assert not runtime.screen.application.renderer.full_screen
+                assert runtime.screen._inline_renderer_state is None
+                assert output.quit_count == cycle
+        finally:
+            await runtime.close()
+
+    assert output.enter_count == 5
+    assert output.quit_count == 5
+
+
+@pytest.mark.anyio
+async def test_transcript_screen_tracks_terminal_resize() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=60, rows=14)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.append_block(
+            _block("compact"),
+            kind="operation",
+            transcript_block=_block("full output"),
+        )
+        await runtime.open()
+        try:
+            runtime.toggle_transcript_overlay()
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                screen = runtime.screen.application.renderer.last_rendered_screen
+                if output.enter_count and screen is not None and screen.height == 14:
+                    break
+
+            output.size = Size(rows=21, columns=88)
+            runtime.invalidate()
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                screen = runtime.screen.application.renderer.last_rendered_screen
+                if screen is not None and screen.height == 21:
+                    break
+
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            assert screen is not None
+            assert screen.height == 21
+            assert runtime.screen.application.renderer._last_size == output.size
+            assert runtime.screen._transcript_overlay_height() == 16
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_transcript_screen_supports_codex_pager_keys() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=40, rows=10)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.append_block(
+            _block("compact"),
+            kind="operation",
+            transcript_block=_block(
+                "\n".join(f"line {index}" for index in range(30))
+            ),
+        )
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x14")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.active:
+                    break
+
+            runtime.screen.transcript_overlay.jump_top()
+            pipe_input.send_text(" ")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.scroll_offset == 5:
+                    break
+
+            assert runtime.screen.transcript_overlay.scroll_offset == 5
+            assert not runtime.screen.transcript_overlay.follow_bottom
+
+            pipe_input.send_text("\x02")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.scroll_offset == 0:
+                    break
+
+            assert runtime.screen.transcript_overlay.scroll_offset == 0
+
+            pipe_input.send_text("j")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.scroll_offset == 1:
+                    break
+
+            assert runtime.screen.transcript_overlay.scroll_offset == 1
+
+            pipe_input.send_text("k")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.scroll_offset == 0:
+                    break
+
+            assert runtime.screen.transcript_overlay.scroll_offset == 0
+
+            pipe_input.send_text("\x06")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.scroll_offset == 5:
+                    break
+
+            assert runtime.screen.transcript_overlay.scroll_offset == 5
+
+            runtime.screen.transcript_overlay.scroll_half_page(1)
+            assert runtime.screen.transcript_overlay.scroll_offset == 8
+
+            runtime.screen.transcript_overlay.jump_bottom()
+
+            assert runtime.screen.transcript_overlay.follow_bottom
+            assert runtime.screen.transcript_overlay.scroll_percentage() == 100
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_transcript_screen_uses_compact_chrome_in_short_terminal() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=20, rows=6)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.append_block(
+            _block("compact"),
+            kind="operation",
+            transcript_block=_block("full output"),
+        )
+        await runtime.open()
+        try:
+            runtime.toggle_transcript_overlay()
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                screen = runtime.screen.application.renderer.last_rendered_screen
+                if output.enter_count and screen is not None and screen.height == 6:
+                    break
+
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            assert screen is not None
+            rendered_text = "\n".join(
+                "".join(
+                    screen.data_buffer[row][column].char
+                    for column in range(20)
+                )
+                for row in range(6)
+            )
+            assert "full output" in rendered_text
+            assert output.enter_count == 1
+        finally:
+            await runtime.close()
+
+
+def test_transcript_overlay_preserves_reader_position_during_active_updates() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (40, 10)
+    runtime.append_block(
+        _block("compact"),
+        kind="operation",
+        transcript_block=_block("\n".join(f"line {index}" for index in range(30))),
+    )
+    runtime.toggle_transcript_overlay()
+    runtime.screen.transcript_overlay.scroll_page(-1)
+    scroll_offset = runtime.screen.transcript_overlay.scroll_offset
+
+    runtime.set_active_renderable(
+        _block("running"),
+        kind="operation",
+        transcript_block=_block("$ command\nlatest output"),
+    )
+
+    assert runtime.screen.transcript_overlay.scroll_offset == scroll_offset
+    assert not runtime.screen.transcript_overlay.follow_bottom
+    assert "latest output" in "".join(
+        text for _style, text in runtime.screen.transcript_overlay.fragments()
+    )
+
+    runtime.screen.transcript_overlay.jump_bottom()
+    assert runtime.screen.transcript_overlay.follow_bottom
+
+
+def test_transcript_overlay_reuses_stable_cache_during_active_updates() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("stable"), kind="assistant")
+    overlay = runtime.screen.transcript_overlay
+    stable_cell = runtime.document.blocks[0]
+
+    with patch.object(
+        runtime.document,
+        "transcript_cell_fragments",
+        wraps=runtime.document.transcript_cell_fragments,
+    ) as render_cell:
+        runtime.toggle_transcript_overlay()
+        assert "".join(text for _style, text in overlay.fragments()) == "stable"
+
+        runtime.set_active_renderable(
+            _block("running"),
+            kind="operation",
+            transcript_block=_block("$ command\nfirst"),
+        )
+        first = "".join(text for _style, text in overlay.fragments())
+
+        runtime.set_active_renderable(
+            _block("running"),
+            kind="operation",
+            transcript_block=_block("$ command\nfirst\nsecond"),
+        )
+        second = "".join(text for _style, text in overlay.fragments())
+
+    stable_renders = sum(
+        call.args[0] is stable_cell
+        for call in render_cell.call_args_list
+    )
+    assert stable_renders == 1
+    assert first == "stable\n\n$ command\nfirst"
+    assert second == "stable\n\n$ command\nfirst\nsecond"
+
+
+def test_transcript_overlay_reuses_existing_cells_when_stable_content_grows() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("first"), kind="assistant")
+    first_cell = runtime.document.blocks[0]
+    overlay = runtime.screen.transcript_overlay
+
+    with patch.object(
+        runtime.document,
+        "transcript_cell_fragments",
+        wraps=runtime.document.transcript_cell_fragments,
+    ) as render_cell, patch.object(
+        overlay,
+        "_render_cells",
+        wraps=overlay._render_cells,
+    ) as render_cells:
+        runtime.toggle_transcript_overlay()
+        assert "first" in "".join(
+            text for _style, text in overlay.fragments()
+        )
+        render_cells.reset_mock()
+
+        runtime.append_block(_block("second"), kind="assistant")
+        second_cell = runtime.document.blocks[-1]
+        assert "second" in "".join(
+            text for _style, text in overlay.fragments()
+        )
+
+    first_renders = sum(
+        call.args[0] is first_cell
+        for call in render_cell.call_args_list
+    )
+    assert first_renders == 1
+    rendered_cell_sets = [call.args[0] for call in render_cells.call_args_list]
+    assert (second_cell,) in rendered_cell_sets
+    assert (first_cell, second_cell) not in rendered_cell_sets
+
+
+def test_transcript_overlay_renders_each_cell_once_during_long_session_growth() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (72, 18)
+    runtime.append_block(_block("cell 0"), kind="assistant")
+    overlay = runtime.screen.transcript_overlay
+
+    with patch.object(
+        runtime.document,
+        "transcript_cell_fragments",
+        wraps=runtime.document.transcript_cell_fragments,
+    ) as render_cell:
+        runtime.toggle_transcript_overlay()
+        for index in range(1, 301):
+            runtime.append_block(
+                _block(f"cell {index}"),
+                kind="assistant",
+            )
+
+        transcript = "".join(
+            text for _style, text in overlay.fragments()
+        )
+
+    assert render_cell.call_count == 301
+    assert len(overlay._stable_cell_cache) == 301
+    assert transcript.startswith("cell 0\n\ncell 1")
+    assert transcript.endswith("cell 300")
+
+
+def test_transcript_overlay_survives_resize_and_continuous_active_output() -> None:
+    runtime = TuiRuntime()
+    output_size = [48, 12]
+    runtime.screen._output_size = lambda: tuple(output_size)
+    for index in range(120):
+        runtime.append_block(
+            _block(f"stable {index} " + "x" * 40),
+            kind="operation",
+        )
+
+    overlay = runtime.screen.transcript_overlay
+    runtime.toggle_transcript_overlay()
+    overlay.jump_top()
+    overlay.scroll_line(20)
+
+    for width, height in ((32, 10), (96, 20), (41, 14), (72, 18)):
+        output_size[:] = [width, height]
+        overlay.visible_fragments()
+        assert overlay._cached_width == width
+        assert len(overlay._stable_cell_cache) == 120
+        assert overlay.scroll_offset == 20
+
+    stable_cells = tuple(runtime.document.blocks)
+    with patch.object(
+        runtime.document,
+        "transcript_cell_fragments",
+        wraps=runtime.document.transcript_cell_fragments,
+    ) as render_cell, patch.object(
+        overlay,
+        "_all_lines",
+        side_effect=AssertionError("viewport materialized all transcript lines"),
+    ):
+        for index in range(60):
+            runtime.set_active_renderable(
+                _block("running"),
+                kind="operation",
+                transcript_block=_block(
+                    "$ command\n"
+                    + "\n".join(
+                        f"output {line}" for line in range(index + 1)
+                    )
+                ),
+            )
+            overlay.visible_fragments()
+
+    stable_renders = sum(
+        any(call.args[0] is cell for cell in stable_cells)
+        for call in render_cell.call_args_list
+    )
+    assert stable_renders == 0
+    assert overlay.scroll_offset == 20
+    assert not overlay.follow_bottom
+    assert "output 59" in "".join(
+        text for _style, text in overlay.fragments()
+    )
+
+    overlay.jump_bottom()
+    bottom_offset = overlay.scroll_offset
+    runtime.set_active_renderable(
+        _block("running"),
+        kind="operation",
+        transcript_block=_block("$ command\nfinal live line"),
+    )
+
+    assert overlay.follow_bottom
+    assert overlay.scroll_offset <= bottom_offset
+    assert overlay.scroll_percentage() == 100
+
+
+def test_transcript_overlay_rebuilds_cells_after_resize_and_removal() -> None:
+    runtime = TuiRuntime()
+    output_size = [40, 10]
+    runtime.screen._output_size = lambda: tuple(output_size)
+    runtime.append_block(_block("first"), kind="assistant")
+    runtime.append_block(_block("second"), kind="assistant")
+    overlay = runtime.screen.transcript_overlay
+    runtime.toggle_transcript_overlay()
+    overlay.fragments()
+    stable_cells = tuple(runtime.document.blocks)
+
+    with patch.object(
+        overlay,
+        "_render_cells",
+        wraps=overlay._render_cells,
+    ) as render_cells:
+        output_size[0] = 60
+        overlay.fragments()
+
+        assert stable_cells in [
+            call.args[0] for call in render_cells.call_args_list
+        ]
+
+        render_cells.reset_mock()
+        assert runtime.document.discard_trailing_block(
+            stable_cells[-1].display_block
+        )
+        overlay.content_changed()
+        overlay.fragments()
+
+    assert (stable_cells[0],) in [
+        call.args[0] for call in render_cells.call_args_list
+    ]
+    assert id(stable_cells[-1]) not in overlay._stable_cell_cache
+
+
+def test_transcript_overlay_promotes_active_tail_without_duplicate_content() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("first"), kind="assistant")
+    runtime.set_active_renderable(
+        _block("running"),
+        kind="operation",
+        transcript_block=_block("$ command\nlive output"),
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+    before = "".join(text for _style, text in overlay.fragments())
+
+    runtime.commit_active_renderable(
+        _block("completed"),
+        transcript_block=_block("$ command\nlive output"),
+    )
+    after = "".join(text for _style, text in overlay.fragments())
+
+    assert before == after
+    assert after.count("$ command") == 1
+    assert len(runtime.document.transcript_snapshot().stable_cells) == 2
+    assert not runtime.document.transcript_snapshot().active_cells
+
+
+def test_transcript_overlay_owns_visible_rows_and_fills_unused_space() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (40, 10)
+    runtime.append_block(
+        _block("compact"),
+        kind="operation",
+        transcript_block=_block("full output"),
+    )
+
+    runtime.toggle_transcript_overlay()
+
+    visible = "".join(
+        text
+        for _style, text in runtime.screen.transcript_overlay.visible_fragments()
+    )
+    assert visible.splitlines() == ["full output", "~", "~", "~", "~"]
+    assert runtime.screen.transcript_overlay.scroll_offset == 0
+    assert runtime.screen.transcript_overlay.scroll_percentage() == 100
+
+
+def test_transcript_overlay_wraps_cells_before_selecting_visible_rows() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 10)
+    assistant = FragmentBlock((
+        (ASSISTANT_PREFIX_CLASS, "• "),
+        ("", "x" * 25),
+    ))
+    runtime.append_block(assistant, kind="assistant")
+
+    runtime.toggle_transcript_overlay()
+
+    lines = split_formatted_lines(
+        runtime.screen.transcript_overlay.fragments()
+    )
+    assert len(lines) == 2
+    assert lines[1][0] == (ASSISTANT_PREFIX_CLASS, "  ")
+    assert all(
+        get_cwidth("".join(text for _style, text in line)) <= 20
+        for line in lines
+    )
+
+
+@pytest.mark.anyio
+async def test_submission_commit_and_rollback_notify_open_transcript() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (40, 10)
+    runtime.append_block(
+        _block("\n".join(f"line {index}" for index in range(20))),
+        kind="assistant",
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    runtime.submissions.enqueue_message("new question")
+    with patch.object(
+        overlay,
+        "content_changed",
+        wraps=overlay.content_changed,
+    ) as content_changed:
+        value = await runtime.read_message(PromptContext(
+            mode="chat",
+            model="test",
+        ))
+
+    assert value == "new question"
+    assert content_changed.call_count == 1
+    assert overlay.follow_bottom
+    assert "new question" in "".join(
+        text for _style, text in overlay.visible_fragments()
+    )
+
+    with patch.object(
+        overlay,
+        "content_changed",
+        wraps=overlay.content_changed,
+    ) as content_changed:
+        runtime._discard_submitted_query()
+
+    assert content_changed.call_count == 1
+    assert "new question" not in "".join(
+        text for _style, text in overlay.fragments()
+    )
+    assert overlay.follow_bottom
+
+
+@pytest.mark.anyio
+async def test_transcript_overlay_defers_native_scrollback() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.screen._output_size = lambda: (40, 8)
+        await runtime.open()
+        try:
+            runtime.toggle_transcript_overlay()
+            runtime.append_block(
+                _block("\n".join(f"display {index}" for index in range(30))),
+                kind="operation",
+                transcript_block=_block(
+                    "\n".join(f"transcript {index}" for index in range(30))
+                ),
+            )
+            await asyncio.sleep(0)
+
+            assert runtime.screen.transcript_overlay.active
+            assert runtime.viewport.scrollback_task is None
+            assert runtime.document.scrollback_line_count == 0
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_presentation_separates_consecutive_tool_groups() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -843,6 +1672,55 @@ async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
         True,
     ]
     assert _document_text(runtime.document).count("\n\n") == 2
+
+
+@pytest.mark.anyio
+async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = "\n".join(f"result line {index}" for index in range(80))
+
+    await presentation.emit(build_generic_tool_result_view(
+        "remote_tool",
+        result,
+        ok=True,
+        call_id="long-result",
+    ))
+
+    display = _document_text(runtime.document)
+    transcript = _transcript_text(runtime.document)
+    assert "(ctrl + t to view transcript)" in display
+    assert "result line 0" in transcript
+    assert "result line 79" in transcript
+    assert "(ctrl + t to view transcript)" not in transcript
+
+
+@pytest.mark.anyio
+async def test_native_shell_result_transcript_keeps_command_and_output() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    command = "Get-ChildItem\n| Select-Object -First 1"
+    output_lines = [f"output line {index}" for index in range(80)]
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": command},
+        ok=True,
+        data={
+            "command": command,
+            "output_lines": output_lines,
+        },
+        call_id="long-shell",
+    ))
+
+    display = _document_text(runtime.document)
+    transcript = _transcript_text(runtime.document)
+    assert "(ctrl + t to view transcript)" in display
+    assert f"$ {command}" in transcript
+    assert output_lines[0] in transcript
+    assert output_lines[-1] in transcript
 
 
 @pytest.mark.anyio
@@ -1283,7 +2161,7 @@ async def test_assistant_commit_renders_markdown_without_final_units_bridge() ->
     await output.append_assistant_delta("**bold** and `code`")
     await output.prepare_external_output()
 
-    fragments = runtime.document.blocks[-1].block.fragments
+    fragments = runtime.document.blocks[-1].display_block.fragments
     assert "".join(text for _style, text in fragments) == "• bold and code"
     assert any("bold" in style and text == "bold" for style, text in fragments)
     assert any("fg:" in style and text == "code" for style, text in fragments)
@@ -1303,7 +2181,7 @@ async def test_settled_markdown_frame_is_reused_when_committed() -> None:
 
     await output.prepare_external_output()
 
-    assert runtime.document.blocks[-1].block is active
+    assert runtime.document.blocks[-1].display_block is active
 
 
 @pytest.mark.anyio
@@ -1363,6 +2241,6 @@ async def test_sources_are_assistant_metadata_instead_of_operation_output() -> N
     assert "Sources:" in _document_text(runtime.document)
     assert all(
         "bold" not in style
-        for style, text in runtime.document.blocks[-1].block.fragments
+        for style, text in runtime.document.blocks[-1].display_block.fragments
         if text.strip()
     )

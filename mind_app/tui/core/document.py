@@ -25,32 +25,58 @@ TuiBlockKind = typing.Literal[
 
 @dataclass(frozen=True, slots=True)
 class TranscriptBlock(object):
-    """保存一项稳定正文、语义类型及其前置视觉间距。"""
-
-    block: FragmentBlock
+    """保存一项正文的普通表示、完整表示及视觉间距。"""
+    display_block: FragmentBlock
+    transcript_block: FragmentBlock
     kind: TuiBlockKind
     gap_before: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptSnapshot(object):
+    """保存稳定记录、动态尾部及各自版本。"""
+    stable_cells: tuple[TranscriptBlock, ...]
+    active_cells: tuple[TranscriptBlock, ...]
+    stable_revision: int
+    active_revision: int
 
 
 class TuiDocument(object):
     """管理稳定正文、动态正文和全局段间距。"""
 
     def __init__(self) -> None:
-        self.blocks: list[TranscriptBlock]      = []
-        self.scrollback_line_count: int         = 0
-        self.cleared_line_count: int            = 0
-        self.active_block: FragmentBlock | None = None
-        self.active_kind: TuiBlockKind | None   = None
-        self.active_gap_before: bool            = False
+        self.blocks: list[TranscriptBlock] = []
+        self.scrollback_line_count: int    = 0
+        self.cleared_line_count: int       = 0
 
-        self._active_tail: list[TranscriptBlock]       = []
+        self.active_block: FragmentBlock | None            = None
+        self.active_transcript_block: FragmentBlock | None = None
+        self.active_kind: TuiBlockKind | None              = None
+        self.active_gap_before: bool                       = False
+
+        self.active_transcript_revision: int = 0
+        self.stable_transcript_revision: int = 0
+
         self._pending_submission: FragmentBlock | None = None
-        self._stable_lines: list[FormattedText]        = []
+
+        self._active_tail: list[TranscriptBlock] = []
+
+        self._stable_lines: list[FormattedText]                  = []
+        self._stable_snapshot_cells: tuple[TranscriptBlock, ...] = ()
+        self._stable_snapshot_revision: int                      = -1
 
     @property
     def has_pending_submission(self) -> bool:
         """返回是否存在尚未决定展示方式的用户输入。"""
         return self._pending_submission is not None
+
+    @property
+    def transcript_revision(self) -> int:
+        """返回稳定记录与动态尾部的合并版本。"""
+        return (
+            self.stable_transcript_revision
+            + self.active_transcript_revision
+        )
 
     @property
     def visible_prefix_line_count(self) -> int:
@@ -112,28 +138,51 @@ class TuiDocument(object):
 
     def _reset_active(self) -> None:
         """重置当前动态正文状态。"""
-        self.active_block      = None
-        self.active_kind       = None
-        self.active_gap_before = False
+        self.active_block            = None
+        self.active_transcript_block = None
+        self.active_kind             = None
+        self.active_gap_before       = False
 
     def _append_rendered_block(
         self,
         out: FormattedText,
         item: TranscriptBlock,
-    ) -> None:
+        *,
+        transcript: bool = False,
+        leading_content: bool = False
+    ) -> bool:
         """向已有正文追加一个块并统一处理块前间距。"""
-        parts = self._trim_block_fragments(list(item.block.fragments))
+        block = item.transcript_block if transcript else item.display_block
+        parts = self._trim_block_fragments(list(block.fragments))
+
         if not parts:
-            return None
-        if out:
+            return False
+
+        if out or leading_content:
             out.append(("", "\n\n" if item.gap_before else "\n"))
         out.extend(parts)
 
-    def _render_blocks(self, blocks: list[TranscriptBlock]) -> FormattedText:
+        return True
+
+    def _render_blocks(
+        self,
+        blocks: list[TranscriptBlock],
+        *,
+        transcript: bool = False,
+        leading_content: bool = False
+    ) -> FormattedText:
         """统一渲染一组正文块及其前置间距。"""
         out: FormattedText = []
+
         for item in blocks:
-            self._append_rendered_block(out, item)
+            if self._append_rendered_block(
+                out,
+                item,
+                transcript=transcript,
+                leading_content=leading_content,
+            ):
+                leading_content = False
+
         return out
 
     def _stable_line_count(self) -> int:
@@ -142,13 +191,14 @@ class TuiDocument(object):
 
     def _block_lines(self, item: TranscriptBlock) -> list[FormattedText]:
         """返回指定稳定块去除外侧换行后的逻辑行。"""
-        parts = self._trim_block_fragments(list(item.block.fragments))
+        parts = self._trim_block_fragments(list(item.display_block.fragments))
         return split_formatted_lines(parts)
 
     def _block_start_line(self, block: FragmentBlock) -> int | None:
         """返回指定稳定块首项内容所在的逻辑行位置。"""
-        line: int                = 0
-        found: int | None        = None
+        line: int         = 0
+        found: int | None = None
+
         has_rendered_block: bool = False
 
         for item in self.blocks:
@@ -157,10 +207,11 @@ class TuiDocument(object):
                 continue
             if has_rendered_block and item.gap_before:
                 line += 1
-            if item.block is block:
+            if item.display_block is block:
                 found = line
             line += len(own_lines)
             has_rendered_block = True
+
         return found
 
     def _rebuild_stable_lines(self) -> None:
@@ -180,9 +231,11 @@ class TuiDocument(object):
         if not items:
             return None
 
+        self.stable_transcript_revision += 1
+
         previous_line_count = self._stable_line_count()
-        scrollback_at_end = self.scrollback_line_count == previous_line_count
-        cleared_at_end    = self.cleared_line_count == previous_line_count
+        scrollback_at_end   = self.scrollback_line_count == previous_line_count
+        cleared_at_end      = self.cleared_line_count == previous_line_count
 
         content_start: int | None = None
 
@@ -228,12 +281,20 @@ class TuiDocument(object):
         self._pending_submission = None
         return changed
 
-    def append_block(self, block: FragmentBlock, *, kind: TuiBlockKind) -> bool:
+    def append_block(
+        self,
+        block: FragmentBlock,
+        *,
+        kind: TuiBlockKind,
+        transcript_block: FragmentBlock | None = None
+    ) -> bool:
         """追加一个稳定正文块并统一保留块间空行。"""
-        block = sanitize_fragment_block(block)
+        block            = sanitize_fragment_block(block)
+        transcript_block = sanitize_fragment_block(transcript_block or block)
 
         item = TranscriptBlock(
-            block=block,
+            display_block=block,
+            transcript_block=transcript_block,
             kind=kind,
             gap_before=bool(
                 self.blocks
@@ -244,6 +305,7 @@ class TuiDocument(object):
 
         if self.active_block is not None:
             self._active_tail.append(item)
+            self.active_transcript_revision += 1
         else:
             self._extend_stable([item])
 
@@ -254,7 +316,7 @@ class TuiDocument(object):
         if (
             self.active_block is not None
             or not self.blocks
-            or self.blocks[-1].block is not block
+            or self.blocks[-1].display_block is not block
         ):
             return False
 
@@ -267,6 +329,7 @@ class TuiDocument(object):
 
         self.blocks.pop()
         self._rebuild_stable_lines()
+        self.stable_transcript_revision += 1
 
         line_count = self._stable_line_count()
 
@@ -275,9 +338,16 @@ class TuiDocument(object):
 
         return True
 
-    def set_active(self, block: FragmentBlock, *, kind: TuiBlockKind) -> None:
+    def set_active(
+        self,
+        block: FragmentBlock,
+        *,
+        kind: TuiBlockKind,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
-        block = sanitize_fragment_block(block)
+        block            = sanitize_fragment_block(block)
+        transcript_block = sanitize_fragment_block(transcript_block or block)
 
         if self.active_block is None:
             self.active_kind = kind
@@ -285,17 +355,27 @@ class TuiDocument(object):
         elif self.active_kind != kind:
             raise ValueError("active TUI block kind cannot change before commit")
 
-        self.active_block = block
+        self.active_block            = block
+        self.active_transcript_block = transcript_block
 
-    def commit_active(self, block: FragmentBlock) -> None:
+        self.active_transcript_revision += 1
+
+    def commit_active(
+        self,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
         """把当前动态正文替换为相同位置的稳定块。"""
         if self.active_kind is None:
             raise ValueError("cannot commit an active TUI block without a kind")
 
-        block = sanitize_fragment_block(block)
+        block            = sanitize_fragment_block(block)
+        transcript_block = sanitize_fragment_block(transcript_block or block)
 
         items = [TranscriptBlock(
-            block=block,
+            display_block=block,
+            transcript_block=transcript_block,
             kind=self.active_kind,
             gap_before=self.active_gap_before,
         ), *self._active_tail]
@@ -303,12 +383,18 @@ class TuiDocument(object):
         self._extend_stable(items)
         self._active_tail.clear()
         self._reset_active()
+        self.active_transcript_revision += 1
 
     def clear_active(self) -> None:
         """清空当前动态正文及其间距状态。"""
+        changed = bool(self.active_block is not None or self._active_tail)
+
         self._extend_stable(self._active_tail)
         self._active_tail.clear()
         self._reset_active()
+
+        if changed:
+            self.active_transcript_revision += 1
 
     def fragments(self, *, width: int) -> FormattedText:
         """生成统一处理块边界后的正文片段。"""
@@ -321,7 +407,8 @@ class TuiDocument(object):
             if self.active_kind is None:
                 raise ValueError("active TUI block is missing its semantic kind")
             self._append_rendered_block(out, TranscriptBlock(
-                block=self.active_block,
+                display_block=self.active_block,
+                transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
                 gap_before=self.active_gap_before,
             ))
@@ -369,12 +456,61 @@ class TuiDocument(object):
             if self.active_kind is None:
                 raise ValueError("active TUI block is missing its semantic kind")
             blocks.append(TranscriptBlock(
-                block=self.active_block,
+                display_block=self.active_block,
+                transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
                 gap_before=self.active_gap_before,
             ))
         blocks.extend(self._active_tail)
         return self._render_blocks(blocks)
+
+    def transcript_fragments(self, *, width: int) -> FormattedText:
+        """生成包含动态正文在内的完整会话记录片段。"""
+        _ = width
+        snapshot = self.transcript_snapshot()
+
+        stable = self._render_blocks(
+            list(snapshot.stable_cells),
+            transcript=True,
+        )
+
+        active = self._render_blocks(
+            list(snapshot.active_cells),
+            transcript=True,
+            leading_content=bool(stable),
+        )
+
+        return [*stable, *active]
+
+    def transcript_snapshot(self) -> TranscriptSnapshot:
+        """返回当前完整记录使用的不可变 cell 快照。"""
+        active_cells: list[TranscriptBlock] = []
+        if self.active_block is not None:
+            if self.active_kind is None:
+                raise ValueError("active TUI block is missing its semantic kind")
+            active_cells.append(TranscriptBlock(
+                display_block=self.active_block,
+                transcript_block=self.active_transcript_block or self.active_block,
+                kind=self.active_kind,
+                gap_before=self.active_gap_before,
+            ))
+        active_cells.extend(self._active_tail)
+        if self._stable_snapshot_revision != self.stable_transcript_revision:
+            self._stable_snapshot_cells = tuple(self.blocks)
+            self._stable_snapshot_revision = self.stable_transcript_revision
+        return TranscriptSnapshot(
+            stable_cells=self._stable_snapshot_cells,
+            active_cells=tuple(active_cells),
+            stable_revision=self.stable_transcript_revision,
+            active_revision=self.active_transcript_revision,
+        )
+
+    def transcript_cell_fragments(
+        self,
+        cell: TranscriptBlock,
+    ) -> FormattedText:
+        """返回单个记录 cell 去除外侧换行后的完整片段。"""
+        return self._trim_block_fragments(list(cell.transcript_block.fragments))
 
 
 if __name__ == '__main__':

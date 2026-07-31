@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import json
 import typing
 from ..models import (
     BatchCompletedView,
@@ -53,6 +54,29 @@ def render_batch_start_view(view: BatchStartView) -> StyledBlock:
         spans=tuple(spans),
         preserve_spans=True,
     )
+
+
+def render_batch_start_transcript_view(view: BatchStartView) -> StyledBlock:
+    """把并行工具启动信息转换为完整记录块。"""
+    lines      = ["• Parallel tools"]
+    last_index = len(view.calls) - 1
+
+    for index, call in enumerate(view.calls):
+        branch        = "└" if index == last_index else "├"
+        detail_prefix = "   " if index == last_index else "│  "
+        lines.append(f"{branch} {call.name}")
+
+        arguments = json.dumps(
+            call.arguments,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            default=str,
+        ).splitlines()
+
+        lines.extend(f"{detail_prefix}{line}" for line in arguments)
+
+    return StyledBlock(plain_text="\n".join(lines))
 
 
 def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
