@@ -24,8 +24,38 @@ ToolValue = typing.TypeVar("ToolValue")
 @dataclass(frozen=True, slots=True)
 class _PreparedDecision:
     """保存审批事件阶段已经执行的前置 Hook 决定。"""
-    fingerprint: str
+    fingerprints: tuple[str, ...]
     decision: HookDecision
+
+
+@dataclass(frozen=True, slots=True)
+class _PostToolUseResult:
+    """保存工具后置 Hook 对模型可见结果的影响。"""
+    replacement_result: typing.Any = None
+    replacement_result_set: bool = False
+    suppress_original_output: bool = False
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        """规范化反馈文本集合。"""
+        object.__setattr__(
+            self,
+            "additional_context",
+            tuple(
+                text
+                for value in self.additional_context
+                for text in [str(value or "").strip()]
+                if text
+            ),
+        )
+        object.__setattr__(
+            self,
+            "system_message",
+            str(self.system_message or "").strip(),
+        )
+        object.__setattr__(self, "reason", str(self.reason or "").strip())
 
 
 class ToolHookEvents:
@@ -46,8 +76,12 @@ class ToolHookEvents:
             invocation,
         )
 
-        reasons: list[str]     = []
-        denied_keys: list[str] = []
+        updated_input: dict[str, typing.Any] | None = None
+
+        reasons: list[str]         = []
+        denied_keys: list[str]     = []
+        contexts: list[str]        = []
+        system_messages: list[str] = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -56,17 +90,23 @@ class ToolHookEvents:
                     reasons.append(_bounded_reason(f"hook failed: {record.error}"))
                 continue
 
-            output = record.output
-
-            denied = (
-                output.get("decision") in {"deny", "block"}
-                or output.get("continue") is False
-            )
-            if denied:
+            effect = record.effect
+            if not effect.continue_execution:
                 denied_keys.append(record.hook_key)
                 reasons.append(_bounded_reason(
-                    str(output.get("reason") or "tool use denied by hook")
+                    effect.reason or "tool use denied by hook"
                 ))
+                continue
+
+            if effect.updated_input is not None:
+                if updated_input is None:
+                    updated_input = {}
+                updated_input.update(effect.updated_input)
+
+            contexts.extend(effect.additional_context)
+
+            if effect.system_message:
+                system_messages.append(effect.system_message)
 
         if denied_keys:
             return HookDecision(
@@ -74,23 +114,61 @@ class ToolHookEvents:
                 reason="; ".join(reason for reason in reasons if reason),
                 hook_keys=tuple(denied_keys),
             )
-        return HookDecision.allow()
+        return HookDecision(
+            allowed=True,
+            updated_input=updated_input,
+            additional_context=tuple(contexts),
+            system_message="\n\n".join(system_messages),
+        )
 
     async def post_tool_use(
         self,
         invocation: ToolInvocation,
         outcome: ToolOutcome
-    ) -> None:
-        """执行工具后事件并忽略非阻断失败。"""
+    ) -> _PostToolUseResult:
+        """执行工具后事件并聚合模型可见结果影响。"""
         self.scope.require_turn(invocation.turn)
         if not self.scope.has_matching("PostToolUse", invocation.name):
-            return None
+            return _PostToolUseResult()
 
-        await _dispatch_tool_event(
+        dispatched = await _dispatch_tool_event(
             self.scope,
             "PostToolUse",
             invocation,
             outcome=outcome,
+        )
+
+        contexts: list[str]            = []
+        system_messages: list[str]     = []
+        reasons: list[str]             = []
+        replacement_result: typing.Any = None
+        replacement_result_set         = False
+        suppress_original_output       = False
+
+        for record in dispatched.records:
+            if not record.ok:
+                continue
+
+            effect = record.effect
+
+            contexts.extend(effect.additional_context)
+            if effect.system_message:
+                system_messages.append(effect.system_message)
+            if effect.reason:
+                reasons.append(_bounded_reason(effect.reason))
+            if effect.replacement_result_set:
+                replacement_result = effect.replacement_result
+                replacement_result_set = True
+            if effect.suppress_original_output or not effect.continue_execution:
+                suppress_original_output = True
+
+        return _PostToolUseResult(
+            replacement_result=replacement_result,
+            replacement_result_set=replacement_result_set,
+            suppress_original_output=suppress_original_output,
+            additional_context=tuple(contexts),
+            system_message="\n\n".join(system_messages),
+            reason="; ".join(reason for reason in reasons if reason),
         )
 
     async def permission_request(
@@ -124,12 +202,12 @@ class ToolHookEvents:
                     ))
                 continue
 
-            decision = record.output.get("decision")
+            decision = record.effect.decision
             if decision == "deny":
                 denied_keys.append(record.hook_key)
                 denied_reasons.append(_bounded_reason(
                     str(
-                        record.output.get("reason")
+                        record.effect.reason
                         or "permission denied by hook"
                     )
                 ))
@@ -162,9 +240,9 @@ class ToolCallCoordinator:
         """在审批前执行并缓存一次 PreToolUse 决定。"""
         decision = await self._decision_for(invocation)
         if invocation.call_id:
-            self._prepared[invocation.call_id] = _PreparedDecision(
-                fingerprint=_invocation_fingerprint(invocation),
-                decision=decision,
+            self._prepared[invocation.call_id] = _prepared_decision(
+                invocation,
+                decision,
             )
         return decision
 
@@ -180,14 +258,37 @@ class ToolCallCoordinator:
                 action="deny",
                 reason=pre_tool.reason,
                 hook_keys=pre_tool.hook_keys,
+                updated_input=pre_tool.updated_input,
             )
 
-        return await self.events.permission_request(invocation)
+        permission = await self.events.permission_request(
+            self.effective_invocation(invocation, pre_tool)
+        )
+        return HookPermissionDecision(
+            action=permission.action,
+            reason=permission.reason,
+            hook_keys=permission.hook_keys,
+            updated_input=pre_tool.updated_input,
+        )
 
     async def run(
         self,
         invocation: ToolInvocation,
         operation: typing.Callable[[], typing.Awaitable[ToolValue]]
+    ) -> ToolCallRunResult[ToolValue]:
+        """执行前置决定、工具操作和后置 Hook。"""
+        return await self.run_invocation(
+            invocation,
+            lambda _invocation: operation(),
+        )
+
+    async def run_invocation(
+        self,
+        invocation: ToolInvocation,
+        operation: typing.Callable[
+            [ToolInvocation],
+            typing.Awaitable[ToolValue],
+        ]
     ) -> ToolCallRunResult[ToolValue]:
         """执行前置决定、工具操作和后置 Hook。"""
         decision = await self._decision_for(invocation)
@@ -197,13 +298,15 @@ class ToolCallCoordinator:
                 reason=decision.reason or "tool use denied by hook",
             )
 
+        effective_invocation = self.effective_invocation(invocation, decision)
+
         started_at = time.perf_counter()
 
         try:
-            value = await operation()
+            value = await operation(effective_invocation)
         except asyncio.CancelledError:
             await self.events.post_tool_use(
-                invocation,
+                effective_invocation,
                 ToolOutcome(
                     executed=True,
                     ok=False,
@@ -216,7 +319,7 @@ class ToolCallCoordinator:
 
         except BaseException as error:
             await self.events.post_tool_use(
-                invocation,
+                effective_invocation,
                 ToolOutcome(
                     executed=True,
                     ok=False,
@@ -226,11 +329,26 @@ class ToolCallCoordinator:
             )
             raise
 
-        await self.events.post_tool_use(
-            invocation,
+        post_result = await self.events.post_tool_use(
+            effective_invocation,
             _outcome_from_value(value, duration_ms=_duration_ms(started_at)),
         )
-        return ToolCallRunResult(allowed=True, value=value)
+        return ToolCallRunResult(
+            allowed=True,
+            value=value,
+            reason=post_result.reason,
+            replacement_result=post_result.replacement_result,
+            replacement_result_set=post_result.replacement_result_set,
+            suppress_original_output=post_result.suppress_original_output,
+            additional_context=(
+                *decision.additional_context,
+                *post_result.additional_context,
+            ),
+            system_message=_join_text(
+                decision.system_message,
+                post_result.system_message,
+            ),
+        )
 
     async def _decision_for(self, invocation: ToolInvocation) -> HookDecision:
         """复用匹配的预执行决定，否则重新执行前置 Hook。"""
@@ -238,11 +356,21 @@ class ToolCallCoordinator:
 
         if (
             prepared is not None
-            and prepared.fingerprint == _invocation_fingerprint(invocation)
+            and _invocation_fingerprint(invocation) in prepared.fingerprints
         ):
             return prepared.decision
 
         return await self.events.pre_tool_use(invocation)
+
+    @staticmethod
+    def effective_invocation(
+        invocation: ToolInvocation,
+        decision: HookDecision
+    ) -> ToolInvocation:
+        """返回应用前置 Hook 参数改写后的调用快照。"""
+        if decision.updated_input is None:
+            return invocation
+        return invocation.with_arguments(decision.updated_input)
 
 
 async def _dispatch_tool_event(
@@ -302,6 +430,24 @@ def _invocation_fingerprint(invocation: ToolInvocation) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _prepared_decision(
+    invocation: ToolInvocation,
+    decision: HookDecision
+) -> _PreparedDecision:
+    """构建同时匹配原始和改写参数的前置决定缓存。"""
+    fingerprints = [_invocation_fingerprint(invocation)]
+    effective    = ToolCallCoordinator.effective_invocation(invocation, decision)
+
+    effective_fingerprint = _invocation_fingerprint(effective)
+    if effective_fingerprint not in fingerprints:
+        fingerprints.append(effective_fingerprint)
+
+    return _PreparedDecision(
+        fingerprints=tuple(fingerprints),
+        decision=decision,
+    )
+
+
 def _tool_kind(meta: dict[str, typing.Any] | None) -> str:
     """从工具元数据中读取稳定类别。"""
     if not isinstance(meta, dict):
@@ -319,8 +465,8 @@ def _bounded_result(value: typing.Any, limit: int = 32768) -> typing.Any:
         return value
 
     return {
-        "summary": encoded[:limit],
-        "truncated": True,
+        "summary"   : encoded[:limit],
+        "truncated" : True
     }
 
 
@@ -328,6 +474,16 @@ def _bounded_reason(value: str, limit: int = 2000) -> str:
     """返回可安全回填的有界 Hook 原因。"""
     text = str(value or "").strip()
     return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _join_text(*values: str) -> str:
+    """合并非空文本段。"""
+    return "\n\n".join(
+        text
+        for value in values
+        for text in [str(value or "").strip()]
+        if text
+    )
 
 
 def _duration_ms(started_at: float) -> int:

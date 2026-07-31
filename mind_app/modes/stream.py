@@ -57,6 +57,8 @@ from ..runtime.execution import (
     TurnContext
 )
 from ..runtime.hooks.tool import ToolCallCoordinator
+from ..runtime.hooks.models import StopHookDecision
+from ..runtime.hooks.results import apply_tool_result_effect
 from ..runtime.hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
@@ -69,9 +71,17 @@ from ..runtime.tools.execution_policy import (
     is_execution_ignored,
     validate_execution_policy
 )
-from ..runtime.tools.client_call import ClientToolCallRunner
+from ..runtime.tools.client_call import (
+    coerce_client_tool_call_outcome,
+    ClientToolCallRunner,
+    build_client_tool_post_kwargs
+)
 from ..runtime.tools.plan_call import PlanToolCallRunner
-from ..runtime.turns.executor import TurnExecution
+from ..runtime.turns.executor import (
+    TurnExecution,
+    create_continuation_execution,
+    turn_continuation_count
+)
 from ..runtime.support.idle_status import IdleStatusTimer
 from ..stream_events.tool_trace import coding_trace_tool
 from ..stream_events.lifecycle import handle_lifecycle_event
@@ -84,6 +94,9 @@ from engine.observability import (
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
+
+
+MAX_STOP_CONTINUATIONS = 3
 
 
 def _tool_invocation_from_event(
@@ -120,6 +133,65 @@ def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
     }
 
 
+def _approval_with_updated_input(
+    approval: dict[str, typing.Any],
+    tool: str,
+    updated_input: dict[str, typing.Any] | None,
+) -> dict[str, typing.Any]:
+    """返回应用 Hook 参数改写后的审批数据。"""
+    if updated_input is None:
+        return approval
+
+    updated = dict(approval)
+    updated["tool"] = tool or updated.get("tool") or ""
+    updated["arguments"] = dict(updated_input)
+    return updated
+
+
+def _extend_request_context(
+    kwargs: dict[str, typing.Any],
+    *,
+    additional_context: typing.Iterable[str] = (),
+    system_message: str = "",
+) -> None:
+    """把 Hook 注入文本合并到请求参数。"""
+    contexts = [
+        text
+        for value in additional_context
+        for text in [str(value or "").strip()]
+        if text
+    ]
+    if contexts:
+        existing = kwargs.get("additional_context")
+        merged = list(existing) if isinstance(existing, list) else []
+        merged.extend(contexts)
+        kwargs["additional_context"] = merged
+
+    system_text = str(system_message or "").strip()
+    if system_text:
+        kwargs["system_message"] = _join_text(
+            str(kwargs.get("system_message") or ""),
+            system_text,
+        )
+
+
+def _join_text(*values: str) -> str:
+    """合并非空文本段。"""
+    return "\n\n".join(
+        text
+        for value in values
+        for text in [str(value or "").strip()]
+        if text
+    )
+
+
+async def _discard_stop_hook_decision(
+    awaitable: typing.Awaitable[StopHookDecision],
+) -> None:
+    """执行停止 Hook 并丢弃清理阶段不应消费的续跑决定。"""
+    await awaitable
+
+
 async def stream_looper(
     mind: "Mind",
     session: McpSessionLike,
@@ -133,6 +205,8 @@ async def stream_looper(
     """流式模式执行器：处理流式事件、工具调用和输出上报。"""
     if mode not in {"chat", "fast", "xtra"}:
         raise ValueError(f"Invalid mode: {mode}")
+
+    reentry_kwargs = dict(kwargs)
 
     started_at = time.perf_counter()
 
@@ -160,6 +234,8 @@ async def stream_looper(
         kwargs["additional_context"] = list(
             turn_execution.additional_context
         )
+    if turn_execution.system_message:
+        kwargs["system_message"] = turn_execution.system_message
 
     if ev_report:
         ev_report.begin_turn(turn_context.turn_id)
@@ -192,6 +268,7 @@ async def stream_looper(
         session_factory = getattr(frontend, "session_factory", None)
     if session_factory is None:
         raise RuntimeError("stream output session factory is required")
+    reentry_kwargs["session_factory"] = session_factory
 
     output_session: OutputSession = session_factory(
         mind.report.log_papers,
@@ -215,6 +292,7 @@ async def stream_looper(
     result_status: RunStatus  = "incomplete"
 
     turn_hook_events: TurnHookEvents | None = None
+    stop_decision = StopHookDecision.stop()
 
     approvals: ApprovalStore = ApprovalStore()
     tracker: SegmentTracker  = SegmentTracker()
@@ -250,7 +328,13 @@ async def stream_looper(
         tool_call_coordinator = ToolCallCoordinator(hook_scope)
         turn_hook_events      = TurnHookEvents(hook_scope)
 
-        await turn_hook_events.begin(message)
+        begin_result = await turn_hook_events.begin(message)
+        message = begin_result.message
+        _extend_request_context(
+            kwargs,
+            additional_context=begin_result.additional_context,
+            system_message=begin_result.system_message,
+        )
 
         client_tool_runner = ClientToolCallRunner(
             session=session,
@@ -404,6 +488,11 @@ async def stream_looper(
                         await tool_call_coordinator.prepare_permission(
                             approval_invocation
                         )
+                    )
+                    approval = _approval_with_updated_input(
+                        approval,
+                        approval_tool,
+                        permission_decision.updated_input,
                     )
 
                 observe(
@@ -559,25 +648,55 @@ async def stream_looper(
                     await status_control.begin_reply_wait_status(delay_sec=0.15)
                     continue
 
+                invocation = tool_call_coordinator.effective_invocation(
+                    invocation,
+                    hook_decision,
+                )
+                arguments = dict(invocation.arguments)
+
                 if name == PLAN_STEPS_TOOL:
-                    async def execute_plan_call() -> typing.Any:
+                    async def execute_plan_call(
+                        prepared: ToolInvocation,
+                    ) -> typing.Any:
                         """执行已经获准的计划工具调用。"""
                         return await plan_tool_runner.handle(
-                            invocation=invocation,
+                            invocation=prepared,
                         )
 
-                    hook_run = await tool_call_coordinator.run(
+                    hook_run = await tool_call_coordinator.run_invocation(
                         invocation,
                         execute_plan_call,
                     )
+                    visible_result = None
                     if not hook_run.allowed:
                         plan_ok     = False
                         plan_result = _hook_denied_result(hook_run.reason)
                     else:
                         if hook_run.value is None:
                             raise RuntimeError("plan tool execution returned no result")
-                        plan_ok     = hook_run.value.ok
-                        plan_result = hook_run.value.fields
+                        visible_result = apply_tool_result_effect(
+                            ok=hook_run.value.ok,
+                            text=hook_run.value.text,
+                            fields=hook_run.value.fields,
+                            hook_run=hook_run,
+                        )
+                        plan_ok = visible_result.ok
+                        plan_result = visible_result.fields
+                    post_kwargs: dict[str, typing.Any] = {
+                        "execution": invocation.execution,
+                    }
+                    if (
+                        visible_result is not None
+                        and visible_result.additional_context
+                    ):
+                        post_kwargs["additional_context"] = (
+                            visible_result.additional_context
+                        )
+                    if (
+                        visible_result is not None
+                        and visible_result.system_message
+                    ):
+                        post_kwargs["system_message"] = visible_result.system_message
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
@@ -585,7 +704,7 @@ async def stream_looper(
                         invocation.name,
                         plan_ok,
                         plan_result,
-                        execution=invocation.execution,
+                        **post_kwargs,
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
@@ -651,9 +770,16 @@ async def stream_looper(
 
                 use_coding_trace = coding_trace_tool(name)
 
-                tool_result = await client_tool_runner.execute(
-                    invocation,
-                    use_coding_trace=use_coding_trace,
+                tool_outcome = coerce_client_tool_call_outcome(
+                    await client_tool_runner.execute(
+                        invocation,
+                        use_coding_trace=use_coding_trace,
+                    )
+                )
+                tool_result = tool_outcome.result
+                post_kwargs = build_client_tool_post_kwargs(
+                    tool_outcome,
+                    execution=invocation.execution,
                 )
                 await post_tool_result(
                     invocation.turn.cid,
@@ -662,7 +788,7 @@ async def stream_looper(
                     tool_result.name,
                     tool_result.ok,
                     tool_result.fields,
-                    execution=invocation.execution,
+                    **post_kwargs,
                 )
                 await status_control.begin_reply_wait_status(delay_sec=0.75)
                 continue
@@ -788,11 +914,32 @@ async def stream_looper(
         if turn_hook_events is not None:
             stop_outcome = "interrupted" if interrupted else result_status
             try:
-                await mind.await_cleanup(turn_hook_events.stop(
-                    outcome=stop_outcome,
-                    error=failure_error,
-                    usage=turn_usage,
-                ))
+                if interrupted:
+                    await mind.await_cleanup(_discard_stop_hook_decision(
+                        turn_hook_events.stop(
+                            outcome=stop_outcome,
+                            error=failure_error,
+                            usage=turn_usage,
+                            last_assistant_message=(
+                                tracker.latest_assistant_output_text()
+                            ),
+                            continuation_count=turn_continuation_count(
+                                turn_execution
+                            ),
+                        )
+                    ))
+                else:
+                    stop_decision = await turn_hook_events.stop(
+                        outcome=stop_outcome,
+                        error=failure_error,
+                        usage=turn_usage,
+                        last_assistant_message=(
+                            tracker.latest_assistant_output_text()
+                        ),
+                        continuation_count=turn_continuation_count(
+                            turn_execution
+                        ),
+                    )
             except Exception as error:
                 observe_exception(
                     "hooks.stop.failed",
@@ -803,12 +950,40 @@ async def stream_looper(
         await idle_wait.cancel()
         await mind.await_cleanup(output_control.stop(blink=not interrupted))
 
-    return RunResult(
+    result = RunResult(
         status=result_status,
         assistant_text=tracker.latest_assistant_output_text(),
         usage=dict(turn_usage),
         error=failure_error,
     )
+
+    if stop_decision.should_continue and not interrupted:
+        continuation_count = turn_continuation_count(turn_execution)
+        if continuation_count >= MAX_STOP_CONTINUATIONS:
+            observe(
+                "hooks.stop.limit_reached",
+                level="WARNING",
+                turn_id=turn_context.turn_id,
+                continuation_count=continuation_count,
+                hook_keys=list(stop_decision.hook_keys),
+            )
+            return result
+        return await stream_looper(
+            mind,
+            session,
+            mode,
+            pref_config,
+            tools,
+            turn_execution=create_continuation_execution(
+                turn_execution,
+                stop_decision.continuation_prompt,
+                additional_context=stop_decision.additional_context,
+                system_message=stop_decision.system_message,
+            ),
+            **reentry_kwargs,
+        )
+
+    return result
 
 
 if __name__ == '__main__':

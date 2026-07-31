@@ -685,6 +685,118 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
 
 
 @pytest.mark.anyio
+async def test_pre_tool_use_updated_input_reaches_execution_and_post_hook() -> None:
+    definitions = _definitions({
+        "PreToolUse": [{"command": "pre"}],
+        "PostToolUse": [{"command": "post"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "decision": "allow",
+            "updatedInput": {"command": "pytest -q"},
+        },
+    })
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+    prepared_invocations = []
+
+    async def operation(prepared):
+        prepared_invocations.append(prepared)
+        return SimpleNamespace(
+            ok=True,
+            text="done",
+            fields={"ok": True, "data": {"answer": 42}},
+        )
+
+    decision = await coordinator.prepare(_invocation())
+    effective = coordinator.effective_invocation(_invocation(), decision)
+    result = await coordinator.run_invocation(effective, operation)
+
+    assert result.allowed
+    assert prepared_invocations[0].arguments == {"command": "pytest -q"}
+    assert [call[0].event for call in runner.calls] == [
+        "PreToolUse",
+        "PostToolUse",
+    ]
+    assert runner.calls[1][1]["tool_input"] == {"command": "pytest -q"}
+
+
+@pytest.mark.anyio
+async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
+    definitions = _definitions({
+        "PreToolUse": [{"command": "pre"}],
+        "PostToolUse": [{"command": "post"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "additionalContext": "prefer concise output",
+            "systemMessage": "Treat the tool result as summarized.",
+        },
+        definitions[1].key: {
+            "additionalContext": "post context",
+            "systemMessage": "Post message.",
+        },
+    })
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+
+    result = await coordinator.run(
+        _invocation(),
+        lambda: _return_value(SimpleNamespace(
+            ok=True,
+            text="done",
+            fields={"ok": True, "data": {"answer": 42}},
+        )),
+    )
+
+    assert result.allowed
+    assert result.additional_context == (
+        "prefer concise output",
+        "post context",
+    )
+    assert result.system_message == (
+        "Treat the tool result as summarized.\n\nPost message."
+    )
+
+
+@pytest.mark.anyio
+async def test_post_tool_use_exposes_replacement_result_effect() -> None:
+    definitions = _definitions({
+        "PostToolUse": [{"command": "post"}],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "replacementResult": {
+                "ok": False,
+                "text": "redacted",
+                "data": {"redacted": True},
+            },
+            "additionalContext": ["explain the redaction"],
+            "systemMessage": "Do not reveal the original output.",
+        },
+    })
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+
+    result = await coordinator.run(
+        _invocation(),
+        lambda: _return_value(SimpleNamespace(
+            ok=True,
+            text="secret",
+            fields={"ok": True, "data": {"secret": "value"}},
+        )),
+    )
+
+    assert result.replacement_result_set is True
+    assert result.replacement_result["text"] == "redacted"
+    assert result.additional_context == ("explain the redaction",)
+    assert result.system_message == "Do not reveal the original output."
+
+
+@pytest.mark.anyio
 async def test_post_tool_use_failure_does_not_replace_tool_result() -> None:
     definitions = _definitions({
         "PostToolUse": [{"command": "broken-post"}],

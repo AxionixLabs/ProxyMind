@@ -319,6 +319,8 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
         definitions[1].key: {
             "decision": "block",
             "reason": "run another focused pass",
+            "additionalContext": "review the last reply",
+            "systemMessage": "Continue only with missing checks.",
         },
     })
     runtime = HookRuntime(definitions, command_runner=command_runner)
@@ -348,7 +350,19 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
         "run another focused pass",
     ]
     assert prepared_turns[0].additional_context == ("initial context",)
-    assert all(not turn.additional_context for turn in prepared_turns[1:])
+    assert [
+        turn.additional_context
+        for turn in prepared_turns[1:]
+    ] == [
+        ("review the last reply",),
+        ("review the last reply",),
+        ("review the last reply",),
+    ]
+    assert [turn.system_message for turn in prepared_turns[1:]] == [
+        "Continue only with missing checks.",
+        "Continue only with missing checks.",
+        "Continue only with missing checks.",
+    ]
     assert [turn.context.session_started for turn in prepared_turns] == [
         True,
         False,

@@ -14,6 +14,7 @@ from mind_app.output import (
 )
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.runtime.execution import ToolInvocation
+from mind_app.runtime.hooks.results import apply_tool_result_effect
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from .display import (
     show_tool_result,
@@ -32,6 +33,103 @@ class ClientToolCallResult:
     cost_ms: int = 0
     call_id: str = ""
     fields: dict[str, typing.Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ClientToolCallOutcome:
+    """描述客户端工具执行和 Hook 反馈的组合结果。"""
+    result: ClientToolCallResult
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
+
+    def __post_init__(self) -> None:
+        """规范化 Hook 反馈文本。"""
+        self.result = _coerce_client_tool_result(self.result)
+        self.additional_context = _normalized_contexts(self.additional_context)
+        self.system_message = str(self.system_message or "").strip()
+
+
+def coerce_client_tool_call_outcome(value: typing.Any) -> ClientToolCallOutcome:
+    """把客户端工具执行返回值规范为组合结果。"""
+    if isinstance(value, ClientToolCallOutcome):
+        return value
+
+    return ClientToolCallOutcome(
+        result=_coerce_client_tool_result(value),
+        additional_context=getattr(value, "additional_context", ()),
+        system_message=str(getattr(value, "system_message", "") or ""),
+    )
+
+
+def build_client_tool_post_kwargs(
+    outcome: ClientToolCallOutcome,
+    *,
+    execution: dict[str, typing.Any] | None,
+) -> dict[str, typing.Any]:
+    """构建客户端工具结果回传参数。"""
+    post_kwargs: dict[str, typing.Any] = {
+        "execution": execution,
+    }
+
+    contexts = _normalized_contexts(
+        outcome.additional_context,
+    )
+    if contexts:
+        post_kwargs["additional_context"] = contexts
+
+    system_message = str(outcome.system_message or "").strip()
+    if system_message:
+        post_kwargs["system_message"] = system_message
+
+    return post_kwargs
+
+
+def _normalized_contexts(value: typing.Any) -> tuple[str, ...]:
+    """规范化可选的上下文文本集合。"""
+    if isinstance(value, str):
+        text = value.strip()
+        return (text,) if text else ()
+    if not isinstance(value, (tuple, list)):
+        return ()
+    return tuple(
+        text
+        for item in value
+        for text in [str(item or "").strip()]
+        if text
+    )
+
+
+def _coerce_client_tool_result(value: typing.Any) -> ClientToolCallResult:
+    """把旧形状或结构化对象规范为客户端工具结果。"""
+    if isinstance(value, ClientToolCallResult):
+        return value
+
+    try:
+        name = str(value.name or "")
+        arguments = dict(value.arguments)
+        ok = bool(value.ok)
+        text = str(value.text or "")
+        fields = dict(value.fields)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise TypeError("client tool execution returned invalid result") from error
+
+    return ClientToolCallResult(
+        name=name,
+        arguments=arguments,
+        ok=ok,
+        text=text,
+        cost_ms=_normalized_cost_ms(getattr(value, "cost_ms", 0)),
+        call_id=str(getattr(value, "call_id", "") or ""),
+        fields=fields,
+    )
+
+
+def _normalized_cost_ms(value: typing.Any) -> int:
+    """规范化工具耗时毫秒数。"""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 class ClientToolCallRunner:
@@ -146,25 +244,50 @@ class ClientToolCallRunner:
         *,
         use_coding_trace: bool,
         display: bool = True
-    ) -> ClientToolCallResult:
+    ) -> ClientToolCallOutcome:
         """执行经过 Hook 协调的客户端工具调用。"""
 
-        async def operation() -> ClientToolCallResult:
+        async def operation(
+            prepared: ToolInvocation,
+        ) -> ClientToolCallResult:
             """执行已获准的本地操作。"""
             return await self._execute_allowed_call(
-                invocation,
+                prepared,
                 use_coding_trace=use_coding_trace,
                 display=display,
             )
 
-        hook_run = await self.tool_call_coordinator.run(invocation, operation)
+        hook_run = await self.tool_call_coordinator.run_invocation(
+            invocation,
+            operation,
+        )
 
         if not hook_run.allowed:
-            return self._denied_result(invocation, hook_run.reason)
+            return ClientToolCallOutcome(
+                result=self._denied_result(invocation, hook_run.reason),
+            )
         if hook_run.value is None:
             raise RuntimeError("tool execution returned no result")
 
-        return hook_run.value
+        visible = apply_tool_result_effect(
+            ok=hook_run.value.ok,
+            text=hook_run.value.text,
+            fields=hook_run.value.fields,
+            hook_run=hook_run,
+        )
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=hook_run.value.name,
+                arguments=dict(hook_run.value.arguments),
+                ok=visible.ok,
+                text=visible.text,
+                cost_ms=hook_run.value.cost_ms,
+                call_id=hook_run.value.call_id,
+                fields=visible.fields,
+            ),
+            additional_context=visible.additional_context,
+            system_message=visible.system_message,
+        )
 
     @staticmethod
     def _denied_result(

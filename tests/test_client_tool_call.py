@@ -15,7 +15,12 @@ from mind_app.runtime.execution import (
 )
 from mind_app.runtime.hooks.models import ToolCallRunResult
 from mind_app.runtime.tools import client_call
-from mind_app.runtime.tools.client_call import ClientToolCallRunner
+from mind_app.runtime.tools.client_call import (
+    ClientToolCallOutcome,
+    ClientToolCallRunner,
+    build_client_tool_post_kwargs,
+    coerce_client_tool_call_outcome,
+)
 from mind_core.permissions import preset_permissions
 
 
@@ -61,10 +66,13 @@ def _runner(coordinator) -> tuple[ClientToolCallRunner, SimpleNamespace]:
 
 @pytest.mark.anyio
 async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> None:
-    async def run_allowed(_invocation, operation):
-        return ToolCallRunResult(allowed=True, value=await operation())
+    async def run_allowed(invocation, operation):
+        return ToolCallRunResult(
+            allowed=True,
+            value=await operation(invocation),
+        )
 
-    coordinator = SimpleNamespace(run=AsyncMock(side_effect=run_allowed))
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
     runner, ports = _runner(coordinator)
     tool_run = SimpleNamespace(
         ok=True,
@@ -81,10 +89,11 @@ async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> Non
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
     monkeypatch.setattr(client_call, "show_tool_result", show_result)
 
-    result = await runner.execute(
+    outcome = await runner.execute(
         _invocation(),
         use_coding_trace=False,
     )
+    result = outcome.result
 
     assert result.ok is True
     assert result.arguments == {"value": 2}
@@ -103,10 +112,13 @@ async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> Non
 
 @pytest.mark.anyio
 async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
-    async def run_allowed(_invocation, operation):
-        return ToolCallRunResult(allowed=True, value=await operation())
+    async def run_allowed(invocation, operation):
+        return ToolCallRunResult(
+            allowed=True,
+            value=await operation(invocation),
+        )
 
-    coordinator = SimpleNamespace(run=AsyncMock(side_effect=run_allowed))
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
     runner, _ports = _runner(coordinator)
     monkeypatch.setattr(
         client_call,
@@ -116,10 +128,11 @@ async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
     monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 
-    result = await runner.execute(
+    outcome = await runner.execute(
         _invocation(),
         use_coding_trace=False,
     )
+    result = outcome.result
 
     assert result.ok is False
     assert result.text == "RuntimeError: failed"
@@ -131,7 +144,7 @@ async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
 async def test_client_tool_call_returns_hook_denial_without_execution(
     monkeypatch,
 ) -> None:
-    coordinator = SimpleNamespace(run=AsyncMock(return_value=ToolCallRunResult(
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(return_value=ToolCallRunResult(
         allowed=False,
         reason="blocked",
     )))
@@ -139,10 +152,11 @@ async def test_client_tool_call_returns_hook_denial_without_execution(
     run_tool_step = AsyncMock()
     monkeypatch.setattr(client_call, "run_tool_step", run_tool_step)
 
-    result = await runner.execute(
+    outcome = await runner.execute(
         _invocation(),
         use_coding_trace=False,
     )
+    result = outcome.result
 
     assert result.ok is False
     assert result.text == "blocked"
@@ -151,3 +165,116 @@ async def test_client_tool_call_returns_hook_denial_without_execution(
         "error": "blocked",
     }
     run_tool_step.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_client_tool_call_applies_post_hook_replacement(
+    monkeypatch,
+) -> None:
+    async def run_allowed(invocation, operation):
+        value = await operation(invocation)
+        return ToolCallRunResult(
+            allowed=True,
+            value=value,
+            replacement_result={
+                "ok": False,
+                "text": "replacement",
+                "data": {"redacted": True},
+            },
+            replacement_result_set=True,
+            additional_context=("review replacement",),
+            system_message="Prefer the replacement.",
+        )
+
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
+    runner, _ports = _runner(coordinator)
+    tool_run = SimpleNamespace(
+        ok=True,
+        fields={"ok": True, "text": "original"},
+        text="original",
+        cost_ms=3,
+    )
+    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=tool_run))
+    monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
+    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+
+    outcome = await runner.execute(
+        _invocation(),
+        use_coding_trace=False,
+    )
+    result = outcome.result
+
+    assert result.ok is False
+    assert result.text == "replacement"
+    assert result.fields["data"] == {"redacted": True}
+    assert outcome.additional_context == ("review replacement",)
+    assert outcome.system_message == "Prefer the replacement."
+
+
+def test_client_tool_outcome_accepts_result_without_hook_feedback() -> None:
+    class LegacyResult:
+        __slots__ = (
+            "name",
+            "arguments",
+            "ok",
+            "text",
+            "fields",
+            "cost_ms",
+            "call_id",
+        )
+
+        def __init__(self) -> None:
+            self.name = "test_tool"
+            self.arguments = {}
+            self.ok = True
+            self.text = "done"
+            self.fields = {"ok": True, "text": "done"}
+            self.cost_ms = 5
+            self.call_id = "call-1"
+
+    outcome = coerce_client_tool_call_outcome(LegacyResult())
+
+    assert outcome.result.name == "test_tool"
+    assert outcome.result.cost_ms == 5
+    assert outcome.additional_context == ()
+    assert build_client_tool_post_kwargs(
+        outcome,
+        execution={"kind": "local"},
+    ) == {
+        "execution": {"kind": "local"},
+    }
+
+
+def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
+    outcome = ClientToolCallOutcome(
+        result=SimpleNamespace(
+            name="test_tool",
+            arguments={},
+            ok=True,
+            text="done",
+            fields={"ok": True, "text": "done"},
+        ),
+        additional_context=[" context "],
+        system_message=" system ",
+    )
+
+    assert build_client_tool_post_kwargs(
+        outcome,
+        execution={"kind": "local"},
+    ) == {
+        "execution": {"kind": "local"},
+        "additional_context": ("context",),
+        "system_message": "system",
+    }
+
+
+def test_client_tool_result_has_no_hook_feedback_fields() -> None:
+    result = client_call.ClientToolCallResult(
+        name="test_tool",
+        arguments={},
+        ok=True,
+        text="done",
+        fields={"ok": True, "text": "done"},
+    )
+
+    assert "additional_context" not in client_call.ClientToolCallResult.__slots__

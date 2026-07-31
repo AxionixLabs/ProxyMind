@@ -9,16 +9,12 @@ from engine.observability import (
     observe_exception
 )
 from mind_nova.events import EventReport
-from mind_nova.identifiers import short_uid
 from mind_app.runtime.hooks.models import SubagentStopDecision
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.turns.executor import (
     TurnExecution,
     TurnResultValue,
+    create_continuation_execution,
     execute_turn
 )
 
@@ -89,12 +85,17 @@ class SubagentRunner:
             start_result = await SubagentHookEvents(
                 execution.hook_scope
             ).start(execution.message)
-            if start_result.additional_context:
+
+            if start_result.additional_context or start_result.system_message:
                 current_execution = replace(
                     execution,
                     additional_context=(
                         *execution.additional_context,
                         *start_result.additional_context,
+                    ),
+                    system_message=_join_text(
+                        execution.system_message,
+                        start_result.system_message,
                     ),
                 )
 
@@ -157,10 +158,12 @@ class SubagentRunner:
 
             continuation_count += 1
 
-            current_execution = _continuation_execution(
+            current_execution = create_continuation_execution(
                 current_execution,
-                decision.reason,
-                continuation_count,
+                decision.continuation_prompt,
+                continuation_count=continuation_count,
+                additional_context=decision.additional_context,
+                system_message=decision.system_message,
             )
 
     async def _dispatch_stop(
@@ -232,37 +235,13 @@ def _result_assistant_text(result: typing.Any) -> str:
     return _bounded_text(str(value or ""))
 
 
-def _continuation_execution(
-    execution: TurnExecution,
-    message: str,
-    continuation_count: int
-) -> TurnExecution:
-    """创建同一子执行线程中的停止 Hook 续跑轮次。"""
-    context = replace(
-        execution.context,
-        turn_id=short_uid(12),
-        session_started=False,
-        session_start_reason="",
-    )
-
-    metadata = dict(execution.metadata)
-
-    metadata.update({
-        "continuation_of_turn_id": (
-            metadata.get("continuation_of_turn_id")
-            or execution.context.turn_id
-        ),
-        "continuation_count": continuation_count,
-    })
-
-    return TurnExecution(
-        context=context,
-        message=message,
-        hook_scope=HookExecutionScope(
-            context=HookExecutionContext.from_turn(context),
-            dispatcher=execution.hook_scope.dispatcher,
-        ),
-        metadata=metadata,
+def _join_text(*values: str) -> str:
+    """合并非空文本段。"""
+    return "\n\n".join(
+        text
+        for value in values
+        for text in [str(value or "").strip()]
+        if text
     )
 
 

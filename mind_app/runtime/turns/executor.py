@@ -6,7 +6,8 @@ import typing
 import asyncio
 from dataclasses import (
     dataclass,
-    field
+    field,
+    replace
 )
 from types import MappingProxyType
 from engine.observability import (
@@ -14,6 +15,7 @@ from engine.observability import (
     observe_exception
 )
 from mind_nova.events import EventReport
+from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
@@ -33,6 +35,7 @@ class TurnExecution:
     hook_scope: HookExecutionScope
     metadata: typing.Mapping[str, typing.Any] = field(default_factory=dict)
     additional_context: tuple[str, ...] = ()
+    system_message: str = ""
 
     def __post_init__(self) -> None:
         """固定执行元数据并校验会话标识一致。"""
@@ -44,6 +47,8 @@ class TurnExecution:
             raise TypeError("turn hook scope is required")
         if not isinstance(self.additional_context, (tuple, list)):
             raise TypeError("turn additional context must be a sequence")
+        if not isinstance(self.system_message, str):
+            raise TypeError("turn system message must be a string")
 
         additional_context: list[str] = []
         for value in self.additional_context:
@@ -70,6 +75,7 @@ class TurnExecution:
 
         object.__setattr__(self, "metadata", MappingProxyType(metadata))
         object.__setattr__(self, "additional_context", tuple(additional_context))
+        object.__setattr__(self, "system_message", self.system_message.strip())
 
 
 def resolve_turn_hook_scope(
@@ -88,6 +94,63 @@ def resolve_turn_hook_scope(
             level="WARNING",
         )
         return HookExecutionScope.empty(hook_context)
+
+
+def turn_continuation_count(execution: TurnExecution) -> int:
+    """读取模型执行的续跑次数。"""
+    value = execution.metadata.get("continuation_count")
+    try:
+        count = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, count)
+
+
+def create_continuation_execution(
+    execution: TurnExecution,
+    message: str,
+    *,
+    continuation_count: int | None = None,
+    additional_context: typing.Iterable[str] = (),
+    system_message: str = ""
+) -> TurnExecution:
+    """创建同一会话中的续跑模型执行。"""
+    if continuation_count is None:
+        next_count = turn_continuation_count(execution) + 1
+    else:
+        try:
+            next_count = max(0, int(continuation_count))
+        except (TypeError, ValueError):
+            next_count = 0
+
+    context = replace(
+        execution.context,
+        turn_id=short_uid(12),
+        session_started=False,
+        session_start_reason="",
+    )
+
+    metadata = dict(execution.metadata)
+
+    metadata.update({
+        "continuation_of_turn_id": (
+            metadata.get("continuation_of_turn_id")
+            or execution.context.turn_id
+        ),
+        "continuation_count": next_count,
+    })
+
+    return TurnExecution(
+        context=context,
+        message=message,
+        hook_scope=HookExecutionScope(
+            context=HookExecutionContext.from_turn(context),
+            dispatcher=execution.hook_scope.dispatcher,
+        ),
+        metadata=metadata,
+        additional_context=tuple(additional_context),
+        system_message=system_message,
+    )
 
 
 class TurnResult(typing.Protocol):

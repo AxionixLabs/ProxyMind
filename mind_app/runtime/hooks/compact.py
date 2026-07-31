@@ -37,11 +37,11 @@ class CompactHookEvents:
                     reasons.append(_bounded_reason(f"hook failed: {record.error}"))
                 continue
 
-            if record.output.get("continue") is False:
+            if not record.effect.continue_execution:
                 blocked_keys.append(record.hook_key)
-                reasons.append(_bounded_reason(str(
-                    record.output.get("reason") or "compaction denied by hook"
-                )))
+                reasons.append(_bounded_reason(
+                    record.effect.reason or "compaction denied by hook"
+                ))
 
         if blocked_keys:
             return HookDecision(

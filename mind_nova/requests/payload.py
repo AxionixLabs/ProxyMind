@@ -102,6 +102,12 @@ async def build_chat_payload(
     if not isinstance(raw_additional_context, (tuple, list)):
         raise TypeError("additional context must be a sequence")
 
+    raw_system_message = kwargs.pop("system_message", None)
+    if raw_system_message is None:
+        raw_system_message = kwargs.pop("systemMessage", "")
+    if not isinstance(raw_system_message, str):
+        raise TypeError("system message must be a string")
+
     additional_context: list[str] = []
 
     for value in raw_additional_context:
@@ -130,6 +136,10 @@ async def build_chat_payload(
         payload["attachments"] = attachments
     if additional_context:
         payload["additional_context"] = additional_context
+
+    system_message = raw_system_message.strip()
+    if system_message:
+        payload["system_message"] = system_message
 
     return payload
 

@@ -30,7 +30,9 @@ async def post_tool_result(
         list[typing.Any],
         dict[str, typing.Any]
     ],
-    execution: dict[str, typing.Any] | None = None
+    execution: dict[str, typing.Any] | None = None,
+    additional_context: typing.Sequence[str] = (),
+    system_message: str = ""
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
@@ -44,6 +46,19 @@ async def post_tool_result(
     }
     if isinstance(execution, dict):
         payload["execution"] = execution
+
+    contexts = [
+        text
+        for value in additional_context
+        for text in [str(value or "").strip()]
+        if text
+    ]
+    if contexts:
+        payload["additional_context"] = contexts
+
+    system_text = str(system_message or "").strip()
+    if system_text:
+        payload["system_message"] = system_text
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)

@@ -323,6 +323,50 @@ async def test_stream_forwards_turn_additional_context(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
+    class CommandRunner(object):
+        async def execute(self, definition, _payload):
+            if definition.event == "SessionStart":
+                return SimpleNamespace(data={
+                    "additionalContext": ["session context"],
+                    "systemMessage": "session system",
+                })
+            return SimpleNamespace(data={
+                "additionalContext": "prompt context",
+                "systemMessage": "prompt system",
+            })
+
+    definitions = resolve_hook_definitions(
+        {
+            "SessionStart": [{"command": "start", "matcher": "initial"}],
+            "UserPromptSubmit": [{"command": "prompt"}],
+        },
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+
+    async def stream_with_context(*_args, **kwargs):
+        assert kwargs["additional_context"] == [
+            "session context",
+            "prompt context",
+        ]
+        assert kwargs["system_message"] == (
+            "session system\n\nprompt system"
+        )
+        yield parse_stream_event({"type": "turn.done"})
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        session_started=True,
+        stream_factory=stream_with_context,
+    )
+
+    assert result.status == "completed"
+
+
+@pytest.mark.anyio
 async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     class CommandRunner(object):
         def __init__(self) -> None:
@@ -504,7 +548,10 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
 
         async def execute(self, definition, payload):
             self.calls.append((definition.event, payload))
-            return SimpleNamespace(data={})
+            return SimpleNamespace(data={
+                "decision": "block",
+                "continuationPrompt": "should be ignored",
+            })
 
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
@@ -526,6 +573,63 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
 
     assert [event for event, _payload in runner.calls] == ["Stop"]
     assert runner.calls[0][1]["outcome"] == "interrupted"
+
+
+@pytest.mark.anyio
+async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.payloads = []
+
+        async def execute(self, _definition, payload):
+            self.payloads.append(payload)
+            if payload["continuation_count"] == 0:
+                return SimpleNamespace(data={
+                    "decision": "block",
+                    "continuationPrompt": "continue once",
+                    "additionalContext": ["stop context"],
+                    "systemMessage": "stop system",
+                })
+            return SimpleNamespace(data={})
+
+    definitions = resolve_hook_definitions(
+        {"Stop": [{"command": "stop"}]},
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+    runner = CommandRunner()
+    messages = []
+    request_kwargs = []
+
+    async def stream_with_continuation(_mode, _pref, message, _tools, **kwargs):
+        messages.append(message)
+        request_kwargs.append(kwargs)
+        yield parse_stream_event({
+            "type": "text.delta",
+            "text": f"reply {len(messages)}",
+        })
+        yield parse_stream_event({"type": "turn.done"})
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=runner),
+        stream_factory=stream_with_continuation,
+    )
+
+    assert result.status == "completed"
+    assert result.assistant_text == "reply 2"
+    assert messages == ["hello", "continue once"]
+    assert request_kwargs[1]["additional_context"] == ["stop context"]
+    assert request_kwargs[1]["system_message"] == "stop system"
+    assert [payload["continuation_count"] for payload in runner.payloads] == [
+        0,
+        1,
+    ]
+    assert [payload["stop_hook_active"] for payload in runner.payloads] == [
+        False,
+        True,
+    ]
 
 
 @pytest.mark.anyio
@@ -665,6 +769,72 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
         True,
     )
     assert posted[0][0][5]["data"] == {"steps": 1}
+
+
+@pytest.mark.anyio
+async def test_post_tool_hook_replaces_plan_result_for_model(monkeypatch) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "replacementResult": {
+                    "ok": False,
+                    "text": "plan result replaced",
+                    "data": {"replaced": True},
+                },
+                "additionalContext": ["explain replacement"],
+                "systemMessage": "Use the replacement result.",
+            })
+
+    definitions = resolve_hook_definitions(
+        {"PostToolUse": [{"command": "replace", "matcher": PLAN_STEPS_TOOL}]},
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+    posted = []
+
+    async def handle(_runner, *, invocation):
+        assert invocation.name == PLAN_STEPS_TOOL
+        return PlanExecutionReport(
+            ok=True,
+            text="planned",
+            data={"steps": 1},
+            attachments=[],
+            cost_ms=5,
+            results=[],
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        posted.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.PlanToolCallRunner, "handle", handle)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.call",
+                "call_id": "call-plan",
+                "name": PLAN_STEPS_TOOL,
+                "arguments": {"steps": []},
+            },
+            {"type": "turn.done"},
+        ],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+    )
+
+    assert result.status == "completed"
+    assert posted[0][0][:5] == (
+        "cid_test",
+        "sid_test",
+        "call-plan",
+        PLAN_STEPS_TOOL,
+        False,
+    )
+    assert posted[0][0][5]["data"] == {"replaced": True}
+    assert posted[0][1]["additional_context"] == ("explain replacement",)
+    assert posted[0][1]["system_message"] == "Use the replacement result."
 
 
 @pytest.mark.anyio
@@ -838,3 +1008,90 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
         False,
     )
     assert posted[0][0][5]["data"]["hook_denied"] is True
+
+
+@pytest.mark.anyio
+async def test_pre_tool_updated_input_flows_through_approval_and_execution(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, _definition, payload):
+            self.calls.append(payload)
+            return SimpleNamespace(data={
+                "decision": "allow",
+                "updatedInput": {"value": 2},
+            })
+
+    definitions = resolve_hook_definitions(
+        {
+            "PreToolUse": [{
+                "command": "rewrite",
+                "matcher": "test_tool",
+            }],
+        },
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+    runner = CommandRunner()
+    executed = []
+    posted = []
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        executed.append(dict(invocation.arguments))
+        return ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=True,
+            text="done",
+            call_id=invocation.call_id,
+            fields={"ok": True, "text": "done"},
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        posted.append((args, kwargs))
+        return {}
+
+    async def post_tool_approval(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_required",
+                "call_id": "call-rewrite",
+                "name": "test_tool",
+                "arguments": {"value": 1},
+                "approval": {
+                    "id": "approval-rewrite",
+                    "tool": "test_tool",
+                    "arguments": {"value": 1},
+                },
+            },
+            {
+                "type": "tool.call",
+                "call_id": "call-rewrite",
+                "name": "test_tool",
+                "arguments": {"value": 1},
+                "approval_id": "approval-rewrite",
+                "approved": True,
+            },
+            {"type": "turn.done"},
+        ],
+        hooks=HookRuntime(definitions, command_runner=runner),
+    )
+
+    assert result.status == "completed"
+    approval = mind.frontend.interaction.request_approval.await_args.args[0]
+    assert approval["arguments"] == {"value": 2}
+    assert executed == [{"value": 2}]
+    assert runner.calls[0]["tool_input"] == {"value": 1}
+    assert posted[0][0][5] == {"ok": True, "text": "done"}

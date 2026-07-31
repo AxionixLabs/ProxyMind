@@ -3,7 +3,6 @@
 
 import typing
 from .models import (
-    HookExecutionRecord,
     SubagentStartResult,
     SubagentStopDecision
 )
@@ -36,15 +35,21 @@ class SubagentHookEvents:
             context
             for record in result.records
             if record.ok
-            for context in [_record_text(record, "additional_context")]
+            for context in record.effect.additional_context
             if context
+        )
+        system_messages = tuple(
+            record.effect.system_message
+            for record in result.records
+            if record.ok and record.effect.system_message
         )
 
         return SubagentStartResult(
             additional_context=_bounded_parts(
                 contexts,
                 limit=_MAX_CONTEXT_CHARS,
-            )
+            ),
+            system_message="\n\n".join(system_messages),
         )
 
     async def stop(
@@ -86,7 +91,11 @@ class SubagentHookEvents:
         vetoes = tuple(
             record.hook_key
             for record in result.records
-            if record.ok and record.output.get("continue") is False
+            if (
+                record.ok
+                and not record.effect.continue_execution
+                and not record.effect.continuation_prompt
+            )
         )
         if vetoes:
             return SubagentStopDecision(
@@ -97,27 +106,49 @@ class SubagentHookEvents:
         continuations = tuple(
             record
             for record in result.records
-            if record.ok and record.output.get("decision") == "block"
+            if record.ok and record.effect.continuation_prompt
         )
         if not continuations:
             return SubagentStopDecision.stop()
 
-        reasons = _bounded_parts(
-            tuple(_record_text(record, "reason") for record in continuations),
+        prompts = _bounded_parts(
+            tuple(
+                record.effect.continuation_prompt
+                for record in continuations
+            ),
             limit=_MAX_REASON_CHARS,
+        )
+        contexts = _bounded_parts(
+            tuple(
+                context
+                for record in continuations
+                for context in record.effect.additional_context
+            ),
+            limit=_MAX_CONTEXT_CHARS,
+        )
+        system_messages = tuple(
+            record.effect.system_message
+            for record in continuations
+            if record.effect.system_message
         )
 
         return SubagentStopDecision(
             should_continue=True,
-            reason="\n\n".join(reasons),
+            continuation_prompt="\n\n".join(prompts),
+            reason="; ".join(
+                _bounded_parts(
+                    tuple(
+                        record.effect.reason
+                        for record in continuations
+                        if record.effect.reason
+                    ),
+                    limit=_MAX_REASON_CHARS,
+                )
+            ),
             hook_keys=tuple(record.hook_key for record in continuations),
+            additional_context=contexts,
+            system_message="\n\n".join(system_messages),
         )
-
-
-def _record_text(record: HookExecutionRecord, key: str) -> str:
-    """返回单个 Hook 输出中的非空有界文本。"""
-    value = record.output.get(key, "")
-    return str(value).strip() if isinstance(value, str) else ""
 
 
 def _bounded_parts(

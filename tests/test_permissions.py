@@ -125,6 +125,20 @@ async def test_request_payload_normalizes_additional_context() -> None:
     assert payload["additional_context"] == ["first", "second"]
 
 
+@pytest.mark.anyio
+async def test_request_payload_normalizes_system_message() -> None:
+    payload = await build_chat_payload(
+        "xtra",
+        {},
+        "inspect",
+        [],
+        permissions=preset_permissions("auto"),
+        systemMessage=" keep this focused ",
+    )
+
+    assert payload["system_message"] == "keep this focused"
+
+
 def test_never_policy_rejects_approval_required_tool_call() -> None:
     event = parse_stream_event({
         "type": "tool.call",

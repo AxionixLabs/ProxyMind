@@ -16,6 +16,7 @@ from .models import (
     HookDispatchResult,
     HookEventRequest,
     HookExecutionRecord,
+    HookNormalizedOutput,
     HookRuntimeStatus
 )
 
@@ -189,7 +190,7 @@ class HookRuntime:
         payload: dict[str, typing.Any],
         normalize_output: typing.Callable[
             [dict[str, typing.Any]],
-            dict[str, typing.Any],
+            HookNormalizedOutput,
         ]
     ) -> HookExecutionRecord:
         """执行单个 Hook 并转换为独立执行记录。"""
@@ -205,7 +206,7 @@ class HookRuntime:
             if not isinstance(raw_output, dict):
                 raise ValueError("hook output must be a JSON object")
 
-            output = normalize_output(raw_output)
+            normalized = normalize_output(raw_output)
 
         except asyncio.CancelledError:
             raise
@@ -221,7 +222,8 @@ class HookRuntime:
 
         return HookExecutionRecord(
             hook_key=definition.key,
-            output=output,
+            output=normalized.output,
+            effect=normalized.effect,
         )
 
     @staticmethod
