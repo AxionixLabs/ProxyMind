@@ -21,7 +21,7 @@ def _project_definition(
     return resolve_hook_definitions(
         {
             "PreToolUse": [{
-                "command": command,
+                "handler": {"type": "command", "command": command},
                 "enabled": enabled,
             }],
         },
@@ -84,7 +84,9 @@ def test_registry_fails_closed_for_project_hooks_when_trust_is_invalid(
     path.write_text('{"version": 1, "trusted": []}', encoding="utf-8")
     project = _project_definition(tmp_path / "project.toml")
     user = resolve_hook_definitions(
-        {"PreToolUse": [{"command": "check-user"}]},
+        {"PreToolUse": [{
+            "handler": {"type": "command", "command": "check-user"},
+        }]},
         source_scope="user",
         source_path=tmp_path / "user.toml",
     )[0]
@@ -97,4 +99,6 @@ def test_registry_fails_closed_for_project_hooks_when_trust_is_invalid(
     assert status.active_count == 1
     assert status.trust_error
     assert [item.active for item in status.hooks] == [False, True]
-    assert [item.command for item in runtime.definitions] == ["check-user"]
+    assert [item.handler.command for item in runtime.definitions] == [
+        "check-user",
+    ]

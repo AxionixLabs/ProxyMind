@@ -11,6 +11,11 @@ from mind_core.hooks import (
 )
 from .effects import normalize_hook_output
 from .models import HookNormalizedOutput
+from .protocol import (
+    JsonSchema,
+    hook_input_schema,
+    hook_output_schema
+)
 
 HookOutputNormalizer = typing.Callable[
     [dict[str, typing.Any]],
@@ -23,6 +28,8 @@ class HookEventSpec:
     """定义单个生命周期事件的输出协议。"""
     name: HookEventName
     control_policy: HookControlPolicy
+    input_schema: JsonSchema
+    output_schema: JsonSchema
     normalize_output: HookOutputNormalizer
 
 
@@ -33,6 +40,8 @@ def _event_spec(
     return HookEventSpec(
         name=name,
         control_policy=HOOK_EVENT_CONFIG_SPECS[name].control_policy,
+        input_schema=hook_input_schema(name),
+        output_schema=hook_output_schema(name),
         normalize_output=lambda data: normalize_hook_output(name, data),
     )
 

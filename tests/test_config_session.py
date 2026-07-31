@@ -13,6 +13,13 @@ from mind_core.config_layers import PROJECT_CONFIG_DIR
 from mind_core.hooks import HOOK_EVENT_CONFIG_SPECS
 
 
+def _command_handler(command, *, timeout=None):
+    handler = {"type": "command", "command": command}
+    if timeout is not None:
+        handler["timeout"] = timeout
+    return handler
+
+
 def test_invalid_update_does_not_replace_user_document(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     session = ConfigSession(store)
@@ -95,13 +102,13 @@ def test_user_and_profile_hooks_keep_source_identity(tmp_path) -> None:
     store.update({
         ("hooks", "PreToolUse"): [{
             "matcher": "shell_command",
-            "command": "check-user",
+            "handler": _command_handler("check-user"),
         }],
     })
     (tmp_path / "review.config.toml").write_text(
         "[[hooks.PostToolUse]]\n"
         'matcher = "shell_command"\n'
-        'command = "audit-profile"\n',
+        'handler = { type = "command", command = "audit-profile" }\n',
         encoding="utf-8",
     )
 
@@ -122,15 +129,20 @@ def test_user_and_profile_hooks_keep_source_identity(tmp_path) -> None:
 def test_cli_hook_override_replaces_runtime_definitions(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.update({
-        ("hooks", "PreToolUse"): [{"command": "check-user"}],
+        ("hooks", "PreToolUse"): [{
+            "handler": _command_handler("check-user"),
+        }],
     })
     override = parse_config_override(
-        "hooks={ PreToolUse = [{ command = \"check-cli\" }] }"
+        "hooks={ PreToolUse = [{ handler = { type = \"command\", "
+        "command = \"check-cli\" } }] }"
     )
 
     resolution = ConfigSession(store, (override,)).resolve()
 
-    assert [definition.command for definition in resolution.hooks] == ["check-cli"]
+    assert [definition.handler.command for definition in resolution.hooks] == [
+        "check-cli",
+    ]
     assert [definition.source_scope for definition in resolution.hooks] == ["cli"]
 
 
@@ -150,7 +162,7 @@ def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
     project_config.write_text(
         "[[hooks.PreToolUse]]\n"
         'matcher = "shell_command"\n'
-        'command = "check-project"\n',
+        'handler = { type = "command", command = "check-project" }\n',
         encoding="utf-8",
     )
 
@@ -170,7 +182,8 @@ def test_workspace_override_selects_project_hook_source(tmp_path) -> None:
         project_config.parent.mkdir()
         project_config.write_text(
             "[[hooks.PreToolUse]]\n"
-            f'command = "check-{index}"\n',
+            'handler = { type = "command", '
+            f'command = "check-{index}" }}\n',
             encoding="utf-8",
         )
 
@@ -181,10 +194,12 @@ def test_workspace_override_selects_project_hook_source(tmp_path) -> None:
     })
     session = ConfigSession(store, workspace=projects[0])
 
-    assert session.resolve().hooks[0].command == "check-0"
+    assert session.resolve().hooks[0].handler.command == "check-0"
 
-    assert session.resolve(workspace=projects[1]).hooks[0].command == "check-1"
-    assert session.resolve().hooks[0].command == "check-0"
+    assert session.resolve(workspace=projects[1]).hooks[0].handler.command == (
+        "check-1"
+    )
+    assert session.resolve().hooks[0].handler.command == "check-0"
 
 
 def test_invalid_hook_matcher_is_rejected() -> None:
@@ -192,7 +207,7 @@ def test_invalid_hook_matcher_is_rejected() -> None:
         normalize_config({
             "hooks": {
                 "PreToolUse": [{
-                    "command": "check",
+                    "handler": _command_handler("check"),
                     "matcher": "[",
                 }],
             },
@@ -203,7 +218,7 @@ def test_session_start_hook_accepts_reason_matcher() -> None:
     config = normalize_config({
         "hooks": {
             "SessionStart": [{
-                "command": "prepare-session",
+                "handler": _command_handler("prepare-session"),
                 "matcher": "initial|reset",
             }],
         },
@@ -243,7 +258,7 @@ def test_hook_event_without_match_subject_rejects_matcher(event) -> None:
         normalize_config({
             "hooks": {
                 event: [{
-                    "command": "check",
+                    "handler": _command_handler("check"),
                     "matcher": "value",
                 }],
             },
@@ -263,8 +278,68 @@ def test_notification_hook_cannot_fail_closed(event) -> None:
         normalize_config({
             "hooks": {
                 event: [{
-                    "command": "notify",
+                    "handler": _command_handler("notify"),
                     "on_error": "block",
                 }],
             },
         })
+
+
+def test_legacy_flat_hook_command_is_rejected() -> None:
+    with pytest.raises(ConfigValidationError, match="unknown hook key"):
+        normalize_config({
+            "hooks": {
+                "PreToolUse": [{"command": "check"}],
+            },
+        })
+
+
+def test_hook_handler_is_required() -> None:
+    with pytest.raises(ConfigValidationError, match="handler must be a table"):
+        normalize_config({
+            "hooks": {
+                "PreToolUse": [{}],
+            },
+        })
+
+
+def test_hook_handler_rejects_unknown_fields() -> None:
+    with pytest.raises(ConfigValidationError, match="unknown hook handler key"):
+        normalize_config({
+            "hooks": {
+                "PreToolUse": [{
+                    "handler": {
+                        "type": "command",
+                        "command": "check",
+                        "extra": True,
+                    },
+                }],
+            },
+        })
+
+
+def test_hook_handler_type_is_explicit() -> None:
+    with pytest.raises(ConfigValidationError, match="type must be command"):
+        normalize_config({
+            "hooks": {
+                "PreToolUse": [{
+                    "handler": {"command": "check"},
+                }],
+            },
+        })
+
+
+def test_hook_handler_timeout_is_normalized() -> None:
+    config = normalize_config({
+        "hooks": {
+            "PreToolUse": [{
+                "handler": _command_handler("check", timeout=2),
+            }],
+        },
+    })
+
+    assert config["hooks"]["PreToolUse"][0]["handler"] == {
+        "type": "command",
+        "command": "check",
+        "timeout": 2.0,
+    }

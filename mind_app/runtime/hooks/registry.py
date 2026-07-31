@@ -176,10 +176,10 @@ class HookRegistry:
         return HookCatalogEntry(
             key=definition.key,
             event=definition.event,
-            command=definition.command,
+            command=definition.handler.command,
             matcher=definition.matcher,
             matcher_subject=event_spec.matcher_subject,
-            timeout_sec=definition.timeout_sec,
+            timeout_sec=definition.handler.timeout_sec,
             on_error=definition.on_error,
             source_scope=definition.source_scope,
             source_path=definition.source_path,

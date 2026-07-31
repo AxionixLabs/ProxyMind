@@ -67,6 +67,15 @@ def _definitions(raw):
     )
 
 
+def _hook(command, *, matcher=None):
+    config = {
+        "handler": {"type": "command", "command": command},
+    }
+    if matcher is not None:
+        config["matcher"] = matcher
+    return config
+
+
 def _execution(
     *,
     agent_type: str = "explore",
@@ -134,8 +143,8 @@ def _runtime(raw, timeline, *, outputs=None, errors=None):
 async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
     timeline = []
     definitions, command_runner, runtime = _runtime({
-        "SubagentStart": [{"command": "start", "matcher": "explore"}],
-        "SubagentStop": [{"command": "stop", "matcher": "explore"}],
+        "SubagentStart": [_hook("start", matcher="explore")],
+        "SubagentStop": [_hook("stop", matcher="explore")],
     }, timeline)
     execution = _execution(dispatcher=runtime)
     controller = _Controller()
@@ -186,8 +195,8 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
 async def test_subagent_runner_skips_non_matching_hooks() -> None:
     timeline = []
     _definitions_value, command_runner, runtime = _runtime({
-        "SubagentStart": [{"command": "start", "matcher": "review"}],
-        "SubagentStop": [{"command": "stop", "matcher": "review"}],
+        "SubagentStart": [_hook("start", matcher="review")],
+        "SubagentStop": [_hook("stop", matcher="review")],
     }, timeline)
     execution = _execution(dispatcher=runtime)
     controller = _Controller()
@@ -213,10 +222,10 @@ async def test_subagent_start_injects_ordered_context_only_for_first_turn() -> N
     timeline = []
     definitions = _definitions({
         "SubagentStart": [
-            {"command": "first"},
-            {"command": "second"},
+            _hook("first"),
+            _hook("second"),
         ],
-        "SubagentStop": [{"command": "stop"}],
+        "SubagentStop": [_hook("stop")],
     })
     command_runner = _CommandRunner(timeline, outputs={
         definitions[0].key: {
@@ -267,9 +276,9 @@ async def test_subagent_stop_continue_false_overrides_block_decisions() -> None:
     timeline = []
     definitions = _definitions({
         "SubagentStop": [
-            {"command": "continue-first"},
-            {"command": "veto"},
-            {"command": "continue-last"},
+            _hook("continue-first"),
+            _hook("veto"),
+            _hook("continue-last"),
         ],
     })
     command_runner = _CommandRunner(timeline, outputs={
@@ -311,8 +320,8 @@ async def test_subagent_stop_continue_false_overrides_block_decisions() -> None:
 async def test_subagent_stop_continuation_has_hard_limit() -> None:
     timeline = []
     definitions = _definitions({
-        "SubagentStart": [{"command": "start"}],
-        "SubagentStop": [{"command": "continue"}],
+        "SubagentStart": [_hook("start")],
+        "SubagentStop": [_hook("continue")],
     })
     command_runner = _CommandRunner(timeline, outputs={
         definitions[0].key: {"additional_context": "initial context"},
@@ -399,8 +408,8 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
 async def test_subagent_hook_command_failures_do_not_replace_result() -> None:
     timeline = []
     definitions = _definitions({
-        "SubagentStart": [{"command": "start"}],
-        "SubagentStop": [{"command": "stop"}],
+        "SubagentStart": [_hook("start")],
+        "SubagentStop": [_hook("stop")],
     })
     command_runner = _CommandRunner(
         timeline,
@@ -429,7 +438,7 @@ async def test_subagent_hook_command_failures_do_not_replace_result() -> None:
 async def test_subagent_runner_reports_failed_result() -> None:
     timeline = []
     _definitions_value, command_runner, runtime = _runtime({
-        "SubagentStop": [{"command": "stop"}],
+        "SubagentStop": [_hook("stop")],
     }, timeline)
     execution = _execution(dispatcher=runtime)
     controller = _Controller()
@@ -459,8 +468,8 @@ async def test_subagent_runner_reports_failed_result() -> None:
 async def test_subagent_runner_preserves_operation_failure() -> None:
     timeline = []
     _definitions_value, command_runner, runtime = _runtime({
-        "SubagentStart": [{"command": "start"}],
-        "SubagentStop": [{"command": "stop"}],
+        "SubagentStart": [_hook("start")],
+        "SubagentStop": [_hook("stop")],
     }, timeline)
     execution = _execution(dispatcher=runtime)
     controller = _Controller()
@@ -487,8 +496,8 @@ async def test_subagent_runner_preserves_operation_failure() -> None:
 async def test_subagent_runner_dispatches_stop_after_cancellation() -> None:
     timeline = []
     _definitions_value, command_runner, runtime = _runtime({
-        "SubagentStart": [{"command": "start"}],
-        "SubagentStop": [{"command": "stop"}],
+        "SubagentStart": [_hook("start")],
+        "SubagentStop": [_hook("stop")],
     }, timeline)
     execution = _execution(dispatcher=runtime)
     controller = _Controller()

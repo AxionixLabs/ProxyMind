@@ -39,12 +39,19 @@ HookControlPolicy = typing.Literal[
     "notify",
 ]
 
+HookHandlerType = typing.Literal["command"]
+
 HOOK_FIELDS = frozenset({
-    "command",
+    "handler",
     "matcher",
-    "timeout",
     "on_error",
     "enabled",
+})
+
+HOOK_HANDLER_FIELDS = frozenset({
+    "type",
+    "command",
+    "timeout",
 })
 
 MAX_HOOK_TIMEOUT_SEC = 300.0
@@ -146,13 +153,20 @@ HOOK_EVENT_NAMES: tuple[HookEventName, ...] = tuple(HOOK_EVENT_CONFIG_SPECS)
 
 
 @dataclass(frozen=True, slots=True)
+class HookHandlerConfig:
+    """描述 Hook 使用的执行处理器。"""
+    type: HookHandlerType
+    command: str
+    timeout_sec: float
+
+
+@dataclass(frozen=True, slots=True)
 class HookDefinitionConfig:
-    """描述已经解析并带有来源信息的命令 Hook。"""
+    """描述已经解析并带有来源信息的 Hook。"""
     key: str
     event: HookEventName
-    command: str
+    handler: HookHandlerConfig
     matcher: str
-    timeout_sec: float
     on_error: HookFailurePolicy
     enabled: bool
     source_scope: str
@@ -206,9 +220,12 @@ def resolve_hook_definitions(
             definitions.append(HookDefinitionConfig(
                 key=f"{source_key}:{event}:{index}",
                 event=event,
-                command=entry["command"],
+                handler=HookHandlerConfig(
+                    type=entry["handler"]["type"],
+                    command=entry["handler"]["command"],
+                    timeout_sec=entry["handler"]["timeout"],
+                ),
                 matcher=entry["matcher"],
-                timeout_sec=entry["timeout"],
                 on_error=entry["on_error"],
                 enabled=entry["enabled"],
                 source_scope=source_scope,
@@ -232,9 +249,7 @@ def _normalize_hook_entry(
     if unknown:
         raise HookConfigError(f"unknown hook key: {dotted}.{unknown[0]}")
 
-    command = raw.get("command")
-    if not isinstance(command, str) or not command.strip():
-        raise HookConfigError(f"{dotted}.command must be a non-empty string")
+    handler = _normalize_hook_handler(raw.get("handler"), dotted=dotted)
 
     matcher = raw.get("matcher", "")
     if not isinstance(matcher, str):
@@ -248,15 +263,6 @@ def _normalize_hook_entry(
         re.compile(matcher or ".*")
     except re.error as error:
         raise HookConfigError(f"{dotted}.matcher is invalid: {error}") from error
-
-    raw_timeout = raw.get("timeout", 5.0)
-    if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, (int, float)):
-        raise HookConfigError(f"{dotted}.timeout must be a number")
-    timeout = float(raw_timeout)
-    if timeout <= 0.0 or timeout > MAX_HOOK_TIMEOUT_SEC:
-        raise HookConfigError(
-            f"{dotted}.timeout must be greater than 0 and at most {MAX_HOOK_TIMEOUT_SEC:g}"
-        )
 
     on_error = raw.get("on_error", event_spec.default_on_error)
     if on_error not in {"continue", "block"}:
@@ -272,11 +278,49 @@ def _normalize_hook_entry(
         raise HookConfigError(f"{dotted}.enabled must be a boolean")
 
     return {
-        "command"  : command.strip(),
+        "handler"  : handler,
         "matcher"  : matcher,
-        "timeout"  : timeout,
         "on_error" : on_error,
         "enabled"  : enabled
+    }
+
+
+def _normalize_hook_handler(
+    raw: typing.Any,
+    *,
+    dotted: str,
+) -> dict[str, typing.Any]:
+    """校验并规范化单个 Hook 处理器。"""
+    path = f"{dotted}.handler"
+    if not isinstance(raw, dict):
+        raise HookConfigError(f"{path} must be a table")
+
+    unknown = sorted(set(raw).difference(HOOK_HANDLER_FIELDS))
+    if unknown:
+        raise HookConfigError(f"unknown hook handler key: {path}.{unknown[0]}")
+
+    handler_type = raw.get("type")
+    if handler_type != "command":
+        raise HookConfigError(f"{path}.type must be command")
+
+    command = raw.get("command")
+    if not isinstance(command, str) or not command.strip():
+        raise HookConfigError(f"{path}.command must be a non-empty string")
+
+    raw_timeout = raw.get("timeout", 5.0)
+    if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, (int, float)):
+        raise HookConfigError(f"{path}.timeout must be a number")
+    timeout = float(raw_timeout)
+    if timeout <= 0.0 or timeout > MAX_HOOK_TIMEOUT_SEC:
+        raise HookConfigError(
+            f"{path}.timeout must be greater than 0 and at most "
+            f"{MAX_HOOK_TIMEOUT_SEC:g}"
+        )
+
+    return {
+        "type": "command",
+        "command": command.strip(),
+        "timeout": timeout,
     }
 
 

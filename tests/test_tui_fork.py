@@ -253,6 +253,57 @@ async def test_fork_request_validates_bounded_zero_item_response(monkeypatch) ->
 
 
 @pytest.mark.anyio
+async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "request_id": "fork_request_0001",
+                "mode": "chat",
+                "source_cid": "cid_source_12345678",
+                "source_sid": "sid_source_1_abcdef",
+                "before_turn_id": "turn_selected",
+                "cid": "cid_target_87654321",
+                "sid": "sid_target_2_fedcba",
+                "copied_turns": 0,
+                "copied_items": 1,
+                "prompt": {"message": "inspect this"},
+            },
+        },
+    )
+
+    class ClientStub(object):
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
+
+    result = await fork_request.request_conversation_fork(
+        mode="chat",
+        cid="cid_source_12345678",
+        sid="sid_source_1_abcdef",
+        request_id="fork_request_0001",
+        before_turn_id="turn_selected",
+    )
+
+    assert result["prompt"] == ResubmittablePrompt(
+        message="inspect this",
+        attachments=(),
+        extras={},
+    )
+
+
+@pytest.mark.anyio
 async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
     mind = ForkMindStub()
     mind.animate = False
@@ -338,6 +389,96 @@ async def test_bounded_fork_can_defer_target_binding(monkeypatch) -> None:
         "sid_target_2_fedcba",
     )
     assert mind.bound == []
+
+
+@pytest.mark.anyio
+async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
+    monkeypatch,
+) -> None:
+    mind = ForkMindStub()
+    mind.animate = False
+    fallback = ResubmittablePrompt(
+        message="local prompt",
+        attachments=({"kind": "file", "file_key": "file_123"},),
+        extras={"selection": {"x": 10, "y": 20}},
+    )
+
+    async def request_fork(**kwargs):
+        assert kwargs["before_turn_id"] == "turn_selected"
+        assert kwargs["require_prompt"] is False
+        return {
+            "cid": "cid_target_87654321",
+            "sid": "sid_target_2_fedcba",
+            "copied_items": 1,
+            "prompt": None,
+        }
+
+    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+
+    status = await conversation.fork_current_conversation(
+        mind,
+        run_mode="chat",
+        before_turn_id="turn_selected",
+        bind_target=False,
+        fallback_prompt=fallback,
+    )
+
+    assert status.succeeded
+    assert status.prompt == fallback
+    assert status.target_session == (
+        "cid_target_87654321",
+        "sid_target_2_fedcba",
+    )
+    assert mind.bound == []
+
+
+@pytest.mark.anyio
+async def test_fork_request_allows_missing_prompt_when_not_required(
+    monkeypatch,
+) -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "request_id": "fork_request_0001",
+                "mode": "chat",
+                "source_cid": "cid_source_12345678",
+                "source_sid": "sid_source_1_abcdef",
+                "before_turn_id": "turn_selected",
+                "cid": "cid_target_87654321",
+                "sid": "sid_target_2_fedcba",
+                "copied_turns": 0,
+                "copied_items": 1,
+            },
+        },
+    )
+
+    class ClientStub(object):
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
+
+    result = await fork_request.request_conversation_fork(
+        mode="chat",
+        cid="cid_source_12345678",
+        sid="sid_source_1_abcdef",
+        request_id="fork_request_0001",
+        before_turn_id="turn_selected",
+        require_prompt=False,
+    )
+
+    assert result["prompt"] is None
 
 
 @pytest.mark.anyio

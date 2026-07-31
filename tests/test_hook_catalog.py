@@ -14,11 +14,23 @@ from mind_core.hook_trust import HookTrustStore
 from mind_core.hooks import resolve_hook_definitions
 
 
+def _hook(command, *, matcher=None):
+    config = {
+        "handler": {"type": "command", "command": command},
+    }
+    if matcher is not None:
+        config["matcher"] = matcher
+    return config
+
+
 def _definitions(source_path: Path):
     project = resolve_hook_definitions(
         {
             "PreToolUse": [{
-                "command": "check-project",
+                "handler": {
+                    "type": "command",
+                    "command": "check-project",
+                },
                 "matcher": "shell_command",
             }],
         },
@@ -26,7 +38,7 @@ def _definitions(source_path: Path):
         source_path=source_path,
     )[0]
     user = resolve_hook_definitions(
-        {"PostToolUse": [{"command": "audit-user"}]},
+        {"PostToolUse": [_hook("audit-user")]},
         source_scope="user",
         source_path=source_path.parent / "user.toml",
     )[0]
@@ -103,7 +115,7 @@ def test_controller_rejects_stale_hash_before_trusting_hook(tmp_path) -> None:
     source_path = tmp_path / "project.toml"
     original = _definitions(source_path)[0]
     changed = resolve_hook_definitions(
-        {"PreToolUse": [{"command": "changed-project"}]},
+        {"PreToolUse": [_hook("changed-project")]},
         source_scope="project",
         source_path=source_path,
     )[0]
@@ -137,12 +149,12 @@ def test_controller_rejects_stale_hash_before_trusting_hook(tmp_path) -> None:
 def test_controller_builds_isolated_hook_scopes_for_config_snapshots(tmp_path) -> None:
     source_path = tmp_path / "user.toml"
     old = resolve_hook_definitions(
-        {"PreToolUse": [{"command": "old"}]},
+        {"PreToolUse": [_hook("old")]},
         source_scope="user",
         source_path=source_path,
     )
     new = resolve_hook_definitions(
-        {"PreToolUse": [{"command": "new"}]},
+        {"PreToolUse": [_hook("new")]},
         source_scope="user",
         source_path=source_path,
     )
@@ -169,7 +181,13 @@ def test_controller_builds_isolated_hook_scopes_for_config_snapshots(tmp_path) -
     old_scope = controller.hook_scope(context)
     new_scope = controller.hook_scope(context)
 
-    assert [item.command for item in old_scope.dispatcher.definitions] == ["old"]
-    assert [item.command for item in new_scope.dispatcher.definitions] == ["new"]
-    assert [item.command for item in old_scope.dispatcher.definitions] == ["old"]
+    assert [item.handler.command for item in old_scope.dispatcher.definitions] == [
+        "old",
+    ]
+    assert [item.handler.command for item in new_scope.dispatcher.definitions] == [
+        "new",
+    ]
+    assert [item.handler.command for item in old_scope.dispatcher.definitions] == [
+        "old",
+    ]
     assert not hasattr(controller, "hooks")

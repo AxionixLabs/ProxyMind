@@ -13,6 +13,19 @@ from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
 
+def _compact_hooks():
+    return {
+        "PreCompact": [{
+            "handler": {"type": "command", "command": "guard"},
+            "matcher": "manual",
+        }],
+        "PostCompact": [{
+            "handler": {"type": "command", "command": "audit"},
+            "matcher": "manual",
+        }],
+    }
+
+
 class _RecordingHookRunner(object):
     def __init__(self) -> None:
         self.calls = []
@@ -40,16 +53,7 @@ class _HookedCompactMind(object):
 
 def _compact_hook_runtime(tmp_path, runner) -> HookRuntime:
     definitions = resolve_hook_definitions(
-        {
-            "PreCompact": [{
-                "command": "guard",
-                "matcher": "manual",
-            }],
-            "PostCompact": [{
-                "command": "audit",
-                "matcher": "manual",
-            }],
-        },
+        _compact_hooks(),
         source_scope="user",
         source_path=tmp_path / "hooks.toml",
     )
@@ -232,16 +236,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
             yield {}
 
     definitions = resolve_hook_definitions(
-        {
-            "PreCompact": [{
-                "command": "guard",
-                "matcher": "manual",
-            }],
-            "PostCompact": [{
-                "command": "audit",
-                "matcher": "manual",
-            }],
-        },
+        _compact_hooks(),
         source_scope="user",
         source_path=tmp_path / "hooks.toml",
     )
@@ -299,16 +294,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
         }
 
     definitions = resolve_hook_definitions(
-        {
-            "PreCompact": [{
-                "command": "guard",
-                "matcher": "manual",
-            }],
-            "PostCompact": [{
-                "command": "audit",
-                "matcher": "manual",
-            }],
-        },
+        _compact_hooks(),
         source_scope="user",
         source_path=tmp_path / "hooks.toml",
     )

@@ -88,6 +88,15 @@ def _output_session() -> OutputSession:
     )
 
 
+def _hook(command, *, matcher=None):
+    config = {
+        "handler": {"type": "command", "command": command},
+    }
+    if matcher is not None:
+        config["matcher"] = matcher
+    return config
+
+
 def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
     remembered: list[str] = []
 
@@ -338,8 +347,8 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
 
     definitions = resolve_hook_definitions(
         {
-            "SessionStart": [{"command": "start", "matcher": "initial"}],
-            "UserPromptSubmit": [{"command": "prompt"}],
+            "SessionStart": [_hook("start", matcher="initial")],
+            "UserPromptSubmit": [_hook("prompt")],
         },
         source_scope="user",
         source_path=Path("hooks.toml"),
@@ -379,12 +388,9 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
         {
-            "SessionStart": [{
-                "command": "start",
-                "matcher": "initial",
-            }],
-            "UserPromptSubmit": [{"command": "prompt"}],
-            "Stop": [{"command": "stop"}],
+            "SessionStart": [_hook("start", matcher="initial")],
+            "UserPromptSubmit": [_hook("prompt")],
+            "Stop": [_hook("stop")],
         },
         source_scope="user",
         source_path=Path("hooks.toml"),
@@ -423,16 +429,16 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
     resolved_runner = CommandRunner()
     injected_definitions = resolve_hook_definitions(
         {
-            "UserPromptSubmit": [{"command": "injected-prompt"}],
-            "Stop": [{"command": "injected-stop"}],
+            "UserPromptSubmit": [_hook("injected-prompt")],
+            "Stop": [_hook("injected-stop")],
         },
         source_scope="user",
         source_path=Path("injected.toml"),
     )
     resolved_definitions = resolve_hook_definitions(
         {
-            "UserPromptSubmit": [{"command": "resolved-prompt"}],
-            "Stop": [{"command": "resolved-stop"}],
+            "UserPromptSubmit": [_hook("resolved-prompt")],
+            "Stop": [_hook("resolved-stop")],
         },
         source_scope="user",
         source_path=Path("resolved.toml"),
@@ -480,8 +486,8 @@ async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
         {
-            "UserPromptSubmit": [{"command": "prompt"}],
-            "Stop": [{"command": "stop"}],
+            "UserPromptSubmit": [_hook("prompt")],
+            "Stop": [_hook("stop")],
         },
         source_scope="user",
         source_path=Path("hooks.toml"),
@@ -513,7 +519,7 @@ async def test_stop_hook_failure_does_not_replace_completed_result(
             return SimpleNamespace(data={})
 
     definitions = resolve_hook_definitions(
-        {"Stop": [{"command": "stop"}]},
+        {"Stop": [_hook("stop")]},
         source_scope="user",
         source_path=Path("hooks.toml"),
     )
@@ -555,7 +561,7 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
 
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
-        {"Stop": [{"command": "stop"}]},
+        {"Stop": [_hook("stop")]},
         source_scope="user",
         source_path=Path("hooks.toml"),
     )
@@ -593,7 +599,7 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
             return SimpleNamespace(data={})
 
     definitions = resolve_hook_definitions(
-        {"Stop": [{"command": "stop"}]},
+        {"Stop": [_hook("stop")]},
         source_scope="user",
         source_path=Path("hooks.toml"),
     )
@@ -790,7 +796,7 @@ async def test_post_tool_hook_replaces_plan_result_for_model(monkeypatch) -> Non
             })
 
     definitions = resolve_hook_definitions(
-        {"PostToolUse": [{"command": "replace", "matcher": PLAN_STEPS_TOOL}]},
+        {"PostToolUse": [_hook("replace", matcher=PLAN_STEPS_TOOL)]},
         source_scope="user",
         source_path=Path("hooks.toml"),
     )
@@ -971,7 +977,7 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
     definitions = resolve_hook_definitions(
         {
             "PreToolUse": [{
-                "command": "check",
+                "handler": {"type": "command", "command": "check"},
                 "matcher": "test_tool",
             }],
         },
@@ -1032,7 +1038,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     definitions = resolve_hook_definitions(
         {
             "PreToolUse": [{
-                "command": "rewrite",
+                "handler": {"type": "command", "command": "rewrite"},
                 "matcher": "test_tool",
             }],
         },

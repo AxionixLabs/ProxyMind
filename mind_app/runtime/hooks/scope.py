@@ -9,6 +9,7 @@ from .models import (
     HookDispatchResult,
     HookEventRequest
 )
+from .protocol import validate_hook_input
 from .runtime import (
     HookDispatcher,
     HookRuntime
@@ -107,12 +108,15 @@ class HookExecutionScope:
         diagnostics: dict[str, typing.Any] | None = None
     ) -> HookDispatchResult:
         """合并公共上下文并分发一次生命周期事件。"""
+        event_payload = {
+            **dict(payload or {}),
+            **self.context.payload(),
+            "hook_event_name": event,
+        }
+        validate_hook_input(event, event_payload)
         return await self.dispatcher.dispatch(HookEventRequest(
             event=event,
-            payload={
-                **dict(payload or {}),
-                **self.context.payload(),
-            },
+            payload=event_payload,
             match_value=match_value,
             diagnostics=dict(diagnostics or {}),
         ))

@@ -40,10 +40,11 @@ class HookCommandExecutor:
             separators=(",", ":"),
             default=str,
         ).encode("utf-8")
+        handler = definition.handler
 
         try:
             process = await asyncio.create_subprocess_shell(
-                definition.command,
+                handler.command,
                 cwd=str(payload.get("cwd") or "") or None,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -76,7 +77,7 @@ class HookCommandExecutor:
 
             completed, _ = await asyncio.wait(
                 (wait_task,),
-                timeout=definition.timeout_sec,
+                timeout=handler.timeout_sec,
             )
             if not completed:
                 raise asyncio.TimeoutError
@@ -89,7 +90,7 @@ class HookCommandExecutor:
                 stderr_task,
             )
             raise HookCommandError(
-                f"hook command timed out after {definition.timeout_sec:g}s"
+                f"hook command timed out after {handler.timeout_sec:g}s"
             ) from error
         except asyncio.CancelledError:
             await self._terminate(

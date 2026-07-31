@@ -3,6 +3,7 @@
 
 import typing
 from mind_core.hooks import HookEventName
+from .protocol import validate_hook_output
 from .models import (
     HookNormalizedOutput,
     HookOutputEffect
@@ -14,6 +15,7 @@ def normalize_hook_output(
     data: dict[str, typing.Any]
 ) -> HookNormalizedOutput:
     """把命令 Hook 的 JSON 输出归一化为统一影响模型。"""
+    validate_hook_output(event, data)
     merged        = _merge_specific_output(event, data)
     decision      = _normalize_decision(event, merged)
     continuation  = _normalize_continue(merged)

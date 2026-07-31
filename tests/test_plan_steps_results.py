@@ -48,7 +48,9 @@ class _HookRunner(object):
 
     async def execute(self, definition, payload):
         self.calls.append((definition, payload))
-        return SimpleNamespace(data=dict(self.outputs.get(definition.command) or {}))
+        return SimpleNamespace(data=dict(
+            self.outputs.get(definition.handler.command) or {}
+        ))
 
 
 def _tool_result(
@@ -165,7 +167,10 @@ async def test_plan_step_executes_pre_hook_updated_input() -> None:
     executor = _executor(
         [_tool_result("done")],
         hooks={
-            "PreToolUse": [{"command": "rewrite", "matcher": "test_tool"}],
+            "PreToolUse": [{
+                "handler": {"type": "command", "command": "rewrite"},
+                "matcher": "test_tool",
+            }],
         },
         hook_outputs={
             "rewrite": {
@@ -187,7 +192,10 @@ async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
     executor = _executor(
         [_tool_result("secret", data={"secret": True})],
         hooks={
-            "PostToolUse": [{"command": "redact", "matcher": "test_tool"}],
+            "PostToolUse": [{
+                "handler": {"type": "command", "command": "redact"},
+                "matcher": "test_tool",
+            }],
         },
         hook_outputs={
             "redact": {

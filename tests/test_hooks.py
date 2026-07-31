@@ -68,6 +68,27 @@ def _definitions(raw):
     )
 
 
+def _hook(
+    command,
+    *,
+    matcher=None,
+    on_error=None,
+    enabled=None,
+    timeout=None,
+):
+    handler = {"type": "command", "command": command}
+    if timeout is not None:
+        handler["timeout"] = timeout
+    config = {"handler": handler}
+    if matcher is not None:
+        config["matcher"] = matcher
+    if on_error is not None:
+        config["on_error"] = on_error
+    if enabled is not None:
+        config["enabled"] = enabled
+    return config
+
+
 def _invocation(
     *,
     execution=None,
@@ -115,12 +136,8 @@ def test_runtime_event_specs_cover_config_event_catalog() -> None:
 def test_runtime_reports_matching_active_hooks() -> None:
     definitions = _definitions({
         "PreToolUse": [
-            {"command": "enabled", "matcher": "shell_command"},
-            {
-                "command": "disabled",
-                "matcher": "apply_patch",
-                "enabled": False,
-            },
+            _hook("enabled", matcher="shell_command"),
+            _hook("disabled", matcher="apply_patch", enabled=False),
         ],
     })
     runtime = HookRuntime(definitions)
@@ -134,9 +151,9 @@ def test_runtime_reports_matching_active_hooks() -> None:
 async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> None:
     definitions = _definitions({
         "PreToolUse": [
-            {"command": "first", "matcher": "shell_.*"},
-            {"command": "other", "matcher": "apply_patch"},
-            {"command": "second", "matcher": "shell_command"},
+            _hook("first", matcher="shell_.*"),
+            _hook("other", matcher="apply_patch"),
+            _hook("second", matcher="shell_command"),
         ],
     })
     runner = _CommandRunner(outputs={
@@ -168,8 +185,8 @@ async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> N
 async def test_runtime_launches_matching_hooks_concurrently() -> None:
     definitions = _definitions({
         "PostToolUse": [
-            {"command": "first"},
-            {"command": "second"},
+            _hook("first"),
+            _hook("second"),
         ],
     })
 
@@ -184,7 +201,7 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
             if self.started == len(definitions):
                 self.all_started.set()
             await self.release.wait()
-            return SimpleNamespace(data={"command": definition.command})
+            return SimpleNamespace(data={"reason": definition.handler.command})
 
     runner = ConcurrentRunner()
     dispatch = asyncio.create_task(HookRuntime(
@@ -202,7 +219,7 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
     runner.release.set()
     result = await dispatch
 
-    assert [record.output["command"] for record in result.records] == [
+    assert [record.output["reason"] for record in result.records] == [
         "first",
         "second",
     ]
@@ -212,8 +229,8 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
 async def test_runtime_cancellation_stops_all_matching_hooks() -> None:
     definitions = _definitions({
         "PostToolUse": [
-            {"command": "first"},
-            {"command": "second"},
+            _hook("first"),
+            _hook("second"),
         ],
     })
 
@@ -258,7 +275,7 @@ async def test_runtime_cancellation_stops_all_matching_hooks() -> None:
 @pytest.mark.anyio
 async def test_scope_owns_common_payload_fields() -> None:
     definitions = _definitions({
-        "PreToolUse": [{"command": "check"}],
+        "PreToolUse": [_hook("check")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {"decision": "allow"},
@@ -270,7 +287,10 @@ async def test_scope_owns_common_payload_fields() -> None:
         payload={
             "session_id": "spoofed",
             "turn_id": "spoofed",
+            "call_id": "call_test",
             "tool_name": "shell_command",
+            "tool_kind": "coding",
+            "tool_input": {"command": "rg TODO"},
         },
         match_value="shell_command",
     )
@@ -290,12 +310,9 @@ async def test_scope_owns_common_payload_fields() -> None:
 @pytest.mark.anyio
 async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
     definitions = _definitions({
-        "SessionStart": [{
-            "command": "start",
-            "matcher": "initial",
-        }],
-        "UserPromptSubmit": [{"command": "prompt"}],
-        "Stop": [{"command": "stop"}],
+        "SessionStart": [_hook("start", matcher="initial")],
+        "UserPromptSubmit": [_hook("prompt")],
+        "Stop": [_hook("stop")],
     })
     runner = _CommandRunner(outputs={
         definitions[1].key: {"continue": True},
@@ -322,11 +339,8 @@ async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
 @pytest.mark.anyio
 async def test_turn_hooks_skip_session_start_for_existing_session() -> None:
     definitions = _definitions({
-        "SessionStart": [{
-            "command": "start",
-            "matcher": "initial",
-        }],
-        "UserPromptSubmit": [{"command": "prompt"}],
+        "SessionStart": [_hook("start", matcher="initial")],
+        "UserPromptSubmit": [_hook("prompt")],
     })
     runner = _CommandRunner()
     events = TurnHookEvents(_scope(HookRuntime(
@@ -349,10 +363,7 @@ async def test_turn_prompt_hook_applies_failure_policy(
     blocked,
 ) -> None:
     definitions = _definitions({
-        "UserPromptSubmit": [{
-            "command": "broken",
-            "on_error": on_error,
-        }],
+        "UserPromptSubmit": [_hook("broken", on_error=on_error)],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("prompt hook failed"),
@@ -372,7 +383,7 @@ async def test_turn_prompt_hook_applies_failure_policy(
 @pytest.mark.anyio
 async def test_turn_prompt_hook_blocks_on_explicit_decision() -> None:
     definitions = _definitions({
-        "UserPromptSubmit": [{"command": "prompt"}],
+        "UserPromptSubmit": [_hook("prompt")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
@@ -400,12 +411,12 @@ async def test_tool_hooks_reject_invocation_from_another_scope() -> None:
 @pytest.mark.anyio
 async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> None:
     old = _definitions({
-        "PreToolUse": [{"command": "old-pre"}],
-        "PostToolUse": [{"command": "old-post"}],
+        "PreToolUse": [_hook("old-pre")],
+        "PostToolUse": [_hook("old-post")],
     })
     new = _definitions({
-        "PreToolUse": [{"command": "new-pre"}],
-        "PostToolUse": [{"command": "new-post"}],
+        "PreToolUse": [_hook("new-pre")],
+        "PostToolUse": [_hook("new-post")],
     })
     runner = _CommandRunner()
     registry = HookRegistry(command_runner=runner)
@@ -429,7 +440,7 @@ async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> Non
     result = await task
 
     assert result.value == "done"
-    assert [call[0].command for call in runner.calls] == [
+    assert [call[0].handler.command for call in runner.calls] == [
         "old-pre",
         "old-post",
     ]
@@ -439,8 +450,8 @@ async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> Non
 async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> None:
     definitions = _definitions({
         "PreToolUse": [
-            {"command": "allow", "matcher": "shell_.*"},
-            {"command": "deny", "matcher": "shell_command"},
+            _hook("allow", matcher="shell_.*"),
+            _hook("deny", matcher="shell_command"),
         ],
     })
     runner = _CommandRunner(outputs={
@@ -469,10 +480,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
 @pytest.mark.anyio
 async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
     definitions = _definitions({
-        "PreToolUse": [{
-            "command": "broken",
-            "on_error": "block",
-        }],
+        "PreToolUse": [_hook("broken", on_error="block")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("broken hook"),
@@ -490,10 +498,7 @@ async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
 @pytest.mark.anyio
 async def test_pre_tool_use_continues_when_nonblocking_hook_fails() -> None:
     definitions = _definitions({
-        "PreToolUse": [{
-            "command": "broken",
-            "on_error": "continue",
-        }],
+        "PreToolUse": [_hook("broken", on_error="continue")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("broken hook"),
@@ -510,7 +515,7 @@ async def test_pre_tool_use_continues_when_nonblocking_hook_fails() -> None:
 @pytest.mark.anyio
 async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
     definitions = _definitions({
-        "PreToolUse": [{"command": "invalid"}],
+        "PreToolUse": [_hook("invalid")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {"decision": "unknown"},
@@ -522,16 +527,16 @@ async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
     ))).pre_tool_use(_invocation())
 
     assert not decision.allowed
-    assert "decision must be allow, deny, or block" in decision.reason
+    assert "decision must be one of allow, deny, block" in decision.reason
 
 
 @pytest.mark.anyio
 async def test_permission_request_prioritizes_deny_over_allow() -> None:
     definitions = _definitions({
         "PermissionRequest": [
-            {"command": "allow", "matcher": "shell_.*"},
-            {"command": "abstain", "matcher": "shell_command"},
-            {"command": "deny", "matcher": "shell_command"},
+            _hook("allow", matcher="shell_.*"),
+            _hook("abstain", matcher="shell_command"),
+            _hook("deny", matcher="shell_command"),
         ],
     })
     runner = _CommandRunner(outputs={
@@ -572,7 +577,7 @@ async def test_permission_request_abstains_without_matching_hook() -> None:
 @pytest.mark.anyio
 async def test_permission_request_allows_when_a_hook_allows() -> None:
     definitions = _definitions({
-        "PermissionRequest": [{"command": "allow"}],
+        "PermissionRequest": [_hook("allow")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {"decision": "allow"},
@@ -590,10 +595,7 @@ async def test_permission_request_allows_when_a_hook_allows() -> None:
 @pytest.mark.anyio
 async def test_permission_request_blocks_on_configured_hook_failure() -> None:
     definitions = _definitions({
-        "PermissionRequest": [{
-            "command": "broken",
-            "on_error": "block",
-        }],
+        "PermissionRequest": [_hook("broken", on_error="block")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("permission check failed"),
@@ -612,8 +614,8 @@ async def test_permission_request_blocks_on_configured_hook_failure() -> None:
 @pytest.mark.anyio
 async def test_permission_preparation_stops_after_pre_tool_denial() -> None:
     definitions = _definitions({
-        "PreToolUse": [{"command": "deny-pre"}],
-        "PermissionRequest": [{"command": "allow-permission"}],
+        "PreToolUse": [_hook("deny-pre")],
+        "PermissionRequest": [_hook("allow-permission")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
@@ -659,8 +661,8 @@ def test_hook_driven_approval_has_neutral_actor_text() -> None:
 @pytest.mark.anyio
 async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None:
     definitions = _definitions({
-        "PreToolUse": [{"command": "pre"}],
-        "PostToolUse": [{"command": "post"}],
+        "PreToolUse": [_hook("pre")],
+        "PostToolUse": [_hook("post")],
     })
     runner = _CommandRunner()
     coordinator = ToolCallCoordinator(
@@ -694,8 +696,8 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
 @pytest.mark.anyio
 async def test_pre_tool_use_updated_input_reaches_execution_and_post_hook() -> None:
     definitions = _definitions({
-        "PreToolUse": [{"command": "pre"}],
-        "PostToolUse": [{"command": "post"}],
+        "PreToolUse": [_hook("pre")],
+        "PostToolUse": [_hook("post")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
@@ -732,8 +734,8 @@ async def test_pre_tool_use_updated_input_reaches_execution_and_post_hook() -> N
 @pytest.mark.anyio
 async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
     definitions = _definitions({
-        "PreToolUse": [{"command": "pre"}],
-        "PostToolUse": [{"command": "post"}],
+        "PreToolUse": [_hook("pre")],
+        "PostToolUse": [_hook("post")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
@@ -771,7 +773,7 @@ async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
 @pytest.mark.anyio
 async def test_post_tool_use_exposes_replacement_result_effect() -> None:
     definitions = _definitions({
-        "PostToolUse": [{"command": "post"}],
+        "PostToolUse": [_hook("post")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
@@ -806,7 +808,7 @@ async def test_post_tool_use_exposes_replacement_result_effect() -> None:
 @pytest.mark.anyio
 async def test_post_tool_use_failure_does_not_replace_tool_result() -> None:
     definitions = _definitions({
-        "PostToolUse": [{"command": "broken-post"}],
+        "PostToolUse": [_hook("broken-post")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("audit failed"),
@@ -835,7 +837,7 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
     )
     command = subprocess.list2cmdline([sys.executable, str(script)])
     definition = _definitions({
-        "PreToolUse": [{"command": command}],
+        "PreToolUse": [_hook(command)],
     })[0]
 
     output = await HookCommandExecutor().execute(
@@ -854,9 +856,9 @@ async def test_command_executor_rejects_invalid_json(tmp_path) -> None:
     script = tmp_path / "invalid_hook.py"
     script.write_text("print('not-json')\n", encoding="utf-8")
     definition = _definitions({
-        "PreToolUse": [{
-            "command": subprocess.list2cmdline([sys.executable, str(script)]),
-        }],
+        "PreToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
     })[0]
 
     with pytest.raises(HookCommandError, match="not valid JSON"):
@@ -875,10 +877,10 @@ async def test_command_executor_terminates_timed_out_hook(tmp_path) -> None:
         encoding="utf-8",
     )
     definition = _definitions({
-        "PostToolUse": [{
-            "command": subprocess.list2cmdline([sys.executable, str(script)]),
-            "timeout": 0.05,
-        }],
+        "PostToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+            timeout=0.05,
+        )],
     })[0]
 
     started_at = asyncio.get_running_loop().time()
