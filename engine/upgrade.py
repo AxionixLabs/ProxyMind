@@ -124,14 +124,13 @@ class Upgrade(object):
             state["speed"] = speed
 
     @staticmethod
-    def download_state(filename: str) -> dict[str, typing.Any]:
+    def download_state() -> dict[str, typing.Any]:
         """创建下载动画使用的初始状态。"""
         return {
-            "stage"    : "warming",
-            "filename" : filename,
-            "phase"    : 0.0,
-            "done"     : 0,
-            "speed"    : 0.0
+            "stage" : "warming",
+            "phase" : 0.0,
+            "done"  : 0,
+            "speed" : 0.0
         }
 
     @staticmethod
@@ -331,7 +330,6 @@ class Upgrade(object):
         self,
         *,
         url: str,
-        filename: str,
         archive_path: Path,
         state: dict[str, typing.Any],
         started: float,
@@ -352,9 +350,7 @@ class Upgrade(object):
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 async with client.stream("GET", url) as resp:
                     if resp.status_code == 404:
-                        raise AppError(
-                            f"No backend upgrade package was found: {filename}"
-                        )
+                        raise AppError("No backend upgrade package was found.")
 
                     resp.raise_for_status()
 
@@ -428,7 +424,7 @@ class Upgrade(object):
         timeout: float  = 120.0
         chunk_size: int = 1024 * 256
 
-        state = self.download_state(filename)
+        state = self.download_state()
         observe(
             "upgrade.install.start",
             version=version,
@@ -446,7 +442,6 @@ class Upgrade(object):
 
             done, sha256_actual = await self.download_archive(
                 url=url,
-                filename=filename,
                 archive_path=archive_path,
                 state=state,
                 started=started,
