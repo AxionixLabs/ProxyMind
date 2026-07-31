@@ -3,7 +3,12 @@
 
 import typing
 from mind_core.hooks import (
+    COMPACT_OUTCOMES,
+    COMPACT_RESULT_SOURCES,
+    COMPACT_TRIGGER_REASONS,
+    COMPACT_TRIGGER_SOURCES,
     HOOK_EVENT_NAMES,
+    SESSION_END_REASONS,
     HookEventName
 )
 
@@ -140,22 +145,51 @@ HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
     ),
     "PreCompact": _input_schema(
         "PreCompact",
-        {"trigger": _STRING},
-        required=("trigger",),
+        {
+            "trigger": {
+                "type": "string",
+                "enum": list(COMPACT_TRIGGER_REASONS),
+            },
+            "trigger_source": {
+                "type": "string",
+                "enum": list(COMPACT_TRIGGER_SOURCES),
+            },
+        },
+        required=("trigger", "trigger_source"),
     ),
     "PostCompact": _input_schema(
         "PostCompact",
         {
-            "trigger": _STRING,
-            "outcome": _STRING,
+            "trigger": {
+                "type": "string",
+                "enum": list(COMPACT_TRIGGER_REASONS),
+            },
+            "trigger_source": {
+                "type": "string",
+                "enum": list(COMPACT_TRIGGER_SOURCES),
+            },
+            "result_source": {
+                "type": "string",
+                "enum": list(COMPACT_RESULT_SOURCES),
+            },
+            "outcome": {
+                "type": "string",
+                "enum": list(COMPACT_OUTCOMES),
+            },
             "message": _STRING,
+            "summary": _STRING,
+            "transcript_path": _STRING,
             "before_items": _NULLABLE_INTEGER,
             "after_items": _NULLABLE_INTEGER,
         },
         required=(
             "trigger",
+            "trigger_source",
+            "result_source",
             "outcome",
             "message",
+            "summary",
+            "transcript_path",
             "before_items",
             "after_items",
         ),
@@ -193,7 +227,7 @@ HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
         {
             "reason": {
                 "type": "string",
-                "enum": ["exit", "archive", "idle", "deleted", "error"],
+                "enum": list(SESSION_END_REASONS),
             },
             "transcript_path": _STRING,
             "last_assistant_message": _STRING,

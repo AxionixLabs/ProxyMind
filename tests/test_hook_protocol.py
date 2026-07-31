@@ -12,7 +12,14 @@ from mind_app.runtime.hooks.protocol import (
     validate_hook_input,
     validate_hook_output,
 )
-from mind_core.hooks import HOOK_EVENT_NAMES
+from mind_core.hooks import (
+    COMPACT_OUTCOMES,
+    COMPACT_RESULT_SOURCES,
+    COMPACT_TRIGGER_REASONS,
+    COMPACT_TRIGGER_SOURCES,
+    HOOK_EVENT_NAMES,
+    SESSION_END_REASONS,
+)
 
 
 def _prompt_input(**overrides):
@@ -82,6 +89,22 @@ def test_session_end_input_rejects_unknown_reason() -> None:
 
     with pytest.raises(ValueError, match="must be one of exit, archive"):
         validate_hook_input("SessionEnd", payload)
+
+
+def test_lifecycle_schemas_use_shared_reason_contracts() -> None:
+    session_end = HOOK_INPUT_SCHEMAS["SessionEnd"]["properties"]
+    pre_compact = HOOK_INPUT_SCHEMAS["PreCompact"]["properties"]
+    post_compact = HOOK_INPUT_SCHEMAS["PostCompact"]["properties"]
+
+    assert session_end["reason"]["enum"] == list(SESSION_END_REASONS)
+    assert pre_compact["trigger"]["enum"] == list(COMPACT_TRIGGER_REASONS)
+    assert pre_compact["trigger_source"]["enum"] == list(
+        COMPACT_TRIGGER_SOURCES
+    )
+    assert post_compact["result_source"]["enum"] == list(
+        COMPACT_RESULT_SOURCES
+    )
+    assert post_compact["outcome"]["enum"] == list(COMPACT_OUTCOMES)
 
 
 def test_output_schema_validates_event_specific_output() -> None:

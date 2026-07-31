@@ -3,6 +3,10 @@
 
 import typing
 import asyncio
+from mind_core.hooks import (
+    SESSION_END_REASONS,
+    SessionEndReason
+)
 from engine.observability import (
     observe,
     observe_exception
@@ -11,14 +15,6 @@ from .scope import (
     HookExecutionContext,
     HookExecutionScope
 )
-
-SessionEndReason = typing.Literal[
-    "exit",
-    "archive",
-    "idle",
-    "deleted",
-    "error",
-]
 
 SessionScopeFactory = typing.Callable[
     [HookExecutionContext],
@@ -55,13 +51,7 @@ class SessionLifecycleGateway:
     ) -> bool:
         """结束一个根会话生命周期，并保证同一生命周期只执行一次。"""
         normalized_reason = str(reason or "").strip()
-        if normalized_reason not in {
-            "exit",
-            "archive",
-            "idle",
-            "deleted",
-            "error",
-        }:
+        if normalized_reason not in SESSION_END_REASONS:
             raise ValueError("session end reason is invalid")
 
         async with self._lock:

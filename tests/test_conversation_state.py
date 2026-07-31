@@ -78,3 +78,31 @@ def test_changed_external_session_creates_new_boundary() -> None:
     assert started.turn_index == 1
     assert started.session_started is True
     assert started.start_reason == "calling"
+
+
+def test_queued_context_is_consumed_by_next_turn_only() -> None:
+    state = ConversationState()
+    state.snapshot()
+    state.queue_turn_context(
+        [" first ", "", "second"],
+        system_message=" compact guidance ",
+    )
+
+    first = state.begin_turn()
+    second = state.begin_turn()
+
+    assert first.additional_context == ("first", "second")
+    assert first.system_message == "compact guidance"
+    assert second.additional_context == ()
+    assert second.system_message == ""
+
+
+def test_reset_discards_queued_context() -> None:
+    state = ConversationState()
+    state.queue_turn_context(["stale"], system_message="stale system")
+
+    state.reset(reason="command:/new")
+    started = state.begin_turn()
+
+    assert started.additional_context == ()
+    assert started.system_message == ""

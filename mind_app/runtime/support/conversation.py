@@ -19,6 +19,8 @@ class ConversationTurn:
     turn_index: int
     session_started: bool
     start_reason: str = ""
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
 
     def metadata(self) -> dict[str, str]:
         """返回不包含本地生命周期状态的会话标识。"""
@@ -52,6 +54,9 @@ class ConversationState(object):
         self.reset_reason = str(reset_reason or "")
         self.start_reason = str(start_reason or "").strip()
 
+        self._pending_context: list[str]         = []
+        self._pending_system_messages: list[str] = []
+
     def begin_turn(
         self,
         *,
@@ -82,6 +87,9 @@ class ConversationState(object):
 
         self.turn_count += 1
         metadata = self.snapshot()
+
+        additional_context, system_message = self.consume_turn_context()
+
         if session_started:
             self.start_reason = ""
 
@@ -91,6 +99,8 @@ class ConversationState(object):
             turn_index=self.turn_count,
             session_started=session_started,
             start_reason=boundary_reason,
+            additional_context=additional_context,
+            system_message=system_message,
         )
 
     def reset(self, *, reason: str = "manual") -> dict[str, str]:
@@ -106,7 +116,34 @@ class ConversationState(object):
         self.reset_reason = str(reason or "").strip() or "manual"
         self.start_reason = self.reset_reason
 
+        self._pending_context.clear()
+        self._pending_system_messages.clear()
+
         return self.snapshot()
+
+    def queue_turn_context(
+        self,
+        additional_context: typing.Iterable[str] = (),
+        *,
+        system_message: str = ""
+    ) -> None:
+        """追加下一轮模型请求使用的一次性上下文。"""
+        for value in additional_context:
+            text = str(value or "").strip()
+            if text:
+                self._pending_context.append(text)
+
+        system_text = str(system_message or "").strip()
+        if system_text:
+            self._pending_system_messages.append(system_text)
+
+    def consume_turn_context(self) -> tuple[tuple[str, ...], str]:
+        """读取并清空下一轮模型请求的一次性上下文。"""
+        contexts = tuple(self._pending_context)
+        system_message = "\n\n".join(self._pending_system_messages)
+        self._pending_context.clear()
+        self._pending_system_messages.clear()
+        return contexts, system_message
 
     def snapshot(self) -> dict[str, str]:
         """返回当前会话标识快照。"""
@@ -148,9 +185,14 @@ class ConversationState(object):
         if cid and (cid != self.cid or sid != self.sid):
             self.cid = cid
             self.sid = sid or new_sid(cid)
-            self.created_at = time.time()
-            self.turn_count = 0
+
+            self.created_at  = time.time()
+            self.turn_count  = 0
             self.start_reason = str(start_reason or "").strip() or "external"
+
+            self._pending_context.clear()
+            self._pending_system_messages.clear()
+
             return None
 
         if cid:

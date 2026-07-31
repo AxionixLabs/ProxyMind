@@ -16,6 +16,7 @@ from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import PermissionSettings
+from mind_core.hooks import SessionEndReason
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -58,10 +59,7 @@ from .runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
-from .runtime.hooks.session import (
-    SessionEndReason,
-    SessionLifecycleGateway
-)
+from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError

@@ -27,12 +27,13 @@ def _compact_hooks():
 
 
 class _RecordingHookRunner(object):
-    def __init__(self) -> None:
+    def __init__(self, outputs=None) -> None:
         self.calls = []
+        self.outputs = dict(outputs or {})
 
     async def execute(self, definition, payload):
         self.calls.append((definition.event, payload))
-        return SimpleNamespace(data={})
+        return SimpleNamespace(data=self.outputs.get(definition.event, {}))
 
 
 class _HookedCompactMind(object):
@@ -41,11 +42,12 @@ class _HookedCompactMind(object):
         self.permissions = preset_permissions("auto")
         self.conversation = SimpleNamespace(
             snapshot=lambda: {"cid": "cid", "sid": "sid"},
+            queue_turn_context=lambda *_args, **_kwargs: None,
         )
         self._runtime = runtime
 
     async def await_cleanup(self, awaitable):
-        await awaitable
+        return await awaitable
 
     def hook_scope(self, context):
         return HookExecutionScope(context=context, dispatcher=self._runtime)
@@ -92,7 +94,7 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
             snapshots.append((kind, snapshots[0]()))
 
         async def await_cleanup(self, awaitable):
-            await awaitable
+            return await awaitable
 
         def hook_scope(self, context):
             return HookExecutionScope.empty(context)
@@ -144,7 +146,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
             )
 
         async def await_cleanup(self, awaitable):
-            await awaitable
+            return await awaitable
 
         def hook_scope(self, context):
             return HookExecutionScope.empty(context)
@@ -199,7 +201,7 @@ async def test_compact_cancellation_clears_animation_without_failure(
             self.stopped.append((kind, settle))
 
         async def await_cleanup(self, awaitable):
-            await awaitable
+            return await awaitable
 
         def hook_scope(self, context):
             return HookExecutionScope.empty(context)
@@ -263,7 +265,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
         )
 
         async def await_cleanup(self, awaitable):
-            await awaitable
+            return await awaitable
 
         def hook_scope(self, context):
             return HookExecutionScope(context=context, dispatcher=runtime)
@@ -318,7 +320,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
         )
 
         async def await_cleanup(self, awaitable):
-            await awaitable
+            return await awaitable
 
         def hook_scope(self, context):
             return HookExecutionScope(context=context, dispatcher=runtime)
@@ -344,6 +346,12 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     assert pre_payload["model"] == "test-model"
     assert pre_payload["source"] == "test"
     assert post_payload["outcome"] == "completed"
+    assert pre_payload["trigger_source"] == "client"
+    assert post_payload["trigger"] == "manual"
+    assert post_payload["trigger_source"] == "client"
+    assert post_payload["result_source"] == "server"
+    assert post_payload["summary"] == "Context compacted."
+    assert post_payload["transcript_path"] == ""
     assert post_payload["before_items"] == 12
     assert post_payload["after_items"] == 4
 
@@ -381,6 +389,7 @@ async def test_compact_failure_reports_failed_post_hook(
     ]
     assert runner.calls[1][1]["outcome"] == "failed"
     assert runner.calls[1][1]["message"] == "remote compact failed"
+    assert runner.calls[1][1]["result_source"] == "fallback"
 
 
 @pytest.mark.anyio
@@ -420,6 +429,65 @@ async def test_compact_cancellation_reports_interrupted_post_hook(
     ]
     assert runner.calls[1][1]["outcome"] == "interrupted"
     assert runner.calls[1][1]["message"] == "Context compaction interrupted."
+
+
+@pytest.mark.anyio
+async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> None:
+    async def completed_stream(_payload):
+        yield {
+            "type": "conversation.compact",
+            "message": "Context compacted.",
+            "summary": "Earlier work was summarized.",
+            "before_items": 20,
+            "after_items": 5,
+        }
+
+    queued = []
+    runner = _RecordingHookRunner({
+        "PostCompact": {
+            "continue": False,
+            "reason": "review compacted state",
+            "additionalContext": ["Preserve the migration decision."],
+            "systemMessage": "Check the compacted summary before proceeding.",
+        },
+    })
+    mind = _HookedCompactMind(
+        tmp_path,
+        _compact_hook_runtime(tmp_path, runner),
+    )
+    mind.conversation.queue_turn_context = (
+        lambda contexts, *, system_message="": queued.append(
+            (tuple(contexts), system_message)
+        )
+    )
+    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+
+    result = await compact_mode.compact_conversation(
+        mind,
+        run_mode="chat",
+        pref_config={},
+        source="test",
+        trigger_source="server",
+    )
+
+    assert result.outcome == "completed"
+    assert not result.ok
+    assert not result.continue_execution
+    assert result.summary == "Earlier work was summarized."
+    assert result.additional_context == ("Preserve the migration decision.",)
+    assert result.system_message == (
+        "Check the compacted summary before proceeding."
+    )
+    assert result.message == (
+        "Context compacted. Post-compact continuation blocked: "
+        "review compacted state"
+    )
+    assert queued == [(
+        ("Preserve the migration decision.",),
+        "Check the compacted summary before proceeding.",
+    )]
+    assert runner.calls[1][1]["trigger"] == "manual"
+    assert runner.calls[1][1]["trigger_source"] == "server"
 
 
 if __name__ == '__main__':

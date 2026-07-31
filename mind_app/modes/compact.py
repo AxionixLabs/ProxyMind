@@ -3,7 +3,16 @@
 
 import typing
 import asyncio
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    replace
+)
+from mind_core.hooks import (
+    CompactOutcome,
+    CompactResultSource,
+    CompactTriggerReason,
+    CompactTriggerSource
+)
 from mind_nova.modes import RunMode
 from mind_nova.requests.compact import (
     build_compact_payload,
@@ -25,12 +34,8 @@ from engine.observability import (
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
+    from ..runtime.hooks.models import HookDecision
 
-CompactOutcome = typing.Literal[
-    "completed",
-    "failed",
-    "interrupted",
-]
 CompactProgress = typing.Callable[[str], None]
 
 
@@ -41,11 +46,19 @@ class CompactResult:
     message: str
     before_items: int | None = None
     after_items: int | None = None
+    summary: str = ""
+    transcript_path: str = ""
+    trigger: CompactTriggerReason = "manual"
+    trigger_source: CompactTriggerSource = "client"
+    result_source: CompactResultSource = "fallback"
+    continue_execution: bool = True
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
 
     @property
     def ok(self) -> bool:
         """返回上下文压缩是否完成。"""
-        return self.outcome == "completed"
+        return self.outcome == "completed" and self.continue_execution
 
 
 async def compact_conversation(
@@ -54,11 +67,13 @@ async def compact_conversation(
     run_mode: RunMode,
     pref_config: dict[str, typing.Any],
     source: str,
-    trigger: str = "manual",
-    on_progress: CompactProgress | None = None,
+    trigger: CompactTriggerReason = "manual",
+    trigger_source: CompactTriggerSource = "client",
+    on_progress: CompactProgress | None = None
 ) -> CompactResult:
     """执行当前会话的上下文压缩及其生命周期 Hook。"""
     metadata = mind.conversation.snapshot()
+
     context = _hook_context(
         mind,
         metadata=metadata,
@@ -78,11 +93,21 @@ async def compact_conversation(
         scope = HookExecutionScope.empty(context)
 
     hook_events = CompactHookEvents(scope)
+
+    transcript_path = str(
+        getattr(getattr(mind, "report", None), "log_papers", "") or ""
+    )
+
     result = CompactResult(
         outcome="failed",
         message="Context compaction failed. Please try again.",
+        summary="Context compaction failed. Please try again.",
+        transcript_path=transcript_path,
+        trigger=trigger,
+        trigger_source=trigger_source,
     )
-    attempted = False
+
+    attempted: bool = False
 
     observe(
         "compact.start",
@@ -93,7 +118,10 @@ async def compact_conversation(
     )
 
     try:
-        await hook_events.begin(trigger)
+        await hook_events.begin(
+            trigger,
+            trigger_source=trigger_source,
+        )
         attempted = True
 
         payload = build_compact_payload({
@@ -121,6 +149,13 @@ async def compact_conversation(
                         message
                         or "Context compaction failed. Please try again."
                     ),
+                    summary=str(event.get("summary") or message or "").strip(),
+                    transcript_path=(
+                        str(event.get("transcript_path") or "").strip()
+                        or transcript_path
+                    ),
+                    trigger=trigger,
+                    trigger_source=trigger_source,
                 )
                 observe(
                     "compact.failed",
@@ -135,6 +170,16 @@ async def compact_conversation(
                     message=message or "Context compacted.",
                     before_items=_optional_int(event.get("before_items")),
                     after_items=_optional_int(event.get("after_items")),
+                    summary=str(
+                        event.get("summary") or message or "Context compacted."
+                    ).strip(),
+                    transcript_path=(
+                        str(event.get("transcript_path") or "").strip()
+                        or transcript_path
+                    ),
+                    trigger=trigger,
+                    trigger_source=trigger_source,
+                    result_source="server",
                 )
                 observe(
                     "compact.complete",
@@ -153,6 +198,10 @@ async def compact_conversation(
         result = CompactResult(
             outcome="failed",
             message=f"Context compaction blocked: {error}",
+            summary=f"Context compaction blocked: {error}",
+            transcript_path=transcript_path,
+            trigger=trigger,
+            trigger_source=trigger_source,
         )
         observe(
             "compact.hook_blocked",
@@ -164,6 +213,10 @@ async def compact_conversation(
         result = CompactResult(
             outcome="interrupted",
             message="Context compaction interrupted.",
+            summary="Context compaction interrupted.",
+            transcript_path=transcript_path,
+            trigger=trigger,
+            trigger_source=trigger_source,
         )
         observe("compact.interrupted", level="WARNING")
         raise
@@ -178,16 +231,24 @@ async def compact_conversation(
         result = CompactResult(
             outcome="failed",
             message=f"Context compaction failed{detail}",
+            summary=f"Context compaction failed{detail}",
+            transcript_path=transcript_path,
+            trigger=trigger,
+            trigger_source=trigger_source,
         )
         observe_exception("compact.failed", error)
 
     finally:
         if attempted:
             try:
-                await mind.await_cleanup(hook_events.post_compact(
+                post_decision = await mind.await_cleanup(hook_events.post_compact(
                     trigger=trigger,
+                    trigger_source=trigger_source,
+                    result_source=result.result_source,
                     outcome=result.outcome,
                     message=result.message,
+                    summary=result.summary,
+                    transcript_path=result.transcript_path,
                     before_items=result.before_items,
                     after_items=result.after_items,
                 ))
@@ -197,8 +258,38 @@ async def compact_conversation(
                     error,
                     level="WARNING",
                 )
+            else:
+                result = _apply_post_compact_decision(result, post_decision)
+                if (
+                    post_decision.additional_context
+                    or post_decision.system_message
+                ):
+                    mind.conversation.queue_turn_context(
+                        post_decision.additional_context,
+                        system_message=post_decision.system_message,
+                    )
 
     return result
+
+
+def _apply_post_compact_decision(
+    result: CompactResult,
+    decision: "HookDecision"
+) -> CompactResult:
+    """把压缩后 Hook 的控制结果应用到稳定返回值。"""
+    message = result.message
+
+    if not decision.allowed:
+        reason  = decision.reason or "continuation denied by hook"
+        message = f"{message} Post-compact continuation blocked: {reason}"
+
+    return replace(
+        result,
+        message=message,
+        continue_execution=decision.allowed,
+        additional_context=decision.additional_context,
+        system_message=decision.system_message,
+    )
 
 
 def _hook_context(

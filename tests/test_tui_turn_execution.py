@@ -62,6 +62,8 @@ class _TuiController:
             turn_index=1,
             session_started=True,
             start_reason="initial",
+            additional_context=("queued context",),
+            system_message="queued system",
         )
 
     def hook_scope(self, context):
@@ -134,6 +136,8 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
 
     runner, call = controller.lifecycle_calls[0]
     assert runner is controller.stream_looper
+    assert call["turn_execution"].additional_context == ("queued context",)
+    assert call["turn_execution"].system_message == "queued system"
     assert call["attachments"] == [{
         "filename": "screen.png",
         "kind": "image",

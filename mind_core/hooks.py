@@ -42,6 +42,57 @@ HookControlPolicy = typing.Literal[
 
 HookHandlerType = typing.Literal["command"]
 
+SessionEndReason = typing.Literal[
+    "exit",
+    "archive",
+    "idle",
+    "deleted",
+    "error",
+]
+
+SESSION_END_REASONS: tuple[SessionEndReason, ...] = (
+    "exit",
+    "archive",
+    "idle",
+    "deleted",
+    "error",
+)
+
+CompactTriggerReason = typing.Literal[
+    "manual",
+    "auto",
+    "overflow",
+]
+
+COMPACT_TRIGGER_REASONS: tuple[CompactTriggerReason, ...] = (
+    "manual",
+    "auto",
+    "overflow",
+)
+
+CompactTriggerSource = typing.Literal["client", "server"]
+COMPACT_TRIGGER_SOURCES: tuple[CompactTriggerSource, ...] = (
+    "client",
+    "server",
+)
+
+CompactResultSource = typing.Literal["server", "fallback"]
+COMPACT_RESULT_SOURCES: tuple[CompactResultSource, ...] = (
+    "server",
+    "fallback",
+)
+
+CompactOutcome = typing.Literal[
+    "completed",
+    "failed",
+    "interrupted",
+]
+COMPACT_OUTCOMES: tuple[CompactOutcome, ...] = (
+    "completed",
+    "failed",
+    "interrupted",
+)
+
 HOOK_FIELDS = frozenset({
     "handler",
     "matcher",

@@ -120,6 +120,8 @@ async def calling(
         message=message,
         hook_scope=resolve_turn_hook_scope(mind, turn_context),
         metadata=meta,
+        additional_context=conversation_turn.additional_context,
+        system_message=conversation_turn.system_message,
     )
     event_report = kwargs.pop("ev_report", None)
 

@@ -343,6 +343,8 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
             turn_index=1,
             session_started=True,
             start_reason="calling",
+            additional_context=("queued context",),
+            system_message="queued system",
         )),
         stream_looper=stream_looper,
         with_mcp_session=with_mcp_session,
@@ -383,6 +385,8 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
         "cid": "cid_root",
         "sid": "sid_root",
     }
+    assert streamed_execution.additional_context == ("queued context",)
+    assert streamed_execution.system_message == "queued system"
     assert "message" not in captured[0]
     assert "metadata" not in captured[0]
     assert "permissions" not in captured[0]

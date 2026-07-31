@@ -159,6 +159,8 @@ async def run_tui_model_turn(
         message=message_text,
         hook_scope=resolve_turn_hook_scope(mind, turn_context),
         metadata=turn_metadata,
+        additional_context=conversation_turn.additional_context,
+        system_message=conversation_turn.system_message,
     )
 
     async def run_tui_turn(
