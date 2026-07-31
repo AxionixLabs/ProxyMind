@@ -27,6 +27,7 @@ async def execute_tool(
     *,
     tools: list[dict[str, typing.Any]],
     invocation: ToolInvocation,
+    pref_config: typing.Mapping[str, typing.Any],
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
     enable_progress_notify: bool = False
 ) -> CallToolResult:
@@ -55,6 +56,7 @@ async def execute_tool(
         execution=invocation.execution,
         call_id=invocation.call_id,
         turn_context=invocation.turn,
+        pref_config=pref_config,
     )
 
 

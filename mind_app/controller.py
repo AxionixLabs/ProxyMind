@@ -462,6 +462,7 @@ class Mind(object):
         return default_client_tool_registry(
             self.native_coding,
             execution_root=self.history_workspace,
+            subagent_runtime=self.subagents,
         )
 
     def bind_server_manager(self, server_manager: ServerManage) -> None:

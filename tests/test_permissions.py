@@ -54,6 +54,7 @@ def _client_runtime(
     return ClientToolRuntime(
         session=SimpleNamespace(),
         turn_context=turn_context,
+        pref_config={},
         execution=execution,
     )
 

@@ -57,6 +57,7 @@ async def test_client_tool_receives_complete_turn_context() -> None:
     session = CompositeToolSession(client_registry=registry)
     turn = _child_turn()
     execution = {"state": "allowed"}
+    pref_config = {"primary": {"model": "test-model"}}
 
     result = await session.call_tool(
         "inspect_context",
@@ -64,6 +65,7 @@ async def test_client_tool_receives_complete_turn_context() -> None:
         execution=execution,
         call_id="call_child",
         turn_context=turn,
+        pref_config=pref_config,
     )
 
     assert result.isError is False
@@ -73,6 +75,8 @@ async def test_client_tool_receives_complete_turn_context() -> None:
     assert runtime.turn_context.agent.agent_id == "agent_child"
     assert runtime.turn_context.agent.root_session_id == "sid_root"
     assert runtime.turn_context.agent.depth == 1
+    assert runtime.pref_config == pref_config
+    assert runtime.pref_config is not pref_config
     assert runtime.execution is execution
     assert runtime.call_id == "call_child"
 
@@ -89,7 +93,11 @@ async def test_client_tool_rejects_missing_turn_context() -> None:
     session = CompositeToolSession(client_registry=registry)
 
     with pytest.raises(TypeError, match="turn context is required"):
-        await session.call_tool("inspect_context", {})
+        await session.call_tool(
+            "inspect_context",
+            {},
+            pref_config={},
+        )
 
     handler.assert_not_awaited()
 
@@ -109,6 +117,7 @@ async def test_external_tool_does_not_receive_turn_context() -> None:
         execution={"state": "allowed"},
         call_id="call_external",
         turn_context=_child_turn(),
+        pref_config={"local": True},
     )
 
     external.call_tool.assert_awaited_once_with(
@@ -134,6 +143,7 @@ async def test_service_tool_does_not_receive_turn_context() -> None:
         execution={"state": "allowed"},
         call_id="call_service",
         turn_context=_child_turn(),
+        pref_config={"local": True},
     )
 
     service.call_tool.assert_awaited_once_with(

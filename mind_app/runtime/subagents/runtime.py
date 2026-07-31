@@ -107,16 +107,28 @@ class SubagentRuntime:
         self,
         root_session_id: str,
         agent_id: str,
-        message: str
-    ) -> AgentSnapshot:
-        """向根会话中的已有执行线程提交下一轮任务。"""
+        message: str,
+        *,
+        interrupt: bool = False
+    ) -> str:
+        """向根会话中的已有执行线程提交或排队下一轮任务。"""
         task    = _normalize_task(message)
         control = await self._existing_control(root_session_id)
 
         return await control.submit(
             agent_id,
             self._turn_operation(task),
+            interrupt=interrupt,
         )
+
+    async def resume(
+        self,
+        root_session_id: str,
+        agent_id: str
+    ) -> AgentSnapshot:
+        """重新开放根会话中已经关闭的执行线程。"""
+        control = await self._existing_control(root_session_id)
+        return await control.resume(agent_id)
 
     async def get(
         self,
@@ -160,7 +172,7 @@ class SubagentRuntime:
         root_session_id: str,
         agent_id: str
     ) -> AgentSnapshot:
-        """关闭根会话中指定执行线程及其后代。"""
+        """关闭根会话中指定执行线程及其后代并返回关闭前快照。"""
         control = await self._existing_control(root_session_id)
         return await control.close(agent_id)
 

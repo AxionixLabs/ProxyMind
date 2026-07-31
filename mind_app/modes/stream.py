@@ -265,6 +265,7 @@ async def stream_looper(
             tools=tools,
             report=mind.report,
             turn_context=turn_context,
+            pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
         )
 

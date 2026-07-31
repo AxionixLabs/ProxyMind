@@ -69,12 +69,14 @@ class StepPlanExecutor:
         tools: list[dict[str, typing.Any]],
         report: typing.Any,
         turn_context: TurnContext,
+        pref_config: typing.Mapping[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator
     ) -> None:
         self.session               = session
         self.tools                 = tools
         self.report                = report
         self.turn_context          = turn_context
+        self.pref_config           = dict(pref_config)
         self.tool_call_coordinator = tool_call_coordinator
 
     async def execute_tool_call(
@@ -198,6 +200,7 @@ class StepPlanExecutor:
                     self.session,
                     tools=self.tools,
                     invocation=invocation.with_arguments(exchanged_args),
+                    pref_config=self.pref_config,
                 )
 
             hook_run = await self.tool_call_coordinator.run(

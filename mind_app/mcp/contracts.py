@@ -26,7 +26,8 @@ class McpSessionLike(typing.Protocol):
         args: dict[str, typing.Any] | None = None,
         execution: dict[str, typing.Any] | None = None,
         call_id: str | None = None,
-        turn_context: "TurnContext | None" = None
+        turn_context: "TurnContext | None" = None,
+        pref_config: typing.Mapping[str, typing.Any] | None = None
     ) -> "mcp_types.CallToolResult":
         """调用指定 MCP 工具并返回执行结果。"""
         ...

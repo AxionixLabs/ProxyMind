@@ -111,14 +111,13 @@ async def test_agent_control_reuses_open_agent_for_new_submission() -> None:
     first_result = await control.wait([first.agent_id], timeout_sec=1)
     first_submission = first_result.snapshots[0].submission_id
 
-    submitted = await control.submit(
+    submission_id = await control.submit(
         first.agent_id,
         lambda context: _return_value("second"),
     )
     second_result = await control.wait([first.agent_id], timeout_sec=1)
 
-    assert submitted.context is first.context
-    assert submitted.submission_id != first_submission
+    assert submission_id != first_submission
     assert second_result.snapshots[0].status == "completed"
     assert second_result.snapshots[0].result == "second"
 
@@ -145,7 +144,8 @@ async def test_completed_agent_keeps_slot_until_closed() -> None:
         )
 
     assert await control.count_open() == 1
-    assert (await control.close(first.agent_id)).status == "closed"
+    assert (await control.close(first.agent_id)).status == "completed"
+    assert (await control.get(first.agent_id)).status == "closed"
     assert await control.count_open() == 0
 
     second = await _spawn(
@@ -250,7 +250,156 @@ async def test_interrupt_cancels_active_turn_without_closing_agent() -> None:
 
 
 @pytest.mark.anyio
-async def test_interrupt_waits_for_cancellation_before_new_submission() -> None:
+async def test_submit_queues_until_active_turn_cleanup_finishes() -> None:
+    control = _control()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    second_started = asyncio.Event()
+    timeline = []
+
+    async def operation(context):
+        timeline.append("first-start")
+        started.set()
+        await release.wait()
+        timeline.append("first-stop")
+        return "first"
+
+    async def follow_up(context):
+        timeline.append("second-start")
+        second_started.set()
+        return "second"
+
+    spawned = await _spawn(
+        control,
+        control.root,
+        "worker",
+        operation,
+        agent_id="agent_queued",
+    )
+    await started.wait()
+
+    submission_id = await control.submit(spawned.agent_id, follow_up)
+    await asyncio.sleep(0)
+    assert not second_started.is_set()
+
+    release.set()
+    result = await control.wait([spawned.agent_id], timeout_sec=1)
+
+    assert submission_id == result.snapshots[0].submission_id
+    assert result.snapshots[0].result == "second"
+    assert timeline == ["first-start", "first-stop", "second-start"]
+
+
+@pytest.mark.anyio
+async def test_interrupting_submission_runs_after_cancelled_turn_cleanup() -> None:
+    control = _control()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    follow_up_started = asyncio.Event()
+    timeline = []
+
+    async def operation(context):
+        timeline.append("first-start")
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            timeline.append("first-stop")
+            cancelled.set()
+
+    async def follow_up(context):
+        assert cancelled.is_set()
+        timeline.append("second-start")
+        follow_up_started.set()
+        return "redirected"
+
+    spawned = await _spawn(
+        control,
+        control.root,
+        "worker",
+        operation,
+        agent_id="agent_redirected",
+    )
+    await started.wait()
+
+    submission_id = await control.submit(
+        spawned.agent_id,
+        follow_up,
+        interrupt=True,
+    )
+    await follow_up_started.wait()
+    result = await control.wait([spawned.agent_id], timeout_sec=1)
+
+    assert submission_id == result.snapshots[0].submission_id
+    assert result.snapshots[0].result == "redirected"
+    assert timeline == ["first-start", "first-stop", "second-start"]
+
+
+@pytest.mark.anyio
+async def test_interrupt_during_terminal_commit_still_advances_queue() -> None:
+    control = _control()
+    commit_started = asyncio.Event()
+    original_finish = control._finish
+    finish_calls = [0]
+
+    async def delayed_finish(*args, **kwargs):
+        finish_calls[0] += 1
+        if finish_calls[0] == 1:
+            commit_started.set()
+            await asyncio.Event().wait()
+        return await original_finish(*args, **kwargs)
+
+    control._finish = delayed_finish
+    spawned = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value("first"),
+        agent_id="agent_commit_race",
+    )
+    await commit_started.wait()
+
+    submission_id = await control.submit(
+        spawned.agent_id,
+        lambda context: _return_value("redirected"),
+        interrupt=True,
+    )
+    result = await control.wait([spawned.agent_id], timeout_sec=1)
+
+    assert submission_id == result.snapshots[0].submission_id
+    assert result.snapshots[0].status == "completed"
+    assert result.snapshots[0].result == "redirected"
+
+
+@pytest.mark.anyio
+async def test_closed_agent_can_resume_with_same_thread_context() -> None:
+    control = _control(max_open_agents=1)
+    spawned = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value("first"),
+        agent_id="agent_resumed",
+    )
+    await control.wait([spawned.agent_id], timeout_sec=1)
+
+    previous = await control.close(spawned.agent_id)
+    resumed = await control.resume(spawned.agent_id)
+    submission_id = await control.submit(
+        spawned.agent_id,
+        lambda context: _return_value("second"),
+    )
+    result = await control.wait([spawned.agent_id], timeout_sec=1)
+
+    assert previous.status == "completed"
+    assert resumed.status == "completed"
+    assert resumed.context is spawned.context
+    assert submission_id == result.snapshots[0].submission_id
+    assert result.snapshots[0].result == "second"
+
+
+@pytest.mark.anyio
+async def test_agent_cannot_resume_until_close_cleanup_finishes() -> None:
     control = _control()
     started = asyncio.Event()
     cancellation_seen = asyncio.Event()
@@ -263,31 +412,27 @@ async def test_interrupt_waits_for_cancellation_before_new_submission() -> None:
         except asyncio.CancelledError:
             cancellation_seen.set()
             await finish_cleanup.wait()
-        return "finished"
 
     spawned = await _spawn(
         control,
         control.root,
         "worker",
         operation,
-        agent_id="agent_stubborn",
+        agent_id="agent_resume_race",
     )
     await started.wait()
 
-    interrupt = asyncio.create_task(control.interrupt(spawned.agent_id))
+    closing = asyncio.create_task(control.close(spawned.agent_id))
     await cancellation_seen.wait()
 
-    with pytest.raises(AgentStateError, match="busy"):
-        await control.submit(
-            spawned.agent_id,
-            lambda context: _return_value("overlap"),
-        )
+    with pytest.raises(AgentStateError, match="still closing"):
+        await control.resume(spawned.agent_id)
 
     finish_cleanup.set()
-    snapshot = await interrupt
+    await closing
 
-    assert snapshot.status == "completed"
-    assert snapshot.result == "finished"
+    resumed = await control.resume(spawned.agent_id)
+    assert resumed.status == "interrupted"
 
 
 @pytest.mark.anyio
@@ -326,7 +471,8 @@ async def test_closing_task_keeps_slot_until_cleanup_finishes() -> None:
         )
 
     finish_cleanup.set()
-    assert (await close).status == "closed"
+    assert (await close).status == "running"
+    assert (await control.get(spawned.agent_id)).status == "closed"
     assert await control.count_open() == 0
 
 
@@ -364,7 +510,7 @@ async def test_closing_parent_cancels_complete_subtree() -> None:
     closed = await control.close(parent.agent_id)
     snapshots = await control.snapshots()
 
-    assert closed.status == "closed"
+    assert closed.status == "running"
     assert {snapshot.agent_id: snapshot.status for snapshot in snapshots} == {
         parent.agent_id: "closed",
         child.agent_id: "closed",

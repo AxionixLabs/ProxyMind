@@ -17,6 +17,7 @@ class ClientToolRuntime:
     """客户端工具处理函数可使用的运行上下文。"""
     session: typing.Any
     turn_context: "TurnContext"
+    pref_config: typing.Mapping[str, typing.Any]
     read_timeout_seconds: typing.Any = None
     progress_callback: typing.Any = None
     meta: dict[str, typing.Any] | None = None

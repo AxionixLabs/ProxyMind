@@ -111,7 +111,8 @@ class CompositeToolSession(McpSessionLike):
         args: dict[str, typing.Any] | None = None,
         execution: dict[str, typing.Any] | None = None,
         call_id: str | None = None,
-        turn_context: "TurnContext | None" = None
+        turn_context: "TurnContext | None" = None,
+        pref_config: typing.Mapping[str, typing.Any] | None = None
     ) -> mcp_types.CallToolResult:
         """根据工具名称选择外部会话或本地会话执行调用。"""
         payload = arguments if args is None else args
@@ -127,6 +128,7 @@ class CompositeToolSession(McpSessionLike):
                 execution=execution,
                 call_id=call_id,
                 turn_context=turn_context,
+                pref_config=pref_config,
             )
 
         if self.external_group is not None and name in self.external_group.tools:

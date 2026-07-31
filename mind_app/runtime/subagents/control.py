@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import AgentContext
@@ -18,6 +19,11 @@ AgentStatus = typing.Literal[
     "failed",
     "interrupted",
     "closed",
+]
+AgentResumeStatus = typing.Literal[
+    "completed",
+    "failed",
+    "interrupted",
 ]
 
 FINAL_AGENT_STATUSES = frozenset({
@@ -92,8 +98,10 @@ class _AgentRecord:
         "submission_id",
         "turn_count",
         "task",
+        "queue",
         "result",
         "error",
+        "status_before_close",
     )
 
     thread: AgentThreadContext
@@ -101,17 +109,21 @@ class _AgentRecord:
     submission_id: str
     turn_count: int
     task: asyncio.Task[None] | None
+    queue: deque[tuple[str, AgentTurnOperation[typing.Any]]]
     result: typing.Any
     error: str
+    status_before_close: AgentResumeStatus | None
 
     def __init__(self, thread: AgentThreadContext) -> None:
-        self.thread        = thread
-        self.status        = "pending"
-        self.submission_id = ""
-        self.turn_count    = 0
-        self.task          = None
-        self.result        = None
-        self.error         = ""
+        self.thread              = thread
+        self.status              = "pending"
+        self.submission_id       = ""
+        self.turn_count          = 0
+        self.task                = None
+        self.queue               = deque()
+        self.result              = None
+        self.error               = ""
+        self.status_before_close = None
 
     @property
     def context(self) -> AgentContext:
@@ -206,21 +218,59 @@ class AgentControl:
     async def submit(
         self,
         agent_id: str,
-        operation: AgentTurnOperation[AgentTurnResultValue]
-    ) -> AgentSnapshot:
-        """在已开放的执行主体上提交新一轮任务。"""
+        operation: AgentTurnOperation[AgentTurnResultValue],
+        *,
+        interrupt: bool = False
+    ) -> str:
+        """向已开放的执行主体提交或排队新一轮任务。"""
         if not callable(operation):
             raise TypeError("agent operation must be callable")
 
         async with self._condition:
             self._require_active()
             record = self._require_record(agent_id)
-            if record.status in {"pending", "running"}:
-                raise AgentStateError(f"agent is busy: {record.context.agent_id}")
             if record.status == "closed":
                 raise AgentStateError(f"agent is closed: {record.context.agent_id}")
 
-            self._start(record, operation)
+            submission_id = short_uid(12)
+            if record.status in {"pending", "running"}:
+                queued = (submission_id, operation)
+                if interrupt:
+                    record.queue.appendleft(queued)
+                    if record.task is not None:
+                        _request_cancel(record.task)
+                else:
+                    record.queue.append(queued)
+            else:
+                self._start(
+                    record,
+                    operation,
+                    submission_id=submission_id,
+                )
+            self._condition.notify_all()
+            return submission_id
+
+    async def resume(self, agent_id: str) -> AgentSnapshot:
+        """重新开放已经关闭的执行主体。"""
+        async with self._condition:
+            self._require_active()
+            record = self._require_record(agent_id)
+            if record.status != "closed":
+                return self._snapshot(record)
+            if record.task is not None:
+                raise AgentStateError(
+                    f"agent is still closing: {record.context.agent_id}"
+                )
+            if self._open_count() >= self._max_open_agents:
+                raise AgentLimitError(
+                    f"open agent limit reached: {self._max_open_agents}"
+                )
+
+            if record.status_before_close is None:
+                record.status = "interrupted"
+            else:
+                record.status = record.status_before_close
+            record.status_before_close = None
             self._condition.notify_all()
             return self._snapshot(record)
 
@@ -312,7 +362,7 @@ class AgentControl:
                 task = record.task
                 submission_id = record.submission_id
                 if task is not None:
-                    task.cancel()
+                    _request_cancel(task)
 
         if task is not None:
             await asyncio.gather(task, return_exceptions=True)
@@ -333,9 +383,9 @@ class AgentControl:
         return await self.get(agent_id)
 
     async def close(self, agent_id: str) -> AgentSnapshot:
-        """关闭指定执行主体及其全部后代。"""
-        await self._close_records(agent_id)
-        return await self.get(agent_id)
+        """关闭指定执行主体及其全部后代并返回关闭前快照。"""
+        previous = await self._close_records(agent_id)
+        return previous[agent_id]
 
     async def close_all(self) -> tuple[AgentSnapshot, ...]:
         """关闭根会话树中的全部子执行主体。"""
@@ -353,10 +403,12 @@ class AgentControl:
     def _start(
         self,
         record: _AgentRecord,
-        operation: AgentTurnOperation[AgentTurnResultValue]
+        operation: AgentTurnOperation[AgentTurnResultValue],
+        *,
+        submission_id: str | None = None
     ) -> None:
         """在持锁状态下启动一次轮次任务。"""
-        submission_id = short_uid(12)
+        submission_id = submission_id or short_uid(12)
 
         record.status        = "pending"
         record.submission_id = submission_id
@@ -403,26 +455,52 @@ class AgentControl:
         try:
             result = await operation(turn_context)
         except asyncio.CancelledError:
-            await self._finish(
+            await self._commit_turn(
                 agent_id,
                 submission_id,
                 status="interrupted",
             )
             raise
         except Exception as error:
-            await self._finish(
+            await self._commit_turn(
                 agent_id,
                 submission_id,
                 status="failed",
                 error=_bounded_error(error),
             )
         else:
-            await self._finish(
+            await self._commit_turn(
                 agent_id,
                 submission_id,
                 status="completed",
                 result=result,
             )
+
+    async def _commit_turn(
+        self,
+        agent_id: str,
+        submission_id: str,
+        *,
+        status: AgentStatus,
+        result: typing.Any = None,
+        error: str = ""
+    ) -> None:
+        """提交轮次终态，并在提交阶段取消时保证状态收束。"""
+        try:
+            await self._finish(
+                agent_id,
+                submission_id,
+                status=status,
+                result=result,
+                error=error,
+            )
+        except asyncio.CancelledError:
+            await self._finish(
+                agent_id,
+                submission_id,
+                status="interrupted",
+            )
+            raise
 
     async def _finish(
         self,
@@ -446,6 +524,14 @@ class AgentControl:
             record.error  = error
             record.task   = None
 
+            if record.queue:
+                next_submission_id, operation = record.queue.popleft()
+                self._start(
+                    record,
+                    operation,
+                    submission_id=next_submission_id,
+                )
+
             self._condition.notify_all()
 
     async def _clear_task(
@@ -460,9 +546,13 @@ class AgentControl:
                 record.task = None
                 self._condition.notify_all()
 
-    async def _close_records(self, root_agent_id: str | None) -> None:
+    async def _close_records(
+        self,
+        root_agent_id: str | None
+    ) -> dict[str, AgentSnapshot]:
         """关闭给定执行主体并等待活动任务退出。"""
         tasks: list[tuple[str, asyncio.Task[None]]] = []
+        previous: dict[str, AgentSnapshot]          = {}
 
         async with self._condition:
             if root_agent_id is None:
@@ -480,15 +570,24 @@ class AgentControl:
                 key=lambda item: item.context.depth,
                 reverse=True,
             )
+
             for agent_record in records:
+                agent_id = agent_record.context.agent_id
+                previous[agent_id] = self._snapshot(agent_record)
+                if agent_record.status != "closed":
+                    agent_record.status_before_close = _status_for_resume(
+                        agent_record.status
+                    )
+
                 agent_record.status = "closed"
+                agent_record.queue.clear()
                 agent_record.result = None
                 agent_record.error  = ""
 
                 if agent_record.task is not None:
-                    agent_record.task.cancel()
+                    _request_cancel(agent_record.task)
                     tasks.append((
-                        agent_record.context.agent_id,
+                        agent_id,
                         agent_record.task,
                     ))
             self._condition.notify_all()
@@ -500,6 +599,8 @@ class AgentControl:
             )
             for agent_id, task in tasks:
                 await self._clear_task(agent_id, task)
+
+        return previous
 
     def _require_thread_parent(self, thread: AgentThreadContext) -> None:
         """验证线程身份及父级属于当前根会话树。"""
@@ -590,11 +691,29 @@ def _normalize_targets(targets: typing.Iterable[str]) -> tuple[str, ...]:
     return normalized
 
 
+def _status_for_resume(status: AgentStatus) -> AgentResumeStatus:
+    """返回关闭后重新开放时应恢复的状态。"""
+    if status == "completed":
+        return "completed"
+    if status == "failed":
+        return "failed"
+    if status in {"pending", "running", "interrupted"}:
+        return "interrupted"
+
+    raise AgentStateError("closed agent has no resumable status")
+
+
 def _bounded_error(error: Exception, limit: int = 2000) -> str:
     """返回包含异常类型的有界错误摘要。"""
     detail = str(error).strip()
     text   = f"{type(error).__name__}: {detail}" if detail else type(error).__name__
     return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _request_cancel(task: asyncio.Task[None]) -> None:
+    """仅在任务尚未处理取消请求时发起取消。"""
+    if not task.done() and task.cancelling() == 0:
+        task.cancel()
 
 
 if __name__ == '__main__':

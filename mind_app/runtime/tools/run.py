@@ -293,6 +293,7 @@ async def run_tool_step(
                 session,
                 tools=tools,
                 invocation=invocation,
+                pref_config=pref_config,
                 enable_progress_notify=enable_progress_notify,
                 stream_callback=functools.partial(
                     show_tool_progress,

@@ -35,6 +35,7 @@ class PlanToolCallRunner:
         tools: list[dict[str, typing.Any]],
         report: typing.Any,
         turn_context: TurnContext,
+        pref_config: typing.Mapping[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator
     ) -> None:
         self.output_control = output_control
@@ -46,6 +47,7 @@ class PlanToolCallRunner:
             tools=tools,
             report=report,
             turn_context=turn_context,
+            pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
         )
 

@@ -25,6 +25,7 @@ class _PlanSession(object):
 
     def __init__(self, results: list[mcp_types.CallToolResult]) -> None:
         self.results = list(results)
+        self.calls = []
 
     async def call_tool(
         self,
@@ -32,7 +33,7 @@ class _PlanSession(object):
         arguments: dict,
         **kwargs,
     ) -> mcp_types.CallToolResult:
-        _ = name, arguments, kwargs
+        self.calls.append((name, arguments, kwargs))
         return self.results.pop(0)
 
 
@@ -74,6 +75,7 @@ def _executor(results: list[mcp_types.CallToolResult]) -> StepPlanExecutor:
         tools=[{"name": "test_tool"}],
         report=SimpleNamespace(),
         turn_context=turn_context,
+        pref_config={"primary": {"model": "test-model"}},
         tool_call_coordinator=ToolCallCoordinator(HookExecutionScope(
             context=HookExecutionContext.from_turn(turn_context),
             dispatcher=HookRuntime.empty(),
@@ -115,6 +117,19 @@ async def test_single_run_returns_complete_step_results() -> None:
     assert returned["result"]["text"] == text
     assert returned["result"]["data"] == structured_data
     assert returned["result"]["attachments"] == [attachment]
+
+
+@pytest.mark.anyio
+async def test_plan_step_preserves_client_tool_runtime_config() -> None:
+    executor = _executor([_tool_result("done")])
+
+    await executor.execute_tool_call(arguments={
+        "steps": [{"tool": "test_tool", "args": {}}],
+    })
+
+    assert executor.session.calls[0][2]["pref_config"] == {
+        "primary": {"model": "test-model"},
+    }
 
 
 @pytest.mark.anyio
