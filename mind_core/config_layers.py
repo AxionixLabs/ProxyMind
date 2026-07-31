@@ -37,6 +37,7 @@ PROJECT_RESTRICTED_ROOTS = frozenset({
     "service",
     "sandbox_mode",
     "approval_policy",
+    "tui",
 })
 
 MCP_STDIO_FIELDS = frozenset({

@@ -148,6 +148,12 @@ def _default_effective_config() -> dict[str, typing.Any]:
         "hooks": {},
         "agents": normalize_agent_table(None),
         "mcp_servers": {},
+        "tui": {
+            "keymap": {
+                "global": {},
+                "pager": {},
+            }
+        },
         "hosted_tools": {
             "groups": {
                 "perf_engine": False,
@@ -167,6 +173,7 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     skills      = _as_dict(data.get("skills"))
     hosted      = _as_dict(data.get("hosted_tools"))
     mcp_servers = _as_dict(data.get("mcp_servers"))
+    tui         = _as_dict(data.get("tui"))
 
     _validate_effective_mcp_servers(mcp_servers)
 
@@ -187,6 +194,7 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
         "hooks": normalize_hook_table(data.get("hooks")),
         "agents": normalize_agent_table(data.get("agents")),
         "mcp_servers": copy.deepcopy(mcp_servers),
+        "tui": _normalize_tui_config(tui),
         "hosted_tools": _normalize_hosted_tools(hosted)
     }
 
@@ -235,6 +243,10 @@ TABLE_CONFIG_PATHS = (
     ("projects",),
     ("hooks",),
     ("agents",),
+    ("tui",),
+    ("tui", "keymap"),
+    ("tui", "keymap", "global"),
+    ("tui", "keymap", "pager"),
 )
 
 ROOT_CONFIG_FIELDS = frozenset({
@@ -253,6 +265,7 @@ ROOT_CONFIG_FIELDS = frozenset({
     "projects",
     "hooks",
     "agents",
+    "tui",
 })
 
 SERVICE_FIELDS           = frozenset({"domain"})
@@ -260,6 +273,37 @@ SKILL_FIELDS             = frozenset({"enabled", "disabled"})
 HOSTED_TOOL_FIELDS       = frozenset({"groups"})
 HOSTED_TOOL_GROUP_FIELDS = frozenset({"perf_engine", "sandbox_cloud"})
 PROJECT_FIELDS           = frozenset({"trust_level"})
+TUI_FIELDS               = frozenset({"keymap"})
+TUI_KEYMAP_FIELDS        = frozenset({"global", "pager"})
+TUI_GLOBAL_KEYMAP_FIELDS = frozenset({"open_transcript"})
+
+TUI_PAGER_KEYMAP_FIELDS = frozenset({
+    "scroll_up",
+    "scroll_down",
+    "page_up",
+    "page_down",
+    "half_page_up",
+    "half_page_down",
+    "jump_top",
+    "jump_bottom",
+    "close",
+    "close_transcript",
+})
+
+TUI_KEYMAP_TABLE_FIELDS: typing.Mapping[
+    tuple[str, ...],
+    typing.AbstractSet[str],
+] = {
+    ("tui",): TUI_FIELDS,
+    ("tui", "keymap"): TUI_KEYMAP_FIELDS,
+    ("tui", "keymap", "global"): TUI_GLOBAL_KEYMAP_FIELDS,
+    ("tui", "keymap", "pager"): TUI_PAGER_KEYMAP_FIELDS,
+}
+
+TUI_KEYMAP_CONTEXT_PATHS: frozenset[tuple[str, ...]] = frozenset({
+    ("tui", "keymap", "global"),
+    ("tui", "keymap", "pager"),
+})
 
 MODEL_PROVIDER_STRING_FIELDS = frozenset({
     "route",
@@ -324,6 +368,10 @@ def validate_config_value(
 ) -> None:
     """按照应用配置 schema 校验一个点路径值。"""
     dotted = ".".join(path)
+
+    if path and path[0] == "tui":
+        _validate_tui_config_value(path, value)
+        return None
     if path == ("hooks",):
         try:
             normalize_hook_table(value)
@@ -430,6 +478,8 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
     except AgentConfigError as error:
         raise ConfigValidationError(str(error)) from error
 
+    _validate_tui_config(config.get("tui"))
+
     for path in TABLE_CONFIG_PATHS:
         present, value = _raw_path_value(config, path)
         if present and not isinstance(value, dict):
@@ -500,6 +550,7 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
         (config.get("service"), SERVICE_FIELDS, "service"),
         (config.get("skills"), SKILL_FIELDS, "skills"),
         (config.get("hosted_tools"), HOSTED_TOOL_FIELDS, "hosted_tools"),
+        (config.get("tui"), TUI_FIELDS, "tui"),
     )
     for value, allowed, dotted in nested_fields:
         if isinstance(value, dict):
@@ -515,10 +566,112 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
         )
 
 
+def _normalize_tui_config(value: typing.Any) -> dict[str, typing.Any]:
+    """规范化终端交互配置并保留显式按键解绑。"""
+    tui    = _as_dict(value)
+    keymap = _as_dict(tui.get("keymap"))
+
+    return {
+        "keymap": {
+            "global": copy.deepcopy(_as_dict(keymap.get("global"))),
+            "pager": copy.deepcopy(_as_dict(keymap.get("pager"))),
+        }
+    }
+
+
+def _validate_tui_config(value: typing.Any) -> None:
+    """校验终端交互配置表及其按键上下文。"""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ConfigValidationError("tui must be a table")
+    _validate_known_fields(value, TUI_FIELDS, "tui")
+
+    keymap = value.get("keymap")
+    if keymap is None:
+        return None
+    if not isinstance(keymap, dict):
+        raise ConfigValidationError("tui.keymap must be a table")
+    _validate_known_fields(keymap, TUI_KEYMAP_FIELDS, "tui.keymap")
+
+    contexts = (
+        ("global", TUI_GLOBAL_KEYMAP_FIELDS),
+        ("pager", TUI_PAGER_KEYMAP_FIELDS),
+    )
+    for context, fields in contexts:
+        bindings = keymap.get(context)
+        if bindings is None:
+            continue
+        if not isinstance(bindings, dict):
+            raise ConfigValidationError(
+                f"tui.keymap.{context} must be a table"
+            )
+        _validate_known_fields(
+            bindings,
+            fields,
+            f"tui.keymap.{context}",
+        )
+        for action, binding in bindings.items():
+            _validate_key_binding_config(
+                binding,
+                path=f"tui.keymap.{context}.{action}",
+            )
+
+
+def _validate_tui_config_value(
+    path: tuple[str, ...],
+    value: typing.Any,
+) -> None:
+    """校验一个终端交互配置覆盖值。"""
+    dotted = ".".join(path)
+
+    if path in TUI_KEYMAP_TABLE_FIELDS:
+        if not isinstance(value, dict):
+            raise ConfigValidationError(f"{dotted} must be a table")
+        _validate_known_fields(value, TUI_KEYMAP_TABLE_FIELDS[path], dotted)
+        if path == ("tui",):
+            _validate_tui_config(value)
+        elif path == ("tui", "keymap"):
+            _validate_tui_config({"keymap": value})
+        elif path == ("tui", "keymap", "global"):
+            _validate_tui_config({"keymap": {"global": value}})
+        else:
+            _validate_tui_config({"keymap": {"pager": value}})
+        return None
+
+    if (
+        len(path) == 4
+        and path[:3] in TUI_KEYMAP_CONTEXT_PATHS
+    ):
+        fields = (
+            TUI_GLOBAL_KEYMAP_FIELDS
+            if path[2] == "global"
+            else TUI_PAGER_KEYMAP_FIELDS
+        )
+        if path[3] not in fields:
+            raise ConfigValidationError(f"unknown config key: {dotted}")
+        _validate_key_binding_config(value, path=dotted)
+        return None
+
+    raise ConfigValidationError(f"unknown config key: {dotted}")
+
+
+def _validate_key_binding_config(value: typing.Any, *, path: str) -> None:
+    """校验单个动作的按键字符串或字符串数组。"""
+    if isinstance(value, str):
+        return None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return None
+
+    raise ConfigValidationError(
+        f"{path} must be a string or an array of strings"
+    )
+
+
 def _validate_known_fields(
     value: dict[str, typing.Any],
     allowed: typing.AbstractSet[str],
-    dotted: str,
+    dotted: str
 ) -> None:
     """拒绝配置表中未声明的字段。"""
     unknown = sorted(set(value).difference(allowed))
@@ -553,7 +706,7 @@ def _validate_mcp_server(name: str, value: typing.Any) -> None:
 
 
 def _validate_effective_mcp_servers(
-    servers: dict[str, typing.Any],
+    servers: dict[str, typing.Any]
 ) -> None:
     """校验合并后的 MCP 服务目标。"""
     for name, value in servers.items():
@@ -572,10 +725,11 @@ def _validate_effective_mcp_servers(
 def _validate_mcp_field(
     name: str,
     field: str,
-    value: typing.Any,
+    value: typing.Any
 ) -> None:
     """校验一个 MCP 服务字段。"""
     dotted = f"mcp_servers.{name}.{field}"
+
     if field in MCP_STRING_FIELDS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
@@ -612,7 +766,7 @@ def _validate_mcp_field(
 
 def config_override(
     path: tuple[str, ...],
-    value: typing.Any,
+    value: typing.Any
 ) -> ConfigOverride:
     """创建经过 schema 校验的配置覆盖。"""
     validate_config_value(path, value)
@@ -622,7 +776,9 @@ def config_override(
 def parse_config_override(expression: str) -> ConfigOverride:
     """解析 key=value 形式的 TOML 配置覆盖。"""
     key, separator, raw_value = str(expression or "").partition("=")
+
     path = tuple(part.strip() for part in key.split("."))
+
     if not separator or not path or any(not part for part in path):
         raise ValueError("config override must use a non-empty dotted key=value")
 
@@ -635,10 +791,11 @@ def parse_config_override(expression: str) -> ConfigOverride:
 
 def apply_config_overrides(
     config: typing.Any,
-    overrides: typing.Iterable[ConfigOverride],
+    overrides: typing.Iterable[ConfigOverride]
 ) -> dict[str, typing.Any]:
     """按给定顺序把点路径覆盖应用到配置副本。"""
     result = copy.deepcopy(config) if isinstance(config, dict) else {}
+
     for override in overrides:
         validate_config_value(override.path, override.value)
         target = result
@@ -649,17 +806,19 @@ def apply_config_overrides(
                 target[component] = child
             target = child
         target[override.path[-1]] = copy.deepcopy(override.value)
+
     return result
 
 
 def model_config_values(
-    slot: dict[str, typing.Any],
+    slot: dict[str, typing.Any]
 ) -> dict[tuple[str, ...], object]:
     """把 primary 槽位转换为外部模型配置字段。"""
     provider = (
         _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME).strip()
         or DEFAULT_PROVIDER_NAME
     )
+
     return {
         ("model",): _as_str(slot.get("model")).strip(),
         ("model_provider",): provider,
@@ -691,16 +850,18 @@ ModelConfigField = typing.Literal[
 
 def model_config_field_values(
     slot: dict[str, typing.Any],
-    field: ModelConfigField,
+    field: ModelConfigField
 ) -> dict[tuple[str, ...], object]:
     """把 primary 槽位的单个字段转换为外部配置字段。"""
     provider = (
         _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME).strip()
         or DEFAULT_PROVIDER_NAME
     )
+
     values: dict[tuple[str, ...], object] = {
         ("model_enabled",): True,
     }
+
     if field == "model":
         values[("model",)] = _as_str(slot.get(field)).strip()
     elif field == "reasoning_effort":
@@ -713,6 +874,7 @@ def model_config_field_values(
         values[("model_providers", provider, provider_field)] = (
             _as_str(slot.get(field)).strip()
         )
+
     return values
 
 

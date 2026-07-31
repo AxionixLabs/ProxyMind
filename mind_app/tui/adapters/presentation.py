@@ -38,8 +38,7 @@ _OPERATION_VIEWS = (
     ProgressView
 )
 
-_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)(?! \(ctrl \+ t)")
-_TRANSCRIPT_HINT       = " (ctrl + t to view transcript)"
+_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)(?! \([^)]*transcript\))")
 
 
 def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
@@ -82,20 +81,23 @@ class TuiPresentationSink(PresentationSink):
         if len(blocks) != len(transcript_blocks):
             raise ValueError("presentation display and transcript block counts differ")
 
+        transcript_key = self.output.runtime.keymap.open_transcript_label
         for block, transcript_block in zip(blocks, transcript_blocks):
             await self.output.append_presentation_block(
-                _with_transcript_hint(block),
+                _with_transcript_hint(block, transcript_key),
                 block_kind=block_kind,
                 transcript_block=transcript_block,
             )
 
 
-def _with_transcript_hint(block: StyledBlock) -> StyledBlock:
+def _with_transcript_hint(block: StyledBlock, key_label: str) -> StyledBlock:
     """给 TUI 中的省略行追加完整记录入口提示。"""
+    hint = f" ({key_label} to view transcript)" if key_label else ""
+
     spans: list[TextSpan] = []
     for index, span in enumerate(block.spans):
         text = _OMITTED_LINES_PATTERN.sub(
-            rf"\1{_TRANSCRIPT_HINT}",
+            rf"\1{hint}",
             span.text,
         )
         if (
@@ -105,7 +107,7 @@ def _with_transcript_hint(block: StyledBlock) -> StyledBlock:
             and block.spans[index - 1].text.isdigit()
             and block.spans[index - 2].text.endswith("… +")
         ):
-            text = f"{text}{_TRANSCRIPT_HINT}"
+            text = f"{text}{hint}"
         spans.append(TextSpan(text, span.style))
 
     rendered_spans = tuple(spans)

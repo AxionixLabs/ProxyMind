@@ -154,7 +154,16 @@ async def _run_application(
             profile=config_profile,
             workspace=Path.cwd(),
         )
+
         config_resolution = config_session.resolve()
+
+        if output_mode == "tui":
+            from ..tui.core.keymap import TuiRuntimeKeymap
+            from ..tui.core.runtime import require_tui_runtime
+
+            require_tui_runtime(frontend.runtime).configure_keymap(
+                TuiRuntimeKeymap.from_config(config_resolution.config)
+            )
     except (OSError, TypeError, ValueError) as error:
         raise AppError(f"Configuration is invalid: {error}") from error
 

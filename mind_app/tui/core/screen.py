@@ -72,6 +72,12 @@ from .input import (
     TuiInputModel
 )
 from .interrupt import TuiInterruptState
+from .keymap import (
+    TuiKeyBinding,
+    TuiRuntimeKeymap,
+    binding_labels,
+    primary_binding_label,
+)
 from .menu import (
     TUI_MENU_STYLE,
     TuiMenu
@@ -141,6 +147,7 @@ class TuiScreen(object):
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
         toggle_transcript_overlay: typing.Callable[[], None],
+        keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
         terminal_capabilities: TerminalCapabilities = (
@@ -164,6 +171,8 @@ class TuiScreen(object):
 
         self._scroll_transcript_page    = scroll_transcript_page
         self._toggle_transcript_overlay = toggle_transcript_overlay
+        self.keymap                     = keymap
+        self._validate_keymap(keymap)
 
         self._transcript_only: bool = False
 
@@ -607,6 +616,37 @@ class TuiScreen(object):
             with contextlib.suppress(Exception):
                 application.invalidate()
 
+    def set_keymap(self, keymap: TuiRuntimeKeymap) -> None:
+        """在 Application 启动前替换主视图和记录面板按键。"""
+        if self.application.is_running:
+            raise RuntimeError("cannot configure TUI keymap while running")
+        self._validate_keymap(keymap)
+        self.keymap = keymap
+        self.transcript_overlay_control.key_bindings = (
+            self._transcript_overlay_key_bindings()
+        )
+        self.application.key_bindings = merge_key_bindings([
+            self.input_model.key_bindings,
+            self._transcript_key_bindings(),
+        ])
+        self.invalidate()
+
+    def _validate_keymap(self, keymap: TuiRuntimeKeymap) -> None:
+        """校验全局记录入口不会覆盖现有主输入动作。"""
+        reserved = [
+            (f"tui.input.binding[{index}]", tuple(binding.keys))
+            for index, binding in enumerate(self.input_model.key_bindings.bindings)
+        ]
+        fixed = KeyBindings()
+        for action, key in (
+            ("tui.transcript.clear", "c-l"),
+            ("tui.transcript.page_up", "pageup"),
+            ("tui.transcript.page_down", "pagedown"),
+        ):
+            fixed.add(key)(lambda event: None)
+            reserved.append((action, tuple(fixed.bindings[-1].keys)))
+        keymap.validate_main_conflicts(reserved)
+
     def set_transcript_only(self, active: bool) -> None:
         """切换为只保留正文的终端画布。"""
         self._transcript_only = bool(active)
@@ -920,71 +960,98 @@ class TuiScreen(object):
             _ = event
             self._scroll_transcript_page(1)
 
-        @bindings.add("c-t", eager=True, filter=overlay_available)
-        def _(event) -> None:
+        def open_transcript(event) -> None:
             _ = event
             self._toggle_transcript_overlay()
+
+        self._add_configured_bindings(
+            bindings,
+            self.keymap.open_transcript,
+            open_transcript,
+            binding_filter=overlay_available,
+        )
 
         return bindings
 
     def _transcript_overlay_key_bindings(self) -> KeyBindings:
         """创建完整会话记录的模态按键。"""
         bindings = KeyBindings()
+        pager = self.keymap.pager
 
-        @bindings.add("c-t", eager=True)
-        @bindings.add("escape", eager=True)
-        @bindings.add("q", eager=True)
-        @bindings.add("c-c", eager=True)
-        def _(event) -> None:
+        def close(event) -> None:
             _ = event
             self._toggle_transcript_overlay()
+        self._add_configured_bindings(
+            bindings,
+            (*pager.close, *pager.close_transcript),
+            close,
+        )
 
-        @bindings.add("up", eager=True)
-        @bindings.add("k", eager=True)
-        def _(event) -> None:
+        def scroll_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_line(-1)
+        self._add_configured_bindings(bindings, pager.scroll_up, scroll_up)
 
-        @bindings.add("down", eager=True)
-        @bindings.add("j", eager=True)
-        def _(event) -> None:
+        def scroll_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_line(1)
+        self._add_configured_bindings(bindings, pager.scroll_down, scroll_down)
 
-        @bindings.add("pageup", eager=True)
-        @bindings.add("c-b", eager=True)
-        def _(event) -> None:
+        def page_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_page(-1)
+        self._add_configured_bindings(bindings, pager.page_up, page_up)
 
-        @bindings.add("pagedown", eager=True)
-        @bindings.add(" ", eager=True)
-        @bindings.add("c-f", eager=True)
-        def _(event) -> None:
+        def page_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_page(1)
+        self._add_configured_bindings(bindings, pager.page_down, page_down)
 
-        @bindings.add("c-u", eager=True)
-        def _(event) -> None:
+        def half_page_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_half_page(-1)
+        self._add_configured_bindings(
+            bindings,
+            pager.half_page_up,
+            half_page_up,
+        )
 
-        @bindings.add("c-d", eager=True)
-        def _(event) -> None:
+        def half_page_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_half_page(1)
+        self._add_configured_bindings(
+            bindings,
+            pager.half_page_down,
+            half_page_down,
+        )
 
-        @bindings.add("home", eager=True)
-        def _(event) -> None:
+        def jump_top(event) -> None:
             _ = event
             self.transcript_overlay.jump_top()
+        self._add_configured_bindings(bindings, pager.jump_top, jump_top)
 
-        @bindings.add("end", eager=True)
-        def _(event) -> None:
+        def jump_bottom(event) -> None:
             _ = event
             self.transcript_overlay.jump_bottom()
+        self._add_configured_bindings(bindings, pager.jump_bottom, jump_bottom)
 
         return bindings
+
+    @staticmethod
+    def _add_configured_bindings(
+        bindings: KeyBindings,
+        configured: tuple[TuiKeyBinding, ...],
+        handler: typing.Callable[[typing.Any], None],
+        *,
+        binding_filter: typing.Any = True,
+    ) -> None:
+        """把已解析的按键序列注册到一个输入上下文。"""
+        for binding in configured:
+            bindings.add(
+                *binding.keys,
+                eager=True,
+                filter=binding_filter,
+            )(handler)
 
     def _canvas_dimension(self) -> Dimension:
         """返回随内容自然增长并受终端高度限制的画布高度。"""
@@ -1056,25 +1123,56 @@ class TuiScreen(object):
             ),
         ]
 
-    @staticmethod
-    def _transcript_overlay_primary_help_fragments() -> FormattedText:
+    def _transcript_overlay_primary_help_fragments(self) -> FormattedText:
         """生成完整记录的滚动提示。"""
-        return [
-            (
-                "class:transcript.overlay.help",
-                " Up/Down to scroll   PgUp/PgDn to page   Home/End to jump",
-            )
-        ]
+        pager = self.keymap.pager
+        hints = (
+            self._paired_key_hint(
+                pager.scroll_up,
+                pager.scroll_down,
+                "to scroll",
+            ),
+            self._paired_key_hint(pager.page_up, pager.page_down, "to page"),
+            self._paired_key_hint(
+                pager.jump_top,
+                pager.jump_bottom,
+                "to jump",
+            ),
+        )
+        return [("class:transcript.overlay.help", self._help_line(hints))]
+
+    def _transcript_overlay_secondary_help_fragments(self) -> FormattedText:
+        """生成完整记录的跳转和退出提示。"""
+        pager = self.keymap.pager
+        close = binding_labels((*pager.close, *pager.close_transcript))
+        hints = (
+            f"{close} to quit" if close else "",
+            self._paired_key_hint(
+                pager.half_page_up,
+                pager.half_page_down,
+                "half page",
+            ),
+        )
+        return [("class:transcript.overlay.help", self._help_line(hints))]
 
     @staticmethod
-    def _transcript_overlay_secondary_help_fragments() -> FormattedText:
-        """生成完整记录的跳转和退出提示。"""
-        return [
-            (
-                "class:transcript.overlay.help",
-                " Esc/Q/Ctrl+C/Ctrl+T to quit   Ctrl+U/D half page",
-            )
-        ]
+    def _paired_key_hint(
+        first: tuple[TuiKeyBinding, ...],
+        second: tuple[TuiKeyBinding, ...],
+        suffix: str,
+    ) -> str:
+        """生成两个互补动作的首选按键提示。"""
+        labels = "/".join(filter(None, (
+            primary_binding_label(first),
+            primary_binding_label(second),
+        )))
+        return f"{labels} {suffix}" if labels else ""
+
+    @staticmethod
+    def _help_line(hints: typing.Iterable[str]) -> str:
+        """组合一行非空的完整记录操作提示。"""
+        content = "   ".join(hint for hint in hints if hint)
+        return f" {content}" if content else ""
 
     def _transcript_dimension(self) -> Dimension:
         """返回正文当前内容在画布中占用的高度。"""

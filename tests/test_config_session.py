@@ -53,6 +53,28 @@ def test_unknown_config_field_is_rejected() -> None:
         normalize_config({"typo": True})
 
 
+def test_project_config_cannot_override_tui_keymap(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        "[tui.keymap.global]\n"
+        'open_transcript = "f12"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot override tui"):
+        ConfigSession(store, workspace=workspace).resolve()
+
+
 def test_cli_override_does_not_modify_user_document(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.ensure()

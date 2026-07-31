@@ -40,6 +40,7 @@ from mind_app.tui.core.document import (
     TuiDocument,
 )
 from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.keymap import TuiRuntimeKeymap
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
@@ -1676,7 +1677,13 @@ async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
 
 @pytest.mark.anyio
 async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> None:
-    runtime = TuiRuntime()
+    runtime = TuiRuntime(keymap=TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "global": {"open_transcript": "f12"},
+            }
+        }
+    }))
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
     result = "\n".join(f"result line {index}" for index in range(80))
@@ -1690,10 +1697,10 @@ async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> Non
 
     display = _document_text(runtime.document)
     transcript = _transcript_text(runtime.document)
-    assert "(ctrl + t to view transcript)" in display
+    assert "(F12 to view transcript)" in display
     assert "result line 0" in transcript
     assert "result line 79" in transcript
-    assert "(ctrl + t to view transcript)" not in transcript
+    assert "(F12 to view transcript)" not in transcript
 
 
 @pytest.mark.anyio
@@ -1717,7 +1724,7 @@ async def test_native_shell_result_transcript_keeps_command_and_output() -> None
 
     display = _document_text(runtime.document)
     transcript = _transcript_text(runtime.document)
-    assert "(ctrl + t to view transcript)" in display
+    assert "(Ctrl+T to view transcript)" in display
     assert f"$ {command}" in transcript
     assert output_lines[0] in transcript
     assert output_lines[-1] in transcript

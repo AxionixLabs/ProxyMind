@@ -34,6 +34,7 @@ from .document import (
 )
 from .input import TuiInputModel
 from .interrupt import TuiExitReason
+from .keymap import TuiRuntimeKeymap
 from .process_viewer import ProcessViewerRequest
 from .render import sanitize_fragment_block
 from .queued import TuiSubmission
@@ -66,9 +67,11 @@ class TuiRuntime(object):
         terminal_capabilities: TerminalCapabilities = (
             DEGRADED_TERMINAL_CAPABILITIES
         ),
+        keymap: TuiRuntimeKeymap | None = None
     ) -> None:
         self.input_model = input_model or TuiInputModel()
         self.context     = PromptContext(mode="chat", model="")
+        self.keymap      = keymap or TuiRuntimeKeymap.defaults()
 
         self.task_state = TuiTaskState(
             activity_running=lambda: self.activity.active,
@@ -150,6 +153,7 @@ class TuiRuntime(object):
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_transcript_overlay=self.toggle_transcript_overlay,
+            keymap=self.keymap,
             input_obj=input_obj,
             output_obj=output_obj,
             terminal_capabilities=terminal_capabilities,
@@ -162,6 +166,13 @@ class TuiRuntime(object):
             clear_renderable=self.screen.clear_activity_renderable,
             get_width=lambda: self.terminal_width,
         )
+
+    def configure_keymap(self, keymap: TuiRuntimeKeymap) -> None:
+        """在 Application 启动前替换运行时按键映射。"""
+        if self.active:
+            raise RuntimeError("cannot configure TUI keymap while running")
+        self.screen.set_keymap(keymap)
+        self.keymap = keymap
 
     @property
     def active(self) -> bool:
