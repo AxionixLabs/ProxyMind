@@ -168,9 +168,7 @@ async def stream_looper(
         kwargs["exec_env"] = build_runtime_exec_env(service_exec_env=service_env)
 
     request_skills = kwargs.get("skills")
-    if request_skills is None or (
-        isinstance(request_skills, (list, tuple)) and not request_skills
-    ):
+    if request_skills is None:
         try:
             skill_config = mind.config_session.load()
         except (OSError, TypeError, ValueError) as error:
@@ -284,7 +282,10 @@ async def stream_looper(
                     event_type=event.type,
                     latency_ms=int((time.perf_counter() - started_at) * 1000),
                 )
-                if not mind.frontend.runtime.active:
+                if (
+                    turn_context.agent.depth == 0
+                    and not mind.frontend.runtime.active
+                ):
                     await mind.stop_anim("wait")
                 first_frame = False
 
@@ -418,7 +419,7 @@ async def stream_looper(
                     decision = "decline"
                     decision_source = "policy"
                 else:
-                    decision = await mind.frontend.interaction.request_approval(approval)
+                    decision = await mind.approval_coordinator.request(approval)
 
                 observe(
                     "approval.decided",
@@ -729,7 +730,9 @@ async def stream_looper(
         )
         failure_error = friendly_exception_text(e)
 
-        await mind.await_cleanup(mind.stop_anim("wait"))
+        if turn_context.agent.depth == 0:
+            await mind.await_cleanup(mind.stop_anim("wait"))
+
         await finish_failure(
             status_control,
             presentation,
@@ -753,7 +756,7 @@ async def stream_looper(
                 error=failure_error,
             )
 
-        if turn_completed:
+        if turn_completed and turn_context.agent.depth == 0:
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
 
         await status_control.end_status()

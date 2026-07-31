@@ -12,6 +12,7 @@ from unittest.mock import (
 import pytest
 
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.modes import stream
 from mind_app.modes.result import RunResult
 from mind_app.output.content import (
@@ -87,20 +88,22 @@ def _output_session() -> OutputSession:
     )
 
 
-def _mind() -> SimpleNamespace:
+def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
     remembered: list[str] = []
 
     async def await_cleanup(awaitable) -> None:
         await awaitable
 
+    interaction = SimpleNamespace(
+        request_approval=AsyncMock(return_value="accept"),
+    )
     return SimpleNamespace(
         report=SimpleNamespace(log_papers=[]),
         frontend=SimpleNamespace(
-            runtime=SimpleNamespace(active=True),
-            interaction=SimpleNamespace(
-                request_approval=AsyncMock(return_value="accept"),
-            ),
+            runtime=SimpleNamespace(active=frontend_active),
+            interaction=interaction,
         ),
+        approval_coordinator=ApprovalCoordinator(interaction),
         stop_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
@@ -118,6 +121,9 @@ async def _run_stream(
         HookExecutionScope,
     ] | None = None,
     session_started: bool = False,
+    child_agent: bool = False,
+    frontend_active: bool = True,
+    request_skills: tuple[dict[str, str], ...] | None = None,
     stream_factory: typing.Callable[
         ..., typing.AsyncIterator[typing.Any]
     ] | None = None,
@@ -130,12 +136,17 @@ async def _run_stream(
         stream_chat = stream_factory
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
-    mind = _mind()
+    mind = _mind(frontend_active=frontend_active)
     output_session = _output_session()
     mind.output_session = output_session
     permissions = preset_permissions("auto")
+    root_agent = AgentContext.root("sid_test")
     turn_context = TurnContext.create(
-        agent=AgentContext.root("sid_test"),
+        agent=(
+            root_agent.child("worker", agent_id="agent_child")
+            if child_agent
+            else root_agent
+        ),
         cid="cid_test",
         sid="sid_test",
         mode="xtra",
@@ -162,7 +173,11 @@ async def _run_stream(
     )
     stream_options = {
         "exec_env": {},
-        "skills": [{"name": "test"}],
+        "skills": (
+            list(request_skills)
+            if request_skills is not None
+            else [{"name": "test"}]
+        ),
         "turn_execution": turn_execution,
         "session_factory": lambda *_args, **_kwargs: output_session,
     }
@@ -228,6 +243,59 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         SourcesOutput(()),
     ]
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_child_stream_does_not_mutate_root_frontend_state(monkeypatch) -> None:
+    result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {"type": "text.delta", "text": "child answer"},
+            {"type": "turn.done"},
+        ],
+        child_agent=True,
+        frontend_active=False,
+    )
+
+    assert result.status == "completed"
+    assert result.assistant_text == "child answer"
+    assert mind.remembered == []
+    mind.stop_anim.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_child_stream_failure_does_not_stop_root_animation(monkeypatch) -> None:
+    async def fail_stream(*_args, **_kwargs):
+        raise RuntimeError("child stream failed")
+        if False:
+            yield None
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [],
+        child_agent=True,
+        frontend_active=False,
+        stream_factory=fail_stream,
+    )
+
+    assert result.status == "failed"
+    mind.stop_anim.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_stream_preserves_explicit_empty_skills(monkeypatch) -> None:
+    async def stream_with_no_skills(*_args, **kwargs):
+        assert kwargs["skills"] == []
+        yield parse_stream_event({"type": "turn.done"})
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        request_skills=(),
+        stream_factory=stream_with_no_skills,
+    )
+
+    assert result.status == "completed"
 
 
 @pytest.mark.anyio

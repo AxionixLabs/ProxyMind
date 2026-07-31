@@ -30,6 +30,7 @@ class AgentThreadContext:
     permissions: PermissionSettings
     pref_config: typing.Mapping[str, typing.Any]
     spawn_turn_id: str
+    skills: tuple[typing.Mapping[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         """校验线程身份并固定配置快照。"""
@@ -55,6 +56,13 @@ class AgentThreadContext:
             typing.Mapping[str, typing.Any],
             _freeze_config(dict(self.pref_config)),
         )
+        skills = tuple(
+            typing.cast(
+                typing.Mapping[str, str],
+                _freeze_config(dict(skill)),
+            )
+            for skill in self.skills
+        )
 
         object.__setattr__(self, "cid", cid)
         object.__setattr__(self, "sid", sid)
@@ -62,6 +70,7 @@ class AgentThreadContext:
         object.__setattr__(self, "cwd", cwd)
         object.__setattr__(self, "spawn_turn_id", spawn_turn_id)
         object.__setattr__(self, "pref_config", pref_config)
+        object.__setattr__(self, "skills", skills)
 
     @classmethod
     def child(
@@ -70,6 +79,7 @@ class AgentThreadContext:
         agent_type: str,
         pref_config: typing.Mapping[str, typing.Any],
         *,
+        skills: typing.Iterable[typing.Mapping[str, str]] = (),
         agent_id: str | None = None
     ) -> "AgentThreadContext":
         """从父轮次创建独立的子执行线程。"""
@@ -85,11 +95,16 @@ class AgentThreadContext:
             permissions=parent.permissions,
             pref_config=pref_config,
             spawn_turn_id=parent.turn_id,
+            skills=tuple(skills),
         )
 
     def config_snapshot(self) -> dict[str, typing.Any]:
         """返回可供单轮执行使用的独立配置副本。"""
         return typing.cast(dict[str, typing.Any], _thaw_config(self.pref_config))
+
+    def skills_snapshot(self) -> list[dict[str, str]]:
+        """返回可供单轮请求使用的技能描述副本。"""
+        return [dict(skill) for skill in self.skills]
 
 
 @dataclass(frozen=True, slots=True)

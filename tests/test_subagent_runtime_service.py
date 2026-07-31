@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from mind_app.modes.result import RunResult
+from mind_app.output.silent import create_silent_output_session
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import (
     HookExecutionScope,
@@ -19,6 +21,11 @@ from mind_nova.identifiers import new_cid, new_sid
 class _Controller:
     def __init__(self) -> None:
         self.configs = []
+        self.stream_calls = []
+        self.stream_handler = None
+        self.config_session = SimpleNamespace(load=lambda: {
+            "skills": {"enabled": ["__test_none__"], "disabled": []},
+        })
 
     def hook_scope(self, context):
         return HookExecutionScope.empty(context)
@@ -26,6 +33,12 @@ class _Controller:
     async def with_mcp_session(self, pref_config, function):
         self.configs.append(pref_config)
         return await function("session", [{"name": "tool"}])
+
+    async def stream_looper(self, **kwargs):
+        self.stream_calls.append(kwargs)
+        if self.stream_handler is not None:
+            return await self.stream_handler(**kwargs)
+        return RunResult(status="completed")
 
     @staticmethod
     async def await_cleanup(awaitable) -> None:
@@ -51,30 +64,26 @@ def _parent_turn() -> TurnContext:
 @pytest.mark.anyio
 async def test_runtime_keeps_thread_context_across_submissions() -> None:
     controller = _Controller()
-    runtime = SubagentRuntime(controller)
     parent = _parent_turn()
     pref_config = {
         "primary": {"model": "child-model"},
-        "skills": {"enabled": ["review"]},
+        "routing": {"tags": ["review"]},
     }
-    executions = []
-
-    async def operation(execution, session, tools, report):
-        executions.append(execution)
-        assert session == "session"
-        assert tools == [{"name": "tool"}]
-        return RunResult(status="completed")
-
+    skill_payload = [{"name": "review", "description": "Review changes"}]
+    runtime = SubagentRuntime(
+        controller,
+        skills_provider=lambda: skill_payload,
+    )
     spawned = await runtime.spawn(
         parent,
         "first task",
         pref_config,
-        operation,
         agent_type="review",
         agent_id="agent_review",
     )
     pref_config["primary"]["model"] = "mutated"
-    pref_config["skills"]["enabled"].append("unexpected")
+    pref_config["routing"]["tags"].append("unexpected")
+    skill_payload[0]["description"] = "mutated"
     with pytest.raises(TypeError):
         spawned.thread.pref_config["primary"]["model"] = "forbidden"
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
@@ -83,12 +92,21 @@ async def test_runtime_keeps_thread_context_across_submissions() -> None:
         parent.sid,
         spawned.agent_id,
         "second task",
-        operation,
     )
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
 
-    assert len(executions) == 2
-    first, second = executions
+    assert len(controller.stream_calls) == 2
+    first_call, second_call = controller.stream_calls
+    first = first_call["turn_execution"]
+    second = second_call["turn_execution"]
+    assert first_call["session"] == "session"
+    assert first_call["tools"] == [{"name": "tool"}]
+    assert first_call["session_factory"] is create_silent_output_session
+    assert first_call["skills"] == [{
+        "name": "review",
+        "description": "Review changes",
+    }]
+    assert second_call["skills"] == first_call["skills"]
     assert first.context.agent is second.context.agent
     assert first.context.cid == second.context.cid
     assert first.context.sid == second.context.sid
@@ -103,11 +121,11 @@ async def test_runtime_keeps_thread_context_across_submissions() -> None:
     assert controller.configs == [
         {
             "primary": {"model": "child-model"},
-            "skills": {"enabled": ["review"]},
+            "routing": {"tags": ["review"]},
         },
         {
             "primary": {"model": "child-model"},
-            "skills": {"enabled": ["review"]},
+            "routing": {"tags": ["review"]},
         },
     ]
     await runtime.shutdown()
@@ -118,16 +136,12 @@ async def test_runtime_isolates_controls_by_root_session() -> None:
     runtime = SubagentRuntime(_Controller())
     parents = (_parent_turn(), _parent_turn())
 
-    async def operation(*_args):
-        return RunResult(status="completed")
-
     snapshots = []
     for parent in parents:
         snapshots.append(await runtime.spawn(
             parent,
             "task",
             {},
-            operation,
             agent_type="worker",
             agent_id="same_agent_id",
         ))
@@ -146,23 +160,25 @@ async def test_runtime_isolates_controls_by_root_session() -> None:
 
 @pytest.mark.anyio
 async def test_runtime_shutdown_cancels_tasks_and_is_terminal() -> None:
-    runtime = SubagentRuntime(_Controller())
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
     parent = _parent_turn()
     started = asyncio.Event()
     stopped = asyncio.Event()
 
-    async def operation(*_args):
+    async def operation(**_kwargs):
         started.set()
         try:
             await asyncio.Event().wait()
         finally:
             stopped.set()
 
+    controller.stream_handler = operation
+
     await runtime.spawn(
         parent,
         "blocking task",
         {},
-        operation,
         agent_type="worker",
     )
     await started.wait()
@@ -175,7 +191,6 @@ async def test_runtime_shutdown_cancels_tasks_and_is_terminal() -> None:
             parent,
             "late task",
             {},
-            operation,
             agent_type="worker",
         )
 
@@ -192,6 +207,71 @@ async def test_disabled_runtime_rejects_spawn() -> None:
             _parent_turn(),
             "task",
             {},
-            lambda *_args: None,
             agent_type="worker",
         )
+
+
+@pytest.mark.anyio
+async def test_runtime_marks_failed_model_result_as_failed() -> None:
+    controller = _Controller()
+
+    async def fail(**_kwargs):
+        return RunResult(status="failed", error="model request failed")
+
+    controller.stream_handler = fail
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+
+    spawned = await runtime.spawn(
+        parent,
+        "failing task",
+        {},
+        agent_type="worker",
+    )
+    waited = await runtime.wait(
+        parent.sid,
+        [spawned.agent_id],
+        timeout_sec=1,
+    )
+
+    assert waited.snapshots[0].status == "failed"
+    assert "model request failed" in waited.snapshots[0].error
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_reuses_thread_after_executor_exception() -> None:
+    controller = _Controller()
+
+    async def fail(**_kwargs):
+        raise RuntimeError("stream crashed")
+
+    controller.stream_handler = fail
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    spawned = await runtime.spawn(
+        parent,
+        "failing task",
+        {},
+        agent_type="worker",
+    )
+    failed = await runtime.wait(
+        parent.sid,
+        [spawned.agent_id],
+        timeout_sec=1,
+    )
+
+    assert failed.snapshots[0].status == "failed"
+    assert failed.snapshots[0].error == "RuntimeError: stream crashed"
+
+    controller.stream_handler = None
+    await runtime.submit(parent.sid, spawned.agent_id, "retry task")
+    retried = await runtime.wait(
+        parent.sid,
+        [spawned.agent_id],
+        timeout_sec=1,
+    )
+
+    assert retried.snapshots[0].status == "completed"
+    assert retried.snapshots[0].result.status == "completed"
+    await runtime.shutdown()

@@ -3,14 +3,18 @@
 
 import typing
 import asyncio
+from engine.observability import observe_exception
 from mind_core.agent_config import AgentSettings
+from mind_core.skills import skills_payload
+from mind_nova.events import EventReport
+from mind_app.modes.result import RunResult
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import (
     AgentContext,
     TurnContext
 )
 from mind_app.runtime.turns.executor import (
     TurnExecution,
-    TurnResultValue,
     resolve_turn_hook_scope
 )
 from mind_app.runtime.subagents.control import (
@@ -21,10 +25,11 @@ from mind_app.runtime.subagents.control import (
     AgentTurnOperation,
     AgentWaitResult
 )
-from mind_app.runtime.subagents.runner import (
-    SubagentOperation,
-    SubagentRunner
+from mind_app.runtime.subagents.executor import (
+    StreamSubagentExecutor,
+    SubagentExecutionPort
 )
+from mind_app.runtime.subagents.runner import SubagentRunner
 from mind_app.runtime.subagents.thread import (
     AgentThreadContext,
     AgentTurnContext
@@ -32,6 +37,17 @@ from mind_app.runtime.subagents.thread import (
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
+
+SkillsProvider = typing.Callable[[], list[dict[str, str]]]
+
+
+class SubagentTurnFailedError(RuntimeError):
+    """表示子模型轮次返回了未完成结果。"""
+
+    def __init__(self, result: RunResult) -> None:
+        self.result = result
+        detail = str(result.error or "").strip()
+        super().__init__(detail or f"subagent turn ended as {result.status}")
 
 
 class SubagentRuntime:
@@ -42,11 +58,15 @@ class SubagentRuntime:
         controller: "Mind",
         *,
         settings: AgentSettings | None = None,
+        executor: SubagentExecutionPort | None = None,
+        skills_provider: SkillsProvider | None = None
     ) -> None:
-        self._controller = controller
-        self._settings   = settings or AgentSettings()
-        self._runner     = SubagentRunner(controller)
-        self._lock       = asyncio.Lock()
+        self._controller      = controller
+        self._settings        = settings or AgentSettings()
+        self._executor        = executor or StreamSubagentExecutor(controller)
+        self._skills_provider = skills_provider or self._configured_skills
+        self._runner          = SubagentRunner(controller)
+        self._lock            = asyncio.Lock()
 
         self._controls: dict[str, AgentControl] = {}
 
@@ -62,7 +82,6 @@ class SubagentRuntime:
         parent: TurnContext,
         message: str,
         pref_config: typing.Mapping[str, typing.Any],
-        operation: SubagentOperation[TurnResultValue],
         *,
         agent_type: str,
         agent_id: str | None = None
@@ -75,20 +94,20 @@ class SubagentRuntime:
             parent,
             agent_type,
             pref_config,
+            skills=self._skills_provider(),
             agent_id=agent_id,
         )
 
         return await control.spawn(
             thread,
-            self._turn_operation(task, operation),
+            self._turn_operation(task),
         )
 
     async def submit(
         self,
         root_session_id: str,
         agent_id: str,
-        message: str,
-        operation: SubagentOperation[TurnResultValue]
+        message: str
     ) -> AgentSnapshot:
         """向根会话中的已有执行线程提交下一轮任务。"""
         task    = _normalize_task(message)
@@ -96,7 +115,7 @@ class SubagentRuntime:
 
         return await control.submit(
             agent_id,
-            self._turn_operation(task, operation),
+            self._turn_operation(task),
         )
 
     async def get(
@@ -176,14 +195,10 @@ class SubagentRuntime:
 
     def _turn_operation(
         self,
-        message: str,
-        operation: SubagentOperation[TurnResultValue]
-    ) -> AgentTurnOperation[TurnResultValue]:
+        message: str
+    ) -> AgentTurnOperation[RunResult]:
         """创建由控制器分配轮次序号的任务操作。"""
-        if not callable(operation):
-            raise TypeError("subagent operation must be callable")
-
-        async def run(turn: AgentTurnContext) -> TurnResultValue:
+        async def run(turn: AgentTurnContext) -> RunResult:
             thread      = turn.thread
             pref_config = thread.config_snapshot()
 
@@ -211,9 +226,45 @@ class SubagentRuntime:
                 },
             )
 
-            return await self._runner.run(pref_config, execution, operation)
+            async def execute_subagent(
+                prepared: TurnExecution,
+                session: McpSessionLike,
+                tools: list[dict[str, typing.Any]],
+                event_report: EventReport
+            ) -> RunResult:
+                """通过运行时装配的执行端口运行固定子轮次。"""
+                return await self._executor.execute(
+                    pref_config=pref_config,
+                    skills=thread.skills_snapshot(),
+                    execution=prepared,
+                    session=session,
+                    tools=tools,
+                    event_report=event_report,
+                )
+
+            result = await self._runner.run(
+                pref_config,
+                execution,
+                execute_subagent,
+            )
+            if result.status != "completed":
+                raise SubagentTurnFailedError(result)
+            return result
 
         return run
+
+    def _configured_skills(self) -> list[dict[str, str]]:
+        """读取并固定创建线程时有效的技能描述。"""
+        try:
+            config = self._controller.config_session.load()
+            return skills_payload(config)
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "subagent.skills.resolve_failed",
+                error,
+                level="WARNING",
+            )
+            return []
 
     async def _control(self, root_session_id: str) -> AgentControl:
         """返回或创建根会话对应的执行控制器。"""

@@ -46,6 +46,7 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
+from .approval.coordinator import ApprovalCoordinator
 from .runtime.subagents.runtime import SubagentRuntime
 from .frontend.contracts import (
     ActivityStatusKind,
@@ -123,6 +124,10 @@ class Mind(object):
         self.attach: Attach = Attach()
 
         self.frontend: Frontend = kwargs["frontend"]
+
+        self.approval_coordinator = ApprovalCoordinator(
+            self.frontend.interaction
+        )
 
         self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
 
