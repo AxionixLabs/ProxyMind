@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 from mcp import types as mcp_types
@@ -17,6 +18,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
 
@@ -35,6 +37,18 @@ class _PlanSession(object):
     ) -> mcp_types.CallToolResult:
         self.calls.append((name, arguments, kwargs))
         return self.results.pop(0)
+
+
+class _HookRunner(object):
+    """按命令返回预置 Hook 输出。"""
+
+    def __init__(self, outputs: dict[str, dict]) -> None:
+        self.outputs = dict(outputs)
+        self.calls = []
+
+    async def execute(self, definition, payload):
+        self.calls.append((definition, payload))
+        return SimpleNamespace(data=dict(self.outputs.get(definition.command) or {}))
 
 
 def _tool_result(
@@ -57,7 +71,12 @@ def _tool_result(
     )
 
 
-def _executor(results: list[mcp_types.CallToolResult]) -> StepPlanExecutor:
+def _executor(
+    results: list[mcp_types.CallToolResult],
+    *,
+    hooks: dict | None = None,
+    hook_outputs: dict[str, dict] | None = None,
+) -> StepPlanExecutor:
     """构造只包含一个测试工具的步骤执行器。"""
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid"),
@@ -70,6 +89,15 @@ def _executor(results: list[mcp_types.CallToolResult]) -> StepPlanExecutor:
         permissions=preset_permissions("auto"),
         turn_id="turn",
     )
+    definitions = resolve_hook_definitions(
+        hooks or {},
+        source_scope="user",
+        source_path=Path("hooks.toml"),
+    )
+    runtime = HookRuntime(
+        definitions,
+        command_runner=_HookRunner(hook_outputs or {}),
+    )
     return StepPlanExecutor(
         session=_PlanSession(results),
         tools=[{"name": "test_tool"}],
@@ -78,7 +106,7 @@ def _executor(results: list[mcp_types.CallToolResult]) -> StepPlanExecutor:
         pref_config={"primary": {"model": "test-model"}},
         tool_call_coordinator=ToolCallCoordinator(HookExecutionScope(
             context=HookExecutionContext.from_turn(turn_context),
-            dispatcher=HookRuntime.empty(),
+            dispatcher=runtime,
         )),
     )
 
@@ -130,6 +158,61 @@ async def test_plan_step_preserves_client_tool_runtime_config() -> None:
     assert executor.session.calls[0][2]["pref_config"] == {
         "primary": {"model": "test-model"},
     }
+
+
+@pytest.mark.anyio
+async def test_plan_step_executes_pre_hook_updated_input() -> None:
+    executor = _executor(
+        [_tool_result("done")],
+        hooks={
+            "PreToolUse": [{"command": "rewrite", "matcher": "test_tool"}],
+        },
+        hook_outputs={
+            "rewrite": {
+                "decision": "allow",
+                "updatedInput": {"value": 2},
+            },
+        },
+    )
+
+    await executor.execute_tool_call(arguments={
+        "steps": [{"tool": "test_tool", "args": {"value": 1}}],
+    })
+
+    assert executor.session.calls[0][1] == {"value": 2}
+
+
+@pytest.mark.anyio
+async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
+    executor = _executor(
+        [_tool_result("secret", data={"secret": True})],
+        hooks={
+            "PostToolUse": [{"command": "redact", "matcher": "test_tool"}],
+        },
+        hook_outputs={
+            "redact": {
+                "replacementResult": {
+                    "ok": False,
+                    "text": "redacted",
+                    "data": {"redacted": True},
+                },
+                "additionalContext": "explain the redaction",
+                "systemMessage": "Do not expose the original result.",
+            },
+        },
+    )
+
+    report = await executor.execute_tool_call(arguments={
+        "stop_on_fail": False,
+        "steps": [{"tool": "test_tool", "args": {}}],
+    })
+
+    step = report.results[0]
+    assert step.ok is False
+    assert step.text == "redacted"
+    assert step.result["data"] == {"redacted": True}
+    assert report.additional_context == ("explain the redaction",)
+    assert report.system_message == "Do not expose the original result."
 
 
 @pytest.mark.anyio

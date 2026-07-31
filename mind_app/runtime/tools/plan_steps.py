@@ -14,6 +14,10 @@ from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext
 )
+from mind_app.runtime.hooks.models import (
+    ToolOperationResult,
+    ToolResultSnapshot
+)
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from .execution_policy import (
     is_execution_ignored,
@@ -35,6 +39,8 @@ class PlanStepResult:
     text: str
     result: dict[str, typing.Any]
     cost_ms: int = 0
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
 
 
 @dataclass(slots=True)
@@ -46,6 +52,8 @@ class PlanExecutionReport:
     attachments: list[dict[str, typing.Any]]
     cost_ms: int
     results: list[PlanStepResult]
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
 
     @property
     def fields(self) -> dict[str, typing.Any]:
@@ -191,19 +199,38 @@ class StepPlanExecutor:
                 execution=execution,
             )
 
-            async def execute_step() -> typing.Any:
+            async def execute_step(
+                prepared: ToolInvocation,
+            ) -> ToolOperationResult[typing.Any]:
                 """交换参数后执行当前计划步骤。"""
-                exchanged_args = exchange_arguments(name, arguments, self.report)
+                exchanged_args = exchange_arguments(
+                    prepared.name,
+                    dict(prepared.arguments),
+                    self.report,
+                )
+
                 if not isinstance(exchanged_args, dict):
-                    raise TypeError(f"invalid arguments for {name}")
-                return await execute_tool(
+                    raise TypeError(f"invalid arguments for {prepared.name}")
+
+                result = await execute_tool(
                     self.session,
                     tools=self.tools,
-                    invocation=invocation.with_arguments(exchanged_args),
+                    invocation=prepared.with_arguments(exchanged_args),
                     pref_config=self.pref_config,
                 )
 
-            hook_run = await self.tool_call_coordinator.run(
+                normalized = normalize_call_tool_result(result)
+
+                return ToolOperationResult(
+                    value=result,
+                    snapshot=ToolResultSnapshot(
+                        ok=normalized.ok,
+                        text=normalized.display_text,
+                        fields=normalized.fields,
+                    ),
+                )
+
+            hook_run = await self.tool_call_coordinator.run_invocation(
                 invocation,
                 execute_step,
             )
@@ -215,20 +242,23 @@ class StepPlanExecutor:
                     hook_run.reason,
                 )
 
-            result = hook_run.value
-            if result is None:
+            if hook_run.value is None:
                 raise RuntimeError(f"empty tool result for {name}")
 
-            normalized = normalize_call_tool_result(result)
+            visible = hook_run.visible_result
+            if visible is None:
+                raise RuntimeError(f"empty visible tool result for {name}")
 
             step_result = PlanStepResult(
                 run=run_index,
                 index=step_index,
                 tool=name,
-                ok=result.isError is not True,
-                text=normalized.display_text,
-                result=dict(normalized.fields),
-                cost_ms=int((time.perf_counter() - started_at) * 1000)
+                ok=visible.ok,
+                text=visible.text,
+                result=dict(visible.fields),
+                cost_ms=int((time.perf_counter() - started_at) * 1000),
+                additional_context=visible.additional_context,
+                system_message=visible.system_message,
             )
             self._log_step_result(step_result)
             return step_result
@@ -384,7 +414,17 @@ class StepPlanExecutor:
             data=data,
             attachments=attachments,
             cost_ms=cost_ms,
-            results=results
+            results=results,
+            additional_context=tuple(
+                context
+                for result in results
+                for context in result.additional_context
+            ),
+            system_message="\n\n".join(
+                result.system_message
+                for result in results
+                if result.system_message
+            ),
         )
 
     @classmethod

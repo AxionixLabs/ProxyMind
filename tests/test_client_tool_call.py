@@ -13,7 +13,10 @@ from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext,
 )
-from mind_app.runtime.hooks.models import ToolCallRunResult
+from mind_app.runtime.hooks.models import (
+    HookVisibleToolResult,
+    ToolCallRunResult
+)
 from mind_app.runtime.tools import client_call
 from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
@@ -67,9 +70,15 @@ def _runner(coordinator) -> tuple[ClientToolCallRunner, SimpleNamespace]:
 @pytest.mark.anyio
 async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> None:
     async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
         return ToolCallRunResult(
             allowed=True,
-            value=await operation(invocation),
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
@@ -113,9 +122,15 @@ async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> Non
 @pytest.mark.anyio
 async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
     async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
         return ToolCallRunResult(
             allowed=True,
-            value=await operation(invocation),
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
@@ -172,18 +187,21 @@ async def test_client_tool_call_applies_post_hook_replacement(
     monkeypatch,
 ) -> None:
     async def run_allowed(invocation, operation):
-        value = await operation(invocation)
+        operation_result = await operation(invocation)
         return ToolCallRunResult(
             allowed=True,
-            value=value,
-            replacement_result={
-                "ok": False,
-                "text": "replacement",
-                "data": {"redacted": True},
-            },
-            replacement_result_set=True,
-            additional_context=("review replacement",),
-            system_message="Prefer the replacement.",
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=False,
+                text="replacement",
+                fields={
+                    "ok": False,
+                    "text": "replacement",
+                    "data": {"redacted": True},
+                },
+                additional_context=("review replacement",),
+                system_message="Prefer the replacement.",
+            ),
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))

@@ -2,41 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import (
-    dataclass,
-    field
-)
-from .models import ToolCallRunResult
-
-
-@dataclass(frozen=True, slots=True)
-class HookVisibleToolResult:
-    """描述应用后置 Hook 后模型可见的工具结果。"""
-    ok: bool
-    text: str
-    fields: dict[str, typing.Any] = field(default_factory=dict)
-    additional_context: tuple[str, ...] = ()
-    system_message: str = ""
-
-    def __post_init__(self) -> None:
-        """复制可变字段并规范化反馈文本。"""
-        object.__setattr__(self, "fields", dict(self.fields))
-        object.__setattr__(self, "text", str(self.text or ""))
-        object.__setattr__(
-            self,
-            "additional_context",
-            tuple(
-                text
-                for value in self.additional_context
-                for text in [str(value or "").strip()]
-                if text
-            ),
-        )
-        object.__setattr__(
-            self,
-            "system_message",
-            str(self.system_message or "").strip(),
-        )
+from .models import HookVisibleToolResult
 
 
 def apply_tool_result_effect(
@@ -44,20 +10,25 @@ def apply_tool_result_effect(
     ok: bool,
     text: str,
     fields: dict[str, typing.Any],
-    hook_run: ToolCallRunResult[typing.Any]
+    replacement_result: typing.Any = None,
+    replacement_result_set: bool = False,
+    suppress_original_output: bool = False,
+    reason: str = "",
+    additional_context: typing.Iterable[str] = (),
+    system_message: str = ""
 ) -> HookVisibleToolResult:
     """把后置 Hook 影响应用到模型可见工具结果。"""
     result_ok     = bool(ok)
     result_text   = str(text or "")
     result_fields = dict(fields)
 
-    if hook_run.replacement_result_set:
+    if replacement_result_set:
         result_ok, result_text, result_fields = _coerce_hook_result_fields(
-            hook_run.replacement_result,
+            replacement_result,
             default_ok=result_ok,
         )
-    elif hook_run.suppress_original_output:
-        result_text = str(hook_run.reason or "tool result suppressed by hook")
+    elif suppress_original_output:
+        result_text = str(reason or "tool result suppressed by hook")
         result_ok   = False
 
         result_fields = {
@@ -73,8 +44,8 @@ def apply_tool_result_effect(
         ok=result_ok,
         text=result_text,
         fields=result_fields,
-        additional_context=hook_run.additional_context,
-        system_message=hook_run.system_message,
+        additional_context=tuple(additional_context),
+        system_message=system_message,
     )
 
 

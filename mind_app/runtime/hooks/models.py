@@ -312,19 +312,31 @@ class ToolOutcome:
 
 
 @dataclass(frozen=True, slots=True)
-class ToolCallRunResult(typing.Generic[ToolValue]):
-    """保存 Hook 协调后的工具调用结果。"""
-    allowed: bool
-    value: ToolValue | None = None
-    reason: str = ""
-    replacement_result: typing.Any = None
-    replacement_result_set: bool = False
-    suppress_original_output: bool = False
+class ToolResultSnapshot:
+    """保存工具执行完成后的标准结果字段。"""
+    ok: bool
+    text: str
+    fields: dict[str, typing.Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """复制结果字段并规范化文本。"""
+        object.__setattr__(self, "ok", bool(self.ok))
+        object.__setattr__(self, "text", str(self.text or ""))
+        object.__setattr__(self, "fields", dict(self.fields))
+
+
+@dataclass(frozen=True, slots=True)
+class ToolOperationResult(typing.Generic[ToolValue]):
+    """保存工具操作原始值、结果快照和内部反馈。"""
+    value: ToolValue
+    snapshot: ToolResultSnapshot
     additional_context: tuple[str, ...] = ()
     system_message: str = ""
 
     def __post_init__(self) -> None:
-        """规范化工具 Hook 附加反馈文本。"""
+        """校验结果快照并规范化内部反馈。"""
+        if not isinstance(self.snapshot, ToolResultSnapshot):
+            raise TypeError("tool result snapshot is required")
         object.__setattr__(
             self,
             "additional_context",
@@ -336,6 +348,46 @@ class ToolCallRunResult(typing.Generic[ToolValue]):
             ),
         )
         object.__setattr__(self, "system_message", str(self.system_message or "").strip())
+
+
+@dataclass(frozen=True, slots=True)
+class HookVisibleToolResult:
+    """描述应用后置 Hook 后模型可见的工具结果。"""
+    ok: bool
+    text: str
+    fields: dict[str, typing.Any] = field(default_factory=dict)
+    additional_context: tuple[str, ...] = ()
+    system_message: str = ""
+
+    def __post_init__(self) -> None:
+        """复制可变字段并规范化反馈文本。"""
+        object.__setattr__(self, "ok", bool(self.ok))
+        object.__setattr__(self, "fields", dict(self.fields))
+        object.__setattr__(self, "text", str(self.text or ""))
+        object.__setattr__(
+            self,
+            "additional_context",
+            tuple(
+                text
+                for value in self.additional_context
+                for text in [str(value or "").strip()]
+                if text
+            ),
+        )
+        object.__setattr__(
+            self,
+            "system_message",
+            str(self.system_message or "").strip(),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallRunResult(typing.Generic[ToolValue]):
+    """保存 Hook 协调后的工具调用结果。"""
+    allowed: bool
+    value: ToolValue | None = None
+    visible_result: HookVisibleToolResult | None = None
+    reason: str = ""
 
 
 if __name__ == '__main__':

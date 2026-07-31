@@ -58,7 +58,10 @@ from ..runtime.execution import (
 )
 from ..runtime.hooks.tool import ToolCallCoordinator
 from ..runtime.hooks.models import StopHookDecision
-from ..runtime.hooks.results import apply_tool_result_effect
+from ..runtime.hooks.models import (
+    ToolOperationResult,
+    ToolResultSnapshot
+)
 from ..runtime.hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
@@ -77,6 +80,7 @@ from ..runtime.tools.client_call import (
     build_client_tool_post_kwargs
 )
 from ..runtime.tools.plan_call import PlanToolCallRunner
+from ..runtime.tools.plan_steps import PlanExecutionReport
 from ..runtime.turns.executor import (
     TurnExecution,
     create_continuation_execution,
@@ -656,35 +660,49 @@ async def stream_looper(
 
                 if name == PLAN_STEPS_TOOL:
                     async def execute_plan_call(
-                        prepared: ToolInvocation,
-                    ) -> typing.Any:
+                        prepared: ToolInvocation
+                    ) -> ToolOperationResult[PlanExecutionReport]:
                         """执行已经获准的计划工具调用。"""
-                        return await plan_tool_runner.handle(
-                            invocation=prepared,
+                        report = await plan_tool_runner.handle(
+                            invocation=prepared
+                        )
+
+                        return ToolOperationResult(
+                            value=report,
+                            snapshot=ToolResultSnapshot(
+                                ok=report.ok,
+                                text=report.text,
+                                fields=report.fields,
+                            ),
+                            additional_context=report.additional_context,
+                            system_message=report.system_message,
                         )
 
                     hook_run = await tool_call_coordinator.run_invocation(
                         invocation,
                         execute_plan_call,
                     )
-                    visible_result = None
                     if not hook_run.allowed:
-                        plan_ok     = False
-                        plan_result = _hook_denied_result(hook_run.reason)
+                        plan_ok        = False
+                        plan_result    = _hook_denied_result(hook_run.reason)
+                        visible_result = None
                     else:
                         if hook_run.value is None:
                             raise RuntimeError("plan tool execution returned no result")
-                        visible_result = apply_tool_result_effect(
-                            ok=hook_run.value.ok,
-                            text=hook_run.value.text,
-                            fields=hook_run.value.fields,
-                            hook_run=hook_run,
-                        )
-                        plan_ok = visible_result.ok
+
+                        visible_result = hook_run.visible_result
+                        if visible_result is None:
+                            raise RuntimeError(
+                                "plan tool execution returned no visible result"
+                            )
+
+                        plan_ok     = visible_result.ok
                         plan_result = visible_result.fields
+
                     post_kwargs: dict[str, typing.Any] = {
                         "execution": invocation.execution,
                     }
+
                     if (
                         visible_result is not None
                         and visible_result.additional_context
@@ -697,6 +715,7 @@ async def stream_looper(
                         and visible_result.system_message
                     ):
                         post_kwargs["system_message"] = visible_result.system_message
+
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,

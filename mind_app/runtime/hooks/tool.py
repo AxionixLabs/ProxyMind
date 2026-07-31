@@ -7,13 +7,14 @@ import typing
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.runtime.execution import ToolInvocation
+from .results import apply_tool_result_effect
 from .models import (
     HookDecision,
     HookDispatchResult,
     HookPermissionDecision,
     ToolCallRunResult,
+    ToolOperationResult,
     ToolOutcome
 )
 from .scope import HookExecutionScope
@@ -271,23 +272,12 @@ class ToolCallCoordinator:
             updated_input=pre_tool.updated_input,
         )
 
-    async def run(
-        self,
-        invocation: ToolInvocation,
-        operation: typing.Callable[[], typing.Awaitable[ToolValue]]
-    ) -> ToolCallRunResult[ToolValue]:
-        """执行前置决定、工具操作和后置 Hook。"""
-        return await self.run_invocation(
-            invocation,
-            lambda _invocation: operation(),
-        )
-
     async def run_invocation(
         self,
         invocation: ToolInvocation,
         operation: typing.Callable[
             [ToolInvocation],
-            typing.Awaitable[ToolValue],
+            typing.Awaitable[ToolOperationResult[ToolValue]],
         ]
     ) -> ToolCallRunResult[ToolValue]:
         """执行前置决定、工具操作和后置 Hook。"""
@@ -303,7 +293,9 @@ class ToolCallCoordinator:
         started_at = time.perf_counter()
 
         try:
-            value = await operation(effective_invocation)
+            operation_result = await operation(effective_invocation)
+            if not isinstance(operation_result, ToolOperationResult):
+                raise TypeError("tool operation must return ToolOperationResult")
         except asyncio.CancelledError:
             await self.events.post_tool_use(
                 effective_invocation,
@@ -331,23 +323,43 @@ class ToolCallCoordinator:
 
         post_result = await self.events.post_tool_use(
             effective_invocation,
-            _outcome_from_value(value, duration_ms=_duration_ms(started_at)),
+            ToolOutcome(
+                executed=True,
+                ok=operation_result.snapshot.ok,
+                duration_ms=_duration_ms(started_at),
+                result=dict(operation_result.snapshot.fields),
+            ),
         )
-        return ToolCallRunResult(
-            allowed=True,
-            value=value,
-            reason=post_result.reason,
+
+        additional_context = (
+            *decision.additional_context,
+            *operation_result.additional_context,
+            *post_result.additional_context,
+        )
+
+        system_message = _join_text(
+            decision.system_message,
+            operation_result.system_message,
+            post_result.system_message,
+        )
+
+        visible_result = apply_tool_result_effect(
+            ok=operation_result.snapshot.ok,
+            text=operation_result.snapshot.text,
+            fields=operation_result.snapshot.fields,
             replacement_result=post_result.replacement_result,
             replacement_result_set=post_result.replacement_result_set,
             suppress_original_output=post_result.suppress_original_output,
-            additional_context=(
-                *decision.additional_context,
-                *post_result.additional_context,
-            ),
-            system_message=_join_text(
-                decision.system_message,
-                post_result.system_message,
-            ),
+            reason=post_result.reason,
+            additional_context=additional_context,
+            system_message=system_message,
+        )
+
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=visible_result,
+            reason=post_result.reason,
         )
 
     async def _decision_for(self, invocation: ToolInvocation) -> HookDecision:
@@ -489,43 +501,6 @@ def _join_text(*values: str) -> str:
 def _duration_ms(started_at: float) -> int:
     """返回从指定时间点开始经过的毫秒数。"""
     return max(0, int((time.perf_counter() - started_at) * 1000))
-
-
-def _outcome_from_value(value: typing.Any, *, duration_ms: int) -> ToolOutcome:
-    """把不同工具执行结果转换为稳定结果快照。"""
-    if hasattr(value, "fields") and isinstance(getattr(value, "fields"), dict):
-        return ToolOutcome(
-            executed=True,
-            ok=bool(getattr(value, "ok", True)),
-            duration_ms=duration_ms,
-            result=dict(value.fields),
-        )
-
-    if hasattr(value, "isError") and hasattr(value, "content"):
-        normalized = normalize_call_tool_result(value)
-        return ToolOutcome(
-            executed=True,
-            ok=normalized.ok,
-            duration_ms=duration_ms,
-            result=dict(normalized.fields),
-        )
-
-    if hasattr(value, "ok"):
-        return ToolOutcome(
-            executed=True,
-            ok=bool(value.ok),
-            duration_ms=duration_ms,
-            result={
-                "text": str(getattr(value, "text", "") or ""),
-            },
-        )
-
-    return ToolOutcome(
-        executed=True,
-        ok=True,
-        duration_ms=duration_ms,
-        result=value,
-    )
 
 
 if __name__ == '__main__':

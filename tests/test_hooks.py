@@ -18,7 +18,11 @@ from mind_app.runtime.hooks.command import (
     HookCommandExecutor
 )
 from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
-from mind_app.runtime.hooks.models import HookEventRequest
+from mind_app.runtime.hooks.models import (
+    HookEventRequest,
+    ToolOperationResult,
+    ToolResultSnapshot
+)
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import (
@@ -409,12 +413,15 @@ async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> Non
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def operation():
+    async def operation(_prepared):
         started.set()
         await release.wait()
-        return "done"
+        return _operation_result("done")
 
-    task = asyncio.create_task(coordinator.run(_invocation(), operation))
+    task = asyncio.create_task(coordinator.run_invocation(
+        _invocation(),
+        operation,
+    ))
     await started.wait()
 
     registry.build(new)
@@ -662,9 +669,9 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
     invocation = _invocation()
 
     decision = await coordinator.prepare(invocation)
-    result = await coordinator.run(
+    result = await coordinator.run_invocation(
         invocation,
-        lambda: _return_value(SimpleNamespace(
+        lambda _prepared: _return_value(SimpleNamespace(
             ok=True,
             text="done",
             fields={"ok": True, "data": {"answer": 42}},
@@ -703,11 +710,11 @@ async def test_pre_tool_use_updated_input_reaches_execution_and_post_hook() -> N
 
     async def operation(prepared):
         prepared_invocations.append(prepared)
-        return SimpleNamespace(
+        return _operation_result(SimpleNamespace(
             ok=True,
             text="done",
             fields={"ok": True, "data": {"answer": 42}},
-        )
+        ))
 
     decision = await coordinator.prepare(_invocation())
     effective = coordinator.effective_invocation(_invocation(), decision)
@@ -742,9 +749,9 @@ async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
         _scope(HookRuntime(definitions, command_runner=runner))
     )
 
-    result = await coordinator.run(
+    result = await coordinator.run_invocation(
         _invocation(),
-        lambda: _return_value(SimpleNamespace(
+        lambda _prepared: _return_value(SimpleNamespace(
             ok=True,
             text="done",
             fields={"ok": True, "data": {"answer": 42}},
@@ -752,11 +759,11 @@ async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
     )
 
     assert result.allowed
-    assert result.additional_context == (
+    assert result.visible_result.additional_context == (
         "prefer concise output",
         "post context",
     )
-    assert result.system_message == (
+    assert result.visible_result.system_message == (
         "Treat the tool result as summarized.\n\nPost message."
     )
 
@@ -781,19 +788,19 @@ async def test_post_tool_use_exposes_replacement_result_effect() -> None:
         _scope(HookRuntime(definitions, command_runner=runner))
     )
 
-    result = await coordinator.run(
+    result = await coordinator.run_invocation(
         _invocation(),
-        lambda: _return_value(SimpleNamespace(
+        lambda _prepared: _return_value(SimpleNamespace(
             ok=True,
             text="secret",
             fields={"ok": True, "data": {"secret": "value"}},
         )),
     )
 
-    assert result.replacement_result_set is True
-    assert result.replacement_result["text"] == "redacted"
-    assert result.additional_context == ("explain the redaction",)
-    assert result.system_message == "Do not reveal the original output."
+    assert result.visible_result.text == "redacted"
+    assert result.visible_result.fields["data"] == {"redacted": True}
+    assert result.visible_result.additional_context == ("explain the redaction",)
+    assert result.visible_result.system_message == "Do not reveal the original output."
 
 
 @pytest.mark.anyio
@@ -808,9 +815,9 @@ async def test_post_tool_use_failure_does_not_replace_tool_result() -> None:
         _scope(HookRuntime(definitions, command_runner=runner))
     )
 
-    result = await coordinator.run(
+    result = await coordinator.run_invocation(
         _invocation(),
-        lambda: _return_value("done"),
+        lambda _prepared: _return_value("done"),
     )
 
     assert result.allowed
@@ -884,4 +891,25 @@ async def test_command_executor_terminates_timed_out_hook(tmp_path) -> None:
 
 
 async def _return_value(value):
-    return value
+    return _operation_result(value)
+
+
+def _operation_result(value):
+    fields = getattr(value, "fields", None)
+    if isinstance(fields, dict):
+        ok = bool(getattr(value, "ok", True))
+        text = str(getattr(value, "text", "") or "")
+        snapshot_fields = fields
+    else:
+        ok = True
+        text = str(value or "")
+        snapshot_fields = {"ok": True, "text": text}
+
+    return ToolOperationResult(
+        value=value,
+        snapshot=ToolResultSnapshot(
+            ok=ok,
+            text=text,
+            fields=snapshot_fields,
+        ),
+    )

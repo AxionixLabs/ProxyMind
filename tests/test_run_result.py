@@ -739,6 +739,8 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
             attachments=[],
             cost_ms=5,
             results=[],
+            additional_context=("nested tool context",),
+            system_message="Nested tool system message.",
         )
 
     async def post_tool_result(*args, **kwargs):
@@ -769,6 +771,8 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
         True,
     )
     assert posted[0][0][5]["data"] == {"steps": 1}
+    assert posted[0][1]["additional_context"] == ("nested tool context",)
+    assert posted[0][1]["system_message"] == "Nested tool system message."
 
 
 @pytest.mark.anyio

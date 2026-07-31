@@ -14,7 +14,10 @@ from mind_app.output import (
 )
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.runtime.execution import ToolInvocation
-from mind_app.runtime.hooks.results import apply_tool_result_effect
+from mind_app.runtime.hooks.models import (
+    ToolOperationResult,
+    ToolResultSnapshot
+)
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from .display import (
     show_tool_result,
@@ -248,13 +251,21 @@ class ClientToolCallRunner:
         """执行经过 Hook 协调的客户端工具调用。"""
 
         async def operation(
-            prepared: ToolInvocation,
-        ) -> ClientToolCallResult:
+            prepared: ToolInvocation
+        ) -> ToolOperationResult[ClientToolCallResult]:
             """执行已获准的本地操作。"""
-            return await self._execute_allowed_call(
+            result = await self._execute_allowed_call(
                 prepared,
                 use_coding_trace=use_coding_trace,
                 display=display,
+            )
+            return ToolOperationResult(
+                value=result,
+                snapshot=ToolResultSnapshot(
+                    ok=result.ok,
+                    text=result.text,
+                    fields=result.fields,
+                ),
             )
 
         hook_run = await self.tool_call_coordinator.run_invocation(
@@ -268,13 +279,11 @@ class ClientToolCallRunner:
             )
         if hook_run.value is None:
             raise RuntimeError("tool execution returned no result")
+        if hook_run.visible_result is None:
+            raise RuntimeError("tool execution returned no visible result")
 
-        visible = apply_tool_result_effect(
-            ok=hook_run.value.ok,
-            text=hook_run.value.text,
-            fields=hook_run.value.fields,
-            hook_run=hook_run,
-        )
+        visible = hook_run.visible_result
+
         return ClientToolCallOutcome(
             result=ClientToolCallResult(
                 name=hook_run.value.name,
