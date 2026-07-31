@@ -106,6 +106,25 @@ class HookPermissionDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class SubagentStartResult:
+    """保存子执行主体开始 Hook 注入的上下文。"""
+    additional_context: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentStopDecision:
+    """表示停止 Hook 聚合后的子执行主体继续决定。"""
+    should_continue: bool
+    reason: str = ""
+    hook_keys: tuple[str, ...] = ()
+
+    @classmethod
+    def stop(cls) -> "SubagentStopDecision":
+        """返回结束当前子执行主体轮次的决定。"""
+        return cls(should_continue=False)
+
+
+@dataclass(frozen=True, slots=True)
 class ToolOutcome:
     """描述工具执行完成后的稳定结果快照。"""
     executed: bool

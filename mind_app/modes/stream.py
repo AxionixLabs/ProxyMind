@@ -154,7 +154,12 @@ async def stream_looper(
     kwargs["permissions"] = turn_context.permissions
 
     metadata = dict(turn_execution.metadata)
-    kwargs["metadata"]    = metadata
+    kwargs["metadata"] = metadata
+
+    if turn_execution.additional_context:
+        kwargs["additional_context"] = list(
+            turn_execution.additional_context
+        )
 
     if ev_report:
         ev_report.begin_turn(turn_context.turn_id)

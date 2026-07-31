@@ -16,7 +16,11 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope,
 )
-from mind_app.runtime.subagents.runner import SubagentRunner
+from mind_app.runtime.hooks.subagent import SubagentHookEvents
+from mind_app.runtime.subagents.runner import (
+    MAX_SUBAGENT_STOP_CONTINUATIONS,
+    SubagentRunner,
+)
 from mind_app.runtime.turns.executor import TurnExecution
 from mind_core.hooks import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
@@ -27,8 +31,9 @@ class _Report:
 
 
 class _CommandRunner:
-    def __init__(self, timeline, *, errors=None) -> None:
+    def __init__(self, timeline, *, outputs=None, errors=None) -> None:
         self.timeline = timeline
+        self.outputs = dict(outputs or {})
         self.errors = dict(errors or {})
         self.calls = []
 
@@ -38,7 +43,7 @@ class _CommandRunner:
         error = self.errors.get(definition.key)
         if error is not None:
             raise error
-        return SimpleNamespace(data={})
+        return SimpleNamespace(data=dict(self.outputs.get(definition.key) or {}))
 
 
 class _Controller:
@@ -66,6 +71,7 @@ def _execution(
     *,
     agent_type: str = "explore",
     dispatcher: HookRuntime | None = None,
+    session_started: bool = True,
 ) -> TurnExecution:
     agent = AgentContext.root("sid_root").child(
         agent_type,
@@ -81,6 +87,8 @@ def _execution(
         cwd="D:/workspace",
         permissions=preset_permissions("auto"),
         turn_id="turn_child",
+        session_started=session_started,
+        session_start_reason="subagent" if session_started else "",
     )
     return TurnExecution(
         context=context,
@@ -113,9 +121,9 @@ def _root_execution() -> TurnExecution:
     )
 
 
-def _runtime(raw, timeline, *, errors=None):
+def _runtime(raw, timeline, *, outputs=None, errors=None):
     definitions = _definitions(raw)
-    runner = _CommandRunner(timeline, errors=errors)
+    runner = _CommandRunner(timeline, outputs=outputs, errors=errors)
     return definitions, runner, HookRuntime(
         definitions,
         command_runner=runner,
@@ -198,6 +206,179 @@ async def test_subagent_runner_skips_non_matching_hooks() -> None:
     assert result.status == "completed"
     assert timeline == ["operation"]
     assert command_runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_subagent_start_injects_ordered_context_only_for_first_turn() -> None:
+    timeline = []
+    definitions = _definitions({
+        "SubagentStart": [
+            {"command": "first"},
+            {"command": "second"},
+        ],
+        "SubagentStop": [{"command": "stop"}],
+    })
+    command_runner = _CommandRunner(timeline, outputs={
+        definitions[0].key: {
+            "hookSpecificOutput": {
+                "hookEventName": "SubagentStart",
+                "additionalContext": "inspect security boundaries",
+            },
+        },
+        definitions[1].key: {
+            "additional_context": "check cancellation paths",
+        },
+    })
+    runtime = HookRuntime(definitions, command_runner=command_runner)
+    prepared_turns = []
+
+    async def operation(prepared, *_args):
+        prepared_turns.append(prepared)
+        return RunResult(status="completed")
+
+    await SubagentRunner(_Controller()).run(
+        {},
+        _execution(dispatcher=runtime),
+        operation,
+        event_report=_Report(),
+    )
+    await SubagentRunner(_Controller()).run(
+        {},
+        _execution(dispatcher=runtime, session_started=False),
+        operation,
+        event_report=_Report(),
+    )
+
+    assert prepared_turns[0].additional_context == (
+        "inspect security boundaries",
+        "check cancellation paths",
+    )
+    assert prepared_turns[1].additional_context == ()
+    assert [call[0].event for call in command_runner.calls] == [
+        "SubagentStart",
+        "SubagentStart",
+        "SubagentStop",
+        "SubagentStop",
+    ]
+
+
+@pytest.mark.anyio
+async def test_subagent_stop_continue_false_overrides_block_decisions() -> None:
+    timeline = []
+    definitions = _definitions({
+        "SubagentStop": [
+            {"command": "continue-first"},
+            {"command": "veto"},
+            {"command": "continue-last"},
+        ],
+    })
+    command_runner = _CommandRunner(timeline, outputs={
+        definitions[0].key: {
+            "decision": "block",
+            "reason": "first continuation",
+        },
+        definitions[1].key: {
+            "continue": False,
+            "reason": "finish now",
+        },
+        definitions[2].key: {
+            "decision": "block",
+            "reason": "second continuation",
+        },
+    })
+    execution = _execution(dispatcher=HookRuntime(
+        definitions,
+        command_runner=command_runner,
+    ))
+
+    decision = await SubagentHookEvents(execution.hook_scope).stop(
+        outcome="completed",
+        last_assistant_message="done",
+        continuation_count=1,
+    )
+
+    assert not decision.should_continue
+    assert decision.hook_keys == (definitions[1].key,)
+    assert len(command_runner.calls) == 3
+    payload = command_runner.calls[0][1]
+    assert payload["stop_hook_active"] is True
+    assert payload["continuation_count"] == 1
+    assert payload["last_assistant_message"] == "done"
+    assert payload["agent_transcript_path"] is None
+
+
+@pytest.mark.anyio
+async def test_subagent_stop_continuation_has_hard_limit() -> None:
+    timeline = []
+    definitions = _definitions({
+        "SubagentStart": [{"command": "start"}],
+        "SubagentStop": [{"command": "continue"}],
+    })
+    command_runner = _CommandRunner(timeline, outputs={
+        definitions[0].key: {"additional_context": "initial context"},
+        definitions[1].key: {
+            "decision": "block",
+            "reason": "run another focused pass",
+        },
+    })
+    runtime = HookRuntime(definitions, command_runner=command_runner)
+    prepared_turns = []
+
+    async def operation(prepared, *_args):
+        prepared_turns.append(prepared)
+        return RunResult(
+            status="completed",
+            assistant_text=f"reply {len(prepared_turns)}",
+        )
+
+    result = await SubagentRunner(_Controller()).run(
+        {},
+        _execution(dispatcher=runtime),
+        operation,
+        event_report=_Report(),
+    )
+
+    assert result.assistant_text == "reply 4"
+    assert len(prepared_turns) == MAX_SUBAGENT_STOP_CONTINUATIONS + 1
+    assert len({turn.context.turn_id for turn in prepared_turns}) == 4
+    assert [turn.message for turn in prepared_turns] == [
+        "inspect workspace",
+        "run another focused pass",
+        "run another focused pass",
+        "run another focused pass",
+    ]
+    assert prepared_turns[0].additional_context == ("initial context",)
+    assert all(not turn.additional_context for turn in prepared_turns[1:])
+    assert [turn.context.session_started for turn in prepared_turns] == [
+        True,
+        False,
+        False,
+        False,
+    ]
+
+    stop_payloads = [
+        payload
+        for definition, payload in command_runner.calls
+        if definition.event == "SubagentStop"
+    ]
+    assert [payload["continuation_count"] for payload in stop_payloads] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    assert [payload["stop_hook_active"] for payload in stop_payloads] == [
+        False,
+        True,
+        True,
+        True,
+    ]
+    assert [payload["last_assistant_message"] for payload in stop_payloads] == [
+        "reply 1",
+        "reply 2",
+        "reply 3",
+        "reply 4",
+    ]
 
 
 @pytest.mark.anyio

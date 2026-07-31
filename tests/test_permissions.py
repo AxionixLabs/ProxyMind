@@ -111,6 +111,20 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
     assert "access_mode" not in payload
 
 
+@pytest.mark.anyio
+async def test_request_payload_normalizes_additional_context() -> None:
+    payload = await build_chat_payload(
+        "xtra",
+        {},
+        "inspect",
+        [],
+        permissions=preset_permissions("auto"),
+        additional_context=[" first ", "", "second"],
+    )
+
+    assert payload["additional_context"] == ["first", "second"]
+
+
 def test_never_policy_rejects_approval_required_tool_call() -> None:
     event = parse_stream_event({
         "type": "tool.call",

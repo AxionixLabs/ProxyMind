@@ -32,6 +32,7 @@ class TurnExecution:
     message: str
     hook_scope: HookExecutionScope
     metadata: typing.Mapping[str, typing.Any] = field(default_factory=dict)
+    additional_context: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """固定执行元数据并校验会话标识一致。"""
@@ -41,6 +42,16 @@ class TurnExecution:
             raise TypeError("turn message must be a string")
         if not isinstance(self.hook_scope, HookExecutionScope):
             raise TypeError("turn hook scope is required")
+        if not isinstance(self.additional_context, (tuple, list)):
+            raise TypeError("turn additional context must be a sequence")
+
+        additional_context: list[str] = []
+        for value in self.additional_context:
+            if not isinstance(value, str):
+                raise TypeError("turn additional context entries must be strings")
+            normalized = value.strip()
+            if normalized:
+                additional_context.append(normalized)
 
         self.hook_scope.require_turn(self.context)
 
@@ -58,6 +69,7 @@ class TurnExecution:
             metadata[key] = value
 
         object.__setattr__(self, "metadata", MappingProxyType(metadata))
+        object.__setattr__(self, "additional_context", tuple(additional_context))
 
 
 def resolve_turn_hook_scope(

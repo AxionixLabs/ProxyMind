@@ -123,6 +123,7 @@ async def _run_stream(
     session_started: bool = False,
     child_agent: bool = False,
     frontend_active: bool = True,
+    additional_context: tuple[str, ...] = (),
     request_skills: tuple[dict[str, str], ...] | None = None,
     stream_factory: typing.Callable[
         ..., typing.AsyncIterator[typing.Any]
@@ -170,6 +171,7 @@ async def _run_stream(
         context=turn_context,
         message="hello",
         hook_scope=hook_scope,
+        additional_context=additional_context,
     )
     stream_options = {
         "exec_env": {},
@@ -293,6 +295,28 @@ async def test_stream_preserves_explicit_empty_skills(monkeypatch) -> None:
         [],
         request_skills=(),
         stream_factory=stream_with_no_skills,
+    )
+
+    assert result.status == "completed"
+
+
+@pytest.mark.anyio
+async def test_stream_forwards_turn_additional_context(monkeypatch) -> None:
+    async def stream_with_context(*_args, **kwargs):
+        assert kwargs["additional_context"] == [
+            "inspect security boundaries",
+            "check cancellation paths",
+        ]
+        yield parse_stream_event({"type": "turn.done"})
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        additional_context=(
+            "inspect security boundaries",
+            "check cancellation paths",
+        ),
+        stream_factory=stream_with_context,
     )
 
     assert result.status == "completed"

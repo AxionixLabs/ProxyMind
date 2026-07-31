@@ -73,6 +73,67 @@ def _normalize_unrestricted_output(
     return dict(data)
 
 
+def _normalize_subagent_start_output(
+    data: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """校验并规范化子执行主体开始 Hook 的上下文输出。"""
+    raw_context = data.get("additional_context")
+    if raw_context is None:
+        raw_context = data.get("additionalContext")
+
+    specific = data.get("hookSpecificOutput")
+    if specific is not None:
+        if not isinstance(specific, dict):
+            raise ValueError("hookSpecificOutput must be an object")
+        if specific.get("hookEventName") != "SubagentStart":
+            raise ValueError("hookSpecificOutput event must be SubagentStart")
+        specific_context = specific.get("additionalContext")
+        if raw_context is not None and specific_context is not None:
+            raise ValueError("subagent start context must use one output field")
+        raw_context = specific_context
+
+    if raw_context is None:
+        additional_context = ""
+    elif isinstance(raw_context, str):
+        additional_context = raw_context.strip()
+    else:
+        raise ValueError("subagent start additional context must be a string")
+
+    return {"additional_context": additional_context}
+
+
+def _normalize_subagent_stop_output(
+    data: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """校验并规范化子执行主体停止 Hook 的继续决定。"""
+    raw_decision = data.get("decision")
+    if raw_decision is None:
+        decision = ""
+    elif isinstance(raw_decision, str):
+        decision = raw_decision.strip().lower()
+        if decision not in {"", "block"}:
+            raise ValueError("subagent stop decision must be block")
+    else:
+        raise ValueError("subagent stop decision must be a string")
+
+    continuation = data.get("continue", True)
+    if not isinstance(continuation, bool):
+        raise ValueError("hook continue must be a boolean")
+
+    raw_reason = data.get("reason", data.get("stopReason", ""))
+    if not isinstance(raw_reason, str):
+        raise ValueError("hook reason must be a string")
+    reason = raw_reason.strip()
+    if decision == "block" and continuation and not reason:
+        raise ValueError("subagent stop block decision requires a reason")
+
+    return {
+        "decision": decision,
+        "continue": continuation,
+        "reason": reason,
+    }
+
+
 def _normalize_gate_output(
     data: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
@@ -130,8 +191,14 @@ HOOK_EVENT_SPECS: dict[HookEventName, HookEventSpec] = {
     "PostCompact": _event_spec("PostCompact", _normalize_unrestricted_output),
     "SessionStart": _event_spec("SessionStart", _normalize_unrestricted_output),
     "UserPromptSubmit": _event_spec("UserPromptSubmit", _normalize_gate_output),
-    "SubagentStart": _event_spec("SubagentStart", _normalize_unrestricted_output),
-    "SubagentStop": _event_spec("SubagentStop", _normalize_unrestricted_output),
+    "SubagentStart": _event_spec(
+        "SubagentStart",
+        _normalize_subagent_start_output,
+    ),
+    "SubagentStop": _event_spec(
+        "SubagentStop",
+        _normalize_subagent_stop_output,
+    ),
     "Stop": _event_spec("Stop", _normalize_unrestricted_output),
 }
 

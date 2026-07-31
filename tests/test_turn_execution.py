@@ -123,6 +123,27 @@ def test_turn_execution_allows_empty_text_but_requires_string() -> None:
         )
 
 
+def test_turn_execution_normalizes_additional_context() -> None:
+    prepared = _child_execution()
+
+    execution = TurnExecution(
+        context=prepared.context,
+        message=prepared.message,
+        hook_scope=prepared.hook_scope,
+        additional_context=[" first ", "", "second"],
+    )
+
+    assert execution.additional_context == ("first", "second")
+
+    with pytest.raises(TypeError, match="entries must be strings"):
+        TurnExecution(
+            context=prepared.context,
+            message=prepared.message,
+            hook_scope=prepared.hook_scope,
+            additional_context=["valid", 1],
+        )
+
+
 def test_turn_execution_rejects_hook_scope_from_another_turn() -> None:
     prepared = _child_execution()
     other_context = TurnContext.create(

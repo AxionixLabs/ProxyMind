@@ -98,10 +98,23 @@ async def build_chat_payload(
     if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
         runtime_exec_env = {}
 
+    raw_additional_context = kwargs.pop("additional_context", ())
+    if not isinstance(raw_additional_context, (tuple, list)):
+        raise TypeError("additional context must be a sequence")
+
+    additional_context: list[str] = []
+
+    for value in raw_additional_context:
+        if not isinstance(value, str):
+            raise TypeError("additional context entries must be strings")
+        normalized = value.strip()
+        if normalized:
+            additional_context.append(normalized)
+
     turn_id     = str(kwargs.pop("turn_id", "") or "").strip() or short_uid(12)
     permissions = permission_payload(kwargs.pop("permissions", None))
 
-    payload = {
+    payload: dict[str, typing.Any] = {
         "turn_id"      : turn_id,
         "mode"         : resolve_transport_mode(mode),
         "llm_conf"     : request_llm_conf(pref_config),
@@ -115,6 +128,8 @@ async def build_chat_payload(
 
     if attachments:
         payload["attachments"] = attachments
+    if additional_context:
+        payload["additional_context"] = additional_context
 
     return payload
 
