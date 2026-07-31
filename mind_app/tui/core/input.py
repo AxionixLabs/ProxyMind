@@ -146,16 +146,19 @@ class TuiInputModel(object):
             lambda: self.skills,
         )
 
-        self.interrupt_handler: typing.Callable[[], None]  = _ignore_action
-        self.exit_handler: typing.Callable[[], None]       = _ignore_action
-        self.can_exit: typing.Callable[[], bool]           = _deny_action
-        self.can_submit_queue: typing.Callable[[], bool]   = _deny_action
-        self.can_rollback_queue: typing.Callable[[], bool] = _deny_action
+        self.interrupt_handler: typing.Callable[[], None]     = _ignore_action
+        self.exit_handler: typing.Callable[[], None]          = _ignore_action
+        self.can_exit: typing.Callable[[], bool]              = _deny_action
+        self.can_submit_queue: typing.Callable[[], bool]      = _deny_action
+        self.can_rollback_queue: typing.Callable[[], bool]    = _deny_action
+        self.can_backtrack_history: typing.Callable[[], bool] = _deny_action
 
-        self.rollback_queue_handler: typing.Callable[[], bool] = _deny_action
+        self.rollback_queue_handler: typing.Callable[[], bool]    = _deny_action
+        self.backtrack_history_handler: typing.Callable[[], None] = _ignore_action
 
         self.shell_mode: bool = False
 
+        self.history_backtrack_primed: bool    = False
         self._history_entries: tuple[str, ...] = ()
         self._history_index: int | None        = None
         self._history_draft: Document | None   = None
@@ -408,6 +411,19 @@ class TuiInputModel(object):
     def bind_queue_submission(self, can_submit: typing.Callable[[], bool]) -> None:
         """绑定执行期使用 Tab 提交待处理消息的可用状态。"""
         self.can_submit_queue = can_submit
+
+    def bind_history_backtrack(
+        self,
+        can_backtrack: typing.Callable[[], bool],
+        handler: typing.Callable[[], None]
+    ) -> None:
+        """绑定空输入状态下的历史编辑入口。"""
+        self.can_backtrack_history = can_backtrack
+        self.backtrack_history_handler = handler
+
+    def cancel_history_backtrack(self) -> None:
+        """清除等待第二次 Esc 的历史编辑状态。"""
+        self.history_backtrack_primed = False
 
     def submission_state(self) -> dict[str, str]:
         """返回当前提交文本关联的折叠粘贴状态。"""
@@ -663,6 +679,19 @@ class TuiInputModel(object):
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(self.can_rollback_queue())
         )
+
+        history_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(self.can_backtrack_history())
+        )
+
+        @bindings.add(Keys.Escape, eager=True, filter=history_backtrack)
+        def _(event) -> None:
+            if self.history_backtrack_primed:
+                self.history_backtrack_primed = False
+                self.backtrack_history_handler()
+            else:
+                self.history_backtrack_primed = True
+            event.app.invalidate()
 
         @bindings.add(Keys.Escape, eager=True, filter=queue_rollback)
         @bindings.add(Keys.ControlLeft, eager=True, filter=queue_rollback)

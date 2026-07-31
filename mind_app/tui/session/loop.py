@@ -4,8 +4,24 @@
 import typing
 import asyncio
 from mind_app.frontend import ApplicationView
-from ..core.runtime import require_tui_runtime
-from ..core.submission import TuiInterruptRequested
+from mind_nova.identifiers import short_uid
+from ..core.runtime import (
+    TuiRuntime,
+    require_tui_runtime
+)
+from ..core.models import TranscriptBacktrackRequest
+from ..core.submission import (
+    TuiInterruptRequested,
+    TuiTranscriptBacktrackRequested
+)
+from ..features.conversation import (
+    ForkLiveStatus,
+    finish_fork_activity,
+    fork_current_conversation,
+    render_fork_failure,
+    render_fork_interrupted,
+    render_fork_result
+)
 from ..features.processes import monitor_exec_status
 from .barriers import TuiForegroundTasks
 from .dispatch import (
@@ -22,12 +38,34 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 
+def _pending_attachment_snapshot(
+    attachment_state: typing.Any
+) -> tuple[dict[str, typing.Any], ...]:
+    """读取并固定待提交附件快照的结构。"""
+    reader = getattr(
+        attachment_state,
+        "pending_attachments_snapshot",
+        None,
+    )
+    if not callable(reader):
+        return ()
+
+    values = reader()
+    if not isinstance(values, (list, tuple)):
+        return ()
+    return tuple(
+        dict(item)
+        for item in values
+        if isinstance(item, dict)
+    )
+
+
 async def run_tui_loop(
     mind: "Mind",
     *,
     initial_prompt: str | None = None,
     initial_images: tuple[str, ...] = (),
-    initial_model: str | None = None,
+    initial_model: str | None = None
 ) -> None:
     """运行 TUI 输入、命令分派和模型轮次生命周期。"""
     application = mind.frontend.application
@@ -95,6 +133,15 @@ async def run_tui_loop(
                 break
             except UnicodeDecodeError:
                 continue
+            except TuiTranscriptBacktrackRequested as requested:
+                await _handle_transcript_backtrack(
+                    mind,
+                    runtime,
+                    state,
+                    foreground_tasks,
+                    requested.request,
+                )
+                continue
             finally:
                 if not prompt_task.done():
                     prompt_task.cancel()
@@ -121,6 +168,20 @@ async def run_tui_loop(
 
         mind.native_coding.reset_patch_diff()
 
+        turn_id = short_uid(12)
+
+        attachment_snapshot = _pending_attachment_snapshot(attachment_state)
+
+        runtime.bind_submitted_turn(
+            turn_id,
+            prompt_text,
+            has_attachments=bool(attachment_snapshot),
+            attachment_labels=(
+                str(item.get("filename") or "")
+                for item in attachment_snapshot
+            ),
+        )
+
         await execute_tui_model_turn(
             application,
             runtime,
@@ -130,6 +191,8 @@ async def run_tui_loop(
                 run_mode=state.mode,
                 pref_config=state.pref_config,
                 permissions=state.permissions,
+                turn_id=turn_id,
+                prompt_extras=state.consume_pending_prompt_extras(),
             ),
             stream_command_handler=dispatcher.handle_stream_command,
             show_interrupt_notice=lambda: not mind.task_event.is_set(),
@@ -140,6 +203,72 @@ async def run_tui_loop(
                 mind.exit_code = 130
             mind.task_event.set()
             break
+
+
+async def _handle_transcript_backtrack(
+    mind: "Mind",
+    runtime: TuiRuntime,
+    state: TuiSessionState,
+    foreground_tasks: TuiForegroundTasks,
+    request: TranscriptBacktrackRequest
+) -> None:
+    """通过前台屏障执行历史分支并恢复选中的输入。"""
+    runtime.replace_input_text(request.prompt)
+
+    foreground_tasks.start(
+        "Conversation backtrack",
+        lambda: fork_current_conversation(
+            mind,
+            run_mode=state.mode,
+            before_turn_id=request.turn_id,
+        ),
+        finish_activity=lambda: finish_fork_activity(mind),
+        on_succeeded=lambda status: _finish_transcript_backtrack(
+            mind,
+            runtime,
+            state,
+            request,
+            status,
+        ),
+        on_failed=lambda error: render_fork_failure(mind, error),
+        on_cancelled=lambda: render_fork_interrupted(mind),
+    )
+    await foreground_tasks.wait()
+
+
+def _finish_transcript_backtrack(
+    mind: "Mind",
+    runtime: TuiRuntime,
+    state: TuiSessionState,
+    request: TranscriptBacktrackRequest,
+    status: ForkLiveStatus
+) -> None:
+    """在远端分支结束后同步本地正文或展示失败。"""
+    if status.succeeded:
+        prompt = status.prompt
+        if prompt is None:
+            render_fork_failure(
+                mind,
+                RuntimeError("Conversation fork did not return a prompt."),
+            )
+            return None
+
+        mind.attach.replace_pending_attachments(prompt.attachments)
+        state.replace_pending_prompt_extras(prompt.extras)
+
+        canonical_request = TranscriptBacktrackRequest(
+            turn_id=request.turn_id,
+            prompt=prompt.message,
+        )
+
+        if not runtime.apply_transcript_backtrack(canonical_request):
+            render_fork_failure(
+                mind,
+                RuntimeError("Selected transcript turn is no longer available."),
+            )
+        return None
+
+    render_fork_result(mind, status)
 
 
 if __name__ == '__main__':

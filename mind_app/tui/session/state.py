@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+from copy import deepcopy
 from mind_app.interaction import PromptContext
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from mind_core.skills import configured_skills
@@ -51,6 +52,8 @@ class TuiSessionState(object):
         self.workspace_label = workspace_label
         self.mode            = mode
         self.permissions     = permissions
+
+        self._pending_prompt_extras: dict[str, typing.Any] | None = None
 
         self.workspace_refreshed_at = time.monotonic()
 
@@ -153,6 +156,19 @@ class TuiSessionState(object):
     def invalidate_workspace(self) -> None:
         """让下一轮输入刷新工作区标签。"""
         self.workspace_refreshed_at = 0.0
+
+    def replace_pending_prompt_extras(
+        self,
+        extras: typing.Mapping[str, typing.Any]
+    ) -> None:
+        """保存下一次模型提交使用的结构化扩展输入。"""
+        self._pending_prompt_extras = deepcopy(dict(extras))
+
+    def consume_pending_prompt_extras(self) -> dict[str, typing.Any]:
+        """取出并清除下一次模型提交的结构化扩展输入。"""
+        extras = self._pending_prompt_extras
+        self._pending_prompt_extras = None
+        return deepcopy(extras) if extras is not None else {}
 
 
 async def preload_tui_prompt_context(mind: "Mind") -> None:

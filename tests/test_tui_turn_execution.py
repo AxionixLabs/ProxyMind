@@ -108,6 +108,8 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
         run_mode="xtra",
         pref_config=pref_config,
         permissions=permissions,
+        turn_id="turn_tui",
+        prompt_extras={"selection": {"x": 10, "y": 20}},
     )
 
     assert result is None
@@ -130,11 +132,13 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
         "filename": "screen.png",
         "kind": "image",
     }]
+    assert call["extras"] == {"selection": {"x": 10, "y": 20}}
     assert call["ev_report"] is report
     execution = call["turn_execution"]
     assert execution.message == ""
     assert execution.metadata == {"cid": "cid_tui", "sid": "sid_tui"}
     assert execution.context.sid == "sid_tui"
+    assert execution.context.turn_id == "turn_tui"
     assert execution.context.source == "tui"
     assert execution.context.session_started is True
     assert execution.context.permissions is permissions

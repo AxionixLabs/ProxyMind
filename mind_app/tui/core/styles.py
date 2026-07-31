@@ -87,6 +87,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "transcript.overlay.help": "fg:#87919D",
     "transcript.overlay.progress": "fg:#DDE7EF bold",
     "transcript.overlay.filler": "fg:#69727D dim",
+    "transcript.overlay.selection": "reverse",
 })
 
 

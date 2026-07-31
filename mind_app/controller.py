@@ -362,7 +362,13 @@ class Mind(object):
 
         return metadata
 
-    def prepare_conversation_fork(self, mode: RunMode, cid: str, sid: str) -> str:
+    def prepare_conversation_fork(
+        self,
+        mode: RunMode,
+        cid: str,
+        sid: str,
+        before_turn_id: str = ""
+    ) -> str:
         """持久化并返回当前源会话的稳定分支请求标识。"""
         candidate = f"fork_{short_uid(20)}"
         try:
@@ -371,6 +377,7 @@ class Mind(object):
                 cid=cid,
                 sid=sid,
                 request_id=candidate,
+                before_turn_id=before_turn_id,
             )
         except (OSError, sqlite3.Error, ValueError) as error:
             observe_exception("conversation.fork.prepare_failed", error)
@@ -382,6 +389,7 @@ class Mind(object):
         cid: str,
         sid: str,
         request_id: str,
+        before_turn_id: str = ""
     ) -> None:
         """清除已完成或不可重试的本地分支请求。"""
         try:
@@ -390,6 +398,7 @@ class Mind(object):
                 cid=cid,
                 sid=sid,
                 request_id=request_id,
+                before_turn_id=before_turn_id,
             )
         except (OSError, sqlite3.Error, ValueError) as error:
             observe_exception(

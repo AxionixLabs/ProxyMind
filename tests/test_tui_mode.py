@@ -97,7 +97,13 @@ async def test_attachment_only_submission_starts_model_turn(monkeypatch) -> None
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
-        attach=SimpleNamespace(has_pending_attachments=lambda: True),
+        attach=SimpleNamespace(
+            has_pending_attachments=lambda: True,
+            pending_attachments_snapshot=lambda: [{
+                "local": "",
+                "filename": "screen.png",
+            }],
+        ),
     )
 
     async def monitor_exec_status(_runtime, _mind) -> None:
@@ -117,4 +123,8 @@ async def test_attachment_only_submission_starts_model_turn(monkeypatch) -> None
     await loop.run_tui_loop(mind)
 
     assert turn_messages == [""]
-    assert not runtime.document.blocks
+    assert len(runtime.document.blocks) == 1
+    user_cell = runtime.document.blocks[0]
+    assert user_cell.kind == "user"
+    assert user_cell.turn_id
+    assert user_cell.prompt == ""

@@ -24,7 +24,8 @@ from mind_app.frontend.contracts import (
 from mind_app.interaction.contracts import PromptContext
 from .models import (
     FragmentBlock,
-    MenuRequest
+    MenuRequest,
+    TranscriptBacktrackRequest
 )
 from .terminal_input import clear_pending_input
 from .activity import TuiActivity
@@ -44,6 +45,7 @@ from ..prompting.commands import resolve_tui_command
 from .submission import (
     TuiInputClosed,
     TuiInterruptRequested,
+    TuiTranscriptBacktrackRequested,
     TuiSubmissionFlow
 )
 from .task_state import TuiTaskState
@@ -146,6 +148,7 @@ class TuiRuntime(object):
             get_surface_submission_pending=(
                 lambda: self.submissions.surface_submission_pending
             ),
+            can_transcript_backtrack=self._can_transcript_backtrack,
             get_transcript_view_row=lambda: self.viewport.view_row,
             accept_input=self.submissions.accept_input,
             on_input_text_changed=self.submissions.on_input_text_changed,
@@ -153,10 +156,18 @@ class TuiRuntime(object):
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_transcript_overlay=self.toggle_transcript_overlay,
+            request_transcript_backtrack=(
+                self.submissions.enqueue_transcript_backtrack
+            ),
             keymap=self.keymap,
             input_obj=input_obj,
             output_obj=output_obj,
             terminal_capabilities=terminal_capabilities,
+        )
+
+        self.input_model.bind_history_backtrack(
+            self._can_backtrack_history,
+            self.open_transcript_backtrack,
         )
 
         self.activity = TuiActivity(
@@ -484,6 +495,62 @@ class TuiRuntime(object):
 
         self.invalidate()
 
+    def bind_submitted_turn(
+        self,
+        turn_id: str,
+        prompt: str,
+        *,
+        has_attachments: bool = False,
+        attachment_labels: typing.Iterable[str] = ()
+    ) -> bool:
+        """把最近提交的用户正文关联到即将执行的模型轮次。"""
+        changed = self.document.bind_latest_user_turn(
+            turn_id,
+            prompt,
+        )
+
+        if not changed and has_attachments:
+            labels = [
+                label
+                for value in attachment_labels
+                if (label := str(value or "").strip())
+            ]
+
+            summary = ", ".join(labels) or "attachment"
+
+            self.append_block(
+                query_block(f"[Attachment: {summary}]"),
+                kind="user",
+            )
+
+            changed = self.document.bind_latest_user_turn(
+                turn_id,
+                prompt,
+            )
+
+        if changed:
+            self.screen.transcript_overlay.content_changed()
+        return changed
+
+    def apply_transcript_backtrack(
+        self,
+        request: TranscriptBacktrackRequest
+    ) -> bool:
+        """截断已分叉的本地正文并恢复选中的用户输入。"""
+        changed = self.document.truncate_before_turn(request.turn_id)
+
+        self.replace_input_text(request.prompt)
+
+        if not changed:
+            return False
+
+        self.viewport.reset_view()
+        self.screen.transcript_overlay.content_changed()
+        self.screen.clear_terminal_scrollback()
+        self.viewport.stable_content_changed()
+
+        return True
+
     def set_active_renderable(
         self,
         block: FragmentBlock,
@@ -507,6 +574,7 @@ class TuiRuntime(object):
 
     def toggle_transcript_overlay(self) -> None:
         """切换完整会话记录并协调原生滚屏任务。"""
+        self.input_model.cancel_history_backtrack()
         active = not self.screen.transcript_overlay.active
 
         if not self.screen.set_transcript_overlay(active):
@@ -516,6 +584,32 @@ class TuiRuntime(object):
             self.viewport.pause_scrollback()
         else:
             self.viewport.schedule_scrollback_flush()
+
+    def _can_backtrack_history(self) -> bool:
+        """返回主输入区是否可以开始历史编辑选择。"""
+        return bool(
+            self.active
+            and not self.submission_deferred
+            and not self.screen.transcript_overlay.active
+            and not self.input_model.shell_mode
+            and not self.screen.input.buffer.text
+            and not self.has_pending_attachments
+            and self.screen.transcript_overlay.has_backtrack_target
+        )
+
+    def _can_transcript_backtrack(self) -> bool:
+        """返回完整记录是否可以确认历史编辑。"""
+        return not self.submission_deferred and not self.has_pending_attachments
+
+    def open_transcript_backtrack(self) -> None:
+        """从主输入区打开完整记录并选择最近用户轮次。"""
+        if not self.screen.set_transcript_overlay(True):
+            return None
+        self.viewport.pause_scrollback()
+        if self.screen.transcript_overlay.begin_or_step_backtrack():
+            return None
+        self.screen.set_transcript_overlay(False)
+        self.viewport.schedule_scrollback_flush()
 
     def commit_active_renderable(
         self,
@@ -718,6 +812,9 @@ class TuiRuntime(object):
                     raise TuiInterruptRequested from application_error
                 raise application_error
             raise EOFError
+
+        if isinstance(submission, TranscriptBacktrackRequest):
+            raise TuiTranscriptBacktrackRequested(submission)
 
         if isinstance(submission, TuiSubmission):
             value   = submission.value

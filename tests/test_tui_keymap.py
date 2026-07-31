@@ -95,6 +95,15 @@ def test_tui_keymap_rejects_context_and_main_input_conflicts() -> None:
             }
         })
 
+    with pytest.raises(ValueError, match="fixed transcript edit_previous"):
+        TuiRuntimeKeymap.from_config({
+            "tui": {
+                "keymap": {
+                    "pager": {"close": "esc"},
+                }
+            }
+        })
+
     keymap = TuiRuntimeKeymap.from_config({
         "tui": {
             "keymap": {

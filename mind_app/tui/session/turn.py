@@ -104,7 +104,9 @@ async def run_tui_model_turn(
     message_text: str,
     run_mode: RunMode,
     pref_config: dict[str, typing.Any],
-    permissions: PermissionSettings
+    permissions: PermissionSettings,
+    turn_id: str | None = None,
+    prompt_extras: typing.Mapping[str, typing.Any] | None = None
 ) -> None:
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     attachments: list[dict[str, typing.Any]] = []
@@ -123,6 +125,7 @@ async def run_tui_model_turn(
     )
 
     runner = resolve_mode_runner(mind, run_mode)
+    extras = dict(prompt_extras or {})
 
     conversation_turn = mind.begin_conversation_turn(
         title=session_title,
@@ -139,6 +142,7 @@ async def run_tui_model_turn(
         pref_config=pref_config,
         cwd=mind.history_workspace,
         permissions=permissions,
+        turn_id=turn_id,
         session_started=conversation_turn.session_started,
         session_start_reason=conversation_turn.start_reason,
     )
@@ -156,6 +160,10 @@ async def run_tui_model_turn(
         event_report: EventReport
     ) -> "RunResult":
         """使用 TUI 前端生命周期执行已经准备好的根轮次。"""
+        prompt_kwargs: dict[str, typing.Any] = {}
+        if extras:
+            prompt_kwargs["extras"] = extras
+
         return await mind.run_mode_lifecycle(
             runner,
             mode=prepared.context.mode,
@@ -165,6 +173,7 @@ async def run_tui_model_turn(
             attachments=attachments,
             ev_report=event_report,
             turn_execution=prepared,
+            **prompt_kwargs,
         )
 
     await execute_turn(

@@ -7,7 +7,10 @@ import pytest
 
 from mind_app.tui.features import conversation
 from mind_nova.requests import fork as fork_request
-from mind_nova.requests.fork import ConversationForkRequestError
+from mind_nova.requests.fork import (
+    ConversationForkRequestError,
+    ResubmittablePrompt,
+)
 
 
 class ForkMindStub(object):
@@ -31,20 +34,40 @@ class ForkMindStub(object):
             application=SimpleNamespace(emit=self.views.append),
         )
 
-    def prepare_conversation_fork(self, mode, cid, sid):
+    def prepare_conversation_fork(
+        self,
+        mode,
+        cid,
+        sid,
+        before_turn_id="",
+    ):
         assert (mode, cid, sid) == (
             "chat",
             "cid_source_12345678",
             "sid_source_1_abcdef",
         )
+        assert before_turn_id in {"", "turn_selected"}
         return "fork_request_0001"
 
     def bind_conversation(self, cid, sid, *, source):
         self.bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
-    def clear_conversation_fork(self, mode, cid, sid, request_id):
-        self.cleared.append((mode, cid, sid, request_id))
+    def clear_conversation_fork(
+        self,
+        mode,
+        cid,
+        sid,
+        request_id,
+        before_turn_id="",
+    ):
+        self.cleared.append((
+            mode,
+            cid,
+            sid,
+            request_id,
+            before_turn_id,
+        ))
 
     async def start_compact_anim(self, snapshot):
         self.started.append(snapshot)
@@ -85,6 +108,7 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
             "cid_source_12345678",
             "sid_source_1_abcdef",
             "fork_request_0001",
+            "",
         )
     ]
     assert mind.started[0]()["items"][0]["name"] == "Fork"
@@ -160,6 +184,171 @@ async def test_fork_request_parses_source_busy_error(monkeypatch) -> None:
 
     assert raised.value.code == "source_busy"
     assert raised.value.retryable is True
+
+
+@pytest.mark.anyio
+async def test_fork_request_validates_bounded_zero_item_response(monkeypatch) -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "request_id": "fork_request_0001",
+                "mode": "chat",
+                "source_cid": "cid_source_12345678",
+                "source_sid": "sid_source_1_abcdef",
+                "before_turn_id": "turn_selected",
+                "cid": "cid_target_87654321",
+                "sid": "sid_target_2_fedcba",
+                "copied_turns": 0,
+                "copied_items": 0,
+                "prompt": {
+                    "message": "inspect this",
+                    "attachments": [{
+                        "kind": "image",
+                        "image_url": "https://example.test/image.png",
+                    }],
+                    "extras": {
+                        "selection": {"x": 10, "y": 20},
+                    },
+                },
+            },
+        },
+    )
+
+    class ClientStub(object):
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **kwargs):
+            assert kwargs["json"]["before_turn_id"] == "turn_selected"
+            return response
+
+    monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
+
+    result = await fork_request.request_conversation_fork(
+        mode="chat",
+        cid="cid_source_12345678",
+        sid="sid_source_1_abcdef",
+        request_id="fork_request_0001",
+        before_turn_id="turn_selected",
+    )
+
+    assert result["copied_turns"] == 0
+    assert result["copied_items"] == 0
+    assert result["prompt"] == ResubmittablePrompt(
+        message="inspect this",
+        attachments=({
+            "kind": "image",
+            "image_url": "https://example.test/image.png",
+        },),
+        extras={"selection": {"x": 10, "y": 20}},
+    )
+
+
+@pytest.mark.anyio
+async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
+    mind = ForkMindStub()
+    mind.animate = False
+
+    async def request_fork(**kwargs):
+        assert kwargs["before_turn_id"] == "turn_selected"
+        return {
+            "request_id": "fork_request_0001",
+            "mode": "chat",
+            "source_cid": "cid_source_12345678",
+            "source_sid": "sid_source_1_abcdef",
+            "before_turn_id": "turn_selected",
+            "cid": "cid_target_87654321",
+            "sid": "sid_target_2_fedcba",
+            "copied_turns": 0,
+            "copied_items": 0,
+            "prompt": ResubmittablePrompt(
+                message="inspect this",
+                attachments=(),
+                extras={},
+            ),
+        }
+
+    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+
+    status = await conversation.fork_current_conversation(
+        mind,
+        run_mode="chat",
+        before_turn_id="turn_selected",
+    )
+
+    assert status.succeeded
+    assert status.prompt == ResubmittablePrompt(
+        message="inspect this",
+        attachments=(),
+        extras={},
+    )
+    assert mind.bound == [
+        ("cid_target_87654321", "sid_target_2_fedcba", "tui")
+    ]
+    assert mind.cleared == [(
+        "chat",
+        "cid_source_12345678",
+        "sid_source_1_abcdef",
+        "fork_request_0001",
+        "turn_selected",
+    )]
+
+
+@pytest.mark.anyio
+async def test_bounded_fork_rejects_missing_prompt(monkeypatch) -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "request_id": "fork_request_0001",
+                "mode": "chat",
+                "source_cid": "cid_source_12345678",
+                "source_sid": "sid_source_1_abcdef",
+                "before_turn_id": "turn_selected",
+                "cid": "cid_target_87654321",
+                "sid": "sid_target_2_fedcba",
+                "copied_turns": 0,
+                "copied_items": 0,
+                "prompt": None,
+            },
+        },
+    )
+
+    class ClientStub(object):
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
+
+    with pytest.raises(
+        ConversationForkRequestError,
+        match="invalid prompt",
+    ):
+        await fork_request.request_conversation_fork(
+            mode="chat",
+            cid="cid_source_12345678",
+            sid="sid_source_1_abcdef",
+            request_id="fork_request_0001",
+            before_turn_id="turn_selected",
+        )
 
 
 if __name__ == '__main__':

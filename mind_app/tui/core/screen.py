@@ -84,7 +84,8 @@ from .menu import (
 )
 from .models import (
     FormattedText,
-    FragmentBlock
+    FragmentBlock,
+    TranscriptBacktrackRequest
 )
 from .process_status import TuiProcessStatus
 from .process_viewer import TuiProcessViewer
@@ -140,6 +141,7 @@ class TuiScreen(object):
         get_submission_deferred: typing.Callable[[], bool],
         get_queued_submission_text: typing.Callable[[], str | None],
         get_surface_submission_pending: typing.Callable[[], bool],
+        can_transcript_backtrack: typing.Callable[[], bool],
         get_transcript_view_row: typing.Callable[[], int | None],
         accept_input: typing.Callable[[Buffer], bool],
         on_input_text_changed: typing.Callable[[Buffer], None],
@@ -147,6 +149,10 @@ class TuiScreen(object):
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
         toggle_transcript_overlay: typing.Callable[[], None],
+        request_transcript_backtrack: typing.Callable[
+            [TranscriptBacktrackRequest],
+            None,
+        ],
         keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
@@ -166,12 +172,17 @@ class TuiScreen(object):
         self._get_surface_submission_pending = get_surface_submission_pending
         self._get_transcript_view_row        = get_transcript_view_row
 
+        self._can_transcript_backtrack = can_transcript_backtrack
+
         self._clear_exit_confirmation  = clear_exit_confirmation
         self._clear_visible_transcript = clear_visible_transcript
 
-        self._scroll_transcript_page    = scroll_transcript_page
-        self._toggle_transcript_overlay = toggle_transcript_overlay
-        self.keymap                     = keymap
+        self._scroll_transcript_page       = scroll_transcript_page
+        self._toggle_transcript_overlay    = toggle_transcript_overlay
+        self._request_transcript_backtrack = request_transcript_backtrack
+
+        self.keymap = keymap
+
         self._validate_keymap(keymap)
 
         self._transcript_only: bool = False
@@ -874,6 +885,11 @@ class TuiScreen(object):
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
+        if self.input_model.history_backtrack_primed:
+            return [
+                ("class:footer.exit-key", "Esc"),
+                ("class:footer.exit-hint", " again to edit previous message"),
+            ]
         if self.interrupt_state.exit_armed:
             return [
                 ("class:footer.exit-key", "Ctrl + C"),
@@ -977,6 +993,35 @@ class TuiScreen(object):
         """创建完整会话记录的模态按键。"""
         bindings = KeyBindings()
         pager = self.keymap.pager
+
+        @bindings.add("escape", eager=True)
+        def _(event) -> None:
+            _ = event
+            if (
+                not self._can_transcript_backtrack()
+                or not self.transcript_overlay.begin_or_step_backtrack()
+            ):
+                self._toggle_transcript_overlay()
+
+        @bindings.add("left", eager=True)
+        def _(event) -> None:
+            _ = event
+            if self.transcript_overlay.backtrack_active:
+                self.transcript_overlay.begin_or_step_backtrack()
+
+        @bindings.add("right", eager=True)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.step_backtrack_forward()
+
+        @bindings.add("enter", eager=True)
+        def _(event) -> None:
+            _ = event
+            request = self.transcript_overlay.confirm_backtrack()
+            if request is None:
+                return None
+            self._toggle_transcript_overlay()
+            self._request_transcript_backtrack(request)
 
         def close(event) -> None:
             _ = event
@@ -1125,7 +1170,14 @@ class TuiScreen(object):
 
     def _transcript_overlay_primary_help_fragments(self) -> FormattedText:
         """生成完整记录的滚动提示。"""
+        if self.transcript_overlay.backtrack_active:
+            return [(
+                "class:transcript.overlay.help",
+                " Esc/Left previous   Right next   Enter edit",
+            )]
+
         pager = self.keymap.pager
+
         hints = (
             self._paired_key_hint(
                 pager.scroll_up,
@@ -1139,27 +1191,46 @@ class TuiScreen(object):
                 "to jump",
             ),
         )
+
         return [("class:transcript.overlay.help", self._help_line(hints))]
 
     def _transcript_overlay_secondary_help_fragments(self) -> FormattedText:
         """生成完整记录的跳转和退出提示。"""
         pager = self.keymap.pager
         close = binding_labels((*pager.close, *pager.close_transcript))
+
+        if self.transcript_overlay.backtrack_active:
+            hint = f" {close} to cancel" if close else ""
+            return [("class:transcript.overlay.help", hint)]
+
+        has_target = (
+            self._can_transcript_backtrack()
+            and self.transcript_overlay.has_backtrack_target
+        )
+
+        close_hint = (
+            f"Esc/{close} to quit"
+            if close and not has_target
+            else f"{close} to quit" if close else "Esc to quit"
+        )
+
         hints = (
-            f"{close} to quit" if close else "",
+            "Esc to edit previous" if has_target else "",
+            close_hint,
             self._paired_key_hint(
                 pager.half_page_up,
                 pager.half_page_down,
                 "half page",
             ),
         )
+
         return [("class:transcript.overlay.help", self._help_line(hints))]
 
     @staticmethod
     def _paired_key_hint(
         first: tuple[TuiKeyBinding, ...],
         second: tuple[TuiKeyBinding, ...],
-        suffix: str,
+        suffix: str
     ) -> str:
         """生成两个互补动作的首选按键提示。"""
         labels = "/".join(filter(None, (
@@ -1339,12 +1410,14 @@ class TuiScreen(object):
         ):
             return PromptFormattedText()
 
-        completion = completions[0]
+        completion    = completions[0]
         display_width = get_cwidth(completion.display_text)
+
         command_width = max(
             self.COMPLETION_COLUMN_MIN_WIDTH,
             display_width + 2,
         )
+
         command_padding = " " * (command_width - display_width - 1)
 
         fragments: StyleAndTextTuples = [

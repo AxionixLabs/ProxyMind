@@ -5,8 +5,12 @@ import glob
 import base64
 import typing
 import mimetypes
+from copy import deepcopy
+from collections.abc import Mapping
 from pathlib import Path
 from engine.errors import AppError
+
+_RESTORED_ATTACHMENT_KEY = "_restored_attachment"
 
 
 class Attach(object):
@@ -155,8 +159,22 @@ class Attach(object):
         return bool(self.pending)
 
     def pending_attachments_snapshot(self) -> list[dict[str, typing.Any]]:
-        """返回待上传附件的浅拷贝快照。"""
-        return [dict(item) for item in self.pending]
+        """返回待上传附件的独立快照。"""
+        return [self._snapshot_item(item) for item in self.pending]
+
+    def replace_pending_attachments(
+        self,
+        attachments: typing.Iterable[typing.Mapping[str, typing.Any]],
+    ) -> None:
+        """使用可直接提交的附件载荷替换待上传附件。"""
+        restored: list[dict[str, typing.Any]] = []
+        for attachment in attachments:
+            if not isinstance(attachment, Mapping):
+                raise TypeError("pending attachment must be an object")
+            restored.append({
+                _RESTORED_ATTACHMENT_KEY: deepcopy(dict(attachment)),
+            })
+        self.pending[:] = restored
 
     def add_pending_attachments(self, raw_path: str) -> dict[str, typing.Any]:
         """添加文件、目录或 glob 匹配到的附件。"""
@@ -219,7 +237,7 @@ class Attach(object):
         if text.isdigit():
             index = int(text) - 1
             if 0 <= index < len(self.pending):
-                return self.pending.pop(index)
+                return self._snapshot_item(self.pending.pop(index))
             raise AppError(f"detach index out of range: {text}")
 
         local = str(self._resolve_attachment_path(text, must_exist=False))
@@ -235,11 +253,16 @@ class Attach(object):
         self.pending.clear()
         return count
 
-    def consume_pending_attachments(self) -> list[dict[str, str]]:
+    def consume_pending_attachments(self) -> list[dict[str, typing.Any]]:
         """把待发送文件转换为对话请求可直接携带的附件。"""
-        attachments: list[dict[str, str]] = []
+        attachments: list[dict[str, typing.Any]] = []
 
         for item in self.pending:
+            restored = item.get(_RESTORED_ATTACHMENT_KEY)
+            if isinstance(restored, dict):
+                attachments.append(deepcopy(restored))
+                continue
+
             local = str(item.get("local") or "")
             if not local:
                 continue
@@ -267,6 +290,14 @@ class Attach(object):
 
         self.pending.clear()
         return attachments
+
+    @staticmethod
+    def _snapshot_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """复制待上传附件并隐藏内部来源标记。"""
+        restored = item.get(_RESTORED_ATTACHMENT_KEY)
+        if isinstance(restored, dict):
+            return deepcopy(restored)
+        return deepcopy(item)
 
 
 if __name__ == '__main__':

@@ -125,7 +125,7 @@ class TuiRuntimeKeymap(object):
             close=_resolve_bindings(
                 pager_config,
                 "close",
-                defaults=("esc", "q", "ctrl-c"),
+                defaults=("q", "ctrl-c"),
                 path="tui.keymap.pager.close",
             ),
             close_transcript=_resolve_bindings(
@@ -135,7 +135,10 @@ class TuiRuntimeKeymap(object):
                 path="tui.keymap.pager.close_transcript",
             ),
         )
+
         _validate_context_conflicts("pager", pager)
+        _validate_reserved_pager_bindings(pager)
+
         return cls(open_transcript=open_transcript, pager=pager)
 
     @property
@@ -320,6 +323,31 @@ def _validate_context_conflicts(context: str, keymap: TuiPagerKeymap) -> None:
                     f"tui.keymap.{context}.{previous}: {binding.label}"
                 )
             owners[binding.keys] = action
+
+
+def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
+    """拒绝页面动作覆盖完整记录的固定编辑按键。"""
+    reserved = {
+        _parse_binding(key, path="tui.keymap.pager").keys: action
+        for key, action in (
+            ("esc", "edit_previous"),
+            ("left", "edit_previous"),
+            ("right", "edit_next"),
+            ("enter", "edit_confirm"),
+        )
+    }
+
+    for field in fields(keymap):
+        action   = field.name
+        bindings = typing.cast(tuple[TuiKeyBinding, ...], getattr(keymap, action))
+
+        for binding in bindings:
+            fixed = reserved.get(binding.keys)
+            if fixed is not None:
+                raise ValueError(
+                    f"tui.keymap.pager.{action} conflicts with fixed "
+                    f"transcript {fixed}: {binding.label}"
+                )
 
 
 def _primary_label(bindings: tuple[TuiKeyBinding, ...]) -> str:

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import sqlite3
+
 from mind_app.history import (
     ConversationHistoryStore,
     INTERACTIVE_HISTORY_SOURCES,
@@ -95,3 +97,70 @@ def test_history_reuses_pending_fork_request_until_cleared(tmp_path) -> None:
     )
 
     assert next_request == "fork_request_two"
+
+
+def test_history_scopes_pending_fork_request_to_turn_boundary(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+    source = {
+        "mode": "chat",
+        "cid": "cid_alpha_12345678",
+        "sid": "sid_alpha_1_abcdef",
+    }
+
+    first = store.get_or_create_fork_request(
+        **source,
+        request_id="fork_request_one",
+        before_turn_id="turn_one",
+        now_ms=100,
+    )
+    retried = store.get_or_create_fork_request(
+        **source,
+        request_id="fork_request_two",
+        before_turn_id="turn_one",
+        now_ms=200,
+    )
+    changed = store.get_or_create_fork_request(
+        **source,
+        request_id="fork_request_three",
+        before_turn_id="turn_two",
+        now_ms=300,
+    )
+
+    assert retried == first == "fork_request_one"
+    assert changed == "fork_request_three"
+
+
+def test_history_migrates_pending_fork_turn_boundary(tmp_path) -> None:
+    db_path = tmp_path / "history.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("""
+            CREATE TABLE conversation_pending_forks (
+                mode TEXT NOT NULL,
+                cid TEXT NOT NULL,
+                sid TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                PRIMARY KEY (mode, cid, sid)
+            )
+        """)
+
+    store = ConversationHistoryStore(db_path, ttl_ms=10_000)
+    request_id = store.get_or_create_fork_request(
+        mode="chat",
+        cid="cid_alpha_12345678",
+        sid="sid_alpha_1_abcdef",
+        request_id="fork_request_one",
+        before_turn_id="turn_one",
+        now_ms=100,
+    )
+
+    assert request_id == "fork_request_one"
+    with sqlite3.connect(db_path) as conn:
+        columns = {
+            str(row[1])
+            for row in conn.execute(
+                "PRAGMA table_info(conversation_pending_forks)"
+            )
+        }
+    assert "before_turn_id" in columns

@@ -9,7 +9,10 @@ from .interrupt import (
     TuiExitReason,
     TuiInterruptState
 )
-from .models import FragmentBlock
+from .models import (
+    FragmentBlock,
+    TranscriptBacktrackRequest
+)
 from .queued import (
     TuiQueuedMessages,
     TuiSubmission
@@ -47,6 +50,14 @@ class TuiInputClosed(EOFError):
 
 class TuiInterruptRequested(Exception):
     """表示用户已确认退出当前 TUI 会话。"""
+
+
+class TuiTranscriptBacktrackRequested(Exception):
+    """表示完整记录请求重新编辑一条历史输入。"""
+
+    def __init__(self, request: TranscriptBacktrackRequest) -> None:
+        super().__init__(request.turn_id)
+        self.request = request
 
 
 class TuiSubmissionFlow(object):
@@ -229,6 +240,13 @@ class TuiSubmissionFlow(object):
         self.surface_submission_pending = False
         self.message_queue.put_nowait(_INPUT_CLOSED)
 
+    def enqueue_transcript_backtrack(
+        self,
+        request: TranscriptBacktrackRequest
+    ) -> None:
+        """把完整记录中的历史编辑请求写入输入事件队列。"""
+        self.message_queue.put_nowait(request)
+
     def clear_surface_submission_pending(self) -> None:
         """清除等待临时交互表面接管的提交标记。"""
         self.surface_submission_pending = False
@@ -256,6 +274,7 @@ class TuiSubmissionFlow(object):
     def on_input_text_changed(self, buffer: Buffer) -> None:
         """在用户继续编辑时恢复执行期排队提示。"""
         self.clear_exit_confirmation()
+        self.input_model.cancel_history_backtrack()
         submitted_text = self.queued_submission_text
         if submitted_text is not None and buffer.text != submitted_text:
             self.queued_submission_text = None
@@ -300,6 +319,7 @@ class TuiSubmissionFlow(object):
 
     def interrupt_input(self) -> None:
         """按当前交互状态处理中断或连续按键退出请求。"""
+        self.input_model.cancel_history_backtrack()
         if self.interrupt_state.exit_armed:
             self.interrupt_state.request_exit()
             self._cancel_exit_expiry()
@@ -349,6 +369,7 @@ class TuiSubmissionFlow(object):
     def accept_input(self, buffer: Buffer) -> bool:
         """恢复折叠粘贴内容并按当前运行状态提交输入。"""
         self.clear_exit_confirmation()
+        self.input_model.cancel_history_backtrack()
 
         editable_text = buffer.text
         paste_store   = self.input_model.submission_state()

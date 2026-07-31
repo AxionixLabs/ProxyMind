@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    replace
+)
 from .models import (
     FormattedText,
     FragmentBlock
@@ -30,6 +33,8 @@ class TranscriptBlock(object):
     transcript_block: FragmentBlock
     kind: TuiBlockKind
     gap_before: bool = False
+    turn_id: str = ""
+    prompt: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +341,55 @@ class TuiDocument(object):
         self.scrollback_line_count = min(self.scrollback_line_count, line_count)
         self.cleared_line_count    = min(self.cleared_line_count, line_count)
 
+        return True
+
+    def bind_latest_user_turn(
+        self,
+        turn_id: str,
+        prompt: str
+    ) -> bool:
+        """把最近一条尚未绑定的用户输入关联到模型轮次。"""
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id:
+            raise ValueError("turn_id is required")
+        for index in range(len(self.blocks) - 1, -1, -1):
+            item = self.blocks[index]
+            if item.kind != "user" or item.turn_id:
+                continue
+            self.blocks[index] = replace(
+                item,
+                turn_id=normalized_turn_id,
+                prompt=str(prompt),
+            )
+            self.stable_transcript_revision += 1
+            return True
+
+        return False
+
+    def truncate_before_turn(self, turn_id: str) -> bool:
+        """移除指定用户轮次及其后的稳定正文。"""
+        normalized_turn_id = str(turn_id or "").strip()
+        if (
+            not normalized_turn_id
+            or self.active_block is not None
+            or self._active_tail
+        ):
+            return False
+
+        boundary = next((
+            index
+            for index, item in enumerate(self.blocks)
+            if item.kind == "user" and item.turn_id == normalized_turn_id
+        ), None)
+        if boundary is None:
+            return False
+
+        del self.blocks[boundary:]
+        self._rebuild_stable_lines()
+        self.stable_transcript_revision += 1
+
+        self.scrollback_line_count = 0
+        self.cleared_line_count = 0
         return True
 
     def set_active(

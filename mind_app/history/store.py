@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS {TABLE_PENDING_FORKS} (
     mode        TEXT NOT NULL,
     cid         TEXT NOT NULL,
     sid         TEXT NOT NULL,
+    before_turn_id TEXT NOT NULL DEFAULT '',
     request_id  TEXT NOT NULL,
     created_at  INTEGER NOT NULL,
     expires_at  INTEGER NOT NULL,
@@ -191,13 +192,15 @@ class ConversationHistoryStore(object):
         cid: str,
         sid: str,
         request_id: str,
-        now_ms: typing.Optional[int] = None,
+        before_turn_id: str = "",
+        now_ms: typing.Optional[int] = None
     ) -> str:
         """返回源会话尚未完成的稳定分支请求标识。"""
         mode_text = _clean(mode)
         cid_text  = _clean(cid)
         sid_text  = _clean(sid)
         candidate = _clean(request_id)
+        boundary  = _clean(before_turn_id)
 
         if not mode_text or not candidate or not valid_session_ids(cid_text, sid_text):
             raise ValueError("mode, valid cid/sid, and request_id are required")
@@ -214,16 +217,26 @@ class ConversationHistoryStore(object):
                 )
                 conn.execute(
                     f"""
+                    DELETE FROM {TABLE_PENDING_FORKS}
+                    WHERE mode = ? AND cid = ? AND sid = ?
+                      AND before_turn_id <> ?
+                    """,
+                    (mode_text, cid_text, sid_text, boundary),
+                )
+                conn.execute(
+                    f"""
                     INSERT INTO {TABLE_PENDING_FORKS} (
-                        mode, cid, sid, request_id, created_at, expires_at
+                        mode, cid, sid, before_turn_id,
+                        request_id, created_at, expires_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(mode, cid, sid) DO NOTHING
                     """,
                     (
                         mode_text,
                         cid_text,
                         sid_text,
+                        boundary,
                         candidate,
                         now,
                         now + self.ttl_ms,
@@ -234,8 +247,9 @@ class ConversationHistoryStore(object):
                     SELECT request_id
                     FROM {TABLE_PENDING_FORKS}
                     WHERE mode = ? AND cid = ? AND sid = ?
+                      AND before_turn_id = ?
                     """,
-                    (mode_text, cid_text, sid_text),
+                    (mode_text, cid_text, sid_text, boundary),
                 ).fetchone()
         finally:
             conn.close()
@@ -251,6 +265,7 @@ class ConversationHistoryStore(object):
         cid: str,
         sid: str,
         request_id: str,
+        before_turn_id: str = ""
     ) -> None:
         """清除与指定源会话和请求标识匹配的分支操作。"""
         conn = self._connect()
@@ -260,12 +275,14 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     DELETE FROM {TABLE_PENDING_FORKS}
-                    WHERE mode = ? AND cid = ? AND sid = ? AND request_id = ?
+                    WHERE mode = ? AND cid = ? AND sid = ?
+                      AND before_turn_id = ? AND request_id = ?
                     """,
                     (
                         _clean(mode),
                         _clean(cid),
                         _clean(sid),
+                        _clean(before_turn_id),
                         _clean(request_id),
                     ),
                 )
@@ -344,6 +361,19 @@ class ConversationHistoryStore(object):
     def _init_schema(conn: sqlite3.Connection) -> None:
         """初始化历史库结构。"""
         conn.executescript(SCHEMA_SQL)
+        columns = {
+            str(row[1])
+            for row in conn.execute(
+                f"PRAGMA table_info({TABLE_PENDING_FORKS})"
+            )
+        }
+        if "before_turn_id" not in columns:
+            conn.execute(
+                f"""
+                ALTER TABLE {TABLE_PENDING_FORKS}
+                ADD COLUMN before_turn_id TEXT NOT NULL DEFAULT ''
+                """
+            )
 
     @staticmethod
     def _prune_expired(conn: sqlite3.Connection, *, now_ms: int) -> None:

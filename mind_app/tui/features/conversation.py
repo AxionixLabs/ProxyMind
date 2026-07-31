@@ -21,6 +21,7 @@ from mind_core.mcp_status import external_mcp_status_view
 from mind_nova.modes import RunMode
 from mind_nova.requests.fork import (
     ConversationForkRequestError,
+    ResubmittablePrompt,
     request_conversation_fork
 )
 from ...modes.compact import (
@@ -117,6 +118,18 @@ class ForkLiveStatus(object):
         self._state   = "linking"
         self._done    = False
 
+        self._prompt: ResubmittablePrompt | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        """返回会话分支是否已经成功完成。"""
+        return self._done and self._state == "ready"
+
+    @property
+    def prompt(self) -> ResubmittablePrompt | None:
+        """返回分支轮次对应的可重提交输入。"""
+        return self._prompt
+
     def snapshot(self) -> dict[str, typing.Any]:
         """返回复用对话操作动画的状态快照。"""
         return {
@@ -131,13 +144,19 @@ class ForkLiveStatus(object):
             ],
         }
 
-    def completed(self, copied_items: int) -> None:
+    def completed(
+        self,
+        copied_items: int,
+        *,
+        prompt: ResubmittablePrompt | None = None
+    ) -> None:
         """更新分支创建完成状态。"""
         suffix = f" · {copied_items} items" if copied_items > 0 else ""
 
         self._message = f"Conversation forked.{suffix}"
         self._state   = "ready"
         self._done    = True
+        self._prompt  = prompt
 
     def failed(self, message: str) -> None:
         """更新分支创建失败状态。"""
@@ -184,14 +203,17 @@ async def fork_current_conversation(
     mind: "Mind",
     *,
     run_mode: RunMode,
+    before_turn_id: str = ""
 ) -> ForkLiveStatus:
-    """复制当前远端上下文并在成功后切换会话标识。"""
-    source = mind.conversation.snapshot()
+    """复制完整或指定轮次之前的上下文并切换会话标识。"""
+    source   = mind.conversation.snapshot()
+    boundary = str(before_turn_id or "").strip()
 
     request_id = mind.prepare_conversation_fork(
         run_mode,
         source["cid"],
         source["sid"],
+        boundary,
     )
     status = ForkLiveStatus()
 
@@ -201,6 +223,7 @@ async def fork_current_conversation(
         cid=source["cid"],
         sid=source["sid"],
         request_id=request_id,
+        before_turn_id=boundary,
     )
 
     try:
@@ -213,11 +236,30 @@ async def fork_current_conversation(
             cid=source["cid"],
             sid=source["sid"],
             request_id=request_id,
+            before_turn_id=boundary or None,
         )
 
         target_cid   = str(result.get("cid") or "").strip()
         target_sid   = str(result.get("sid") or "").strip()
         copied_items = _positive_int(result.get("copied_items"))
+        prompt       = result.get("prompt")
+
+        if boundary and not isinstance(prompt, ResubmittablePrompt):
+            mind.clear_conversation_fork(
+                run_mode,
+                source["cid"],
+                source["sid"],
+                request_id,
+                boundary,
+            )
+            status.failed("Conversation fork returned an invalid prompt.")
+            observe(
+                "conversation.fork.failed",
+                level="ERROR",
+                reason="invalid_prompt",
+                request_id=request_id,
+            )
+            return status
 
         bound = mind.bind_conversation(
             target_cid,
@@ -230,6 +272,7 @@ async def fork_current_conversation(
                 source["cid"],
                 source["sid"],
                 request_id,
+                boundary,
             )
 
             status.failed("Conversation fork returned invalid session IDs.")
@@ -247,8 +290,12 @@ async def fork_current_conversation(
             source["cid"],
             source["sid"],
             request_id,
+            boundary,
         )
-        status.completed(copied_items)
+        status.completed(
+            copied_items,
+            prompt=prompt if isinstance(prompt, ResubmittablePrompt) else None,
+        )
 
         observe(
             "conversation.fork.complete",
@@ -259,6 +306,7 @@ async def fork_current_conversation(
             sid=bound["sid"],
             request_id=request_id,
             copied_items=copied_items,
+            before_turn_id=boundary,
         )
 
     except asyncio.CancelledError:
@@ -276,6 +324,7 @@ async def fork_current_conversation(
                 source["cid"],
                 source["sid"],
                 request_id,
+                boundary,
             )
         status.failed(error.message)
 
