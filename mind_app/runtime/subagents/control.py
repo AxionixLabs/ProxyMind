@@ -68,6 +68,8 @@ class AgentSnapshot:
     thread: AgentThreadContext
     status: AgentStatus
     submission_id: str = ""
+    turn_count: int = 0
+    queued_count: int = 0
     result: typing.Any = None
     error: str = ""
 
@@ -672,6 +674,8 @@ class AgentControl:
             thread=record.thread,
             status=record.status,
             submission_id=record.submission_id,
+            turn_count=record.turn_count,
+            queued_count=len(record.queue),
             result=record.result,
             error=record.error,
         )

@@ -25,6 +25,10 @@ from ..core.styles import (
     text_block
 )
 from ..features.context import ignored_tui_input
+from ..features.agents import (
+    append_agent_stream_snapshot,
+    manage_agents
+)
 from ..features.conversation import (
     compact_current_conversation,
     copy_last_assistant_reply,
@@ -132,6 +136,7 @@ class TuiCommandDispatcher(object):
         self.application      = mind.frontend.application
 
         self._process_snapshot_task: asyncio.Task[None] | None = None
+        self._agent_snapshot_task: asyncio.Task[None] | None   = None
 
     async def dispatch(self, prompt_text: str) -> DispatchAction:
         """处理一项输入并返回会话循环的下一步。"""
@@ -213,6 +218,10 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "hooks"):
             await manage_hooks(self.runtime, self.mind)
+            return DispatchAction.HANDLED
+
+        if matches_command(command, "agent"):
+            await manage_agents(self.runtime, self.mind)
             return DispatchAction.HANDLED
 
         if matches_command(command, "diff"):
@@ -381,6 +390,10 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "ps"):
             self._start_process_snapshot()
             return True
+        if matches_command(command, "agent"):
+            self._start_agent_snapshot()
+            return True
+
         return self.foreground_tasks.handle_stream_command(value, cancel_turn)
 
     def _start_process_snapshot(self) -> None:
@@ -400,6 +413,24 @@ class TuiCommandDispatcher(object):
         """回收已完成的后台终端快照任务。"""
         if self._process_snapshot_task is task:
             self._process_snapshot_task = None
+
+    def _start_agent_snapshot(self) -> None:
+        """启动不接管输入焦点的子执行线程快照任务。"""
+        previous = self._agent_snapshot_task
+        if previous is not None and not previous.done():
+            previous.cancel()
+
+        task = self.runtime.start_background_task(
+            append_agent_stream_snapshot(self.runtime, self.mind),
+            name="tui agents snapshot",
+        )
+        self._agent_snapshot_task = task
+        task.add_done_callback(self._forget_agent_snapshot)
+
+    def _forget_agent_snapshot(self, task: asyncio.Task[None]) -> None:
+        """回收已完成的子执行线程快照任务。"""
+        if self._agent_snapshot_task is task:
+            self._agent_snapshot_task = None
 
     async def _choose_effort(self) -> None:
         """选择并持久化模型推理强度。"""

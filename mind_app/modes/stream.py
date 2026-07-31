@@ -248,7 +248,7 @@ async def stream_looper(
         ))
 
         tool_call_coordinator = ToolCallCoordinator(hook_scope)
-        turn_hook_events = TurnHookEvents(hook_scope)
+        turn_hook_events      = TurnHookEvents(hook_scope)
 
         await turn_hook_events.begin(message)
 
@@ -367,6 +367,10 @@ async def stream_looper(
 
             if isinstance(event, ToolApprovalRequiredEvent):
                 approval = approval_from_event(event)
+                if turn_context.agent.depth > 0:
+                    approval["agent_id"] = turn_context.agent.agent_id
+                    approval["agent_type"] = turn_context.agent.agent_type
+                    approval["agent_depth"] = turn_context.agent.depth
                 await status_control.end_status(immediate=True)
 
                 approval_started_at = time.perf_counter()

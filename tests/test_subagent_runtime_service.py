@@ -275,3 +275,90 @@ async def test_runtime_reuses_thread_after_executor_exception() -> None:
     assert retried.snapshots[0].status == "completed"
     assert retried.snapshots[0].result.status == "completed"
     await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit() -> None:
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    started = {
+        "agent_first": asyncio.Event(),
+        "agent_second": asyncio.Event(),
+    }
+    release_second = asyncio.Event()
+    exit_turn_started = asyncio.Event()
+    exit_turn_cancelled = asyncio.Event()
+
+    async def execute(**kwargs):
+        execution = kwargs["turn_execution"]
+        agent_id = execution.context.agent.agent_id
+        message = execution.message
+
+        if message == "retry task":
+            return RunResult(status="completed", assistant_text="retried")
+        if message == "wait for exit":
+            exit_turn_started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                exit_turn_cancelled.set()
+
+        started[agent_id].set()
+        if agent_id == "agent_first":
+            await asyncio.Future()
+        await release_second.wait()
+        return RunResult(status="completed", assistant_text="second done")
+
+    controller.stream_handler = execute
+    first = await runtime.spawn(
+        parent,
+        "first task",
+        {},
+        agent_type="review",
+        agent_id="agent_first",
+    )
+    second = await runtime.spawn(
+        parent,
+        "second task",
+        {},
+        agent_type="test",
+        agent_id="agent_second",
+    )
+    await asyncio.gather(*(event.wait() for event in started.values()))
+
+    interrupted = await runtime.interrupt(parent.sid, first.agent_id)
+    assert interrupted.status == "interrupted"
+
+    release_second.set()
+    second_result = await runtime.wait(
+        parent.sid,
+        [second.agent_id],
+        timeout_sec=1,
+    )
+    assert second_result.snapshots[0].status == "completed"
+    assert second_result.snapshots[0].result.assistant_text == "second done"
+
+    await runtime.close(parent.sid, first.agent_id)
+    resumed = await runtime.resume(parent.sid, first.agent_id)
+    assert resumed.status == "interrupted"
+    await runtime.submit(parent.sid, first.agent_id, "retry task")
+    retried = await runtime.wait(
+        parent.sid,
+        [first.agent_id],
+        timeout_sec=1,
+    )
+    assert retried.snapshots[0].result.assistant_text == "retried"
+
+    await runtime.submit(parent.sid, second.agent_id, "wait for exit")
+    await exit_turn_started.wait()
+    await runtime.shutdown()
+
+    assert exit_turn_cancelled.is_set()
+    with pytest.raises(AgentStateError, match="shut down"):
+        await runtime.spawn(
+            parent,
+            "late task",
+            {},
+            agent_type="worker",
+        )

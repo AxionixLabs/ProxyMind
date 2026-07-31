@@ -94,6 +94,8 @@ async def test_agent_control_runs_child_and_records_result() -> None:
     assert not waited.timed_out
     assert len(waited.snapshots) == 1
     assert waited.snapshots[0].status == "completed"
+    assert waited.snapshots[0].turn_count == 1
+    assert waited.snapshots[0].queued_count == 0
     assert waited.snapshots[0].result == {"answer": 42}
 
 
@@ -281,11 +283,16 @@ async def test_submit_queues_until_active_turn_cleanup_finishes() -> None:
     submission_id = await control.submit(spawned.agent_id, follow_up)
     await asyncio.sleep(0)
     assert not second_started.is_set()
+    queued = await control.get(spawned.agent_id)
+    assert queued.turn_count == 1
+    assert queued.queued_count == 1
 
     release.set()
     result = await control.wait([spawned.agent_id], timeout_sec=1)
 
     assert submission_id == result.snapshots[0].submission_id
+    assert result.snapshots[0].turn_count == 2
+    assert result.snapshots[0].queued_count == 0
     assert result.snapshots[0].result == "second"
     assert timeline == ["first-start", "first-stop", "second-start"]
 

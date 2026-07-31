@@ -30,7 +30,6 @@ from mind_app.presentation.styles import (
 from .styles import prompt_style
 from .render import sanitize_formatted_text
 
-
 TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card"              : "",
     "approval-question"          : "bold #4DE3FF",
@@ -67,6 +66,12 @@ def tui_approval_content_lines(
         max_width=content_width,
     )
 
+    if source_line := _approval_agent_source_line(
+        approval,
+        max_width=content_width,
+    ):
+        question_lines = [*question_lines, source_line]
+
     command_lines = _approval_command_lines(
         approval,
         max_width=content_width,
@@ -82,7 +87,6 @@ def tui_approval_content_lines(
 
     option_groups = _approval_option_groups(
         decisions,
-        approval=approval,
         selected_index=selected_index,
         max_width=content_width,
     )
@@ -97,10 +101,29 @@ def tui_approval_content_lines(
     )
 
 
+def _approval_agent_source_line(
+    approval: dict[str, typing.Any],
+    *,
+    max_width: int,
+) -> list[tuple[str, str]]:
+    """生成子执行线程审批请求的可信来源行。"""
+    agent_id = str(approval.get("agent_id") or "").strip()
+    if not agent_id:
+        return []
+
+    agent_type = str(approval.get("agent_type") or "agent").strip() or "agent"
+    return _clip_fragment_line(
+        sanitize_formatted_text([(
+            "class:approval-meta",
+            f"Agent {agent_type} · {agent_id}",
+        )]),
+        max_width=max_width,
+    )
+
+
 def _approval_option_groups(
     decisions: list[ApprovalDecisionValue],
     *,
-    approval: dict[str, typing.Any],
     selected_index: int,
     max_width: int,
 ) -> list[list[list[tuple[str, str]]]]:

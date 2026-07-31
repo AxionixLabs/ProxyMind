@@ -92,6 +92,11 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         surface_on_bare=True,
     ),
     TuiCommandSpec(
+        "agent", "/agent", "查看和管理子代理线程",
+        surface_on_bare=True,
+        stream_policy="local_snapshot",
+    ),
+    TuiCommandSpec(
         "diff", "/diff", "查看本轮补丁净差异",
     ),
     TuiCommandSpec(

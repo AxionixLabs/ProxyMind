@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -48,6 +49,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/compact",
         "/tools",
         "/hooks",
+        "/agent",
         "/diff",
         "/copy",
         "/ps",
@@ -151,6 +153,7 @@ def test_command_matching_distinguishes_empty_and_argument_states() -> None:
         "/effort",
         "/resume",
         "/hooks",
+        "/agent",
         "/ps",
         "/mcp",
         "/helix-link",
@@ -172,6 +175,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_policy("/mcp start") == "background_barrier"
     assert stream_command_policy("/mcp force") == "background_barrier"
     assert stream_command_policy("/ps") == "local_snapshot"
+    assert stream_command_policy("/agent") == "local_snapshot"
     assert stream_command_policy("/compact") == "reject"
     assert stream_command_policy("/hooks") == "reject"
     assert stream_command_policy("/fork") == "reject"
@@ -262,6 +266,75 @@ async def test_dispatcher_routes_hooks_to_the_management_surface(
 
     assert action is DispatchAction.HANDLED
     manage.assert_awaited_once_with(runtime, mind)
+
+
+@pytest.mark.anyio
+async def test_dispatcher_routes_agent_to_the_management_surface(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    runtime = SimpleNamespace()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+    manage = AsyncMock()
+    monkeypatch.setattr(dispatch_module, "manage_agents", manage)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/agent")
+
+    assert action is DispatchAction.HANDLED
+    manage.assert_awaited_once_with(runtime, mind)
+
+
+@pytest.mark.anyio
+async def test_dispatcher_routes_agent_stream_snapshot_without_interrupting(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    called = asyncio.Event()
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+
+    async def append_snapshot(received_runtime, received_mind):
+        assert received_runtime is runtime
+        assert received_mind is mind
+        called.set()
+
+    monkeypatch.setattr(
+        dispatch_module,
+        "append_agent_stream_snapshot",
+        append_snapshot,
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        SimpleNamespace(handle_stream_command=lambda *_args: False),
+    )
+    cancelled = []
+
+    handled = dispatcher.handle_stream_command(
+        "/agent",
+        lambda: cancelled.append(True) or True,
+    )
+    await asyncio.wait_for(called.wait(), timeout=1)
+
+    assert handled
+    assert cancelled == []
 
 
 @pytest.mark.anyio

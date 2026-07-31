@@ -42,6 +42,41 @@ def test_approval_content_keeps_question_without_card_title() -> None:
     assert "Review command" not in "\n".join(text_lines)
 
 
+def test_subagent_approval_displays_trusted_source_before_question() -> None:
+    lines = tui_approval_content_lines(
+        ["accept", "decline"],
+        approval={
+            "tool": "shell_command",
+            "command": "pytest -q",
+            "agent_id": "agent_review",
+            "agent_type": "review",
+            "show_timer": False,
+        },
+        width=32,
+    )
+    text_lines = _line_texts(lines)
+
+    assert text_lines[0] == "Would you like to approve the"
+    assert "Agent review · agent_review" in text_lines
+    assert all(get_cwidth(line) <= 32 for line in text_lines)
+
+    constrained = tui_approval_content_lines(
+        ["accept", "acceptForSession", "decline"],
+        approval={
+            "tool": "shell_command",
+            "command": "pytest -q",
+            "agent_id": "agent_review",
+            "agent_type": "review",
+            "show_timer": False,
+        },
+        width=32,
+        max_height=5,
+    )
+    assert _line_texts(constrained)[0].startswith(
+        "Would you like to approve"
+    )
+
+
 def test_multiline_command_preserves_lines_and_prefix_alignment() -> None:
     lines = tui_approval_content_lines(
         ["accept", "decline"],

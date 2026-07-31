@@ -668,6 +668,48 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
 
 
 @pytest.mark.anyio
+async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
+    approval_posts = []
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_required",
+                "call_id": "call-child",
+                "name": "shell_command",
+                "approval": {
+                    "id": "approval-child",
+                    "tool": "shell_command",
+                    "command": "pytest -q",
+                    "agent_id": "spoofed",
+                    "agent_type": "spoofed",
+                },
+            },
+            {"type": "turn.done"},
+        ],
+        child_agent=True,
+    )
+
+    assert result.status == "completed"
+    approval = mind.frontend.interaction.request_approval.await_args.args[0]
+    assert approval["agent_id"] == "agent_child"
+    assert approval["agent_type"] == "worker"
+    assert approval["agent_depth"] == 1
+    assert approval_posts[0][0][:4] == (
+        "cid_test",
+        "sid_test",
+        "call-child",
+        "approval-child",
+    )
+
+
+@pytest.mark.anyio
 async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -> None:
     approval_posts = []
     result_posts = []
