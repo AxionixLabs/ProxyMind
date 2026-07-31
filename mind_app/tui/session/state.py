@@ -170,6 +170,10 @@ class TuiSessionState(object):
         self._pending_prompt_extras = None
         return deepcopy(extras) if extras is not None else {}
 
+    def clear_pending_prompt_extras(self) -> None:
+        """清除尚未提交的结构化扩展输入。"""
+        self._pending_prompt_extras = None
+
 
 async def preload_tui_prompt_context(mind: "Mind") -> None:
     """在 TUI 首帧前加载输入上下文和后台进程状态。"""

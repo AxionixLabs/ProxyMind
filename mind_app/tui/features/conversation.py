@@ -17,6 +17,7 @@ from mind_app.runtime.support.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
 )
+from mind_app.history.ids import valid_session_ids
 from mind_core.mcp_status import external_mcp_status_view
 from mind_nova.modes import RunMode
 from mind_nova.requests.fork import (
@@ -120,6 +121,9 @@ class ForkLiveStatus(object):
 
         self._prompt: ResubmittablePrompt | None = None
 
+        self._source_session: tuple[str, str] | None = None
+        self._target_session: tuple[str, str] | None = None
+
     @property
     def succeeded(self) -> bool:
         """返回会话分支是否已经成功完成。"""
@@ -129,6 +133,16 @@ class ForkLiveStatus(object):
     def prompt(self) -> ResubmittablePrompt | None:
         """返回分支轮次对应的可重提交输入。"""
         return self._prompt
+
+    @property
+    def source_session(self) -> tuple[str, str] | None:
+        """返回分支操作使用的源会话游标。"""
+        return self._source_session
+
+    @property
+    def target_session(self) -> tuple[str, str] | None:
+        """返回分支操作创建的目标会话游标。"""
+        return self._target_session
 
     def snapshot(self) -> dict[str, typing.Any]:
         """返回复用对话操作动画的状态快照。"""
@@ -148,7 +162,9 @@ class ForkLiveStatus(object):
         self,
         copied_items: int,
         *,
-        prompt: ResubmittablePrompt | None = None
+        prompt: ResubmittablePrompt | None = None,
+        source_session: tuple[str, str] | None = None,
+        target_session: tuple[str, str] | None = None
     ) -> None:
         """更新分支创建完成状态。"""
         suffix = f" · {copied_items} items" if copied_items > 0 else ""
@@ -156,7 +172,11 @@ class ForkLiveStatus(object):
         self._message = f"Conversation forked.{suffix}"
         self._state   = "ready"
         self._done    = True
+
         self._prompt  = prompt
+
+        self._source_session = source_session
+        self._target_session = target_session
 
     def failed(self, message: str) -> None:
         """更新分支创建失败状态。"""
@@ -203,9 +223,10 @@ async def fork_current_conversation(
     mind: "Mind",
     *,
     run_mode: RunMode,
-    before_turn_id: str = ""
+    before_turn_id: str = "",
+    bind_target: bool = True
 ) -> ForkLiveStatus:
-    """复制完整或指定轮次之前的上下文并切换会话标识。"""
+    """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
     source   = mind.conversation.snapshot()
     boundary = str(before_turn_id or "").strip()
 
@@ -261,12 +282,7 @@ async def fork_current_conversation(
             )
             return status
 
-        bound = mind.bind_conversation(
-            target_cid,
-            target_sid,
-            source="tui",
-        )
-        if bound is None:
+        if not valid_session_ids(target_cid, target_sid):
             mind.clear_conversation_fork(
                 run_mode,
                 source["cid"],
@@ -285,6 +301,37 @@ async def fork_current_conversation(
             )
             return status
 
+        bound_cid = target_cid
+        bound_sid = target_sid
+
+        if bind_target:
+            bound = mind.bind_conversation(
+                target_cid,
+                target_sid,
+                source="tui",
+            )
+            if bound is None:
+                mind.clear_conversation_fork(
+                    run_mode,
+                    source["cid"],
+                    source["sid"],
+                    request_id,
+                    boundary,
+                )
+
+                status.failed("Conversation fork returned invalid session IDs.")
+
+                observe(
+                    "conversation.fork.failed",
+                    level="ERROR",
+                    reason="invalid_target",
+                    request_id=request_id,
+                )
+                return status
+
+            bound_cid = bound["cid"]
+            bound_sid = bound["sid"]
+
         mind.clear_conversation_fork(
             run_mode,
             source["cid"],
@@ -292,9 +339,12 @@ async def fork_current_conversation(
             request_id,
             boundary,
         )
+
         status.completed(
             copied_items,
             prompt=prompt if isinstance(prompt, ResubmittablePrompt) else None,
+            source_session=(source["cid"], source["sid"]),
+            target_session=(bound_cid, bound_sid),
         )
 
         observe(
@@ -302,8 +352,8 @@ async def fork_current_conversation(
             mode=run_mode,
             source_cid=source["cid"],
             source_sid=source["sid"],
-            cid=bound["cid"],
-            sid=bound["sid"],
+            cid=bound_cid,
+            sid=bound_sid,
             request_id=request_id,
             copied_items=copied_items,
             before_turn_id=boundary,

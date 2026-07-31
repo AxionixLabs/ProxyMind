@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field
+)
 
 FormattedText: typing.TypeAlias = list[tuple[str, str]]
 
@@ -18,6 +21,8 @@ class TranscriptBacktrackRequest(object):
     """描述从完整记录中重新编辑一条用户输入的请求。"""
     turn_id: str
     prompt: str
+    attachments: tuple[dict[str, typing.Any], ...] = ()
+    extras: dict[str, typing.Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

@@ -153,6 +153,7 @@ class TuiScreen(object):
             [TranscriptBacktrackRequest],
             None,
         ],
+        report_missing_transcript_backtrack: typing.Callable[[], None],
         keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
@@ -180,6 +181,10 @@ class TuiScreen(object):
         self._scroll_transcript_page       = scroll_transcript_page
         self._toggle_transcript_overlay    = toggle_transcript_overlay
         self._request_transcript_backtrack = request_transcript_backtrack
+
+        self._report_missing_transcript_backtrack = (
+            report_missing_transcript_backtrack
+        )
 
         self.keymap = keymap
 
@@ -997,11 +1002,12 @@ class TuiScreen(object):
         @bindings.add("escape", eager=True)
         def _(event) -> None:
             _ = event
-            if (
-                not self._can_transcript_backtrack()
-                or not self.transcript_overlay.begin_or_step_backtrack()
-            ):
+            if not self._can_transcript_backtrack():
                 self._toggle_transcript_overlay()
+                return None
+            if not self.transcript_overlay.begin_or_step_backtrack():
+                self._toggle_transcript_overlay()
+                self._report_missing_transcript_backtrack()
 
         @bindings.add("left", eager=True)
         def _(event) -> None:

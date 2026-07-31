@@ -182,6 +182,22 @@ async def run_tui_loop(
             ),
         )
 
+        prompt_extras = state.consume_pending_prompt_extras()
+
+        runtime.bind_turn_payload(
+            turn_id,
+            extras=prompt_extras,
+        )
+
+        def bind_prompt_attachments(
+            attachments: list[dict[str, typing.Any]]
+        ) -> None:
+            """把实际提交附件关联到当前用户轮次。"""
+            runtime.bind_turn_payload(
+                turn_id,
+                attachments=attachments,
+            )
+
         await execute_tui_model_turn(
             application,
             runtime,
@@ -192,7 +208,8 @@ async def run_tui_loop(
                 pref_config=state.pref_config,
                 permissions=state.permissions,
                 turn_id=turn_id,
-                prompt_extras=state.consume_pending_prompt_extras(),
+                prompt_extras=prompt_extras,
+                on_prompt_prepared=bind_prompt_attachments,
             ),
             stream_command_handler=dispatcher.handle_stream_command,
             show_interrupt_notice=lambda: not mind.task_event.is_set(),
@@ -214,6 +231,8 @@ async def _handle_transcript_backtrack(
 ) -> None:
     """通过前台屏障执行历史分支并恢复选中的输入。"""
     runtime.replace_input_text(request.prompt)
+    mind.attach.replace_pending_attachments(request.attachments)
+    state.replace_pending_prompt_extras(request.extras)
 
     foreground_tasks.start(
         "Conversation backtrack",
@@ -221,6 +240,7 @@ async def _handle_transcript_backtrack(
             mind,
             run_mode=state.mode,
             before_turn_id=request.turn_id,
+            bind_target=False,
         ),
         finish_activity=lambda: finish_fork_activity(mind),
         on_succeeded=lambda status: _finish_transcript_backtrack(
@@ -246,26 +266,62 @@ def _finish_transcript_backtrack(
     """在远端分支结束后同步本地正文或展示失败。"""
     if status.succeeded:
         prompt = status.prompt
-        if prompt is None:
+
+        source_session = status.source_session
+        target_session = status.target_session
+
+        if (
+            prompt is None
+            or source_session is None
+            or target_session is None
+        ):
             render_fork_failure(
                 mind,
-                RuntimeError("Conversation fork did not return a prompt."),
+                RuntimeError("Conversation fork did not return commit metadata."),
+            )
+            return None
+
+        canonical_request = TranscriptBacktrackRequest(
+            turn_id=request.turn_id,
+            prompt=prompt.message,
+            attachments=prompt.attachments,
+            extras=prompt.extras,
+        )
+
+        if not runtime.can_apply_transcript_backtrack(canonical_request):
+            render_fork_failure(
+                mind,
+                RuntimeError("Selected transcript turn is no longer available."),
+            )
+            return None
+
+        bound = mind.bind_conversation(
+            target_session[0],
+            target_session[1],
+            source="tui",
+        )
+
+        if bound is None:
+            render_fork_failure(
+                mind,
+                RuntimeError("Conversation fork returned invalid session IDs."),
+            )
+            return None
+
+        if not runtime.apply_transcript_backtrack(canonical_request):
+            mind.bind_conversation(
+                source_session[0],
+                source_session[1],
+                source="tui:backtrack-rollback",
+            )
+            render_fork_failure(
+                mind,
+                RuntimeError("Conversation backtrack could not be committed."),
             )
             return None
 
         mind.attach.replace_pending_attachments(prompt.attachments)
         state.replace_pending_prompt_extras(prompt.extras)
-
-        canonical_request = TranscriptBacktrackRequest(
-            turn_id=request.turn_id,
-            prompt=prompt.message,
-        )
-
-        if not runtime.apply_transcript_backtrack(canonical_request):
-            render_fork_failure(
-                mind,
-                RuntimeError("Selected transcript turn is no longer available."),
-            )
         return None
 
     render_fork_result(mind, status)

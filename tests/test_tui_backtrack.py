@@ -2,6 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -143,6 +144,55 @@ async def test_typing_cancels_primed_history_backtrack() -> None:
             await runtime.close()
 
 
+@pytest.mark.anyio
+async def test_double_escape_reports_missing_previous_message() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x1b\x1b")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.document.blocks:
+                    break
+
+            text = "".join(
+                value
+                for _style, value in runtime.document.all_fragments(width=80)
+            )
+            assert text == "No previous message to edit."
+            assert not runtime.screen.transcript_overlay.active
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_transcript_escape_reports_missing_previous_message() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x14")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.active:
+                    break
+            pipe_input.send_text("\x1b")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.document.blocks:
+                    break
+
+            text = "".join(
+                value
+                for _style, value in runtime.document.all_fragments(width=80)
+            )
+            assert text == "No previous message to edit."
+            assert not runtime.screen.transcript_overlay.active
+        finally:
+            await runtime.close()
+
+
 def test_apply_transcript_backtrack_removes_selected_turn_and_tail() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("header"), kind="system")
@@ -193,6 +243,33 @@ def test_attachment_only_turn_creates_selectable_transcript_cell(tmp_path) -> No
         for _style, value in runtime.document.all_fragments(width=80)
     )
     assert text == "› [Attachment: screen.png]"
+
+
+def test_transcript_request_keeps_structured_prompt_payload() -> None:
+    runtime = TuiRuntime()
+    _append_turn(runtime, "turn_one", "inspect this")
+    runtime.bind_turn_payload(
+        "turn_one",
+        attachments=({
+            "kind": "image",
+            "image_url": "https://example.test/image.png",
+        },),
+        extras={"selection": {"x": 10, "y": 20}},
+    )
+    runtime.screen.transcript_overlay.open()
+
+    assert runtime.screen.transcript_overlay.begin_or_step_backtrack()
+    assert runtime.screen.transcript_overlay.confirm_backtrack() == (
+        TranscriptBacktrackRequest(
+            turn_id="turn_one",
+            prompt="inspect this",
+            attachments=({
+                "kind": "image",
+                "image_url": "https://example.test/image.png",
+            },),
+            extras={"selection": {"x": 10, "y": 20}},
+        )
+    )
 
 
 def test_restored_attachments_are_resubmitted_without_reencoding() -> None:
@@ -249,10 +326,20 @@ def test_successful_backtrack_installs_canonical_prompt() -> None:
             },),
             extras={"selection": {"x": 10, "y": 20}},
         ),
+        source_session=("cid_source_12345678", "sid_source_1_abcdef"),
+        target_session=("cid_target_87654321", "sid_target_2_fedcba"),
     )
+    bound = []
+
+    def bind_conversation(cid, sid, *, source):
+        bound.append((cid, sid, source))
+        return {"cid": cid, "sid": sid}
 
     loop._finish_transcript_backtrack(
-        SimpleNamespace(attach=attach),
+        SimpleNamespace(
+            attach=attach,
+            bind_conversation=bind_conversation,
+        ),
         runtime,
         state,
         TranscriptBacktrackRequest(
@@ -271,11 +358,114 @@ def test_successful_backtrack_installs_canonical_prompt() -> None:
     assert state.consume_pending_prompt_extras() == {
         "selection": {"x": 10, "y": 20},
     }
+    assert bound == [(
+        "cid_target_87654321",
+        "sid_target_2_fedcba",
+        "tui",
+    )]
     text = "".join(
         value
         for _style, value in runtime.document.all_fragments(width=80)
     )
     assert text == "header"
+
+
+@pytest.mark.anyio
+async def test_backtrack_request_restores_full_local_draft_before_fork() -> None:
+    runtime = TuiRuntime()
+    attach = Attach()
+    state = TuiSessionState(
+        pref_config={},
+        model="",
+        workspace_label="",
+        permissions=preset_permissions("auto"),
+    )
+
+    class ForegroundStub(object):
+        def start(self, *_args, **_kwargs) -> None:
+            return None
+
+        async def wait(self) -> None:
+            return None
+
+    await loop._handle_transcript_backtrack(
+        SimpleNamespace(attach=attach),
+        runtime,
+        state,
+        ForegroundStub(),
+        TranscriptBacktrackRequest(
+            turn_id="turn_one",
+            prompt="inspect this",
+            attachments=({"kind": "file", "file_key": "file_123"},),
+            extras={"selection": {"x": 10, "y": 20}},
+        ),
+    )
+
+    assert runtime.screen.input.buffer.text == "inspect this"
+    assert attach.consume_pending_attachments() == [{
+        "kind": "file",
+        "file_key": "file_123",
+    }]
+    assert state.consume_pending_prompt_extras() == {
+        "selection": {"x": 10, "y": 20},
+    }
+
+
+def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None:
+    runtime = TuiRuntime()
+    _append_turn(runtime, "turn_one", "local prompt")
+    runtime.apply_transcript_backtrack = Mock(return_value=False)
+    views = []
+    bound = []
+    attach = Attach()
+    state = TuiSessionState(
+        pref_config={},
+        model="",
+        workspace_label="",
+        permissions=preset_permissions("auto"),
+    )
+    status = ForkLiveStatus()
+    status.completed(
+        0,
+        prompt=ResubmittablePrompt(
+            message="canonical prompt",
+            attachments=(),
+            extras={},
+        ),
+        source_session=("cid_source_12345678", "sid_source_1_abcdef"),
+        target_session=("cid_target_87654321", "sid_target_2_fedcba"),
+    )
+
+    def bind_conversation(cid, sid, *, source):
+        bound.append((cid, sid, source))
+        return {"cid": cid, "sid": sid}
+
+    loop._finish_transcript_backtrack(
+        SimpleNamespace(
+            attach=attach,
+            bind_conversation=bind_conversation,
+            frontend=SimpleNamespace(
+                application=SimpleNamespace(emit=views.append),
+            ),
+        ),
+        runtime,
+        state,
+        TranscriptBacktrackRequest(
+            turn_id="turn_one",
+            prompt="local prompt",
+        ),
+        status,
+    )
+
+    assert bound == [
+        ("cid_target_87654321", "sid_target_2_fedcba", "tui"),
+        (
+            "cid_source_12345678",
+            "sid_source_1_abcdef",
+            "tui:backtrack-rollback",
+        ),
+    ]
+    assert any(view.type == "tui.fork.status" for view in views)
 
 
 if __name__ == '__main__':

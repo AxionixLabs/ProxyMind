@@ -303,6 +303,44 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_bounded_fork_can_defer_target_binding(monkeypatch) -> None:
+    mind = ForkMindStub()
+    mind.animate = False
+
+    async def request_fork(**_kwargs):
+        return {
+            "cid": "cid_target_87654321",
+            "sid": "sid_target_2_fedcba",
+            "copied_items": 1,
+            "prompt": ResubmittablePrompt(
+                message="inspect this",
+                attachments=(),
+                extras={},
+            ),
+        }
+
+    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+
+    status = await conversation.fork_current_conversation(
+        mind,
+        run_mode="chat",
+        before_turn_id="turn_selected",
+        bind_target=False,
+    )
+
+    assert status.succeeded
+    assert status.source_session == (
+        "cid_source_12345678",
+        "sid_source_1_abcdef",
+    )
+    assert status.target_session == (
+        "cid_target_87654321",
+        "sid_target_2_fedcba",
+    )
+    assert mind.bound == []
+
+
+@pytest.mark.anyio
 async def test_bounded_fork_rejects_missing_prompt(monkeypatch) -> None:
     response = httpx.Response(
         200,

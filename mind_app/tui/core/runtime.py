@@ -40,7 +40,10 @@ from .process_viewer import ProcessViewerRequest
 from .render import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
-from .styles import query_block
+from .styles import (
+    query_block,
+    text_block
+)
 from ..prompting.commands import resolve_tui_command
 from .submission import (
     TuiInputClosed,
@@ -159,6 +162,9 @@ class TuiRuntime(object):
             request_transcript_backtrack=(
                 self.submissions.enqueue_transcript_backtrack
             ),
+            report_missing_transcript_backtrack=(
+                self._report_missing_backtrack
+            ),
             keymap=self.keymap,
             input_obj=input_obj,
             output_obj=output_obj,
@@ -168,6 +174,8 @@ class TuiRuntime(object):
         self.input_model.bind_history_backtrack(
             self._can_backtrack_history,
             self.open_transcript_backtrack,
+            self._can_report_missing_backtrack,
+            self._report_missing_backtrack,
         )
 
         self.activity = TuiActivity(
@@ -551,6 +559,30 @@ class TuiRuntime(object):
 
         return True
 
+    def can_apply_transcript_backtrack(
+        self,
+        request: TranscriptBacktrackRequest
+    ) -> bool:
+        """判断历史编辑请求是否可在当前稳定正文上提交。"""
+        return self.document.can_truncate_before_turn(request.turn_id)
+
+    def bind_turn_payload(
+        self,
+        turn_id: str,
+        *,
+        attachments: typing.Iterable[typing.Mapping[str, typing.Any]] | None = None,
+        extras: typing.Mapping[str, typing.Any] | None = None
+    ) -> bool:
+        """把实际模型请求载荷关联到已绑定的用户轮次。"""
+        changed = self.document.bind_turn_payload(
+            turn_id,
+            attachments=attachments,
+            extras=extras,
+        )
+        if changed:
+            self.screen.transcript_overlay.content_changed()
+        return changed
+
     def set_active_renderable(
         self,
         block: FragmentBlock,
@@ -600,6 +632,24 @@ class TuiRuntime(object):
     def _can_transcript_backtrack(self) -> bool:
         """返回完整记录是否可以确认历史编辑。"""
         return not self.submission_deferred and not self.has_pending_attachments
+
+    def _can_report_missing_backtrack(self) -> bool:
+        """返回主输入区是否可以报告缺少历史编辑目标。"""
+        return bool(
+            self.active
+            and not self.submission_deferred
+            and not self.screen.transcript_overlay.active
+            and not self.input_model.shell_mode
+            and not self.screen.input.buffer.text
+            and not self.has_pending_attachments
+            and not self.screen.transcript_overlay.has_backtrack_target
+        )
+
+    def _report_missing_backtrack(self) -> None:
+        """追加没有可编辑历史消息的提示。"""
+        self.queue_background_block(text_block(
+            "No previous message to edit."
+        ))
 
     def open_transcript_backtrack(self) -> None:
         """从主输入区打开完整记录并选择最近用户轮次。"""

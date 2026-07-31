@@ -2,8 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from copy import deepcopy
 from dataclasses import (
     dataclass,
+    field,
     replace
 )
 from .models import (
@@ -35,6 +37,8 @@ class TranscriptBlock(object):
     gap_before: bool = False
     turn_id: str = ""
     prompt: str = ""
+    attachments: tuple[dict[str, typing.Any], ...] = ()
+    extras: dict[str, typing.Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,21 +380,70 @@ class TuiDocument(object):
         ):
             return False
 
-        boundary = next((
-            index
-            for index, item in enumerate(self.blocks)
-            if item.kind == "user" and item.turn_id == normalized_turn_id
-        ), None)
+        boundary = self._turn_boundary(normalized_turn_id)
         if boundary is None:
             return False
 
         del self.blocks[boundary:]
+
         self._rebuild_stable_lines()
         self.stable_transcript_revision += 1
 
         self.scrollback_line_count = 0
-        self.cleared_line_count = 0
+        self.cleared_line_count    = 0
+
         return True
+
+    def can_truncate_before_turn(self, turn_id: str) -> bool:
+        """判断指定用户轮次是否可在当前稳定状态下截断。"""
+        normalized_turn_id = str(turn_id or "").strip()
+
+        return bool(
+            normalized_turn_id
+            and self.active_block is None
+            and not self._active_tail
+            and self._turn_boundary(normalized_turn_id) is not None
+        )
+
+    def bind_turn_payload(
+        self,
+        turn_id: str,
+        *,
+        attachments: typing.Iterable[typing.Mapping[str, typing.Any]] | None = None,
+        extras: typing.Mapping[str, typing.Any] | None = None
+    ) -> bool:
+        """把实际请求附件和扩展输入关联到指定用户轮次。"""
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id:
+            raise ValueError("turn_id is required")
+
+        for index, item in enumerate(self.blocks):
+            if item.kind != "user" or item.turn_id != normalized_turn_id:
+                continue
+            self.blocks[index] = replace(
+                item,
+                attachments=(
+                    tuple(deepcopy(dict(value)) for value in attachments)
+                    if attachments is not None
+                    else item.attachments
+                ),
+                extras=(
+                    deepcopy(dict(extras))
+                    if extras is not None
+                    else item.extras
+                ),
+            )
+            self.stable_transcript_revision += 1
+            return True
+        return False
+
+    def _turn_boundary(self, turn_id: str) -> int | None:
+        """返回指定用户轮次在稳定正文中的位置。"""
+        return next((
+            index
+            for index, item in enumerate(self.blocks)
+            if item.kind == "user" and item.turn_id == turn_id
+        ), None)
 
     def set_active(
         self,

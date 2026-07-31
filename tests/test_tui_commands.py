@@ -3,7 +3,10 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock
+)
 
 import pytest
 from prompt_toolkit.completion import CompleteEvent
@@ -14,6 +17,7 @@ from mind_core.skills import SkillSpec
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
 from mind_app.tui.features.skills import choose_skill
+from mind_app.tui.features.conversation import ForkLiveStatus
 from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
     canonical_command_label,
@@ -239,6 +243,98 @@ async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
         "Unrecognized command '/今天天气'. "
         'Type "/" for a list of supported commands.'
     )
+
+
+@pytest.mark.anyio
+async def test_new_conversation_clears_structured_prompt_draft() -> None:
+    views = []
+    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    attach = SimpleNamespace(clear_pending_attachments=Mock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        attach=attach,
+        reset_conversation=Mock(return_value={
+            "cid": "cid_new_12345678",
+            "sid": "sid_new_1_abcdef",
+        }),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        state,
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/new")
+
+    assert action is DispatchAction.HANDLED
+    state.clear_pending_prompt_extras.assert_called_once_with()
+    attach.clear_pending_attachments.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_resume_conversation_clears_structured_prompt_draft(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    record = {
+        "cid": "cid_old_12345678",
+        "sid": "sid_old_1_abcdef",
+    }
+    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    attach = SimpleNamespace(clear_pending_attachments=Mock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+        attach=attach,
+        history_workspace="D:/workspace",
+        recent_conversation_sessions=Mock(return_value=[record]),
+        resume_conversation=Mock(return_value=record),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "choose_history_session",
+        AsyncMock(return_value=record),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        state,
+        SimpleNamespace(),
+    )
+
+    await dispatcher._resume_conversation()
+
+    state.clear_pending_prompt_extras.assert_called_once_with()
+    attach.clear_pending_attachments.assert_called_once_with()
+
+
+def test_successful_plain_fork_clears_structured_prompt_draft() -> None:
+    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    attach = SimpleNamespace(clear_pending_attachments=Mock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+        attach=attach,
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        state,
+        SimpleNamespace(),
+    )
+    status = ForkLiveStatus()
+    status.completed(1)
+
+    dispatcher._finish_conversation_fork(status)
+
+    state.clear_pending_prompt_extras.assert_called_once_with()
+    attach.clear_pending_attachments.assert_called_once_with()
 
 
 @pytest.mark.anyio

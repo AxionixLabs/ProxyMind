@@ -30,6 +30,7 @@ from ..features.agents import (
     manage_agents
 )
 from ..features.conversation import (
+    ForkLiveStatus,
     compact_current_conversation,
     copy_last_assistant_reply,
     finish_compact_activity,
@@ -170,6 +171,7 @@ class TuiCommandDispatcher(object):
                 reason="command:/new",
                 source="tui:new",
             )
+            self._clear_prompt_draft()
             self._present(command_result_block(
                 "/new",
                 TextSpan("New conversation", BRIGHT_STYLE),
@@ -290,10 +292,7 @@ class TuiCommandDispatcher(object):
                     run_mode=self.state.mode,
                 ),
                 finish_activity=lambda: finish_fork_activity(self.mind),
-                on_succeeded=lambda status: render_fork_result(
-                    self.mind,
-                    status,
-                ),
+                on_succeeded=self._finish_conversation_fork,
                 on_failed=lambda error: render_fork_failure(
                     self.mind,
                     error,
@@ -538,6 +537,8 @@ class TuiCommandDispatcher(object):
             self._present()
             return None
 
+        self._clear_prompt_draft()
+
         self._present(command_result_block(
             "/resume",
             TextSpan("Resumed", BRIGHT_STYLE),
@@ -547,6 +548,17 @@ class TuiCommandDispatcher(object):
             ),
         ))
         self._present()
+
+    def _finish_conversation_fork(self, status: ForkLiveStatus) -> None:
+        """在普通会话分支成功后清理旧草稿并展示结果。"""
+        if status.succeeded:
+            self._clear_prompt_draft()
+        render_fork_result(self.mind, status)
+
+    def _clear_prompt_draft(self) -> None:
+        """清除当前会话尚未提交的结构化草稿。"""
+        self.state.clear_pending_prompt_extras()
+        self.mind.attach.clear_pending_attachments()
 
     def _present(
         self,

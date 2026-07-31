@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from copy import deepcopy
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
 from .document import (
@@ -227,6 +228,8 @@ class TuiTranscriptOverlay(object):
         return TranscriptBacktrackRequest(
             turn_id=turn_id,
             prompt=cell.prompt,
+            attachments=tuple(deepcopy(item) for item in cell.attachments),
+            extras=deepcopy(cell.extras),
         )
 
     def _backtrack_cells(self) -> tuple[TranscriptBlock, ...]:

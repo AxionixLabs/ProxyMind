@@ -101,6 +101,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
     permissions = preset_permissions("auto")
     pref_config = {"primary": {"model": "test-model"}}
+    prepared_attachments = []
 
     result = await run_tui_model_turn(
         controller,
@@ -110,10 +111,15 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
         permissions=permissions,
         turn_id="turn_tui",
         prompt_extras={"selection": {"x": 10, "y": 20}},
+        on_prompt_prepared=prepared_attachments.extend,
     )
 
     assert result is None
     assert controller.attach.consumed == 1
+    assert prepared_attachments == [{
+        "filename": "screen.png",
+        "kind": "image",
+    }]
     assert controller.conversation_calls == [("screen.png", "tui")]
     assert controller.sessions == [pref_config]
     assert controller.events == [

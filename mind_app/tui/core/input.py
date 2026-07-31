@@ -146,15 +146,18 @@ class TuiInputModel(object):
             lambda: self.skills,
         )
 
-        self.interrupt_handler: typing.Callable[[], None]     = _ignore_action
-        self.exit_handler: typing.Callable[[], None]          = _ignore_action
-        self.can_exit: typing.Callable[[], bool]              = _deny_action
-        self.can_submit_queue: typing.Callable[[], bool]      = _deny_action
-        self.can_rollback_queue: typing.Callable[[], bool]    = _deny_action
-        self.can_backtrack_history: typing.Callable[[], bool] = _deny_action
+        self.interrupt_handler: typing.Callable[[], None] = _ignore_action
+        self.exit_handler: typing.Callable[[], None]      = _ignore_action
+
+        self.can_exit: typing.Callable[[], bool]                     = _deny_action
+        self.can_submit_queue: typing.Callable[[], bool]             = _deny_action
+        self.can_rollback_queue: typing.Callable[[], bool]           = _deny_action
+        self.can_backtrack_history: typing.Callable[[], bool]        = _deny_action
+        self.can_report_missing_backtrack: typing.Callable[[], bool] = _deny_action
 
         self.rollback_queue_handler: typing.Callable[[], bool]    = _deny_action
         self.backtrack_history_handler: typing.Callable[[], None] = _ignore_action
+        self.missing_backtrack_handler: typing.Callable[[], None] = _ignore_action
 
         self.shell_mode: bool = False
 
@@ -415,11 +418,15 @@ class TuiInputModel(object):
     def bind_history_backtrack(
         self,
         can_backtrack: typing.Callable[[], bool],
-        handler: typing.Callable[[], None]
+        handler: typing.Callable[[], None],
+        can_report_missing: typing.Callable[[], bool],
+        missing_handler: typing.Callable[[], None]
     ) -> None:
         """绑定空输入状态下的历史编辑入口。"""
-        self.can_backtrack_history = can_backtrack
-        self.backtrack_history_handler = handler
+        self.can_backtrack_history        = can_backtrack
+        self.backtrack_history_handler    = handler
+        self.can_report_missing_backtrack = can_report_missing
+        self.missing_backtrack_handler    = missing_handler
 
     def cancel_history_backtrack(self) -> None:
         """清除等待第二次 Esc 的历史编辑状态。"""
@@ -683,12 +690,24 @@ class TuiInputModel(object):
         history_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(self.can_backtrack_history())
         )
+        missing_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(self.can_report_missing_backtrack())
+        )
 
         @bindings.add(Keys.Escape, eager=True, filter=history_backtrack)
         def _(event) -> None:
             if self.history_backtrack_primed:
                 self.history_backtrack_primed = False
                 self.backtrack_history_handler()
+            else:
+                self.history_backtrack_primed = True
+            event.app.invalidate()
+
+        @bindings.add(Keys.Escape, eager=True, filter=missing_backtrack)
+        def _(event) -> None:
+            if self.history_backtrack_primed:
+                self.history_backtrack_primed = False
+                self.missing_backtrack_handler()
             else:
                 self.history_backtrack_primed = True
             event.app.invalidate()

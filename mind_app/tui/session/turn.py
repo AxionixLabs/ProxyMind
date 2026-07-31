@@ -106,12 +106,20 @@ async def run_tui_model_turn(
     pref_config: dict[str, typing.Any],
     permissions: PermissionSettings,
     turn_id: str | None = None,
-    prompt_extras: typing.Mapping[str, typing.Any] | None = None
+    prompt_extras: typing.Mapping[str, typing.Any] | None = None,
+    on_prompt_prepared: typing.Callable[
+        [list[dict[str, typing.Any]]],
+        None,
+    ] | None = None
 ) -> None:
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     attachments: list[dict[str, typing.Any]] = []
+
     if mind.attach.has_pending_attachments():
         attachments = mind.attach.consume_pending_attachments()
+
+    if on_prompt_prepared is not None:
+        on_prompt_prepared(attachments)
 
     attachment_names = [
         str(attachment.get("filename") or "").strip()
