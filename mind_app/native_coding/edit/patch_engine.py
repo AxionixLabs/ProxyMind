@@ -3,7 +3,8 @@
 
 import typing
 from mind_app.native_coding.base import (
-    NativeCodingBase, NativeCodingComponent
+    NativeCodingBase,
+    NativeCodingComponent
 )
 from mind_app.native_coding.edit.apply import PatchApplier
 from mind_app.native_coding.edit.diagnostics import PatchDiagnostics
@@ -20,18 +21,20 @@ class PatchEngine(NativeCodingComponent):
         super().__init__(core)
 
         self._diagnostics = PatchDiagnostics(core)
+        self._parser      = PatchParser()
 
-        self._parser = PatchParser()
         self._applier = PatchApplier(
             core,
             diagnostics=self._diagnostics
         )
+
         self._planner = PatchPlanner(
             core,
             parser=self._parser,
             applier=self._applier,
             diagnostics=self._diagnostics
         )
+
         self._operations = TextPatchOperations(
             core,
             planner=self._planner,
@@ -39,7 +42,7 @@ class PatchEngine(NativeCodingComponent):
         )
 
     def apply_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """转发严格 apply_patch 补丁请求。"""
+        """转发文本补丁请求。"""
         return self._operations.apply_patch(*args, **kwargs)
 
 

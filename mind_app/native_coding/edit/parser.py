@@ -2,197 +2,236 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from .types import (
+    PatchAction,
+    PatchFile,
+    PatchHunk,
+    PatchLine,
+    PatchMarker,
+    PatchParseFailure,
+    PatchParseResult,
+    PatchParseSuccess
+)
+from .unified_parser import parse_unified_patch
 
 
 class PatchParser(object):
-    """解析严格 apply_patch 文本为结构化补丁数据。"""
+    """识别并解析受支持的文本补丁格式。"""
+
+    @staticmethod
+    def _failure(reason: str, **data: typing.Any) -> PatchParseFailure:
+        """构造补丁解析失败结果。"""
+        return {"ok": False, "reason": reason, "data": data}
+
+    @staticmethod
+    def _new_hunk(header: str = "@@") -> PatchHunk:
+        """创建不依赖声明行号的严格格式 hunk。"""
+        return PatchHunk(header=header)
+
+    @staticmethod
+    def _new_file(
+        *,
+        path: str,
+        old_path: str,
+        new_path: str,
+        action: PatchAction
+    ) -> PatchFile:
+        """创建满足统一契约的文件补丁节点。"""
+        return PatchFile(
+            path=path,
+            old_path=old_path,
+            new_path=new_path,
+            action=action
+        )
+
+    @staticmethod
+    def _renamed_file(current: PatchFile, new_path: str) -> PatchFile:
+        """基于当前节点创建重命名后的完整文件补丁节点。"""
+        return PatchFile(
+            path=new_path,
+            old_path=current.old_path,
+            new_path=new_path,
+            action="rename",
+            hunks=current.hunks
+        )
+
+    @staticmethod
+    def _append_hunk(current: PatchFile | None, hunk: PatchHunk | None) -> None:
+        """把已完成的 hunk 追加到当前文件。"""
+        if current is not None and hunk is not None:
+            current.hunks.append(hunk)
 
     @staticmethod
     def parse_patch(
         patch: str
-    ) -> dict[str, typing.Any]:
-        """把严格 apply_patch 文本解析为文件和 hunk 的结构化表示。"""
+    ) -> PatchParseResult:
+        """识别格式并返回统一的文件和 hunk 结构。"""
         lines = str(patch or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        if lines and lines[-1] == "":
+        while lines and lines[-1] == "":
             lines.pop()
+        while lines and lines[0] == "":
+            lines.pop(0)
 
-        if not lines or lines[0] != "*** Begin Patch":
-            return {"ok": False, "reason": "native_patch_missing_begin", "data": {}}
+        if not lines:
+            return PatchParser._failure("native_patch_no_files")
+        if lines[0] == "*** Begin Patch":
+            return PatchParser._parse_strict_patch(lines)
+        if lines[0].startswith(("diff --git ", "--- ")):
+            return parse_unified_patch("\n".join(lines))
+        return PatchParser._failure(
+            "native_patch_unsupported_format",
+            line=lines[0]
+        )
+
+    @staticmethod
+    def _parse_strict_patch(lines: list[str]) -> PatchParseResult:
+        """解析带显式控制行的补丁文本。"""
         if lines[-1:] != ["*** End Patch"]:
-            return {"ok": False, "reason": "native_patch_missing_end", "data": {}}
+            return PatchParser._failure("native_patch_missing_end")
 
-        files: list[dict[str, typing.Any]]         = []
-        current: dict[str, typing.Any] | None      = None
-        hunk_state: dict[str, dict[str, typing.Any] | None] = {"current": None}
-
-        seen_paths: set[str] = set()
-
-        def close_hunk() -> None:
-            current_hunk = hunk_state["current"]
-            if current is not None and current_hunk is not None:
-                hunks = current.get("hunks")
-                if isinstance(hunks, list):
-                    hunks.append(current_hunk)
-            hunk_state["current"] = None
-
-        def ensure_hunk() -> dict[str, typing.Any]:
-            current_hunk = hunk_state["current"]
-            if current_hunk is None:
-                current_hunk = {
-                    "header"             : "@@",
-                    "old_start"          : 1,
-                    "new_start"          : 1,
-                    "old_count"          : 0,
-                    "new_count"          : 0,
-                    "declared_old_count" : 0,
-                    "declared_new_count" : 0,
-                    "count_corrected"    : False,
-                    "lines"              : []
-                }
-                hunk_state["current"] = current_hunk
-            return current_hunk
+        files: list[PatchFile]         = []
+        current: PatchFile | None      = None
+        current_hunk: PatchHunk | None = None
+        seen_paths: set[str]           = set()
 
         for line in lines[1:-1]:
             if line.startswith("*** Add File: "):
-                close_hunk()
+                PatchParser._append_hunk(current, current_hunk)
+                current_hunk = None
+
                 path = line[len("*** Add File: "):].strip()
                 if not path:
-                    return {"ok": False, "reason": "native_patch_missing_path", "data": {"line": line}}
+                    return PatchParser._failure("native_patch_missing_path", line=line)
                 if path in seen_paths:
-                    return {"ok": False, "reason": "native_patch_duplicate_file", "data": {"path": path}}
+                    return PatchParser._failure("native_patch_duplicate_file", path=path)
                 seen_paths.add(path)
 
-                current = {
-                    "path"     : path,
-                    "old_path" : "/dev/null",
-                    "new_path" : path,
-                    "action"   : "create",
-                    "hunks"    : []
-                }
+                current = PatchParser._new_file(
+                    path=path,
+                    old_path="/dev/null",
+                    new_path=path,
+                    action="create"
+                )
                 files.append(current)
                 continue
 
             if line.startswith("*** Update File: "):
-                close_hunk()
+                PatchParser._append_hunk(current, current_hunk)
+                current_hunk = None
+
                 path = line[len("*** Update File: "):].strip()
                 if not path:
-                    return {"ok": False, "reason": "native_patch_missing_path", "data": {"line": line}}
+                    return PatchParser._failure("native_patch_missing_path", line=line)
                 if path in seen_paths:
-                    return {"ok": False, "reason": "native_patch_duplicate_file", "data": {"path": path}}
+                    return PatchParser._failure("native_patch_duplicate_file", path=path)
                 seen_paths.add(path)
 
-                current = {
-                    "path"     : path,
-                    "old_path" : path,
-                    "new_path" : path,
-                    "action"   : "modify",
-                    "hunks"    : []
-                }
+                current = PatchParser._new_file(
+                    path=path,
+                    old_path=path,
+                    new_path=path,
+                    action="modify"
+                )
                 files.append(current)
                 continue
 
             if line.startswith("*** Delete File: "):
-                close_hunk()
+                PatchParser._append_hunk(current, current_hunk)
+                current_hunk = None
+
                 path = line[len("*** Delete File: "):].strip()
                 if not path:
-                    return {"ok": False, "reason": "native_patch_missing_path", "data": {"line": line}}
+                    return PatchParser._failure("native_patch_missing_path", line=line)
                 if path in seen_paths:
-                    return {"ok": False, "reason": "native_patch_duplicate_file", "data": {"path": path}}
+                    return PatchParser._failure("native_patch_duplicate_file", path=path)
                 seen_paths.add(path)
 
-                current = {
-                    "path"     : path,
-                    "old_path" : path,
-                    "new_path" : "/dev/null",
-                    "action"   : "delete",
-                    "hunks"    : []
-                }
+                current = PatchParser._new_file(
+                    path=path,
+                    old_path=path,
+                    new_path="/dev/null",
+                    action="delete"
+                )
                 files.append(current)
                 continue
 
             if line.startswith("*** Move to: "):
                 if current is None:
-                    return {"ok": False, "reason": "native_patch_move_without_file", "data": {"line": line}}
+                    return PatchParser._failure("native_patch_move_without_file", line=line)
+
                 path = line[len("*** Move to: "):].strip()
                 if not path:
-                    return {"ok": False, "reason": "native_patch_missing_path", "data": {"line": line}}
-                current["path"] = path
-                current["new_path"] = path
-                current["action"] = "rename"
+                    return PatchParser._failure("native_patch_missing_path", line=line)
+                if path in seen_paths:
+                    return PatchParser._failure("native_patch_duplicate_file", path=path)
+                seen_paths.add(path)
+
+                current = PatchParser._renamed_file(current, path)
+                files[-1] = current
                 continue
 
             if line.startswith("*** "):
-                return {"ok": False, "reason": "native_patch_unexpected_control_line", "data": {"line": line}}
+                return PatchParser._failure("native_patch_unexpected_control_line", line=line)
 
             if current is None:
                 if not line.strip():
                     continue
-                return {"ok": False, "reason": "native_patch_content_without_file", "data": {"line": line}}
+                return PatchParser._failure("native_patch_content_without_file", line=line)
 
             if line.startswith("@@"):
-                close_hunk()
-                hunk_state["current"] = {
-                    "header"             : line,
-                    "old_start"          : 1,
-                    "new_start"          : 1,
-                    "old_count"          : 0,
-                    "new_count"          : 0,
-                    "declared_old_count" : 0,
-                    "declared_new_count" : 0,
-                    "count_corrected"    : False,
-                    "lines"              : []
-                }
+                PatchParser._append_hunk(current, current_hunk)
+                current_hunk = PatchParser._new_hunk(line)
                 continue
 
             if line == r"\ No newline at end of file":
-                hunk = ensure_hunk()
-                if not hunk["lines"]:
-                    return {"ok": False, "reason": "native_patch_no_newline_without_line", "data": {"line": line}}
-                hunk["lines"][-1]["no_newline"] = True
+                if current_hunk is None or not current_hunk.entries:
+                    return PatchParser._failure("native_patch_no_newline_without_line", line=line)
+                current_hunk.entries[-1].no_newline = True
                 continue
 
             if not line:
-                return {"ok": False, "reason": "native_patch_bad_line", "data": {"line": line}}
+                return PatchParser._failure("native_patch_bad_line", line=line)
 
-            marker = line[0]
-            if marker not in {" ", "+", "-"}:
-                return {"ok": False, "reason": "native_patch_bad_line", "data": {"line": line}}
-            if current.get("action") == "create" and marker != "+":
-                return {
-                    "ok"     : False,
-                    "reason" : "native_patch_bad_create_line",
-                    "data"   : {"path": current.get("path"), "line": line}
-                }
+            marker: PatchMarker
+            if line[0] == " ":
+                marker = " "
+            elif line[0] == "+":
+                marker = "+"
+            elif line[0] == "-":
+                marker = "-"
+            else:
+                return PatchParser._failure("native_patch_bad_line", line=line)
 
-            hunk = ensure_hunk()
+            if current.action == "create" and marker != "+":
+                return PatchParser._failure(
+                    "native_patch_bad_create_line",
+                    path=current.path,
+                    line=line
+                )
+
+            if current_hunk is None:
+                current_hunk = PatchParser._new_hunk()
             if marker in {" ", "-"}:
-                hunk["old_count"] += 1
+                current_hunk.old_count += 1
             if marker in {" ", "+"}:
-                hunk["new_count"] += 1
-            hunk["declared_old_count"] = hunk["old_count"]
-            hunk["declared_new_count"] = hunk["new_count"]
+                current_hunk.new_count += 1
+            current_hunk.declared_old_count = current_hunk.old_count
+            current_hunk.declared_new_count = current_hunk.new_count
 
-            hunk["lines"].append({
-                "marker"     : marker,
-                "text"       : line[1:],
-                "no_newline" : False
-            })
+            current_hunk.entries.append(PatchLine(marker=marker, text=line[1:]))
 
-        close_hunk()
+        PatchParser._append_hunk(current, current_hunk)
 
         if not files:
-            return {"ok": False, "reason": "native_patch_no_files", "data": {}}
+            return PatchParser._failure("native_patch_no_files")
         for item in files:
-            if item.get("action") == "delete":
+            if item.action == "delete":
                 continue
-            if not item["hunks"]:
-                return {
-                    "ok"     : False,
-                    "reason" : "native_patch_no_hunks",
-                    "data"   : {"path": item["path"]}
-                }
+            if not item.hunks:
+                return PatchParser._failure("native_patch_no_hunks", path=item.path)
 
-        return {"ok": True, "files": files}
+        success: PatchParseSuccess = {"ok": True, "files": files}
+        return success
 
 
 if __name__ == '__main__':

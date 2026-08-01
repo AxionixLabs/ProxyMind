@@ -371,7 +371,9 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         ClientTool(
             name="apply_patch",
             description=(
-                "应用严格 apply_patch 补丁修改工作区文件。支持多文件、新建、更新、删除和上下文校验。"
+                "应用文本补丁修改工作区文件。调用参数是对象，必填字段为 patch，形状为 "
+                "{\"patch\": \"补丁文本\"}。支持 *** Begin Patch、标准 unified diff 和 "
+                "git diff，以及多文件、新建、更新、删除和上下文校验。"
             ),
             input_schema=APPLY_PATCH_INPUT_SCHEMA,
             meta={"hidden": False, "domain": "coding", "class": "workspace"},

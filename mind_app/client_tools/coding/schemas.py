@@ -119,7 +119,19 @@ APPLY_PATCH_INPUT_SCHEMA: dict[str, typing.Any] = {
     "properties": {
         "patch": {
             "type": "string",
-            "description": "严格 apply_patch 补丁文本。",
+            "description": (
+                "完整补丁文本。支持 *** Begin Patch 严格格式，以及标准 unified diff / "
+                "git diff。git diff 新建文件示例：\n"
+                "diff --git a/hello.txt b/hello.txt\n"
+                "new file mode 100644\n"
+                "--- /dev/null\n"
+                "+++ b/hello.txt\n"
+                "@@ -0,0 +1 @@\n"
+                "+hello"
+            ),
+            "examples": [
+                "--- /dev/null\n+++ hello.txt\n@@ -0,0 +1 @@\n+hello\n"
+            ],
         },
         "expected_sha256": {
             "type": ["object", "null"],

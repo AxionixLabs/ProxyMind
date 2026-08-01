@@ -5,6 +5,7 @@ import typing
 from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
+from mind_app.native_coding.edit.types import PatchHunk
 
 
 class PatchApplier(NativeCodingComponent):
@@ -72,7 +73,7 @@ class PatchApplier(NativeCodingComponent):
 
     @staticmethod
     def _hunk_overlap_is_context_only(
-        hunk: dict[str, typing.Any],
+        hunk: PatchHunk,
         *,
         overlap_count: int
     ) -> bool:
@@ -80,12 +81,9 @@ class PatchApplier(NativeCodingComponent):
         if overlap_count <= 0:
             return True
 
-        consumed = 0
-        for raw_line in hunk.get("lines") or []:
-            if isinstance(raw_line, dict):
-                marker = str(raw_line.get("marker") or "")
-            else:
-                marker = str(raw_line)[0] if str(raw_line) else ""
+        consumed: int = 0
+        for raw_line in hunk.entries:
+            marker = raw_line.marker
 
             if marker not in {" ", "-"}:
                 continue
@@ -99,22 +97,18 @@ class PatchApplier(NativeCodingComponent):
 
     def _hunk_old_sequence(
         self,
-        hunk: dict[str, typing.Any],
+        hunk: PatchHunk,
         *,
         newline: str = "\n"
     ) -> list[str]:
         """提取 hunk 中需要与原文匹配的上下文和删除行序列。"""
         sequence: list[str] = []
-        for raw_line in hunk.get("lines") or []:
-            if isinstance(raw_line, dict):
-                marker     = str(raw_line.get("marker") or "")
-                text       = str(raw_line.get("text") or "")
-                no_newline = bool(raw_line.get("no_newline"))
-            else:
-                raw_text   = str(raw_line)
-                marker     = raw_text[0] if raw_text else ""
-                text       = raw_text[1:]
-                no_newline = False
+
+        for raw_line in hunk.entries:
+
+            marker     = raw_line.marker
+            text       = raw_line.text
+            no_newline = raw_line.no_newline
 
             if marker in {" ", "-"}:
                 sequence.append(
@@ -150,18 +144,22 @@ class PatchApplier(NativeCodingComponent):
                 "reason" : "patch_context_out_of_range",
                 "data"   : {}
             }
+
         candidates: list[int] = []
+
         for index in range(max(0, search_start), max_start + 1):
             if self._lines_match_at(lines, index, expected):
                 candidates.append(index)
                 if len(candidates) > 8:
                     break
+
         if not candidates:
             return {
                 "ok"     : False,
                 "reason" : "patch_context_mismatch",
                 "data"   : {}
             }
+
         if len(candidates) > 1:
             return {
                 "ok": False,
@@ -170,12 +168,13 @@ class PatchApplier(NativeCodingComponent):
                     "candidate_lines": [item + 1 for item in candidates[:8]]
                 }
             }
+
         return {"ok": True, "index": candidates[0]}
 
     def apply_patch_hunks(
         self,
         content: str,
-        hunks: list[dict[str, typing.Any]]
+        hunks: list[PatchHunk]
     ) -> dict[str, typing.Any]:
         """把已解析的 hunk 应用到文本内容并返回新内容。"""
         original = content.splitlines(keepends=True)
@@ -189,11 +188,25 @@ class PatchApplier(NativeCodingComponent):
 
         for hunk_index, hunk in enumerate(hunks, start=1):
 
-            old_start    = int(hunk.get("old_start") if hunk.get("old_start") is not None else 1)
-            old_count    = int(hunk.get("old_count") if hunk.get("old_count") is not None else 1)
+            old_start    = hunk.old_start
+            old_count    = hunk.old_count
             target_index = self._hunk_target_index(old_start=old_start, old_count=old_count)
-
             old_sequence = self._hunk_old_sequence(hunk, newline=newline)
+
+            if (
+                hunk.has_declared_position
+                and not old_sequence
+                and target_index > len(original)
+            ):
+                return {
+                    "ok": False,
+                    "reason": "patch_context_out_of_range",
+                    "data": {
+                        "hunk": hunk_index,
+                        "hunk_header": hunk.header,
+                        "target_line": target_index + 1
+                    }
+                }
             if old_sequence and (
                 target_index < cursor
                 or not self._lines_match_at(original, target_index, old_sequence)
@@ -218,22 +231,22 @@ class PatchApplier(NativeCodingComponent):
                             "ok": False,
                             "reason": "patch_overlapping_hunk",
                             "data": {
-                                "hunk"        : hunk_index,
-                                "hunk_header" : hunk.get("header"),
-                                "target_line" : relocated_index + 1
+                                "hunk": hunk_index,
+                                "hunk_header": hunk.header,
+                                "target_line": relocated_index + 1
                             }
                         }
                     relocated_hunks.append({
-                        "hunk"      : hunk_index,
-                        "from_line" : target_index + 1,
-                        "to_line"   : relocated_index + 1
+                        "hunk": hunk_index,
+                        "from_line": target_index + 1,
+                        "to_line": relocated_index + 1
                     })
                     target_index = relocated_index
                 else:
                     data = located.get("data") or {}
                     data.update({
                         "hunk": hunk_index,
-                        "hunk_header": hunk.get("header"),
+                        "hunk_header": hunk.header,
                         "target_line": target_index + 1,
                         "expected_sequence": [
                             self._strip_line_ending(item) for item in old_sequence[:12]
@@ -254,8 +267,8 @@ class PatchApplier(NativeCodingComponent):
                     "ok": False,
                     "reason": "patch_overlapping_hunk",
                     "data": {
-                        "hunk"        : hunk_index,
-                        "hunk_header" : hunk.get("header")
+                        "hunk": hunk_index,
+                        "hunk_header": hunk.header
                     }
                 }
 
@@ -264,15 +277,11 @@ class PatchApplier(NativeCodingComponent):
                 output.extend(original[cursor:target_index])
                 cursor = target_index
 
-            for body_index, raw_line in enumerate(hunk.get("lines") or [], start=1):
-                if isinstance(raw_line, dict):
-                    marker     = str(raw_line.get("marker") or "")
-                    text       = str(raw_line.get("text") or "")
-                    no_newline = bool(raw_line.get("no_newline"))
-                else:
-                    marker     = str(raw_line)[0]
-                    text       = str(raw_line)[1:]
-                    no_newline = False
+            for body_index, raw_line in enumerate(hunk.entries, start=1):
+
+                marker     = raw_line.marker
+                text       = raw_line.text
+                no_newline = raw_line.no_newline
 
                 expected_line = self._patch_line_content(text, no_newline=no_newline, newline=newline)
 
@@ -283,10 +292,10 @@ class PatchApplier(NativeCodingComponent):
                                 "ok": False,
                                 "reason": "patch_overlapping_hunk",
                                 "data": {
-                                    "hunk"        : hunk_index,
-                                    "hunk_header" : hunk.get("header"),
-                                    "line"        : body_index,
-                                    "target_line" : cursor + 1
+                                    "hunk": hunk_index,
+                                    "hunk_header": hunk.header,
+                                    "line": body_index,
+                                    "target_line": cursor + 1
                                 }
                             }
                         overlap_remaining -= 1
@@ -297,12 +306,12 @@ class PatchApplier(NativeCodingComponent):
                             "ok": False,
                             "reason": "patch_context_out_of_range",
                             "data": {
-                                "hunk"        : hunk_index,
-                                "hunk_header" : hunk.get("header"),
-                                "line"        : body_index,
-                                "target_line" : cursor + 1,
-                                "expected"    : text,
-                                "nearby"      : self._nearby_lines(original, cursor)
+                                "hunk": hunk_index,
+                                "hunk_header": hunk.header,
+                                "line": body_index,
+                                "target_line": cursor + 1,
+                                "expected": text,
+                                "nearby": self._nearby_lines(original, cursor)
                             }
                         }
 
@@ -312,15 +321,15 @@ class PatchApplier(NativeCodingComponent):
                             "ok": False,
                             "reason": "patch_context_mismatch",
                             "data": {
-                                "hunk"              : hunk_index,
-                                "hunk_header"       : hunk.get("header"),
-                                "line"              : body_index,
-                                "target_line"       : cursor + 1,
-                                "expected"          : self._strip_line_ending(expected_line),
-                                "actual"            : self._strip_line_ending(current_line),
-                                "expected_sequence" : [self._strip_line_ending(expected_line)],
-                                "actual_sequence"   : [self._strip_line_ending(current_line)],
-                                "nearby"            : self._nearby_lines(original, cursor)
+                                "hunk": hunk_index,
+                                "hunk_header": hunk.header,
+                                "line": body_index,
+                                "target_line": cursor + 1,
+                                "expected": self._strip_line_ending(expected_line),
+                                "actual": self._strip_line_ending(current_line),
+                                "expected_sequence": [self._strip_line_ending(expected_line)],
+                                "actual_sequence": [self._strip_line_ending(current_line)],
+                                "nearby": self._nearby_lines(original, cursor)
                             }
                         }
                     cursor += 1
@@ -342,4 +351,3 @@ class PatchApplier(NativeCodingComponent):
 
 if __name__ == '__main__':
     pass
-

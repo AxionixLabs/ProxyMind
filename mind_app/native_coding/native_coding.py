@@ -207,7 +207,7 @@ class NativeCoding(NativeCodingBase):
         *args: typing.Any,
         **kwargs: typing.Any
     ) -> dict[str, typing.Any]:
-        """应用严格 apply_patch 补丁。"""
+        """应用受支持的文本补丁。"""
         return self._patch_engine.apply_patch(*args, **kwargs)
 
     def reset_patch_diff(self) -> None:

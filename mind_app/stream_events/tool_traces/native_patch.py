@@ -2,12 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.native_coding.edit.parser import PatchParser
 from .common import (
     MAX_CODE_PREVIEW_LINES,
     SCREEN_CODE_PREVIEW_LINES,
     TracePreview,
     _format_preview_lines,
-    _normalize_preview_lines,
     _short_line,
     _summary_lines
 )
@@ -77,7 +77,7 @@ def _patch_error_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
 
 
 def _patch_preview_lines(patch: typing.Any) -> list[str]:
-    """从严格 apply_patch 文本中提取按文件分组的代码预览行。"""
+    """从受支持的补丁文本中提取按文件分组的代码预览行。"""
     return _flatten_patch_preview_groups(_patch_preview_groups(patch))
 
 
@@ -96,69 +96,51 @@ def _patch_preview(patch: typing.Any) -> TracePreview:
 
 
 def _patch_preview_groups(patch: typing.Any) -> list[dict[str, typing.Any]]:
-    """从严格 apply_patch 文本中提取文件分组。"""
-    groups: list[dict[str, typing.Any]]   = []
-    current: dict[str, typing.Any] | None = None
+    """从统一补丁结构中生成文件预览分组。"""
+    parsed = PatchParser.parse_patch(str(patch or ""))
+    if not parsed["ok"]:
+        return []
 
-    current_old_line: int = 1
-    current_new_line: int = 1
+    groups: list[dict[str, typing.Any]] = []
 
-    for raw in _normalize_preview_lines(patch):
-        if raw in {"*** Begin Patch", "*** End Patch"}:
-            continue
+    for item in parsed["files"]:
+        current = _new_patch_preview_group(groups, item.path)
 
-        if raw.startswith("*** Add File: "):
-            current = _new_patch_preview_group(groups, raw[len("*** Add File: "):])
-            current_old_line = 1
-            current_new_line = 1
-            continue
+        for hunk in item.hunks:
+            current_old_line = hunk.old_start
+            current_new_line = hunk.new_start
+            _append_patch_preview_line(groups, current, hunk.header)
 
-        if raw.startswith("*** Update File: "):
-            current = _new_patch_preview_group(groups, raw[len("*** Update File: "):])
-            current_old_line = 1
-            current_new_line = 1
-            continue
+            for raw in hunk.entries:
+                marker = raw.marker
+                text   = raw.text
 
-        if raw.startswith("*** Delete File: "):
-            current = _new_patch_preview_group(groups, raw[len("*** Delete File: "):])
-            current_old_line = 1
-            current_new_line = 1
-            continue
+                if marker == "+":
+                    _append_patch_preview_line(
+                        groups,
+                        current,
+                        f"{current_new_line:>4} +{text}"
+                    )
+                    current["added"] = int(current.get("added") or 0) + 1
+                    current_new_line += 1
 
-        if raw.startswith("*** Move to: "):
-            if current is not None:
-                current["path"] = str(raw[len("*** Move to: "):] or "").strip()
-            continue
+                elif marker == "-":
+                    _append_patch_preview_line(
+                        groups,
+                        current,
+                        f"{current_old_line:>4} -{text}"
+                    )
+                    current["removed"] = int(current.get("removed") or 0) + 1
+                    current_old_line += 1
 
-        if raw.startswith("@@"):
-            _append_patch_preview_line(groups, current, raw)
-            continue
-
-        if raw.startswith("*** "):
-            continue
-
-        if not raw:
-            continue
-
-        marker = raw[0]
-        text   = raw[1:] if marker in {" ", "+", "-"} else raw
-
-        if marker == "+":
-            _append_patch_preview_line(groups, current, f"{current_new_line:>4} +{text}")
-            if current is not None:
-                current["added"] = int(current.get("added") or 0) + 1
-            current_new_line += 1
-
-        elif marker == "-":
-            _append_patch_preview_line(groups, current, f"{current_old_line:>4} -{text}")
-            if current is not None:
-                current["removed"] = int(current.get("removed") or 0) + 1
-            current_old_line += 1
-
-        elif marker == " ":
-            _append_patch_preview_line(groups, current, f"{current_new_line:>4}  {text}")
-            current_old_line += 1
-            current_new_line += 1
+                else:
+                    _append_patch_preview_line(
+                        groups,
+                        current,
+                        f"{current_new_line:>4}  {text}"
+                    )
+                    current_old_line += 1
+                    current_new_line += 1
 
     return groups
 
@@ -167,7 +149,7 @@ def _new_patch_preview_group(
     groups: list[dict[str, typing.Any]],
     path: typing.Any
 ) -> dict[str, typing.Any]:
-    """创建一个严格 patch 文件预览分组。"""
+    """创建一个补丁文件预览分组。"""
     current = {
         "path"    : str(path or "").strip(),
         "added"   : 0,
@@ -246,41 +228,6 @@ def _screen_patch_preview_groups(groups: list[dict[str, typing.Any]]) -> list[st
             lines.append(f"… +{omitted} lines")
 
     return lines
-
-
-def _error_patch_preview_lines(patch: typing.Any, data: dict[str, typing.Any]) -> list[str]:
-    """从异常 patch 中提取相关 hunk 附近的短预览。"""
-    hunk_header = str(data.get("hunk_header") or data.get("header") or "").strip()
-    if not hunk_header:
-        return _patch_preview_lines(patch)[:6]
-
-    raw_lines = _normalize_preview_lines(patch)
-
-    hunk_index = next(
-        (index for index, line in enumerate(raw_lines) if line.strip() == hunk_header),
-        -1,
-    )
-    if hunk_index < 0:
-        return _patch_preview_lines(patch)[:6]
-
-    start = hunk_index
-    while start > 0 and not raw_lines[start].startswith("*** "):
-        start -= 1
-
-    end = hunk_index + 1
-
-    body_count = 0
-
-    while end < len(raw_lines):
-        line = raw_lines[end]
-        if line.startswith(("@@", "*** ")):
-            break
-        body_count += 1
-        end += 1
-        if body_count >= 4:
-            break
-
-    return _patch_preview_lines("\n".join(raw_lines[start:end]))
 
 
 def _hunk_label(value: typing.Any) -> str:

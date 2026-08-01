@@ -10,7 +10,7 @@ from .delta import AppliedPatchDelta
 
 
 class TextPatchOperations(NativeCodingComponent):
-    """提供严格 apply_patch 操作入口。"""
+    """提供文本补丁操作入口。"""
 
     def __init__(self, core: NativeCodingBase, *, planner: typing.Any, diagnostics: typing.Any) -> None:
         """保存共享运行时上下文和补丁执行依赖。"""
@@ -26,7 +26,7 @@ class TextPatchOperations(NativeCodingComponent):
         expected_sha256: dict[str, str] | None = None,
         force: bool = False
     ) -> dict[str, typing.Any]:
-        """解析并应用严格 apply_patch 补丁。"""
+        """解析并应用受支持的文本补丁。"""
         planned_result = self._planner.plan_patch(
             patch=patch,
             expected_sha256=expected_sha256,
@@ -118,4 +118,3 @@ class TextPatchOperations(NativeCodingComponent):
 
 if __name__ == '__main__':
     pass
-

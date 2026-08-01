@@ -7,10 +7,11 @@ from mind_app.native_coding.base import (
     NativeCodingComponent
 )
 from mind_nova import const
+from mind_app.native_coding.edit.types import PatchHunk
 
 
 class PatchPlanner(NativeCodingComponent):
-    """预检查严格 apply_patch 并生成文件写入计划。"""
+    """预检查文本补丁并生成文件写入计划。"""
 
     def __init__(
         self,
@@ -28,15 +29,15 @@ class PatchPlanner(NativeCodingComponent):
         self._diagnostics = diagnostics
 
     @staticmethod
-    def _patch_line_stats(hunks: list[dict[str, typing.Any]]) -> dict[str, int]:
+    def _patch_line_stats(hunks: list[PatchHunk]) -> dict[str, int]:
         """统计 patch hunk 中的新增、删除和上下文行数。"""
         added: int   = 0
         removed: int = 0
         context: int = 0
 
         for hunk in hunks:
-            for raw_line in hunk.get("lines") or []:
-                marker = str(raw_line.get("marker") or "") if isinstance(raw_line, dict) else str(raw_line)[:1]
+            for raw_line in hunk.entries:
+                marker = raw_line.marker
                 if marker == "+":
                     added += 1
                 elif marker == "-":
@@ -52,16 +53,16 @@ class PatchPlanner(NativeCodingComponent):
         }
 
     @staticmethod
-    def _native_create_content(hunks: list[dict[str, typing.Any]]) -> str:
+    def _native_create_content(hunks: list[PatchHunk]) -> str:
         """从 Add File hunk 中生成新文件内容。"""
         lines: list[str] = []
         for hunk in hunks:
-            for raw_line in hunk.get("lines") or []:
-                marker = str(raw_line.get("marker") or "")
+            for raw_line in hunk.entries:
+                marker = raw_line.marker
                 if marker != "+":
                     continue
-                text = str(raw_line.get("text") or "")
-                if raw_line.get("no_newline"):
+                text = raw_line.text
+                if raw_line.no_newline:
                     lines.append(text)
                 else:
                     lines.append(f"{text}\n")
@@ -103,7 +104,7 @@ class PatchPlanner(NativeCodingComponent):
         expected_sha256: dict[str, str] | None = None,
         force: bool = False
     ) -> dict[str, typing.Any]:
-        """预检查严格 apply_patch，并生成待写入文件的变更计划。"""
+        """预检查文本补丁，并生成待写入文件的变更计划。"""
         parsed = self._parser.parse_patch(patch)
         if not parsed.get("ok"):
             return {
@@ -122,8 +123,8 @@ class PatchPlanner(NativeCodingComponent):
         seen_paths: set[str]                 = set()
 
         for item in parsed["files"]:
-            path   = str(item["path"])
-            action = str(item.get("action") or "modify")
+            path   = item.path
+            action = item.action
 
             try:
                 target = self.resolve_path(path)
@@ -139,7 +140,7 @@ class PatchPlanner(NativeCodingComponent):
             source_rel    = rel
 
             if action == "rename":
-                source_path = str(item.get("old_path") or "")
+                source_path = item.old_path
                 try:
                     source_target = self.resolve_path(source_path)
                 except ValueError as exc:
@@ -178,7 +179,7 @@ class PatchPlanner(NativeCodingComponent):
             if action in {"modify", "delete", "rename"}:
                 expected = expected_map.get(path) or expected_map.get(rel)
                 if action == "rename":
-                    expected = expected or expected_map.get(source_rel) or expected_map.get(str(item.get("old_path") or ""))
+                    expected = expected or expected_map.get(source_rel) or expected_map.get(item.old_path)
                     if conflict := self.conflict_guard(source_target, expected_sha256=expected, force=force):
                         return {
                             "ok"     : False,
@@ -210,13 +211,13 @@ class PatchPlanner(NativeCodingComponent):
             )
 
             if action == "create":
-                content = self._native_create_content(item["hunks"])
+                content = self._native_create_content(item.hunks)
                 applied: dict[str, typing.Any] = {"relocated_hunks": []}
-            elif action == "delete" and not item["hunks"]:
+            elif action == "delete" and not item.hunks:
                 content = ""
                 applied = {"relocated_hunks": []}
             else:
-                applied = self._applier.apply_patch_hunks(current, item["hunks"])
+                applied = self._applier.apply_patch_hunks(current, item.hunks)
                 if not applied.get("ok"):
                     reason = str(applied["reason"])
                     data   = {"path": path, **(applied.get("data") or {})}
@@ -237,7 +238,7 @@ class PatchPlanner(NativeCodingComponent):
                     "data"   : {"path": path, "size": size, "max_bytes": self.max_write_bytes}
                 }
 
-            line_stats     = self._patch_line_stats(item["hunks"])
+            line_stats     = self._patch_line_stats(item.hunks)
             sha256_content = self.sha256_bytes(content.encode(const.CHARSET, const.IGNORE))
 
             planned.append({
@@ -251,7 +252,7 @@ class PatchPlanner(NativeCodingComponent):
                 "new_content"         : None if action == "delete" else content,
                 "overwritten_content" : None,
                 "delta_exact"         : delta_exact,
-                "hunks"               : len(item["hunks"]),
+                "hunks"               : len(item.hunks),
                 "relocated_hunks"     : list(applied.get("relocated_hunks") or []),
                 "corrected_hunks"     : [],
                 "sha256"              : sha256_content,
@@ -265,4 +266,3 @@ class PatchPlanner(NativeCodingComponent):
 
 if __name__ == '__main__':
     pass
-
