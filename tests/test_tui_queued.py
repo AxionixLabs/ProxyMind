@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+from types import SimpleNamespace
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.utils import get_cwidth
 from unittest.mock import Mock
 
 from mind_app.frontend import ApplicationView
 from mind_app.interaction.contracts import PromptContext
+from mind_core.design.terminal_capabilities import (
+    TerminalCapabilities,
+    TerminalColorLevel,
+    TerminalIdentity,
+    TerminalKind,
+)
 from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
@@ -18,35 +26,58 @@ def test_queue_uses_next_turn_title() -> None:
 
     text = _fragments_text(queue.fragments(width=100))
 
-    assert "• Messages queued for the next turn (Esc edits latest)" in text
+    assert "• Queued follow-up inputs (Alt+Up edits latest)" in text
     assert "  ↳ next task" in text
 
 
-def test_server_queued_message_cannot_be_edited_until_settlement() -> None:
+@pytest.mark.parametrize(
+    "keys",
+    (
+        (Keys.Escape, Keys.Up),
+        (Keys.ShiftLeft,),
+    ),
+)
+def test_codex_queue_edit_shortcuts_restore_latest_message(keys) -> None:
     runtime = TuiRuntime()
-    submission = TuiSubmission(
-        value="next task",
-        editable_text="next task",
-        paste_store={},
-        client_message_id="message_1",
-        server_queued=True,
+    runtime.defer_submission(_submission("first task"))
+    runtime.defer_submission(_submission("latest task"))
+
+    binding = next(
+        item
+        for item in runtime.input_model.key_bindings.bindings
+        if item.keys == keys
     )
-    runtime.defer_submission(submission)
+    binding.handler(SimpleNamespace(
+        app=SimpleNamespace(current_buffer=runtime.screen.input.buffer),
+    ))
 
-    text = _fragments_text(
-        runtime.submissions.queued_messages.fragments(width=100)
-    )
+    assert runtime.screen.input.buffer.text == "latest task"
+    assert runtime.submissions.queued_messages.pop_next().value == "first task"
 
-    assert "Esc edits latest" not in text
-    assert runtime.submission_deferred
-    assert runtime.submissions.queued_messages.pop_next() is None
-    assert not runtime.submissions.rollback_queued_input()
 
-    runtime.release_deferred_submission("message_1")
+@pytest.mark.parametrize(
+    "identity",
+    (
+        TerminalIdentity(TerminalKind.VSCODE, "VS Code"),
+        TerminalIdentity(TerminalKind.WARP, "Warp"),
+        TerminalIdentity(TerminalKind.APPLE_TERMINAL, "Apple Terminal"),
+        TerminalIdentity(
+            TerminalKind.WINDOWS_TERMINAL,
+            "Windows Terminal",
+            multiplexer=TerminalKind.TMUX,
+        ),
+    ),
+)
+def test_queue_edit_hint_uses_terminal_fallback(identity) -> None:
+    runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
+        identity=identity,
+        color_level=TerminalColorLevel.UNKNOWN,
+    ))
+    runtime.defer_submission(_submission("next task"))
 
-    assert not runtime.submission_deferred
-    assert runtime.submissions.rollback_queued_input()
-    assert runtime.screen.input.buffer.text == "next task"
+    text = _fragments_text(runtime.screen._queued_fragments())
+
+    assert "Shift+Left edits latest" in text
 
 
 def test_queued_input_candidate_uses_dim_style() -> None:

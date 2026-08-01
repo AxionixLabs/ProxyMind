@@ -215,11 +215,7 @@ class TuiRuntime(object):
     @property
     def submission_deferred(self) -> bool:
         """返回新输入是否需要延迟到下一模型轮次。"""
-        return bool(
-            self.execution_active
-            or self.foreground_active
-            or self.submissions.queued_messages.waiting_settlement
-        )
+        return self.execution_active or self.foreground_active
 
     @property
     def task_running(self) -> bool:
@@ -811,6 +807,13 @@ class TuiRuntime(object):
         """绑定或清除活动模型轮次的输入接管函数。"""
         self.submissions.bind_turn_input_handler(handler)
 
+    def bind_queued_restore_handler(
+        self,
+        handler: typing.Callable[[TuiSubmission], None] | None,
+    ) -> None:
+        """绑定或清除取回队列消息时的结构化草稿恢复。"""
+        self.submissions.bind_queued_restore_handler(handler)
+
     def defer_submission(
         self,
         submission: TuiSubmission,
@@ -822,10 +825,6 @@ class TuiRuntime(object):
             submission,
             next_input=next_input,
         )
-
-    def release_deferred_submission(self, client_message_id: str) -> None:
-        """解除一条本地待提交消息的服务端持有状态。"""
-        self.submissions.release_deferred_submission(client_message_id)
 
     def consume_submission_payload(self) -> TuiSubmission | None:
         """读取最近一项输入携带的附件和扩展字段。"""

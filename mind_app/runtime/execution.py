@@ -7,7 +7,10 @@ from dataclasses import (
     replace
 )
 from mind_core.permissions import PermissionSettings
-from mind_nova.identifiers import short_uid
+from mind_nova.identifiers import (
+    normalize_turn_id,
+    short_uid
+)
 from mind_nova.modes import RunMode
 
 ROOT_AGENT_ID   = "root"
@@ -158,7 +161,10 @@ class TurnContext:
         """从会话与运行配置创建轮次上下文。"""
         normalized_cid     = str(cid or "").strip()
         normalized_sid     = str(sid or "").strip()
-        normalized_turn_id = str(turn_id or "").strip() or short_uid(12)
+
+        normalized_turn_id = normalize_turn_id(
+            str(turn_id or "").strip() or short_uid(12)
+        )
 
         if not normalized_cid or not normalized_sid:
             raise ValueError("cid and sid are required")

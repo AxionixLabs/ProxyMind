@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_nova.identifiers import short_uid
+from mind_nova.identifiers import (
+    normalize_turn_id,
+    short_uid
+)
 from .permissions import permission_payload
 
 
@@ -117,7 +120,10 @@ async def build_chat_payload(
         if normalized:
             additional_context.append(normalized)
 
-    turn_id     = str(kwargs.pop("turn_id", "") or "").strip() or short_uid(12)
+    turn_id = normalize_turn_id(
+        str(kwargs.pop("turn_id", "") or "").strip() or short_uid(12)
+    )
+
     permissions = permission_payload(kwargs.pop("permissions", None))
 
     payload: dict[str, typing.Any] = {

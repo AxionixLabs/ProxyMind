@@ -643,8 +643,7 @@ class TuiInputModel(object):
 
         completion_menu_open = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(
-                not self.can_rollback_queue()
-                and self.completion_menu_completions(
+                self.completion_menu_completions(
                     get_app().current_buffer.document
                 ) is not None
             )
@@ -697,7 +696,12 @@ class TuiInputModel(object):
             event.app.current_buffer.insert_text("\n")
 
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
-            lambda: bool(self.can_rollback_queue())
+            lambda: bool(
+                self.can_rollback_queue()
+                and self.completion_menu_completions(
+                    get_app().current_buffer.document
+                ) is None
+            )
         )
 
         history_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
@@ -725,8 +729,8 @@ class TuiInputModel(object):
                 self.history_backtrack_primed = True
             event.app.invalidate()
 
-        @bindings.add(Keys.Escape, eager=True, filter=queue_rollback)
-        @bindings.add(Keys.ControlLeft, eager=True, filter=queue_rollback)
+        @bindings.add("escape", "up", eager=True, filter=queue_rollback)
+        @bindings.add(Keys.ShiftLeft, eager=True, filter=queue_rollback)
         def _(event) -> None:
             event.app.current_buffer.cancel_completion()
             self.rollback_queue_handler()

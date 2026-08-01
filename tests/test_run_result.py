@@ -354,6 +354,23 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
 
 
 @pytest.mark.anyio
+async def test_turn_start_opens_the_control_event_boundary(monkeypatch) -> None:
+    input_events = []
+
+    result, _mind = await _run_stream(
+        monkeypatch,
+        [
+            {"type": "turn.start", "turn_id": "turn_test"},
+            {"type": "turn.done", "turn_id": "turn_test"},
+        ],
+        on_turn_input_event=input_events.append,
+    )
+
+    assert result.status == "completed"
+    assert [event.type for event in input_events] == ["turn.start"]
+
+
+@pytest.mark.anyio
 async def test_sampling_accepted_input_preserves_local_transcript_order(
     monkeypatch,
 ) -> None:

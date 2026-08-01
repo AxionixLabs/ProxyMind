@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import time
 import uuid
 import base64
 from mind_nova import const
+
+TURN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 
 
 def _base36(number: int) -> str:
@@ -43,6 +46,16 @@ def short_uid(length: int = 8) -> str:
         .rstrip("=")
         .lower()[:length]
     )
+
+
+def normalize_turn_id(value: str) -> str:
+    """校验并返回客户端生成的逻辑轮次标识。"""
+    turn_id = str(value or "").strip()
+    if not TURN_ID_PATTERN.fullmatch(turn_id):
+        raise ValueError(
+            "turn_id must be 8-128 ASCII letters, digits, underscores or hyphens"
+        )
+    return turn_id
 
 
 if __name__ == '__main__':

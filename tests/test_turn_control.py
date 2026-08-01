@@ -19,7 +19,7 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
         json={
             "ok": True,
             "status": "accepted",
-            "turn_id": "turn_1",
+            "turn_id": "turn_001",
             "client_message_id": "message_1",
         },
         request=httpx.Request("POST", "https://example.com/turn/steer"),
@@ -55,7 +55,7 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
     result = await turn_control.steer_turn(
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
         turn_input=TurnInput(
             client_message_id="message_1",
             text="change direction",
@@ -71,7 +71,7 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
     assert captured["headers"] == {"authorization": "test"}
     assert captured["timeout"] == 4.0
     assert json.loads(json.dumps(captured["json"])) == {
-        "turn_id": "turn_1",
+        "turn_id": "turn_001",
         "client_message_id": "message_1",
         "input": {
             "text": "change direction",
@@ -91,7 +91,7 @@ async def test_follow_up_request_uses_the_same_stable_input_contract(
         json={
             "ok": True,
             "status": "accepted",
-            "turn_id": "turn_1",
+            "turn_id": "turn_001",
             "client_message_id": "message_1",
         },
         request=httpx.Request("POST", "https://example.com/turn/follow-up"),
@@ -123,7 +123,7 @@ async def test_follow_up_request_uses_the_same_stable_input_contract(
     result = await turn_control.follow_up_turn(
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
         turn_input=turn_input,
     )
 
@@ -131,7 +131,7 @@ async def test_follow_up_request_uses_the_same_stable_input_contract(
     assert captured["url"] == "https://example.com/turn/follow-up"
     assert captured["params"] == {"cid": "cid_1", "sid": "sid_1"}
     assert captured["json"] == {
-        "turn_id": "turn_1",
+        "turn_id": "turn_001",
         "client_message_id": "message_1",
         "input": {
             "text": "next task",
@@ -176,7 +176,7 @@ async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
         await turn_control.interrupt_turn(
             cid="cid_1",
             sid="sid_1",
-            turn_id="turn_1",
+            turn_id="turn_001",
         )
 
 
@@ -184,8 +184,8 @@ async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("field", "values"),
     [
-        ("cid", {"cid": "", "sid": "sid_1", "turn_id": "turn_1"}),
-        ("sid", {"cid": "cid_1", "sid": "", "turn_id": "turn_1"}),
+        ("cid", {"cid": "", "sid": "sid_1", "turn_id": "turn_001"}),
+        ("sid", {"cid": "cid_1", "sid": "", "turn_id": "turn_001"}),
         ("turn_id", {"cid": "cid_1", "sid": "sid_1", "turn_id": ""}),
     ],
 )
@@ -203,4 +203,17 @@ async def test_turn_control_rejects_incomplete_session_coordinates(
                 client_message_id="message_1",
                 text="change direction",
             ),
+        )
+
+
+@pytest.mark.anyio
+async def test_turn_control_rejects_invalid_turn_id() -> None:
+    with pytest.raises(
+        turn_control.TurnControlRequestError,
+        match="8-128 ASCII",
+    ):
+        await turn_control.interrupt_turn(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="short",
         )

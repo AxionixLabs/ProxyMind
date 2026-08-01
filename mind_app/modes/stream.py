@@ -492,6 +492,8 @@ async def stream_looper(
                 await content.emit(AssistantOutputBoundary())
 
             if event_type == "turn.start":
+                if on_turn_input_event is not None:
+                    on_turn_input_event(event)
                 continue
 
             if event_type == "turn.thinking":

@@ -5,6 +5,7 @@ import httpx
 import typing
 from dataclasses import dataclass
 from engine.channel import Channel
+from mind_nova.identifiers import normalize_turn_id
 from mind_nova.services import service_endpoints
 from mind_nova.turn_inputs import TurnInput
 
@@ -47,7 +48,7 @@ async def steer_turn(
     timeout: float = 10.0,
 ) -> TurnControlResponse:
     """向活动逻辑轮次提交一项引导输入。"""
-    normalized_turn_id = str(turn_id or "").strip()
+    normalized_turn_id = _turn_id(turn_id)
 
     payload = {
         "turn_id": normalized_turn_id,
@@ -75,7 +76,7 @@ async def follow_up_turn(
     timeout: float = 10.0
 ) -> TurnControlResponse:
     """向活动逻辑轮次提交一项后续输入。"""
-    normalized_turn_id = str(turn_id or "").strip()
+    normalized_turn_id = _turn_id(turn_id)
 
     payload = {
         "turn_id": normalized_turn_id,
@@ -102,7 +103,7 @@ async def interrupt_turn(
     timeout: float = 10.0
 ) -> TurnControlResponse:
     """请求服务端中断匹配的活动逻辑轮次。"""
-    normalized_turn_id = str(turn_id or "").strip()
+    normalized_turn_id = _turn_id(turn_id)
 
     return await _post_control(
         "/turn/interrupt",
@@ -113,6 +114,14 @@ async def interrupt_turn(
         expected_message_id="interrupt",
         timeout=timeout,
     )
+
+
+def _turn_id(value: str) -> str:
+    """按当前服务端协议校验逻辑轮次标识。"""
+    try:
+        return normalize_turn_id(value)
+    except ValueError as error:
+        raise TurnControlRequestError(str(error)) from error
 
 
 async def _post_control(

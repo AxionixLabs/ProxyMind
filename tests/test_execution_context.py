@@ -58,6 +58,37 @@ def test_turn_context_rejects_mismatched_root_session() -> None:
         )
 
 
+def test_turn_context_rejects_invalid_explicit_turn_id() -> None:
+    with pytest.raises(ValueError, match="8-128 ASCII"):
+        TurnContext.create(
+            agent=AgentContext.root("sid_test"),
+            cid="cid_test",
+            sid="sid_test",
+            mode="chat",
+            source="test",
+            pref_config={},
+            cwd=".",
+            permissions=preset_permissions("read-only"),
+            turn_id="short",
+        )
+
+
+def test_turn_context_generates_protocol_compatible_turn_id() -> None:
+    turn = TurnContext.create(
+        agent=AgentContext.root("sid_test"),
+        cid="cid_test",
+        sid="sid_test",
+        mode="chat",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=preset_permissions("read-only"),
+    )
+
+    assert 8 <= len(turn.turn_id) <= 128
+    assert turn.turn_id.replace("_", "").replace("-", "").isalnum()
+
+
 def test_child_agent_preserves_root_identity_and_advances_depth() -> None:
     root = AgentContext.root("sid_root")
     child = root.child("explore", "inspect", agent_id="agent_child")

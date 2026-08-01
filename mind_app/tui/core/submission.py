@@ -44,6 +44,10 @@ def _ignore_turn_input(_submission: TuiSubmission, _queue_only: bool) -> bool:
     return False
 
 
+def _ignore_queued_restore(_submission: TuiSubmission) -> None:
+    """忽略未绑定的队列草稿恢复。"""
+
+
 def _no_pending_attachments() -> bool:
     """返回默认的待发送附件状态。"""
     return False
@@ -119,6 +123,10 @@ class TuiSubmissionFlow(object):
         self._turn_input_handler: typing.Callable[
             [TuiSubmission, bool], bool
         ] = _ignore_turn_input
+
+        self._queued_restore_handler: typing.Callable[[TuiSubmission], None] = (
+            _ignore_queued_restore
+        )
 
         self._has_pending_attachments: typing.Callable[[], bool] = (
             _no_pending_attachments
@@ -263,11 +271,6 @@ class TuiSubmissionFlow(object):
             self.queued_messages.append(submission)
         self._invalidate()
 
-    def release_deferred_submission(self, client_message_id: str) -> None:
-        """允许明确未被服务端持有的消息再次撤回编辑。"""
-        if self.queued_messages.release(client_message_id):
-            self._invalidate()
-
     def queue_input(self, buffer: Buffer) -> None:
         """使用下一轮意图提交当前输入内容。"""
         self._queue_submission_requested = True
@@ -297,6 +300,8 @@ class TuiSubmissionFlow(object):
         item = self.queued_messages.pop_last()
         if item is None:
             return False
+
+        self._queued_restore_handler(item)
 
         self.input_model.rollback_submission_history(item.visible_text)
 
@@ -350,6 +355,15 @@ class TuiSubmissionFlow(object):
         """绑定或清除活动模型轮次的输入接管函数。"""
         self._turn_input_handler = (
             handler if handler is not None else _ignore_turn_input
+        )
+
+    def bind_queued_restore_handler(
+        self,
+        handler: typing.Callable[[TuiSubmission], None] | None
+    ) -> None:
+        """绑定或清除队列消息取回时的结构化草稿恢复。"""
+        self._queued_restore_handler = (
+            handler if handler is not None else _ignore_queued_restore
         )
 
     def request_turn_interrupt(self) -> None:
@@ -566,6 +580,7 @@ class TuiSubmissionFlow(object):
         self._interrupt_handler       = _ignore_interrupt
         self._stream_command_handler  = _ignore_stream_command
         self._turn_input_handler      = _ignore_turn_input
+        self._queued_restore_handler  = _ignore_queued_restore
         self._has_pending_attachments = _no_pending_attachments
 
 

@@ -112,6 +112,18 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
 
 
 @pytest.mark.anyio
+async def test_request_payload_rejects_invalid_explicit_turn_id() -> None:
+    with pytest.raises(ValueError, match="8-128 ASCII"):
+        await build_chat_payload(
+            "chat",
+            {},
+            "inspect",
+            [],
+            turn_id="invalid id",
+        )
+
+
+@pytest.mark.anyio
 async def test_request_payload_normalizes_additional_context() -> None:
     payload = await build_chat_payload(
         "xtra",

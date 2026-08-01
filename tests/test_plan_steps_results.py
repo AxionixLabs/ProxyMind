@@ -89,7 +89,7 @@ def _executor(
         pref_config={},
         cwd=".",
         permissions=preset_permissions("auto"),
-        turn_id="turn",
+        turn_id="turn_plan",
     )
     definitions = resolve_hook_definitions(
         hooks or {},

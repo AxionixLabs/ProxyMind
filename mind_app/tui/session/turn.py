@@ -69,6 +69,7 @@ async def execute_tui_model_turn(
     runtime.bind_interrupt_handler(cancel_turn)
     if turn_input_control is not None:
         runtime.bind_turn_input_handler(turn_input_control.submit)
+        runtime.bind_queued_restore_handler(turn_input_control.restore_draft)
 
     if stream_command_handler is not None:
         runtime.bind_stream_command_handler(
@@ -94,6 +95,7 @@ async def execute_tui_model_turn(
 
         runtime.bind_stream_command_handler(None)
         runtime.bind_turn_input_handler(None)
+        runtime.bind_queued_restore_handler(None)
         runtime.bind_interrupt_handler(None)
         if turn_input_control is not None:
             await turn_input_control.close()

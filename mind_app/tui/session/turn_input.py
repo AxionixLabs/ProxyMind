@@ -7,11 +7,11 @@ from dataclasses import replace
 from engine.observability import observe_exception
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
-    follow_up_turn,
     interrupt_turn,
     steer_turn
 )
 from mind_nova.stream_events import (
+    StreamEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent
 )
@@ -38,22 +38,34 @@ class TuiTurnInputControl(object):
         sid: str,
         turn_id: str
     ) -> None:
-        self._controller = controller
-        self._runtime    = runtime
-        self._state      = state
-        self._target     = (cid, sid, turn_id)
+        self._controller    = controller
+        self._runtime       = runtime
+        self._state         = state
+        self._target        = (cid, sid, turn_id)
+        self._ready_turn_id = ""
 
         self._pending: dict[str, TuiSubmission] = {}
         self._tasks: set[asyncio.Task[None]]    = set()
 
     def activate(self, context: TurnContext) -> None:
-        """更新当前可以接收即时输入的远端轮次。"""
+        """更新等待服务端启动确认的远端轮次。"""
         self._target = (context.cid, context.sid, context.turn_id)
+        self._ready_turn_id = ""
 
     def submit(self, submission: TuiSubmission, queue_only: bool) -> bool:
         """按按键意图接管执行期间提交的输入。"""
+        if queue_only:
+            self._runtime.defer_submission(self._capture_payload(submission))
+            return True
+
         cid, sid, turn_id = self._target
-        if not cid or not sid or not turn_id:
+
+        if (
+            not cid
+            or not sid
+            or not turn_id
+            or self._ready_turn_id != turn_id
+        ):
             return False
 
         captured = self._capture_payload(submission)
@@ -61,23 +73,21 @@ class TuiTurnInputControl(object):
             self._runtime.defer_submission(captured)
             return True
 
-        if queue_only:
-            queued = replace(captured, server_queued=True)
-            self._pending[queued.client_message_id] = queued
-            self._runtime.defer_submission(queued)
-            self._start(self._send_follow_up(cid, sid, turn_id, queued))
-        else:
-            self._pending[captured.client_message_id] = captured
-            self._start(self._send_steer(cid, sid, turn_id, captured))
+        self._pending[captured.client_message_id] = captured
+        self._start(self._send_steer(cid, sid, turn_id, captured))
         return True
 
     def handle_event(
         self,
-        event: TurnInputAcceptedEvent | TurnLogicalSettledEvent
+        event: StreamEvent
     ) -> TurnInput | None:
         """按服务端确认结果完成即时输入或安排下一轮输入。"""
         active_turn_id = self._target[2]
         if event.turn_id != active_turn_id:
+            return None
+
+        if event.type == "turn.start":
+            self._ready_turn_id = active_turn_id
             return None
 
         if isinstance(event, TurnInputAcceptedEvent):
@@ -90,6 +100,9 @@ class TuiTurnInputControl(object):
             self._runtime.append_turn_input(active_turn_id, pending)
             return turn_input
 
+        if not isinstance(event, TurnLogicalSettledEvent):
+            return None
+
         next_input = event.next_input
         if next_input is None:
             return None
@@ -97,19 +110,33 @@ class TuiTurnInputControl(object):
         pending = self._pending.pop(next_input.client_message_id, None)
 
         submission = pending or self._submission_from_input(next_input)
-        if submission.server_queued:
-            submission = replace(submission, server_queued=False)
+
         self._runtime.defer_submission(submission, next_input=True)
+
         return None
 
     def interrupt(self, fallback: typing.Callable[[], bool]) -> bool:
         """请求远端中断当前轮次，并在请求失败时执行本地取消。"""
         cid, sid, turn_id = self._target
-        if not cid or not sid or not turn_id:
+        if (
+            not cid
+            or not sid
+            or not turn_id
+            or self._ready_turn_id != turn_id
+        ):
             return fallback()
 
         self._start(self._send_interrupt(cid, sid, turn_id, fallback))
         return True
+
+    def restore_draft(self, submission: TuiSubmission) -> None:
+        """恢复从本地队列取回消息关联的结构化草稿。"""
+        if not submission.payload_bound:
+            return None
+        self._controller.attach.replace_pending_attachments(
+            submission.attachments
+        )
+        self._state.replace_pending_prompt_extras(submission.extras)
 
     async def close(self) -> None:
         """等待已经发起的轮次控制请求完成。"""
@@ -167,42 +194,12 @@ class TuiTurnInputControl(object):
 
         if response is None or response.status in {
             "turn_not_active",
+            "turn_not_steerable",
             "turn_mismatch",
         }:
             pending = self._pending.pop(submission.client_message_id, None)
             if pending is not None:
                 self._runtime.defer_submission(pending)
-
-    async def _send_follow_up(
-        self,
-        cid: str,
-        sid: str,
-        turn_id: str,
-        submission: TuiSubmission
-    ) -> None:
-        """提交下一轮输入，并让本地队列作为可见镜像和失败兜底。"""
-        turn_input = self._input_from_submission(submission)
-
-        for attempt in range(2):
-            try:
-                response = await follow_up_turn(
-                    cid=cid,
-                    sid=sid,
-                    turn_id=turn_id,
-                    turn_input=turn_input,
-                )
-                if response.status in {"turn_not_active", "turn_mismatch"}:
-                    self._pending.pop(submission.client_message_id, None)
-                    self._runtime.release_deferred_submission(
-                        submission.client_message_id
-                    )
-                return None
-            except TurnControlRequestError as error:
-                if attempt == 0:
-                    continue
-                observe_exception("turn.follow_up.failed", error, level="WARNING")
-
-        self._pending.pop(submission.client_message_id, None)
 
     @staticmethod
     async def _send_interrupt(

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -8,9 +9,11 @@ import pytest
 from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.session import turn_input as turn_input_session
+from mind_app.tui.session.turn import execute_tui_model_turn
 from mind_app.tui.session.turn_input import TuiTurnInputControl
 from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_nova.stream_events import (
+    MarkerEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
 )
@@ -55,14 +58,50 @@ def _submission(text: str) -> TuiSubmission:
     )
 
 
+def _mark_started(
+    control: TuiTurnInputControl,
+    turn_id: str = "turn_001",
+) -> None:
+    control.handle_event(MarkerEvent(type="turn.start", turn_id=turn_id))
+
+
+@pytest.mark.anyio
+async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> None:
+    steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
+    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    fallback = Mock(return_value=True)
+
+    assert not control.submit(_submission("too early"), False)
+    assert control.submit(_submission("queue early"), True)
+    assert runtime.submissions.rollback_queued_input()
+    assert control.interrupt(fallback)
+
+    _mark_started(control, "turn_other")
+    assert not control.submit(_submission("wrong turn"), False)
+
+    _mark_started(control)
+    assert control.submit(_submission("ready"), False)
+    await control.close()
+
+    steer.assert_awaited_once()
+    fallback.assert_called_once()
+
+
 @pytest.mark.anyio
 async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
     monkeypatch,
 ) -> None:
     steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
-    follow_up = AsyncMock(return_value=SimpleNamespace(status="accepted"))
     monkeypatch.setattr(turn_input_session, "steer_turn", steer)
-    monkeypatch.setattr(turn_input_session, "follow_up_turn", follow_up)
 
     runtime = TuiRuntime()
     attachments = _Attachments([{"kind": "image", "name": "screen.png"}])
@@ -73,8 +112,9 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
         state,
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
+    _mark_started(control)
 
     assert control.submit(_submission("steer now"), False)
     assert control.submit(_submission("tab follow up"), True)
@@ -84,15 +124,10 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
     assert sent.client_message_id == "message_steer_now"
     assert sent.attachments == ({"kind": "image", "name": "screen.png"},)
     assert sent.extras == {"source": "selection"}
-    queued = follow_up.await_args.kwargs["turn_input"]
-    assert queued.client_message_id == "message_tab_follow_up"
-    assert queued.text == "tab follow up"
-    assert queued.attachments == ()
-    assert queued.extras == {}
 
     control.handle_event(TurnLogicalSettledEvent(
         type="turn.logical_settled",
-        turn_id="turn_1",
+        turn_id="turn_001",
         next_input=TurnInput(
             client_message_id="message_steer_now",
             text="steer now",
@@ -105,18 +140,84 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
     assert first.value == "steer now"
     assert first.attachments == sent.attachments
     assert first.extras == sent.extras
-    assert runtime.submissions.queued_messages.waiting_settlement
-    assert runtime.submissions.queued_messages.pop_next() is None
+    queued = await runtime.submissions.read_submission()
+    assert queued.client_message_id == "message_tab_follow_up"
+    assert queued.value == "tab follow up"
+    assert queued.attachments == ()
+    assert queued.extras == {}
+
+
+def test_tab_queue_captures_payload_and_restores_editable_draft() -> None:
+    runtime = TuiRuntime()
+    attachments = _Attachments([{"kind": "image", "name": "screen.png"}])
+    state = _State({"source": "selection"})
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=attachments),
+        runtime,
+        state,
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    runtime.bind_queued_restore_handler(control.restore_draft)
+
+    assert control.submit(_submission("edit locally"), True)
+    assert not attachments.has_pending_attachments()
+    assert state.consume_pending_prompt_extras() == {}
+    assert runtime.submissions.rollback_queued_input()
+
+    assert runtime.screen.input.buffer.text == "edit locally"
+    assert attachments.consume_pending_attachments() == [
+        {"kind": "image", "name": "screen.png"}
+    ]
+    assert state.consume_pending_prompt_extras() == {"source": "selection"}
 
 
 @pytest.mark.anyio
-async def test_follow_up_settlement_reconciles_local_queue_without_duplicate(
+async def test_model_turn_binds_queued_draft_restore_for_its_lifetime() -> None:
+    runtime = TuiRuntime()
+    started = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def turn() -> None:
+        started.set()
+        await finished.wait()
+
+    control = SimpleNamespace(
+        submit=Mock(return_value=True),
+        restore_draft=Mock(),
+        interrupt=Mock(),
+        close=AsyncMock(),
+    )
+    task = asyncio.create_task(execute_tui_model_turn(
+        SimpleNamespace(emit=Mock()),
+        runtime,
+        turn(),
+        turn_input_control=control,
+    ))
+    await started.wait()
+
+    runtime.defer_submission(_submission("during turn"))
+    assert runtime.submissions.rollback_queued_input()
+    control.restore_draft.assert_called_once()
+
+    finished.set()
+    await task
+
+    runtime.defer_submission(_submission("after turn"))
+    assert runtime.submissions.rollback_queued_input()
+    control.restore_draft.assert_called_once()
+    control.close.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_not_steerable_input_falls_back_to_local_next_turn(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
         turn_input_session,
-        "follow_up_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
+        "steer_turn",
+        AsyncMock(return_value=SimpleNamespace(status="turn_not_steerable")),
     )
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
@@ -125,49 +226,16 @@ async def test_follow_up_settlement_reconciles_local_queue_without_duplicate(
         _State(),
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
-    submission = _submission("queued once")
+    _mark_started(control)
+    submission = _submission("retry next")
 
-    assert control.submit(submission, True)
+    assert control.submit(submission, False)
     await control.close()
-    control.handle_event(TurnLogicalSettledEvent(
-        type="turn.logical_settled",
-        turn_id="turn_1",
-        next_input=TurnInput(
-            client_message_id=submission.client_message_id,
-            text=submission.value,
-        ),
-    ))
 
     queued = await runtime.submissions.read_submission()
     assert queued.client_message_id == submission.client_message_id
-    assert not queued.server_queued
-    assert not runtime.submissions.queued_messages.active
-
-
-@pytest.mark.anyio
-async def test_rejected_follow_up_remains_local_and_editable(monkeypatch) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "follow_up_turn",
-        AsyncMock(return_value=SimpleNamespace(status="turn_not_active")),
-    )
-    runtime = TuiRuntime()
-    control = TuiTurnInputControl(
-        SimpleNamespace(attach=_Attachments()),
-        runtime,
-        _State(),
-        cid="cid_1",
-        sid="sid_1",
-        turn_id="turn_1",
-    )
-
-    assert control.submit(_submission("edit locally"), True)
-    await control.close()
-
-    assert runtime.submissions.rollback_queued_input()
-    assert runtime.screen.input.buffer.text == "edit locally"
 
 
 @pytest.mark.anyio
@@ -186,15 +254,16 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
         _State(),
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
+    _mark_started(control)
     submission = _submission("accepted steer")
 
     assert control.submit(submission, False)
     await control.close()
     accepted = control.handle_event(TurnInputAcceptedEvent(
         type="turn.input.accepted",
-        turn_id="turn_1",
+        turn_id="turn_001",
         client_message_id=submission.client_message_id,
     ))
 
@@ -204,7 +273,7 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
     )
     assert not runtime.submissions.queued_messages.active
     assert runtime.document.blocks[-1].kind == "user"
-    assert runtime.document.blocks[-1].turn_id == "turn_1"
+    assert runtime.document.blocks[-1].turn_id == "turn_001"
     assert runtime.document.blocks[-1].prompt == "accepted steer"
 
 
@@ -220,8 +289,9 @@ async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
         _State(),
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
+    _mark_started(control)
     fallback = Mock(return_value=True)
 
     assert control.interrupt(fallback)
@@ -230,7 +300,7 @@ async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
     interrupt.assert_awaited_once_with(
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
     fallback.assert_not_called()
 
@@ -250,8 +320,9 @@ async def test_late_interrupt_keeps_stream_alive_for_logical_settlement(
         _State(),
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
+    _mark_started(control)
     fallback = Mock(return_value=True)
 
     assert control.interrupt(fallback)
@@ -275,8 +346,9 @@ async def test_interrupt_retries_with_the_same_turn_before_local_fallback(
         _State(),
         cid="cid_1",
         sid="sid_1",
-        turn_id="turn_1",
+        turn_id="turn_001",
     )
+    _mark_started(control)
     fallback = Mock(return_value=True)
 
     assert control.interrupt(fallback)

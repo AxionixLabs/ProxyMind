@@ -6,8 +6,7 @@ import typing
 import collections
 from dataclasses import (
     dataclass,
-    field,
-    replace
+    field
 )
 from prompt_toolkit.utils import get_cwidth
 from mind_nova.identifiers import short_uid
@@ -27,7 +26,6 @@ class TuiSubmission(object):
     attachments: tuple[dict[str, typing.Any], ...] = ()
     extras: dict[str, typing.Any] = field(default_factory=dict)
     payload_bound: bool = False
-    server_queued: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "paste_store", dict(self.paste_store))
@@ -65,13 +63,8 @@ class TuiQueuedMessages(object):
 
     @property
     def can_rollback(self) -> bool:
-        """返回队尾消息是否仍可安全撤回编辑。"""
-        return bool(self._items and not self._items[-1].server_queued)
-
-    @property
-    def waiting_settlement(self) -> bool:
-        """返回是否仍有服务端持有的待结算消息。"""
-        return any(item.server_queued for item in self._items)
+        """返回是否可以取回队尾消息继续编辑。"""
+        return bool(self._items)
 
     def append(self, item: TuiSubmission) -> None:
         """在队尾追加一条待提交消息。"""
@@ -83,7 +76,7 @@ class TuiQueuedMessages(object):
 
     def pop_next(self) -> TuiSubmission | None:
         """取出下一条应交给会话循环的消息。"""
-        if not self._items or self._items[0].server_queued:
+        if not self._items:
             return None
         return self._items.popleft()
 
@@ -102,17 +95,13 @@ class TuiQueuedMessages(object):
             return item
         return None
 
-    def release(self, client_message_id: str) -> bool:
-        """解除一条未被服务端持有消息的撤回限制。"""
-        for index, item in enumerate(self._items):
-            if item.client_message_id != client_message_id:
-                continue
-            if item.server_queued:
-                self._items[index] = replace(item, server_queued=False)
-            return True
-        return False
-
-    def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
+    def fragments(
+        self,
+        *,
+        width: int,
+        max_rows: int = 6,
+        edit_binding: str = "Alt+Up"
+    ) -> FormattedText:
         """生成动画行下方的待提交消息列表。"""
         if not self._items:
             return []
@@ -121,7 +110,7 @@ class TuiQueuedMessages(object):
 
         lines: list[FormattedText] = [[(
             "class:queue.label",
-            _queue_title(width, editable=self.can_rollback),
+            _queue_title(width, edit_binding=edit_binding),
         )]]
 
         available     = max(0, row_limit - 1)
@@ -155,16 +144,14 @@ class TuiQueuedMessages(object):
         return out
 
 
-def _queue_title(width: int, *, editable: bool) -> str:
+def _queue_title(width: int, *, edit_binding: str) -> str:
     """返回适合当前终端宽度的队列标题。"""
+    binding = str(edit_binding or "").strip()
+
     titles = (
-        (
-            "• Messages queued for the next turn (Esc edits latest)",
-            "• Queued for next turn (Esc edits latest)",
-            "• Queued for next turn",
-        )
-        if editable
-        else ("• Messages queued for the next turn", "• Queued for next turn")
+        f"• Queued follow-up inputs ({binding} edits latest)",
+        f"• Queued inputs ({binding} edits latest)",
+        "• Queued follow-up inputs",
     )
 
     limit = max(1, int(width))

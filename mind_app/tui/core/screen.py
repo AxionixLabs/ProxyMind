@@ -56,7 +56,8 @@ from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_core.design.terminal_capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
+    TerminalCapabilities,
+    TerminalKind
 )
 from mind_nova import const
 from ..prompting.commands import completion_changes_input
@@ -109,6 +110,21 @@ from .styles import (
     exit_summary_fragments
 )
 from .transcript_overlay import TuiTranscriptOverlay
+
+
+def _queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
+    """返回当前终端适合展示的队尾编辑按键。"""
+    identity = capabilities.identity
+    if (
+        identity.multiplexer == TerminalKind.TMUX
+        or identity.kind in {
+            TerminalKind.APPLE_TERMINAL,
+            TerminalKind.VSCODE,
+            TerminalKind.WARP,
+        }
+    ):
+        return "Shift+Left"
+    return "Alt+Up"
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +194,10 @@ class TuiScreen(object):
         self.document        = document
         self.queued_messages = queued_messages
         self.interrupt_state = interrupt_state
+
+        self._queued_message_edit_binding = _queued_message_edit_binding(
+            terminal_capabilities
+        )
 
         self._get_context                    = get_context
         self._get_placeholder_text           = get_placeholder_text
@@ -997,6 +1017,7 @@ class TuiScreen(object):
         return self.queued_messages.fragments(
             width=self.terminal_width,
             max_rows=self.QUEUED_MAX_HEIGHT,
+            edit_binding=self._queued_message_edit_binding,
         )
 
     def _footer_fragments(self) -> FormattedText:
