@@ -167,5 +167,36 @@ async def test_menu_filters_controls_before_width_calculation() -> None:
     assert all(get_cwidth(line) <= width for line in text.splitlines())
 
 
+@pytest.mark.anyio
+async def test_menu_selection_wraps_across_first_and_last_options() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        options=(
+            MenuOption("first", "First"),
+            MenuOption("second", "Second"),
+            MenuOption("last", "Last"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    assert menu.state.selected == 0
+
+    menu._move(-1)
+    assert menu.state.selected == 2
+
+    menu._move(1)
+    assert menu.state.selected == 0
+
+    menu.finish(None)
+    await task
+
+
 def _fragments_text(parts) -> str:
     return "".join(text for _, text in parts)

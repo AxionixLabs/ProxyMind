@@ -293,7 +293,7 @@ class TuiMenu(object):
         count = len(state.request.options)
         if count == 0:
             return None
-        state.selected = min(count - 1, max(0, state.selected + step))
+        state.selected = (state.selected + step) % count
         self.invalidate()
 
     def _choose_index(self, index: int) -> None:
