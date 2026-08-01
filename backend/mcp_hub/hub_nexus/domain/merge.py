@@ -8,13 +8,7 @@ import typing
 class MergeService(object):
     """根据环境默认值与单项覆盖项生成最终协议请求。"""
 
-    _DICT_MERGE_KEYS = {"headers", "json", "json_body", "params", "form", "variables"}
-
-    _ALIAS_GROUPS = (
-        ("json", "json_body"),
-        ("body_text", "body"),
-        ("operation_name", "operationName"),
-    )
+    _DICT_MERGE_KEYS = {"headers", "json", "params", "form", "variables"}
 
     @classmethod
     def materialize(
@@ -26,9 +20,7 @@ class MergeService(object):
         """将环境默认值与请求覆盖项合并为可直接交给执行器的请求。"""
         env_dict = dict(env or {})
         request_dict = dict(request or {})
-        merged = cls._merge_mapping(env_dict, request_dict)
-        cls._normalize_alias_groups(merged)
-        return merged
+        return cls._merge_mapping(env_dict, request_dict)
 
     @classmethod
     def _merge_mapping(
@@ -55,32 +47,6 @@ class MergeService(object):
             merged[key] = copy.deepcopy(override_value)
 
         return merged
-
-    @classmethod
-    def _normalize_alias_groups(cls, payload: dict[str, typing.Any]) -> None:
-        for canonical, alias in cls._ALIAS_GROUPS:
-            cls._normalize_alias_pair(payload, canonical=canonical, alias=alias)
-
-    @classmethod
-    def _normalize_alias_pair(
-        cls,
-        payload: dict[str, typing.Any],
-        *,
-        canonical: str,
-        alias: str,
-    ) -> None:
-        canonical_value = payload.get(canonical)
-        alias_value = payload.get(alias)
-
-        if isinstance(canonical_value, dict) and isinstance(alias_value, dict):
-            payload[canonical] = cls._merge_mapping(alias_value, canonical_value)
-            payload.pop(alias, None)
-            return
-
-        if canonical_value is None and alias_value is not None:
-            payload[canonical] = alias_value
-        payload.pop(alias, None)
-
 
 if __name__ == '__main__':
     pass

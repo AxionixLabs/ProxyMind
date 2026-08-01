@@ -100,14 +100,6 @@ class Requires(object):
         return (await Flux.cmd_line([application, "--version"]) or "").strip()
 
     @staticmethod
-    async def connect_ffmpeg() -> typing.Optional[str]:
-        if not shutil.which(application := "ffmpeg"):
-            navigator = "https://www.ffmpeg.org/"
-            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
-
-        return (await Flux.cmd_line([application, "-version"]) or "").strip()
-
-    @staticmethod
     async def connect_framix() -> typing.Optional[str]:
         if not shutil.which(application := "framix"):
             domain = "https://github.com/PlaxtonFlarion/SoftwareCenter/releases/tag"
@@ -130,14 +122,6 @@ class Requires(object):
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
         return (await Flux.cmd_line([application, "-h"]) or "").strip()
-
-    @staticmethod
-    async def connect_k6() -> typing.Optional[str]:
-        if not shutil.which(application := "k6"):
-            navigator = "https://github.com/grafana/k6/releases"
-            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
-
-        return (await Flux.cmd_line([application, "--version"]) or "").strip()
 
 
 if __name__ == '__main__':

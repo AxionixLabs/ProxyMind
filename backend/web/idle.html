@@ -1161,7 +1161,7 @@
       if(!raw) return "uncategorized";
       const text = raw.toLowerCase();
       if(text.startsWith("device.") || text.includes("phone") || text.includes("widget")) return "device";
-      if(text.startsWith("media.") || text.includes("video") || text.includes("ffmpeg") || text.includes("player")) return "media";
+      if(text.startsWith("media.") || text.includes("video") || text.includes("player")) return "media";
       if(text.startsWith("bench.") || text.includes("bench")) return "bench";
       if(text.startsWith("nexus.") || text.includes("nexus")) return "nexus";
       if(text.startsWith("ui.") || text.includes("scroll") || text.includes("tap")) return "ui";

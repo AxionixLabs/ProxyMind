@@ -9,22 +9,6 @@ from backend.mcp_tools.bench.schemas.schema_framix import (
     ScaleArg,
     TitleArg
 )
-from backend.mcp_tools.bench.schemas.schema_k6 import (
-    ScriptTextArg,
-    ScriptFileArg,
-    ScriptNameArg,
-    WorkDirArg,
-    VusArg,
-    DurationArg,
-    IterationsArg,
-    EnvArg,
-    TagsArg,
-    SummaryExportArg,
-    ExtraArgsArg,
-    ExecutionModeArg,
-    ResponseCaptureArg,
-    ResponseExportArg
-)
 from backend.mcp_tools.bench.schemas.schema_memrix import (
     FocusArg,
     ImplyArg,
@@ -102,20 +86,6 @@ __all__ = [
     "ReportDirArg",
     "ScaleArg",
     "TitleArg",
-    "ScriptTextArg",
-    "ScriptFileArg",
-    "ScriptNameArg",
-    "WorkDirArg",
-    "VusArg",
-    "DurationArg",
-    "IterationsArg",
-    "EnvArg",
-    "TagsArg",
-    "SummaryExportArg",
-    "ExtraArgsArg",
-    "ExecutionModeArg",
-    "ResponseCaptureArg",
-    "ResponseExportArg",
     "FocusArg",
     "ImplyArg",
     "TaskTitleArg",

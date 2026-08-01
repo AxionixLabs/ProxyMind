@@ -38,14 +38,14 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
     @mcp.tool(
         description=(
             "截取设备当前屏幕并返回本地附件路径。"
-            " 提供 `local` 时会作为保存目录或基准路径使用。"
+            " `local` 必须提供保存目录或图片基准路径。"
             " 设备不可用、截图失败或目标路径不可写时调用会失败。"
         ),
         meta={"hidden": False, "domain": "device", "class": "info"}
     )
     @task_middleware("screenshot")
     async def screenshot(
-        local: ScreenshotLocalArg = None,
+        local: ScreenshotLocalArg,
         serial: SerialArg = None
     ) -> CallToolResult:
 

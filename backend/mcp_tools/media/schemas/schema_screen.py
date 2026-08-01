@@ -5,8 +5,12 @@ import typing
 from pydantic import Field
 
 RecordDirectoryArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="录屏文件保存目录或输出基准路径；多设备时每台设备会生成独立文件。")
+    str,
+    Field(
+        min_length=1,
+        pattern=r"\S",
+        description="录屏文件保存目录；多设备时每台设备会生成独立文件。",
+    )
 ]
 RecordFpsArg = typing.Annotated[
     int,

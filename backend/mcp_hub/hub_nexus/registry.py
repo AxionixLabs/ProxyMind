@@ -27,15 +27,6 @@ class NexusExecutorRegistry(object):
         return env.get(key) if value is None else value
 
     @staticmethod
-    def _pick_alias(source: dict[str, typing.Any], *keys: str) -> typing.Any:
-        """按给定别名顺序取首个非 None 的值。"""
-        for key in keys:
-            value = source.get(key)
-            if value is not None:
-                return value
-        return None
-
-    @staticmethod
     def _as_str(value: typing.Any, default: str = "") -> str:
         """安全字符串化；None 返回默认值。"""
         return default if value is None else str(value)
@@ -146,17 +137,6 @@ class NexusExecutorRegistry(object):
         value = cls._pick(request, env, key)
         return cls._as_bool(value, default)
 
-    @classmethod
-    def _request_or_env_alias(
-        cls,
-        request: dict[str, typing.Any],
-        env: dict[str, typing.Any],
-        *keys: str
-    ) -> typing.Any:
-        """按别名顺序从 request/env 中取首个非 None 的值。"""
-        value = cls._pick_alias(request, *keys)
-        return cls._pick_alias(env, *keys) if value is None else value
-
     @staticmethod
     async def execute(
         *,
@@ -187,20 +167,14 @@ class NexusExecutorRegistry(object):
             **base_headers,
             **NexusExecutorRegistry._as_dict(request.get("headers"))
         }
-        req_params = NexusExecutorRegistry._request_or_env_alias(request, env, "params")
-
-        req_json_body = NexusExecutorRegistry._request_or_env_alias(
-            request, env, "json", "json_body"
-        )
-        req_body_text = NexusExecutorRegistry._request_or_env_alias(
-            request, env, "body", "body_text"
-        )
-
-        req_form_raw      = NexusExecutorRegistry._request_or_env_alias(request, env, "form")
+        req_params        = NexusExecutorRegistry._pick(request, env, "params")
+        req_json_body     = NexusExecutorRegistry._pick(request, env, "json")
+        req_body_text     = NexusExecutorRegistry._pick(request, env, "body_text")
+        req_form_raw      = NexusExecutorRegistry._pick(request, env, "form")
         req_form          = req_form_raw if isinstance(req_form_raw, dict) else None
-        req_files_raw     = NexusExecutorRegistry._request_or_env_alias(request, env, "files")
+        req_files_raw     = NexusExecutorRegistry._pick(request, env, "files")
         req_files         = req_files_raw if isinstance(req_files_raw, list) else None
-        req_variables_raw = NexusExecutorRegistry._request_or_env_alias(request, env, "variables")
+        req_variables_raw = NexusExecutorRegistry._pick(request, env, "variables")
         req_variables     = req_variables_raw if isinstance(req_variables_raw, dict) else {}
 
         if kind == "http":
@@ -266,9 +240,7 @@ class NexusExecutorRegistry(object):
                 ),
                 variables=req_variables,
                 operation_name=NexusExecutorRegistry._as_optional_str(
-                    NexusExecutorRegistry._request_or_env_alias(
-                        request, env, "operation_name", "operationName"
-                    )
+                    NexusExecutorRegistry._pick(request, env, "operation_name")
                 ),
                 base_url=req_base_url,
                 headers=req_headers,
@@ -326,7 +298,7 @@ class NexusExecutorRegistry(object):
         if kind == "smtp":
             raw_to_addrs    = request.get("to_addrs", env.get("to_addrs"))
             to_addrs        = NexusExecutorRegistry._as_str_list(raw_to_addrs, none_as=None)
-            raw_attachments = NexusExecutorRegistry._request_or_env_alias(request, env, "attachments")
+            raw_attachments = NexusExecutorRegistry._pick(request, env, "attachments")
             attachments     = raw_attachments if isinstance(raw_attachments, list) else None
 
             return await SmtpExecutor.execute(
@@ -411,7 +383,7 @@ class NexusExecutorRegistry(object):
             )
 
         if kind == "ws":
-            raw_sends = NexusExecutorRegistry._request_or_env_alias(request, env, "sends")
+            raw_sends = NexusExecutorRegistry._pick(request, env, "sends")
             sends     = NexusExecutorRegistry._as_str_list(raw_sends, none_as=[])
 
             return await WsExecutor.execute(

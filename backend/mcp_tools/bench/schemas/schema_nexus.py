@@ -3,7 +3,6 @@
 
 import typing
 from pydantic import (
-    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -30,13 +29,13 @@ def _batch_items_arg_desc(protocol: str) -> str:
 def _batch_env_arg_desc(protocol: str) -> str:
     return (
         f"{protocol} 批量共享默认值。执行时会先把这里的字段与当前项物化成最终请求。"
-        "`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。"
+        "`headers`、`json`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。"
         "必须传原生对象，不要传字符串化 JSON。"
     )
 
 
 class NexusToolSchemaModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
 
 class BatchItemBase(NexusToolSchemaModel):
@@ -75,52 +74,28 @@ class RequestBatchItemBase(BatchItemBase):
         description="当前批量项的协议请求定义。协议字段统一写在 `request` 下。"
     )
 
-    def __init__(self, **data: typing.Any):
-        if data.get("request") is None:
-            request_data = {
-                key: item for key, item in data.items()
-                if key not in {"name", "extract", "asserts", "request"}
-            }
-            if request_data:
-                data = {
-                    key: item for key, item in data.items()
-                    if key in {"name", "extract", "asserts"}
-                }
-                data["request"] = request_data
-        super().__init__(**data)
 
-
-class HttpLikeBodyMixin(NexusToolSchemaModel):
+class HttpBodyMixin(NexusToolSchemaModel):
     json_body: typing.Optional[typing.Any] = Field(
         default=None,
         alias="json",
-        validation_alias=AliasChoices("json", "json_body")
     )
-    body_text: typing.Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("body_text", "body")
-    )
+    body_text: typing.Optional[str] = None
 
 
-class BodyTextAliasMixin(NexusToolSchemaModel):
-    body_text: typing.Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("body_text", "body")
-    )
+class BodyTextMixin(NexusToolSchemaModel):
+    body_text: typing.Optional[str] = None
 
 
 class ArtifactDirMixin(NexusToolSchemaModel):
     artifact_dir: typing.Optional[str] = None
 
 
-class GraphqlAliasMixin(NexusToolSchemaModel):
-    operation_name: typing.Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("operation_name", "operationName")
-    )
+class GraphqlFieldsMixin(NexusToolSchemaModel):
+    operation_name: typing.Optional[str] = None
 
 
-class GenericSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin, GraphqlAliasMixin):
+class GenericSharedEnv(ArtifactDirMixin, HttpBodyMixin, GraphqlFieldsMixin):
     method: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
@@ -169,7 +144,7 @@ class GenericBatchItem(RequestBatchItemBase):
     request: GenericSharedEnv
 
 
-class HttpSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin):
+class HttpSharedEnv(ArtifactDirMixin, HttpBodyMixin):
     method: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
@@ -196,7 +171,7 @@ class SseBatchItem(RequestBatchItemBase):
     request: SseSharedEnv
 
 
-class GraphqlSharedEnv(ArtifactDirMixin, GraphqlAliasMixin):
+class GraphqlSharedEnv(ArtifactDirMixin, GraphqlFieldsMixin):
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
     headers: typing.Optional[dict[str, typing.Any]] = None
@@ -227,7 +202,7 @@ class WsBatchItem(RequestBatchItemBase):
     request: WsSharedEnv
 
 
-class TcpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
+class TcpSharedEnv(ArtifactDirMixin, BodyTextMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     sends: typing.Optional[list[str] | str] = None
@@ -243,7 +218,7 @@ class TcpBatchItem(RequestBatchItemBase):
     request: TcpSharedEnv
 
 
-class UdpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
+class UdpSharedEnv(ArtifactDirMixin, BodyTextMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     encoding: typing.Optional[str] = None
@@ -255,7 +230,7 @@ class UdpBatchItem(RequestBatchItemBase):
     request: UdpSharedEnv
 
 
-class SmtpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
+class SmtpSharedEnv(ArtifactDirMixin, BodyTextMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     action: typing.Optional[str] = None
@@ -302,10 +277,7 @@ class FtpSharedEnv(ArtifactDirMixin):
     password: typing.Optional[str] = None
     action: typing.Optional[str] = None
     path: typing.Optional[str] = None
-    payload_text: typing.Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("payload_text", "body_text", "body")
-    )
+    payload_text: typing.Optional[str] = None
     payload_base64: typing.Optional[str] = None
     encoding: typing.Optional[str] = None
     use_tls: typing.Optional[bool] = None
@@ -326,13 +298,13 @@ NexusKindArg = typing.Annotated[
 NexusRequestArg = typing.Annotated[
     GenericSharedEnv,
     Field(
-        description="单次标准化请求定义。协议相关字段都放在这里，例如 url、method、headers、json/json_body、body/body_text、sends 或 action。必须传结构化对象，不要传字符串化 JSON。"
+        description="单次标准化请求定义。协议相关字段都放在这里，例如 url、method、headers、json、body_text、sends 或 action。必须传结构化对象，不要传字符串化 JSON。"
     )
 ]
 NexusEnvArg = typing.Annotated[
     typing.Optional[GenericSharedEnv],
     Field(
-        description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前 `request` 物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前请求覆盖。必须传结构化对象，不要传字符串化 JSON。"
+        description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前 `request` 物化成最终请求；`headers`、`json`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前请求覆盖。必须传结构化对象，不要传字符串化 JSON。"
     )
 ]
 NexusTemplateVarsArg = typing.Annotated[
@@ -368,7 +340,7 @@ GenericBatchItemsArg = typing.Annotated[
 GenericBatchEnvArg = typing.Annotated[
     typing.Optional[GenericSharedEnv],
     Field(
-        description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前项物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。必须传原生对象，不要传字符串化 JSON。"
+        description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前项物化成最终请求；`headers`、`json`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。必须传原生对象，不要传字符串化 JSON。"
     )
 ]
 HttpBatchItemsArg = typing.Annotated[
@@ -428,7 +400,7 @@ FtpBatchEnvArg = typing.Annotated[
 HttpRequestArg = typing.Annotated[
     HttpSharedEnv, Field(
         description=_request_arg_desc(
-            "HTTP", "`url`、`method`、`headers`、`json`/`json_body`、`body`/`body_text`"
+            "HTTP", "`url`、`method`、`headers`、`json`、`body_text`"
         )
     )
 ]

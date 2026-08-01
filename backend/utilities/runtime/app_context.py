@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
 from backend.mcp_core.core_nexus import Nexus
-from backend.mcp_hub.hub_medias import (
-    FFmpeg,
-    Player
-)
+from backend.mcp_hub.hub_audio import AudioPlayer
 
 
 class AppContext(object):
@@ -20,10 +16,7 @@ class AppContext(object):
 
         self.nexus: Nexus = Nexus()
 
-        self.k6: K6 = K6()
-
-        self.ffmpeg: FFmpeg = FFmpeg()
-        self.player: Player = Player()
+        self.player: AudioPlayer = AudioPlayer()
 
 
 app_ctx = AppContext()

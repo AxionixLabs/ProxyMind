@@ -35,12 +35,10 @@ def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx
 
 def register_bench_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.bench import bench_framix
-    from backend.mcp_tools.bench import bench_k6
     from backend.mcp_tools.bench import bench_memrix
     from backend.mcp_tools.bench import bench_nexus
 
     bench_framix.bind(mcp, idle, ctx)
-    bench_k6.bind(mcp, idle, ctx)
     bench_memrix.bind(mcp, idle, ctx)
     bench_nexus.bind(mcp, idle, ctx)
 
@@ -57,11 +55,9 @@ def register_common_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
 def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.media import audio
-    from backend.mcp_tools.media import ffmpeg
     from backend.mcp_tools.media import screen
 
     audio.bind(mcp, idle, ctx)
-    ffmpeg.bind(mcp, idle, ctx)
     screen.bind(mcp, manage, idle)
 
 

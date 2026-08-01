@@ -54,31 +54,6 @@ class RunReport(object):
         self.run_id = tender
         observe("report.open", run_id=self.run_id)
 
-        # 创建分类文件夹：截图
-        self.__cap_path: str = os.path.join(self.total_path, "caps")
-        if not (cap_dir := Path(self.__cap_path)).exists():
-            cap_dir.mkdir(parents=True, exist_ok=True)
-
-        # 创建分类文件夹：视频
-        self.__rec_path: str = os.path.join(self.total_path, "recs")
-        if not (rec_dir := Path(self.__rec_path)).exists():
-            rec_dir.mkdir(parents=True, exist_ok=True)
-
-        # 创建分类文件夹：日志
-        self.__log_path: str = os.path.join(self.total_path, "logs")
-        if not (log_dir := Path(self.__log_path)).exists():
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-        # 自研：native
-        self.__native_path: str = os.path.join(self.total_path, "native")
-        if not (native_dir := Path(self.__native_path)).exists():
-            native_dir.mkdir(parents=True, exist_ok=True)
-
-        # 创建分类文件夹：toolkit
-        self.__toolkit_path: str = os.path.join(self.total_path, "toolkit")
-        if not (toolkit_dir := Path(self.__toolkit_path)).exists():
-            toolkit_dir.mkdir(parents=True, exist_ok=True)
-
     def close(self) -> None:
         """刷新并关闭当前运行持有的诊断日志。"""
         sink_id = self.__log_sink_id
@@ -96,31 +71,6 @@ class RunReport(object):
     def debug_log(self) -> str:
         """返回当前运行使用的诊断日志路径。"""
         return self.__debug_log
-
-    @property
-    def cap_path(self) -> str:
-        """获取截图文件夹路径"""
-        return self.__cap_path
-
-    @property
-    def rec_path(self) -> str:
-        """获取视频文件夹路径"""
-        return self.__rec_path
-
-    @property
-    def log_path(self) -> str:
-        """获取日志文件夹路径"""
-        return self.__log_path
-
-    @property
-    def native_path(self) -> str:
-        """native 文件夹路径"""
-        return self.__native_path
-
-    @property
-    def toolkit_path(self) -> str:
-        """toolkit 文件夹路径"""
-        return self.__toolkit_path
 
 
 if __name__ == '__main__':

@@ -50,6 +50,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     @mcp.tool(
         description=(
             "为目标设备启动一次 scrcpy 录屏会话。"
+            "必须通过 `directory` 指定录屏文件保存目录。"
             "该工具只负责开始录制并返回会话信息；后续应调用 `scrcpy_close` 收束录制并释放资源。"
             "开始结果中的视频路径尚未完成写入，应以关闭结果返回的最终路径作为后续分析输入。"
             "多设备连接时应通过 `serial` 指定目标设备。"
@@ -58,7 +59,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     )
     @task_middleware("scrcpy_record")
     async def scrcpy_record(
-        directory: RecordDirectoryArg = None,
+        directory: RecordDirectoryArg,
         fps: RecordFpsArg = 60,
         silence: SilenceArg = False,
         serial: SerialArg = None
