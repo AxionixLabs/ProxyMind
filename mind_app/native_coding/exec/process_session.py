@@ -10,6 +10,13 @@ from engine.observability import (
     observe,
     observe_exception
 )
+from mind_app.runtime.processes import (
+    close_process_stdin,
+    interrupt_process_tree,
+    subprocess_process_group_kwargs,
+    terminate_process_tree,
+    wait_for_process
+)
 from mind_app.native_coding.encoding import decode_process_output
 from mind_app.native_coding.exec.process_capture import (
     OrderedOutputBuffer,
@@ -109,7 +116,7 @@ class ProcessSessionManager(object):
             stdin=stdin,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            **ProcessCapture.subprocess_process_group_kwargs(),
+            **subprocess_process_group_kwargs(),
         )
 
         session = ProcessSession(
@@ -257,17 +264,17 @@ class ProcessSessionManager(object):
             )
 
         if control == "terminate":
-            await ProcessCapture.terminate_process_tree(process, force=False)
+            await terminate_process_tree(process, force=False)
             return None
         if control == "kill":
-            await ProcessCapture.terminate_process_tree(process, force=True)
+            await terminate_process_tree(process, force=True)
             return None
         if control == "interrupt":
-            if not await ProcessCapture.interrupt_process_tree(process):
+            if not await interrupt_process_tree(process):
                 return "exec_interrupt_failed"
             return None
         if control == "eof":
-            await ProcessCapture.close_stdin_pipe(process)
+            await close_process_stdin(process)
             return None
         if not input_text:
             return None
@@ -323,11 +330,11 @@ class ProcessSessionManager(object):
                     pid=session.process.pid,
                     reason="expired" if expired else "idle",
                 )
-                await ProcessCapture.terminate_process_tree(
+                await terminate_process_tree(
                     session.process,
                     force=expired,
                 )
-                await ProcessCapture.wait_for_process(session.process, 1000)
+                await wait_for_process(session.process, 1000)
 
             await self.finalize_if_exited(session)
 
@@ -354,7 +361,7 @@ class ProcessSessionManager(object):
                 "origin"     : session.origin,
             }
             try:
-                await ProcessCapture.terminate_process_tree(
+                await terminate_process_tree(
                     session.process,
                     force=False,
                 )
@@ -404,7 +411,7 @@ class ProcessSessionManager(object):
 
         for session in sessions:
             if session.process.returncode is None:
-                await ProcessCapture.terminate_process_tree(session.process, force=True)
+                await terminate_process_tree(session.process, force=True)
             await self.finalize_if_exited(session)
 
         self.sessions.clear()
@@ -414,7 +421,7 @@ class ProcessSessionManager(object):
         if session.finalized or session.process.returncode is None:
             return None
 
-        await ProcessCapture.close_stdin_pipe(session.process)
+        await close_process_stdin(session.process)
 
         tasks = [
             task

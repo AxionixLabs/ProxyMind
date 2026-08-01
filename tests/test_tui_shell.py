@@ -290,7 +290,7 @@ async def test_process_session_manager_stops_all_running_sessions() -> None:
 
     with patch(
         "mind_app.native_coding.exec.process_session."
-        "ProcessCapture.terminate_process_tree",
+        "terminate_process_tree",
         side_effect=terminate,
     ):
         result = await manager.stop_running_sessions()

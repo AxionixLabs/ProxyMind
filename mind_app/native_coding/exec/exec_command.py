@@ -8,7 +8,10 @@ from mind_app.native_coding.base import (
     NativeCodingBase,
     NativeCodingComponent
 )
-from mind_app.native_coding.exec.process_capture import ProcessCapture
+from mind_app.runtime.processes import (
+    terminate_process_tree,
+    wait_for_process
+)
 from mind_app.native_coding.exec.process_session import (
     ProcessSession as ExecSession,
     ProcessSessionManager,
@@ -147,7 +150,7 @@ class ExecCommandTools(NativeCodingComponent):
 
         process = session.process
 
-        await ProcessCapture.wait_for_process(process, yield_ms)
+        await wait_for_process(process, yield_ms)
 
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
@@ -291,7 +294,7 @@ class ExecCommandTools(NativeCodingComponent):
         if write_error is not None:
             return write_error
 
-        await ProcessCapture.wait_for_process(session.process, wait_time)
+        await wait_for_process(session.process, wait_time)
 
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
@@ -413,8 +416,8 @@ class ExecCommandTools(NativeCodingComponent):
         timed_out = time.time() >= session.expires_at and exit_code is None
 
         if timed_out:
-            await ProcessCapture.terminate_process_tree(session.process, force=True)
-            await ProcessCapture.wait_for_process(session.process, 1000)
+            await terminate_process_tree(session.process, force=True)
+            await wait_for_process(session.process, 1000)
             await self._session_manager.finalize_if_exited(session)
 
             exit_code = session.process.returncode

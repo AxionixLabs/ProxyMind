@@ -1,20 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import time
-import signal
-import typing
 import asyncio
-import subprocess
 from dataclasses import dataclass
+from mind_app.runtime.processes import (
+    subprocess_process_group_kwargs,
+    terminate_process_tree
+)
 from mind_app.native_coding.encoding import decode_process_output
 
 
 @dataclass(frozen=True, slots=True)
 class CapturedOutputLine(object):
     """记录一行原始进程输出及其来源。"""
-
     stream: str
     data: bytes
     truncated: bool = False
@@ -48,13 +47,17 @@ class _CaptureBuffer(object):
         """追加输出并按限制丢弃头部。"""
         if not chunk:
             return None
+
         self.data.extend(chunk)
+
         if len(self.data) <= self.limit_bytes:
             return None
 
         overflow = len(self.data) - self.limit_bytes
-        removed = bytes(self.data[:overflow])
+        removed  = bytes(self.data[:overflow])
+
         del self.data[:overflow]
+
         self.dropped += overflow
 
         self.prefix_partial = bool(removed) and removed[-1] not in (10, 13)
@@ -77,7 +80,7 @@ class OrderedOutputBuffer(object):
         *,
         max_lines: int = 800,
         max_line_chars: int = 1000,
-        max_line_bytes: int | None = None,
+        max_line_bytes: int | None = None
     ) -> None:
         self.max_lines      = max(1, int(max_lines or 1))
         self.max_line_chars = max(20, int(max_line_chars or 20))
@@ -144,12 +147,14 @@ class OrderedOutputBuffer(object):
 
             if pending.endswith(b"\r"):
                 pending = pending[:-1]
+
             if pending:
                 self.lines.append(CapturedOutputLine(
                     stream=stream,
                     data=pending,
                     truncated=truncated,
                 ))
+
             if len(self.lines) > self.max_lines:
                 del self.lines[:-self.max_lines]
 
@@ -241,7 +246,6 @@ class ProcessCapture(object):
 
     CHUNK_BYTES          = 4096
     IO_DRAIN_TIMEOUT_SEC = 2.0
-    TERMINATE_GRACE_SEC  = 0.5
 
     @classmethod
     async def run_shell(
@@ -275,13 +279,13 @@ class ProcessCapture(object):
             cls._read_stream(process.stderr, stderr_buffer, output_buffer, "stderr")
         )
 
-        timed_out = False
+        timed_out: bool = False
 
         try:
             await asyncio.wait_for(process.wait(), timeout=max(1, int(timeout_sec or 1)))
         except asyncio.TimeoutError:
             timed_out = True
-            await cls.terminate_process_tree(process, force=True)
+            await terminate_process_tree(process, force=True)
         finally:
             await cls._drain_readers(process, [stdout_task, stderr_task])
 
@@ -317,12 +321,12 @@ class ProcessCapture(object):
         prefix = [str(item) for item in (shell or []) if str(item or "").strip()]
 
         kwargs = {
-            "cwd"    : cwd or None,
-            "env"    : env,
-            "stdin"  : asyncio.subprocess.DEVNULL,
-            "stdout" : asyncio.subprocess.PIPE,
-            "stderr" : asyncio.subprocess.PIPE,
-            **cls.subprocess_process_group_kwargs()
+            "cwd": cwd or None,
+            "env": env,
+            "stdin": asyncio.subprocess.DEVNULL,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+            **subprocess_process_group_kwargs()
         }
 
         if prefix:
@@ -372,171 +376,6 @@ class ProcessCapture(object):
             await asyncio.gather(*tasks, return_exceptions=True)
         cls.close_process_transport(process)
 
-    @classmethod
-    async def terminate_process_tree(
-        cls,
-        process: asyncio.subprocess.Process,
-        *,
-        force: bool
-    ) -> None:
-        """终止进程组或进程树。"""
-        if process.returncode is not None:
-            return None
-
-        await cls.close_stdin_pipe(process)
-
-        if os.name == "nt":
-            await cls._terminate_windows_process_tree(process, force=force)
-            return None
-
-        signal_number = signal.SIGKILL if force else signal.SIGTERM
-
-        if not cls._signal_posix_process_group(process, signal_number):
-            cls._signal_top_process(process, force=force)
-
-        if not force:
-            await cls.wait_for_process(process, int(cls.TERMINATE_GRACE_SEC * 1000))
-            if process.returncode is None:
-                if not cls._signal_posix_process_group(process, signal.SIGKILL):
-                    cls._signal_top_process(process, force=True)
-
-        await cls.wait_for_process(process, 1000)
-
-    @classmethod
-    async def interrupt_process_tree(
-        cls,
-        process: asyncio.subprocess.Process
-    ) -> bool:
-        """向进程组发送中断信号。"""
-        if process.returncode is not None:
-            return True
-
-        if os.name == "nt":
-            break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
-            if break_signal is None:
-                return False
-            try:
-                process.send_signal(break_signal)
-                return True
-            except (ProcessLookupError, RuntimeError, ValueError, OSError):
-                return False
-
-        return cls._signal_posix_process_group(process, signal.SIGINT)
-
-    @classmethod
-    async def close_stdin_pipe(
-        cls,
-        process: asyncio.subprocess.Process
-    ) -> None:
-        """关闭进程标准输入管道。"""
-        stdin_pipe = getattr(process, "stdin", None)
-        if stdin_pipe is None or stdin_pipe.is_closing():
-            return None
-
-        stdin_pipe.close()
-
-        wait_closed = getattr(stdin_pipe, "wait_closed", None)
-        if not callable(wait_closed):
-            return None
-
-        wait_closed_call = typing.cast(
-            typing.Callable[[], typing.Awaitable[None]],
-            wait_closed
-        )
-
-        try:
-            await asyncio.wait_for(wait_closed_call(), timeout=cls.TERMINATE_GRACE_SEC)
-        except (BrokenPipeError, ConnectionResetError, RuntimeError, ValueError):
-            return None
-        except asyncio.TimeoutError:
-            return None
-
-    @classmethod
-    async def _terminate_windows_process_tree(
-        cls,
-        process: asyncio.subprocess.Process,
-        *,
-        force: bool
-    ) -> None:
-        """在 Windows 上终止进程树。"""
-        if not force:
-            await cls.send_windows_ctrl_break(process)
-            await cls.wait_for_process(process, int(cls.TERMINATE_GRACE_SEC * 1000))
-            if process.returncode is not None:
-                return None
-
-        killed = await cls.taskkill_process_tree(process.pid, force=True)
-        if not killed:
-            cls._signal_top_process(process, force=True)
-        await cls.wait_for_process(process, 1000)
-
-    @staticmethod
-    def subprocess_process_group_kwargs() -> dict[str, typing.Any]:
-        """返回建立进程组或会话所需的启动参数。"""
-        if os.name == "nt":
-            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            return {"creationflags": flags} if flags else {}
-        return {"start_new_session": True}
-
-    @staticmethod
-    async def wait_for_process(
-        process: asyncio.subprocess.Process,
-        timeout_ms: int
-    ) -> None:
-        """等待进程退出或达到等待时间。"""
-        if timeout_ms <= 0 or process.returncode is not None:
-            return None
-        try:
-            await asyncio.wait_for(process.wait(), timeout=timeout_ms / 1000)
-        except asyncio.TimeoutError:
-            return None
-
-    @staticmethod
-    async def send_windows_ctrl_break(
-        process: asyncio.subprocess.Process
-    ) -> None:
-        """向 Windows 新进程组发送 CTRL_BREAK。"""
-        break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
-        if break_signal is None:
-            return None
-        try:
-            process.send_signal(break_signal)
-        except (ProcessLookupError, RuntimeError, ValueError, OSError):
-            return None
-
-    @staticmethod
-    async def taskkill_process_tree(
-        pid: int,
-        *,
-        force: bool
-    ) -> bool:
-        """调用 taskkill 终止 Windows 进程树。"""
-        args = ["taskkill", "/PID", str(pid), "/T"]
-        if force:
-            args.append("/F")
-
-        task: asyncio.subprocess.Process | None = None
-        try:
-            task = await asyncio.create_subprocess_exec(
-                *args,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await asyncio.wait_for(task.wait(), timeout=2)
-        except (OSError, RuntimeError, ValueError):
-            return False
-        except asyncio.TimeoutError:
-            if task is not None and task.returncode is None:
-                try:
-                    task.kill()
-                except (ProcessLookupError, RuntimeError, ValueError):
-                    pass
-                await asyncio.gather(task.wait(), return_exceptions=True)
-            return False
-
-        return task.returncode == 0
-
     @staticmethod
     def close_process_transport(process: asyncio.subprocess.Process) -> None:
         """关闭 asyncio 进程传输对象。"""
@@ -549,33 +388,6 @@ class ProcessCapture(object):
         try:
             close()
         except (RuntimeError, ValueError, OSError):
-            return None
-
-    @staticmethod
-    def _signal_posix_process_group(
-        process: asyncio.subprocess.Process,
-        signal_number: int
-    ) -> bool:
-        """向 POSIX 进程组发送信号。"""
-        try:
-            os.killpg(process.pid, signal_number)
-            return True
-        except (ProcessLookupError, PermissionError, RuntimeError, ValueError, OSError):
-            return False
-
-    @staticmethod
-    def _signal_top_process(
-        process: asyncio.subprocess.Process,
-        *,
-        force: bool
-    ) -> None:
-        """向顶层进程发送兜底终止信号。"""
-        try:
-            if force:
-                process.kill()
-            else:
-                process.terminate()
-        except (ProcessLookupError, RuntimeError, ValueError):
             return None
 
 

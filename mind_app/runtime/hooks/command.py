@@ -3,17 +3,18 @@
 
 import os
 import json
-import signal
 import typing
 import asyncio
-import contextlib
-import subprocess
 from dataclasses import dataclass
 from mind_core.hooks import (
     HookDefinitionConfig,
     HookEventName
 )
 from mind_nova import const
+from mind_app.runtime.processes import (
+    subprocess_process_group_kwargs,
+    terminate_process_tree
+)
 from .output_spill import (
     CapturedHookOutput,
     HookOutputSpillStore
@@ -89,7 +90,7 @@ class HookCommandExecutor:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                **self._process_group_options(),
+                **subprocess_process_group_kwargs(),
             )
         except (OSError, ValueError) as error:
             raise HookCommandError(f"hook command could not start: {error}") from error
@@ -299,72 +300,13 @@ class HookCommandExecutor:
     ) -> None:
         """停止进程树并回收输出读取任务。"""
         if process.returncode is None:
-            await HookCommandExecutor._terminate_process_tree(process)
+            await terminate_process_tree(process, force=False)
         await process.wait()
 
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-
-    @staticmethod
-    def _process_group_options() -> dict[str, typing.Any]:
-        """返回当前平台创建独立 Hook 进程组所需的参数。"""
-        if os.name == "nt":
-            return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        return {"start_new_session": True}
-
-    @staticmethod
-    async def _terminate_process_tree(
-        process: asyncio.subprocess.Process
-    ) -> None:
-        """终止指定 Hook 进程及其派生进程。"""
-        if os.name == "nt":
-            break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
-            if break_signal is not None:
-                with contextlib.suppress(
-                    ProcessLookupError,
-                    RuntimeError,
-                    ValueError,
-                    OSError,
-                ):
-                    process.send_signal(break_signal)
-                for _ in range(10):
-                    if process.returncode is not None:
-                        return None
-                    await asyncio.sleep(0.05)
-
-            try:
-                killer = await asyncio.create_subprocess_exec(
-                    "taskkill",
-                    "/PID",
-                    str(process.pid),
-                    "/T",
-                    "/F",
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-
-                killer_wait = asyncio.create_task(killer.wait())
-
-                completed, _ = await asyncio.wait(
-                    (killer_wait,),
-                    timeout=2,
-                )
-
-                if not completed and killer.returncode is None:
-                    killer.kill()
-                await killer_wait
-            except (OSError, RuntimeError, ValueError):
-                pass
-
-        else:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(process.pid, signal.SIGKILL)
-
-        if process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
 
 
 if __name__ == '__main__':
