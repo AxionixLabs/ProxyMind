@@ -13,6 +13,7 @@ from backend.mcp_tools.bench.schemas.schema_nexus import (
     GraphqlSharedEnv,
     HttpBatchItem,
     HttpSharedEnv,
+    SseSharedEnv,
     TcpSharedEnv,
 )
 from backend.mcp_tools.media import screen
@@ -84,6 +85,14 @@ def test_nexus_schema_exposes_only_canonical_request_fields() -> None:
     assert FtpSharedEnv.model_validate({
         "payload_text": "payload",
     }).payload_text == "payload"
+    sse = SseSharedEnv.model_validate({
+        "json": {"event": "ready"},
+        "max_events": 3,
+    })
+    assert sse.model_dump(exclude_none=True, by_alias=True) == {
+        "json": {"event": "ready"},
+        "max_events": 3,
+    }
 
 
 @pytest.mark.parametrize(("model", "payload"), [

@@ -12,6 +12,7 @@ from .fields import (
 )
 from .reporter import EnhanceReporter
 
+
 async def enhance_result(
     *,
     pref_config: dict[str, typing.Any],

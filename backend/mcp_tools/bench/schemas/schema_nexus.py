@@ -26,6 +26,11 @@ def _batch_items_arg_desc(protocol: str) -> str:
     )
 
 
+def _batch_request_desc(protocol: str) -> str:
+    """返回批量项请求字段的协议描述。"""
+    return f"当前 {protocol} 批量项的协议请求定义。协议字段统一写在 `request` 下。"
+
+
 def _batch_env_arg_desc(protocol: str) -> str:
     return (
         f"{protocol} 批量共享默认值。执行时会先把这里的字段与当前项物化成最终请求。"
@@ -38,7 +43,7 @@ class NexusToolSchemaModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class BatchItemBase(NexusToolSchemaModel):
+class BatchItemModel(NexusToolSchemaModel):
     name: typing.Optional[str] = Field(
         default=None,
         description="可选用例名，便于在结果、日志和批量输出中识别当前请求。"
@@ -53,49 +58,14 @@ class BatchItemBase(NexusToolSchemaModel):
     )
 
 
-class BatchArgsBase(NexusToolSchemaModel):
-    template_vars: typing.Optional[dict[str, typing.Any]] = Field(
-        default=None,
-        description="模板变量字典，用于渲染请求中的占位符。"
-    )
-    concurrency: StrictInt = Field(
-        default=1,
-        ge=1,
-        description="批量执行的最大并发数。若预期并发执行，必须显式传入整数；不要因校验失败而省略字段回退到默认值 `1`。"
-    )
-    fail_fast: StrictBool = Field(
-        default=True,
-        description="批量执行时遇到首个失败是否立即停止剩余请求。若预期继续执行剩余项，必须显式传入布尔值；不要因校验失败而省略字段回退到默认值 `true`。"
-    )
-
-
-class RequestBatchItemBase(BatchItemBase):
-    request: dict[str, typing.Any] = Field(
-        description="当前批量项的协议请求定义。协议字段统一写在 `request` 下。"
-    )
-
-
-class HttpBodyMixin(NexusToolSchemaModel):
+class GenericSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
     json_body: typing.Optional[typing.Any] = Field(
         default=None,
         alias="json",
     )
     body_text: typing.Optional[str] = None
-
-
-class BodyTextMixin(NexusToolSchemaModel):
-    body_text: typing.Optional[str] = None
-
-
-class ArtifactDirMixin(NexusToolSchemaModel):
-    artifact_dir: typing.Optional[str] = None
-
-
-class GraphqlFieldsMixin(NexusToolSchemaModel):
     operation_name: typing.Optional[str] = None
-
-
-class GenericSharedEnv(ArtifactDirMixin, HttpBodyMixin, GraphqlFieldsMixin):
     method: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
@@ -140,11 +110,19 @@ class GenericSharedEnv(ArtifactDirMixin, HttpBodyMixin, GraphqlFieldsMixin):
     max_messages: typing.Optional[int] = None
 
 
-class GenericBatchItem(RequestBatchItemBase):
-    request: GenericSharedEnv
+class GenericBatchItem(BatchItemModel):
+    request: GenericSharedEnv = Field(
+        description=_batch_request_desc("通用")
+    )
 
 
-class HttpSharedEnv(ArtifactDirMixin, HttpBodyMixin):
+class HttpSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+    json_body: typing.Optional[typing.Any] = Field(
+        default=None,
+        alias="json",
+    )
+    body_text: typing.Optional[str] = None
     method: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
@@ -157,21 +135,43 @@ class HttpSharedEnv(ArtifactDirMixin, HttpBodyMixin):
     follow_redirects: typing.Optional[bool] = None
 
 
-class HttpBatchItem(RequestBatchItemBase):
-    request: HttpSharedEnv
+class HttpBatchItem(BatchItemModel):
+    request: HttpSharedEnv = Field(
+        description=_batch_request_desc("HTTP")
+    )
 
 
-class SseSharedEnv(HttpSharedEnv):
+class SseSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+    json_body: typing.Optional[typing.Any] = Field(
+        default=None,
+        alias="json",
+    )
+    body_text: typing.Optional[str] = None
+    method: typing.Optional[str] = None
+    url: typing.Optional[str] = None
+    base_url: typing.Optional[str] = None
+    headers: typing.Optional[dict[str, typing.Any]] = None
+    params: typing.Optional[typing.Any] = None
+    form: typing.Optional[dict[str, typing.Any]] = None
+    files: typing.Optional[list[typing.Any]] = None
+    timeout: typing.Optional[float | int] = None
+    retries: typing.Optional[int] = None
+    follow_redirects: typing.Optional[bool] = None
     max_events: typing.Optional[int] = None
     media_index: typing.Optional[int] = None
     media_path: typing.Optional[str] = None
 
 
-class SseBatchItem(RequestBatchItemBase):
-    request: SseSharedEnv
+class SseBatchItem(BatchItemModel):
+    request: SseSharedEnv = Field(
+        description=_batch_request_desc("SSE")
+    )
 
 
-class GraphqlSharedEnv(ArtifactDirMixin, GraphqlFieldsMixin):
+class GraphqlSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+    operation_name: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
     headers: typing.Optional[dict[str, typing.Any]] = None
@@ -184,11 +184,14 @@ class GraphqlSharedEnv(ArtifactDirMixin, GraphqlFieldsMixin):
     media_path: typing.Optional[str] = None
 
 
-class GraphqlBatchItem(RequestBatchItemBase):
-    request: GraphqlSharedEnv
+class GraphqlBatchItem(BatchItemModel):
+    request: GraphqlSharedEnv = Field(
+        description=_batch_request_desc("GraphQL")
+    )
 
 
-class WsSharedEnv(ArtifactDirMixin):
+class WsSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
     url: typing.Optional[str] = None
     headers: typing.Optional[dict[str, typing.Any]] = None
     sends: typing.Optional[list[str] | str] = None
@@ -198,11 +201,15 @@ class WsSharedEnv(ArtifactDirMixin):
     media_path: typing.Optional[str] = None
 
 
-class WsBatchItem(RequestBatchItemBase):
-    request: WsSharedEnv
+class WsBatchItem(BatchItemModel):
+    request: WsSharedEnv = Field(
+        description=_batch_request_desc("WebSocket")
+    )
 
 
-class TcpSharedEnv(ArtifactDirMixin, BodyTextMixin):
+class TcpSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+    body_text: typing.Optional[str] = None
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     sends: typing.Optional[list[str] | str] = None
@@ -214,11 +221,15 @@ class TcpSharedEnv(ArtifactDirMixin, BodyTextMixin):
     read_until: typing.Optional[str] = None
 
 
-class TcpBatchItem(RequestBatchItemBase):
-    request: TcpSharedEnv
+class TcpBatchItem(BatchItemModel):
+    request: TcpSharedEnv = Field(
+        description=_batch_request_desc("TCP")
+    )
 
 
-class UdpSharedEnv(ArtifactDirMixin, BodyTextMixin):
+class UdpSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+    body_text: typing.Optional[str] = None
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     encoding: typing.Optional[str] = None
@@ -226,11 +237,15 @@ class UdpSharedEnv(ArtifactDirMixin, BodyTextMixin):
     read_size: typing.Optional[int] = None
 
 
-class UdpBatchItem(RequestBatchItemBase):
-    request: UdpSharedEnv
+class UdpBatchItem(BatchItemModel):
+    request: UdpSharedEnv = Field(
+        description=_batch_request_desc("UDP")
+    )
 
 
-class SmtpSharedEnv(ArtifactDirMixin, BodyTextMixin):
+class SmtpSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+    body_text: typing.Optional[str] = None
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     action: typing.Optional[str] = None
@@ -246,11 +261,14 @@ class SmtpSharedEnv(ArtifactDirMixin, BodyTextMixin):
     timeout: typing.Optional[float | int] = None
 
 
-class SmtpBatchItem(RequestBatchItemBase):
-    request: SmtpSharedEnv
+class SmtpBatchItem(BatchItemModel):
+    request: SmtpSharedEnv = Field(
+        description=_batch_request_desc("SMTP")
+    )
 
 
-class ImapSharedEnv(ArtifactDirMixin):
+class ImapSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     username: typing.Optional[str] = None
@@ -266,11 +284,14 @@ class ImapSharedEnv(ArtifactDirMixin):
     media_path: typing.Optional[str] = None
 
 
-class ImapBatchItem(RequestBatchItemBase):
-    request: ImapSharedEnv
+class ImapBatchItem(BatchItemModel):
+    request: ImapSharedEnv = Field(
+        description=_batch_request_desc("IMAP")
+    )
 
 
-class FtpSharedEnv(ArtifactDirMixin):
+class FtpSharedEnv(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     username: typing.Optional[str] = None
@@ -285,8 +306,10 @@ class FtpSharedEnv(ArtifactDirMixin):
     media_path: typing.Optional[str] = None
 
 
-class FtpBatchItem(RequestBatchItemBase):
-    request: FtpSharedEnv
+class FtpBatchItem(BatchItemModel):
+    request: FtpSharedEnv = Field(
+        description=_batch_request_desc("FTP")
+    )
 
 
 NexusKindArg = typing.Annotated[
