@@ -78,13 +78,16 @@ def test_agent_list_menu_displays_status_and_queue_counts() -> None:
         ),
     )
 
-    request = agent_list_menu(snapshots)
+    request = agent_list_menu(snapshots, root_session_id="sid_root")
 
     assert request.title == "Sub-agents"
     assert request.status == "active=1 queued=2 total=2"
-    assert request.options[0].label == "• /root/review"
-    assert request.options[0].detail == "agent_review · running"
-    assert request.options[1].detail == "agent_test · completed"
+    assert request.selected == 0
+    assert request.options[0].label == "• Main [default] (current)"
+    assert request.options[0].detail == "sid_root"
+    assert request.options[1].label == "• /root/review"
+    assert request.options[1].detail == "agent_review · running"
+    assert request.options[2].detail == "agent_test · completed"
     assert request.body == ()
 
 
@@ -104,12 +107,12 @@ def test_agent_list_menu_orders_nested_threads_under_parent() -> None:
 
     request = agent_list_menu((parent, sibling, child))
 
-    assert [option.value for option in request.options] == [
+    assert [option.value for option in request.options[1:]] == [
         "agent_parent",
         "agent_child",
         "agent_sibling",
     ]
-    assert request.options[1].label == "  • /root/parent/review_child"
+    assert request.options[2].label == "  • /root/parent/review_child"
 
 
 def test_agent_detail_menu_exposes_state_specific_actions() -> None:
@@ -237,14 +240,14 @@ async def test_manage_agents_without_root_session_has_no_side_effects() -> None:
     class Runtime:
         async def select_menu(self, request):
             requests.append(request)
-            return None
+            return request.options[0].value
 
     await manage_agents(Runtime(), mind)
 
     snapshots.assert_not_awaited()
     assert views == []
     assert requests[0].body == ("No sub-agents.",)
-    assert requests[0].options == ()
+    assert requests[0].options[0].label == "• Main [default] (current)"
 
 
 def test_agent_snapshot_block_shows_recent_shell_activity(tmp_path) -> None:

@@ -30,6 +30,7 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ..core.runtime import TuiRuntime
 
+_MAIN_ACTION      = object()
 _BACK_ACTION      = object()
 _SHOW_ACTION      = object()
 _INTERRUPT_ACTION = object()
@@ -49,8 +50,11 @@ async def manage_agents(
     while True:
         snapshots = await _agent_snapshots(mind, root_session_id)
 
-        selected_id = await runtime.select_menu(agent_list_menu(snapshots))
-        if selected_id is None:
+        selected_id = await runtime.select_menu(agent_list_menu(
+            snapshots,
+            root_session_id=root_session_id,
+        ))
+        if selected_id is None or selected_id is _MAIN_ACTION:
             return None
 
         selected = next(
@@ -108,14 +112,21 @@ def current_agent_root_session_id(mind: typing.Any) -> str:
 
 
 def agent_list_menu(
-    snapshots: tuple[AgentSnapshot, ...]
+    snapshots: tuple[AgentSnapshot, ...],
+    *,
+    root_session_id: str = ""
 ) -> MenuRequest:
     """生成当前根会话的子执行线程列表。"""
     active  = sum(snapshot.status in _ACTIVE_STATUSES for snapshot in snapshots)
     queued  = sum(snapshot.queued_count for snapshot in snapshots)
     ordered = _tree_ordered_snapshots(snapshots)
 
-    options = tuple(
+    options = [MenuOption(
+        value=_MAIN_ACTION,
+        label="• Main [default] (current)",
+        detail=root_session_id or "current session",
+    )]
+    options.extend(
         MenuOption(
             value=snapshot.agent_id,
             label=(
@@ -130,9 +141,9 @@ def agent_list_menu(
     return MenuRequest(
         title="Sub-agents",
         status=f"active={active} queued={queued} total={len(snapshots)}",
-        body=() if options else ("No sub-agents.",),
+        body=("No sub-agents.",) if not snapshots else (),
         help_text="Up/Down select · Enter manage · Esc/q close",
-        options=options,
+        options=tuple(options),
     )
 
 
