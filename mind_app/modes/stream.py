@@ -307,6 +307,16 @@ async def stream_looper(
         turn_id=turn_context.turn_id,
     )
 
+    def record_pending_assistant_output() -> None:
+        """把尚未持久化的助手输出块写入当前会话记录。"""
+        assistant_output = tracker.commit_assistant_output()
+        if assistant_output:
+            transcript.append(
+                "message.created",
+                actor="assistant",
+                payload={"content": assistant_output},
+            )
+
     idle_wait = IdleStatusTimer(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
@@ -336,10 +346,25 @@ async def stream_looper(
             actor="system",
             payload={"mode": mode},
         )
+
+        user_payload: dict[str, typing.Any] = {"content": message}
+
+        attachments = kwargs.get("attachments")
+        if isinstance(attachments, (list, tuple)) and attachments:
+            user_payload["attachments"] = [
+                dict(item)
+                for item in attachments
+                if isinstance(item, dict)
+            ]
+
+        extras = kwargs.get("extras")
+        if isinstance(extras, dict) and extras:
+            user_payload["extras"] = dict(extras)
+
         transcript.append(
             "message.created",
             actor="user",
-            payload={"content": message},
+            payload=user_payload,
         )
 
         await output_control.open()
@@ -431,7 +456,7 @@ async def stream_looper(
             event_type = event.type
 
             if is_assistant_output_boundary(event):
-                tracker.commit_assistant_output()
+                record_pending_assistant_output()
                 await content.emit(AssistantOutputBoundary())
 
             if event_type == "turn.start":
@@ -1002,6 +1027,7 @@ async def stream_looper(
             )
 
         if turn_completed and turn_context.agent.depth == 0:
+            record_pending_assistant_output()
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
 
         await status_control.end_status()
@@ -1020,13 +1046,7 @@ async def stream_looper(
         )
 
     finally:
-        assistant_text = tracker.assistant_text()
-        if assistant_text:
-            transcript.append(
-                "message.created",
-                actor="assistant",
-                payload={"content": assistant_text},
-            )
+        record_pending_assistant_output()
 
         turn_event = (
             "turn.interrupted"

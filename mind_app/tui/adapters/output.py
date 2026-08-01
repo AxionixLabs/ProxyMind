@@ -31,6 +31,8 @@ from ..core.render import (
 )
 from ..core.styles import (
     ASSISTANT_PREFIX_CLASS,
+    assistant_block,
+    assistant_fragments,
     prompt_style,
     styled_block_fragments
 )
@@ -251,7 +253,7 @@ class TuiOutputControl(OutputControlPort):
                 StyledBlock(plain_text=text),
             ))
 
-        return _assistant_prefixed_block(rendered)
+        return assistant_block(rendered)
 
     def _finish_assistant_filter(self, *, render: bool) -> None:
         """收束流式控制序列，并按需刷新新增的换行。"""
@@ -436,11 +438,8 @@ class TuiOutputControl(OutputControlPort):
         cursor: bool
     ) -> bool:
         """刷新当前流式内容并返回打字机光标是否可见。"""
-        block = StyledBlock(plain_text=self.assistant.visible_text)
-
-        fragments = _assistant_prefixed_fragments(
-            list(styled_block_fragments(block))
-        )
+        block     = StyledBlock(plain_text=self.assistant.visible_text)
+        fragments = list(assistant_fragments(styled_block_fragments(block)))
 
         cursor_visible = cursor and _cursor_keeps_display_height(
             fragments,
@@ -477,11 +476,6 @@ class TuiOutputControl(OutputControlPort):
             )
 
 
-def _assistant_prefixed_block(block: FragmentBlock) -> FragmentBlock:
-    """给助手正文块添加单个项目符号前缀。"""
-    return FragmentBlock(tuple(_assistant_prefixed_fragments(list(block.fragments))))
-
-
 def _cursor_keeps_display_height(
     fragments: list[tuple[str, str]],
     cursor: str,
@@ -510,58 +504,6 @@ def _cursor_keeps_display_height(
         width=line_width,
         continuation_widths=continuation_widths,
     )
-
-
-def _assistant_prefixed_fragments(
-    fragments: list[tuple[str, str]],
-) -> list[tuple[str, str]]:
-    """移除正文前导换行并添加助手项目符号和续行缩进。"""
-    out = [(style, text) for style, text in fragments if text]
-    while out:
-        style, text = out[0]
-        trimmed = text.lstrip("\r\n")
-        if trimmed:
-            out[0] = style, trimmed
-            break
-        out.pop(0)
-    if not out:
-        return []
-
-    prefix_style = ASSISTANT_PREFIX_CLASS
-
-    return [
-        (prefix_style, "• "),
-        *_assistant_continuation_fragments(out, indent_style=prefix_style),
-    ]
-
-
-def _assistant_continuation_fragments(
-    fragments: list[tuple[str, str]],
-    *,
-    indent_style: str
-) -> list[tuple[str, str]]:
-    """在助手正文每个显式续行前补充两个空格。"""
-    out: list[tuple[str, str]] = []
-
-    continuation: bool = False
-
-    for style, text in fragments:
-        lines      = text.split("\n")
-        last_index = len(lines) - 1
-
-        for index, line in enumerate(lines):
-            has_newline = index < last_index
-            if continuation and (line or has_newline):
-                out.append((indent_style, "  "))
-                continuation = False
-            if line:
-                out.append((style, line))
-            if has_newline:
-                out.append((style, "\n"))
-                continuation = True
-
-    return out
-
 
 if __name__ == '__main__':
     pass

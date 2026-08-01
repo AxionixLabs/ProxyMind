@@ -74,7 +74,10 @@ from .history import (
     normalize_workspace
 )
 from .history.ids import valid_session_ids
-from .history.transcript import ConversationTranscriptStore
+from .history.transcript import (
+    ConversationTranscriptStore,
+    TranscriptEntry
+)
 from .mcp.contracts import McpSessionLike
 
 SessionResult = typing.TypeVar("SessionResult")
@@ -345,6 +348,16 @@ class Mind(object):
         ):
             return None
         return record
+
+    def read_conversation_transcript(
+        self,
+        session_id: str
+    ) -> tuple[TranscriptEntry, ...]:
+        """读取指定会话已经持久化的结构化事件。"""
+        path = self.transcripts.existing_path_for_session(session_id)
+        if not path:
+            return ()
+        return self.transcripts.reader(path).read()
 
     async def resume_conversation(
         self,

@@ -2,6 +2,7 @@
 
 import pytest
 
+from mind_app.history.transcript import TranscriptEntry
 from mind_app.tui.features import history
 
 
@@ -63,4 +64,94 @@ async def test_history_menu_can_include_workspace(monkeypatch) -> None:
 
     assert requests[0].options[0].detail == (
         r"continue the task · D:\PycharmProjects\ProxyMind"
+    )
+
+
+def test_history_transcript_replays_messages_and_tool_result() -> None:
+    def entry(
+        event: str,
+        *,
+        actor: str,
+        payload: dict,
+    ) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_test",
+            turn_id="turn_test",
+            actor=actor,
+            payload=payload,
+        )
+
+    entries = (
+        entry(
+            "message.created",
+            actor="user",
+            payload={
+                "content": "show the workspace",
+                "attachments": [{"filename": "screen.png"}],
+                "extras": {"selection": "src/app.py"},
+            },
+        ),
+        entry(
+            "tool.started",
+            actor="tool",
+            payload={
+                "call_id": "call_1",
+                "name": "shell_command",
+                "arguments": {"command": "pwd"},
+            },
+        ),
+        entry(
+            "tool.completed",
+            actor="tool",
+            payload={
+                "call_id": "call_1",
+                "result": {"output": "D:/workspace"},
+            },
+        ),
+        entry(
+            "message.created",
+            actor="assistant",
+            payload={"content": "**Done**"},
+        ),
+        entry(
+            "context.compacted",
+            actor="system",
+            payload={"summary": "Context compacted · 20 -> 4 items"},
+        ),
+    )
+
+    class Controller(object):
+        def read_conversation_transcript(self, session_id):
+            assert session_id == "session_test"
+            return entries
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_test",
+        terminal_width=60,
+    )
+
+    assert [block.kind for block in blocks] == [
+        "user",
+        "operation",
+        "assistant",
+        "notice",
+    ]
+    assert blocks[0].turn_id == "turn_test"
+    assert blocks[0].prompt == "show the workspace"
+    assert blocks[0].attachments == ({"filename": "screen.png"},)
+    assert blocks[0].extras == {"selection": "src/app.py"}
+    assert "pwd" in "".join(
+        text for _style, text in blocks[1].transcript_block.fragments
+    )
+    assert "D:/workspace" in "".join(
+        text for _style, text in blocks[1].transcript_block.fragments
+    )
+    assert "Done" in "".join(
+        text for _style, text in blocks[2].display_block.fragments
+    )
+    assert "20 -> 4" in "".join(
+        text for _style, text in blocks[3].display_block.fragments
     )

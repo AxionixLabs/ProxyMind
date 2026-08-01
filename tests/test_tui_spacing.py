@@ -37,6 +37,7 @@ from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.presentation import TuiPresentationSink
 from mind_app.tui.core.assistant import TuiAssistantStream
 from mind_app.tui.core.document import (
+    TranscriptBlock,
     TuiBlockKind,
     TuiDocument,
 )
@@ -51,7 +52,10 @@ from mind_app.tui.core.render import (
     split_formatted_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.screen import _erase_terminal_scrollback
+from mind_app.tui.core.screen import (
+    FrameGeometry,
+    _erase_terminal_scrollback,
+)
 from mind_app.tui.core.styles import ASSISTANT_PREFIX_CLASS
 
 
@@ -407,6 +411,72 @@ def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
 
     output.write_raw.assert_not_called()
     output.flush.assert_not_called()
+
+
+def test_render_frame_uses_one_terminal_geometry_snapshot() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = Mock(side_effect=[(40, 10), (72, 18)])
+
+    runtime.screen.application.render_counter = 1
+    runtime.screen.application.before_render.fire()
+
+    assert runtime.screen.frame_geometry == FrameGeometry(40, 10, 1)
+    assert runtime.screen.terminal_width == 40
+    assert runtime.screen.terminal_height == 10
+    assert runtime.screen._output_size.call_count == 1
+
+    runtime.screen.application.after_render.fire()
+    assert runtime.screen._frame_geometry is None
+
+    runtime.screen.application.render_counter = 2
+    runtime.screen.application.before_render.fire()
+
+    assert runtime.screen.frame_geometry == FrameGeometry(72, 18, 2)
+    assert runtime.screen.terminal_width == 72
+    assert runtime.screen.terminal_height == 18
+    assert runtime.screen._output_size.call_count == 2
+
+
+def test_replace_transcript_resets_document_state() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("old content"), kind="assistant")
+    runtime.set_active_renderable(_block("running"), kind="operation")
+    runtime.viewport.view_row = 4
+
+    restored = (
+        TranscriptBlock(
+            display_block=_block("new user"),
+            transcript_block=_block("new user"),
+            kind="user",
+            gap_before=True,
+            turn_id="turn_restored",
+            prompt="new user",
+        ),
+        TranscriptBlock(
+            display_block=_block("new assistant"),
+            transcript_block=_block("new assistant"),
+            kind="assistant",
+        ),
+    )
+
+    with patch.object(runtime.screen, "clear_terminal_scrollback") as clear:
+        runtime.replace_transcript(restored)
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "user",
+        "assistant",
+    ]
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        True,
+    ]
+    assert runtime.document.blocks[0].turn_id == "turn_restored"
+    assert runtime.document.active_block is None
+    assert runtime.document.scrollback_line_count == 0
+    assert runtime.document.cleared_line_count == 0
+    assert runtime.viewport.view_row is None
+    assert "old content" not in _transcript_text(runtime.document)
+    clear.assert_called_once_with()
 
 
 @pytest.mark.anyio

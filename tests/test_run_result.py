@@ -172,6 +172,8 @@ async def _run_stream(
     frontend_active: bool = True,
     additional_context: tuple[str, ...] = (),
     request_skills: tuple[dict[str, str], ...] | None = None,
+    attachments: tuple[dict[str, typing.Any], ...] = (),
+    extras: dict[str, typing.Any] | None = None,
     stream_factory: typing.Callable[
         ..., typing.AsyncIterator[typing.Any]
     ] | None = None,
@@ -230,6 +232,10 @@ async def _run_stream(
         "turn_execution": turn_execution,
         "session_factory": lambda *_args, **_kwargs: output_session,
     }
+    if attachments:
+        stream_options["attachments"] = list(attachments)
+    if extras:
+        stream_options["extras"] = dict(extras)
 
     result = await stream.stream_looper(
         mind,
@@ -306,6 +312,63 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         "payload": {"content": "answer"},
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> None:
+    _result, mind = await _run_stream(monkeypatch, [
+        {"type": "text.delta", "text": "before"},
+        {"type": "text.done"},
+        {
+            "type": "tool.output",
+            "name": "remote_tool",
+            "call_id": "call-1",
+            "arguments": {"value": 1},
+            "result": {"ok": True, "text": "done"},
+        },
+        {"type": "text.delta", "text": "after"},
+        {"type": "text.done"},
+        {"type": "turn.done", "usage": {}},
+    ])
+
+    ordered = [
+        (entry["event"], entry["actor"], entry["payload"])
+        for entry in mind.transcripts.entries
+        if entry["actor"] in {"assistant", "tool"}
+    ]
+
+    assert ordered[0] == (
+        "message.created",
+        "assistant",
+        {"content": "before"},
+    )
+    assert ordered[1][0:2] == ("tool.completed", "tool")
+    assert ordered[2] == (
+        "message.created",
+        "assistant",
+        {"content": "after"},
+    )
+
+
+@pytest.mark.anyio
+async def test_transcript_records_user_replay_payload(monkeypatch) -> None:
+    _result, mind = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done", "usage": {}}],
+        attachments=({"filename": "screen.png"},),
+        extras={"selection": "src/app.py"},
+    )
+
+    user_entry = next(
+        entry
+        for entry in mind.transcripts.entries
+        if entry["actor"] == "user"
+    )
+    assert user_entry["payload"] == {
+        "content": "hello",
+        "attachments": [{"filename": "screen.png"}],
+        "extras": {"selection": "src/app.py"},
+    }
 
 
 @pytest.mark.anyio

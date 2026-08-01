@@ -6,7 +6,8 @@ import math
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
+    replace
 )
 from datetime import (
     datetime,
@@ -16,10 +17,7 @@ from pathlib import Path
 from engine.observability import observe_exception
 from mind_app.paths import sessions_dir
 from mind_nova import const
-from .contracts import (
-    TranscriptActor,
-    TranscriptSink
-)
+from .contracts import TranscriptActor
 from .ids import SID_RE
 
 
@@ -33,6 +31,42 @@ class TranscriptEntry:
     actor: TranscriptActor | None
     payload: dict[str, typing.Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_dict(cls, value: typing.Any) -> "TranscriptEntry":
+        """把结构化对象解析为会话事件。"""
+        if not isinstance(value, dict):
+            raise ValueError("transcript entry must be an object")
+
+        timestamp  = _required_text(value.get("timestamp"), "timestamp")
+        event      = _required_text(value.get("event"), "event")
+        session_id = _required_text(value.get("session_id"), "session_id")
+
+        turn_value = value.get("turn_id")
+        if turn_value is not None and not isinstance(turn_value, str):
+            raise ValueError("transcript turn_id must be a string or null")
+
+        turn_id = str(turn_value or "").strip() or None
+
+        actor_value = value.get("actor")
+        if actor_value is not None and (
+            not isinstance(actor_value, str)
+            or actor_value not in ("user", "assistant", "system", "tool")
+        ):
+            raise ValueError("transcript actor is invalid")
+
+        payload = value.get("payload", {})
+        if not isinstance(payload, dict):
+            raise ValueError("transcript payload must be an object")
+
+        return cls(
+            timestamp=timestamp,
+            event=event,
+            session_id=session_id,
+            turn_id=turn_id,
+            actor=actor_value,
+            payload=dict(payload),
+        )
+
     def to_dict(self) -> dict[str, typing.Any]:
         """返回可逐行序列化的事件对象。"""
         return {
@@ -44,7 +78,141 @@ class TranscriptEntry:
             "payload": _json_value(self.payload),
         }
 
-class TranscriptWriter(TranscriptSink):
+
+class TranscriptReader(object):
+    """从单个会话文件读取有效的结构化事件。"""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path) if str(path or "").strip() else None
+
+    def read(self) -> tuple[TranscriptEntry, ...]:
+        """返回文件中的有效事件，损坏行不会中断后续读取。"""
+        if self.path is None:
+            return ()
+
+        entries: list[TranscriptEntry] = []
+
+        try:
+            with self.path.open(
+                "r",
+                encoding=const.CHARSET,
+                newline="",
+            ) as file:
+                for line_number, line in enumerate(file, start=1):
+                    raw = line.strip()
+                    if not raw:
+                        continue
+
+                    try:
+                        entries.append(TranscriptEntry.from_dict(
+                            json.loads(raw)
+                        ))
+                    except (
+                        json.JSONDecodeError,
+                        TypeError,
+                        ValueError,
+                        RecursionError,
+                    ) as error:
+                        observe_exception(
+                            "transcript.read.line.failed",
+                            error,
+                            level="WARNING",
+                            path=str(self.path),
+                            line_number=line_number,
+                        )
+        except (OSError, UnicodeError) as error:
+            observe_exception(
+                "transcript.read.failed",
+                error,
+                level="WARNING",
+                path=str(self.path),
+            )
+
+        return tuple(entries)
+
+
+class TranscriptReplay(object):
+    """把持久事件归并为可恢复的消息和工具记录。"""
+
+    def __init__(self, entries: typing.Iterable[TranscriptEntry]) -> None:
+        self.entries = tuple(entries)
+
+    def build(self) -> tuple[TranscriptEntry, ...]:
+        """返回完成更新合并和工具调用配对后的事件。"""
+        replay: list[TranscriptEntry] = []
+        user_by_turn: dict[str, int]  = {}
+        last_user_index: int | None   = None
+        pending_tools: dict[str, int] = {}
+
+        for entry in self.entries:
+            if entry.event == "message.created":
+                content = entry.payload.get("content")
+                if entry.actor not in {"user", "assistant"}:
+                    continue
+                if not isinstance(content, str) or not content:
+                    continue
+
+                replay.append(entry)
+                if entry.actor == "user":
+                    last_user_index = len(replay) - 1
+                    if entry.turn_id:
+                        user_by_turn[entry.turn_id] = last_user_index
+                continue
+
+            if entry.event == "message.updated" and entry.actor == "user":
+                content = entry.payload.get("content")
+                if not isinstance(content, str) or not content:
+                    continue
+
+                target = (
+                    user_by_turn.get(entry.turn_id)
+                    if entry.turn_id
+                    else last_user_index
+                )
+                if target is not None:
+                    previous = replay[target]
+                    replay[target] = replace(
+                        previous,
+                        payload={**previous.payload, **entry.payload},
+                    )
+                continue
+
+            if entry.event == "tool.started":
+                replay.append(entry)
+                call_id = _payload_text(entry.payload, "call_id")
+                if call_id:
+                    pending_tools[call_id] = len(replay) - 1
+                continue
+
+            if entry.event not in {"tool.completed", "tool.failed"}:
+                if entry.event in {
+                    "context.compacted",
+                    "context.compaction.failed",
+                    "turn.failed",
+                    "turn.interrupted",
+                }:
+                    replay.append(entry)
+                continue
+
+            call_id = _payload_text(entry.payload, "call_id")
+
+            target = pending_tools.pop(call_id, None) if call_id else None
+            if target is None:
+                replay.append(entry)
+                continue
+
+            started = replay[target]
+
+            replay[target] = replace(
+                entry,
+                turn_id=entry.turn_id or started.turn_id,
+                payload={**started.payload, **entry.payload},
+            )
+
+        return tuple(replay)
+
+
+class TranscriptWriter(object):
     """向单个会话文件追加结构化事件。"""
 
     def __init__(
@@ -159,12 +327,11 @@ class ConversationTranscriptStore:
         normalized = str(session_id or "").strip()
 
         try:
-            created_at = _session_datetime(normalized)
+            path = self._session_path(normalized)
 
-            directory = self.root / created_at.strftime("%Y/%m/%d")
+            directory = path.parent
             directory.mkdir(parents=True, exist_ok=True)
 
-            path = directory / f"session-{normalized}.jsonl"
             path.touch(exist_ok=True)
 
             return str(path)
@@ -172,6 +339,22 @@ class ConversationTranscriptStore:
         except (OSError, ValueError) as error:
             observe_exception(
                 "transcript.path.failed",
+                error,
+                level="WARNING",
+                session_id=normalized,
+            )
+            return ""
+
+    def existing_path_for_session(self, session_id: str) -> str:
+        """返回已经存在的会话记录路径。"""
+        normalized = str(session_id or "").strip()
+
+        try:
+            path = self._session_path(normalized)
+            return str(path) if path.is_file() else ""
+        except (OSError, ValueError) as error:
+            observe_exception(
+                "transcript.lookup.failed",
                 error,
                 level="WARNING",
                 session_id=normalized,
@@ -191,6 +374,32 @@ class ConversationTranscriptStore:
             session_id=session_id,
             turn_id=turn_id,
         )
+
+    @staticmethod
+    def reader(path: str | Path) -> TranscriptReader:
+        """创建绑定单个会话文件的读取器。"""
+        return TranscriptReader(path)
+
+    def _session_path(self, session_id: str) -> Path:
+        """返回会话标识对应的日期分层文件路径。"""
+        created_at = _session_datetime(session_id)
+        directory  = self.root / created_at.strftime("%Y/%m/%d")
+
+        return directory / f"session-{session_id}.jsonl"
+
+
+def _required_text(value: typing.Any, field_name: str) -> str:
+    """返回必填文本字段并拒绝空值。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"transcript {field_name} must be a non-empty string")
+    return value.strip()
+
+
+def _payload_text(payload: dict[str, typing.Any], key: str) -> str:
+    """返回事件载荷中的非空文本字段。"""
+    value = payload.get(key)
+    return str(value).strip() if isinstance(value, str) else ""
+
 
 def _session_datetime(session_id: str) -> datetime:
     """从会话标识中的毫秒时间戳返回本地创建时间。"""

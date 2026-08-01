@@ -255,6 +255,62 @@ def styled_block_fragments(
     )
 
 
+def assistant_block(block: FragmentBlock) -> FragmentBlock:
+    """给助手正文添加项目符号和显式续行缩进。"""
+    return FragmentBlock(assistant_fragments(block.fragments))
+
+
+def assistant_fragments(
+    fragments: typing.Iterable[tuple[str, str]]
+) -> tuple[tuple[str, str], ...]:
+    """返回带助手前缀并移除前导换行的文本片段。"""
+    out = [(style, text) for style, text in fragments if text]
+    while out:
+        style, text = out[0]
+        trimmed = text.lstrip("\r\n")
+        if trimmed:
+            out[0] = style, trimmed
+            break
+        out.pop(0)
+    if not out:
+        return ()
+
+    return (
+        (ASSISTANT_PREFIX_CLASS, "• "),
+        *_assistant_continuation_fragments(
+            out,
+            indent_style=ASSISTANT_PREFIX_CLASS,
+        ),
+    )
+
+
+def _assistant_continuation_fragments(
+    fragments: list[tuple[str, str]],
+    *,
+    indent_style: str,
+) -> tuple[tuple[str, str], ...]:
+    """在助手正文每个显式续行前补充两个空格。"""
+    out: list[tuple[str, str]] = []
+    continuation = False
+
+    for style, text in fragments:
+        lines      = text.split("\n")
+        last_index = len(lines) - 1
+
+        for index, line in enumerate(lines):
+            has_newline = index < last_index
+            if continuation and (line or has_newline):
+                out.append((indent_style, "  "))
+                continuation = False
+            if line:
+                out.append((style, line))
+            if has_newline:
+                out.append((style, "\n"))
+                continuation = True
+
+    return tuple(out)
+
+
 def fragment_block(*parts: str | TextSpan) -> FragmentBlock:
     """把有序纯文本或中立文本片段生成 TUI 块。"""
     spans = tuple(

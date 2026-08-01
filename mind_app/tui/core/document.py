@@ -361,6 +361,43 @@ class TuiDocument(object):
 
         return True
 
+    def replace_blocks(
+        self,
+        blocks: typing.Iterable[TranscriptBlock],
+    ) -> None:
+        """用一组稳定正文块替换当前完整记录。"""
+        normalized: list[TranscriptBlock] = []
+
+        for item in blocks:
+            normalized.append(replace(
+                item,
+                display_block=sanitize_fragment_block(item.display_block),
+                transcript_block=sanitize_fragment_block(
+                    item.transcript_block
+                ),
+                gap_before=bool(
+                    normalized and not item.stream_continuation
+                ),
+                transcript_stable=True,
+                attachments=deepcopy(tuple(item.attachments)),
+                extras=deepcopy(dict(item.extras)),
+            ))
+
+        self.blocks = normalized
+        self.scrollback_line_count = 0
+        self.cleared_line_count    = 0
+
+        self._reset_active()
+        self._pending_submission = None
+        self._active_tail.clear()
+
+        self._rebuild_stable_lines()
+        self.active_transcript_revision += 1
+        self.stable_transcript_revision += 1
+
+        self._stable_snapshot_cells    = ()
+        self._stable_snapshot_revision = -1
+
     def discard_trailing_block(self, block: FragmentBlock) -> bool:
         """移除与指定对象相同的末尾稳定正文块。"""
         if (

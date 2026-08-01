@@ -30,6 +30,7 @@ from .models import (
 from .terminal_input import clear_pending_input
 from .activity import TuiActivity
 from .document import (
+    TranscriptBlock,
     TuiBlockKind,
     TuiDocument,
     TuiDocumentState
@@ -490,6 +491,22 @@ class TuiRuntime(object):
         ):
             self.screen.transcript_overlay.content_changed()
             self.viewport.content_appended()
+
+    def replace_transcript(
+        self,
+        blocks: typing.Iterable[TranscriptBlock]
+    ) -> None:
+        """用恢复内容替换当前记录并重置终端视口。"""
+        self.viewport.pause_scrollback()
+        self.document.replace_blocks(blocks)
+
+        self._background_blocks.clear()
+
+        self.viewport.clear_submitted_query()
+        self.viewport.reset_view()
+        self.screen.transcript_overlay.content_changed()
+        self.screen.clear_terminal_scrollback()
+        self.viewport.stable_content_changed()
 
     def discard_pending_submission(self) -> None:
         """清理由命令分派结束后仍未接管的暂存输入。"""

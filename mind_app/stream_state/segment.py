@@ -236,17 +236,26 @@ class SegmentTracker(object):
             data["source_count"] = len(sources)
         return data
 
-    def commit_assistant_output(self) -> None:
-        """提交当前待复制的 assistant 输出块。"""
+    def commit_assistant_output(self) -> str:
+        """提交当前待复制的 assistant 输出块并返回正文。"""
         keys = [
             key for key in self.pending_output_segment_keys
             if str((self.segments_by_key.get(key) or {}).get("text") or "").strip()
         ]
-        if keys:
-            self.output_blocks.append(keys)
 
         self.pending_output_segment_keys = []
-        self.current_segment_key = None
+        self.current_segment_key         = None
+
+        if not keys:
+            return ""
+
+        self.output_blocks.append(keys)
+
+        parts = [
+            str((self.segments_by_key.get(key) or {}).get("text") or "")
+            for key in keys
+        ]
+        return _join_text_segments(parts).strip()
 
     def iter_sources(self) -> typing.Iterable[typing.Any]:
         for key in self.segment_order:

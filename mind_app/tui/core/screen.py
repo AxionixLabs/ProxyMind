@@ -122,6 +122,14 @@ class _InlineRendererState(object):
     min_available_height: int
 
 
+@dataclass(frozen=True, slots=True)
+class FrameGeometry(object):
+    """描述单次终端渲染使用的固定尺寸。"""
+    width: int
+    height: int
+    revision: int
+
+
 class TuiScreen(object):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
     INPUT_MAX_LINES: typing.Final[int]               = 8
@@ -198,6 +206,8 @@ class TuiScreen(object):
         self._transcript_only: bool = False
 
         self._animation_tick: int = 0
+
+        self._frame_geometry: FrameGeometry | None = None
 
         self.activity_block: FragmentBlock | None = None
 
@@ -600,6 +610,8 @@ class TuiScreen(object):
             erase_when_done=False,
             mouse_support=False,
             max_render_postpone_time=None,
+            before_render=self._capture_frame_geometry,
+            after_render=self._release_frame_geometry,
             input=application_input,
             output=application_output,
         )
@@ -611,12 +623,40 @@ class TuiScreen(object):
     @property
     def terminal_width(self) -> int:
         """返回当前渲染输出的终端列数。"""
-        return max(20, self._output_size()[0])
+        return self.frame_geometry.width
 
     @property
     def terminal_height(self) -> int:
         """返回当前渲染输出的终端行数。"""
-        return max(1, self._output_size()[1])
+        return self.frame_geometry.height
+
+    @property
+    def frame_geometry(self) -> FrameGeometry:
+        """返回最近一帧固定使用的终端尺寸。"""
+        geometry = self._frame_geometry
+        if geometry is not None:
+            return geometry
+        return self._read_frame_geometry(revision=0)
+
+    def _capture_frame_geometry(self, application: Application[None]) -> None:
+        """在布局计算前固定当前帧使用的终端尺寸。"""
+        self._frame_geometry = self._read_frame_geometry(
+            revision=application.render_counter,
+        )
+
+    def _release_frame_geometry(self, application: Application[None]) -> None:
+        """在渲染结束后恢复终端尺寸的实时读取。"""
+        _ = application
+        self._frame_geometry = None
+
+    def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
+        """读取并规范化一个终端尺寸快照。"""
+        width, height = self._output_size()
+        return FrameGeometry(
+            width=max(20, width),
+            height=max(1, height),
+            revision=max(0, int(revision)),
+        )
 
     @staticmethod
     def _transcript_continuation_widths(

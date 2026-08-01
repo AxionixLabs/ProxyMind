@@ -55,13 +55,16 @@ from ..features.helix import (
     stop_helix_runtime,
     unlink_helix_runtime
 )
-from ..features.history import choose_history_session
+from ..features.history import (
+    choose_history_session,
+    load_history_transcript
+)
 from ..features.hooks import manage_hooks
 from ..features.mcp import (
     McpAction,
     choose_mcp_action,
     parse_mcp_command,
-    render_mcp_status,
+    render_mcp_status
 )
 from ..features.mode import render_mode_status
 from ..features.model import (
@@ -528,6 +531,15 @@ class TuiCommandDispatcher(object):
             self._present()
             return None
 
+        session_id = str(selected.get("sid") or "").strip()
+
+        replay_blocks = await asyncio.to_thread(
+            load_history_transcript,
+            self.mind,
+            session_id,
+            terminal_width=self.runtime.terminal_width,
+        )
+
         resumed = await self.mind.resume_conversation(
             selected,
             source="tui:resume",
@@ -541,6 +553,7 @@ class TuiCommandDispatcher(object):
             return None
 
         self._clear_prompt_draft()
+        self.runtime.replace_transcript(replay_blocks)
 
         self._present(command_result_block(
             "/resume",

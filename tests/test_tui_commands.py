@@ -293,6 +293,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
         attach=attach,
         history_workspace="D:/workspace",
         recent_conversation_sessions=Mock(return_value=[record]),
+        read_conversation_transcript=Mock(return_value=()),
         resume_conversation=AsyncMock(return_value=record),
     )
     monkeypatch.setattr(
@@ -300,9 +301,13 @@ async def test_resume_conversation_clears_structured_prompt_draft(
         "choose_history_session",
         AsyncMock(return_value=record),
     )
+    runtime = SimpleNamespace(
+        terminal_width=80,
+        replace_transcript=Mock(),
+    )
     dispatcher = TuiCommandDispatcher(
         mind,
-        SimpleNamespace(),
+        runtime,
         state,
         SimpleNamespace(),
     )
@@ -311,6 +316,47 @@ async def test_resume_conversation_clears_structured_prompt_draft(
 
     state.clear_pending_prompt_extras.assert_called_once_with()
     attach.clear_pending_attachments.assert_called_once_with()
+    mind.read_conversation_transcript.assert_called_once_with(record["sid"])
+    runtime.replace_transcript.assert_called_once_with(())
+
+
+@pytest.mark.anyio
+async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    record = {
+        "cid": "cid_old_12345678",
+        "sid": "sid_old_1_abcdef",
+    }
+    runtime = SimpleNamespace(
+        terminal_width=80,
+        replace_transcript=Mock(),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+        attach=SimpleNamespace(clear_pending_attachments=Mock()),
+        history_workspace="D:/workspace",
+        recent_conversation_sessions=Mock(return_value=[record]),
+        read_conversation_transcript=Mock(return_value=()),
+        resume_conversation=AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "choose_history_session",
+        AsyncMock(return_value=record),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(clear_pending_prompt_extras=Mock()),
+        SimpleNamespace(),
+    )
+
+    await dispatcher._resume_conversation()
+
+    runtime.replace_transcript.assert_not_called()
 
 
 def test_successful_plain_fork_clears_structured_prompt_draft() -> None:
