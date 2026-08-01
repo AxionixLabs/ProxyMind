@@ -78,8 +78,6 @@ class ToolHookEvents:
             invocation,
         )
 
-        updated_input: dict[str, typing.Any] | None = None
-
         reasons: list[str]         = []
         denied_keys: list[str]     = []
         contexts: list[str]        = []
@@ -87,9 +85,6 @@ class ToolHookEvents:
 
         for record in dispatched.records:
             if not record.ok:
-                if record.blocks_event:
-                    denied_keys.append(record.hook_key)
-                    reasons.append(_bounded_reason(f"hook failed: {record.error}"))
                 continue
 
             effect = record.effect
@@ -99,11 +94,6 @@ class ToolHookEvents:
                     effect.reason or "tool use denied by hook"
                 ))
                 continue
-
-            if effect.updated_input is not None:
-                if updated_input is None:
-                    updated_input = {}
-                updated_input.update(effect.updated_input)
 
             contexts.extend(effect.additional_context)
 
@@ -116,6 +106,22 @@ class ToolHookEvents:
                 reason="; ".join(reason for reason in reasons if reason),
                 hook_keys=tuple(denied_keys),
             )
+
+        updated_records = tuple(
+            record
+            for record in dispatched.records
+            if record.ok and record.effect.updated_input is not None
+        )
+
+        updated_input = (
+            max(
+                updated_records,
+                key=lambda item: item.completion_order,
+            ).effect.updated_input
+            if updated_records
+            else None
+        )
+
         return HookDecision(
             allowed=True,
             updated_input=updated_input,
@@ -140,9 +146,10 @@ class ToolHookEvents:
             outcome=outcome,
         )
 
-        contexts: list[str]            = []
-        system_messages: list[str]     = []
-        reasons: list[str]             = []
+        contexts: list[str]        = []
+        system_messages: list[str] = []
+        reasons: list[str]         = []
+
         replacement_result: typing.Any = None
         replacement_result_set         = False
         suppress_original_output       = False
@@ -197,11 +204,6 @@ class ToolHookEvents:
 
         for record in dispatched.records:
             if not record.ok:
-                if record.blocks_event:
-                    denied_keys.append(record.hook_key)
-                    denied_reasons.append(_bounded_reason(
-                        f"hook failed: {record.error}"
-                    ))
                 continue
 
             decision = record.effect.decision
@@ -227,6 +229,7 @@ class ToolHookEvents:
                 action="allow",
                 hook_keys=tuple(allowed_keys),
             )
+
         return HookPermissionDecision.abstain()
 
 

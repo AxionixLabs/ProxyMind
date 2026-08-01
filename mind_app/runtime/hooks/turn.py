@@ -42,6 +42,25 @@ class TurnHookEvents:
         contexts: list[str]        = []
         system_messages: list[str] = []
 
+        blocked = tuple(
+            record
+            for record in dispatched.records
+            if record.ok and not record.effect.continue_execution
+        )
+
+        if blocked:
+            return HookDecision(
+                allowed=False,
+                reason="; ".join(
+                    _bounded_reason(
+                        record.effect.reason
+                        or "session start denied by hook"
+                    )
+                    for record in blocked
+                ),
+                hook_keys=tuple(record.hook_key for record in blocked),
+            )
+
         for record in dispatched.records:
             if not record.ok:
                 continue
@@ -74,9 +93,6 @@ class TurnHookEvents:
 
         for record in dispatched.records:
             if not record.ok:
-                if record.blocks_event:
-                    blocked_keys.append(record.hook_key)
-                    reasons.append(_bounded_reason(f"hook failed: {record.error}"))
                 continue
 
             effect = record.effect
@@ -115,6 +131,11 @@ class TurnHookEvents:
     async def begin(self, prompt: str) -> TurnStartResult:
         """按顺序执行模型轮次开始前的生命周期事件。"""
         session_decision = await self.session_start()
+
+        if not session_decision.allowed:
+            raise PromptHookBlockedError(
+                session_decision.reason or "session start denied by hook"
+            )
 
         decision = await self.user_prompt_submit(prompt)
         if not decision.allowed:
@@ -171,10 +192,21 @@ class TurnHookEvents:
             },
         )
 
-        continuations = tuple(
+        successful = tuple(
             record
             for record in dispatched.records
-            if record.ok and record.effect.continuation_prompt
+            if record.ok
+        )
+        if any(
+            not record.effect.continue_execution
+            for record in successful
+        ):
+            return StopHookDecision.stop()
+
+        continuations = tuple(
+            record
+            for record in successful
+            if record.effect.continuation_prompt
         )
         if not continuations:
             return StopHookDecision.stop()

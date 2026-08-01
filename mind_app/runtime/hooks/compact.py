@@ -46,9 +46,6 @@ class CompactHookEvents:
 
         for record in dispatched.records:
             if not record.ok:
-                if record.blocks_event:
-                    blocked_keys.append(record.hook_key)
-                    reasons.append(_bounded_reason(f"hook failed: {record.error}"))
                 continue
 
             if not record.effect.continue_execution:

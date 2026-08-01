@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+import itertools
 from dataclasses import (
     dataclass,
     replace
@@ -69,36 +70,6 @@ class HookStatusPort(typing.Protocol):
         ...
 
 
-class HookBackgroundTasks:
-    """持有异步 Hook 任务并在运行时关闭时统一回收。"""
-
-    def __init__(self) -> None:
-        self._tasks: set[asyncio.Task[None]] = set()
-
-    def start(
-        self,
-        coroutine: typing.Coroutine[typing.Any, typing.Any, None],
-    ) -> None:
-        """启动并持有一个异步 Hook 任务。"""
-        task = asyncio.create_task(coroutine, name="async hook")
-        self._tasks.add(task)
-        task.add_done_callback(self._task_done)
-
-    async def close(self) -> None:
-        """取消并等待全部尚未结束的异步 Hook 任务。"""
-        tasks = tuple(self._tasks)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-    def _task_done(self, task: asyncio.Task[None]) -> None:
-        """移除结束任务并取回未处理异常。"""
-        self._tasks.discard(task)
-        if not task.cancelled():
-            task.exception()
-
-
 @dataclass(frozen=True, slots=True)
 class _RegisteredHook:
     """保存已编译 matcher 的活动 Hook。"""
@@ -127,11 +98,11 @@ class HookRuntime:
     """匹配并执行一个轮次内固定的生命周期 Hook。"""
     command_runner: HookCommandRunner
     context_spiller: HookContextSpiller | None
-    background_tasks: HookBackgroundTasks
     status_port: HookStatusPort | None
     _definitions: tuple[HookDefinitionConfig, ...]
     _active: tuple[_RegisteredHook, ...]
     _status: HookRuntimeStatus
+    _completion_order: typing.Iterator[int]
 
     def __init__(
         self,
@@ -139,7 +110,6 @@ class HookRuntime:
         *,
         command_runner: HookCommandRunner | None = None,
         context_spiller: HookContextSpiller | None = None,
-        background_tasks: HookBackgroundTasks | None = None,
         status_port: HookStatusPort | None = None,
         status: HookRuntimeStatus | None = None
     ) -> None:
@@ -170,14 +140,10 @@ class HookRuntime:
                 else None
             ),
         )
-        object.__setattr__(
-            self,
-            "background_tasks",
-            background_tasks or HookBackgroundTasks(),
-        )
         object.__setattr__(self, "status_port", status_port)
         object.__setattr__(self, "_definitions", active_definitions)
         object.__setattr__(self, "_active", active)
+        object.__setattr__(self, "_completion_order", itertools.count(1))
         object.__setattr__(
             self,
             "_status",
@@ -279,24 +245,31 @@ class HookRuntime:
             HookNormalizedOutput,
         ]
     ) -> HookExecutionRecord:
-        """按同步或异步配置执行单个 Hook。"""
+        """按当前支持范围执行单个 Hook。"""
         definition = registered.definition
-        if definition.handler.run_async:
-            self.background_tasks.start(self._execute_async_hook(
-                registered,
-                request,
-                payload,
-            ))
-            return HookExecutionRecord(hook_key=definition.key)
+
+        if definition.handler.run_async and definition.event != "SessionEnd":
+            self._observe_unsupported_async(definition)
+            return HookExecutionRecord(
+                hook_key=definition.key,
+                completion_order=next(self._completion_order),
+            )
 
         await self._status_started(definition)
+
         try:
-            return await self._execute_hook_wait(
+            record = await self._execute_hook_wait(
                 registered,
                 request,
                 payload,
                 normalize_output,
             )
+
+            return replace(
+                record,
+                completion_order=next(self._completion_order),
+            )
+
         finally:
             await self._status_completed(definition)
 
@@ -353,7 +326,6 @@ class HookRuntime:
                 hook_key=definition.key,
                 stderr=stderr_text,
                 error=error_text,
-                blocks_event=definition.on_error == "block",
             )
 
         return HookExecutionRecord(
@@ -363,39 +335,17 @@ class HookRuntime:
             stderr=stderr_text,
         )
 
-    async def _execute_async_hook(
-        self,
-        registered: _RegisteredHook,
-        request: HookEventRequest,
-        payload: dict[str, typing.Any],
-    ) -> None:
-        """后台执行 Hook 命令并忽略其控制输出。"""
-        definition = registered.definition
-        await self._status_started(definition)
-        try:
-            result = await self.command_runner.execute(
-                definition,
-                dict(payload),
-            )
-            stderr_text = str(getattr(result, "stderr", "") or "").strip()
-            if stderr_text:
-                self._observe_stderr(definition, request, stderr_text)
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            self._observe_failure(definition, request, error)
-        finally:
-            await self._status_completed(definition)
-
     async def _status_started(
         self,
-        definition: HookDefinitionConfig,
+        definition: HookDefinitionConfig
     ) -> None:
         """显示处理器配置的非空状态消息。"""
-        status = self.status_port
+        status  = self.status_port
         message = definition.handler.status_message
+
         if status is None or not message:
             return None
+
         try:
             await status.started(definition.key, message)
         except Exception as error:
@@ -409,12 +359,13 @@ class HookRuntime:
 
     async def _status_completed(
         self,
-        definition: HookDefinitionConfig,
+        definition: HookDefinitionConfig
     ) -> None:
         """结束处理器状态消息且不影响 Hook 主结果。"""
         status = self.status_port
         if status is None or not definition.handler.status_message:
             return None
+
         try:
             await status.completed(definition.key)
         except Exception as error:
@@ -430,16 +381,18 @@ class HookRuntime:
         self,
         definition: HookDefinitionConfig,
         payload: dict[str, typing.Any],
-        normalized: HookNormalizedOutput,
+        normalized: HookNormalizedOutput
     ) -> HookNormalizedOutput:
         """按处理器阈值把过大的附加上下文写入临时文件。"""
         contexts = normalized.effect.additional_context
-        limit = definition.handler.additional_context_limit
-        spiller = self.context_spiller
+        limit    = definition.handler.additional_context_limit
+        spiller  = self.context_spiller
+
         if not contexts or limit == 0 or spiller is None:
             return normalized
 
         full_text = "\n\n".join(contexts)
+
         approximate_tokens = (len(full_text) + 3) // 4
         if approximate_tokens <= limit:
             return normalized
@@ -448,10 +401,12 @@ class HookRuntime:
             full_text,
             session_id=str(payload.get("session_id") or ""),
         )
+
         output = _replace_additional_context_output(
             normalized.output,
             summary,
         )
+
         return HookNormalizedOutput(
             output=output,
             effect=replace(
@@ -500,6 +455,18 @@ class HookRuntime:
         )
 
     @staticmethod
+    def _observe_unsupported_async(
+        definition: HookDefinitionConfig
+    ) -> None:
+        """记录当前事件不支持异步命令处理器。"""
+        observe(
+            "hook.async_unsupported",
+            level="WARNING",
+            hook_key=definition.key,
+            hook_event=definition.event,
+        )
+
+    @staticmethod
     def _observe_stderr(
         definition: HookDefinitionConfig,
         request: HookEventRequest,
@@ -523,7 +490,7 @@ class HookRuntime:
 
 def _replace_additional_context_output(
     output: dict[str, typing.Any],
-    summary: str,
+    summary: str
 ) -> dict[str, typing.Any]:
     """用落盘恢复摘要替换执行记录中的完整附加上下文。"""
     replaced = dict(output)
@@ -540,6 +507,7 @@ def _replace_additional_context_output(
         replaced["hookSpecificOutput"] = specific_copy
 
     replaced["additional_context"] = summary
+
     return replaced
 
 

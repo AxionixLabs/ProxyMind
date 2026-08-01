@@ -12,10 +12,6 @@ from mind_core.config import ConfigOverride
 from mind_core.agent_config import AgentSettings
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.hook_trust import (
-    HookTrustStore,
-    default_hook_trust_path
-)
 from mind_core.permissions import (
     PermissionSettings,
     resolve_permissions
@@ -236,11 +232,8 @@ async def _run_application(
         finally:
             report.close()
 
-    hook_registry = HookRegistry(
-        trust_store=HookTrustStore(
-            default_hook_trust_path(config_session.store.path)
-        ),
-    )
+    hook_registry = HookRegistry()
+
     return await _run_controller(
         command,
         frontend=frontend,

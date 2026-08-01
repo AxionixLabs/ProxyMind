@@ -9,7 +9,7 @@ from mind_app.modes import compact as compact_mode
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.tui.features import conversation
-from mind_core.hooks import resolve_hook_definitions
+from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
 
@@ -283,6 +283,47 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
     assert result.message == "Context compaction blocked: keep current context"
     assert not remote_calls
     assert [event for event, _payload in runner.calls] == ["PreCompact"]
+
+
+@pytest.mark.anyio
+async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) -> None:
+    remote_calls = []
+
+    async def remote_stream(_payload):
+        remote_calls.append(True)
+        yield {
+            "type": "conversation.compact",
+            "message": "Context compacted.",
+        }
+
+    class Runner(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, definition, payload):
+            self.calls.append((definition.event, payload))
+            if definition.event == "PreCompact":
+                raise RuntimeError("compact hook failed")
+            return SimpleNamespace(data={})
+
+    runner = Runner()
+    runtime = _compact_hook_runtime(tmp_path, runner)
+    mind = _HookedCompactMind(tmp_path, runtime)
+    monkeypatch.setattr(compact_mode, "stream_compact_events", remote_stream)
+
+    result = await compact_mode.compact_conversation(
+        mind,
+        run_mode="chat",
+        pref_config={},
+        source="test",
+    )
+
+    assert result.ok
+    assert remote_calls == [True]
+    assert [event for event, _payload in runner.calls] == [
+        "PreCompact",
+        "PostCompact",
+    ]
 
 
 @pytest.mark.anyio

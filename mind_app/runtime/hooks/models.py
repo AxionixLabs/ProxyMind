@@ -27,6 +27,7 @@ class HookRuntimeEntry:
     source_path: str | None
     content_hash: str
     trust_state: HookTrustState
+    enabled: bool
     active: bool
 
 
@@ -36,7 +37,7 @@ class HookRuntimeStatus:
     installed_count: int
     active_count: int
     hooks: tuple[HookRuntimeEntry, ...] = ()
-    trust_error: str = ""
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,11 +110,11 @@ class HookNormalizedOutput:
 class HookExecutionRecord:
     """保存单个 Hook 的结构化执行结果。"""
     hook_key: str
+    completion_order: int = 0
     output: dict[str, typing.Any] = field(default_factory=dict)
     effect: HookOutputEffect = field(default_factory=HookOutputEffect)
     stderr: str = ""
     error: str = ""
-    blocks_event: bool = False
 
     def __post_init__(self) -> None:
         """复制结构化输出，避免聚合期间被外部修改。"""

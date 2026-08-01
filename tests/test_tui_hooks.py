@@ -13,6 +13,7 @@ from mind_app.runtime.hooks.catalog import (
     HookEventSummary
 )
 from mind_app.tui.features.hooks import (
+    hook_detail_menu,
     hook_event_menu,
     manage_hooks,
 )
@@ -28,7 +29,14 @@ class _Runtime(object):
         return next(self.responses)
 
 
-def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
+def _catalog(
+    tmp_path: Path,
+    *,
+    trust_state: str,
+    enabled: bool = True,
+    warnings: tuple[str, ...] = (),
+) -> HookCatalogSnapshot:
+    active = enabled and trust_state in {"trusted", "managed"}
     entry = HookCatalogEntry(
         key="project:PreToolUse:0",
         event="PreToolUse",
@@ -40,17 +48,17 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
         timeout_sec=5,
         run_async=False,
         additional_context_limit=2500,
-        on_error="block",
         source_scope="project",
         source_path=str(tmp_path / ".codex" / "config.toml"),
-        trust_state="trusted" if trusted else "untrusted",
-        active=trusted,
-        content_hash="a" * 64,
+        trust_state=trust_state,
+        enabled=enabled,
+        active=active,
+        content_hash="sha256:" + "a" * 64,
     )
     return HookCatalogSnapshot(
         workspace=str(tmp_path),
         installed_count=1,
-        active_count=int(trusted),
+        active_count=int(active),
         events=(
             HookEventSummary(
                 event="PreToolUse",
@@ -58,7 +66,7 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
                 matcher_subject="tool_name",
                 control_policy="gate",
                 installed_count=1,
-                active_count=int(trusted),
+                active_count=int(active),
             ),
             HookEventSummary(
                 event="PostToolUse",
@@ -70,6 +78,7 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
             ),
         ),
         hooks=(entry,),
+        warnings=warnings,
     )
 
 
@@ -110,14 +119,26 @@ def test_hook_event_menu_localizes_descriptions_and_aligns_large_counts(
     )
 
 
+def test_hook_event_menu_shows_discovery_warnings(tmp_path) -> None:
+    catalog = _catalog(
+        tmp_path,
+        trust_state="untrusted",
+        warnings=("skipping empty hook command",),
+    )
+
+    menu = hook_event_menu(catalog)
+
+    assert menu.body == ("Warning: skipping empty hook command",)
+
+
 @pytest.mark.anyio
 async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
-    initial = _catalog(tmp_path, trusted=False)
-    updated = _catalog(tmp_path, trusted=True)
+    initial = _catalog(tmp_path, trust_state="untrusted")
+    updated = _catalog(tmp_path, trust_state="trusted")
     runtime = _Runtime([
         "PreToolUse",
         initial.hooks[0].key,
-        True,
+        "trust",
         None,
         None,
     ])
@@ -125,7 +146,8 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
-        set_hook_trust=Mock(return_value=updated),
+        trust_hook=Mock(return_value=updated),
+        set_hook_enabled=Mock(),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -133,10 +155,9 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
 
     await manage_hooks(runtime, mind)
 
-    mind.set_hook_trust.assert_called_once_with(
+    mind.trust_hook.assert_called_once_with(
         initial.hooks[0].key,
-        expected_content_hash="a" * 64,
-        trusted=True,
+        expected_content_hash="sha256:" + "a" * 64,
         workspace=tmp_path,
     )
     assert runtime.requests[0].title == "Hooks"
@@ -153,12 +174,12 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
 
 @pytest.mark.anyio
 async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
-    initial = _catalog(tmp_path, trusted=False)
-    refreshed = _catalog(tmp_path, trusted=True)
+    initial = _catalog(tmp_path, trust_state="untrusted")
+    refreshed = _catalog(tmp_path, trust_state="trusted")
     runtime = _Runtime([
         "PreToolUse",
         initial.hooks[0].key,
-        True,
+        "trust",
         None,
         None,
     ])
@@ -166,9 +187,10 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, refreshed]),
-        set_hook_trust=Mock(
+        trust_hook=Mock(
             side_effect=HookCatalogStaleError("hook content changed"),
         ),
+        set_hook_enabled=Mock(),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -182,3 +204,23 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     assert "".join(
         text for _style, text in views[0].renderable.fragments
     ) == "/hooks · Failed · hook content changed"
+
+
+def test_hook_detail_menu_separates_trust_enabled_and_managed_states(
+    tmp_path,
+) -> None:
+    untrusted = _catalog(tmp_path, trust_state="untrusted").hooks[0]
+    trusted = _catalog(tmp_path, trust_state="trusted").hooks[0]
+    disabled = _catalog(
+        tmp_path,
+        trust_state="trusted",
+        enabled=False,
+    ).hooks[0]
+    managed = _catalog(tmp_path, trust_state="managed").hooks[0]
+
+    assert hook_detail_menu(untrusted).options[1].label == "Trust hook"
+    assert hook_detail_menu(trusted).options[1].label == "Disable hook"
+    assert hook_detail_menu(disabled).options[1].label == "Enable hook"
+    assert hook_detail_menu(disabled).status == "PreToolUse | disabled"
+    assert hook_detail_menu(managed).options == ()
+    assert "Enabled: true" in hook_detail_menu(managed).body

@@ -30,6 +30,10 @@ if typing.TYPE_CHECKING:
 
 _BACK_ACTION = object()
 
+_TRUST_ACTION   = "trust"
+_ENABLE_ACTION  = "enable"
+_DISABLE_ACTION = "disable"
+
 _EVENT_DESCRIPTIONS = {
     "PreToolUse"        : "工具执行前",
     "PermissionRequest" : "请求工具权限时",
@@ -81,19 +85,16 @@ def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
         default=1,
     )
 
-    body = (
-        (f"Trust store: {catalog.trust_error}",)
-        if catalog.trust_error
-        else ()
-    )
-
     return MenuRequest(
         title="Hooks",
         status=(
             f"installed={catalog.installed_count} "
             f"active={catalog.active_count}"
         ),
-        body=body,
+        body=tuple(
+            f"Warning: {warning}"
+            for warning in catalog.warnings
+        ),
         help_text="Up/Down select | Enter inspect | Esc/q close",
         options=tuple(
             MenuOption(
@@ -195,22 +196,28 @@ async def _manage_hook_entry(
     if action is None or action is _BACK_ACTION:
         return catalog
 
-    trusted = bool(action)
     try:
-        updated = mind.set_hook_trust(
-            entry.key,
-            expected_content_hash=entry.content_hash,
-            trusted=trusted,
-            workspace=workspace,
-        )
+        if action == _TRUST_ACTION:
+            updated = mind.trust_hook(
+                entry.key,
+                expected_content_hash=entry.content_hash,
+                workspace=workspace,
+            )
+        else:
+            updated = mind.set_hook_enabled(
+                entry.key,
+                expected_content_hash=entry.content_hash,
+                enabled=action == _ENABLE_ACTION,
+                workspace=workspace,
+            )
     except Exception as error:
         render_hooks_failure(mind.frontend.application, error)
         return _refresh_catalog(mind, workspace, catalog)
 
-    render_hook_trust_status(
+    render_hook_state_status(
         mind.frontend.application,
         entry,
-        trusted=trusted,
+        action=str(action),
     )
     return updated
 
@@ -225,23 +232,36 @@ def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
         f"Source: {entry.source_scope}",
         f"Path: {entry.source_path or '-'}",
         f"Trust: {entry.trust_state}",
+        f"Enabled: {str(entry.enabled).lower()}",
         f"Active: {str(entry.active).lower()}",
         f"Timeout: {entry.timeout_sec:g}s",
         f"Async: {str(entry.run_async).lower()}",
         f"Additional context limit: {entry.additional_context_limit}",
-        f"On error: {entry.on_error}",
         f"Content hash: {entry.content_hash[:12]}",
     )
 
-    if entry.trust_state == "implicit":
+    if entry.trust_state == "managed":
         return MenuRequest(
             title="Hook Details",
-            status=f"{entry.event} | implicit trust",
+            status=f"{entry.event} | managed",
             body=body,
             help_text="Enter/Esc/q back",
         )
 
-    trusted = entry.trust_state == "trusted"
+    if entry.trust_state == "trusted":
+        action = _DISABLE_ACTION if entry.enabled else _ENABLE_ACTION
+        label  = "Disable hook" if entry.enabled else "Enable hook"
+
+        detail = (
+            "keep trust but prevent this hook from running"
+            if entry.enabled
+            else "allow this trusted hook to run"
+        )
+
+    else:
+        action = _TRUST_ACTION
+        label  = "Trust hook"
+        detail = "allow this exact hook content to run"
 
     return MenuRequest(
         title="Hook Details",
@@ -256,13 +276,9 @@ def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
                 detail="keep the current trust state",
             ),
             MenuOption(
-                value=not trusted,
-                label="Revoke trust" if trusted else "Trust hook",
-                detail=(
-                    "require approval before this hook can run"
-                    if trusted
-                    else "allow this exact hook content to run"
-                ),
+                value=action,
+                label=label,
+                detail=detail,
             ),
         ),
     )
@@ -285,6 +301,8 @@ def _hook_state(entry: HookCatalogEntry) -> str:
     """返回 Hook 的简短运行状态。"""
     if entry.active:
         return "active"
+    if not entry.enabled:
+        return "disabled"
     return entry.trust_state
 
 
@@ -302,22 +320,29 @@ def _matcher_detail(entry: HookCatalogEntry) -> str:
     return f"Matcher ({entry.matcher_subject}): {entry.matcher or '*'}"
 
 
-def render_hook_trust_status(
+def render_hook_state_status(
     application: ApplicationSink,
     entry: HookCatalogEntry,
     *,
-    trusted: bool
+    action: str
 ) -> None:
-    """展示 Hook 信任更新结果。"""
+    """展示 Hook 信任或启用状态的更新结果。"""
+    status = {
+        _TRUST_ACTION: "trusted",
+        _ENABLE_ACTION: "enabled",
+        _DISABLE_ACTION: "disabled",
+    }.get(action, action)
+
     application.emit(ApplicationView(
         type="tui.hooks.status",
         renderable=command_result_block(
             "/hooks",
-            TextSpan("trusted" if trusted else "untrusted", BRIGHT_STYLE),
+            TextSpan(status, BRIGHT_STYLE),
             TextSpan(" · ", MUTED_STYLE),
             TextSpan(entry.command, BODY_STYLE),
         ),
     ))
+
     application.emit(ApplicationView(type="tui.gap"))
 
 

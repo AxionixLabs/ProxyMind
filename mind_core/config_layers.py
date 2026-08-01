@@ -5,7 +5,10 @@ import os
 import re
 import copy
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field
+)
 from pathlib import Path
 from mind_core.config import (
     ConfigOverride,
@@ -17,9 +20,13 @@ from mind_core.config_store import (
     ConfigStore,
     ConfigStoreError
 )
+from mind_core.hook_discovery import (
+    normalize_hook_table,
+    resolve_hook_definitions
+)
 from mind_core.hooks import (
     HookDefinitionConfig,
-    resolve_hook_definitions
+    HookStateTable
 )
 from mind_nova import const
 
@@ -68,6 +75,8 @@ class ConfigResolution(object):
     config: dict[str, typing.Any]
     layers: tuple[ConfigLayer, ...]
     hooks: tuple[HookDefinitionConfig, ...] = ()
+    hook_states: HookStateTable = field(default_factory=dict)
+    hook_warnings: tuple[str, ...] = ()
     project_root: Path | None = None
     project_trusted: bool = False
 
@@ -111,7 +120,11 @@ class ConfigResolver(object):
     ) -> ConfigResolution:
         """基于候选用户配置解析全部配置层。"""
         validate_config(user)
-        merged = copy.deepcopy(user)
+
+        merged      = copy.deepcopy(user)
+        hook_states = _effective_hook_states(user, self.overrides)
+
+        hook_warnings: list[str] = []
 
         effective_workspace = (
             Path(workspace).expanduser().resolve()
@@ -125,6 +138,7 @@ class ConfigResolver(object):
             user.get("hooks"),
             source_scope="user",
             source_path=self.store.path,
+            warnings=hook_warnings,
         ))
 
         if self.profile is not None:
@@ -149,6 +163,7 @@ class ConfigResolver(object):
                 profile.get("hooks"),
                 source_scope="profile",
                 source_path=profile_store.path,
+                warnings=hook_warnings,
             ))
 
         project_root: Path | None = None
@@ -183,25 +198,78 @@ class ConfigResolver(object):
                         project.get("hooks"),
                         source_scope="project",
                         source_path=path,
+                        warnings=hook_warnings,
                     ))
 
         if self.overrides:
             merged = apply_config_overrides(merged, self.overrides)
             if any(override.path == ("hooks",) for override in self.overrides):
+                hook_warnings.clear()
                 hooks = list(resolve_hook_definitions(
                     merged.get("hooks"),
                     source_scope="cli",
                     source_path=None,
+                    warnings=hook_warnings,
                 ))
             layers.append(ConfigLayer("cli", None))
 
+        config = normalize_config(merged)
+
+        if hook_states:
+            config["hooks"]["state"] = copy.deepcopy(hook_states)
+        else:
+            config["hooks"].pop("state", None)
+
         return ConfigResolution(
-            config=normalize_config(merged),
+            config=config,
             layers=tuple(layers),
             hooks=tuple(hooks),
+            hook_states=hook_states,
+            hook_warnings=tuple(hook_warnings),
             project_root=project_root,
             project_trusted=project_trusted,
         )
+
+
+def _effective_hook_states(
+    user: dict[str, typing.Any],
+    overrides: tuple[ConfigOverride, ...]
+) -> HookStateTable:
+    """合并用户配置与当前进程覆盖中的 Hook 状态。"""
+    user_hooks = user.get("hooks")
+
+    raw_state = (
+        user_hooks.get("state", {})
+        if isinstance(user_hooks, dict)
+        else {}
+    )
+
+    state_document: dict[str, typing.Any] = {
+        "hooks": {"state": copy.deepcopy(raw_state)},
+    }
+
+    state_overrides = tuple(
+        override
+        for override in overrides
+        if (
+            override.path == ("hooks",)
+            or override.path[:2] == ("hooks", "state")
+        )
+    )
+
+    if state_overrides:
+        state_document = apply_config_overrides(
+            state_document,
+            state_overrides,
+        )
+
+    hooks = state_document.get("hooks")
+
+    normalized = normalize_hook_table(
+        hooks if isinstance(hooks, dict) else {}
+    )
+
+    return dict(normalized.get("state", {}))
 
 
 def normalize_profile_name(value: str | None) -> str | None:
@@ -222,7 +290,7 @@ def normalize_profile_name(value: str | None) -> str | None:
 def _read_config(
     store: ConfigStore,
     *,
-    create: bool,
+    create: bool
 ) -> dict[str, typing.Any]:
     """读取并校验一个配置文档。"""
     raw = store.read_raw(create=create)
@@ -233,7 +301,7 @@ def _read_config(
 def _merge_config(
     base: dict[str, typing.Any],
     overlay: dict[str, typing.Any],
-    path: tuple[str, ...] = (),
+    path: tuple[str, ...] = ()
 ) -> dict[str, typing.Any]:
     """递归合并配置表，标量和列表由高优先级层替换。"""
     result = copy.deepcopy(base)
@@ -256,7 +324,7 @@ def _merge_config(
 
 def _mcp_transport_base(
     base: dict[str, typing.Any],
-    overlay: dict[str, typing.Any],
+    overlay: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """切换 MCP 传输目标时清除另一类传输字段。"""
     command = str(overlay.get("command") or "").strip()
@@ -303,7 +371,7 @@ def _find_project_root(workspace: Path, markers: tuple[str, ...]) -> Path:
 
 def _project_is_trusted(
     user_config: dict[str, typing.Any],
-    project_root: Path,
+    project_root: Path
 ) -> bool:
     """判断用户配置是否把项目根标记为可信。"""
     projects = user_config.get("projects")
@@ -332,7 +400,7 @@ def _path_key(path: Path) -> str:
 
 def _project_config_paths(
     project_root: Path,
-    workspace: Path,
+    workspace: Path
 ) -> tuple[Path, ...]:
     """返回从项目根到工作目录的项目配置路径。"""
     try:
@@ -354,7 +422,7 @@ def _project_config_paths(
 
 def _validate_project_config(
     config: dict[str, typing.Any],
-    path: Path,
+    path: Path
 ) -> None:
     """拒绝项目层覆盖机器级配置。"""
     blocked = sorted(PROJECT_RESTRICTED_ROOTS.intersection(config))

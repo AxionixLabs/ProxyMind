@@ -4,16 +4,15 @@
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from engine.observability import observe_exception
+from engine.observability import observe
 from mind_core.hook_trust import (
-    HookTrustSnapshot,
     HookTrustState,
-    HookTrustStore,
-    HookTrustStoreError
+    resolve_hook_state
 )
 from mind_core.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
-    HookDefinitionConfig
+    HookDefinitionConfig,
+    HookStateTable
 )
 from .catalog import (
     HookCatalogEntry,
@@ -26,7 +25,6 @@ from .models import (
     HookRuntimeStatus
 )
 from .runtime import (
-    HookBackgroundTasks,
     HookCommandRunner,
     HookRuntime,
     HookStatusPort
@@ -38,6 +36,7 @@ class _ResolvedHook:
     """保存一次信任解析得到的 Hook 激活状态。"""
     definition: HookDefinitionConfig
     trust_state: HookTrustState
+    enabled: bool
     active: bool
 
 
@@ -47,21 +46,23 @@ class HookRegistry:
     def __init__(
         self,
         *,
-        trust_store: HookTrustStore | None = None,
         command_runner: HookCommandRunner | None = None
     ) -> None:
-        self._trust_store      = trust_store
-        self._command_runner   = command_runner or HookCommandExecutor()
-        self._background_tasks = HookBackgroundTasks()
+        self._command_runner = command_runner or HookCommandExecutor()
+        self._observed_warnings: set[str] = set()
 
     def build(
         self,
         definitions: typing.Iterable[HookDefinitionConfig],
         *,
+        hook_states: HookStateTable | None = None,
+        warnings: typing.Iterable[str] = (),
         status_port: HookStatusPort | None = None
     ) -> HookRuntime:
         """按当前信任状态构建一个独立运行时。"""
-        resolved, trust_error = self._resolve(definitions)
+        resolved = self._resolve(definitions, hook_states or {})
+        warning_items = tuple(warnings)
+        self._observe_warnings(warning_items)
 
         active = tuple(
             item.definition
@@ -76,7 +77,7 @@ class HookRegistry:
                 self._runtime_entry(item)
                 for item in resolved
             ),
-            trust_error=trust_error,
+            warnings=warning_items,
         )
 
         return HookRuntime(
@@ -87,7 +88,6 @@ class HookRegistry:
                 if isinstance(self._command_runner, HookCommandExecutor)
                 else None
             ),
-            background_tasks=self._background_tasks,
             status_port=status_port,
             status=status,
         )
@@ -99,7 +99,6 @@ class HookRegistry:
 
     async def close(self) -> None:
         """关闭 Hook 命令执行器持有的临时资源。"""
-        await self._background_tasks.close()
         if isinstance(self._command_runner, HookCommandExecutor):
             await self._command_runner.close()
 
@@ -107,10 +106,14 @@ class HookRegistry:
         self,
         definitions: typing.Iterable[HookDefinitionConfig],
         *,
+        hook_states: HookStateTable | None = None,
+        warnings: typing.Iterable[str] = (),
         workspace: Path
     ) -> HookCatalogSnapshot:
         """返回指定工作区的 Hook 管理快照。"""
-        resolved, trust_error = self._resolve(definitions)
+        resolved = self._resolve(definitions, hook_states or {})
+        warning_items = tuple(warnings)
+        self._observe_warnings(warning_items)
 
         hooks = tuple(
             self._catalog_entry(item)
@@ -141,35 +144,39 @@ class HookRegistry:
             active_count=sum(item.active for item in resolved),
             events=events,
             hooks=hooks,
-            trust_error=trust_error,
+            warnings=warning_items,
         )
 
-    def trust(self, definition: HookDefinitionConfig) -> None:
-        """持久信任指定 Hook 的当前内容。"""
-        self._require_trust_store().trust(definition)
+    def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
+        """记录当前进程中尚未报告过的 discovery warning。"""
+        for warning in warnings:
+            if warning in self._observed_warnings:
+                continue
+            self._observed_warnings.add(warning)
+            observe(
+                "hook.discovery.warning",
+                level="WARNING",
+                warning=warning,
+            )
 
-    def revoke(self, definition: HookDefinitionConfig) -> None:
-        """撤销指定 Hook 的持久信任。"""
-        self._require_trust_store().revoke(definition)
-
+    @staticmethod
     def _resolve(
-        self,
-        definitions: typing.Iterable[HookDefinitionConfig]
-    ) -> tuple[tuple[_ResolvedHook, ...], str]:
+        definitions: typing.Iterable[HookDefinitionConfig],
+        hook_states: HookStateTable
+    ) -> tuple[_ResolvedHook, ...]:
         """统一解析 Hook 信任和激活状态。"""
-        trust, trust_error = self._load_trust()
-
         resolved: list[_ResolvedHook] = []
 
         for definition in definitions:
-            trust_state = trust.state(definition)
+            state = resolve_hook_state(definition, hook_states)
             resolved.append(_ResolvedHook(
                 definition=definition,
-                trust_state=trust_state,
-                active=trust_state != "untrusted",
+                trust_state=state.trust_state,
+                enabled=state.enabled,
+                active=state.active,
             ))
 
-        return tuple(resolved), trust_error
+        return tuple(resolved)
 
     @staticmethod
     def _runtime_entry(item: _ResolvedHook) -> HookRuntimeEntry:
@@ -183,6 +190,7 @@ class HookRegistry:
             source_path=definition.source_path,
             content_hash=definition.content_hash,
             trust_state=item.trust_state,
+            enabled=item.enabled,
             active=item.active,
         )
 
@@ -205,33 +213,13 @@ class HookRegistry:
             additional_context_limit=(
                 definition.handler.additional_context_limit
             ),
-            on_error=definition.on_error,
             source_scope=definition.source_scope,
             source_path=definition.source_path,
             trust_state=item.trust_state,
+            enabled=item.enabled,
             active=item.active,
             content_hash=definition.content_hash,
         )
-
-    def _load_trust(self) -> tuple[HookTrustSnapshot, str]:
-        """读取信任记录，失败时返回空显式信任。"""
-        if self._trust_store is None:
-            return HookTrustSnapshot(), ""
-        try:
-            return self._trust_store.load(), ""
-        except HookTrustStoreError as error:
-            observe_exception(
-                "hook.trust.load.failed",
-                error,
-                level="WARNING",
-            )
-            return HookTrustSnapshot(), str(error)
-
-    def _require_trust_store(self) -> HookTrustStore:
-        """返回可写信任存储。"""
-        if self._trust_store is None:
-            raise HookTrustStoreError("hook trust store is unavailable")
-        return self._trust_store
 
 
 if __name__ == '__main__':

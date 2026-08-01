@@ -5,17 +5,14 @@ from pathlib import Path
 import pytest
 
 from mind_app.runtime.hooks.registry import HookRegistry
-from mind_core.hook_trust import (
-    HookTrustStore,
-    HookTrustStoreError
-)
-from mind_core.hooks import resolve_hook_definitions
+from mind_core.hook_discovery import resolve_hook_definitions
 
 
-def _project_definition(
-    source_path: Path,
+def _definition(
+    source_path: Path | None,
     *,
-    command: str = "check-project",
+    source_scope: str,
+    command: str = "check-hook",
 ):
     return resolve_hook_definitions(
         {
@@ -23,73 +20,113 @@ def _project_definition(
                 "hooks": [{"type": "command", "command": command}],
             }],
         },
-        source_scope="project",
+        source_scope=source_scope,
         source_path=source_path,
     )[0]
 
 
-def test_project_hook_requires_exact_persisted_content_hash(tmp_path) -> None:
-    definition = _project_definition(tmp_path / "config.toml")
-    store = HookTrustStore(tmp_path / "hook-trust.json")
-    registry = HookRegistry(trust_store=store)
-    runtime = registry.build((definition,))
-
-    assert runtime.installed_count == 1
-    assert runtime.active_count == 0
-    assert runtime.status().hooks[0].trust_state == "untrusted"
-
-    registry.trust(definition)
-    status = registry.build((definition,)).status()
-
-    assert status.active_count == 1
-    assert status.hooks[0].trust_state == "trusted"
-
-    changed = _project_definition(
-        tmp_path / "config.toml",
-        command="check-changed-project",
-    )
-    status = registry.build((changed,)).status()
-
-    assert status.active_count == 0
-    assert status.hooks[0].trust_state == "untrusted"
-
-    registry.revoke(definition)
-    status = registry.build((definition,)).status()
-
-    assert status.active_count == 0
-    assert status.hooks[0].trust_state == "untrusted"
-
-
-def test_hook_trust_store_rejects_malformed_document(tmp_path) -> None:
-    path = tmp_path / "hook-trust.json"
-    path.write_text('{"version": 1, "trusted": []}', encoding="utf-8")
-
-    with pytest.raises(HookTrustStoreError, match="records are invalid"):
-        HookTrustStore(path).load()
-
-
-def test_registry_fails_closed_for_project_hooks_when_trust_is_invalid(
+@pytest.mark.parametrize(
+    "source_scope",
+    ["user", "profile", "project", "cli", "plugin"],
+)
+def test_non_managed_hooks_are_untrusted_by_default(
     tmp_path,
+    source_scope,
 ) -> None:
-    path = tmp_path / "hook-trust.json"
-    path.write_text('{"version": 1, "trusted": []}', encoding="utf-8")
-    project = _project_definition(tmp_path / "project.toml")
-    user = resolve_hook_definitions(
-        {"PreToolUse": [{
-            "hooks": [{"type": "command", "command": "check-user"}],
-        }]},
-        source_scope="user",
-        source_path=tmp_path / "user.toml",
-    )[0]
+    definition = _definition(
+        tmp_path / f"{source_scope}.toml",
+        source_scope=source_scope,
+    )
 
-    runtime = HookRegistry(
-        trust_store=HookTrustStore(path),
-    ).build((project, user))
-    status = runtime.status()
+    status = HookRegistry().build((definition,)).status()
+
+    assert status.active_count == 0
+    assert status.hooks[0].trust_state == "untrusted"
+    assert status.hooks[0].enabled
+    assert not status.hooks[0].active
+
+
+def test_managed_hook_is_always_enabled_and_active(tmp_path) -> None:
+    definition = _definition(
+        tmp_path / "managed.toml",
+        source_scope="managed",
+    )
+
+    status = HookRegistry().build(
+        (definition,),
+        hook_states={
+            definition.key: {
+                "enabled": False,
+                "trusted_hash": "sha256:" + "0" * 64,
+            },
+        },
+    ).status()
 
     assert status.active_count == 1
-    assert status.trust_error
-    assert [item.active for item in status.hooks] == [False, True]
-    assert [item.handler.command for item in runtime.definitions] == [
-        "check-user",
-    ]
+    assert status.hooks[0].trust_state == "managed"
+    assert status.hooks[0].enabled
+    assert status.hooks[0].active
+
+
+def test_hook_requires_its_exact_trusted_content_hash(tmp_path) -> None:
+    source_path = tmp_path / "project.toml"
+    definition = _definition(source_path, source_scope="project")
+    states = {
+        definition.key: {"trusted_hash": definition.content_hash},
+    }
+
+    trusted = HookRegistry().build(
+        (definition,),
+        hook_states=states,
+    ).status()
+
+    assert trusted.active_count == 1
+    assert trusted.hooks[0].trust_state == "trusted"
+
+    changed = _definition(
+        source_path,
+        source_scope="project",
+        command="check-changed-hook",
+    )
+    modified = HookRegistry().build(
+        (changed,),
+        hook_states=states,
+    ).status()
+
+    assert changed.key == definition.key
+    assert modified.active_count == 0
+    assert modified.hooks[0].trust_state == "modified"
+    assert modified.hooks[0].enabled
+
+
+def test_enabled_state_is_independent_from_trust(tmp_path) -> None:
+    definition = _definition(
+        tmp_path / "user.toml",
+        source_scope="user",
+    )
+    registry = HookRegistry()
+
+    trusted = registry.build(
+        (definition,),
+        hook_states={
+            definition.key: {
+                "enabled": False,
+                "trusted_hash": definition.content_hash,
+            },
+        },
+    ).status().hooks[0]
+    untrusted = registry.build(
+        (definition,),
+        hook_states={definition.key: {"enabled": False}},
+    ).status().hooks[0]
+
+    assert (trusted.trust_state, trusted.enabled, trusted.active) == (
+        "trusted",
+        False,
+        False,
+    )
+    assert (untrusted.trust_state, untrusted.enabled, untrusted.active) == (
+        "untrusted",
+        False,
+        False,
+    )

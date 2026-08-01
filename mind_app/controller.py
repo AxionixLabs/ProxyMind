@@ -16,7 +16,10 @@ from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import PermissionSettings
-from mind_core.hooks import SessionEndReason
+from mind_core.hooks import (
+    HookDefinitionConfig,
+    SessionEndReason
+)
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -737,6 +740,8 @@ class Mind(object):
             context=context,
             dispatcher=self.hook_registry.build(
                 resolution.hooks,
+                hook_states=resolution.hook_states,
+                warnings=resolution.hook_warnings,
                 status_port=getattr(self, "hook_status", None),
             ),
         )
@@ -755,21 +760,74 @@ class Mind(object):
 
         return self.hook_registry.inspect(
             resolution.hooks,
+            hook_states=resolution.hook_states,
+            warnings=resolution.hook_warnings,
             workspace=target_workspace,
         )
 
-    def set_hook_trust(
+    def trust_hook(
         self,
         hook_key: str,
         *,
         expected_content_hash: str,
-        trusted: bool,
         workspace: Path | None = None
     ) -> HookCatalogSnapshot:
-        """更新指定工作区 Hook 的信任状态。"""
-        target_workspace = self._hook_workspace(workspace)
-        resolution       = self.config_session.resolve(workspace=target_workspace)
+        """信任指定 Hook 的当前内容。"""
+        target_workspace, definition = self._resolve_hook_state_target(
+            hook_key,
+            expected_content_hash=expected_content_hash,
+            state_label="trust",
+            workspace=workspace,
+        )
 
+        self.config_session.update_user({
+            (
+                "hooks",
+                "state",
+                definition.key,
+                "trusted_hash",
+            ): definition.content_hash,
+        })
+        return self.inspect_hooks(workspace=target_workspace)
+
+    def set_hook_enabled(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        enabled: bool,
+        workspace: Path | None = None
+    ) -> HookCatalogSnapshot:
+        """更新指定 Hook 的独立启用状态。"""
+        target_workspace, definition = self._resolve_hook_state_target(
+            hook_key,
+            expected_content_hash=expected_content_hash,
+            state_label="enabled state",
+            workspace=workspace,
+        )
+
+        self.config_session.update_user({
+            (
+                "hooks",
+                "state",
+                definition.key,
+                "enabled",
+            ): bool(enabled),
+        })
+
+        return self.inspect_hooks(workspace=target_workspace)
+
+    def _resolve_hook_state_target(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        state_label: str,
+        workspace: Path | None,
+    ) -> tuple[Path, HookDefinitionConfig]:
+        """解析并校验允许修改用户状态的 Hook。"""
+        target_workspace = self._hook_workspace(workspace)
+        resolution = self.config_session.resolve(workspace=target_workspace)
         definition = next(
             (
                 item
@@ -788,16 +846,11 @@ class Mind(object):
             raise HookCatalogStaleError(
                 f"hook content changed: {hook_key}"
             )
-
-        if trusted:
-            self.hook_registry.trust(definition)
-        else:
-            self.hook_registry.revoke(definition)
-
-        return self.hook_registry.inspect(
-            resolution.hooks,
-            workspace=target_workspace,
-        )
+        if definition.source_scope == "managed":
+            raise ValueError(
+                f"managed hook {state_label} cannot be changed"
+            )
+        return target_workspace, definition
 
     def _hook_workspace(self, workspace: Path | None) -> Path:
         """返回 Hook 查询使用的绝对工作区路径。"""

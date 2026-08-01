@@ -12,9 +12,10 @@ from mind_core.provider_config import (
     DEFAULT_ROUTE_NAME,
     SUPPORTED_REASONING_EFFORTS
 )
+from mind_core.hook_discovery import normalize_hook_table
 from mind_core.hooks import (
     HookConfigError,
-    normalize_hook_table
+    normalize_hook_state_table
 )
 from mind_core.agent_config import (
     AgentConfigError,
@@ -372,18 +373,35 @@ def validate_config_value(
     if path and path[0] == "tui":
         _validate_tui_config_value(path, value)
         return None
+
     if path == ("hooks",):
         try:
             normalize_hook_table(value)
         except HookConfigError as error:
             raise ConfigValidationError(str(error)) from error
         return None
+
+    if len(path) >= 2 and path[:2] == ("hooks", "state"):
+        try:
+            if len(path) == 2:
+                normalize_hook_state_table(value)
+            elif len(path) == 3 and path[2]:
+                normalize_hook_state_table({path[2]: value})
+            elif len(path) == 4 and path[2] and path[3]:
+                normalize_hook_state_table({path[2]: {path[3]: value}})
+            else:
+                raise HookConfigError("hooks.state path is invalid")
+        except HookConfigError as error:
+            raise ConfigValidationError(str(error)) from error
+        return None
+
     if path == ("agents",):
         try:
             normalize_agent_table(value)
         except AgentConfigError as error:
             raise ConfigValidationError(str(error)) from error
         return None
+
     if path in STRING_CONFIG_PATHS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
@@ -558,6 +576,7 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
 
     hosted = config.get("hosted_tools")
     groups = hosted.get("groups") if isinstance(hosted, dict) else None
+
     if isinstance(groups, dict):
         _validate_known_fields(
             groups,

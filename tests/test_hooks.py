@@ -42,10 +42,8 @@ from mind_app.runtime.hooks.turn import (
 )
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
-from mind_core.hooks import (
-    HOOK_EVENT_NAMES,
-    resolve_hook_definitions
-)
+from mind_core.hook_discovery import resolve_hook_definitions
+from mind_core.hooks import HOOK_EVENT_NAMES
 from mind_core.permissions import preset_permissions
 
 
@@ -337,57 +335,56 @@ def test_matcher_group_expands_handlers_with_platform_commands() -> None:
     assert definitions[0].handler.command_for_platform("nt") == "check-windows"
 
 
+def test_non_session_async_hook_is_skipped_with_warning() -> None:
+    warnings = []
+    definitions = resolve_hook_definitions(
+        {
+            "PreToolUse": [_hook(
+                "background-check",
+                run_async=True,
+                status_message="Checking in background",
+            )],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+        warnings=warnings,
+    )
+
+    assert definitions == ()
+    assert len(warnings) == 1
+    assert "skipping async hook" in warnings[0]
+
+
 @pytest.mark.anyio
-async def test_async_hook_returns_without_consuming_control_output() -> None:
+async def test_async_session_end_hook_runs_synchronously() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
-    completed = asyncio.Event()
 
     class Runner(object):
         async def execute(self, _definition, _payload):
             started.set()
             await release.wait()
-            return SimpleNamespace(data={
-                "decision": "deny",
-                "reason": "ignored async output",
-            })
-
-    class Status(object):
-        def __init__(self) -> None:
-            self.calls = []
-
-        async def started(self, key, message):
-            self.calls.append(("started", key, message))
-
-        async def completed(self, key):
-            self.calls.append(("completed", key))
-            completed.set()
+            return SimpleNamespace(data={})
 
     definitions = _definitions({
-        "PreToolUse": [_hook(
-            "background-check",
-            run_async=True,
-            status_message="Checking in background",
-        )],
+        "SessionEnd": [_hook("close", run_async=True)],
     })
-    status = Status()
-    runtime = HookRuntime(
+    task = asyncio.create_task(HookRuntime(
         definitions,
         command_runner=Runner(),
-        status_port=status,
-    )
+    ).dispatch(HookEventRequest(
+        event="SessionEnd",
+        match_value="other",
+        payload={},
+    )))
 
-    decision = await ToolHookEvents(_scope(runtime)).pre_tool_use(_invocation())
-
-    assert decision.allowed
     await asyncio.wait_for(started.wait(), timeout=1)
+    assert not task.done()
     release.set()
-    await asyncio.wait_for(completed.wait(), timeout=1)
-    assert status.calls == [
-        ("started", definitions[0].key, "Checking in background"),
-        ("completed", definitions[0].key),
-    ]
-    await runtime.background_tasks.close()
+    result = await task
+
+    assert len(result.records) == 1
+    assert result.records[0].ok
 
 
 @pytest.mark.anyio
@@ -591,6 +588,40 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
 
 
 @pytest.mark.anyio
+async def test_pre_tool_use_uses_last_completed_updated_input() -> None:
+    earlier_finished = asyncio.Event()
+
+    class Runner(object):
+        async def execute(self, definition, _payload):
+            if definition.handler.command == "later-full":
+                await earlier_finished.wait()
+                output = {
+                    "updatedInput": {"command": "A", "cwd": "/a"},
+                }
+            else:
+                earlier_finished.set()
+                output = {"updatedInput": {"command": "B"}}
+            return SimpleNamespace(data=_wire_output(
+                definition.event,
+                output,
+            ))
+
+    definitions = _definitions({
+        "PreToolUse": [
+            _hook("later-full"),
+            _hook("earlier-partial"),
+        ],
+    })
+    decision = await ToolHookEvents(_scope(HookRuntime(
+        definitions,
+        command_runner=Runner(),
+    ))).pre_tool_use(_invocation())
+
+    assert decision.allowed
+    assert decision.updated_input == {"command": "A", "cwd": "/a"}
+
+
+@pytest.mark.anyio
 async def test_runtime_cancellation_stops_all_matching_hooks() -> None:
     definitions = _definitions({
         "PostToolUse": [
@@ -716,7 +747,30 @@ async def test_turn_hooks_skip_session_start_for_existing_session() -> None:
 
 
 @pytest.mark.anyio
-async def test_turn_prompt_hook_uses_event_failure_policy() -> None:
+async def test_session_start_continue_false_stops_turn_start() -> None:
+    definitions = _definitions({
+        "SessionStart": [_hook("start", matcher="startup")],
+        "UserPromptSubmit": [_hook("prompt")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "continue": False,
+            "stopReason": "startup stopped",
+        },
+    })
+    events = TurnHookEvents(_scope(
+        HookRuntime(definitions, command_runner=runner),
+        _invocation(session_started=True),
+    ))
+
+    with pytest.raises(PromptHookBlockedError, match="startup stopped"):
+        await events.begin("hello")
+
+    assert [call[0].event for call in runner.calls] == ["SessionStart"]
+
+
+@pytest.mark.anyio
+async def test_turn_prompt_hook_failure_does_not_block() -> None:
     definitions = _definitions({
         "UserPromptSubmit": [_hook("broken")],
     })
@@ -728,8 +782,9 @@ async def test_turn_prompt_hook_uses_event_failure_policy() -> None:
         command_runner=runner,
     )))
 
-    with pytest.raises(PromptHookBlockedError, match="prompt hook failed"):
-        await events.begin("hello")
+    result = await events.begin("hello")
+
+    assert result.message == "hello"
 
 
 @pytest.mark.anyio
@@ -753,6 +808,35 @@ async def test_turn_prompt_hook_blocks_on_explicit_decision() -> None:
 
 
 @pytest.mark.anyio
+async def test_stop_continue_false_takes_priority_over_continuation() -> None:
+    definitions = _definitions({
+        "Stop": [
+            _hook("continue"),
+            _hook("stop"),
+        ],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "decision": "block",
+            "reason": "run another pass",
+        },
+        definitions[1].key: {
+            "continue": False,
+            "stopReason": "finish now",
+        },
+    })
+    events = TurnHookEvents(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )))
+
+    decision = await events.stop(outcome="completed")
+
+    assert not decision.should_continue
+    assert len(runner.calls) == 2
+
+
+@pytest.mark.anyio
 async def test_tool_hooks_reject_invocation_from_another_scope() -> None:
     events = ToolHookEvents(_scope(HookRuntime.empty()))
 
@@ -772,7 +856,14 @@ async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> Non
     })
     runner = _CommandRunner()
     registry = HookRegistry(command_runner=runner)
-    coordinator = ToolCallCoordinator(_scope(registry.build(old)))
+    old_states = {
+        definition.key: {"trusted_hash": definition.content_hash}
+        for definition in old
+    }
+    coordinator = ToolCallCoordinator(_scope(registry.build(
+        old,
+        hook_states=old_states,
+    )))
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -787,7 +878,13 @@ async def test_turn_runtime_keeps_pre_and_post_hooks_from_same_snapshot() -> Non
     ))
     await started.wait()
 
-    registry.build(new)
+    registry.build(
+        new,
+        hook_states={
+            definition.key: {"trusted_hash": definition.content_hash}
+            for definition in new
+        },
+    )
     release.set()
     result = await task
 
@@ -831,7 +928,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
 
 
 @pytest.mark.anyio
-async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
+async def test_pre_tool_use_failure_does_not_block() -> None:
     definitions = _definitions({
         "PreToolUse": [_hook("broken")],
     })
@@ -844,8 +941,8 @@ async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
         command_runner=runner,
     ))).pre_tool_use(_invocation())
 
-    assert not decision.allowed
-    assert "broken hook" in decision.reason
+    assert decision.allowed
+    assert decision.reason == ""
 
 
 @pytest.mark.anyio
@@ -862,8 +959,8 @@ async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
         command_runner=runner,
     ))).pre_tool_use(_invocation())
 
-    assert not decision.allowed
-    assert "must be one of approve, block" in decision.reason
+    assert decision.allowed
+    assert decision.reason == ""
 
 
 @pytest.mark.anyio

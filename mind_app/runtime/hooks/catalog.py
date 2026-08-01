@@ -6,7 +6,6 @@ from mind_core.hook_trust import HookTrustState
 from mind_core.hooks import (
     HookControlPolicy,
     HookEventName,
-    HookFailurePolicy,
     HookMatcherSubject
 )
 
@@ -28,10 +27,10 @@ class HookCatalogEntry:
     timeout_sec: int
     run_async: bool
     additional_context_limit: int
-    on_error: HookFailurePolicy
     source_scope: str
     source_path: str | None
     trust_state: HookTrustState
+    enabled: bool
     active: bool
     content_hash: str
 
@@ -55,7 +54,7 @@ class HookCatalogSnapshot:
     active_count: int
     events: tuple[HookEventSummary, ...] = ()
     hooks: tuple[HookCatalogEntry, ...] = ()
-    trust_error: str = ""
+    warnings: tuple[str, ...] = ()
 
 
 if __name__ == '__main__':

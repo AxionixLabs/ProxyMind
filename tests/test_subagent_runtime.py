@@ -22,7 +22,7 @@ from mind_app.runtime.subagents.runner import (
     SubagentRunner,
 )
 from mind_app.runtime.turns.executor import TurnExecution
-from mind_core.hooks import resolve_hook_definitions
+from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
 
 

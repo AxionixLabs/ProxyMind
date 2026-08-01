@@ -33,10 +33,6 @@ from mind_core.application_paths import (
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.hook_trust import (
-    HookTrustStore,
-    default_hook_trust_path
-)
 from mind_core.preference import Preferences
 from mind_core.permissions import (
     PermissionSettings,
@@ -123,11 +119,7 @@ class MindMcpRuntime(object):
             session_factory=create_silent_output_session,
         )
 
-        hook_registry = HookRegistry(
-            trust_store=HookTrustStore(
-                default_hook_trust_path(config_session.store.path)
-            ),
-        )
+        hook_registry = HookRegistry()
 
         mind = Mind(
             const.SHOW_LEVEL,
