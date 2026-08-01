@@ -8,22 +8,30 @@ from mind_app.history.transcript import (
     TranscriptReader,
     TranscriptReplay
 )
+from mind_app.presentation.models import TextSpan
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_app.runtime.subagents.control import (
     AgentNotFoundError,
     AgentSnapshot
 )
 from ..core.models import (
+    FragmentBlock,
     MenuOption,
     MenuRequest
+)
+from ..core.styles import (
+    BRIGHT_STYLE,
+    COMMAND_STYLE,
+    MUTED_STYLE,
+    fragment_block
 )
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ..core.runtime import TuiRuntime
 
-_MAIN_ACTION      = object()
 _BACK_ACTION      = object()
+_SHOW_ACTION      = object()
 _INTERRUPT_ACTION = object()
 _RESUME_ACTION    = object()
 _CLOSE_ACTION     = object()
@@ -40,11 +48,9 @@ async def manage_agents(
 
     while True:
         snapshots = await _agent_snapshots(mind, root_session_id)
-        selected_id = await runtime.select_menu(agent_list_menu(
-            snapshots,
-            root_session_id=root_session_id,
-        ))
-        if selected_id is None or selected_id is _MAIN_ACTION:
+
+        selected_id = await runtime.select_menu(agent_list_menu(snapshots))
+        if selected_id is None:
             return None
 
         selected = next(
@@ -63,7 +69,17 @@ async def manage_agents(
             continue
 
         try:
-            if action is _INTERRUPT_ACTION:
+            if action is _SHOW_ACTION:
+                current = await mind.subagents.get(
+                    root_session_id,
+                    selected.agent_id,
+                )
+                runtime.append_block(
+                    agent_snapshot_block(current),
+                    kind="notice",
+                )
+                return None
+            elif action is _INTERRUPT_ACTION:
                 await mind.subagents.interrupt(
                     root_session_id,
                     selected.agent_id,
@@ -92,21 +108,14 @@ def current_agent_root_session_id(mind: typing.Any) -> str:
 
 
 def agent_list_menu(
-    snapshots: tuple[AgentSnapshot, ...],
-    *,
-    root_session_id: str = ""
+    snapshots: tuple[AgentSnapshot, ...]
 ) -> MenuRequest:
     """生成当前根会话的子执行线程列表。"""
     active  = sum(snapshot.status in _ACTIVE_STATUSES for snapshot in snapshots)
     queued  = sum(snapshot.queued_count for snapshot in snapshots)
     ordered = _tree_ordered_snapshots(snapshots)
 
-    options = [MenuOption(
-        value=_MAIN_ACTION,
-        label="• Main [default] (current)",
-        detail=root_session_id or "current session",
-    )]
-    options.extend(
+    options = tuple(
         MenuOption(
             value=snapshot.agent_id,
             label=(
@@ -119,43 +128,43 @@ def agent_list_menu(
     )
 
     return MenuRequest(
-        title="Agents",
+        title="Sub-agents",
         status=f"active={active} queued={queued} total={len(snapshots)}",
-        body=agent_status_body(ordered),
-        help_text="Up/Down select · Enter inspect · Esc/q close",
-        options=tuple(options),
+        body=() if options else ("No sub-agents.",),
+        help_text="Up/Down select · Enter manage · Esc/q close",
+        options=options,
     )
 
 
-def agent_status_body(
-    snapshots: tuple[AgentSnapshot, ...]
-) -> tuple[str, ...]:
-    """生成运行中子执行线程及其最近活动摘要。"""
-    running = tuple(
-        snapshot
-        for snapshot in snapshots
-        if snapshot.status in _ACTIVE_STATUSES
-    )
-    lines = ["Sub-agents running", ""]
+def agent_snapshot_block(snapshot: AgentSnapshot) -> FragmentBlock:
+    """生成单个执行线程写入正文的当前状态快照。"""
+    parts: list[str | TextSpan] = [
+        TextSpan("/agent ", COMMAND_STYLE),
+        TextSpan("· ", MUTED_STYLE),
+        TextSpan(snapshot.context.task_path, BRIGHT_STYLE),
+        "\n",
+        TextSpan(
+            f"{snapshot.status} · turns={snapshot.turn_count} "
+            f"queued={snapshot.queued_count}",
+            MUTED_STYLE,
+        ),
+    ]
 
-    if not running:
-        lines.append("  • No sub-agents running.")
-        return tuple(lines)
+    for line in _agent_activity(snapshot):
+        parts.append("\n")
+        parts.append(TextSpan(f"  {line}", MUTED_STYLE))
 
-    for snapshot in running[:4]:
-        lines.append(f"  • `{snapshot.context.task_path}`")
-        lines.extend(f"    {line}" for line in _agent_activity(snapshot))
-
-    omitted = len(running) - 4
-    if omitted > 0:
-        lines.append(f"  • {omitted} more")
-
-    return tuple(lines)
+    return fragment_block(*parts)
 
 
 def agent_detail_menu(snapshot: AgentSnapshot) -> MenuRequest:
-    """生成单个子执行线程的详情与可用操作。"""
+    """生成单个子执行线程的可用操作。"""
     actions: list[MenuOption] = [
+        MenuOption(
+            value=_SHOW_ACTION,
+            label="Show",
+            detail="write the current snapshot to the transcript",
+        ),
         MenuOption(
             value=_BACK_ACTION,
             label="Back",
@@ -181,27 +190,9 @@ def agent_detail_menu(snapshot: AgentSnapshot) -> MenuRequest:
             detail="close this thread and its descendants",
         ))
 
-    body = [
-        f"ID: {snapshot.agent_id}",
-        f"Task: {snapshot.context.task_path}",
-        f"Type: {snapshot.context.agent_type}",
-        f"Parent: {snapshot.context.parent_agent_id or '-'}",
-        f"Depth: {snapshot.context.depth}",
-        f"Session: {snapshot.thread.sid}",
-        f"Turns: {snapshot.turn_count}",
-        f"Queued: {snapshot.queued_count}",
-    ]
-    if snapshot.error:
-        body.append(f"Error: {_inline_text(snapshot.error)}")
-    elif snapshot.result is not None:
-        result = getattr(snapshot.result, "assistant_text", "")
-        if result:
-            body.append(f"Result: {_inline_text(result)}")
-
     return MenuRequest(
-        title="Agent Thread",
-        status=snapshot.status,
-        body=tuple(body),
+        title="Agent actions",
+        status=f"{snapshot.context.task_path} · {snapshot.status}",
         help_text="Up/Down select · Enter apply · Esc/q back",
         options=tuple(actions),
     )
