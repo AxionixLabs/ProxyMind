@@ -48,6 +48,10 @@ def _ignore_action() -> None:
     """忽略尚未绑定的输入动作。"""
 
 
+def _ignore_buffer_action(_buffer: typing.Any) -> None:
+    """忽略尚未绑定的输入区动作。"""
+
+
 def _deny_action() -> bool:
     """拒绝尚未绑定的输入条件。"""
     return False
@@ -156,6 +160,10 @@ class TuiInputModel(object):
         self.can_report_missing_backtrack: typing.Callable[[], bool] = _deny_action
 
         self.rollback_queue_handler: typing.Callable[[], bool]    = _deny_action
+
+        self.queue_submission_handler: typing.Callable[[typing.Any], None] = (
+            _ignore_buffer_action
+        )
         self.backtrack_history_handler: typing.Callable[[], None] = _ignore_action
         self.missing_backtrack_handler: typing.Callable[[], None] = _ignore_action
 
@@ -411,9 +419,14 @@ class TuiInputModel(object):
         self.can_rollback_queue     = can_rollback
         self.rollback_queue_handler = handler
 
-    def bind_queue_submission(self, can_submit: typing.Callable[[], bool]) -> None:
+    def bind_queue_submission(
+        self,
+        can_submit: typing.Callable[[], bool],
+        handler: typing.Callable[[typing.Any], None]
+    ) -> None:
         """绑定执行期使用 Tab 提交待处理消息的可用状态。"""
-        self.can_submit_queue = can_submit
+        self.can_submit_queue         = can_submit
+        self.queue_submission_handler = handler
 
     def bind_history_backtrack(
         self,
@@ -747,7 +760,7 @@ class TuiInputModel(object):
                 and (buffer.text.strip() or self.shell_mode)
             ):
                 buffer.cancel_completion()
-                buffer.validate_and_handle()
+                self.queue_submission_handler(buffer)
             elif self.shell_mode:
                 buffer.insert_text("    ")
             elif buffer.suggestion and buffer.suggestion.text:

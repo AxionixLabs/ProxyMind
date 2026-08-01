@@ -30,6 +30,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.hook_registry = SimpleNamespace(
         close=lambda: step("hooks"),
     )
+    controller.event_reports = SimpleNamespace(
+        close=lambda: step("event_reports"),
+    )
     controller.native_coding = SimpleNamespace(
         close=lambda: step("native_coding"),
     )
@@ -47,6 +50,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "service_startup",
         "subagents",
         "hooks",
+        "event_reports",
         "native_coding",
         "external_mcp",
         "config_service",
@@ -83,6 +87,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     controller.session_lifecycle = SimpleNamespace(
         end=AsyncMock(return_value=True),
     )
+    controller.event_reports = SimpleNamespace(
+        close_session=AsyncMock(),
+    )
 
     ended = await Mind.end_conversation(controller, reason="exit")
 
@@ -107,6 +114,10 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
         payload={"reason": "exit"},
     )
     transcript.close.assert_called_once_with()
+    controller.event_reports.close_session.assert_awaited_once_with(
+        "cid_test_12345678",
+        "sid_test_1_abcdef",
+    )
 
 
 @pytest.mark.anyio

@@ -11,6 +11,7 @@ RunStatus = typing.Literal[
     "completed",
     "failed",
     "incomplete",
+    "interrupted",
 ]
 
 

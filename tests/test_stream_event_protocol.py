@@ -7,6 +7,9 @@ from mind_nova.stream_events import (
     ToolApprovalRequiredEvent,
     ToolCallEvent,
     ToolOutputEvent,
+    TurnDoneEvent,
+    TurnInputAcceptedEvent,
+    TurnLogicalSettledEvent,
     UnknownStreamEvent,
     parse_stream_event,
 )
@@ -108,6 +111,39 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert approval.approval == {"id": "approval-1"}
     assert isinstance(output, ToolOutputEvent)
     assert output.payload["result"] == {"ok": True, "text": "done"}
+
+
+def test_turn_control_events_preserve_stable_input_identity() -> None:
+    accepted = parse_stream_event({
+        "type": "turn.input.accepted",
+        "turn_id": "turn_1",
+        "client_message_id": "message_1",
+    })
+    settled = parse_stream_event({
+        "type": "turn.logical_settled",
+        "turn_id": "turn_1",
+        "next_input": {
+            "client_message_id": "message_2",
+            "text": "continue with this",
+            "attachments": [{"kind": "image"}],
+            "extras": {"source": "steer"},
+        },
+    })
+    done = parse_stream_event({
+        "type": "turn.done",
+        "turn_id": "turn_1",
+        "status": "interrupted",
+    })
+
+    assert isinstance(accepted, TurnInputAcceptedEvent)
+    assert accepted.turn_id == "turn_1"
+    assert accepted.client_message_id == "message_1"
+    assert isinstance(settled, TurnLogicalSettledEvent)
+    assert settled.next_input is not None
+    assert settled.next_input.client_message_id == "message_2"
+    assert settled.next_input.attachments == ({"kind": "image"},)
+    assert isinstance(done, TurnDoneEvent)
+    assert done.status == "interrupted"
 
 
 @pytest.mark.parametrize("payload", ({}, {"type": ""}))

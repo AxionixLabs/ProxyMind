@@ -533,7 +533,8 @@ class TuiDocument(object):
         if not normalized_turn_id:
             raise ValueError("turn_id is required")
 
-        for index, item in enumerate(self.blocks):
+        for index in range(len(self.blocks) - 1, -1, -1):
+            item = self.blocks[index]
             if item.kind != "user" or item.turn_id != normalized_turn_id:
                 continue
             self.blocks[index] = replace(

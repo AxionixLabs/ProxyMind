@@ -25,6 +25,7 @@ from mind_nova.modes import (
     RunMode
 )
 from mind_nova.identifiers import short_uid
+from mind_nova.events import EventReportPool
 from .reporting import RunReport
 from engine.observability import (
     observe,
@@ -134,6 +135,9 @@ class Mind(object):
 
         self.transcripts: ConversationTranscriptStore = (
             kwargs.get("transcript_store") or ConversationTranscriptStore()
+        )
+        self.event_reports: EventReportPool = (
+            kwargs.get("event_report_pool") or EventReportPool()
         )
 
         self._conversation_lifecycle_id: int = 0
@@ -463,6 +467,7 @@ class Mind(object):
             last_assistant_message=self.last_assistant_reply_snapshot(),
             before_dispatch=record_session_end,
         )
+        await self.event_reports.close_session(cid, sid)
 
     def _session_hook_context(
         self,
@@ -969,6 +974,7 @@ class Mind(object):
 
             await self.subagents.shutdown()
             await self.hook_registry.close()
+            await self.event_reports.close()
 
             with contextlib.suppress(Exception):
                 await self.native_coding.close()

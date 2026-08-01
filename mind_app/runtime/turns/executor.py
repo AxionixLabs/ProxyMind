@@ -207,17 +207,29 @@ async def execute_turn(
         approval_policy=context.permissions.approval_policy,
     )
 
-    owns_event_report = event_report is None
-
     report = event_report
+
+    report_pool       = None
+    owns_event_report = False
+
     if report is None:
-        report = EventReport(
-            context.mode,
-            context.cid,
-            context.sid,
-        )
-    if owns_event_report:
-        await report.open()
+        if context.agent.depth == 0:
+            report_pool = getattr(mind, "event_reports", None)
+        if report_pool is not None:
+            report = await report_pool.acquire(
+                context.mode,
+                context.cid,
+                context.sid,
+            )
+        else:
+            report = EventReport(
+                context.mode,
+                context.cid,
+                context.sid,
+            )
+            owns_event_report = True
+            await report.open()
+    assert report is not None
 
     async def run_with_session(
         session: "McpSessionLike",
@@ -265,6 +277,12 @@ async def execute_turn(
     finally:
         if owns_event_report:
             await mind.await_cleanup(report.close(drain=not interrupted))
+        elif interrupted and report_pool is not None:
+            await mind.await_cleanup(report_pool.close_session(
+                context.cid,
+                context.sid,
+                drain=False,
+            ))
 
 
 if __name__ == '__main__':

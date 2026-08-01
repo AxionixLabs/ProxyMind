@@ -24,6 +24,7 @@ from ...runtime.turns.executor import (
     resolve_turn_hook_scope
 )
 from ..core.runtime import TuiRuntime
+from .turn_input import TuiTurnInputControl
 from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
@@ -39,14 +40,15 @@ if typing.TYPE_CHECKING:
 async def execute_tui_model_turn(
     application: ApplicationSink,
     runtime: TuiRuntime,
-    turn: typing.Coroutine[typing.Any, typing.Any, None],
+    turn: typing.Coroutine[typing.Any, typing.Any, "RunResult | None"],
     *,
+    turn_input_control: TuiTurnInputControl | None = None,
     stream_command_handler: typing.Callable[
         [str, typing.Callable[[], bool]],
         bool,
     ] | None = None,
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
-) -> None:
+) -> "RunResult | None":
     """执行可由主输入区定向取消的单个模型轮次。"""
     task = asyncio.create_task(turn, name="tui model turn")
 
@@ -54,13 +56,19 @@ async def execute_tui_model_turn(
 
     def cancel_turn() -> bool:
         """取消模型任务并记录响应中断来源。"""
-        cancelled = task.cancel()
+        cancelled = (
+            turn_input_control.interrupt(task.cancel)
+            if turn_input_control is not None
+            else task.cancel()
+        )
         if cancelled:
             runtime.request_turn_interrupt()
         return cancelled
 
     runtime.set_execution_active(True)
     runtime.bind_interrupt_handler(cancel_turn)
+    if turn_input_control is not None:
+        runtime.bind_turn_input_handler(turn_input_control.submit)
 
     if stream_command_handler is not None:
         runtime.bind_stream_command_handler(
@@ -68,20 +76,27 @@ async def execute_tui_model_turn(
         )
 
     try:
-        await task
+        result = await task
     except asyncio.CancelledError:
         if not runtime.consume_turn_interrupt():
             raise
         interrupted = True
+        result = None
     else:
-        interrupted = runtime.consume_turn_interrupt()
+        interrupted = bool(
+            runtime.consume_turn_interrupt()
+            or getattr(result, "status", "") == "interrupted"
+        )
 
     finally:
         if not interrupted:
             runtime.consume_turn_interrupt()
 
         runtime.bind_stream_command_handler(None)
+        runtime.bind_turn_input_handler(None)
         runtime.bind_interrupt_handler(None)
+        if turn_input_control is not None:
+            await turn_input_control.close()
         runtime.set_execution_active(False)
 
     if interrupted and show_interrupt_notice():
@@ -97,6 +112,8 @@ async def execute_tui_model_turn(
             ),
         ))
 
+    return result
+
 
 async def run_tui_model_turn(
     mind: "Mind",
@@ -110,7 +127,8 @@ async def run_tui_model_turn(
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
-    ] | None = None
+    ] | None = None,
+    turn_input_control: TuiTurnInputControl | None = None,
 ) -> None:
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     attachments: list[dict[str, typing.Any]] = []
@@ -175,6 +193,9 @@ async def run_tui_model_turn(
         prompt_kwargs: dict[str, typing.Any] = {}
         if extras:
             prompt_kwargs["extras"] = extras
+        if turn_input_control is not None:
+            prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
+            prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
 
         return await mind.run_mode_lifecycle(
             runner,

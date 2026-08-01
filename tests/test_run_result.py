@@ -37,7 +37,8 @@ from mind_app.runtime.tools.client_call import (
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
-from mind_nova.stream_events import parse_stream_event
+from mind_nova.stream_events import TurnInputAcceptedEvent, parse_stream_event
+from mind_nova.turn_inputs import TurnInput
 
 
 class _OutputControl(object):
@@ -177,6 +178,7 @@ async def _run_stream(
     stream_factory: typing.Callable[
         ..., typing.AsyncIterator[typing.Any]
     ] | None = None,
+    on_turn_input_event: typing.Callable[[typing.Any], typing.Any] | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -236,6 +238,8 @@ async def _run_stream(
         stream_options["attachments"] = list(attachments)
     if extras:
         stream_options["extras"] = dict(extras)
+    if on_turn_input_event is not None:
+        stream_options["on_turn_input_event"] = on_turn_input_event
 
     result = await stream.stream_looper(
         mind,
@@ -252,6 +256,7 @@ def test_run_result_maps_status_to_exit_code() -> None:
     assert RunResult(status="completed").exit_code == 0
     assert RunResult(status="failed", error="failed").exit_code == 1
     assert RunResult(status="incomplete").exit_code == 1
+    assert RunResult(status="interrupted").exit_code == 1
 
 
 @pytest.mark.anyio
@@ -312,6 +317,92 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         "payload": {"content": "answer"},
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_stream_drains_logical_settlement_after_interrupted_done(
+    monkeypatch,
+) -> None:
+    input_events = []
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "turn.done",
+                "turn_id": "turn_test",
+                "status": "interrupted",
+            },
+            {
+                "type": "turn.logical_settled",
+                "turn_id": "turn_test",
+                "next_input": {
+                    "client_message_id": "message_1",
+                    "text": "continue next",
+                    "attachments": [],
+                    "extras": {},
+                },
+            },
+        ],
+        on_turn_input_event=input_events.append,
+    )
+
+    assert result.status == "interrupted"
+    assert len(input_events) == 1
+    assert input_events[0].next_input.text == "continue next"
+    assert mind.transcripts.entries[-1]["event"] == "turn.interrupted"
+
+
+@pytest.mark.anyio
+async def test_sampling_accepted_input_preserves_local_transcript_order(
+    monkeypatch,
+) -> None:
+    accepted = TurnInput(
+        client_message_id="message_1",
+        text="change direction",
+        attachments=({"kind": "image"},),
+        extras={"source": "tui"},
+    )
+
+    def handle_input(event):
+        if isinstance(event, TurnInputAcceptedEvent):
+            return accepted
+        return None
+
+    _result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {"type": "text.delta", "text": "before"},
+            {
+                "type": "turn.input.accepted",
+                "turn_id": "turn_test",
+                "client_message_id": "message_1",
+            },
+            {"type": "text.delta", "text": "after"},
+            {"type": "text.done"},
+            {"type": "turn.done", "turn_id": "turn_test"},
+        ],
+        on_turn_input_event=handle_input,
+    )
+
+    messages = [
+        (entry["actor"], entry["payload"])
+        for entry in mind.transcripts.entries
+        if entry["event"] == "message.created"
+    ]
+    assert messages == [
+        ("user", {"content": "hello"}),
+        ("assistant", {"content": "before"}),
+        (
+            "user",
+            {
+                "content": "change direction",
+                "attachments": [{"kind": "image"}],
+                "extras": {"source": "tui"},
+            },
+        ),
+        ("assistant", {"content": "after"}),
+    ]
 
 
 @pytest.mark.anyio

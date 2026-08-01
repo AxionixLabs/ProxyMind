@@ -39,6 +39,11 @@ def _ignore_stream_command(_command: str) -> bool:
     return False
 
 
+def _ignore_turn_input(_submission: TuiSubmission, _queue_only: bool) -> bool:
+    """忽略未绑定的活动轮次输入。"""
+    return False
+
+
 def _no_pending_attachments() -> bool:
     """返回默认的待发送附件状态。"""
     return False
@@ -93,6 +98,7 @@ class TuiSubmissionFlow(object):
 
         self.queued_submission_text: str | None = None
         self.surface_submission_pending: bool   = False
+        self._queue_submission_requested: bool  = False
 
         self._mode = mode
 
@@ -109,6 +115,11 @@ class TuiSubmissionFlow(object):
         self._stream_command_handler: typing.Callable[[str], bool] = (
             _ignore_stream_command
         )
+
+        self._turn_input_handler: typing.Callable[
+            [TuiSubmission, bool], bool
+        ] = _ignore_turn_input
+
         self._has_pending_attachments: typing.Callable[[], bool] = (
             _no_pending_attachments
         )
@@ -119,12 +130,15 @@ class TuiSubmissionFlow(object):
             lambda: not self._is_submission_deferred(),
             self.exit_input,
         )
-        self.input_model.bind_queue_submission(self._is_submission_deferred)
+        self.input_model.bind_queue_submission(
+            self._is_submission_deferred,
+            self.queue_input,
+        )
 
         self.input_model.bind_queue_rollback(
             lambda: (
                 self._is_submission_deferred()
-                and self.queued_messages.active
+                and self.queued_messages.can_rollback
             ),
             self.rollback_queued_input,
         )
@@ -235,6 +249,33 @@ class TuiSubmissionFlow(object):
             paste_store={},
         ))
 
+    def defer_submission(
+        self,
+        submission: TuiSubmission,
+        *,
+        next_input: bool = False,
+    ) -> None:
+        """把输入保留到本轮结束后，并按结算优先级排队。"""
+        if next_input:
+            self.queued_messages.remove(submission.client_message_id)
+            self.queued_messages.append_next(submission)
+        else:
+            self.queued_messages.append(submission)
+        self._invalidate()
+
+    def release_deferred_submission(self, client_message_id: str) -> None:
+        """允许明确未被服务端持有的消息再次撤回编辑。"""
+        if self.queued_messages.release(client_message_id):
+            self._invalidate()
+
+    def queue_input(self, buffer: Buffer) -> None:
+        """使用下一轮意图提交当前输入内容。"""
+        self._queue_submission_requested = True
+        try:
+            buffer.validate_and_handle()
+        finally:
+            self._queue_submission_requested = False
+
     def finish_input(self) -> None:
         """通知等待方主输入应用已经停止。"""
         self.surface_submission_pending = False
@@ -300,6 +341,15 @@ class TuiSubmissionFlow(object):
         """绑定或清除忙碌期间的命令分派函数。"""
         self._stream_command_handler = (
             handler if handler is not None else _ignore_stream_command
+        )
+
+    def bind_turn_input_handler(
+        self,
+        handler: typing.Callable[[TuiSubmission, bool], bool] | None,
+    ) -> None:
+        """绑定或清除活动模型轮次的输入接管函数。"""
+        self._turn_input_handler = (
+            handler if handler is not None else _ignore_turn_input
         )
 
     def request_turn_interrupt(self) -> None:
@@ -420,8 +470,16 @@ class TuiSubmissionFlow(object):
                 self.input_model.clear_submission_state()
                 self._invalidate()
                 return False
-            self.queued_messages.append(submission)
+
+            handled = self._turn_input_handler(
+                submission,
+                self._queue_submission_requested,
+            )
+
+            if not handled:
+                self.defer_submission(submission)
             self.queued_submission_text = submission.visible_text
+
         else:
             self.surface_submission_pending = submission_uses_transient_surface(
                 submission.value
@@ -507,6 +565,7 @@ class TuiSubmissionFlow(object):
 
         self._interrupt_handler       = _ignore_interrupt
         self._stream_command_handler  = _ignore_stream_command
+        self._turn_input_handler      = _ignore_turn_input
         self._has_pending_attachments = _no_pending_attachments
 
 

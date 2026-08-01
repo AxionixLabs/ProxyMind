@@ -16,6 +16,7 @@ from mind_app.approval.policy import (
 )
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
+from mind_nova.turn_inputs import TurnInput
 from mind_nova.stream_events import (
     TextDeltaEvent,
     TextDoneEvent,
@@ -26,7 +27,9 @@ from mind_nova.stream_events import (
     ToolEvent,
     ToolOutputEvent,
     TurnDoneEvent,
-    TurnFailedEvent
+    TurnFailedEvent,
+    TurnInputAcceptedEvent,
+    TurnLogicalSettledEvent
 )
 from mind_nova.requests.tools import (
     ToolApprovalExpired,
@@ -188,6 +191,24 @@ def _join_text(*values: str) -> str:
     )
 
 
+def _user_message_payload(
+    text: str,
+    *,
+    attachments: typing.Iterable[typing.Mapping[str, typing.Any]] = (),
+    extras: typing.Mapping[str, typing.Any] | None = None
+) -> dict[str, typing.Any]:
+    """构建本地会话记录使用的用户消息载荷。"""
+    payload: dict[str, typing.Any] = {"content": str(text)}
+
+    attachment_items = [dict(item) for item in attachments]
+    if attachment_items:
+        payload["attachments"] = attachment_items
+    if extras:
+        payload["extras"] = dict(extras)
+
+    return payload
+
+
 async def _discard_stop_hook_decision(
     awaitable: typing.Awaitable[StopHookDecision],
 ) -> None:
@@ -209,7 +230,14 @@ async def stream_looper(
     if mode not in {"chat", "fast", "xtra"}:
         raise ValueError(f"Invalid mode: {mode}")
 
+    on_turn_input_context = kwargs.pop("on_turn_input_context", None)
+    on_turn_input_event   = kwargs.pop("on_turn_input_event", None)
+
     reentry_kwargs = dict(kwargs)
+    if on_turn_input_context is not None:
+        reentry_kwargs["on_turn_input_context"] = on_turn_input_context
+    if on_turn_input_event is not None:
+        reentry_kwargs["on_turn_input_event"] = on_turn_input_event
 
     started_at = time.perf_counter()
 
@@ -226,6 +254,9 @@ async def stream_looper(
 
     if turn_context.mode != mode:
         raise ValueError("turn context mode does not match stream mode")
+
+    if on_turn_input_context is not None:
+        on_turn_input_context(turn_context)
 
     kwargs["turn_id"]     = turn_context.turn_id
     kwargs["permissions"] = turn_context.permissions
@@ -349,19 +380,18 @@ async def stream_looper(
             payload={"mode": mode},
         )
 
-        user_payload: dict[str, typing.Any] = {"content": message}
-
         attachments = kwargs.get("attachments")
-        if isinstance(attachments, (list, tuple)) and attachments:
-            user_payload["attachments"] = [
-                dict(item)
+        extras      = kwargs.get("extras")
+
+        user_payload = _user_message_payload(
+            message,
+            attachments=(
+                item
                 for item in attachments
                 if isinstance(item, dict)
-            ]
-
-        extras = kwargs.get("extras")
-        if isinstance(extras, dict) and extras:
-            user_payload["extras"] = dict(extras)
+            ) if isinstance(attachments, (list, tuple)) else (),
+            extras=extras if isinstance(extras, dict) else None,
+        )
 
         transcript.append(
             "message.created",
@@ -504,9 +534,30 @@ async def stream_looper(
                 continue
 
             if isinstance(event, TurnDoneEvent):
-                turn_completed = True
                 turn_usage = dict(event.usage)
-                break
+                if event.status == "interrupted":
+                    interrupted = True
+                else:
+                    turn_completed = True
+                continue
+
+            if isinstance(event, (TurnInputAcceptedEvent, TurnLogicalSettledEvent)):
+                if on_turn_input_event is not None:
+                    accepted_input = on_turn_input_event(event)
+                    if (
+                        isinstance(event, TurnInputAcceptedEvent)
+                        and isinstance(accepted_input, TurnInput)
+                    ):
+                        transcript.append(
+                            "message.created",
+                            actor="user",
+                            payload=_user_message_payload(
+                                accepted_input.text,
+                                attachments=accepted_input.attachments,
+                                extras=accepted_input.extras,
+                            ),
+                        )
+                continue
 
             if event_type == "tool.builtin.call":
                 await status_control.begin_tool_status()
@@ -1014,7 +1065,9 @@ async def stream_looper(
         )
 
     else:
-        if turn_failed:
+        if interrupted:
+            result_status = "interrupted"
+        elif turn_failed:
             result_status = "failed"
         elif turn_completed:
             result_status = "completed"
@@ -1041,7 +1094,15 @@ async def stream_looper(
         observe(
             "stream.complete",
             mode=mode,
-            outcome="failed" if turn_failed else ("complete" if turn_completed else "incomplete"),
+            outcome=(
+                "interrupted"
+                if interrupted
+                else "failed"
+                if turn_failed
+                else "complete"
+                if turn_completed
+                else "incomplete"
+            ),
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
             usage=turn_usage or None,

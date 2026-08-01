@@ -8,6 +8,7 @@ from dataclasses import (
     field
 )
 from collections.abc import Mapping
+from mind_nova.turn_inputs import TurnInput
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -15,6 +16,7 @@ class StreamEvent:
     """描述流式协议事件的公共字段。"""
     type: str
     proto: str = ""
+    turn_id: str = ""
     round: int | None = None
     display: dict[str, typing.Any] | None = None
 
@@ -33,10 +35,23 @@ class TurnFailedEvent(StreamEvent):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TurnDoneEvent(StreamEvent):
     """描述已完成的模型轮次。"""
+    status: str = "completed"
     usage: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "usage", copy.deepcopy(dict(self.usage or {})))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TurnInputAcceptedEvent(StreamEvent):
+    """描述已写入当前逻辑轮次的引导输入。"""
+    client_message_id: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TurnLogicalSettledEvent(StreamEvent):
+    """描述逻辑轮次结算后选出的下一轮输入。"""
+    next_input: TurnInput | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -136,6 +151,8 @@ ChatStreamEvent: typing.TypeAlias = (
     MarkerEvent
     | TurnFailedEvent
     | TurnDoneEvent
+    | TurnInputAcceptedEvent
+    | TurnLogicalSettledEvent
     | TextDeltaEvent
     | TextDoneEvent
     | TextMetaEvent
@@ -179,7 +196,18 @@ def parse_stream_event(payload: Mapping[str, typing.Any]) -> ChatStreamEvent:
     if event_type == "turn.done":
         return TurnDoneEvent(
             **common,
+            status=_text(raw.get("status")) or "completed",
             usage=_dict(raw.get("usage")),
+        )
+    if event_type == "turn.input.accepted":
+        return TurnInputAcceptedEvent(
+            **common,
+            client_message_id=_text(raw.get("client_message_id")),
+        )
+    if event_type == "turn.logical_settled":
+        return TurnLogicalSettledEvent(
+            **common,
+            next_input=_turn_input_or_none(raw.get("next_input")),
         )
     if event_type == "text.delta":
         return TextDeltaEvent(
@@ -241,6 +269,7 @@ def _common_fields(
     return {
         "type"    : event_type,
         "proto"   : _text(payload.get("proto")),
+        "turn_id" : _text(payload.get("turn_id")),
         "round"   : _positive_int(payload.get("round")),
         "display" : copy.deepcopy(display) if isinstance(display, dict) else None
     }
@@ -292,6 +321,16 @@ def _dict(value: typing.Any) -> dict[str, typing.Any]:
 def _optional_dict(value: typing.Any) -> dict[str, typing.Any] | None:
     """复制可选字典协议值。"""
     return copy.deepcopy(value) if isinstance(value, dict) else None
+
+
+def _turn_input_or_none(value: typing.Any) -> TurnInput | None:
+    """读取可选的下一逻辑轮次输入。"""
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        return TurnInput.from_mapping(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _tuple_or_none(value: typing.Any) -> tuple[typing.Any, ...] | None:

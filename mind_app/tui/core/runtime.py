@@ -87,6 +87,7 @@ class TuiRuntime(object):
 
         self._application_task: asyncio.Task[None] | None = None
         self._application_error: BaseException | None     = None
+        self._consumed_submission: TuiSubmission | None   = None
 
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
@@ -214,7 +215,11 @@ class TuiRuntime(object):
     @property
     def submission_deferred(self) -> bool:
         """返回新输入是否需要延迟到下一模型轮次。"""
-        return self.execution_active or self.foreground_active
+        return bool(
+            self.execution_active
+            or self.foreground_active
+            or self.submissions.queued_messages.waiting_settlement
+        )
 
     @property
     def task_running(self) -> bool:
@@ -560,6 +565,42 @@ class TuiRuntime(object):
             self.screen.transcript_overlay.content_changed()
         return changed
 
+    def append_turn_input(
+        self,
+        turn_id: str,
+        submission: TuiSubmission
+    ) -> bool:
+        """把采样边界接纳的用户输入追加到当前逻辑轮次。"""
+        visible = submission.visible_text.strip()
+        if not visible and submission.attachments:
+            labels = [
+                label
+                for item in submission.attachments
+                if (
+                    label := str(
+                        item.get("filename") or item.get("name") or ""
+                    ).strip()
+                )
+            ]
+            visible = f"[Attachment: {', '.join(labels) or 'attachment'}]"
+
+        if not visible:
+            return False
+
+        self.append_block(query_block(visible), kind="user")
+
+        if not self.document.bind_latest_user_turn(turn_id, submission.value):
+            raise RuntimeError("accepted turn input could not be bound")
+
+        if not self.bind_turn_payload(
+            turn_id,
+            attachments=submission.attachments,
+            extras=submission.extras,
+        ):
+            raise RuntimeError("accepted turn input payload could not be bound")
+
+        return True
+
     def apply_transcript_backtrack(
         self,
         request: TranscriptBacktrackRequest
@@ -763,6 +804,35 @@ class TuiRuntime(object):
         """绑定或清除忙碌期间的命令分派函数。"""
         self.submissions.bind_stream_command_handler(handler)
 
+    def bind_turn_input_handler(
+        self,
+        handler: typing.Callable[[TuiSubmission, bool], bool] | None,
+    ) -> None:
+        """绑定或清除活动模型轮次的输入接管函数。"""
+        self.submissions.bind_turn_input_handler(handler)
+
+    def defer_submission(
+        self,
+        submission: TuiSubmission,
+        *,
+        next_input: bool = False,
+    ) -> None:
+        """把结构化输入保留到下一轮读取。"""
+        self.submissions.defer_submission(
+            submission,
+            next_input=next_input,
+        )
+
+    def release_deferred_submission(self, client_message_id: str) -> None:
+        """解除一条本地待提交消息的服务端持有状态。"""
+        self.submissions.release_deferred_submission(client_message_id)
+
+    def consume_submission_payload(self) -> TuiSubmission | None:
+        """读取最近一项输入携带的附件和扩展字段。"""
+        submission = self._consumed_submission
+        self._consumed_submission = None
+        return submission
+
     def request_turn_interrupt(self) -> None:
         """把当前轮次标记为用户主动中断。"""
         self.submissions.request_turn_interrupt()
@@ -918,10 +988,12 @@ class TuiRuntime(object):
             raise TuiTranscriptBacktrackRequested(submission)
 
         if isinstance(submission, TuiSubmission):
-            value   = submission.value
+            self._consumed_submission = submission
+            value = submission.value
             visible = submission.visible_text.strip() or value
         else:
-            value   = str(submission)
+            self._consumed_submission = None
+            value = str(submission)
             visible = value
 
         self.viewport.reset_view()

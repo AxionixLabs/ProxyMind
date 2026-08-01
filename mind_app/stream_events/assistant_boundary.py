@@ -4,6 +4,7 @@
 from mind_nova.stream_events import StreamEvent
 
 ASSISTANT_OUTPUT_BOUNDARY_EVENTS: set[str] = {
+    "turn.input.accepted",
     "tool.builtin.call",
     "tool.calls.start",
     "tool.approval_required",

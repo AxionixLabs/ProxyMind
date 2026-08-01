@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
+import typing
 import collections
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field,
+    replace
+)
 from prompt_toolkit.utils import get_cwidth
+from mind_nova.identifiers import short_uid
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
 from .render import clip_fragments
@@ -16,6 +23,25 @@ class TuiSubmission(object):
     editable_text: str
     paste_store: dict[str, str]
     shell_mode: bool = False
+    client_message_id: str = field(default_factory=lambda: short_uid(16))
+    attachments: tuple[dict[str, typing.Any], ...] = ()
+    extras: dict[str, typing.Any] = field(default_factory=dict)
+    payload_bound: bool = False
+    server_queued: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "paste_store", dict(self.paste_store))
+        object.__setattr__(
+            self,
+            "client_message_id",
+            str(self.client_message_id or "").strip() or short_uid(16),
+        )
+        object.__setattr__(
+            self,
+            "attachments",
+            tuple(copy.deepcopy(item) for item in self.attachments),
+        )
+        object.__setattr__(self, "extras", copy.deepcopy(dict(self.extras)))
 
     @property
     def visible_text(self) -> str:
@@ -37,21 +63,54 @@ class TuiQueuedMessages(object):
         """返回当前是否存在待提交消息。"""
         return bool(self._items)
 
+    @property
+    def can_rollback(self) -> bool:
+        """返回队尾消息是否仍可安全撤回编辑。"""
+        return bool(self._items and not self._items[-1].server_queued)
+
+    @property
+    def waiting_settlement(self) -> bool:
+        """返回是否仍有服务端持有的待结算消息。"""
+        return any(item.server_queued for item in self._items)
+
     def append(self, item: TuiSubmission) -> None:
         """在队尾追加一条待提交消息。"""
         self._items.append(item)
 
+    def append_next(self, item: TuiSubmission) -> None:
+        """把服务端结算输入放到下一次读取位置。"""
+        self._items.appendleft(item)
+
     def pop_next(self) -> TuiSubmission | None:
         """取出下一条应交给会话循环的消息。"""
-        if not self._items:
+        if not self._items or self._items[0].server_queued:
             return None
         return self._items.popleft()
 
     def pop_last(self) -> TuiSubmission | None:
         """撤回最近一条待提交消息。"""
-        if not self._items:
+        if not self.can_rollback:
             return None
         return self._items.pop()
+
+    def remove(self, client_message_id: str) -> TuiSubmission | None:
+        """按稳定消息标识移除一条待提交消息。"""
+        for item in self._items:
+            if item.client_message_id != client_message_id:
+                continue
+            self._items.remove(item)
+            return item
+        return None
+
+    def release(self, client_message_id: str) -> bool:
+        """解除一条未被服务端持有消息的撤回限制。"""
+        for index, item in enumerate(self._items):
+            if item.client_message_id != client_message_id:
+                continue
+            if item.server_queued:
+                self._items[index] = replace(item, server_queued=False)
+            return True
+        return False
 
     def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
         """生成动画行下方的待提交消息列表。"""
@@ -62,7 +121,7 @@ class TuiQueuedMessages(object):
 
         lines: list[FormattedText] = [[(
             "class:queue.label",
-            _queue_title(width),
+            _queue_title(width, editable=self.can_rollback),
         )]]
 
         available     = max(0, row_limit - 1)
@@ -96,12 +155,16 @@ class TuiQueuedMessages(object):
         return out
 
 
-def _queue_title(width: int) -> str:
+def _queue_title(width: int, *, editable: bool) -> str:
     """返回适合当前终端宽度的队列标题。"""
     titles = (
-        "• Messages queued for the next turn (Esc edits latest)",
-        "• Queued for next turn (Esc edits latest)",
-        "• Queued for next turn",
+        (
+            "• Messages queued for the next turn (Esc edits latest)",
+            "• Queued for next turn (Esc edits latest)",
+            "• Queued for next turn",
+        )
+        if editable
+        else ("• Messages queued for the next turn", "• Queued for next turn")
     )
 
     limit = max(1, int(width))

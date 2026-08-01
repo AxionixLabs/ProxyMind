@@ -22,6 +22,33 @@ def test_queue_uses_next_turn_title() -> None:
     assert "  ↳ next task" in text
 
 
+def test_server_queued_message_cannot_be_edited_until_settlement() -> None:
+    runtime = TuiRuntime()
+    submission = TuiSubmission(
+        value="next task",
+        editable_text="next task",
+        paste_store={},
+        client_message_id="message_1",
+        server_queued=True,
+    )
+    runtime.defer_submission(submission)
+
+    text = _fragments_text(
+        runtime.submissions.queued_messages.fragments(width=100)
+    )
+
+    assert "Esc edits latest" not in text
+    assert runtime.submission_deferred
+    assert runtime.submissions.queued_messages.pop_next() is None
+    assert not runtime.submissions.rollback_queued_input()
+
+    runtime.release_deferred_submission("message_1")
+
+    assert not runtime.submission_deferred
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.screen.input.buffer.text == "next task"
+
+
 def test_queued_input_candidate_uses_dim_style() -> None:
     style = TuiRuntime().screen.application.style
 
@@ -112,6 +139,30 @@ def test_foreground_barrier_keeps_normal_input_in_visible_queue() -> None:
 
     assert runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
+
+
+def test_running_enter_steers_and_tab_explicitly_queues() -> None:
+    runtime = TuiRuntime()
+    intents = []
+    runtime.set_execution_active(True)
+    runtime.bind_turn_input_handler(
+        lambda submission, queue_only: intents.append((
+            submission.value,
+            queue_only,
+        )) or True
+    )
+
+    runtime.screen.input.buffer.text = "steer now"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+
+    runtime.screen.input.buffer.text = "wait for next turn"
+    runtime.submissions.queue_input(runtime.screen.input.buffer)
+
+    assert intents == [
+        ("steer now", False),
+        ("wait for next turn", True),
+    ]
+    assert not runtime.submissions.queued_messages.active
 
 
 @pytest.mark.anyio

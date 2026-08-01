@@ -34,6 +34,7 @@ from .turn import (
     execute_tui_model_turn,
     run_tui_model_turn
 )
+from .turn_input import TuiTurnInputControl
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -150,6 +151,13 @@ async def run_tui_loop(
 
             prompt_text = prompt_task.result()
 
+            submission = runtime.consume_submission_payload()
+            if submission is not None and submission.payload_bound:
+                mind.attach.replace_pending_attachments(
+                    submission.attachments
+                )
+                state.replace_pending_prompt_extras(submission.extras)
+
             try:
                 action = (
                     DispatchAction.MODEL_TURN
@@ -170,6 +178,15 @@ async def run_tui_loop(
         mind.native_coding.reset_patch_diff()
 
         turn_id = short_uid(12)
+
+        turn_input_control = TuiTurnInputControl(
+            mind,
+            runtime,
+            state,
+            cid="",
+            sid="",
+            turn_id=turn_id,
+        )
 
         attachment_snapshot = _pending_attachment_snapshot(attachment_state)
 
@@ -211,7 +228,9 @@ async def run_tui_loop(
                 turn_id=turn_id,
                 prompt_extras=prompt_extras,
                 on_prompt_prepared=bind_prompt_attachments,
+                turn_input_control=turn_input_control,
             ),
+            turn_input_control=turn_input_control,
             stream_command_handler=dispatcher.handle_stream_command,
             show_interrupt_notice=lambda: not mind.task_event.is_set(),
         )

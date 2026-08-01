@@ -55,6 +55,20 @@ class _ExecutionController(object):
         await awaitable
 
 
+class _ReportPool(object):
+    def __init__(self, report: _Report) -> None:
+        self.report = report
+        self.acquired = []
+        self.closed = []
+
+    async def acquire(self, mode, cid, sid):
+        self.acquired.append((mode, cid, sid))
+        return self.report
+
+    async def close_session(self, cid, sid, *, drain=True) -> None:
+        self.closed.append((cid, sid, drain))
+
+
 def _empty_hook_scope(context: TurnContext) -> HookExecutionScope:
     return HookExecutionScope(
         context=HookExecutionContext.from_turn(context),
@@ -84,6 +98,27 @@ def _child_execution() -> TurnExecution:
         message="inspect workspace",
         hook_scope=_empty_hook_scope(context),
         metadata={"origin": "test"},
+    )
+
+
+def _root_execution() -> TurnExecution:
+    child = _child_execution()
+    context = TurnContext.create(
+        agent=AgentContext.root(child.context.sid),
+        cid=child.context.cid,
+        sid=child.context.sid,
+        mode=child.context.mode,
+        source="tui",
+        pref_config={},
+        cwd=child.context.cwd,
+        permissions=child.context.permissions,
+        turn_id=child.context.turn_id,
+    )
+    return TurnExecution(
+        context=context,
+        message=child.message,
+        hook_scope=_empty_hook_scope(context),
+        metadata=child.metadata,
     )
 
 
@@ -170,7 +205,7 @@ def test_turn_execution_rejects_hook_scope_from_another_turn() -> None:
 @pytest.mark.anyio
 async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> None:
     mind = _ExecutionController()
-    execution = _child_execution()
+    execution = _root_execution()
     report = _Report()
     received = []
 
@@ -272,6 +307,64 @@ async def test_execute_turn_opens_and_closes_owned_report(monkeypatch) -> None:
     )
 
     assert result.status == "completed"
+    assert report.opened == 1
+    assert report.closed == [True]
+
+
+@pytest.mark.anyio
+async def test_execute_turn_reuses_controller_report_without_turn_close() -> None:
+    mind = _ExecutionController()
+    report = _Report()
+    pool = _ReportPool(report)
+    mind.event_reports = pool
+
+    async def operation(*_args):
+        return RunResult(status="completed")
+
+    execution = _root_execution()
+    await execute_turn(mind, {}, execution, operation)
+    await execute_turn(mind, {}, execution, operation)
+
+    assert pool.acquired == [
+        ("xtra", "cid_child", "sid_child"),
+        ("xtra", "cid_child", "sid_child"),
+    ]
+    assert pool.closed == []
+    assert report.opened == 0
+    assert report.closed == []
+
+
+@pytest.mark.anyio
+async def test_execute_turn_discards_pooled_report_after_cancellation() -> None:
+    mind = _ExecutionController()
+    report = _Report()
+    pool = _ReportPool(report)
+    mind.event_reports = pool
+
+    async def operation(*_args):
+        raise asyncio.CancelledError()
+
+    execution = _root_execution()
+    with pytest.raises(asyncio.CancelledError):
+        await execute_turn(mind, {}, execution, operation)
+
+    assert pool.closed == [("cid_child", "sid_child", False)]
+
+
+@pytest.mark.anyio
+async def test_execute_turn_keeps_child_reports_turn_scoped(monkeypatch) -> None:
+    mind = _ExecutionController()
+    report = _Report()
+    pool = _ReportPool(_Report())
+    mind.event_reports = pool
+    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+
+    async def operation(*_args):
+        return RunResult(status="completed")
+
+    await execute_turn(mind, {}, _child_execution(), operation)
+
+    assert pool.acquired == []
     assert report.opened == 1
     assert report.closed == [True]
 

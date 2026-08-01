@@ -45,8 +45,12 @@ class EventReport(object):
         self.timeout: float = 30.0
         self.seq: int       = 0
 
-        self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=2000)
+        self.q: asyncio.Queue[
+            tuple[RunMode, dict[str, typing.Any]]
+        ] = asyncio.Queue(maxsize=2000)
+
         self.stop = asyncio.Event()
+
         self.worker: typing.Optional[asyncio.Task] = None
 
     def begin_turn(
@@ -56,9 +60,20 @@ class EventReport(object):
         round_no: typing.Optional[int] = None
     ) -> str:
         self.turn_id = str(turn_id or short_uid(12))
-        if isinstance(round_no, int) and round_no > 0:
-            self.round = round_no
+
+        self.round = (
+            round_no
+            if isinstance(round_no, int) and round_no > 0
+            else 1
+        )
+
         return self.turn_id
+
+    def set_mode(self, mode: RunMode) -> None:
+        """设置后续事件使用的运行模式。"""
+        if self.proto == self.default_proto(self.mode):
+            self.proto = self.default_proto(mode)
+        self.mode = mode
 
     def set_round(self, round_no: typing.Any) -> None:
         if isinstance(round_no, int) and round_no > 0:
@@ -87,7 +102,8 @@ class EventReport(object):
             ev.setdefault("round", self.round)
             ev.setdefault("seq", self.seq)
 
-            self.q.put_nowait(ev)
+            self.q.put_nowait((self.mode, ev))
+
         except asyncio.QueueFull:
             observe(
                 "event_report.dropped",
@@ -95,6 +111,7 @@ class EventReport(object):
                 reason="queue_full",
                 event_type=event.get("type"),
             )
+
         except RuntimeError:
             observe(
                 "event_report.dropped",
@@ -129,12 +146,12 @@ class EventReport(object):
                 return None
 
             try:
-                ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
+                mode, ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
 
             try:
-                await post_stream_event(self.mode, self.cid, self.sid, ev, timeout=self.timeout)
+                await post_stream_event(mode, self.cid, self.sid, ev, timeout=self.timeout)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -204,6 +221,67 @@ class EventReport(object):
                     await self._cancel_worker(worker)
         finally:
             self.worker = None
+
+
+class EventReportPool(object):
+    """复用同一会话的事件上报通道，并统一管理关闭时机。"""
+
+    def __init__(self) -> None:
+        self._reports: dict[tuple[str, str], EventReport] = {}
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._closed: bool = False
+
+    async def acquire(
+        self,
+        mode: RunMode,
+        cid: str,
+        sid: str,
+    ) -> EventReport:
+        """返回已经启动的会话上报器。"""
+        key = (cid, sid)
+
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("event report pool is closed")
+
+            report = self._reports.get(key)
+            if report is None:
+                report = EventReport(mode, cid, sid)
+                self._reports[key] = report
+            else:
+                report.set_mode(mode)
+
+            await report.open()
+
+            return report
+
+    async def close_session(
+        self,
+        cid: str,
+        sid: str,
+        *,
+        drain: bool = True,
+    ) -> None:
+        """关闭并移除指定会话的上报器。"""
+        async with self._lock:
+            report = self._reports.pop((cid, sid), None)
+        if report is not None:
+            await report.close(drain=drain)
+
+    async def close(self, *, drain: bool = True) -> None:
+        """关闭池中全部上报器。"""
+        async with self._lock:
+            if self._closed and not self._reports:
+                return None
+            self._closed = True
+            reports_by_session = self._reports
+            self._reports = {}
+
+        if reports_by_session:
+            await asyncio.gather(*(
+                report.close(drain=drain)
+                for report in reports_by_session.values()
+            ))
 
 
 if __name__ == '__main__':
