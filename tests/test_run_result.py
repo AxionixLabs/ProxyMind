@@ -193,7 +193,7 @@ async def _run_stream(
     root_agent = AgentContext.root("sid_test")
     turn_context = TurnContext.create(
         agent=(
-            root_agent.child("worker", agent_id="agent_child")
+            root_agent.child("worker", "worker", agent_id="agent_child")
             if child_agent
             else root_agent
         ),

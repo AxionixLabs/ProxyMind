@@ -1,33 +1,28 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import json
 import typing
-from mind_app.frontend import (
-    ApplicationSink,
-    ApplicationView
+from mind_app.history.transcript import (
+    TranscriptEntry,
+    TranscriptReader,
+    TranscriptReplay
 )
-from mind_app.presentation.models import TextSpan
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_app.runtime.subagents.control import (
     AgentNotFoundError,
     AgentSnapshot
 )
 from ..core.models import (
-    FragmentBlock,
     MenuOption,
     MenuRequest
-)
-from ..core.styles import (
-    BRIGHT_STYLE,
-    FAILURE_STYLE,
-    MUTED_STYLE,
-    command_result_block
 )
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ..core.runtime import TuiRuntime
 
+_MAIN_ACTION      = object()
 _BACK_ACTION      = object()
 _INTERRUPT_ACTION = object()
 _RESUME_ACTION    = object()
@@ -45,12 +40,11 @@ async def manage_agents(
 
     while True:
         snapshots = await _agent_snapshots(mind, root_session_id)
-        if not snapshots:
-            render_no_agents(mind.frontend.application)
-            return None
-
-        selected_id = await runtime.select_menu(agent_list_menu(snapshots))
-        if selected_id is None:
+        selected_id = await runtime.select_menu(agent_list_menu(
+            snapshots,
+            root_session_id=root_session_id,
+        ))
+        if selected_id is None or selected_id is _MAIN_ACTION:
             return None
 
         selected = next(
@@ -70,12 +64,12 @@ async def manage_agents(
 
         try:
             if action is _INTERRUPT_ACTION:
-                updated = await mind.subagents.interrupt(
+                await mind.subagents.interrupt(
                     root_session_id,
                     selected.agent_id,
                 )
             elif action is _RESUME_ACTION:
-                updated = await mind.subagents.resume(
+                await mind.subagents.resume(
                     root_session_id,
                     selected.agent_id,
                 )
@@ -84,33 +78,11 @@ async def manage_agents(
                     root_session_id,
                     selected.agent_id,
                 )
-                updated = await mind.subagents.get(
-                    root_session_id,
-                    selected.agent_id,
-                )
             else:
                 continue
         except (TypeError, ValueError, RuntimeError) as error:
-            render_agent_failure(
-                mind.frontend.application,
-                selected.agent_id,
-                error,
-            )
+            await runtime.select_menu(agent_failure_panel(selected, error))
             continue
-
-        render_agent_status(mind.frontend.application, updated)
-
-
-async def append_agent_stream_snapshot(
-    runtime: "TuiRuntime",
-    mind: "Mind"
-) -> None:
-    """在流式正文边界排队当前子执行线程快照。"""
-    snapshots = await _agent_snapshots(
-        mind,
-        current_agent_root_session_id(mind),
-    )
-    runtime.queue_background_block(agent_snapshot_block(snapshots))
 
 
 def current_agent_root_session_id(mind: typing.Any) -> str:
@@ -121,32 +93,64 @@ def current_agent_root_session_id(mind: typing.Any) -> str:
 
 def agent_list_menu(
     snapshots: tuple[AgentSnapshot, ...],
+    *,
+    root_session_id: str = ""
 ) -> MenuRequest:
     """生成当前根会话的子执行线程列表。"""
     active  = sum(snapshot.status in _ACTIVE_STATUSES for snapshot in snapshots)
     queued  = sum(snapshot.queued_count for snapshot in snapshots)
     ordered = _tree_ordered_snapshots(snapshots)
 
+    options = [MenuOption(
+        value=_MAIN_ACTION,
+        label="• Main [default] (current)",
+        detail=root_session_id or "current session",
+    )]
+    options.extend(
+        MenuOption(
+            value=snapshot.agent_id,
+            label=(
+                f"{'  ' * max(0, snapshot.context.depth - 1)}"
+                f"• {snapshot.context.task_path}"
+            ),
+            detail=f"{snapshot.agent_id} · {snapshot.status}",
+        )
+        for snapshot in ordered
+    )
+
     return MenuRequest(
         title="Agents",
         status=f"active={active} queued={queued} total={len(snapshots)}",
+        body=agent_status_body(ordered),
         help_text="Up/Down select · Enter inspect · Esc/q close",
-        options=tuple(
-            MenuOption(
-                value=snapshot.agent_id,
-                label=(
-                    f"{'  ' * max(0, snapshot.context.depth - 1)}"
-                    f"{snapshot.context.agent_type}"
-                ),
-                detail=(
-                    f"{snapshot.status} · {snapshot.agent_id} · "
-                    f"turns={snapshot.turn_count} "
-                    f"queued={snapshot.queued_count}"
-                ),
-            )
-            for snapshot in ordered
-        ),
+        options=tuple(options),
     )
+
+
+def agent_status_body(
+    snapshots: tuple[AgentSnapshot, ...]
+) -> tuple[str, ...]:
+    """生成运行中子执行线程及其最近活动摘要。"""
+    running = tuple(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.status in _ACTIVE_STATUSES
+    )
+    lines = ["Sub-agents running", ""]
+
+    if not running:
+        lines.append("  • No sub-agents running.")
+        return tuple(lines)
+
+    for snapshot in running[:4]:
+        lines.append(f"  • `{snapshot.context.task_path}`")
+        lines.extend(f"    {line}" for line in _agent_activity(snapshot))
+
+    omitted = len(running) - 4
+    if omitted > 0:
+        lines.append(f"  • {omitted} more")
+
+    return tuple(lines)
 
 
 def agent_detail_menu(snapshot: AgentSnapshot) -> MenuRequest:
@@ -179,6 +183,7 @@ def agent_detail_menu(snapshot: AgentSnapshot) -> MenuRequest:
 
     body = [
         f"ID: {snapshot.agent_id}",
+        f"Task: {snapshot.context.task_path}",
         f"Type: {snapshot.context.agent_type}",
         f"Parent: {snapshot.context.parent_agent_id or '-'}",
         f"Depth: {snapshot.context.depth}",
@@ -202,100 +207,18 @@ def agent_detail_menu(snapshot: AgentSnapshot) -> MenuRequest:
     )
 
 
-def agent_snapshot_block(
-    snapshots: tuple[AgentSnapshot, ...]
-) -> FragmentBlock:
-    """生成可在正文边界提交的子执行线程快照。"""
-    if not snapshots:
-        return command_result_block(
-            "/agent",
-            TextSpan("No agents in this conversation", MUTED_STYLE),
-        )
-
-    counts: dict[str, int] = {}
-    for snapshot in snapshots:
-        counts[snapshot.status] = counts.get(snapshot.status, 0) + 1
-
-    summary = " ".join(
-        f"{status}={counts[status]}"
-        for status in (
-            "pending",
-            "running",
-            "completed",
-            "failed",
-            "interrupted",
-            "closed",
-        )
-        if counts.get(status)
-    )
-
-    ordered = _tree_ordered_snapshots(snapshots)
-
-    details = "".join(
-        (
-            f"\n  {snapshot.context.agent_type} · {snapshot.agent_id} · "
-            f"{snapshot.status} · turns={snapshot.turn_count} "
-            f"queued={snapshot.queued_count}"
-        )
-        for snapshot in ordered[:4]
-    )
-
-    omitted = len(snapshots) - 4
-    if omitted > 0:
-        details += f"\n  … {omitted} more"
-
-    return command_result_block(
-        "/agent",
-        TextSpan(summary, BRIGHT_STYLE),
-        TextSpan(details, MUTED_STYLE),
-    )
-
-
-def render_no_agents(application: ApplicationSink) -> None:
-    """展示当前对话没有子执行线程。"""
-    application.emit(ApplicationView(
-        type="tui.agents.status",
-        renderable=agent_snapshot_block(()),
-    ))
-    application.emit(ApplicationView(type="tui.gap"))
-
-
-def render_agent_status(
-    application: ApplicationSink,
-    snapshot: AgentSnapshot
-) -> None:
-    """展示子执行线程操作后的状态。"""
-    application.emit(ApplicationView(
-        type="tui.agents.status",
-        renderable=command_result_block(
-            "/agent",
-            TextSpan(snapshot.context.agent_type, BRIGHT_STYLE),
-            TextSpan(
-                f" · {snapshot.agent_id} · {snapshot.status}",
-                MUTED_STYLE,
-            ),
-        ),
-    ))
-    application.emit(ApplicationView(type="tui.gap"))
-
-
-def render_agent_failure(
-    application: ApplicationSink,
-    agent_id: str,
+def agent_failure_panel(
+    snapshot: AgentSnapshot,
     error: BaseException
-) -> None:
-    """展示子执行线程管理操作失败。"""
+) -> MenuRequest:
+    """生成子执行线程管理失败面板。"""
     message = str(error).strip() or type(error).__name__
-
-    application.emit(ApplicationView(
-        type="tui.agents.failure",
-        renderable=command_result_block(
-            "/agent",
-            TextSpan("Failed", FAILURE_STYLE),
-            TextSpan(f" · {agent_id} · {_inline_text(message)}", MUTED_STYLE),
-        ),
-    ))
-    application.emit(ApplicationView(type="tui.gap"))
+    return MenuRequest(
+        title="Agent operation failed",
+        status=snapshot.context.task_path,
+        body=(_inline_text(message),),
+        help_text="Enter/Esc/q close",
+    )
 
 
 async def _agent_snapshots(
@@ -341,6 +264,53 @@ def _tree_ordered_snapshots(
     for root in roots:
         append_subtree(root)
     return tuple(ordered)
+
+
+def _agent_activity(snapshot: AgentSnapshot) -> tuple[str, ...]:
+    """读取子执行线程最近的有界消息和工具活动。"""
+    path = str(snapshot.thread.transcript_path or "").strip()
+    if path:
+        entries = TranscriptReplay(
+            TranscriptReader(path).read_tail(40)
+        ).build()
+        activity = tuple(
+            text
+            for entry in reversed(entries)
+            for text in [_activity_text(entry)]
+            if text
+        )[:2]
+        if activity:
+            return tuple(reversed(activity))
+
+    if snapshot.status == "pending":
+        return ("Waiting to start",)
+    return (
+        f"turns={snapshot.turn_count} queued={snapshot.queued_count}",
+    )
+
+
+def _activity_text(entry: TranscriptEntry) -> str:
+    """把一项持久事件转换为单行活动摘要。"""
+    if entry.event in {"tool.started", "tool.completed", "tool.failed"}:
+        name = str(entry.payload.get("name") or "tool").strip() or "tool"
+        arguments = entry.payload.get("arguments")
+        if name == "shell_command" and isinstance(arguments, dict):
+            command = _inline_text(arguments.get("command"), limit=160)
+            return f"$ {command}" if command else "$ shell_command"
+        if isinstance(arguments, dict) and arguments:
+            serialized = json.dumps(
+                arguments,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+            return _inline_text(f"$ {name} {serialized}", limit=160)
+        return f"$ {name}"
+
+    if entry.event == "message.created" and entry.actor == "assistant":
+        return _inline_text(entry.payload.get("content"), limit=160)
+
+    return ""
 
 
 def _inline_text(value: typing.Any, limit: int = 240) -> str:

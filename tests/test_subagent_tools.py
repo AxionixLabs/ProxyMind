@@ -135,7 +135,11 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
         session,
         turn,
         "spawn_agent",
-        {"message": "first", "agent_type": "review"},
+        {
+            "message": "first",
+            "task_name": "review",
+            "agent_type": "review",
+        },
         pref_config,
     )
     agent_id = _data(spawned)["agent_id"]
@@ -247,7 +251,7 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
         session,
         turn,
         "spawn_agent",
-        {"message": "first"},
+        {"message": "first", "task_name": "first"},
         {},
     )
     agent_id = _data(spawned)["agent_id"]
@@ -308,7 +312,7 @@ async def test_agent_tools_reject_cross_root_and_self_blocking_calls() -> None:
         session,
         first,
         "spawn_agent",
-        {"message": "task"},
+        {"message": "task", "task_name": "task"},
         {},
     )
     agent_id = _data(spawned)["agent_id"]

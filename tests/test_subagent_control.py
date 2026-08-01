@@ -36,7 +36,11 @@ def _thread(
 ) -> AgentThreadContext:
     cid = new_cid()
     return AgentThreadContext(
-        agent=parent.child(agent_type, agent_id=agent_id),
+        agent=parent.child(
+            agent_type,
+            str(agent_id or agent_type).removeprefix("agent_") or agent_type,
+            agent_id=agent_id,
+        ),
         cid=cid,
         sid=new_sid(cid),
         mode="xtra",

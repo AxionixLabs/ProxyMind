@@ -25,6 +25,7 @@ def _result() -> mcp_types.CallToolResult:
 def _child_turn() -> TurnContext:
     agent = AgentContext.root("sid_root").child(
         "explore",
+        "inspect",
         agent_id="agent_child",
     )
     return TurnContext.create(

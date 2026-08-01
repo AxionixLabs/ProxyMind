@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 from dataclasses import dataclass
 from mind_app.runtime.execution import ToolInvocation
+from mind_app.history.contracts import TranscriptSink
 from .matching import hook_tool_name
 from .results import apply_tool_result_effect
 from .models import (
@@ -19,9 +20,6 @@ from .models import (
     ToolOutcome
 )
 from .scope import HookExecutionScope
-
-if typing.TYPE_CHECKING:
-    from mind_app.history.contracts import TranscriptSink
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -228,7 +226,7 @@ class ToolCallCoordinator:
     def __init__(
         self,
         scope: HookExecutionScope,
-        transcript: "TranscriptSink | None" = None
+        transcript: TranscriptSink | None = None
     ) -> None:
         self.events     = ToolHookEvents(scope)
         self.transcript = transcript

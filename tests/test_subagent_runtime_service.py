@@ -82,6 +82,7 @@ async def test_runtime_keeps_thread_context_across_submissions() -> None:
         "first task",
         pref_config,
         agent_type="review",
+        task_name="review",
         agent_id="agent_review",
     )
     pref_config["primary"]["model"] = "mutated"
@@ -151,6 +152,7 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
         "inspect",
         {},
         agent_type="review",
+        task_name="inspect",
         agent_id="agent_review",
     )
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
@@ -165,6 +167,53 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
     child_path = Path(first.context.transcript_path)
     assert child_path.is_relative_to(tmp_path / "sessions")
     assert child_path.name == f"session-{first.context.sid}.jsonl"
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_forks_recent_parent_turns_into_first_child_turn(tmp_path) -> None:
+    controller = _Controller()
+    parent_path = tmp_path / "parent.jsonl"
+    writer = ConversationTranscriptStore.writer(
+        parent_path,
+        session_id="sid_parent",
+        turn_id="turn_parent",
+    )
+    writer.open()
+    writer.append(
+        "message.created",
+        actor="user",
+        payload={"content": "parent task"},
+    )
+    writer.append(
+        "message.created",
+        actor="assistant",
+        payload={"content": "parent result"},
+    )
+    writer.close()
+
+    runtime = SubagentRuntime(
+        controller,
+        transcript_path_for=ConversationTranscriptStore(
+            tmp_path / "sessions"
+        ).path_for_session,
+    )
+    parent = _parent_turn(transcript_path=str(parent_path))
+
+    spawned = await runtime.spawn(
+        parent,
+        "child task",
+        {},
+        agent_type="review",
+        task_name="review",
+        fork_turns="1",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    execution = controller.stream_calls[-1]["turn_execution"]
+
+    assert "parent task" in execution.additional_context[0]
+    assert execution.metadata["task_path"] == "/root/review"
+    assert execution.metadata["fork_turns"] == "1"
     await runtime.shutdown()
 
 
@@ -192,6 +241,7 @@ async def test_runtime_isolates_controls_by_root_session() -> None:
             "task",
             {},
             agent_type="worker",
+            task_name="worker",
             agent_id="same_agent_id",
         ))
 
@@ -229,6 +279,7 @@ async def test_runtime_shutdown_cancels_tasks_and_is_terminal() -> None:
         "blocking task",
         {},
         agent_type="worker",
+        task_name="blocking",
     )
     await started.wait()
 
@@ -241,6 +292,7 @@ async def test_runtime_shutdown_cancels_tasks_and_is_terminal() -> None:
             "late task",
             {},
             agent_type="worker",
+            task_name="late",
         )
 
 
@@ -257,6 +309,7 @@ async def test_disabled_runtime_rejects_spawn() -> None:
             "task",
             {},
             agent_type="worker",
+            task_name="disabled",
         )
 
 
@@ -276,6 +329,7 @@ async def test_runtime_marks_failed_model_result_as_failed() -> None:
         "failing task",
         {},
         agent_type="worker",
+        task_name="failing",
     )
     waited = await runtime.wait(
         parent.sid,
@@ -303,6 +357,7 @@ async def test_runtime_reuses_thread_after_executor_exception() -> None:
         "failing task",
         {},
         agent_type="worker",
+        task_name="failing",
     )
     failed = await runtime.wait(
         parent.sid,
@@ -365,6 +420,7 @@ async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit(
         "first task",
         {},
         agent_type="review",
+        task_name="first",
         agent_id="agent_first",
     )
     second = await runtime.spawn(
@@ -372,6 +428,7 @@ async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit(
         "second task",
         {},
         agent_type="test",
+        task_name="second",
         agent_id="agent_second",
     )
     await asyncio.gather(*(event.wait() for event in started.values()))
@@ -410,4 +467,5 @@ async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit(
             "late task",
             {},
             agent_type="worker",
+            task_name="late",
         )

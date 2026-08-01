@@ -65,6 +65,7 @@ def _empty_hook_scope(context: TurnContext) -> HookExecutionScope:
 def _child_execution() -> TurnExecution:
     agent = AgentContext.root("sid_root").child(
         "explore",
+        "inspect",
         agent_id="agent_child",
     )
     context = TurnContext.create(
@@ -205,6 +206,7 @@ async def test_concurrent_turn_executions_keep_contexts_isolated() -> None:
     first = _child_execution()
     second_context = TurnContext.create(
         agent=AgentContext.root("sid_root").child(
+            "review",
             "review",
             agent_id="agent_review",
         ),

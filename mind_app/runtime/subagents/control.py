@@ -210,6 +210,13 @@ class AgentControl:
                 raise AgentStateError(
                     f"agent id already exists: {thread.agent.agent_id}"
                 )
+            if any(
+                record.context.task_path == thread.agent.task_path
+                for record in self._records.values()
+            ):
+                raise AgentStateError(
+                    f"task path already exists: {thread.agent.task_path}"
+                )
 
             record = _AgentRecord(thread=thread)
             self._records[thread.agent.agent_id] = record

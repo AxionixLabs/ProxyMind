@@ -16,6 +16,10 @@ from mind_app.runtime.execution import (
     AgentContext,
     TurnContext
 )
+from mind_app.runtime.subagents.context import (
+    ForkTurns,
+    normalize_fork_turns
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +34,8 @@ class AgentThreadContext:
     permissions: PermissionSettings
     pref_config: typing.Mapping[str, typing.Any]
     spawn_turn_id: str
+    fork_turns: ForkTurns = "all"
+    fork_context: tuple[str, ...] = ()
     transcript_path: str = ""
     skills: tuple[typing.Mapping[str, str], ...] = ()
 
@@ -49,10 +55,13 @@ class AgentThreadContext:
         source          = str(self.source or "").strip()
         cwd             = str(self.cwd or "").strip()
         spawn_turn_id   = str(self.spawn_turn_id or "").strip()
+        fork_turns      = normalize_fork_turns(self.fork_turns)
         transcript_path = str(self.transcript_path or "").strip()
 
         if not source or not cwd or not spawn_turn_id:
             raise ValueError("agent thread source, cwd, and spawn turn are required")
+        if not isinstance(self.fork_context, (tuple, list)):
+            raise TypeError("agent thread fork context must be a sequence")
 
         pref_config = typing.cast(
             typing.Mapping[str, typing.Any],
@@ -71,6 +80,16 @@ class AgentThreadContext:
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "cwd", cwd)
         object.__setattr__(self, "spawn_turn_id", spawn_turn_id)
+        object.__setattr__(self, "fork_turns", fork_turns)
+        object.__setattr__(
+            self,
+            "fork_context",
+            tuple(
+                value.strip()
+                for value in self.fork_context
+                if isinstance(value, str) and value.strip()
+            ),
+        )
         object.__setattr__(self, "transcript_path", transcript_path)
         object.__setattr__(self, "pref_config", pref_config)
         object.__setattr__(self, "skills", skills)
@@ -80,17 +99,24 @@ class AgentThreadContext:
         cls,
         parent: TurnContext,
         agent_type: str,
+        task_name: str,
         pref_config: typing.Mapping[str, typing.Any],
         *,
         skills: typing.Iterable[typing.Mapping[str, str]] = (),
         agent_id: str | None = None,
+        fork_turns: ForkTurns = "all",
+        fork_context: typing.Iterable[str] = (),
         transcript_path_for: typing.Callable[[str], str] | None = None
     ) -> "AgentThreadContext":
         """从父轮次创建独立的子执行线程。"""
         cid = new_cid()
         sid = new_sid(cid)
 
-        agent    = parent.agent.child(agent_type, agent_id=agent_id)
+        agent = parent.agent.child(
+            agent_type,
+            task_name,
+            agent_id=agent_id,
+        )
         path_for = transcript_path_for or (lambda _sid: "")
 
         return cls(
@@ -103,6 +129,8 @@ class AgentThreadContext:
             permissions=parent.permissions,
             pref_config=pref_config,
             spawn_turn_id=parent.turn_id,
+            fork_turns=fork_turns,
+            fork_context=tuple(fork_context),
             transcript_path=path_for(sid),
             skills=tuple(skills),
         )

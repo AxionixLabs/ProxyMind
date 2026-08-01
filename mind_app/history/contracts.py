@@ -11,6 +11,7 @@ TranscriptActor: typing.TypeAlias = typing.Literal[
 ]
 
 
+@typing.runtime_checkable
 class TranscriptSink(typing.Protocol):
     """定义结构化会话事件的追加写入能力。"""
 

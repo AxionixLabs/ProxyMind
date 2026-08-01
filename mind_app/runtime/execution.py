@@ -20,6 +20,8 @@ class AgentContext:
     agent_id: str
     agent_type: str
     root_session_id: str
+    task_name: str
+    task_path: str
     parent_agent_id: str | None = None
     depth: int = 0
 
@@ -28,6 +30,8 @@ class AgentContext:
         agent_id        = str(self.agent_id or "").strip()
         agent_type      = str(self.agent_type or "").strip()
         root_session_id = str(self.root_session_id or "").strip()
+        task_name       = str(self.task_name or "").strip().casefold()
+        task_path       = str(self.task_path or "").strip()
         parent_agent_id = str(self.parent_agent_id or "").strip()
 
         if not agent_id:
@@ -36,6 +40,9 @@ class AgentContext:
             raise ValueError("agent type is required")
         if not root_session_id:
             raise ValueError("root session id is required")
+
+        _validate_task_name(task_name)
+
         if (
             isinstance(self.depth, bool)
             or not isinstance(self.depth, int)
@@ -52,6 +59,8 @@ class AgentContext:
         if self.depth == 0 and (
             agent_id != ROOT_AGENT_ID
             or agent_type != ROOT_AGENT_TYPE
+            or task_name != ROOT_AGENT_ID
+            or task_path != "/root"
         ):
             raise ValueError("root agent must use the reserved root identity")
         if self.depth > 0 and (
@@ -60,9 +69,13 @@ class AgentContext:
         ):
             raise ValueError("child agent cannot use the reserved root identity")
 
+        _validate_task_path(task_path, task_name, self.depth)
+
         object.__setattr__(self, "agent_id", agent_id)
         object.__setattr__(self, "agent_type", agent_type)
         object.__setattr__(self, "root_session_id", root_session_id)
+        object.__setattr__(self, "task_name", task_name)
+        object.__setattr__(self, "task_path", task_path)
         object.__setattr__(self, "parent_agent_id", parent_agent_id or None)
 
     @classmethod
@@ -75,25 +88,33 @@ class AgentContext:
             agent_id=ROOT_AGENT_ID,
             agent_type=ROOT_AGENT_TYPE,
             root_session_id=normalized_session_id,
+            task_name=ROOT_AGENT_ID,
+            task_path="/root",
         )
 
     def child(
         self,
         agent_type: str,
+        task_name: str,
         *,
         agent_id: str | None = None
     ) -> "AgentContext":
         """创建继承根会话和父级关系的子执行主体。"""
         normalized_type = str(agent_type or "").strip()
+        normalized_name = str(task_name or "").strip().casefold()
         normalized_id   = str(agent_id or "").strip() or short_uid(12)
 
         if not normalized_type:
             raise ValueError("child agent type is required")
 
+        _validate_task_name(normalized_name)
+
         return type(self)(
             agent_id=normalized_id,
             agent_type=normalized_type,
             root_session_id=self.root_session_id,
+            task_name=normalized_name,
+            task_path=f"{self.task_path}/{normalized_name}",
             parent_agent_id=self.agent_id,
             depth=self.depth + 1,
         )
@@ -190,6 +211,33 @@ class ToolInvocation:
     def with_arguments(self, arguments: dict[str, typing.Any]) -> "ToolInvocation":
         """返回替换工具参数后的调用快照。"""
         return replace(self, arguments=dict(arguments))
+
+
+def _validate_task_name(value: str) -> None:
+    """校验任务名称格式。"""
+    if not value or any(
+        character not in "abcdefghijklmnopqrstuvwxyz0123456789_"
+        for character in value
+    ):
+        raise ValueError(
+            "task name must contain only lowercase letters, digits, and underscores"
+        )
+
+
+def _validate_task_path(value: str, task_name: str, depth: int) -> None:
+    """校验任务路径与层级身份的一致性。"""
+    parts = value.split("/") if value else []
+    if (
+        not value.startswith("/")
+        or not parts
+        or parts[0]
+        or parts[-1] != task_name
+        or len(parts) != depth + 2
+        or parts[1] != "root"
+    ):
+        raise ValueError("task path does not match task identity")
+    for part in parts[1:]:
+        _validate_task_name(part)
 
 
 if __name__ == '__main__':

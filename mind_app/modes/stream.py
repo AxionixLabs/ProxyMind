@@ -335,6 +335,8 @@ async def stream_looper(
                     "parent_session_id": turn_context.agent.root_session_id,
                     "agent_id": turn_context.agent.agent_id,
                     "agent_type": turn_context.agent.agent_type,
+                    "task_name": turn_context.agent.task_name,
+                    "task_path": turn_context.agent.task_path,
                 })
             transcript.append(
                 "session.started",

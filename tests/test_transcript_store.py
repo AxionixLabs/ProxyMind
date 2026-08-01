@@ -7,8 +7,11 @@ from pathlib import Path
 from mind_app.history.transcript import (
     ConversationTranscriptStore,
     TranscriptEntry,
+    TranscriptReader,
     TranscriptReplay,
+    TranscriptWriter,
 )
+from mind_app.history.contracts import TranscriptSink
 from mind_nova.identifiers import new_cid, new_sid
 
 
@@ -77,6 +80,12 @@ def test_writer_appends_complete_events_without_schema_version(tmp_path) -> None
     assert all("schema_version" not in entry for entry in entries)
 
 
+def test_writer_implements_transcript_sink_contract() -> None:
+    writer = TranscriptWriter("", session_id="session_test")
+
+    assert isinstance(writer, TranscriptSink)
+
+
 def test_reader_returns_written_entries(tmp_path) -> None:
     session_id = new_sid(new_cid())
     store = ConversationTranscriptStore(tmp_path / "sessions")
@@ -103,6 +112,32 @@ def test_reader_returns_written_entries(tmp_path) -> None:
     assert entries[0].turn_id == "turn_test"
     assert entries[0].actor == "assistant"
     assert entries[0].payload == {"content": "done"}
+
+
+def test_reader_tail_returns_only_latest_events(tmp_path) -> None:
+    session_id = new_sid(new_cid())
+    path = tmp_path / "session.jsonl"
+    writer = TranscriptWriter(
+        path,
+        session_id=session_id,
+        turn_id="turn_test",
+    )
+    writer.open()
+    for index in range(80):
+        writer.append(
+            "message.created",
+            actor="assistant",
+            payload={"content": f"事件 {index} " + "x" * 180},
+        )
+    writer.close()
+
+    entries = TranscriptReader(path).read_tail(3)
+
+    assert [entry.payload["content"].split()[1] for entry in entries] == [
+        "77",
+        "78",
+        "79",
+    ]
 
 
 def test_reader_skips_damaged_and_invalid_lines(tmp_path) -> None:

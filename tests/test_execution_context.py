@@ -60,8 +60,8 @@ def test_turn_context_rejects_mismatched_root_session() -> None:
 
 def test_child_agent_preserves_root_identity_and_advances_depth() -> None:
     root = AgentContext.root("sid_root")
-    child = root.child("explore", agent_id="agent_child")
-    nested = child.child("review", agent_id="agent_nested")
+    child = root.child("explore", "inspect", agent_id="agent_child")
+    nested = child.child("review", "review", agent_id="agent_nested")
 
     assert child.root_session_id == "sid_root"
     assert child.parent_agent_id == ROOT_AGENT_ID
@@ -74,18 +74,22 @@ def test_child_agent_preserves_root_identity_and_advances_depth() -> None:
 def test_agent_context_normalizes_identity_fields() -> None:
     child = AgentContext.root(" sid_root ").child(
         " explore ",
+        " Inspect_Work ",
         agent_id=" agent_child ",
     )
 
     assert child.agent_id == "agent_child"
     assert child.agent_type == "explore"
     assert child.root_session_id == "sid_root"
+    assert child.task_name == "inspect_work"
+    assert child.task_path == "/root/inspect_work"
     assert child.parent_agent_id == ROOT_AGENT_ID
 
 
 def test_child_turn_can_use_an_independent_session() -> None:
     child = AgentContext.root("sid_root").child(
         "explore",
+        "inspect",
         agent_id="agent_child",
     )
 
@@ -120,6 +124,8 @@ def test_agent_context_rejects_invalid_hierarchy(values, message) -> None:
             agent_id="agent",
             agent_type="explore",
             root_session_id="sid_root",
+            task_name="task",
+            task_path="/root/task",
             **values,
         )
 
@@ -128,6 +134,7 @@ def test_child_agent_rejects_reserved_root_type() -> None:
     with pytest.raises(ValueError, match="reserved root identity"):
         AgentContext.root("sid_root").child(
             ROOT_AGENT_TYPE,
+            "root_task",
             agent_id="agent_child",
         )
 
@@ -135,6 +142,7 @@ def test_child_agent_rejects_reserved_root_type() -> None:
 def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
     child = AgentContext.root("sid_root").child(
         "explore",
+        "inspect",
         agent_id="agent_child",
     )
     turn = TurnContext.create(

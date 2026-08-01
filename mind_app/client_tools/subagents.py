@@ -13,6 +13,7 @@ from mind_app.runtime.subagents.control import (
     AgentSnapshot,
     AgentStateError
 )
+from mind_app.runtime.subagents.context import normalize_fork_turns
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.execution import AgentContext
 
@@ -91,20 +92,31 @@ def _spawn_handler(agents: SubagentRuntime):
         tool_runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         try:
-            message = _required_text(arguments, "message")
+            message    = _required_text(arguments, "message")
             agent_type = _spawn_agent_type(arguments, tool_runtime)
+            task_name  = _required_text(arguments, "task_name")
+            fork_turns = normalize_fork_turns(arguments.get("fork_turns"))
+
             snapshot = await agents.spawn(
                 tool_runtime.turn_context,
                 message,
                 tool_runtime.pref_config,
                 agent_type=agent_type,
+                task_name=task_name,
+                fork_turns=fork_turns,
             )
+
             return client_tool_result(
                 tool=SPAWN_AGENT_TOOL,
                 ok=True,
-                text=f"spawned agent {snapshot.agent_id}",
+                text=f"spawned agent {snapshot.context.task_path}",
                 args=arguments,
-                data={"agent_id": snapshot.agent_id, "nickname": None},
+                data={
+                    "agent_id": snapshot.agent_id,
+                    "task_name": snapshot.context.task_name,
+                    "task_path": snapshot.context.task_path,
+                    "fork_turns": snapshot.thread.fork_turns,
+                },
             )
         except asyncio.CancelledError:
             raise
@@ -381,12 +393,23 @@ def _spawn_schema() -> dict[str, typing.Any]:
         "type": "object",
         "properties": {
             "message": {"type": "string", "description": "Initial task."},
+            "task_name": {
+                "type": "string",
+                "description": "Stable lowercase task name.",
+                "pattern": "^[a-z0-9_]+$",
+            },
             "agent_type": {
                 "type": "string",
                 "description": "Optional agent type override.",
             },
+            "fork_turns": {
+                "type": "string",
+                "description": "Parent context: none, all, or a positive turn count.",
+                "pattern": "^(none|all|[1-9][0-9]*)$",
+                "default": "all",
+            },
         },
-        "required": ["message"],
+        "required": ["message", "task_name"],
         "additionalProperties": False,
     }
 

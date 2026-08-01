@@ -130,6 +130,62 @@ class TranscriptReader(object):
 
         return tuple(entries)
 
+    def read_tail(self, limit: int) -> tuple[TranscriptEntry, ...]:
+        """从文件尾部返回有限数量的有效事件。"""
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("transcript tail limit must be an integer")
+        if limit <= 0 or self.path is None:
+            return ()
+
+        entries: list[TranscriptEntry] = []
+
+        try:
+            with self.path.open("rb") as file:
+                file.seek(0, 2)
+                remaining = file.tell()
+                buffer = b""
+
+                while remaining > 0:
+                    chunk_size = min(8192, remaining)
+                    remaining -= chunk_size
+                    file.seek(remaining)
+                    buffer = file.read(chunk_size) + buffer
+                    if buffer.count(b"\n") > limit:
+                        break
+
+            lines = buffer.splitlines()
+            if remaining > 0 and lines:
+                lines = lines[1:]
+
+            for tail_index, line in enumerate(lines[-limit:], start=1):
+                raw = line.decode(const.CHARSET).strip()
+                if not raw:
+                    continue
+                try:
+                    entries.append(TranscriptEntry.from_dict(json.loads(raw)))
+                except (
+                    json.JSONDecodeError,
+                    TypeError,
+                    ValueError,
+                    RecursionError,
+                ) as error:
+                    observe_exception(
+                        "transcript.read.line.failed",
+                        error,
+                        level="WARNING",
+                        path=str(self.path),
+                        tail_index=tail_index,
+                    )
+        except (OSError, UnicodeError) as error:
+            observe_exception(
+                "transcript.read.failed",
+                error,
+                level="WARNING",
+                path=str(self.path),
+            )
+
+        return tuple(entries)
+
 
 class TranscriptReplay(object):
     """把持久事件归并为可恢复的消息和工具记录。"""

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
+from mind_app.history.transcript import TranscriptWriter
 from mind_app.modes.result import RunResult
 from mind_app.runtime.execution import AgentContext
 from mind_app.runtime.subagents.control import AgentSnapshot
@@ -12,7 +13,6 @@ from mind_app.runtime.subagents.thread import AgentThreadContext
 from mind_app.tui.features.agents import (
     agent_detail_menu,
     agent_list_menu,
-    append_agent_stream_snapshot,
     manage_agents,
 )
 from mind_core.permissions import preset_permissions
@@ -29,17 +29,19 @@ def _snapshot(
     result=None,
     error="",
     parent_agent_id=None,
+    transcript_path="",
 ):
     cid = new_cid()
     root = AgentContext.root("sid_root")
     parent = (
-        root.child("parent", agent_id=parent_agent_id)
+        root.child("parent", "parent", agent_id=parent_agent_id)
         if parent_agent_id
         else root
     )
     thread = AgentThreadContext(
         agent=parent.child(
             agent_type,
+            agent_type.replace("-", "_") or "child",
             agent_id=agent_id,
         ),
         cid=cid,
@@ -50,6 +52,7 @@ def _snapshot(
         permissions=preset_permissions("auto"),
         pref_config={},
         spawn_turn_id="turn_root",
+        transcript_path=transcript_path,
     )
     return AgentSnapshot(
         thread=thread,
@@ -73,16 +76,20 @@ def test_agent_list_menu_displays_status_and_queue_counts() -> None:
         ),
     )
 
-    request = agent_list_menu(snapshots)
+    request = agent_list_menu(snapshots, root_session_id="sid_root")
 
     assert request.title == "Agents"
     assert request.status == "active=1 queued=2 total=2"
-    assert request.options[0].label == "review"
-    assert request.options[0].detail == (
-        "running · agent_review · turns=1 queued=2"
-    )
-    assert request.options[1].detail == (
-        "completed · agent_test · turns=3 queued=0"
+    assert request.options[0].label == "• Main [default] (current)"
+    assert request.options[0].detail == "sid_root"
+    assert request.options[1].label == "• /root/review"
+    assert request.options[1].detail == "agent_review · running"
+    assert request.options[2].detail == "agent_test · completed"
+    assert request.body == (
+        "Sub-agents running",
+        "",
+        "  • `/root/review`",
+        "    turns=1 queued=2",
     )
 
 
@@ -102,12 +109,12 @@ def test_agent_list_menu_orders_nested_threads_under_parent() -> None:
 
     request = agent_list_menu((parent, sibling, child))
 
-    assert [option.value for option in request.options] == [
+    assert [option.value for option in request.options[1:]] == [
         "agent_parent",
         "agent_child",
         "agent_sibling",
     ]
-    assert request.options[1].label == "  review-child"
+    assert request.options[2].label == "  • /root/parent/review_child"
 
 
 def test_agent_detail_menu_exposes_state_specific_actions() -> None:
@@ -165,16 +172,13 @@ async def test_manage_agents_closes_selected_thread_and_refreshes() -> None:
     await manage_agents(Runtime(), mind)
 
     subagents.close.assert_awaited_once_with("sid_root", running.agent_id)
-    subagents.get.assert_awaited_once_with("sid_root", running.agent_id)
+    subagents.get.assert_not_awaited()
     assert [request.title for request in requests] == [
         "Agents",
         "Agent Thread",
         "Agents",
     ]
-    assert [view.type for view in views] == [
-        "tui.agents.status",
-        "tui.gap",
-    ]
+    assert views == []
 
 
 @pytest.mark.anyio
@@ -189,30 +193,41 @@ async def test_manage_agents_without_root_session_has_no_side_effects() -> None:
         ),
     )
 
-    await manage_agents(SimpleNamespace(), mind)
+    requests = []
+
+    class Runtime:
+        async def select_menu(self, request):
+            requests.append(request)
+            return request.options[0].value
+
+    await manage_agents(Runtime(), mind)
 
     snapshots.assert_not_awaited()
-    assert views[0].type == "tui.agents.status"
-    assert "No agents in this conversation" in "".join(
-        text for _style, text in views[0].renderable.fragments
+    assert views == []
+    assert requests[0].body[-1] == "  • No sub-agents running."
+    assert requests[0].options[0].label == "• Main [default] (current)"
+
+
+def test_agent_list_menu_shows_recent_shell_activity(tmp_path) -> None:
+    path = tmp_path / "agent.jsonl"
+    running = _snapshot("running", transcript_path=str(path))
+    writer = TranscriptWriter(
+        path,
+        session_id=running.thread.sid,
+        turn_id="turn_child",
     )
-
-
-@pytest.mark.anyio
-async def test_stream_agent_snapshot_uses_background_block_queue() -> None:
-    running = _snapshot("running", queued_count=1)
-    queued = Mock()
-    runtime = SimpleNamespace(queue_background_block=queued)
-    mind = SimpleNamespace(
-        conversation=SimpleNamespace(sid="sid_root"),
-        subagents=SimpleNamespace(
-            snapshots=AsyncMock(return_value=(running,)),
-        ),
+    writer.open()
+    writer.append(
+        "tool.started",
+        actor="tool",
+        payload={
+            "call_id": "call_1",
+            "name": "shell_command",
+            "arguments": {"command": "rg -n auth mind_app"},
+        },
     )
+    writer.close()
 
-    await append_agent_stream_snapshot(runtime, mind)
+    request = agent_list_menu((running,), root_session_id="sid_root")
 
-    block = queued.call_args.args[0]
-    text = "".join(fragment for _style, fragment in block.fragments)
-    assert text.startswith("/agent · running=1")
-    assert "review · agent_review · running · turns=1 queued=1" in text
+    assert request.body[-1] == "    $ rg -n auth mind_app"

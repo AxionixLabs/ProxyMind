@@ -84,6 +84,7 @@ def _execution(
 ) -> TurnExecution:
     agent = AgentContext.root("sid_root").child(
         agent_type,
+        "child",
         agent_id="agent_child",
     )
     context = TurnContext.create(

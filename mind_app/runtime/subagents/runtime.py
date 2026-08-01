@@ -25,6 +25,11 @@ from mind_app.runtime.subagents.control import (
     AgentTurnOperation,
     AgentWaitResult
 )
+from mind_app.runtime.subagents.context import (
+    ForkTurns,
+    build_fork_context,
+    normalize_fork_turns
+)
 from mind_app.runtime.subagents.executor import (
     StreamSubagentExecutor,
     SubagentExecutionPort
@@ -88,18 +93,29 @@ class SubagentRuntime:
         pref_config: typing.Mapping[str, typing.Any],
         *,
         agent_type: str,
+        task_name: str,
+        fork_turns: ForkTurns = "all",
         agent_id: str | None = None
     ) -> AgentSnapshot:
         """在父轮次所属根会话中创建子执行线程。"""
-        task    = _normalize_task(message)
+        task = _normalize_task(message)
+
+        normalized_fork_turns = normalize_fork_turns(fork_turns)
+
         control = await self._control(parent.agent.root_session_id)
 
         thread = AgentThreadContext.child(
             parent,
             agent_type,
+            task_name,
             pref_config,
             skills=self._skills_provider(),
             agent_id=agent_id,
+            fork_turns=normalized_fork_turns,
+            fork_context=build_fork_context(
+                parent.transcript_path,
+                normalized_fork_turns,
+            ),
             transcript_path_for=self._transcript_path_for,
         )
 
@@ -241,7 +257,15 @@ class SubagentRuntime:
                     "parent_turn_id": thread.spawn_turn_id,
                     "submission_id": turn.submission_id,
                     "turn_index": turn.turn_index,
+                    "task_name": thread.agent.task_name,
+                    "task_path": thread.agent.task_path,
+                    "fork_turns": thread.fork_turns,
                 },
+                additional_context=(
+                    thread.fork_context
+                    if turn.turn_index == 1
+                    else ()
+                ),
             )
 
             async def execute_subagent(
