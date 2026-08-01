@@ -246,7 +246,7 @@ async def test_manage_agents_without_root_session_has_no_side_effects() -> None:
 
     snapshots.assert_not_awaited()
     assert views == []
-    assert requests[0].body == ("No sub-agents.",)
+    assert requests[0].body == ()
     assert requests[0].options[0].label == "• Main [default] (current)"
 
 

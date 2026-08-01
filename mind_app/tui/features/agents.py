@@ -141,7 +141,6 @@ def agent_list_menu(
     return MenuRequest(
         title="Sub-agents",
         status=f"active={active} queued={queued} total={len(snapshots)}",
-        body=("No sub-agents.",) if not snapshots else (),
         help_text="Up/Down select · Enter manage · Esc/q close",
         options=tuple(options),
     )
