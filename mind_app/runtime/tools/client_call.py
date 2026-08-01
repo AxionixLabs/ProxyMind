@@ -146,7 +146,6 @@ class ClientToolCallRunner:
 
             tool_run = await run_tool_step(
                 self.session,
-                output_control=self.output_control,
                 status_control=self.status_control,
                 presentation=self.presentation,
                 tools=self.tools,

@@ -14,10 +14,7 @@ from mind_app.mcp.tool_result import (
 )
 from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
-from ...output import (
-    OutputControlPort,
-    OutputStatusPort
-)
+from ...output import OutputStatusPort
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool
@@ -260,7 +257,6 @@ def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
 async def run_tool_step(
     session: McpSessionLike,
     *,
-    output_control: OutputControlPort,
     status_control: OutputStatusPort,
     presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
@@ -312,7 +308,6 @@ async def run_tool_step(
                 result_fields=normalized.fields,
                 ok=ok,
                 reporter=ToolEnhanceReporter(
-                    output_control,
                     status_control,
                     presentation,
                     tool_name=name,

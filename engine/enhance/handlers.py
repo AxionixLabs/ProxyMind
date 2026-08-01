@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
 import typing
 from engine.observability import observe
 from mind_core.remote_services import RemoteServices
@@ -25,24 +24,8 @@ async def enhance_result(
     if not ok:
         return result_fields
 
-    if name.startswith("nexus_"):
-        return await enhance_nexus(result_fields, reporter)
-
     if name == "heal_element":
         return await enhance_heal_element(result_fields, pref_config, reporter)
-
-    return result_fields
-
-
-async def enhance_nexus(
-    result_fields: dict[str, typing.Any],
-    reporter: typing.Optional[EnhanceReporter] = None
-) -> dict[str, typing.Any]:
-    """Nexus: 全量静默落盘并返回原始 fields。"""
-    if reporter:
-        await reporter.record(
-            json.dumps(result_fields, ensure_ascii=False, indent=2) + "\n"
-        )
 
     return result_fields
 

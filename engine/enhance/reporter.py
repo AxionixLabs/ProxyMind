@@ -5,11 +5,7 @@ import typing
 
 
 class EnhanceReporter(typing.Protocol):
-    """描述结果增强过程需要的记录和状态能力。"""
-
-    async def record(self, text: str) -> None:
-        """记录不直接展示的增强内容。"""
-        ...
+    """描述结果增强过程需要的展示和状态能力。"""
 
     async def display(self, text: str) -> None:
         """展示增强过程产生的文本。"""

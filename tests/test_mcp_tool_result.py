@@ -160,7 +160,6 @@ async def test_external_structured_result_is_visible_after_tool_run() -> None:
 
     tool_run = await run_tool_step(
         Session(),
-        output_control=object(),
         status_control=Status(),
         presentation=object(),
         tools=[{"name": "mcp__docs__lookup"}],
