@@ -704,6 +704,16 @@ class TuiInputModel(object):
             )
         )
 
+        queue_rollback_reserved = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(
+                self.can_submit_queue()
+                and not self.can_rollback_queue()
+                and self.completion_menu_completions(
+                    get_app().current_buffer.document
+                ) is None
+            )
+        )
+
         history_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(self.can_backtrack_history())
         )
@@ -734,6 +744,15 @@ class TuiInputModel(object):
         def _(event) -> None:
             event.app.current_buffer.cancel_completion()
             self.rollback_queue_handler()
+
+        @bindings.add(
+            "escape",
+            "up",
+            eager=True,
+            filter=queue_rollback_reserved,
+        )
+        def _(event) -> None:
+            event.app.current_buffer.cancel_completion()
 
         @bindings.add("!", eager=True)
         def _(event) -> None:

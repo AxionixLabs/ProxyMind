@@ -2,6 +2,8 @@
 
 import pytest
 from types import SimpleNamespace
+from prompt_toolkit.application.current import set_app
+from prompt_toolkit.key_binding.key_processor import KeyPress
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.utils import get_cwidth
 from unittest.mock import Mock
@@ -96,6 +98,90 @@ def test_codex_queue_edit_shortcuts_restore_latest_message(keys) -> None:
 
     assert runtime.screen.input.buffer.text == "latest task"
     assert runtime.submissions.queued_messages.pop_next().value == "first task"
+
+
+@pytest.mark.anyio
+async def test_queue_edit_shortcut_does_not_reopen_pending_steer() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+
+    def track_pending(submission, queue_only) -> bool:
+        assert not queue_only
+        runtime.track_pending_steer(submission)
+        return True
+
+    runtime.bind_turn_input_handler(track_pending)
+    buffer = runtime.screen.input.buffer
+    buffer.text = "submitted now"
+    buffer.cursor_position = len(buffer.text)
+    buffer.validate_and_handle()
+
+    assert buffer.text == ""
+    assert runtime.submissions.pending_steers.active
+    assert not runtime.submissions.queued_messages.active
+
+    with set_app(runtime.screen.application):
+        processor = runtime.screen.application.key_processor
+        processor.feed(KeyPress(Keys.Escape, "\x1b"))
+        processor.feed(KeyPress(Keys.Up, "\x1b[A"))
+        processor.process_keys()
+
+    assert buffer.text == ""
+    assert runtime.submissions.pending_steers.active
+    assert not runtime.submissions.queued_messages.active
+    await runtime.close()
+
+
+def test_tab_queue_is_restored_before_rejected_steer() -> None:
+    runtime = TuiRuntime()
+    rejected = _submission("rejected enter")
+    queued = _submission("tab follow up")
+    runtime.defer_rejected_steer(rejected)
+    runtime.defer_submission(queued)
+
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.screen.input.buffer.text == queued.editable_text
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.screen.input.buffer.text == rejected.editable_text
+
+
+@pytest.mark.anyio
+async def test_rejected_steers_merge_before_tab_fifo() -> None:
+    runtime = TuiRuntime()
+    runtime.defer_rejected_steer(TuiSubmission(
+        value="first rejected",
+        editable_text="first rejected",
+        paste_store={},
+        client_message_id="message_rejected_1",
+        attachments=({"kind": "image", "name": "first.png"},),
+        extras={"first": 1, "shared": "old"},
+        payload_bound=True,
+    ))
+    runtime.defer_submission(_submission("first tab"))
+    runtime.defer_rejected_steer(TuiSubmission(
+        value="second rejected",
+        editable_text="second rejected",
+        paste_store={},
+        client_message_id="message_rejected_2",
+        attachments=({"kind": "image", "name": "second.png"},),
+        extras={"second": 2, "shared": "new"},
+        payload_bound=True,
+    ))
+    runtime.defer_submission(_submission("second tab"))
+
+    retried = await runtime.submissions.read_submission()
+    first_tab = await runtime.submissions.read_submission()
+    second_tab = await runtime.submissions.read_submission()
+
+    assert retried.value == "first rejected\nsecond rejected"
+    assert retried.attachments == (
+        {"kind": "image", "name": "first.png"},
+        {"kind": "image", "name": "second.png"},
+    )
+    assert retried.extras == {"first": 1, "shared": "new", "second": 2}
+    assert retried.payload_bound
+    assert first_tab.value == "first tab"
+    assert second_tab.value == "second tab"
 
 
 @pytest.mark.parametrize(

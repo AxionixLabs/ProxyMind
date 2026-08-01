@@ -817,15 +817,21 @@ class TuiRuntime(object):
 
     def defer_submission(
         self,
-        submission: TuiSubmission,
-        *,
-        next_input: bool = False,
+        submission: TuiSubmission
     ) -> None:
-        """把结构化输入保留到下一轮读取。"""
-        self.submissions.defer_submission(
-            submission,
-            next_input=next_input,
-        )
+        """把用户主动排队的结构化输入保留到后续轮次。"""
+        self.submissions.defer_submission(submission)
+
+    def defer_rejected_steer(self, submission: TuiSubmission) -> None:
+        """把未消费的即时输入保留到下一轮优先重试。"""
+        self.submissions.defer_rejected_steer(submission)
+
+    def discard_rejected_steer(
+        self,
+        client_message_id: str
+    ) -> TuiSubmission | None:
+        """移除已经由当前轮次确认消费的即时输入重试项。"""
+        return self.submissions.discard_rejected_steer(client_message_id)
 
     def track_pending_steer(self, submission: TuiSubmission) -> None:
         """展示一条等待当前轮次接收的输入。"""

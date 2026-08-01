@@ -44,6 +44,7 @@ class TuiTurnInputControl(object):
         self._state         = state
         self._target        = (cid, sid, turn_id)
         self._ready_turn_id = ""
+        self._settled       = False
 
         self._pending: dict[str, TuiSubmission]     = {}
         self._unsent_steers: collections.deque[str] = collections.deque()
@@ -52,8 +53,9 @@ class TuiTurnInputControl(object):
 
     def activate(self, context: TurnContext) -> None:
         """更新等待服务端启动确认的远端轮次。"""
-        self._target = (context.cid, context.sid, context.turn_id)
+        self._target        = (context.cid, context.sid, context.turn_id)
         self._ready_turn_id = ""
+        self._settled       = False
 
     def submit(self, submission: TuiSubmission, queue_only: bool) -> bool:
         """按按键意图接管执行期间提交的输入。"""
@@ -87,8 +89,18 @@ class TuiTurnInputControl(object):
             return None
 
         if isinstance(event, TurnInputAcceptedEvent):
-            pending = self._pending.pop(event.client_message_id, None)
+            self._remove_unsent_steer(event.client_message_id)
+            deferred = self._runtime.discard_rejected_steer(
+                event.client_message_id
+            )
+
+            pending = (
+                self._pending.pop(event.client_message_id, None)
+                or deferred
+            )
+
             self._runtime.resolve_pending_steer(event.client_message_id)
+
             if pending is None:
                 return None
 
@@ -100,16 +112,20 @@ class TuiTurnInputControl(object):
         if not isinstance(event, TurnLogicalSettledEvent):
             return None
 
+        self._settled       = True
+        self._ready_turn_id = ""
+
         next_input = event.next_input
         if next_input is None:
             return None
 
+        self._remove_unsent_steer(next_input.client_message_id)
         pending = self._pending.pop(next_input.client_message_id, None)
         self._runtime.resolve_pending_steer(next_input.client_message_id)
 
         submission = pending or self._submission_from_input(next_input)
 
-        self._runtime.defer_submission(submission, next_input=True)
+        self._runtime.defer_rejected_steer(submission)
 
         return None
 
@@ -140,15 +156,21 @@ class TuiTurnInputControl(object):
         """等待轮次控制请求完成并清理当前轮次展示状态。"""
         tasks = tuple(self._tasks)
         self._tasks.clear()
+        if self._settled:
+            for task in tasks:
+                task.cancel()
+
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+        self._steer_task = None
 
         while self._unsent_steers:
             client_message_id = self._unsent_steers.popleft()
             pending = self._pending.pop(client_message_id, None)
             self._runtime.resolve_pending_steer(client_message_id)
             if pending is not None:
-                self._runtime.defer_submission(pending)
+                self._runtime.defer_rejected_steer(pending)
 
         pending_ids = tuple(self._pending)
         self._pending.clear()
@@ -209,10 +231,30 @@ class TuiTurnInputControl(object):
             self._ready_turn_id == turn_id
             and self._unsent_steers
         ):
-            client_message_id = self._unsent_steers.popleft()
+            client_message_id = self._unsent_steers[0]
+
             submission = self._pending.get(client_message_id)
-            if submission is not None:
-                await self._send_steer(cid, sid, turn_id, submission)
+            if submission is None:
+                self._remove_unsent_steer(client_message_id)
+                continue
+
+            confirmed = await self._send_steer(
+                cid,
+                sid,
+                turn_id,
+                submission,
+            )
+
+            if not confirmed:
+                return None
+            self._remove_unsent_steer(client_message_id)
+
+    def _remove_unsent_steer(self, client_message_id: str) -> None:
+        """停止跟踪一条已经发送或由结算处理的即时输入。"""
+        try:
+            self._unsent_steers.remove(client_message_id)
+        except ValueError:
+            return None
 
     async def _send_steer(
         self,
@@ -220,8 +262,8 @@ class TuiTurnInputControl(object):
         sid: str,
         turn_id: str,
         submission: TuiSubmission
-    ) -> None:
-        """提交即时输入，并在确定未被服务端保留时回退到下一轮。"""
+    ) -> bool:
+        """提交即时输入，并返回服务端是否已经明确响应归属。"""
         turn_input = self._input_from_submission(submission)
 
         response = None
@@ -239,7 +281,10 @@ class TuiTurnInputControl(object):
                     continue
                 observe_exception("turn.steer.failed", error, level="WARNING")
 
-        if response is None or response.status in {
+        if response is None:
+            return False
+
+        if response.status in {
             "turn_not_active",
             "turn_not_steerable",
             "turn_mismatch",
@@ -247,7 +292,9 @@ class TuiTurnInputControl(object):
             pending = self._pending.pop(submission.client_message_id, None)
             self._runtime.resolve_pending_steer(submission.client_message_id)
             if pending is not None:
-                self._runtime.defer_submission(pending)
+                self._runtime.defer_rejected_steer(pending)
+
+        return True
 
     @staticmethod
     async def _send_interrupt(

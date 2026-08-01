@@ -354,6 +354,44 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("settlement_first", (False, True))
+async def test_stream_closes_after_done_and_settlement_without_waiting_for_eof(
+    monkeypatch,
+    settlement_first,
+) -> None:
+    done = parse_stream_event({
+        "type": "turn.done",
+        "turn_id": "turn_test",
+    })
+    settled = parse_stream_event({
+        "type": "turn.logical_settled",
+        "turn_id": "turn_test",
+        "next_input": None,
+    })
+    terminal_events = (
+        (settled, done)
+        if settlement_first
+        else (done, settled)
+    )
+
+    async def open_stream(*_args, **_kwargs):
+        for event in terminal_events:
+            yield event
+        await asyncio.Future()
+
+    result, _mind = await asyncio.wait_for(
+        _run_stream(
+            monkeypatch,
+            [],
+            stream_factory=open_stream,
+        ),
+        timeout=1.0,
+    )
+
+    assert result.status == "completed"
+
+
+@pytest.mark.anyio
 async def test_turn_start_opens_the_control_event_boundary(monkeypatch) -> None:
     input_events = []
 

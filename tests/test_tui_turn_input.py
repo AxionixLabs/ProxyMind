@@ -163,6 +163,46 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
 
 
 @pytest.mark.anyio
+async def test_settled_enter_can_be_restored_after_server_rejection(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        turn_input_session,
+        "steer_turn",
+        AsyncMock(return_value=SimpleNamespace(status="accepted")),
+    )
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    _mark_started(control)
+    submission = _submission("continue next")
+
+    assert control.submit(submission, False)
+    await asyncio.sleep(0)
+    control.handle_event(TurnLogicalSettledEvent(
+        type="turn.logical_settled",
+        turn_id="turn_001",
+        next_input=TurnInput(
+            client_message_id=submission.client_message_id,
+            text=submission.value,
+        ),
+    ))
+
+    assert not runtime.submissions.pending_steers.active
+    assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.screen.input.buffer.text == submission.editable_text
+
+    await control.close()
+
+
+@pytest.mark.anyio
 async def test_empty_settlement_keeps_local_tab_queue_fifo() -> None:
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
@@ -276,7 +316,8 @@ async def test_not_steerable_input_falls_back_to_local_next_turn(
     await control.close()
 
     assert not runtime.submissions.pending_steers.active
-    assert runtime.submissions.queued_messages.active
+    assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.can_rollback_queued_input
 
     queued = await runtime.submissions.read_submission()
     assert queued.client_message_id == submission.client_message_id
@@ -325,6 +366,50 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
 
 
 @pytest.mark.anyio
+async def test_response_loss_stays_pending_until_late_acceptance(
+    monkeypatch,
+) -> None:
+    steer = AsyncMock(side_effect=[
+        TurnControlRequestError("response lost"),
+        TurnControlRequestError("response lost"),
+    ])
+    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    _mark_started(control)
+    submission = _submission("accepted despite response loss")
+
+    assert control.submit(submission, False)
+    while steer.await_count < 2:
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert runtime.submissions.pending_steers.active
+    assert not runtime.submissions.can_rollback_queued_input
+
+    accepted = control.handle_event(TurnInputAcceptedEvent(
+        type="turn.input.accepted",
+        turn_id="turn_001",
+        client_message_id=submission.client_message_id,
+    ))
+
+    assert accepted == TurnInput(
+        client_message_id=submission.client_message_id,
+        text=submission.value,
+    )
+    assert runtime.discard_rejected_steer(submission.client_message_id) is None
+    assert runtime.document.blocks[-1].prompt == submission.value
+    await control.close()
+
+
+@pytest.mark.anyio
 async def test_closing_turn_clears_unsettled_steer_display(monkeypatch) -> None:
     monkeypatch.setattr(
         turn_input_session,
@@ -348,6 +433,45 @@ async def test_closing_turn_clears_unsettled_steer_display(monkeypatch) -> None:
     await control.close()
 
     assert not runtime.submissions.pending_steers.active
+
+
+@pytest.mark.anyio
+async def test_settlement_cancels_unfinished_steer_without_losing_input(
+    monkeypatch,
+) -> None:
+    request_started = asyncio.Event()
+
+    async def steer(**_kwargs):
+        request_started.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    _mark_started(control)
+    submission = _submission("in flight")
+
+    assert control.submit(submission, False)
+    await request_started.wait()
+    control.handle_event(TurnLogicalSettledEvent(
+        type="turn.logical_settled",
+        turn_id="turn_001",
+        next_input=None,
+    ))
+
+    await asyncio.wait_for(control.close(), timeout=1.0)
+
+    queued = await runtime.submissions.read_submission()
+    assert queued.client_message_id == submission.client_message_id
+    assert not runtime.submissions.pending_steers.active
+    assert not runtime.submissions.queued_messages.active
 
 
 @pytest.mark.anyio

@@ -319,6 +319,8 @@ async def stream_looper(
     first_frame: bool    = True
     turn_completed: bool = False
     turn_failed: bool    = False
+    turn_done_seen: bool = False
+    turn_settled: bool   = False
 
     turn_usage: dict[str, typing.Any] = {}
 
@@ -536,11 +538,17 @@ async def stream_looper(
                 continue
 
             if isinstance(event, TurnDoneEvent):
-                turn_usage = dict(event.usage)
+                turn_done_seen = True
+                turn_usage     = dict(event.usage)
+
                 if event.status == "interrupted":
                     interrupted = True
                 else:
                     turn_completed = True
+
+                if turn_settled:
+                    break
+
                 continue
 
             if isinstance(event, (TurnInputAcceptedEvent, TurnLogicalSettledEvent)):
@@ -559,6 +567,10 @@ async def stream_looper(
                                 extras=accepted_input.extras,
                             ),
                         )
+                if isinstance(event, TurnLogicalSettledEvent):
+                    turn_settled = True
+                    if turn_done_seen:
+                        break
                 continue
 
             if event_type == "tool.builtin.call":

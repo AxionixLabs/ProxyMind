@@ -51,7 +51,7 @@ class TuiSubmission(object):
 
 
 class TuiQueuedMessages(object):
-    """管理执行期间等待下一轮处理的输入消息。"""
+    """管理执行期间由用户主动排队的可编辑输入。"""
 
     def __init__(self) -> None:
         self._items: collections.deque[TuiSubmission] = collections.deque()
@@ -69,10 +69,6 @@ class TuiQueuedMessages(object):
     def append(self, item: TuiSubmission) -> None:
         """在队尾追加一条待提交消息。"""
         self._items.append(item)
-
-    def append_next(self, item: TuiSubmission) -> None:
-        """把服务端结算输入放到下一次读取位置。"""
-        self._items.appendleft(item)
 
     def pop_next(self) -> TuiSubmission | None:
         """取出下一条应交给会话循环的消息。"""
