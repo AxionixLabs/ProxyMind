@@ -10,6 +10,7 @@ import tempfile
 import contextlib
 from dataclasses import dataclass
 from pathlib import Path
+from mind_nova import const
 
 DEFAULT_OUTPUT_THRESHOLD_BYTES = 256 * 1024
 OUTPUT_PREVIEW_BYTES           = 8 * 1024
@@ -43,6 +44,7 @@ class HookOutputSpill:
             parts.extend(("head:", self.head))
         if self.tail and self.tail != self.head:
             parts.extend(("tail:", self.tail))
+
         return "\n".join(parts)
 
 
@@ -56,7 +58,7 @@ class CapturedHookOutput:
         """返回完整内存文本或 spill 摘要。"""
         if self.spill is not None:
             return self.spill.summary()
-        return self.data.decode("utf-8", errors="replace").strip()
+        return self.data.decode(const.CHARSET, errors="replace").strip()
 
 
 class HookOutputSpillStore:
@@ -125,9 +127,39 @@ class HookOutputSpillStore:
             channel=channel,
             path=str(spill_path),
             size_bytes=size_bytes,
-            head=head.decode("utf-8", errors="replace").strip(),
-            tail=tail.decode("utf-8", errors="replace").strip(),
+            head=head.decode(const.CHARSET, errors="replace").strip(),
+            tail=tail.decode(const.CHARSET, errors="replace").strip(),
         ))
+
+    async def spill_text(
+        self,
+        text: str,
+        *,
+        session_id: str,
+        channel: str
+    ) -> HookOutputSpill:
+        """把指定文本写入会话临时文件并返回恢复信息。"""
+        data = str(text or "").encode(const.CHARSET)
+
+        spill_path, spill_file = self._open_spill(
+            session_id=session_id,
+            channel=channel,
+        )
+        try:
+            spill_file.write(data)
+        finally:
+            spill_file.close()
+
+        head = data[:OUTPUT_PREVIEW_BYTES]
+        tail = data[-OUTPUT_PREVIEW_BYTES:]
+
+        return HookOutputSpill(
+            channel=channel,
+            path=str(spill_path),
+            size_bytes=len(data),
+            head=head.decode(const.CHARSET, errors="replace").strip(),
+            tail=tail.decode(const.CHARSET, errors="replace").strip(),
+        )
 
     async def cleanup_session(self, session_id: str) -> None:
         """删除指定会话产生的全部 spill 文件。"""
@@ -161,7 +193,7 @@ class HookOutputSpillStore:
         """创建并登记一个输出临时文件。"""
         root        = self._ensure_root()
         session_key = str(session_id or "session")
-        digest      = hashlib.sha256(session_key.encode("utf-8")).hexdigest()[:16]
+        digest      = hashlib.sha256(session_key.encode(const.CHARSET)).hexdigest()[:16]
 
         session_dir = root / digest
         session_dir.mkdir(parents=True, exist_ok=True)

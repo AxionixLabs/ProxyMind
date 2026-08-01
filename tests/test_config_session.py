@@ -102,13 +102,13 @@ def test_user_and_profile_hooks_keep_source_identity(tmp_path) -> None:
     store.update({
         ("hooks", "PreToolUse"): [{
             "matcher": "shell_command",
-            "handler": _command_handler("check-user"),
+            "hooks": [_command_handler("check-user")],
         }],
     })
     (tmp_path / "review.config.toml").write_text(
         "[[hooks.PostToolUse]]\n"
         'matcher = "shell_command"\n'
-        'handler = { type = "command", command = "audit-profile" }\n',
+        'hooks = [{ type = "command", command = "audit-profile" }]\n',
         encoding="utf-8",
     )
 
@@ -130,12 +130,12 @@ def test_cli_hook_override_replaces_runtime_definitions(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.update({
         ("hooks", "PreToolUse"): [{
-            "handler": _command_handler("check-user"),
+            "hooks": [_command_handler("check-user")],
         }],
     })
     override = parse_config_override(
-        "hooks={ PreToolUse = [{ handler = { type = \"command\", "
-        "command = \"check-cli\" } }] }"
+        "hooks={ PreToolUse = [{ hooks = [{ type = \"command\", "
+        "command = \"check-cli\" }] }] }"
     )
 
     resolution = ConfigSession(store, (override,)).resolve()
@@ -162,7 +162,7 @@ def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
     project_config.write_text(
         "[[hooks.PreToolUse]]\n"
         'matcher = "shell_command"\n'
-        'handler = { type = "command", command = "check-project" }\n',
+        'hooks = [{ type = "command", command = "check-project" }]\n',
         encoding="utf-8",
     )
 
@@ -182,8 +182,8 @@ def test_workspace_override_selects_project_hook_source(tmp_path) -> None:
         project_config.parent.mkdir()
         project_config.write_text(
             "[[hooks.PreToolUse]]\n"
-            'handler = { type = "command", '
-            f'command = "check-{index}" }}\n',
+            'hooks = [{ type = "command", '
+            f'command = "check-{index}" }}]\n',
             encoding="utf-8",
         )
 
@@ -207,7 +207,7 @@ def test_invalid_hook_matcher_is_rejected() -> None:
         normalize_config({
             "hooks": {
                 "PreToolUse": [{
-                    "handler": _command_handler("check"),
+                    "hooks": [_command_handler("check")],
                     "matcher": "[",
                 }],
             },
@@ -218,7 +218,7 @@ def test_session_start_hook_accepts_reason_matcher() -> None:
     config = normalize_config({
         "hooks": {
             "SessionStart": [{
-                "handler": _command_handler("prepare-session"),
+                "hooks": [_command_handler("prepare-session")],
                 "matcher": "initial|reset",
             }],
         },
@@ -254,41 +254,34 @@ def test_hook_event_contracts_are_explicit() -> None:
 
 
 @pytest.mark.parametrize("event", ["UserPromptSubmit", "Stop"])
-def test_hook_event_without_match_subject_rejects_matcher(event) -> None:
-    with pytest.raises(ConfigValidationError, match="matcher is not supported"):
-        normalize_config({
-            "hooks": {
-                event: [{
-                    "handler": _command_handler("check"),
-                    "matcher": "value",
-                }],
-            },
-        })
+def test_hook_event_without_match_subject_preserves_matcher(event) -> None:
+    config = normalize_config({
+        "hooks": {
+            event: [{
+                "hooks": [_command_handler("check")],
+                "matcher": "value",
+            }],
+        },
+    })
+
+    assert config["hooks"][event][0]["matcher"] == "value"
 
 
-@pytest.mark.parametrize("event", [
-    "PostToolUse",
-    "PostCompact",
-    "SessionStart",
-    "SubagentStart",
-    "SubagentStop",
-    "Stop",
-    "SessionEnd",
-])
-def test_notification_hook_cannot_fail_closed(event) -> None:
-    with pytest.raises(ConfigValidationError, match="continue for this event"):
+@pytest.mark.parametrize("field", ["on_error", "enabled", "handler"])
+def test_legacy_matcher_group_fields_are_rejected(field) -> None:
+    with pytest.raises(ConfigValidationError, match="matcher group key"):
         normalize_config({
             "hooks": {
-                event: [{
-                    "handler": _command_handler("notify"),
-                    "on_error": "block",
+                "PostToolUse": [{
+                    "hooks": [_command_handler("notify")],
+                    field: True,
                 }],
             },
         })
 
 
 def test_legacy_flat_hook_command_is_rejected() -> None:
-    with pytest.raises(ConfigValidationError, match="unknown hook key"):
+    with pytest.raises(ConfigValidationError, match="matcher group key"):
         normalize_config({
             "hooks": {
                 "PreToolUse": [{"command": "check"}],
@@ -296,13 +289,10 @@ def test_legacy_flat_hook_command_is_rejected() -> None:
         })
 
 
-def test_hook_handler_is_required() -> None:
-    with pytest.raises(ConfigValidationError, match="handler must be a table"):
-        normalize_config({
-            "hooks": {
-                "PreToolUse": [{}],
-            },
-        })
+def test_empty_matcher_group_is_allowed() -> None:
+    config = normalize_config({"hooks": {"PreToolUse": [{}]}})
+
+    assert config["hooks"]["PreToolUse"] == [{"matcher": "", "hooks": []}]
 
 
 def test_hook_handler_rejects_unknown_fields() -> None:
@@ -310,11 +300,11 @@ def test_hook_handler_rejects_unknown_fields() -> None:
         normalize_config({
             "hooks": {
                 "PreToolUse": [{
-                    "handler": {
+                    "hooks": [{
                         "type": "command",
                         "command": "check",
                         "extra": True,
-                    },
+                    }],
                 }],
             },
         })
@@ -325,7 +315,7 @@ def test_hook_handler_type_is_explicit() -> None:
         normalize_config({
             "hooks": {
                 "PreToolUse": [{
-                    "handler": {"command": "check"},
+                    "hooks": [{"command": "check"}],
                 }],
             },
         })
@@ -335,13 +325,90 @@ def test_hook_handler_timeout_is_normalized() -> None:
     config = normalize_config({
         "hooks": {
             "PreToolUse": [{
-                "handler": _command_handler("check", timeout=2),
+                "hooks": [_command_handler("check", timeout=2)],
             }],
         },
     })
 
-    assert config["hooks"]["PreToolUse"][0]["handler"] == {
+    assert config["hooks"]["PreToolUse"][0]["hooks"][0] == {
         "type": "command",
         "command": "check",
-        "timeout": 2.0,
+        "commandWindows": None,
+        "statusMessage": None,
+        "timeout": 2,
+        "async": False,
+        "additionalContextLimit": 2500,
     }
+
+
+def test_hook_handler_uses_event_timeout_defaults() -> None:
+    config = normalize_config({
+        "hooks": {
+            "PreToolUse": [{"hooks": [_command_handler("check")]}],
+            "SessionEnd": [{"hooks": [_command_handler("close")]}],
+        },
+    })
+
+    assert config["hooks"]["PreToolUse"][0]["hooks"][0]["timeout"] == 600
+    assert config["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"] == 1
+
+
+def test_session_end_hook_timeout_is_bounded() -> None:
+    with pytest.raises(ConfigValidationError, match="at most 3 for SessionEnd"):
+        normalize_config({
+            "hooks": {
+                "SessionEnd": [{
+                    "hooks": [_command_handler("close", timeout=4)],
+                }],
+            },
+        })
+
+
+def test_hook_handler_accepts_toml_windows_command_name() -> None:
+    config = normalize_config({
+        "hooks": {
+            "PreToolUse": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "check-posix",
+                    "command_windows": "check-windows",
+                }],
+            }],
+        },
+    })
+
+    handler = config["hooks"]["PreToolUse"][0]["hooks"][0]
+    assert handler["commandWindows"] == "check-windows"
+    assert "command_windows" not in handler
+
+
+def test_hook_matcher_group_expands_multiple_command_handlers() -> None:
+    config = normalize_config({
+        "hooks": {
+            "PreToolUse": [{
+                "matcher": "shell_command",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "check-posix",
+                        "commandWindows": "check-windows",
+                        "statusMessage": "Checking command",
+                        "timeout": 7,
+                        "async": True,
+                        "additionalContextLimit": 800,
+                    },
+                    _command_handler("audit"),
+                ],
+            }],
+        },
+    })
+
+    handlers = config["hooks"]["PreToolUse"][0]["hooks"]
+    assert [handler["command"] for handler in handlers] == [
+        "check-posix",
+        "audit",
+    ]
+    assert handlers[0]["commandWindows"] == "check-windows"
+    assert handlers[0]["statusMessage"] == "Checking command"
+    assert handlers[0]["async"] is True
+    assert handlers[0]["additionalContextLimit"] == 800

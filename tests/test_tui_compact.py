@@ -16,11 +16,11 @@ from mind_core.permissions import preset_permissions
 def _compact_hooks():
     return {
         "PreCompact": [{
-            "handler": {"type": "command", "command": "guard"},
+            "hooks": [{"type": "command", "command": "guard"}],
             "matcher": "manual",
         }],
         "PostCompact": [{
-            "handler": {"type": "command", "command": "audit"},
+            "hooks": [{"type": "command", "command": "audit"}],
             "matcher": "manual",
         }],
     }
@@ -57,7 +57,7 @@ def _compact_hook_runtime(tmp_path, runner) -> HookRuntime:
     definitions = resolve_hook_definitions(
         _compact_hooks(),
         source_scope="user",
-        source_path=tmp_path / "hooks.toml",
+        source_path=tmp_path / "config.toml",
     )
     return HookRuntime(definitions, command_runner=runner)
 
@@ -240,7 +240,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
     definitions = resolve_hook_definitions(
         _compact_hooks(),
         source_scope="user",
-        source_path=tmp_path / "hooks.toml",
+        source_path=tmp_path / "config.toml",
     )
 
     class Runner(object):
@@ -298,7 +298,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     definitions = resolve_hook_definitions(
         _compact_hooks(),
         source_scope="user",
-        source_path=tmp_path / "hooks.toml",
+        source_path=tmp_path / "config.toml",
     )
 
     class Runner(object):

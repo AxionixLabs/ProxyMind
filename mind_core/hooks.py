@@ -7,6 +7,7 @@ import typing
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from mind_nova import const
 
 HookEventName = typing.Literal[
     "PreToolUse",
@@ -93,20 +94,26 @@ COMPACT_OUTCOMES: tuple[CompactOutcome, ...] = (
     "interrupted",
 )
 
-HOOK_FIELDS = frozenset({
-    "handler",
+HOOK_MATCHER_GROUP_FIELDS = frozenset({
     "matcher",
-    "on_error",
-    "enabled",
+    "hooks",
 })
 
 HOOK_HANDLER_FIELDS = frozenset({
     "type",
     "command",
+    "commandWindows",
+    "command_windows",
+    "statusMessage",
     "timeout",
+    "async",
+    "additionalContextLimit",
 })
 
-MAX_HOOK_TIMEOUT_SEC = 300.0
+DEFAULT_HOOK_TIMEOUT_SEC               = 600
+DEFAULT_SESSION_END_TIMEOUT_SEC        = 1
+MAX_SESSION_END_TIMEOUT_SEC            = 3
+DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT = 2500
 
 
 class HookConfigError(ValueError):
@@ -216,7 +223,17 @@ class HookHandlerConfig:
     """描述 Hook 使用的执行处理器。"""
     type: HookHandlerType
     command: str
-    timeout_sec: float
+    command_windows: str | None
+    status_message: str | None
+    timeout_sec: int
+    run_async: bool
+    additional_context_limit: int
+
+    def command_for_platform(self, platform: str) -> str:
+        """返回当前平台应执行的命令。"""
+        if platform == "nt" and self.command_windows:
+            return self.command_windows
+        return self.command
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,7 +244,6 @@ class HookDefinitionConfig:
     handler: HookHandlerConfig
     matcher: str
     on_error: HookFailurePolicy
-    enabled: bool
     source_scope: str
     source_path: str | None
     content_hash: str
@@ -254,7 +270,7 @@ def normalize_hook_table(raw: typing.Any) -> dict[str, list[dict[str, typing.Any
             raise HookConfigError(f"hooks.{event} must be an array of tables")
 
         normalized[event] = [
-            _normalize_hook_entry(event, index, entry)
+            _normalize_matcher_group(event, index, entry)
             for index, entry in enumerate(entries)
         ]
 
@@ -274,73 +290,81 @@ def resolve_hook_definitions(
 
     definitions: list[HookDefinitionConfig] = []
     for event in HOOK_EVENT_NAMES:
-        for index, entry in enumerate(table.get(event, [])):
-            content_hash = _content_hash(entry)
-            definitions.append(HookDefinitionConfig(
-                key=f"{source_key}:{event}:{index}",
-                event=event,
-                handler=HookHandlerConfig(
-                    type=entry["handler"]["type"],
-                    command=entry["handler"]["command"],
-                    timeout_sec=entry["handler"]["timeout"],
-                ),
-                matcher=entry["matcher"],
-                on_error=entry["on_error"],
-                enabled=entry["enabled"],
-                source_scope=source_scope,
-                source_path=path_text,
-                content_hash=content_hash,
-            ))
+        for group_index, group in enumerate(table.get(event, [])):
+            for hook_index, handler in enumerate(group["hooks"]):
+                content_hash = _content_hash({
+                    "matcher": group["matcher"],
+                    "handler": handler,
+                })
+                definitions.append(HookDefinitionConfig(
+                    key=(
+                        f"{source_key}:{event}:{group_index}:{hook_index}"
+                    ),
+                    event=event,
+                    handler=HookHandlerConfig(
+                        type=handler["type"],
+                        command=handler["command"],
+                        command_windows=handler["commandWindows"],
+                        status_message=handler["statusMessage"],
+                        timeout_sec=handler["timeout"],
+                        run_async=handler["async"],
+                        additional_context_limit=(
+                            handler["additionalContextLimit"]
+                        ),
+                    ),
+                    matcher=group["matcher"],
+                    on_error=(
+                        HOOK_EVENT_CONFIG_SPECS[event].default_on_error
+                    ),
+                    source_scope=source_scope,
+                    source_path=path_text,
+                    content_hash=content_hash,
+                ))
     return tuple(definitions)
 
 
-def _normalize_hook_entry(
+def _normalize_matcher_group(
     event: HookEventName,
     index: int,
     raw: typing.Any
 ) -> dict[str, typing.Any]:
-    """校验并规范化单条 Hook 配置。"""
+    """校验并规范化单个 Hook 匹配组。"""
     dotted = f"hooks.{event}[{index}]"
     if not isinstance(raw, dict):
         raise HookConfigError(f"{dotted} must be a table")
 
-    unknown = sorted(set(raw).difference(HOOK_FIELDS))
+    unknown = sorted(set(raw).difference(HOOK_MATCHER_GROUP_FIELDS))
     if unknown:
-        raise HookConfigError(f"unknown hook key: {dotted}.{unknown[0]}")
+        raise HookConfigError(
+            f"unknown hook matcher group key: {dotted}.{unknown[0]}"
+        )
 
-    handler = _normalize_hook_handler(raw.get("handler"), dotted=dotted)
-
-    matcher = raw.get("matcher", "")
+    matcher = raw.get("matcher")
+    if matcher is None:
+        matcher = ""
     if not isinstance(matcher, str):
         raise HookConfigError(f"{dotted}.matcher must be a string")
     matcher = matcher.strip()
 
-    event_spec = HOOK_EVENT_CONFIG_SPECS[event]
-    if matcher and event_spec.matcher_subject is None:
-        raise HookConfigError(f"{dotted}.matcher is not supported for this event")
     try:
-        re.compile(matcher or ".*")
+        re.compile(".*" if matcher in {"", "*"} else matcher)
     except re.error as error:
         raise HookConfigError(f"{dotted}.matcher is invalid: {error}") from error
 
-    on_error = raw.get("on_error", event_spec.default_on_error)
-    if on_error not in {"continue", "block"}:
-        raise HookConfigError(f"{dotted}.on_error must be continue or block")
-
-    if on_error == "block" and not event_spec.allows_block_on_error:
-        raise HookConfigError(
-            f"{dotted}.on_error must be continue for this event"
-        )
-
-    enabled = raw.get("enabled", True)
-    if not isinstance(enabled, bool):
-        raise HookConfigError(f"{dotted}.enabled must be a boolean")
+    hooks = raw.get("hooks", [])
+    if not isinstance(hooks, list):
+        raise HookConfigError(f"{dotted}.hooks must be an array")
 
     return {
-        "handler"  : handler,
-        "matcher"  : matcher,
-        "on_error" : on_error,
-        "enabled"  : enabled
+        "matcher": matcher,
+        "hooks": [
+            _normalize_hook_handler(
+                handler,
+                dotted=f"{dotted}.hooks[{hook_index}]",
+                event=event,
+            )
+            for hook_index, handler in enumerate(hooks)
+        ],
     }
 
 
@@ -348,9 +372,10 @@ def _normalize_hook_handler(
     raw: typing.Any,
     *,
     dotted: str,
+    event: HookEventName
 ) -> dict[str, typing.Any]:
     """校验并规范化单个 Hook 处理器。"""
-    path = f"{dotted}.handler"
+    path = dotted
     if not isinstance(raw, dict):
         raise HookConfigError(f"{path} must be a table")
 
@@ -366,36 +391,80 @@ def _normalize_hook_handler(
     if not isinstance(command, str) or not command.strip():
         raise HookConfigError(f"{path}.command must be a non-empty string")
 
-    raw_timeout = raw.get("timeout", 5.0)
-    if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, (int, float)):
-        raise HookConfigError(f"{path}.timeout must be a number")
-    timeout = float(raw_timeout)
-    if timeout <= 0.0 or timeout > MAX_HOOK_TIMEOUT_SEC:
+    if "commandWindows" in raw and "command_windows" in raw:
         raise HookConfigError(
-            f"{path}.timeout must be greater than 0 and at most "
-            f"{MAX_HOOK_TIMEOUT_SEC:g}"
+            f"{path} cannot contain both commandWindows and command_windows"
+        )
+    command_windows = raw.get(
+        "commandWindows",
+        raw.get("command_windows"),
+    )
+    if command_windows is not None:
+        if not isinstance(command_windows, str) or not command_windows.strip():
+            raise HookConfigError(
+                f"{path}.commandWindows must be a non-empty string"
+            )
+        command_windows = command_windows.strip()
+
+    status_message = raw.get("statusMessage")
+    if status_message is not None:
+        if not isinstance(status_message, str):
+            raise HookConfigError(f"{path}.statusMessage must be a string")
+        status_message = status_message.strip() or None
+
+    default_timeout = (
+        DEFAULT_SESSION_END_TIMEOUT_SEC
+        if event == "SessionEnd"
+        else DEFAULT_HOOK_TIMEOUT_SEC
+    )
+    raw_timeout = raw.get("timeout", default_timeout)
+    if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, int):
+        raise HookConfigError(f"{path}.timeout must be an integer")
+    timeout = raw_timeout
+    if timeout < 0:
+        raise HookConfigError(f"{path}.timeout must be at least 0")
+    if event == "SessionEnd" and timeout > MAX_SESSION_END_TIMEOUT_SEC:
+        raise HookConfigError(
+            f"{path}.timeout must be at most {MAX_SESSION_END_TIMEOUT_SEC} "
+            "for SessionEnd"
+        )
+
+    run_async = raw.get("async", False)
+    if not isinstance(run_async, bool):
+        raise HookConfigError(f"{path}.async must be a boolean")
+
+    context_limit = raw.get(
+        "additionalContextLimit",
+        DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT,
+    )
+    if isinstance(context_limit, bool) or not isinstance(context_limit, int):
+        raise HookConfigError(
+            f"{path}.additionalContextLimit must be an integer"
+        )
+    if context_limit < 0:
+        raise HookConfigError(
+            f"{path}.additionalContextLimit must be at least 0"
         )
 
     return {
         "type": "command",
         "command": command.strip(),
+        "commandWindows": command_windows,
+        "statusMessage": status_message,
         "timeout": timeout,
+        "async": run_async,
+        "additionalContextLimit": context_limit,
     }
 
 
 def _content_hash(value: dict[str, typing.Any]) -> str:
     """返回 Hook 内容的稳定摘要。"""
-    executable = {
-        key: item
-        for key, item in value.items()
-        if key != "enabled"
-    }
     encoded = json.dumps(
-        executable,
+        value,
         ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
-    ).encode("utf-8")
+    ).encode(const.CHARSET)
 
     return hashlib.sha256(encoded).hexdigest()
 

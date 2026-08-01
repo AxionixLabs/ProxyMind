@@ -26,7 +26,6 @@ class HookRuntimeEntry:
     source_scope: str
     source_path: str | None
     content_hash: str
-    enabled: bool
     trust_state: HookTrustState
     active: bool
 

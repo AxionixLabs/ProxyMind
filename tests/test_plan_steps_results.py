@@ -94,7 +94,7 @@ def _executor(
     definitions = resolve_hook_definitions(
         hooks or {},
         source_scope="user",
-        source_path=Path("hooks.toml"),
+        source_path=Path("config.toml"),
     )
     runtime = HookRuntime(
         definitions,
@@ -168,7 +168,7 @@ async def test_plan_step_executes_pre_hook_updated_input() -> None:
         [_tool_result("done")],
         hooks={
             "PreToolUse": [{
-                "handler": {"type": "command", "command": "rewrite"},
+                "hooks": [{"type": "command", "command": "rewrite"}],
                 "matcher": "test_tool",
             }],
         },
@@ -193,7 +193,7 @@ async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
         [_tool_result("secret", data={"secret": True})],
         hooks={
             "PostToolUse": [{
-                "handler": {"type": "command", "command": "redact"},
+                "hooks": [{"type": "command", "command": "redact"}],
                 "matcher": "test_tool",
             }],
         },

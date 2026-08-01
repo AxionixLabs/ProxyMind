@@ -63,13 +63,13 @@ def _definitions(raw):
     return resolve_hook_definitions(
         raw,
         source_scope="user",
-        source_path=Path("hooks.toml"),
+        source_path=Path("config.toml"),
     )
 
 
 def _hook(command, *, matcher=None):
     config = {
-        "handler": {"type": "command", "command": command},
+        "hooks": [{"type": "command", "command": command}],
     }
     if matcher is not None:
         config["matcher"] = matcher

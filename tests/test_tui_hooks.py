@@ -33,13 +33,16 @@ def _catalog(tmp_path: Path, *, trusted: bool) -> HookCatalogSnapshot:
         key="project:PreToolUse:0",
         event="PreToolUse",
         command="python check_hook.py",
+        command_windows=None,
+        status_message=None,
         matcher="shell_command",
         matcher_subject="tool_name",
-        timeout_sec=5.0,
-        on_error="continue",
+        timeout_sec=5,
+        run_async=False,
+        additional_context_limit=2500,
+        on_error="block",
         source_scope="project",
-        source_path=str(tmp_path / ".codex" / "hooks.json"),
-        enabled=True,
+        source_path=str(tmp_path / ".codex" / "config.toml"),
         trust_state="trusted" if trusted else "untrusted",
         active=trusted,
         content_hash="a" * 64,
@@ -144,7 +147,7 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     assert runtime.requests[1].options[0].detail.endswith(
         "matcher[tool_name]=shell_command"
     )
-    assert runtime.requests[2].body[1] == "Matcher (tool_name): shell_command"
+    assert runtime.requests[2].body[3] == "Matcher (tool_name): shell_command"
     assert [view.type for view in views] == ["tui.hooks.status", "tui.gap"]
 
 

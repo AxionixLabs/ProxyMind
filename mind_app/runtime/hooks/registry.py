@@ -26,8 +26,10 @@ from .models import (
     HookRuntimeStatus
 )
 from .runtime import (
+    HookBackgroundTasks,
     HookCommandRunner,
-    HookRuntime
+    HookRuntime,
+    HookStatusPort
 )
 
 
@@ -48,12 +50,15 @@ class HookRegistry:
         trust_store: HookTrustStore | None = None,
         command_runner: HookCommandRunner | None = None
     ) -> None:
-        self._trust_store    = trust_store
-        self._command_runner = command_runner or HookCommandExecutor()
+        self._trust_store      = trust_store
+        self._command_runner   = command_runner or HookCommandExecutor()
+        self._background_tasks = HookBackgroundTasks()
 
     def build(
         self,
-        definitions: typing.Iterable[HookDefinitionConfig]
+        definitions: typing.Iterable[HookDefinitionConfig],
+        *,
+        status_port: HookStatusPort | None = None
     ) -> HookRuntime:
         """按当前信任状态构建一个独立运行时。"""
         resolved, trust_error = self._resolve(definitions)
@@ -77,6 +82,13 @@ class HookRegistry:
         return HookRuntime(
             active,
             command_runner=self._command_runner,
+            context_spiller=(
+                self._command_runner
+                if isinstance(self._command_runner, HookCommandExecutor)
+                else None
+            ),
+            background_tasks=self._background_tasks,
+            status_port=status_port,
             status=status,
         )
 
@@ -87,6 +99,7 @@ class HookRegistry:
 
     async def close(self) -> None:
         """关闭 Hook 命令执行器持有的临时资源。"""
+        await self._background_tasks.close()
         if isinstance(self._command_runner, HookCommandExecutor):
             await self._command_runner.close()
 
@@ -153,10 +166,7 @@ class HookRegistry:
             resolved.append(_ResolvedHook(
                 definition=definition,
                 trust_state=trust_state,
-                active=(
-                    definition.enabled
-                    and trust_state != "untrusted"
-                ),
+                active=trust_state != "untrusted",
             ))
 
         return tuple(resolved), trust_error
@@ -172,7 +182,6 @@ class HookRegistry:
             source_scope=definition.source_scope,
             source_path=definition.source_path,
             content_hash=definition.content_hash,
-            enabled=definition.enabled,
             trust_state=item.trust_state,
             active=item.active,
         )
@@ -187,13 +196,18 @@ class HookRegistry:
             key=definition.key,
             event=definition.event,
             command=definition.handler.command,
+            command_windows=definition.handler.command_windows,
+            status_message=definition.handler.status_message,
             matcher=definition.matcher,
             matcher_subject=event_spec.matcher_subject,
             timeout_sec=definition.handler.timeout_sec,
+            run_async=definition.handler.run_async,
+            additional_context_limit=(
+                definition.handler.additional_context_limit
+            ),
             on_error=definition.on_error,
             source_scope=definition.source_scope,
             source_path=definition.source_path,
-            enabled=definition.enabled,
             trust_state=item.trust_state,
             active=item.active,
             content_hash=definition.content_hash,

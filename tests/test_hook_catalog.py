@@ -16,7 +16,7 @@ from mind_core.hooks import resolve_hook_definitions
 
 def _hook(command, *, matcher=None):
     config = {
-        "handler": {"type": "command", "command": command},
+        "hooks": [{"type": "command", "command": command}],
     }
     if matcher is not None:
         config["matcher"] = matcher
@@ -27,10 +27,10 @@ def _definitions(source_path: Path):
     project = resolve_hook_definitions(
         {
             "PreToolUse": [{
-                "handler": {
+                "hooks": [{
                     "type": "command",
                     "command": "check-project",
-                },
+                }],
                 "matcher": "shell_command",
             }],
         },

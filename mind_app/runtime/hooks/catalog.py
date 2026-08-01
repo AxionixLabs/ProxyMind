@@ -21,13 +21,16 @@ class HookCatalogEntry:
     key: str
     event: HookEventName
     command: str
+    command_windows: str | None
+    status_message: str | None
     matcher: str
     matcher_subject: HookMatcherSubject | None
-    timeout_sec: float
+    timeout_sec: int
+    run_async: bool
+    additional_context_limit: int
     on_error: HookFailurePolicy
     source_scope: str
     source_path: str | None
-    enabled: bool
     trust_state: HookTrustState
     active: bool
     content_hash: str

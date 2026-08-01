@@ -219,13 +219,16 @@ def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
     """生成单个 Hook 的详情和信任操作菜单。"""
     body = (
         f"Command: {entry.command}",
+        f"Windows command: {entry.command_windows or '-'}",
+        f"Status message: {entry.status_message or '-'}",
         _matcher_detail(entry),
         f"Source: {entry.source_scope}",
         f"Path: {entry.source_path or '-'}",
-        f"Enabled: {str(entry.enabled).lower()}",
         f"Trust: {entry.trust_state}",
         f"Active: {str(entry.active).lower()}",
         f"Timeout: {entry.timeout_sec:g}s",
+        f"Async: {str(entry.run_async).lower()}",
+        f"Additional context limit: {entry.additional_context_limit}",
         f"On error: {entry.on_error}",
         f"Content hash: {entry.content_hash[:12]}",
     )
@@ -282,9 +285,6 @@ def _hook_state(entry: HookCatalogEntry) -> str:
     """返回 Hook 的简短运行状态。"""
     if entry.active:
         return "active"
-    if not entry.enabled:
-        return "disabled"
-
     return entry.trust_state
 
 

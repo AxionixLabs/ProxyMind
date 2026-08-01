@@ -60,6 +60,7 @@ from .runtime.hooks.scope import (
     HookExecutionScope
 )
 from .runtime.hooks.session import SessionLifecycleGateway
+from .runtime.hooks.status import HookStatusCoordinator
 from .runtime.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
@@ -103,10 +104,12 @@ class Mind(object):
         self.pref: Preferences               = kwargs["pref"]
         self.config_session: ConfigSession   = kwargs["config_session"]
         self.permissions: PermissionSettings = kwargs["permissions"]
+        self.frontend: Frontend              = kwargs["frontend"]
 
         self.hook_registry: HookRegistry = (
             kwargs.get("hook_registry") or HookRegistry()
         )
+        self.hook_status = HookStatusCoordinator(self.frontend.runtime)
 
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
@@ -132,8 +135,6 @@ class Mind(object):
         self.report: RunReport = kwargs.get("report") or RunReport(self.src_total_place)
 
         self.attach: Attach = Attach()
-
-        self.frontend: Frontend = kwargs["frontend"]
 
         self.approval_coordinator = ApprovalCoordinator(
             self.frontend.interaction
@@ -734,7 +735,10 @@ class Mind(object):
 
         return HookExecutionScope(
             context=context,
-            dispatcher=self.hook_registry.build(resolution.hooks),
+            dispatcher=self.hook_registry.build(
+                resolution.hooks,
+                status_port=getattr(self, "hook_status", None),
+            ),
         )
 
     def inspect_hooks(

@@ -16,13 +16,11 @@ def _project_definition(
     source_path: Path,
     *,
     command: str = "check-project",
-    enabled: bool = True,
 ):
     return resolve_hook_definitions(
         {
             "PreToolUse": [{
-                "handler": {"type": "command", "command": command},
-                "enabled": enabled,
+                "hooks": [{"type": "command", "command": command}],
             }],
         },
         source_scope="project",
@@ -62,13 +60,6 @@ def test_project_hook_requires_exact_persisted_content_hash(tmp_path) -> None:
     assert status.hooks[0].trust_state == "untrusted"
 
 
-def test_enabled_toggle_does_not_change_hook_content_hash(tmp_path) -> None:
-    enabled = _project_definition(tmp_path / "config.toml", enabled=True)
-    disabled = _project_definition(tmp_path / "config.toml", enabled=False)
-
-    assert enabled.content_hash == disabled.content_hash
-
-
 def test_hook_trust_store_rejects_malformed_document(tmp_path) -> None:
     path = tmp_path / "hook-trust.json"
     path.write_text('{"version": 1, "trusted": []}', encoding="utf-8")
@@ -85,7 +76,7 @@ def test_registry_fails_closed_for_project_hooks_when_trust_is_invalid(
     project = _project_definition(tmp_path / "project.toml")
     user = resolve_hook_definitions(
         {"PreToolUse": [{
-            "handler": {"type": "command", "command": "check-user"},
+            "hooks": [{"type": "command", "command": "check-user"}],
         }]},
         source_scope="user",
         source_path=tmp_path / "user.toml",

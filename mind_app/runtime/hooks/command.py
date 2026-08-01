@@ -61,7 +61,7 @@ class HookCommandExecutor:
 
         try:
             process = await asyncio.create_subprocess_shell(
-                handler.command,
+                handler.command_for_platform(os.name),
                 cwd=str(payload.get("cwd") or "") or None,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -162,6 +162,20 @@ class HookCommandExecutor:
         data.update(spill_data)
 
         return HookCommandOutput(data=data, stderr=stderr_text)
+
+    async def spill_context(
+        self,
+        text: str,
+        *,
+        session_id: str,
+    ) -> str:
+        """把过大的 Hook 上下文写入会话临时文件。"""
+        spill = await self._spill_store.spill_text(
+            text,
+            session_id=session_id,
+            channel="additional-context",
+        )
+        return spill.summary()
 
     async def cleanup_session(self, session_id: str) -> None:
         """清理指定会话产生的大输出临时文件。"""

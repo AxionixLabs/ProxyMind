@@ -31,6 +31,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope
 )
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
+from mind_app.runtime.hooks.status import HookStatusCoordinator
 from mind_app.runtime.hooks.tool import (
     ToolCallCoordinator,
     ToolHookEvents
@@ -66,7 +67,7 @@ def _definitions(raw):
     return resolve_hook_definitions(
         raw,
         source_scope="user",
-        source_path=Path("hooks.toml"),
+        source_path=Path("config.toml"),
     )
 
 
@@ -74,20 +75,26 @@ def _hook(
     command,
     *,
     matcher=None,
-    on_error=None,
-    enabled=None,
     timeout=None,
+    command_windows=None,
+    status_message=None,
+    run_async=False,
+    additional_context_limit=None,
 ):
     handler = {"type": "command", "command": command}
     if timeout is not None:
         handler["timeout"] = timeout
-    config = {"handler": handler}
+    if command_windows is not None:
+        handler["commandWindows"] = command_windows
+    if status_message is not None:
+        handler["statusMessage"] = status_message
+    if run_async:
+        handler["async"] = True
+    if additional_context_limit is not None:
+        handler["additionalContextLimit"] = additional_context_limit
+    config = {"hooks": [handler]}
     if matcher is not None:
         config["matcher"] = matcher
-    if on_error is not None:
-        config["on_error"] = on_error
-    if enabled is not None:
-        config["enabled"] = enabled
     return config
 
 
@@ -183,18 +190,174 @@ async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
     assert payload["last_assistant_message"] == "final answer"
 
 
-def test_runtime_reports_matching_active_hooks() -> None:
+def test_runtime_reports_matching_hooks() -> None:
     definitions = _definitions({
         "PreToolUse": [
-            _hook("enabled", matcher="shell_command"),
-            _hook("disabled", matcher="apply_patch", enabled=False),
+            _hook("shell", matcher="shell_command"),
+            _hook("patch", matcher="apply_patch"),
         ],
     })
     runtime = HookRuntime(definitions)
 
     assert runtime.has_matching("PreToolUse", "shell_command")
-    assert not runtime.has_matching("PreToolUse", "apply_patch")
+    assert runtime.has_matching("PreToolUse", "apply_patch")
     assert not runtime.has_matching("PostToolUse", "shell_command")
+
+
+def test_matcher_group_expands_handlers_with_platform_commands() -> None:
+    definitions = _definitions({
+        "PreToolUse": [{
+            "matcher": "shell_command",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "check-posix",
+                    "commandWindows": "check-windows",
+                },
+                {"type": "command", "command": "audit"},
+            ],
+        }],
+    })
+
+    assert len(definitions) == 2
+    assert definitions[0].key.endswith(":PreToolUse:0:0")
+    assert definitions[1].key.endswith(":PreToolUse:0:1")
+    assert definitions[0].handler.command_for_platform("posix") == "check-posix"
+    assert definitions[0].handler.command_for_platform("nt") == "check-windows"
+
+
+@pytest.mark.anyio
+async def test_async_hook_returns_without_consuming_control_output() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    completed = asyncio.Event()
+
+    class Runner(object):
+        async def execute(self, _definition, _payload):
+            started.set()
+            await release.wait()
+            return SimpleNamespace(data={
+                "decision": "deny",
+                "reason": "ignored async output",
+            })
+
+    class Status(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def started(self, key, message):
+            self.calls.append(("started", key, message))
+
+        async def completed(self, key):
+            self.calls.append(("completed", key))
+            completed.set()
+
+    definitions = _definitions({
+        "PreToolUse": [_hook(
+            "background-check",
+            run_async=True,
+            status_message="Checking in background",
+        )],
+    })
+    status = Status()
+    runtime = HookRuntime(
+        definitions,
+        command_runner=Runner(),
+        status_port=status,
+    )
+
+    decision = await ToolHookEvents(_scope(runtime)).pre_tool_use(_invocation())
+
+    assert decision.allowed
+    await asyncio.wait_for(started.wait(), timeout=1)
+    release.set()
+    await asyncio.wait_for(completed.wait(), timeout=1)
+    assert status.calls == [
+        ("started", definitions[0].key, "Checking in background"),
+        ("completed", definitions[0].key),
+    ]
+    await runtime.background_tasks.close()
+
+
+@pytest.mark.anyio
+async def test_additional_context_limit_spills_before_aggregation() -> None:
+    class Spiller(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def spill_context(self, text, *, session_id):
+            self.calls.append((text, session_id))
+            return "context spilled to D:/tmp/context.log"
+
+    definitions = _definitions({
+        "PreToolUse": [_hook(
+            "context",
+            additional_context_limit=1,
+        )],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"additionalContext": "0123456789"},
+    })
+    spiller = Spiller()
+    runtime = HookRuntime(
+        definitions,
+        command_runner=runner,
+        context_spiller=spiller,
+    )
+
+    decision = await ToolHookEvents(_scope(runtime)).pre_tool_use(_invocation())
+
+    assert decision.additional_context == (
+        "context spilled to D:/tmp/context.log",
+    )
+    assert spiller.calls == [("0123456789", "sid_test")]
+
+
+@pytest.mark.anyio
+async def test_hook_status_coordinator_tracks_concurrent_messages() -> None:
+    class FrontendRuntime(object):
+        def __init__(self) -> None:
+            self.started = []
+            self.completed = []
+
+        async def begin_operation_status(self, snapshot):
+            self.started.append(snapshot)
+
+        async def end_activity_status(self, kind, *, settle=True):
+            self.completed.append((kind, settle))
+
+    frontend = FrontendRuntime()
+    status = HookStatusCoordinator(frontend)
+
+    await status.started("first", "First check")
+    await status.started("second", "Second check")
+
+    assert len(frontend.started) == 1
+    assert frontend.started[0]() == {"summary": "Second check"}
+
+    await status.completed("first")
+    assert frontend.completed == []
+
+    await status.completed("second")
+    assert frontend.completed == [("operation", False)]
+
+
+@pytest.mark.anyio
+async def test_context_spill_file_is_cleaned_with_session(tmp_path) -> None:
+    store = HookOutputSpillStore(root=tmp_path / "spill")
+
+    spill = await store.spill_text(
+        "full additional context",
+        session_id="sid",
+        channel="additional-context",
+    )
+    path = Path(spill.path)
+
+    assert path.read_text(encoding="utf-8") == "full additional context"
+
+    await store.cleanup_session("sid")
+
+    assert not path.exists()
 
 
 @pytest.mark.anyio
@@ -229,6 +392,45 @@ async def test_runtime_dispatches_only_matching_hooks_in_definition_order() -> N
         "PreToolUse",
         "PreToolUse",
     ]
+
+
+@pytest.mark.anyio
+async def test_runtime_treats_star_matcher_as_match_all() -> None:
+    definitions = _definitions({
+        "PreToolUse": [_hook("check", matcher="*")],
+    })
+    runner = _CommandRunner()
+
+    await HookRuntime(
+        definitions,
+        command_runner=runner,
+    ).dispatch(HookEventRequest(
+        event="PreToolUse",
+        match_value="shell_command",
+        payload={},
+    ))
+
+    assert [call[0].key for call in runner.calls] == [definitions[0].key]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("event", ["UserPromptSubmit", "Stop"])
+async def test_runtime_ignores_matcher_for_events_without_match_subject(event) -> None:
+    definitions = _definitions({
+        event: [_hook("check", matcher="configured-but-ignored")],
+    })
+    runner = _CommandRunner()
+
+    await HookRuntime(
+        definitions,
+        command_runner=runner,
+    ).dispatch(HookEventRequest(
+        event=event,
+        match_value="",
+        payload={},
+    ))
+
+    assert [call[0].key for call in runner.calls] == [definitions[0].key]
 
 
 @pytest.mark.anyio
@@ -404,16 +606,9 @@ async def test_turn_hooks_skip_session_start_for_existing_session() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("on_error", "blocked"),
-    [("block", True), ("continue", False)],
-)
-async def test_turn_prompt_hook_applies_failure_policy(
-    on_error,
-    blocked,
-) -> None:
+async def test_turn_prompt_hook_uses_event_failure_policy() -> None:
     definitions = _definitions({
-        "UserPromptSubmit": [_hook("broken", on_error=on_error)],
+        "UserPromptSubmit": [_hook("broken")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("prompt hook failed"),
@@ -423,10 +618,7 @@ async def test_turn_prompt_hook_applies_failure_policy(
         command_runner=runner,
     )))
 
-    if blocked:
-        with pytest.raises(PromptHookBlockedError, match="prompt hook failed"):
-            await events.begin("hello")
-    else:
+    with pytest.raises(PromptHookBlockedError, match="prompt hook failed"):
         await events.begin("hello")
 
 
@@ -530,7 +722,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
 @pytest.mark.anyio
 async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
     definitions = _definitions({
-        "PreToolUse": [_hook("broken", on_error="block")],
+        "PreToolUse": [_hook("broken")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("broken hook"),
@@ -543,23 +735,6 @@ async def test_pre_tool_use_blocks_when_blocking_hook_fails() -> None:
 
     assert not decision.allowed
     assert "broken hook" in decision.reason
-
-
-@pytest.mark.anyio
-async def test_pre_tool_use_continues_when_nonblocking_hook_fails() -> None:
-    definitions = _definitions({
-        "PreToolUse": [_hook("broken", on_error="continue")],
-    })
-    runner = _CommandRunner(errors={
-        definitions[0].key: RuntimeError("broken hook"),
-    })
-
-    decision = await ToolHookEvents(_scope(HookRuntime(
-        definitions,
-        command_runner=runner,
-    ))).pre_tool_use(_invocation())
-
-    assert decision.allowed
 
 
 @pytest.mark.anyio
@@ -643,9 +818,9 @@ async def test_permission_request_allows_when_a_hook_allows() -> None:
 
 
 @pytest.mark.anyio
-async def test_permission_request_blocks_on_configured_hook_failure() -> None:
+async def test_permission_request_uses_event_failure_policy() -> None:
     definitions = _definitions({
-        "PermissionRequest": [_hook("broken", on_error="block")],
+        "PermissionRequest": [_hook("broken")],
     })
     runner = _CommandRunner(errors={
         definitions[0].key: RuntimeError("permission check failed"),
@@ -656,9 +831,9 @@ async def test_permission_request_blocks_on_configured_hook_failure() -> None:
         command_runner=runner,
     ))).permission_request(_invocation())
 
-    assert decision.action == "deny"
-    assert "permission check failed" in decision.reason
-    assert decision.hook_keys == (definitions[0].key,)
+    assert decision.action == "abstain"
+    assert decision.reason == ""
+    assert decision.hook_keys == ()
 
 
 @pytest.mark.anyio
@@ -1016,7 +1191,7 @@ async def test_command_executor_terminates_timed_out_hook(tmp_path) -> None:
     definition = _definitions({
         "PostToolUse": [_hook(
             subprocess.list2cmdline([sys.executable, str(script)]),
-            timeout=0.05,
+            timeout=1,
         )],
     })[0]
 
