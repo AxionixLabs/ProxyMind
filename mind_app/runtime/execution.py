@@ -111,6 +111,7 @@ class TurnContext:
     model: str
     cwd: str
     permissions: PermissionSettings
+    output_record_path: str = ""
     transcript_path: str = ""
     session_started: bool = False
     session_start_reason: str = ""
@@ -127,6 +128,7 @@ class TurnContext:
         pref_config: dict[str, typing.Any],
         cwd: str,
         permissions: PermissionSettings,
+        output_record_path: str = "",
         transcript_path: str = "",
         turn_id: str | None = None,
         session_started: bool = False,
@@ -156,6 +158,7 @@ class TurnContext:
             model=model,
             cwd=str(cwd or "").strip(),
             permissions=permissions,
+            output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             session_started=bool(session_started),
             session_start_reason=(

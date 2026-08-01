@@ -3,9 +3,7 @@
 
 import copy
 import typing
-import hashlib
 from dataclasses import dataclass
-from pathlib import Path
 from types import MappingProxyType
 from mind_core.permissions import PermissionSettings
 from mind_nova.identifiers import (
@@ -13,7 +11,6 @@ from mind_nova.identifiers import (
     new_sid
 )
 from mind_nova.modes import RunMode
-from mind_nova import const
 from mind_app.history.ids import valid_session_ids
 from mind_app.runtime.execution import (
     AgentContext,
@@ -86,23 +83,27 @@ class AgentThreadContext:
         pref_config: typing.Mapping[str, typing.Any],
         *,
         skills: typing.Iterable[typing.Mapping[str, str]] = (),
-        agent_id: str | None = None
+        agent_id: str | None = None,
+        transcript_path_for: typing.Callable[[str], str] | None = None
     ) -> "AgentThreadContext":
         """从父轮次创建独立的子执行线程。"""
-        cid   = new_cid()
-        agent = parent.agent.child(agent_type, agent_id=agent_id)
+        cid = new_cid()
+        sid = new_sid(cid)
+
+        agent    = parent.agent.child(agent_type, agent_id=agent_id)
+        path_for = transcript_path_for or (lambda _sid: "")
 
         return cls(
             agent=agent,
             cid=cid,
-            sid=new_sid(cid),
+            sid=sid,
             mode=parent.mode,
             source="subagent",
             cwd=parent.cwd,
             permissions=parent.permissions,
             pref_config=pref_config,
             spawn_turn_id=parent.turn_id,
-            transcript_path=_child_transcript_path(parent, agent),
+            transcript_path=path_for(sid),
             skills=tuple(skills),
         )
 
@@ -154,22 +155,6 @@ def _freeze_config(value: typing.Any) -> typing.Any:
         return tuple(_freeze_config(item) for item in value)
 
     return copy.deepcopy(value)
-
-
-def _child_transcript_path(
-    parent: TurnContext,
-    agent: AgentContext
-) -> str:
-    """返回子执行线程独立使用的记录文件路径。"""
-    parent_path = str(parent.transcript_path or "").strip()
-    if not parent_path:
-        return ""
-
-    digest = hashlib.sha256(
-        f"{agent.root_session_id}:{agent.agent_id}".encode(const.CHARSET)
-    ).hexdigest()[:20]
-
-    return str(Path(parent_path).parent / "subagents" / f"{digest}.log")
 
 
 def _thaw_config(value: typing.Any) -> typing.Any:

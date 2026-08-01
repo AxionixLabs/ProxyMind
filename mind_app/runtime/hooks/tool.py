@@ -20,6 +20,9 @@ from .models import (
 )
 from .scope import HookExecutionScope
 
+if typing.TYPE_CHECKING:
+    from mind_app.history.contracts import TranscriptSink
+
 ToolValue = typing.TypeVar("ToolValue")
 
 
@@ -222,10 +225,18 @@ class ToolHookEvents:
 class ToolCallCoordinator:
     """协调工具调用的前置、执行和后置 Hook。"""
 
-    def __init__(self, scope: HookExecutionScope) -> None:
-        self.events = ToolHookEvents(scope)
+    def __init__(
+        self,
+        scope: HookExecutionScope,
+        transcript: "TranscriptSink | None" = None
+    ) -> None:
+        self.events     = ToolHookEvents(scope)
+        self.transcript = transcript
 
         self._prepared: dict[str, _PreparedDecision] = {}
+
+        self._recorded_calls: set[str] = set()
+        self._finished_calls: set[str] = set()
 
     async def prepare(self, invocation: ToolInvocation) -> HookDecision:
         """在审批前执行并缓存一次 PreToolUse 决定。"""
@@ -275,6 +286,10 @@ class ToolCallCoordinator:
         """执行前置决定、工具操作和后置 Hook。"""
         decision = await self._decision_for(invocation)
         if not decision.allowed:
+            self.record_rejected(
+                invocation,
+                decision.reason or "tool use denied by hook",
+            )
             return ToolCallRunResult(
                 allowed=False,
                 reason=decision.reason or "tool use denied by hook",
@@ -290,38 +305,50 @@ class ToolCallCoordinator:
             if not isinstance(operation_result, ToolOperationResult):
                 raise TypeError("tool operation must return ToolOperationResult")
         except asyncio.CancelledError:
+            outcome = ToolOutcome(
+                executed=True,
+                ok=False,
+                duration_ms=_duration_ms(started_at),
+                error="tool execution cancelled",
+                cancelled=True,
+            )
+
+            self._record_outcome(effective_invocation, outcome)
+
             await self.events.post_tool_use(
                 effective_invocation,
-                ToolOutcome(
-                    executed=True,
-                    ok=False,
-                    duration_ms=_duration_ms(started_at),
-                    error="tool execution cancelled",
-                    cancelled=True,
-                ),
+                outcome,
             )
             raise
 
         except BaseException as error:
+            outcome = ToolOutcome(
+                executed=True,
+                ok=False,
+                duration_ms=_duration_ms(started_at),
+                error=f"{type(error).__name__}: {error}",
+            )
+
+            self._record_outcome(effective_invocation, outcome)
+
             await self.events.post_tool_use(
                 effective_invocation,
-                ToolOutcome(
-                    executed=True,
-                    ok=False,
-                    duration_ms=_duration_ms(started_at),
-                    error=f"{type(error).__name__}: {error}",
-                ),
+                outcome,
             )
             raise
 
+        outcome = ToolOutcome(
+            executed=True,
+            ok=operation_result.snapshot.ok,
+            duration_ms=_duration_ms(started_at),
+            result=dict(operation_result.snapshot.fields),
+        )
+
+        self._record_outcome(effective_invocation, outcome)
+
         post_result = await self.events.post_tool_use(
             effective_invocation,
-            ToolOutcome(
-                executed=True,
-                ok=operation_result.snapshot.ok,
-                duration_ms=_duration_ms(started_at),
-                result=dict(operation_result.snapshot.fields),
-            ),
+            outcome,
         )
 
         additional_context = (
@@ -349,6 +376,27 @@ class ToolCallCoordinator:
             reason=post_result.reason,
         )
 
+    def record_rejected(
+        self,
+        invocation: ToolInvocation,
+        reason: str,
+        *,
+        result: typing.Any = None,
+    ) -> None:
+        """记录未执行的工具调用及其拒绝原因。"""
+        self._record_start(invocation)
+
+        self._record_outcome(
+            invocation,
+            ToolOutcome(
+                executed=False,
+                ok=False,
+                duration_ms=0,
+                error=str(reason or "tool execution rejected"),
+                result=result,
+            ),
+        )
+
     async def _decision_for(self, invocation: ToolInvocation) -> HookDecision:
         """复用匹配的预执行决定，否则重新执行前置 Hook。"""
         prepared = self._prepared.pop(invocation.call_id, None)
@@ -359,7 +407,63 @@ class ToolCallCoordinator:
         ):
             return prepared.decision
 
+        self._record_start(invocation)
+
         return await self.events.pre_tool_use(invocation)
+
+    def _record_start(self, invocation: ToolInvocation) -> None:
+        """在前置 Hook 前记录一次工具调用。"""
+        key = invocation.call_id or _invocation_fingerprint(invocation)
+        if key in self._recorded_calls:
+            return None
+
+        self._recorded_calls.add(key)
+
+        if self.transcript is not None:
+            self.transcript.append(
+                "tool.started",
+                actor="tool",
+                payload={
+                    "call_id": invocation.call_id,
+                    "name": invocation.name,
+                    "arguments": dict(invocation.arguments),
+                },
+            )
+
+    def _record_outcome(
+        self,
+        invocation: ToolInvocation,
+        outcome: ToolOutcome,
+    ) -> None:
+        """在后置 Hook 前记录一次工具结果。"""
+        key = invocation.call_id or _invocation_fingerprint(invocation)
+        if key in self._finished_calls:
+            return None
+        self._finished_calls.add(key)
+
+        if self.transcript is None:
+            return None
+
+        payload: dict[str, typing.Any] = {
+            "call_id": invocation.call_id,
+            "name": invocation.name,
+            "arguments": dict(invocation.arguments),
+            "executed": outcome.executed,
+            "ok": outcome.ok,
+            "duration_ms": outcome.duration_ms,
+        }
+        if outcome.result is not None:
+            payload["result"] = outcome.result
+        if outcome.error:
+            payload["error"] = outcome.error
+        if outcome.cancelled:
+            payload["cancelled"] = True
+
+        self.transcript.append(
+            "tool.completed" if outcome.ok else "tool.failed",
+            actor="tool",
+            payload=payload,
+        )
 
     @staticmethod
     def effective_invocation(

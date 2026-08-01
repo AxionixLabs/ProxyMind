@@ -74,6 +74,7 @@ from .history import (
     normalize_workspace
 )
 from .history.ids import valid_session_ids
+from .history.transcript import ConversationTranscriptStore
 from .mcp.contracts import McpSessionLike
 
 SessionResult = typing.TypeVar("SessionResult")
@@ -128,6 +129,10 @@ class Mind(object):
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
 
+        self.transcripts: ConversationTranscriptStore = (
+            kwargs.get("transcript_store") or ConversationTranscriptStore()
+        )
+
         self._conversation_lifecycle_id: int = 0
 
         self.session_lifecycle = SessionLifecycleGateway(
@@ -150,6 +155,7 @@ class Mind(object):
             or SubagentRuntime(
                 self,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
+                transcript_path_for=self.transcripts.path_for_session,
             )
         )
 
@@ -410,24 +416,46 @@ class Mind(object):
     async def end_conversation(self, *, reason: SessionEndReason) -> None:
         """结束当前已经开始的根会话。"""
         conversation = self.conversation
+
         cid = str(conversation.cid or "").strip()
         sid = str(conversation.sid or "").strip()
+
         if conversation.turn_count <= 0 or not valid_session_ids(cid, sid):
             return None
+
+        transcript_path = self.transcripts.path_for_session(sid)
+
+        transcript = self.transcripts.writer(
+            transcript_path,
+            session_id=sid,
+        )
+
+        def record_session_end() -> None:
+            """在结束 Hook 前写入根会话终态。"""
+            transcript.open()
+            try:
+                transcript.append(
+                    "session.ended",
+                    actor="system",
+                    payload={"reason": reason},
+                )
+            finally:
+                transcript.close()
 
         await self.session_lifecycle.end(
             self._conversation_lifecycle_id,
             self._session_hook_context(cid=cid, sid=sid),
             reason=reason,
-            transcript_path=str(self.report.log_papers or ""),
+            transcript_path=transcript_path,
             last_assistant_message=self.last_assistant_reply_snapshot(),
+            before_dispatch=record_session_end,
         )
 
     def _session_hook_context(
         self,
         *,
         cid: str,
-        sid: str,
+        sid: str
     ) -> HookExecutionContext:
         """构建根会话生命周期事件使用的固定上下文。"""
         pref_config = self.pref.to_config()

@@ -35,6 +35,11 @@ def mind_reports_dir() -> Path:
     return mind_home() / "reports"
 
 
+def sessions_dir() -> Path:
+    """返回本地会话记录目录。"""
+    return mind_home() / "sessions"
+
+
 def mind_history_dir() -> Path:
     """返回对话历史本地目录。"""
     return mind_home() / "history"
@@ -63,9 +68,13 @@ def ensure_mind_home() -> Path:
     """确保应用的用户级目录及常用子路径可写。"""
     try:
         root = ensure_writable_dir(mind_home())
+
         ensure_writable_dir(mind_reports_dir())
+        ensure_writable_dir(sessions_dir())
         ensure_writable_dir(mind_history_dir())
+
         return root
+
     except OSError as exc:
         raise AppError(
             f"Home is not writable: {mind_home()} ({type(exc).__name__}: {exc})"

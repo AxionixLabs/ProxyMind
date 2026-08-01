@@ -70,7 +70,16 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
         to_config=lambda: {"primary": {"model": "test-model"}},
     )
     controller.permissions = preset_permissions("auto")
-    controller.report = SimpleNamespace(log_papers="D:/logs/transcript.log")
+    controller.report = SimpleNamespace(output_record_path="D:/logs/output.log")
+    transcript = SimpleNamespace(
+        open=Mock(),
+        append=Mock(),
+        close=Mock(),
+    )
+    controller.transcripts = SimpleNamespace(
+        path_for_session=lambda _sid: "D:/sessions/session.jsonl",
+        writer=Mock(return_value=transcript),
+    )
     controller.session_lifecycle = SimpleNamespace(
         end=AsyncMock(return_value=True),
     )
@@ -85,11 +94,19 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     assert context.root_session_id == "sid_test_1_abcdef"
     assert context.conversation_id == "cid_test_12345678"
     assert context.model == "test-model"
-    assert call.kwargs == {
-        "reason": "exit",
-        "transcript_path": "D:/logs/transcript.log",
-        "last_assistant_message": "final answer",
-    }
+    assert call.kwargs["reason"] == "exit"
+    assert call.kwargs["transcript_path"] == "D:/sessions/session.jsonl"
+    assert call.kwargs["last_assistant_message"] == "final answer"
+
+    call.kwargs["before_dispatch"]()
+
+    transcript.open.assert_called_once_with()
+    transcript.append.assert_called_once_with(
+        "session.ended",
+        actor="system",
+        payload={"reason": "exit"},
+    )
+    transcript.close.assert_called_once_with()
 
 
 @pytest.mark.anyio

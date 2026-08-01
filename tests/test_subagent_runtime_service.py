@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from mind_app.modes.result import RunResult
+from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.output.silent import create_silent_output_session
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import (
@@ -139,7 +140,11 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
     parent = _parent_turn(
         transcript_path=str(tmp_path / "root.log"),
     )
-    runtime = SubagentRuntime(controller)
+    store = ConversationTranscriptStore(tmp_path / "sessions")
+    runtime = SubagentRuntime(
+        controller,
+        transcript_path_for=store.path_for_session,
+    )
 
     spawned = await runtime.spawn(
         parent,
@@ -157,7 +162,9 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
 
     assert first.context.transcript_path == second.context.transcript_path
     assert first.context.transcript_path != parent.transcript_path
-    assert Path(first.context.transcript_path).parent == tmp_path / "subagents"
+    child_path = Path(first.context.transcript_path)
+    assert child_path.is_relative_to(tmp_path / "sessions")
+    assert child_path.name == f"session-{first.context.sid}.jsonl"
     await runtime.shutdown()
 
 

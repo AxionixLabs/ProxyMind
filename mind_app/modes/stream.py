@@ -274,7 +274,7 @@ async def stream_looper(
     reentry_kwargs["session_factory"] = session_factory
 
     output_session: OutputSession = session_factory(
-        turn_context.transcript_path or mind.report.log_papers,
+        turn_context.output_record_path,
         animate=bool(getattr(mind, "animate", True)),
     )
 
@@ -301,11 +301,47 @@ async def stream_looper(
     approvals: ApprovalStore = ApprovalStore()
     tracker: SegmentTracker  = SegmentTracker()
 
+    transcript = mind.transcripts.writer(
+        turn_context.transcript_path,
+        session_id=turn_context.sid,
+        turn_id=turn_context.turn_id,
+    )
+
     idle_wait = IdleStatusTimer(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
     try:
+        transcript.open()
+        if turn_context.session_started:
+            session_payload: dict[str, typing.Any] = {
+                "cwd": turn_context.cwd,
+                "source": turn_context.source,
+                "reason": turn_context.session_start_reason,
+                "model": turn_context.model,
+            }
+            if turn_context.agent.depth > 0:
+                session_payload.update({
+                    "parent_session_id": turn_context.agent.root_session_id,
+                    "agent_id": turn_context.agent.agent_id,
+                    "agent_type": turn_context.agent.agent_type,
+                })
+            transcript.append(
+                "session.started",
+                actor="system",
+                payload=session_payload,
+            )
+        transcript.append(
+            "turn.started",
+            actor="system",
+            payload={"mode": mode},
+        )
+        transcript.append(
+            "message.created",
+            actor="user",
+            payload={"content": message},
+        )
+
         await output_control.open()
 
         observe(
@@ -329,11 +365,22 @@ async def stream_looper(
             turn_id=str(kwargs.get("turn_id") or ""),
         ))
 
-        tool_call_coordinator = ToolCallCoordinator(hook_scope)
-        turn_hook_events      = TurnHookEvents(hook_scope)
+        tool_call_coordinator = ToolCallCoordinator(
+            hook_scope,
+            transcript=transcript,
+        )
+
+        turn_hook_events = TurnHookEvents(hook_scope)
 
         begin_result = await turn_hook_events.begin(message)
-        message      = begin_result.message
+        if begin_result.message != message:
+            transcript.append(
+                "message.updated",
+                actor="user",
+                payload={"content": begin_result.message, "source": "hook"},
+            )
+
+        message = begin_result.message
 
         _extend_request_context(
             kwargs,
@@ -649,6 +696,10 @@ async def stream_looper(
                 hook_decision = await tool_call_coordinator.prepare(invocation)
 
                 if not hook_decision.allowed:
+                    tool_call_coordinator.record_rejected(
+                        invocation,
+                        hook_decision.reason,
+                    )
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
@@ -770,6 +821,11 @@ async def stream_looper(
                         tool=name,
                         call_id=event.call_id,
                     )
+                    tool_call_coordinator.record_rejected(
+                        invocation,
+                        "tool approval rejected",
+                        result=approval_decision.result or {},
+                    )
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
@@ -789,6 +845,11 @@ async def stream_looper(
                     if is_execution_ignored(execution_policy_result):
                         await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                         continue
+                    tool_call_coordinator.record_rejected(
+                        invocation,
+                        "tool execution policy rejected the call",
+                        result=execution_policy_result,
+                    )
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
@@ -833,6 +894,18 @@ async def stream_looper(
 
                 use_coding_trace = coding_trace_tool(name)
                 tool_run         = server_tool_output_result(name, event.payload)
+
+                transcript.append(
+                    "tool.completed" if tool_run.ok else "tool.failed",
+                    actor="tool",
+                    payload={
+                        "call_id": event.call_id,
+                        "name": name,
+                        "arguments": arguments,
+                        "ok": tool_run.ok,
+                        "result": tool_run.fields,
+                    },
+                )
 
                 if use_coding_trace:
                     await status_control.end_status()
@@ -947,6 +1020,33 @@ async def stream_looper(
         )
 
     finally:
+        assistant_text = tracker.assistant_text()
+        if assistant_text:
+            transcript.append(
+                "message.created",
+                actor="assistant",
+                payload={"content": assistant_text},
+            )
+
+        turn_event = (
+            "turn.interrupted"
+            if interrupted
+            else "turn.completed"
+            if result_status == "completed"
+            else "turn.failed"
+        )
+        turn_payload: dict[str, typing.Any] = {
+            "status": "interrupted" if interrupted else result_status,
+            "usage": turn_usage,
+        }
+        if failure_error:
+            turn_payload["error"] = failure_error
+        transcript.append(
+            turn_event,
+            actor="system",
+            payload=turn_payload,
+        )
+
         if turn_hook_events is not None:
             stop_outcome = "interrupted" if interrupted else result_status
             try:
@@ -983,6 +1083,9 @@ async def stream_looper(
                     level="WARNING",
                     turn_id=turn_context.turn_id,
                 )
+
+        transcript.close()
+
         await idle_wait.cancel()
         await mind.await_cleanup(output_control.stop(blink=not interrupted))
 

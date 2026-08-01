@@ -34,7 +34,10 @@ class RunReport(object):
         if not (reset_path := Path(self.reset_path)).exists():
             reset_path.mkdir(parents=True, exist_ok=True)
 
-        self.__log_papers: str = os.path.join(self.reset_path, const.R_LOG_FILE)
+        self.__output_record_path: str = os.path.join(
+            self.reset_path,
+            const.R_LOG_FILE,
+        )
 
         self.__debug_log: str = os.path.join(
             self.reset_path,
@@ -64,8 +67,9 @@ class RunReport(object):
         logger.remove(sink_id)
 
     @property
-    def log_papers(self) -> str:
-        return self.__log_papers
+    def output_record_path(self) -> str:
+        """返回当前进程的终端展示记录路径。"""
+        return self.__output_record_path
 
     @property
     def debug_log(self) -> str:

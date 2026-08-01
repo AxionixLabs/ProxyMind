@@ -72,7 +72,8 @@ async def compact_conversation(
     on_progress: CompactProgress | None = None
 ) -> CompactResult:
     """执行当前会话的上下文压缩及其生命周期 Hook。"""
-    metadata = mind.conversation.snapshot()
+    metadata        = mind.conversation.snapshot()
+    transcript_path = mind.transcripts.path_for_session(metadata["sid"])
 
     context = _hook_context(
         mind,
@@ -80,6 +81,7 @@ async def compact_conversation(
         run_mode=run_mode,
         pref_config=pref_config,
         source=source,
+        transcript_path=transcript_path,
     )
 
     try:
@@ -94,10 +96,6 @@ async def compact_conversation(
 
     hook_events = CompactHookEvents(scope)
 
-    transcript_path = str(
-        getattr(getattr(mind, "report", None), "log_papers", "") or ""
-    )
-
     result = CompactResult(
         outcome="failed",
         message="Context compaction failed. Please try again.",
@@ -108,6 +106,12 @@ async def compact_conversation(
     )
 
     attempted: bool = False
+
+    transcript = mind.transcripts.writer(
+        transcript_path,
+        session_id=metadata["sid"],
+    )
+    transcript.open()
 
     observe(
         "compact.start",
@@ -150,10 +154,7 @@ async def compact_conversation(
                         or "Context compaction failed. Please try again."
                     ),
                     summary=str(event.get("summary") or message or "").strip(),
-                    transcript_path=(
-                        str(event.get("transcript_path") or "").strip()
-                        or transcript_path
-                    ),
+                    transcript_path=transcript_path,
                     trigger=trigger,
                     trigger_source=trigger_source,
                 )
@@ -173,10 +174,7 @@ async def compact_conversation(
                     summary=str(
                         event.get("summary") or message or "Context compacted."
                     ).strip(),
-                    transcript_path=(
-                        str(event.get("transcript_path") or "").strip()
-                        or transcript_path
-                    ),
+                    transcript_path=transcript_path,
                     trigger=trigger,
                     trigger_source=trigger_source,
                     result_source="server",
@@ -240,6 +238,21 @@ async def compact_conversation(
 
     finally:
         if attempted:
+            transcript.append(
+                (
+                    "context.compacted"
+                    if result.outcome == "completed"
+                    else "context.compaction.failed"
+                ),
+                actor="system",
+                payload={
+                    "outcome": result.outcome,
+                    "trigger": trigger,
+                    "before_items": result.before_items,
+                    "after_items": result.after_items,
+                    "summary": result.summary,
+                },
+            )
             try:
                 post_decision = await mind.await_cleanup(hook_events.post_compact(
                     trigger=trigger,
@@ -264,6 +277,7 @@ async def compact_conversation(
                     mind.conversation.queue_turn_context(
                         post_decision.additional_context,
                     )
+        transcript.close()
 
     return result
 
@@ -294,6 +308,7 @@ def _hook_context(
     run_mode: RunMode,
     pref_config: dict[str, typing.Any],
     source: str,
+    transcript_path: str
 ) -> HookExecutionContext:
     """从压缩操作创建生命周期 Hook 公共上下文。"""
     agent = AgentContext.root(metadata["sid"])
@@ -319,10 +334,7 @@ def _hook_context(
         agent_depth=agent.depth,
         parent_agent_id=agent.parent_agent_id,
         root_session_id=agent.root_session_id,
-        transcript_path=(
-            str(getattr(getattr(mind, "report", None), "log_papers", "") or "")
-            or None
-        ),
+        transcript_path=transcript_path or None,
     )
 
 

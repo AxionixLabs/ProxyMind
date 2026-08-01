@@ -24,6 +24,8 @@ SessionScopeFactory = typing.Callable[
 
 SessionCleanup = typing.Callable[[str], typing.Awaitable[None]]
 
+SessionEndPreparation = typing.Callable[[], None]
+
 
 class SessionLifecycleGateway:
     """统一关闭根会话并分发会话结束事件。"""
@@ -48,7 +50,8 @@ class SessionLifecycleGateway:
         *,
         reason: SessionEndReason,
         transcript_path: str,
-        last_assistant_message: str
+        last_assistant_message: str,
+        before_dispatch: SessionEndPreparation | None = None
     ) -> bool:
         """结束一个根会话生命周期，并保证同一生命周期只执行一次。"""
         normalized_reason = str(reason or "").strip()
@@ -60,22 +63,26 @@ class SessionLifecycleGateway:
                 return False
 
             try:
-                scope = self._scope_factory(replace(
-                    context,
-                    transcript_path=str(transcript_path or "") or None,
-                ))
-                if scope.has_matching("SessionEnd", "other"):
-                    await scope.dispatch(
-                        "SessionEnd",
-                        payload={"reason": "other"},
-                        match_value="other",
-                        diagnostics={
-                            "reason": normalized_reason,
-                            "last_assistant_message": str(
-                                last_assistant_message or ""
-                            ),
-                        },
-                    )
+                try:
+                    if before_dispatch is not None:
+                        before_dispatch()
+                finally:
+                    scope = self._scope_factory(replace(
+                        context,
+                        transcript_path=str(transcript_path or "") or None,
+                    ))
+                    if scope.has_matching("SessionEnd", "other"):
+                        await scope.dispatch(
+                            "SessionEnd",
+                            payload={"reason": "other"},
+                            match_value="other",
+                            diagnostics={
+                                "reason": normalized_reason,
+                                "last_assistant_message": str(
+                                    last_assistant_message or ""
+                                ),
+                            },
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception as error:

@@ -36,10 +36,30 @@ class _RecordingHookRunner(object):
         return SimpleNamespace(data=self.outputs.get(definition.event, {}))
 
 
+class _DiscardTranscriptWriter(object):
+    def open(self) -> None:
+        return None
+
+    def append(self, *_args, **_kwargs) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class _TranscriptStore(object):
+    def path_for_session(self, _session_id: str) -> str:
+        return "D:/sessions/session.jsonl"
+
+    def writer(self, *_args, **_kwargs) -> _DiscardTranscriptWriter:
+        return _DiscardTranscriptWriter()
+
+
 class _HookedCompactMind(object):
     def __init__(self, tmp_path, runtime) -> None:
         self.history_workspace = str(tmp_path)
         self.permissions = preset_permissions("auto")
+        self.transcripts = _TranscriptStore()
         self.conversation = SimpleNamespace(
             snapshot=lambda: {"cid": "cid", "sid": "sid"},
             queue_turn_context=lambda *_args, **_kwargs: None,
@@ -79,6 +99,7 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
         conversation = ConversationStub()
         history_workspace = "."
         permissions = preset_permissions("auto")
+        transcripts = _TranscriptStore()
 
         def __init__(self):
             self.views = []
@@ -132,6 +153,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
         }
 
     class MindStub(object):
+        transcripts = _TranscriptStore()
         animate = False
         history_workspace = "."
         permissions = preset_permissions("auto")
@@ -180,6 +202,7 @@ async def test_compact_cancellation_clears_animation_without_failure(
             yield {}
 
     class MindStub(object):
+        transcripts = _TranscriptStore()
         animate = True
         history_workspace = "."
         permissions = preset_permissions("auto")
@@ -258,6 +281,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
     runtime = HookRuntime(definitions, command_runner=runner)
 
     class MindStub(object):
+        transcripts = _TranscriptStore()
         history_workspace = str(tmp_path)
         permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
@@ -354,6 +378,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     runtime = HookRuntime(definitions, command_runner=runner)
 
     class MindStub(object):
+        transcripts = _TranscriptStore()
         history_workspace = str(tmp_path)
         permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
@@ -385,7 +410,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     assert pre_payload == {
         "trigger": "manual",
         "session_id": "sid",
-        "transcript_path": None,
+        "transcript_path": "D:/sessions/session.jsonl",
         "cwd": str(tmp_path),
         "hook_event_name": "PreCompact",
         "model": "test-model",

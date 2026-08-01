@@ -337,7 +337,10 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     mind = SimpleNamespace(
         permissions=permissions,
         history_workspace="D:/workspace",
-        report=SimpleNamespace(log_papers="D:/logs/transcript.log"),
+        report=SimpleNamespace(output_record_path="D:/logs/output.log"),
+        transcripts=SimpleNamespace(
+            path_for_session=lambda _sid: "D:/sessions/session.jsonl",
+        ),
         begin_conversation_turn=AsyncMock(return_value=ConversationTurn(
             cid="cid_root",
             sid="sid_root",
@@ -377,7 +380,8 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     context = streamed_execution.context
     assert context.agent.agent_id == "root"
     assert context.sid == "sid_root"
-    assert context.transcript_path == "D:/logs/transcript.log"
+    assert context.output_record_path == "D:/logs/output.log"
+    assert context.transcript_path == "D:/sessions/session.jsonl"
     assert streamed_execution.hook_scope is resolved_scopes[0]
     mind.hook_scope.assert_called_once_with(
         HookExecutionContext.from_turn(context)

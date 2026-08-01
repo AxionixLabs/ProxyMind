@@ -45,7 +45,7 @@ class StreamRecordWriter(object):
 
     async def open(self) -> None:
         """打开记录文件，失败时保持记录器可用。"""
-        if self.fp:
+        if self.fp or not self.log_file:
             return None
 
         try:

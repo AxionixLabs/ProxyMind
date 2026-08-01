@@ -82,6 +82,32 @@ class _Sink(object):
         self.items.append(item)
 
 
+class _TranscriptWriter(object):
+    def __init__(self, entries) -> None:
+        self.entries = entries
+
+    def open(self) -> None:
+        return None
+
+    def append(self, event, *, actor=None, payload=None) -> None:
+        self.entries.append({
+            "event": event,
+            "actor": actor,
+            "payload": dict(payload or {}),
+        })
+
+    def close(self) -> None:
+        return None
+
+
+class _TranscriptStore(object):
+    def __init__(self) -> None:
+        self.entries = []
+
+    def writer(self, *_args, **_kwargs) -> _TranscriptWriter:
+        return _TranscriptWriter(self.entries)
+
+
 def _output_session() -> OutputSession:
     return OutputSession(
         control=_OutputControl(),
@@ -110,8 +136,10 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
     interaction = SimpleNamespace(
         request_approval=AsyncMock(return_value="accept"),
     )
+    transcripts = _TranscriptStore()
     return SimpleNamespace(
-        report=SimpleNamespace(log_papers=[]),
+        report=SimpleNamespace(output_record_path=""),
+        transcripts=transcripts,
         frontend=SimpleNamespace(
             runtime=SimpleNamespace(active=frontend_active),
             interaction=interaction,
@@ -263,6 +291,20 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         AssistantSegmentCompleted(),
         SourcesOutput(()),
     ]
+    assert [
+        entry["event"] for entry in mind.transcripts.entries
+    ] == [
+        "turn.started",
+        "message.created",
+        "message.created",
+        "turn.completed",
+    ]
+    assert mind.transcripts.entries[1]["actor"] == "user"
+    assert mind.transcripts.entries[2] == {
+        "event": "message.created",
+        "actor": "assistant",
+        "payload": {"content": "answer"},
+    }
     assert not hasattr(mind, "hook_scope")
 
 
@@ -475,7 +517,7 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
         source_path=Path("config.toml"),
     )
 
-    result, _mind_state = await _run_stream(
+    result, mind_state = await _run_stream(
         monkeypatch,
         [{"type": "turn.done", "usage": {"output_tokens": 2}}],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -492,6 +534,16 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     assert runner.calls[1][1]["prompt"] == "hello"
     assert runner.calls[2][1]["stop_hook_active"] is False
     assert runner.calls[2][1]["last_assistant_message"] is None
+    assert mind_state.transcripts.entries[0] == {
+        "event": "session.started",
+        "actor": "system",
+        "payload": {
+            "cwd": ".",
+            "source": "test",
+            "reason": "initial",
+            "model": "",
+        },
+    }
 
 
 @pytest.mark.anyio

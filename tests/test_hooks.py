@@ -216,6 +216,7 @@ async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
     runtime = HookRuntime(definitions, command_runner=runner)
     context = _scope(runtime).context
     cleaned = []
+    prepared = []
 
     async def cleanup_session(session_id):
         cleaned.append(session_id)
@@ -234,6 +235,7 @@ async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
         reason="exit",
         transcript_path="D:/logs/transcript.log",
         last_assistant_message="final answer",
+        before_dispatch=lambda: prepared.append(context.session_id),
     )
     second = await gateway.end(
         7,
@@ -241,11 +243,13 @@ async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
         reason="exit",
         transcript_path="D:/logs/transcript.log",
         last_assistant_message="final answer",
+        before_dispatch=lambda: prepared.append(context.session_id),
     )
 
     assert first is True
     assert second is False
     assert cleaned == ["sid_test"]
+    assert prepared == ["sid_test"]
     assert len(runner.calls) == 1
     payload = runner.calls[0][1]
     assert payload["session_id"] == "sid_test"
@@ -254,6 +258,44 @@ async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
     assert payload["transcript_path"] == "D:/logs/transcript.log"
     assert "root_session_id" not in payload
     assert "last_assistant_message" not in payload
+
+
+@pytest.mark.anyio
+async def test_session_end_gateway_dispatches_after_preparation_failure() -> None:
+    definitions = _definitions({
+        "SessionEnd": [_hook("audit", matcher="other")],
+    })
+    runner = _CommandRunner()
+    runtime = HookRuntime(definitions, command_runner=runner)
+    context = _scope(runtime).context
+    cleaned = []
+
+    async def cleanup_session(session_id):
+        cleaned.append(session_id)
+
+    def fail_preparation() -> None:
+        raise RuntimeError("transcript unavailable")
+
+    gateway = SessionLifecycleGateway(
+        scope_factory=lambda event_context: HookExecutionScope(
+            context=event_context,
+            dispatcher=runtime,
+        ),
+        cleanup_session=cleanup_session,
+    )
+
+    ended = await gateway.end(
+        8,
+        context,
+        reason="exit",
+        transcript_path="D:/sessions/session.jsonl",
+        last_assistant_message="final answer",
+        before_dispatch=fail_preparation,
+    )
+
+    assert ended is True
+    assert cleaned == ["sid_test"]
+    assert len(runner.calls) == 1
 
 
 def test_runtime_reports_matching_hooks() -> None:
@@ -1183,12 +1225,19 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
         "PostToolUse": [_hook("post")],
     })
     runner = _CommandRunner()
+    transcript_entries = []
+
+    def record_transcript(event, *, actor=None, payload=None) -> None:
+        transcript_entries.append((event, actor, dict(payload or {})))
+
     coordinator = ToolCallCoordinator(
-        _scope(HookRuntime(definitions, command_runner=runner))
+        _scope(HookRuntime(definitions, command_runner=runner)),
+        transcript=SimpleNamespace(append=record_transcript),
     )
     invocation = _invocation()
 
     decision = await coordinator.prepare(invocation)
+    assert [entry[0] for entry in transcript_entries] == ["tool.started"]
     result = await coordinator.run_invocation(
         invocation,
         lambda _prepared: _return_value(SimpleNamespace(
@@ -1209,6 +1258,10 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
     assert runner.calls[1][1]["tool_response"]["data"] == {
         "answer": 42,
     }
+    assert [entry[0] for entry in transcript_entries] == [
+        "tool.started",
+        "tool.completed",
+    ]
 
 
 @pytest.mark.anyio

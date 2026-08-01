@@ -15,7 +15,7 @@ async def test_run_report_separates_plain_debug_and_output_records(
     tmp_path: Path,
 ) -> None:
     report = RunReport(str(tmp_path), label="logging-test")
-    writer = StreamRecordWriter(report.log_papers)
+    writer = StreamRecordWriter(report.output_record_path)
 
     await writer.open()
     writer.write("assistant-output-marker\n")
@@ -25,7 +25,7 @@ async def test_run_report_separates_plain_debug_and_output_records(
     report.close()
 
     debug_path = Path(report.debug_log)
-    output_path = Path(report.log_papers)
+    output_path = Path(report.output_record_path)
     debug_text = debug_path.read_text(encoding="utf-8")
     output_text = output_path.read_text(encoding="utf-8")
 

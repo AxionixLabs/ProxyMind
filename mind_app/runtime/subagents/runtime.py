@@ -40,6 +40,8 @@ if typing.TYPE_CHECKING:
 
 SkillsProvider = typing.Callable[[], list[dict[str, str]]]
 
+TranscriptPathResolver = typing.Callable[[str], str]
+
 
 class SubagentTurnFailedError(RuntimeError):
     """表示子模型轮次返回了未完成结果。"""
@@ -59,14 +61,16 @@ class SubagentRuntime:
         *,
         settings: AgentSettings | None = None,
         executor: SubagentExecutionPort | None = None,
-        skills_provider: SkillsProvider | None = None
+        skills_provider: SkillsProvider | None = None,
+        transcript_path_for: TranscriptPathResolver | None = None
     ) -> None:
-        self._controller      = controller
-        self._settings        = settings or AgentSettings()
-        self._executor        = executor or StreamSubagentExecutor(controller)
-        self._skills_provider = skills_provider or self._configured_skills
-        self._runner          = SubagentRunner(controller)
-        self._lock            = asyncio.Lock()
+        self._controller          = controller
+        self._settings            = settings or AgentSettings()
+        self._executor            = executor or StreamSubagentExecutor(controller)
+        self._skills_provider     = skills_provider or self._configured_skills
+        self._transcript_path_for = transcript_path_for or (lambda _sid: "")
+        self._runner              = SubagentRunner(controller)
+        self._lock                = asyncio.Lock()
 
         self._controls: dict[str, AgentControl] = {}
 
@@ -96,6 +100,7 @@ class SubagentRuntime:
             pref_config,
             skills=self._skills_provider(),
             agent_id=agent_id,
+            transcript_path_for=self._transcript_path_for,
         )
 
         return await control.spawn(
