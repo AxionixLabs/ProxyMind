@@ -7,6 +7,41 @@ from engine.channel import Channel
 from mind_nova.services import service_endpoints
 
 
+_ToolResultValue = typing.Union[
+    None,
+    str,
+    int,
+    bool,
+    float,
+    list[typing.Any],
+    dict[str, typing.Any],
+]
+
+
+class _ToolResultPayload(typing.TypedDict):
+    """描述工具执行结果的请求载荷。"""
+    cid: str
+    sid: str
+    call_id: str
+    name: str
+    ok: bool
+    result: _ToolResultValue
+    execution: typing.NotRequired[dict[str, typing.Any]]
+    additional_context: typing.NotRequired[list[str]]
+    system_message: typing.NotRequired[str]
+
+
+class _ToolApprovalPayload(typing.TypedDict):
+    """描述工具审批决定的请求载荷。"""
+    cid: str
+    sid: str
+    call_id: str
+    approval_id: str
+    decision: str
+    reason: typing.NotRequired[str]
+    additional_context: typing.NotRequired[list[str]]
+
+
 class ToolApprovalExpired(Exception):
     """表示服务端审批请求已不再处于 pending 状态。"""
 
@@ -21,22 +56,14 @@ async def post_tool_result(
     call_id: str,
     name: str,
     ok: bool,
-    result: typing.Union[
-        None,
-        str,
-        int,
-        bool,
-        float,
-        list[typing.Any],
-        dict[str, typing.Any]
-    ],
+    result: _ToolResultValue,
     execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
     system_message: str = ""
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
-    payload = {
+    payload: _ToolResultPayload = {
         "cid"     : cid,
         "sid"     : sid,
         "call_id" : call_id,
@@ -47,12 +74,7 @@ async def post_tool_result(
     if isinstance(execution, dict):
         payload["execution"] = execution
 
-    contexts = [
-        text
-        for value in additional_context
-        for text in [str(value or "").strip()]
-        if text
-    ]
+    contexts = _normalized_contexts(additional_context)
     if contexts:
         payload["additional_context"] = contexts
 
@@ -73,12 +95,13 @@ async def post_tool_approval(
     approval_id: str,
     decision: str,
     reason: str | None = None,
-    timeout: float = 60.0
+    timeout: float = 60.0,
+    additional_context: typing.Sequence[str] = (),
 ) -> None:
     """把用户对服务端审批请求的决定回传给主循环。"""
     clean_decision = str(decision or "").strip() or "decline"
     headers = Channel.make_headers()
-    payload = {
+    payload: _ToolApprovalPayload = {
         "cid"         : cid,
         "sid"         : sid,
         "call_id"     : call_id,
@@ -87,6 +110,10 @@ async def post_tool_approval(
     }
     if reason:
         payload["reason"] = reason
+
+    contexts = _normalized_contexts(additional_context)
+    if contexts:
+        payload["additional_context"] = contexts
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(service_endpoints.endpoint("/tool-approval"), headers=headers, json=payload)
@@ -101,6 +128,11 @@ def _tool_approval_expired_response(response: httpx.Response) -> bool:
         return False
     text = _response_text(response).lower()
     return "tool approval not pending" in text or "approval not pending" in text
+
+
+def _normalized_contexts(values: typing.Sequence[str]) -> list[str]:
+    """规范化请求中携带的附加上下文。"""
+    return [text for value in values if (text := value.strip())]
 
 
 def _response_text(response: httpx.Response) -> str:

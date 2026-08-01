@@ -103,7 +103,6 @@ def _executor(
     return StepPlanExecutor(
         session=_PlanSession(results),
         tools=[{"name": "test_tool"}],
-        report=SimpleNamespace(),
         turn_context=turn_context,
         pref_config={"primary": {"model": "test-model"}},
         tool_call_coordinator=ToolCallCoordinator(HookExecutionScope(
@@ -188,6 +187,33 @@ async def test_plan_step_executes_pre_hook_updated_input() -> None:
     })
 
     assert executor.session.calls[0][1] == {"value": 2}
+
+
+@pytest.mark.anyio
+async def test_plan_step_preserves_pre_hook_denial_context() -> None:
+    report = await _executor(
+        [],
+        hooks={
+            "PreToolUse": [{
+                "hooks": [{"type": "command", "command": "deny"}],
+                "matcher": "test_tool",
+            }],
+        },
+        hook_outputs={
+            "deny": {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "unsafe operation",
+                    "additionalContext": "Use the safe tool instead.",
+                },
+            },
+        },
+    ).execute_tool_call(arguments={
+        "steps": [{"tool": "test_tool", "args": {}}],
+    })
+
+    assert report.additional_context == ("Use the safe tool instead.",)
 
 
 @pytest.mark.anyio

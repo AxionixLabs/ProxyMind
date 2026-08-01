@@ -172,6 +172,7 @@ class HookPermissionDecision:
     reason: str = ""
     hook_keys: tuple[str, ...] = ()
     updated_input: dict[str, typing.Any] | None = None
+    additional_context: tuple[str, ...] = ()
 
     @classmethod
     def abstain(cls) -> "HookPermissionDecision":
@@ -182,6 +183,17 @@ class HookPermissionDecision:
         """复制可变输入，避免审批记录被外部修改。"""
         if self.updated_input is not None:
             object.__setattr__(self, "updated_input", dict(self.updated_input))
+
+        object.__setattr__(
+            self,
+            "additional_context",
+            tuple(
+                text
+                for value in self.additional_context
+                for text in [str(value or "").strip()]
+                if text
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -380,6 +392,20 @@ class ToolCallRunResult(typing.Generic[ToolValue]):
     value: ToolValue | None = None
     visible_result: HookVisibleToolResult | None = None
     reason: str = ""
+    additional_context: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """规范化工具调用携带的附加上下文。"""
+        object.__setattr__(
+            self,
+            "additional_context",
+            tuple(
+                text
+                for value in self.additional_context
+                for text in [str(value or "").strip()]
+                if text
+            ),
+        )
 
 
 if __name__ == '__main__':

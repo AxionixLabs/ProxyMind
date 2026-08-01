@@ -81,6 +81,8 @@ class ToolHookEvents:
                 continue
 
             effect = record.effect
+            contexts.extend(effect.additional_context)
+
             if not effect.continue_execution:
                 denied_keys.append(record.hook_key)
                 reasons.append(_bounded_reason(
@@ -88,13 +90,12 @@ class ToolHookEvents:
                 ))
                 continue
 
-            contexts.extend(effect.additional_context)
-
         if denied_keys:
             return HookDecision(
                 allowed=False,
                 reason=reasons[0],
                 hook_keys=tuple(denied_keys),
+                additional_context=tuple(contexts),
             )
 
         updated_records = tuple(
@@ -249,6 +250,7 @@ class ToolCallCoordinator:
                 reason=pre_tool.reason,
                 hook_keys=pre_tool.hook_keys,
                 updated_input=pre_tool.updated_input,
+                additional_context=pre_tool.additional_context,
             )
 
         permission = await self.events.permission_request(
@@ -259,6 +261,7 @@ class ToolCallCoordinator:
             reason=permission.reason,
             hook_keys=permission.hook_keys,
             updated_input=pre_tool.updated_input,
+            additional_context=pre_tool.additional_context,
         )
 
     async def run_invocation(
@@ -275,6 +278,7 @@ class ToolCallCoordinator:
             return ToolCallRunResult(
                 allowed=False,
                 reason=decision.reason or "tool use denied by hook",
+                additional_context=decision.additional_context,
             )
 
         effective_invocation = self.effective_invocation(invocation, decision)

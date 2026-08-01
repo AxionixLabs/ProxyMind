@@ -106,6 +106,7 @@ class TurnHookEvents:
                 continue
 
             effect = record.effect
+            contexts.extend(effect.additional_context)
 
             if not effect.continue_execution:
                 blocked_keys.append(record.hook_key)
@@ -119,13 +120,12 @@ class TurnHookEvents:
                     updated_input = {}
                 updated_input.update(effect.updated_input)
 
-            contexts.extend(effect.additional_context)
-
         if blocked_keys:
             return HookDecision(
                 allowed=False,
                 reason="; ".join(reason for reason in reasons if reason),
                 hook_keys=tuple(blocked_keys),
+                additional_context=tuple(contexts),
             )
 
         return HookDecision(
@@ -147,7 +147,11 @@ class TurnHookEvents:
         decision = await self.user_prompt_submit(prompt)
         if not decision.allowed:
             raise PromptHookBlockedError(
-                decision.reason or "prompt denied by hook"
+                decision.reason or "prompt denied by hook",
+                additional_context=(
+                    *session_decision.additional_context,
+                    *decision.additional_context,
+                ),
             )
 
         message = _updated_prompt(prompt, decision.updated_input)

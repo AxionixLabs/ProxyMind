@@ -4,7 +4,6 @@
 import time
 import typing
 from dataclasses import dataclass
-from engine.enhance import exchange_arguments
 from engine.observability import observe
 from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp.contracts import McpSessionLike
@@ -75,14 +74,12 @@ class StepPlanExecutor:
         *,
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
-        report: typing.Any,
         turn_context: TurnContext,
         pref_config: typing.Mapping[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator
     ) -> None:
         self.session               = session
         self.tools                 = tools
-        self.report                = report
         self.turn_context          = turn_context
         self.pref_config           = dict(pref_config)
         self.tool_call_coordinator = tool_call_coordinator
@@ -202,20 +199,11 @@ class StepPlanExecutor:
             async def execute_step(
                 prepared: ToolInvocation,
             ) -> ToolOperationResult[typing.Any]:
-                """交换参数后执行当前计划步骤。"""
-                exchanged_args = exchange_arguments(
-                    prepared.name,
-                    dict(prepared.arguments),
-                    self.report,
-                )
-
-                if not isinstance(exchanged_args, dict):
-                    raise TypeError(f"invalid arguments for {prepared.name}")
-
+                """执行当前计划步骤。"""
                 result = await execute_tool(
                     self.session,
                     tools=self.tools,
-                    invocation=prepared.with_arguments(exchanged_args),
+                    invocation=prepared,
                     pref_config=self.pref_config,
                 )
 
@@ -240,6 +228,7 @@ class StepPlanExecutor:
                     step_index,
                     name,
                     hook_run.reason,
+                    additional_context=hook_run.additional_context,
                 )
 
             if hook_run.value is None:
@@ -275,7 +264,9 @@ class StepPlanExecutor:
         run_index: int,
         step_index: int,
         name: str,
-        text: str
+        text: str,
+        *,
+        additional_context: typing.Iterable[str] = (),
     ) -> PlanStepResult:
         """记录计划步骤失败。"""
         step_result = PlanStepResult(
@@ -290,6 +281,7 @@ class StepPlanExecutor:
                 "attachments" : [],
                 "data"        : {"error": text},
             },
+            additional_context=tuple(additional_context),
         )
         self._log_step_result(step_result)
         return step_result

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -20,9 +21,9 @@ from mind_app.runtime.hooks.models import (
 from mind_app.runtime.tools import client_call
 from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
+    ClientToolCallResult,
     ClientToolCallRunner,
     build_client_tool_post_kwargs,
-    coerce_client_tool_call_outcome,
 )
 from mind_core.permissions import preset_permissions
 
@@ -57,7 +58,6 @@ def _runner(coordinator) -> tuple[ClientToolCallRunner, SimpleNamespace]:
         presentation=presentation,
         tools=[{"name": "test_tool"}],
         pref_config={},
-        report=SimpleNamespace(),
         tool_call_coordinator=coordinator,
     )
     return runner, SimpleNamespace(
@@ -68,7 +68,7 @@ def _runner(coordinator) -> tuple[ClientToolCallRunner, SimpleNamespace]:
 
 
 @pytest.mark.anyio
-async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> None:
+async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> None:
     async def run_allowed(invocation, operation):
         operation_result = await operation(invocation)
         return ToolCallRunResult(
@@ -89,11 +89,9 @@ async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> Non
         text="done",
         cost_ms=7,
     )
-    exchange = Mock(return_value={"value": 2})
     run_tool_step = AsyncMock(return_value=tool_run)
     show_start = AsyncMock()
     show_result = AsyncMock()
-    monkeypatch.setattr(client_call, "exchange_arguments", exchange)
     monkeypatch.setattr(client_call, "run_tool_step", run_tool_step)
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
     monkeypatch.setattr(client_call, "show_tool_result", show_result)
@@ -105,7 +103,7 @@ async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> Non
     result = outcome.result
 
     assert result.ok is True
-    assert result.arguments == {"value": 2}
+    assert result.arguments == {"value": 1}
     assert result.fields == {"ok": True, "text": "done"}
     assert result.cost_ms == 7
     ports.output.record_tool_arguments.assert_called_once_with(
@@ -113,8 +111,7 @@ async def test_client_tool_call_executes_exchanged_arguments(monkeypatch) -> Non
         {"value": 1},
         call_id="call-1",
     )
-    exchange.assert_called_once_with("test_tool", {"value": 1}, runner.report)
-    assert run_tool_step.await_args.kwargs["invocation"].arguments == {"value": 2}
+    assert run_tool_step.await_args.kwargs["invocation"].arguments == {"value": 1}
     show_start.assert_awaited_once()
     show_result.assert_awaited_once()
 
@@ -229,50 +226,16 @@ async def test_client_tool_call_applies_post_hook_replacement(
     assert outcome.system_message == "Prefer the replacement."
 
 
-def test_client_tool_outcome_accepts_result_without_hook_feedback() -> None:
-    class LegacyResult:
-        __slots__ = (
-            "name",
-            "arguments",
-            "ok",
-            "text",
-            "fields",
-            "cost_ms",
-            "call_id",
-        )
-
-        def __init__(self) -> None:
-            self.name = "test_tool"
-            self.arguments = {}
-            self.ok = True
-            self.text = "done"
-            self.fields = {"ok": True, "text": "done"}
-            self.cost_ms = 5
-            self.call_id = "call-1"
-
-    outcome = coerce_client_tool_call_outcome(LegacyResult())
-
-    assert outcome.result.name == "test_tool"
-    assert outcome.result.cost_ms == 5
-    assert outcome.additional_context == ()
-    assert build_client_tool_post_kwargs(
-        outcome,
-        execution={"kind": "local"},
-    ) == {
-        "execution": {"kind": "local"},
-    }
-
-
 def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
     outcome = ClientToolCallOutcome(
-        result=SimpleNamespace(
+        result=ClientToolCallResult(
             name="test_tool",
             arguments={},
             ok=True,
             text="done",
             fields={"ok": True, "text": "done"},
         ),
-        additional_context=[" context "],
+        additional_context=(" context ",),
         system_message=" system ",
     )
 
@@ -284,6 +247,16 @@ def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
         "additional_context": ("context",),
         "system_message": "system",
     }
+
+
+def test_client_tool_outcome_rejects_invalid_result() -> None:
+    with pytest.raises(
+        TypeError,
+        match="must return ClientToolCallResult",
+    ):
+        ClientToolCallOutcome(
+            result=cast(ClientToolCallResult, SimpleNamespace())
+        )
 
 
 def test_client_tool_result_has_no_hook_feedback_fields() -> None:

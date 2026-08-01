@@ -30,7 +30,10 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope
 )
 from mind_app.runtime.turns.executor import TurnExecution
-from mind_app.runtime.tools.client_call import ClientToolCallResult
+from mind_app.runtime.tools.client_call import (
+    ClientToolCallOutcome,
+    ClientToolCallResult,
+)
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
@@ -418,6 +421,40 @@ async def test_session_start_stop_queues_context_for_next_turn(monkeypatch) -> N
 
 
 @pytest.mark.anyio
+async def test_prompt_stop_queues_context_for_next_turn(monkeypatch) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "continue": False,
+                "stopReason": "Select a project first.",
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": (
+                        "Available projects: web, app, service."
+                    ),
+                },
+            })
+
+    definitions = resolve_hook_definitions(
+        {"UserPromptSubmit": [_hook("prompt")]},
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    result, mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+    )
+
+    assert result.status == "failed"
+    assert result.error == "Select a project first."
+    assert mind_state.queued_context == [(
+        "Available projects: web, app, service.",
+    )]
+
+
+@pytest.mark.anyio
 async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     class CommandRunner(object):
         def __init__(self) -> None:
@@ -725,13 +762,15 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
         _ = use_coding_trace, display
         invocations.append(invocation)
-        return ClientToolCallResult(
-            name=invocation.name,
-            arguments=dict(invocation.arguments),
-            ok=True,
-            text="done",
-            call_id=invocation.call_id,
-            fields={"ok": True, "text": "done"},
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
         )
 
     async def post_tool_result(*args, **kwargs):
@@ -930,19 +969,78 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_pre_tool_approval_denial_reports_additional_context(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "unsafe operation",
+                    "additionalContext": "Use the safe tool instead.",
+                },
+            })
+
+    definitions = resolve_hook_definitions(
+        {
+            "PreToolUse": [{
+                "hooks": [{"type": "command", "command": "check"}],
+                "matcher": "test_tool",
+            }],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+    approval_posts = []
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [{
+            "type": "tool.approval_required",
+            "call_id": "call-denied",
+            "name": "test_tool",
+            "arguments": {"value": 1},
+            "approval": {
+                "id": "approval-denied",
+                "tool": "test_tool",
+                "arguments": {"value": 1},
+            },
+        }, {"type": "turn.done"}],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+    )
+
+    assert result.status == "completed"
+    mind.frontend.interaction.request_approval.assert_not_awaited()
+    assert approval_posts[0][1] == {
+        "decision": "decline",
+        "reason": "unsafe operation",
+        "additional_context": ("Use the safe tool instead.",),
+    }
+
+
+@pytest.mark.anyio
 async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -> None:
     approval_posts = []
     result_posts = []
 
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
         _ = use_coding_trace, display
-        return ClientToolCallResult(
-            name=invocation.name,
-            arguments=dict(invocation.arguments),
-            ok=True,
-            text="done",
-            call_id=invocation.call_id,
-            fields={"ok": True, "text": "done"},
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
         )
 
     async def post_tool_approval(*args, **kwargs):
@@ -1013,6 +1111,7 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": "blocked by test hook",
+                    "additionalContext": "Use the safe tool instead.",
                 },
             })
 
@@ -1061,6 +1160,9 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
         False,
     )
     assert posted[0][0][5]["data"]["hook_denied"] is True
+    assert posted[0][1]["additional_context"] == (
+        "Use the safe tool instead.",
+    )
 
 
 @pytest.mark.anyio
@@ -1098,13 +1200,15 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
         _ = use_coding_trace, display
         executed.append(dict(invocation.arguments))
-        return ClientToolCallResult(
-            name=invocation.name,
-            arguments=dict(invocation.arguments),
-            ok=True,
-            text="done",
-            call_id=invocation.call_id,
-            fields={"ok": True, "text": "done"},
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
         )
 
     async def post_tool_result(*args, **kwargs):

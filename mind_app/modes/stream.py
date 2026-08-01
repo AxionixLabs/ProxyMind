@@ -75,7 +75,6 @@ from ..runtime.tools.execution_policy import (
     validate_execution_policy
 )
 from ..runtime.tools.client_call import (
-    coerce_client_tool_call_outcome,
     ClientToolCallRunner,
     build_client_tool_post_kwargs
 )
@@ -348,7 +347,6 @@ async def stream_looper(
             presentation=presentation,
             tools=tools,
             pref_config=pref_config,
-            report=mind.report,
             tool_call_coordinator=tool_call_coordinator,
         )
         plan_tool_runner = PlanToolCallRunner(
@@ -357,7 +355,6 @@ async def stream_looper(
             status_control=status_control,
             presentation=presentation,
             tools=tools,
-            report=mind.report,
             turn_context=turn_context,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
@@ -583,13 +580,24 @@ async def stream_looper(
                     source=decision_source,
                 ))
                 try:
+                    approval_post_kwargs: dict[str, typing.Any] = {
+                        "decision": decision,
+                        "reason": reason,
+                    }
+                    if (
+                        not approved
+                        and permission_decision is not None
+                        and permission_decision.additional_context
+                    ):
+                        approval_post_kwargs["additional_context"] = (
+                            permission_decision.additional_context
+                        )
                     await post_tool_approval(
                         turn_context.cid,
                         turn_context.sid,
                         event.call_id,
                         approval_id,
-                        decision=decision,
-                        reason=reason
+                        **approval_post_kwargs,
                     )
                 except ToolApprovalExpired:
                     observe(
@@ -649,6 +657,7 @@ async def stream_looper(
                         False,
                         _hook_denied_result(hook_decision.reason),
                         execution=invocation.execution,
+                        additional_context=hook_decision.additional_context,
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.15)
                     continue
@@ -710,6 +719,10 @@ async def stream_looper(
                     ):
                         post_kwargs["additional_context"] = (
                             visible_result.additional_context
+                        )
+                    elif hook_run.additional_context:
+                        post_kwargs["additional_context"] = (
+                            hook_run.additional_context
                         )
                     if (
                         visible_result is not None
@@ -790,11 +803,9 @@ async def stream_looper(
 
                 use_coding_trace = coding_trace_tool(name)
 
-                tool_outcome = coerce_client_tool_call_outcome(
-                    await client_tool_runner.execute(
-                        invocation,
-                        use_coding_trace=use_coding_trace,
-                    )
+                tool_outcome = await client_tool_runner.execute(
+                    invocation,
+                    use_coding_trace=use_coding_trace,
                 )
                 tool_result = tool_outcome.result
                 post_kwargs = build_client_tool_post_kwargs(

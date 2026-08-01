@@ -6,7 +6,6 @@ from dataclasses import (
     dataclass,
     field
 )
-from engine.enhance import exchange_arguments
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.output import (
     OutputControlPort,
@@ -38,7 +37,7 @@ class ClientToolCallResult:
     fields: dict[str, typing.Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ClientToolCallOutcome:
     """描述客户端工具执行和 Hook 反馈的组合结果。"""
     result: ClientToolCallResult
@@ -47,21 +46,33 @@ class ClientToolCallOutcome:
 
     def __post_init__(self) -> None:
         """规范化 Hook 反馈文本。"""
-        self.result = _coerce_client_tool_result(self.result)
-        self.additional_context = _normalized_contexts(self.additional_context)
-        self.system_message = str(self.system_message or "").strip()
+        if not isinstance(self.result, ClientToolCallResult):
+            raise TypeError(
+                "client tool execution must return ClientToolCallResult"
+            )
+        if not isinstance(self.additional_context, tuple) or any(
+            not isinstance(value, str)
+            for value in self.additional_context
+        ):
+            raise TypeError("additional context must be a tuple of strings")
+        if not isinstance(self.system_message, str):
+            raise TypeError("system message must be a string")
 
-
-def coerce_client_tool_call_outcome(value: typing.Any) -> ClientToolCallOutcome:
-    """把客户端工具执行返回值规范为组合结果。"""
-    if isinstance(value, ClientToolCallOutcome):
-        return value
-
-    return ClientToolCallOutcome(
-        result=_coerce_client_tool_result(value),
-        additional_context=getattr(value, "additional_context", ()),
-        system_message=str(getattr(value, "system_message", "") or ""),
-    )
+        object.__setattr__(
+            self,
+            "additional_context",
+            tuple(
+                text
+                for value in self.additional_context
+                for text in [value.strip()]
+                if text
+            ),
+        )
+        object.__setattr__(
+            self,
+            "system_message",
+            self.system_message.strip(),
+        )
 
 
 def build_client_tool_post_kwargs(
@@ -74,65 +85,13 @@ def build_client_tool_post_kwargs(
         "execution": execution,
     }
 
-    contexts = _normalized_contexts(
-        outcome.additional_context,
-    )
-    if contexts:
-        post_kwargs["additional_context"] = contexts
+    if outcome.additional_context:
+        post_kwargs["additional_context"] = outcome.additional_context
 
-    system_message = str(outcome.system_message or "").strip()
-    if system_message:
-        post_kwargs["system_message"] = system_message
+    if outcome.system_message:
+        post_kwargs["system_message"] = outcome.system_message
 
     return post_kwargs
-
-
-def _normalized_contexts(value: typing.Any) -> tuple[str, ...]:
-    """规范化可选的上下文文本集合。"""
-    if isinstance(value, str):
-        text = value.strip()
-        return (text,) if text else ()
-    if not isinstance(value, (tuple, list)):
-        return ()
-    return tuple(
-        text
-        for item in value
-        for text in [str(item or "").strip()]
-        if text
-    )
-
-
-def _coerce_client_tool_result(value: typing.Any) -> ClientToolCallResult:
-    """把旧形状或结构化对象规范为客户端工具结果。"""
-    if isinstance(value, ClientToolCallResult):
-        return value
-
-    try:
-        name = str(value.name or "")
-        arguments = dict(value.arguments)
-        ok = bool(value.ok)
-        text = str(value.text or "")
-        fields = dict(value.fields)
-    except (AttributeError, TypeError, ValueError) as error:
-        raise TypeError("client tool execution returned invalid result") from error
-
-    return ClientToolCallResult(
-        name=name,
-        arguments=arguments,
-        ok=ok,
-        text=text,
-        cost_ms=_normalized_cost_ms(getattr(value, "cost_ms", 0)),
-        call_id=str(getattr(value, "call_id", "") or ""),
-        fields=fields,
-    )
-
-
-def _normalized_cost_ms(value: typing.Any) -> int:
-    """规范化工具耗时毫秒数。"""
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
 
 
 class ClientToolCallRunner:
@@ -147,7 +106,6 @@ class ClientToolCallRunner:
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         pref_config: dict[str, typing.Any],
-        report: typing.Any,
         tool_call_coordinator: ToolCallCoordinator
     ) -> None:
         self.session               = session
@@ -156,7 +114,6 @@ class ClientToolCallRunner:
         self.presentation          = presentation
         self.tools                 = tools
         self.pref_config           = pref_config
-        self.report                = report
         self.tool_call_coordinator = tool_call_coordinator
 
     async def _execute_allowed_call(
@@ -186,9 +143,6 @@ class ClientToolCallRunner:
                         arguments,
                         call_id=call_id,
                     )
-
-            arguments  = exchange_arguments(name, arguments, self.report)
-            invocation = invocation.with_arguments(arguments)
 
             tool_run = await run_tool_step(
                 self.session,
@@ -276,6 +230,7 @@ class ClientToolCallRunner:
         if not hook_run.allowed:
             return ClientToolCallOutcome(
                 result=self._denied_result(invocation, hook_run.reason),
+                additional_context=hook_run.additional_context,
             )
         if hook_run.value is None:
             raise RuntimeError("tool execution returned no result")

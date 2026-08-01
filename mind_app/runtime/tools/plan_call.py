@@ -33,7 +33,6 @@ class PlanToolCallRunner:
         status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
-        report: typing.Any,
         turn_context: TurnContext,
         pref_config: typing.Mapping[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator
@@ -45,7 +44,6 @@ class PlanToolCallRunner:
         self.executor = StepPlanExecutor(
             session=session,
             tools=tools,
-            report=report,
             turn_context=turn_context,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,

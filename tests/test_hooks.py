@@ -830,21 +830,31 @@ async def test_turn_prompt_hook_failure_does_not_block() -> None:
 @pytest.mark.anyio
 async def test_turn_prompt_hook_blocks_on_explicit_decision() -> None:
     definitions = _definitions({
+        "SessionStart": [_hook("start", matcher="startup")],
         "UserPromptSubmit": [_hook("prompt")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
+            "additionalContext": "Python 3.13 is required.",
+        },
+        definitions[1].key: {
             "continue": False,
             "reason": "prompt blocked",
+            "additionalContext": "Available projects: web, app, service.",
         },
     })
     events = TurnHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    )))
+    ), _invocation(session_started=True)))
 
-    with pytest.raises(PromptHookBlockedError, match="prompt blocked"):
+    with pytest.raises(PromptHookBlockedError, match="prompt blocked") as caught:
         await events.begin("hello")
+
+    assert caught.value.additional_context == (
+        "Python 3.13 is required.",
+        "Available projects: web, app, service.",
+    )
 
 
 @pytest.mark.anyio
@@ -947,6 +957,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
         definitions[1].key: {
             "decision": "deny",
             "reason": "command is blocked",
+            "additionalContext": "Use scripts/clean.py instead.",
         },
     })
     runtime = HookRuntime(definitions, command_runner=runner)
@@ -957,6 +968,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
 
     assert not decision.allowed
     assert decision.reason == "command is blocked"
+    assert decision.additional_context == ("Use scripts/clean.py instead.",)
     assert len(runner.calls) == 2
     payload = runner.calls[0][1]
     assert payload["turn_id"] == "turn_test"
@@ -1125,6 +1137,7 @@ async def test_permission_preparation_stops_after_pre_tool_denial() -> None:
         definitions[0].key: {
             "decision": "deny",
             "reason": "blocked before approval",
+            "additionalContext": "Use the safe wrapper instead.",
         },
         definitions[1].key: {"decision": "allow"},
     })
@@ -1138,6 +1151,7 @@ async def test_permission_preparation_stops_after_pre_tool_denial() -> None:
     assert decision.action == "deny"
     assert decision.reason == "blocked before approval"
     assert decision.hook_keys == (definitions[0].key,)
+    assert decision.additional_context == ("Use the safe wrapper instead.",)
     assert [call[0].event for call in runner.calls] == ["PreToolUse"]
 
 
