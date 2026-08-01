@@ -90,7 +90,10 @@ async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
     runtime = TuiRuntime()
     skill = SkillSpec(
         name="review",
-        description="Review the current changes",
+        description=(
+            "Review the current changes and report every important issue "
+            "without omitting details"
+        ),
         source="project",
         root=Path("skills/review"),
         entry=Path("skills/review/SKILL.md"),
@@ -105,6 +108,9 @@ async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
     request = runtime.select_menu.await_args.args[0]
     assert request.title == "Skills"
     assert request.options[0].label == "review"
+    assert request.options[0].detail == (
+        "Review the current changes and report e..."
+    )
 
 
 @pytest.mark.anyio
