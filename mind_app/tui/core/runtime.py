@@ -478,13 +478,15 @@ class TuiRuntime(object):
         block: FragmentBlock,
         *,
         kind: TuiBlockKind = "system",
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        stream_continuation: bool = False
     ) -> None:
         """向会话内容追加一个稳定展示块。"""
         if self.document.append_block(
             block,
             kind=kind,
             transcript_block=transcript_block,
+            stream_continuation=stream_continuation,
         ):
             self.screen.transcript_overlay.content_changed()
             self.viewport.content_appended()
@@ -608,13 +610,15 @@ class TuiRuntime(object):
         block: FragmentBlock,
         *,
         kind: TuiBlockKind = "assistant",
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        stream_continuation: bool = False
     ) -> None:
         """替换当前流式展示块。"""
         self.document.set_active(
             block,
             kind=kind,
             transcript_block=transcript_block,
+            stream_continuation=stream_continuation,
         )
 
         self.screen.transcript_overlay.content_changed()

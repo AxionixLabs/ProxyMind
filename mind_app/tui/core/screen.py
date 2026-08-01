@@ -66,7 +66,12 @@ from .bottom_pane import (
     BottomSurface,
     TuiBottomPane
 )
-from .document import TuiDocument
+from .document import (
+    TranscriptBlock,
+    TranscriptLiveTail,
+    TranscriptSnapshot,
+    TuiDocument
+)
 from .input import (
     INPUT_BUFFER_NAME,
     TuiInputModel
@@ -192,6 +197,8 @@ class TuiScreen(object):
 
         self._transcript_only: bool = False
 
+        self._animation_tick: int = 0
+
         self.activity_block: FragmentBlock | None = None
 
         self.process_status = TuiProcessStatus(
@@ -298,6 +305,7 @@ class TuiScreen(object):
             document=self.document,
             get_width=lambda: self.terminal_width,
             get_height=lambda: self._transcript_overlay_height(),
+            get_snapshot=self._transcript_snapshot,
             invalidate=self.invalidate,
         )
         self.transcript_overlay_control = FormattedTextControl(
@@ -677,19 +685,35 @@ class TuiScreen(object):
             return False
 
         if active:
-            self._enter_transcript_screen()
-            self.transcript_overlay.open()
-            self.application.layout.focus(self.transcript_overlay_control)
+            try:
+                self._enter_transcript_screen()
+                self.transcript_overlay.open()
+                self.application.layout.focus(self.transcript_overlay_control)
+            except BaseException:
+                self.transcript_overlay.active = False
+                try:
+                    self._leave_transcript_screen()
+                finally:
+                    self._restore_transcript_focus()
+                raise
         else:
-            self.transcript_overlay.close()
-            self._leave_transcript_screen()
-            surface = self.bottom_pane.active_surface
-            if surface is None:
-                self._focus_input()
-            else:
-                self._focus_bottom_surface(surface)
+            try:
+                self.transcript_overlay.close()
+            finally:
+                try:
+                    self._leave_transcript_screen()
+                finally:
+                    self._restore_transcript_focus()
         self.invalidate()
         return True
+
+    def _restore_transcript_focus(self) -> None:
+        """把完整记录关闭后的焦点恢复到当前交互表面。"""
+        surface = self.bottom_pane.active_surface
+        if surface is None:
+            self._focus_input()
+        else:
+            self._focus_bottom_surface(surface)
 
     def _enter_transcript_screen(self) -> None:
         """保存 inline 渲染状态并准备完整终端画面。"""
@@ -709,12 +733,13 @@ class TuiScreen(object):
         )
 
         self.application.full_screen = True
-        renderer.full_screen = True
-        renderer._cursor_pos = Point(x=0, y=0)
-        renderer._last_screen = None
-        renderer._last_size = None
-        renderer._last_style = None
-        renderer._last_cursor_shape = None
+
+        renderer.full_screen           = True
+        renderer._cursor_pos           = Point(x=0, y=0)
+        renderer._last_screen          = None
+        renderer._last_size            = None
+        renderer._last_style           = None
+        renderer._last_cursor_shape    = None
         renderer._min_available_height = self.terminal_height
 
     def _leave_transcript_screen(self) -> None:
@@ -722,31 +747,39 @@ class TuiScreen(object):
         renderer = self.application.renderer
         state = self._inline_renderer_state
 
-        if renderer._in_alternate_screen:
-            renderer.output.quit_alternate_screen()
+        try:
+            if renderer._in_alternate_screen:
+                renderer.output.quit_alternate_screen()
+                renderer.output.flush()
+        finally:
             renderer._in_alternate_screen = False
-            renderer.output.flush()
+            self.application.full_screen  = False
+            renderer.full_screen          = False
 
-        self.application.full_screen = False
-        renderer.full_screen = False
+            if state is not None:
+                renderer._cursor_pos           = state.cursor_pos
+                renderer._last_screen          = state.last_screen
+                renderer._last_size            = state.last_size
+                renderer._last_style           = state.last_style
+                renderer._last_cursor_shape    = state.last_cursor_shape
+                renderer._min_available_height = state.min_available_height
 
-        if state is not None:
-            renderer._cursor_pos = state.cursor_pos
-            renderer._last_screen = state.last_screen
-            renderer._last_size = state.last_size
-            renderer._last_style = state.last_style
-            renderer._last_cursor_shape = state.last_cursor_shape
-            renderer._min_available_height = state.min_available_height
-        self._inline_renderer_state = None
+            self._inline_renderer_state = None
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
         self.activity_block = block
+        self._animation_tick += 1
+        self.transcript_overlay.content_changed()
         self.invalidate()
 
     def clear_activity_renderable(self) -> None:
         """清空活动状态区域的展示内容。"""
+        changed = self.activity_block is not None
         self.activity_block = None
+        if changed:
+            self._animation_tick += 1
+            self.transcript_overlay.content_changed()
         self.invalidate()
 
     def clear_terminal_scrollback(self) -> None:
@@ -772,6 +805,44 @@ class TuiScreen(object):
     def transcript_fragments(self) -> FormattedText:
         """生成会话内容区域的格式化片段。"""
         return self.document.fragments(width=self.terminal_width)
+
+    def _transcript_snapshot(self) -> TranscriptSnapshot:
+        """组合已提交记录和当前画面专用的动态尾部。"""
+        snapshot = self.document.transcript_snapshot()
+        activity = self.activity_block
+        if activity is None:
+            return snapshot
+
+        document_tail = snapshot.live_tail
+
+        cells = list(document_tail.cells) if document_tail is not None else []
+        cells.append(TranscriptBlock(
+            display_block=activity,
+            transcript_block=activity,
+            kind="operation",
+            gap_before=bool(snapshot.committed_cells or cells),
+            stream_continuation=False,
+            transcript_stable=False,
+        ))
+
+        return TranscriptSnapshot(
+            committed_cells=snapshot.committed_cells,
+            live_tail=TranscriptLiveTail(
+                cells=tuple(cells),
+                revision=(
+                    document_tail.revision
+                    if document_tail is not None
+                    else self.document.active_transcript_revision
+                ),
+                stream_continuation=(
+                    document_tail.stream_continuation
+                    if document_tail is not None
+                    else False
+                ),
+                animation_tick=self._animation_tick,
+            ),
+            committed_revision=snapshot.committed_revision,
+        )
 
     def transcript_available_height(self) -> int:
         """估算首帧渲染前正文可使用的终端行数。"""
@@ -820,7 +891,7 @@ class TuiScreen(object):
     def _input_line_prefix(
         self,
         line_number: int,
-        wrap_count: int,
+        wrap_count: int
     ) -> StyleAndTextTuples:
         """生成输入首行和续行的无边框前缀。"""
         if line_number == 0 and wrap_count == 0:

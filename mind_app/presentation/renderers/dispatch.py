@@ -49,7 +49,7 @@ def render_presentation_view(
     view: PresentationView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> tuple[StyledBlock, ...]:
     """选择结构化展示数据对应的共享渲染器。"""
     blocks = _render_presentation_view(
@@ -70,6 +70,8 @@ def render_presentation_transcript_view(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> tuple[StyledBlock, ...]:
     """把结构化展示数据转换为不省略原始内容的记录块。"""
+    _ = terminal_width
+
     if isinstance(view, ToolStartView):
         blocks = (render_tool_start_transcript_view(view),)
     elif isinstance(view, GenericToolResultView):
@@ -79,10 +81,11 @@ def render_presentation_transcript_view(
     elif isinstance(view, BatchStartView):
         blocks = (render_batch_start_transcript_view(view),)
     else:
+        # Transcript 保存逻辑内容，折行只由具体前端在显示时决定。
         blocks = _render_presentation_view(
             view,
-            terminal_width=terminal_width,
-            measure_width=measure_width,
+            terminal_width=None,
+            measure_width=None,
         )
 
     return tuple(

@@ -35,6 +35,8 @@ class TranscriptBlock(object):
     transcript_block: FragmentBlock
     kind: TuiBlockKind
     gap_before: bool = False
+    stream_continuation: bool = False
+    transcript_stable: bool = True
     turn_id: str = ""
     prompt: str = ""
     attachments: tuple[dict[str, typing.Any], ...] = ()
@@ -42,12 +44,20 @@ class TranscriptBlock(object):
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptLiveTail(object):
+    """保存仅用于当前画面渲染的动态记录尾部。"""
+    cells: tuple[TranscriptBlock, ...]
+    revision: int
+    stream_continuation: bool
+    animation_tick: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TranscriptSnapshot(object):
-    """保存稳定记录、动态尾部及各自版本。"""
-    stable_cells: tuple[TranscriptBlock, ...]
-    active_cells: tuple[TranscriptBlock, ...]
-    stable_revision: int
-    active_revision: int
+    """保存已提交记录及仅用于渲染的动态尾部。"""
+    committed_cells: tuple[TranscriptBlock, ...]
+    live_tail: TranscriptLiveTail | None
+    committed_revision: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +70,7 @@ class TuiDocumentState(object):
     active_transcript_block: FragmentBlock | None
     active_kind: TuiBlockKind | None
     active_gap_before: bool
+    active_stream_continuation: bool
     active_transcript_revision: int
     stable_transcript_revision: int
     pending_submission: FragmentBlock | None
@@ -81,6 +92,7 @@ class TuiDocument(object):
         self.active_transcript_block: FragmentBlock | None = None
         self.active_kind: TuiBlockKind | None              = None
         self.active_gap_before: bool                       = False
+        self.active_stream_continuation: bool              = False
 
         self.active_transcript_revision: int = 0
         self.stable_transcript_revision: int = 0
@@ -166,10 +178,11 @@ class TuiDocument(object):
 
     def _reset_active(self) -> None:
         """重置当前动态正文状态。"""
-        self.active_block            = None
-        self.active_transcript_block = None
-        self.active_kind             = None
-        self.active_gap_before       = False
+        self.active_block               = None
+        self.active_transcript_block    = None
+        self.active_kind                = None
+        self.active_gap_before          = False
+        self.active_stream_continuation = False
 
     def _append_rendered_block(
         self,
@@ -187,7 +200,12 @@ class TuiDocument(object):
             return False
 
         if out or leading_content:
-            out.append(("", "\n\n" if item.gap_before else "\n"))
+            separated = (
+                not item.stream_continuation
+                if transcript
+                else item.gap_before
+            )
+            out.append(("", "\n\n" if separated else "\n"))
         out.extend(parts)
 
         return True
@@ -314,21 +332,25 @@ class TuiDocument(object):
         block: FragmentBlock,
         *,
         kind: TuiBlockKind,
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        stream_continuation: bool = False
     ) -> bool:
         """追加一个稳定正文块并统一保留块间空行。"""
         block            = sanitize_fragment_block(block)
         transcript_block = sanitize_fragment_block(transcript_block or block)
 
+        has_prior_content = bool(
+            self.blocks
+            or self.active_block is not None
+            or self._active_tail
+        )
+
         item = TranscriptBlock(
             display_block=block,
             transcript_block=transcript_block,
             kind=kind,
-            gap_before=bool(
-                self.blocks
-                or self.active_block is not None
-                or self._active_tail
-            ),
+            gap_before=bool(has_prior_content and not stream_continuation),
+            stream_continuation=bool(stream_continuation),
         )
 
         if self.active_block is not None:
@@ -434,6 +456,7 @@ class TuiDocument(object):
             active_transcript_block=deepcopy(self.active_transcript_block),
             active_kind=self.active_kind,
             active_gap_before=self.active_gap_before,
+            active_stream_continuation=self.active_stream_continuation,
             active_transcript_revision=self.active_transcript_revision,
             stable_transcript_revision=self.stable_transcript_revision,
             pending_submission=deepcopy(self._pending_submission),
@@ -445,20 +468,21 @@ class TuiDocument(object):
 
     def restore_state(self, state: TuiDocumentState) -> None:
         """恢复正文提交前的可恢复状态。"""
-        self.blocks = deepcopy(list(state.blocks))
-        self.scrollback_line_count = state.scrollback_line_count
-        self.cleared_line_count = state.cleared_line_count
-        self.active_block = deepcopy(state.active_block)
-        self.active_transcript_block = deepcopy(state.active_transcript_block)
-        self.active_kind = state.active_kind
-        self.active_gap_before = state.active_gap_before
+        self.blocks                     = deepcopy(list(state.blocks))
+        self.scrollback_line_count      = state.scrollback_line_count
+        self.cleared_line_count         = state.cleared_line_count
+        self.active_block               = deepcopy(state.active_block)
+        self.active_transcript_block    = deepcopy(state.active_transcript_block)
+        self.active_kind                = state.active_kind
+        self.active_gap_before          = state.active_gap_before
+        self.active_stream_continuation = state.active_stream_continuation
         self.active_transcript_revision = state.active_transcript_revision
         self.stable_transcript_revision = state.stable_transcript_revision
-        self._pending_submission = deepcopy(state.pending_submission)
-        self._active_tail = deepcopy(list(state.active_tail))
-        self._stable_lines = deepcopy(list(state.stable_lines))
-        self._stable_snapshot_cells = deepcopy(state.stable_snapshot_cells)
-        self._stable_snapshot_revision = state.stable_snapshot_revision
+        self._pending_submission        = deepcopy(state.pending_submission)
+        self._active_tail               = deepcopy(list(state.active_tail))
+        self._stable_lines              = deepcopy(list(state.stable_lines))
+        self._stable_snapshot_cells     = deepcopy(state.stable_snapshot_cells)
+        self._stable_snapshot_revision  = state.stable_snapshot_revision
 
     def bind_turn_payload(
         self,
@@ -505,7 +529,8 @@ class TuiDocument(object):
         block: FragmentBlock,
         *,
         kind: TuiBlockKind,
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        stream_continuation: bool = False
     ) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
         block            = sanitize_fragment_block(block)
@@ -513,12 +538,15 @@ class TuiDocument(object):
 
         if self.active_block is None:
             self.active_kind = kind
-            self.active_gap_before = bool(self.blocks)
         elif self.active_kind != kind:
             raise ValueError("active TUI block kind cannot change before commit")
 
-        self.active_block            = block
-        self.active_transcript_block = transcript_block
+        self.active_gap_before = bool(
+            self.blocks and not stream_continuation
+        )
+        self.active_block               = block
+        self.active_transcript_block    = transcript_block
+        self.active_stream_continuation = bool(stream_continuation)
 
         self.active_transcript_revision += 1
 
@@ -540,6 +568,7 @@ class TuiDocument(object):
             transcript_block=transcript_block,
             kind=self.active_kind,
             gap_before=self.active_gap_before,
+            stream_continuation=self.active_stream_continuation,
         ), *self._active_tail]
 
         self._extend_stable(items)
@@ -573,6 +602,8 @@ class TuiDocument(object):
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
                 gap_before=self.active_gap_before,
+                stream_continuation=self.active_stream_continuation,
+                transcript_stable=False,
             ))
 
         for item in self._active_tail:
@@ -622,6 +653,8 @@ class TuiDocument(object):
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
                 gap_before=self.active_gap_before,
+                stream_continuation=self.active_stream_continuation,
+                transcript_stable=False,
             ))
         blocks.extend(self._active_tail)
         return self._render_blocks(blocks)
@@ -631,40 +664,60 @@ class TuiDocument(object):
         _ = width
         snapshot = self.transcript_snapshot()
 
-        stable = self._render_blocks(
-            list(snapshot.stable_cells),
+        committed = self._render_blocks(
+            list(snapshot.committed_cells),
             transcript=True,
         )
 
+        live_tail = snapshot.live_tail
         active = self._render_blocks(
-            list(snapshot.active_cells),
+            list(live_tail.cells) if live_tail is not None else [],
             transcript=True,
-            leading_content=bool(stable),
+            leading_content=bool(committed),
         )
 
-        return [*stable, *active]
+        return [*committed, *active]
 
     def transcript_snapshot(self) -> TranscriptSnapshot:
-        """返回当前完整记录使用的不可变 cell 快照。"""
-        active_cells: list[TranscriptBlock] = []
+        """返回已提交记录和仅用于渲染的动态尾部快照。"""
+        live_cells: list[TranscriptBlock] = []
+
         if self.active_block is not None:
             if self.active_kind is None:
                 raise ValueError("active TUI block is missing its semantic kind")
-            active_cells.append(TranscriptBlock(
+            live_cells.append(TranscriptBlock(
                 display_block=self.active_block,
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
                 gap_before=self.active_gap_before,
+                stream_continuation=self.active_stream_continuation,
+                transcript_stable=False,
             ))
-        active_cells.extend(self._active_tail)
+
+        live_cells.extend(self._active_tail)
+
         if self._stable_snapshot_revision != self.stable_transcript_revision:
             self._stable_snapshot_cells = tuple(self.blocks)
             self._stable_snapshot_revision = self.stable_transcript_revision
+
+        live_tail = (
+            TranscriptLiveTail(
+                cells=tuple(live_cells),
+                revision=self.active_transcript_revision,
+                stream_continuation=(
+                    live_cells[0].stream_continuation
+                    if live_cells
+                    else False
+                ),
+            )
+            if live_cells
+            else None
+        )
+
         return TranscriptSnapshot(
-            stable_cells=self._stable_snapshot_cells,
-            active_cells=tuple(active_cells),
-            stable_revision=self.stable_transcript_revision,
-            active_revision=self.active_transcript_revision,
+            committed_cells=self._stable_snapshot_cells,
+            live_tail=live_tail,
+            committed_revision=self.stable_transcript_revision,
         )
 
     def transcript_cell_fragments(

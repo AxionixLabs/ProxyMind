@@ -5,7 +5,10 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
-from mind_app.presentation.renderers.dispatch import render_presentation_view
+from mind_app.presentation.renderers.dispatch import (
+    render_presentation_transcript_view,
+    render_presentation_view,
+)
 from mind_app.presentation.styles import PREVIEW_STYLE
 from mind_app.presentation.text_layout import text_display_width
 from mind_app.stream_events.failure_display import (
@@ -69,6 +72,19 @@ def test_failure_view_dispatch_uses_terminal_width() -> None:
     assert len(display_lines) > 2
     assert all(line.startswith("  ") for line in display_lines[2:])
     assert all(text_display_width(line) <= 24 for line in display_lines)
+
+
+def test_failure_transcript_keeps_width_independent_logical_lines() -> None:
+    error = "PermissionDeniedError: Error code: 403 - user quota insufficient"
+
+    blocks = render_presentation_transcript_view(
+        FailureView(phase="turn.failed", error=error),
+        terminal_width=24,
+    )
+    transcript = _display_text(list(blocks[0].spans))
+
+    assert transcript == f"■ turn.failed\n└ {error}"
+    assert len(transcript.splitlines()) == 2
 
 
 def test_tool_title_wrap_keeps_existing_continuation_prefix() -> None:

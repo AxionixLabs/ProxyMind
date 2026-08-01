@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
 from .document import (
     TranscriptBlock,
+    TranscriptLiveTail,
+    TranscriptSnapshot,
     TuiDocument
 )
 from .models import (
@@ -14,6 +16,8 @@ from .models import (
     TranscriptBacktrackRequest
 )
 from .render import (
+    fragments_text,
+    iter_formatted_text_units,
     join_formatted_lines,
     split_formatted_lines
 )
@@ -28,6 +32,15 @@ class _CellRender(object):
     lines: tuple[FormattedText, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class TranscriptRenderKey(object):
+    """描述动态记录尾部在当前画面中的缓存身份。"""
+    width: int
+    revision: int
+    stream_continuation: bool
+    animation_tick: int | None
+
+
 class TuiTranscriptOverlay(object):
     """管理完整会话记录的缓存、可见行和滚动位置。"""
 
@@ -37,11 +50,13 @@ class TuiTranscriptOverlay(object):
         document: TuiDocument,
         get_width: typing.Callable[[], int],
         get_height: typing.Callable[[], int],
+        get_snapshot: typing.Callable[[], TranscriptSnapshot],
         invalidate: typing.Callable[[], None]
     ) -> None:
         self.document    = document
         self._get_width  = get_width
         self._get_height = get_height
+        self._get_snapshot = get_snapshot
         self._invalidate = invalidate
 
         self.active: bool           = False
@@ -52,14 +67,13 @@ class TuiTranscriptOverlay(object):
         self._selected_cell: TranscriptBlock | None = None
 
         self._cached_stable_revision: int = -1
-        self._cached_active_revision: int = -1
         self._cached_width: int           = -1
+        self._cached_live_tail_key: TranscriptRenderKey | None = None
 
         self._cached_stable_cells: tuple[TranscriptBlock, ...] = ()
         self._cached_stable_lines: list[FormattedText]         = []
-        self._cached_active_lines: list[FormattedText]         = []
+        self._cached_live_tail_lines: list[FormattedText]      = []
         self._stable_cell_cache: dict[int, _CellRender]        = {}
-        self._active_cell_cache: dict[int, _CellRender]        = {}
 
     @property
     def has_backtrack_target(self) -> bool:
@@ -89,19 +103,19 @@ class TuiTranscriptOverlay(object):
 
         used_width: int = 0
 
-        for style, text in line:
-            for char in text:
-                char_width = max(0, get_cwidth(char))
-                if current and used_width + char_width > width:
-                    rows.append(current)
-                    current = list(continuation)
-                    used_width = sum(get_cwidth(value) for _style, value in current)
+        for unit in iter_formatted_text_units(line):
+            unit_width = max(0, get_cwidth(fragments_text(unit)))
+            if current and used_width + unit_width > width:
+                rows.append(current)
+                current = list(continuation)
+                used_width = sum(get_cwidth(value) for _style, value in current)
+            for style, text in unit:
                 if current and current[-1][0] == style:
                     previous_style, previous_text = current[-1]
-                    current[-1] = previous_style, previous_text + char
+                    current[-1] = previous_style, previous_text + text
                 else:
-                    current.append((style, char))
-                used_width += char_width
+                    current.append((style, text))
+            used_width += unit_width
 
         rows.append(current)
         return rows
@@ -236,7 +250,7 @@ class TuiTranscriptOverlay(object):
         """返回包含稳定轮次标识和原始输入的用户 cell。"""
         return tuple(
             cell
-            for cell in self.document.transcript_snapshot().stable_cells
+            for cell in self._get_snapshot().committed_cells
             if (
                 cell.kind == "user"
                 and cell.turn_id
@@ -344,7 +358,7 @@ class TuiTranscriptOverlay(object):
         self._sync_cache()
         line_count = (
             len(self._cached_stable_lines)
-            + len(self._cached_active_lines)
+            + len(self._cached_live_tail_lines)
         )
         return max(0, line_count - self._window_height())
 
@@ -353,7 +367,7 @@ class TuiTranscriptOverlay(object):
         self._sync_cache()
         return (
             *self._cached_stable_lines,
-            *self._cached_active_lines,
+            *self._cached_live_tail_lines,
         )
 
     def _visible_lines(
@@ -369,42 +383,54 @@ class TuiTranscriptOverlay(object):
         out = list(self._cached_stable_lines[start:min(stop, stable_count)])
 
         if stop > stable_count:
-            active_start = max(0, start - stable_count)
-            active_stop = max(0, stop - stable_count)
-            out.extend(self._cached_active_lines[active_start:active_stop])
+            tail_start = max(0, start - stable_count)
+            tail_stop = max(0, stop - stable_count)
+            out.extend(self._cached_live_tail_lines[tail_start:tail_stop])
 
         return out
 
     def _sync_cache(self) -> None:
-        """按当前文档版本和宽度同步稳定行与动态尾部缓存。"""
+        """按已提交版本和渲染键同步记录缓存。"""
         width = max(1, self._get_width())
+        snapshot = self._get_snapshot()
+        live_tail = snapshot.live_tail
+        live_tail_key = (
+            TranscriptRenderKey(
+                width=width,
+                revision=live_tail.revision,
+                stream_continuation=live_tail.stream_continuation,
+                animation_tick=live_tail.animation_tick,
+            )
+            if live_tail is not None
+            else None
+        )
 
         stable_changed = (
-            self.document.stable_transcript_revision
+            snapshot.committed_revision
             != self._cached_stable_revision
             or width != self._cached_width
+            or any(
+                not cell.transcript_stable
+                for cell in snapshot.committed_cells
+            )
         )
 
-        active_changed = (
-            self.document.active_transcript_revision
-            != self._cached_active_revision
-            or width != self._cached_width
+        live_tail_changed = (
+            live_tail_key != self._cached_live_tail_key
             or stable_changed
         )
-        if not stable_changed and not active_changed:
+        if not stable_changed and not live_tail_changed:
             return None
-
-        snapshot = self.document.transcript_snapshot()
 
         if stable_changed:
             if self._stable_cells_only_appended(
-                snapshot.stable_cells,
-                stable_revision=snapshot.stable_revision,
+                snapshot.committed_cells,
+                stable_revision=snapshot.committed_revision,
                 width=width,
             ):
                 appended_cache: dict[int, _CellRender] = {}
                 appended_lines = self._render_cells(
-                    snapshot.stable_cells[len(self._cached_stable_cells):],
+                    snapshot.committed_cells[len(self._cached_stable_cells):],
                     width=width,
                     leading_content=bool(self._cached_stable_lines),
                     cache=appended_cache,
@@ -413,21 +439,22 @@ class TuiTranscriptOverlay(object):
                 self._cached_stable_lines.extend(appended_lines)
             else:
                 self._cached_stable_lines = list(self._render_cells(
-                    snapshot.stable_cells,
+                    snapshot.committed_cells,
                     width=width,
                     leading_content=False,
                     cache=self._stable_cell_cache,
                 ))
-            self._cached_stable_cells = snapshot.stable_cells
-            self._cached_stable_revision = snapshot.stable_revision
-        if active_changed:
-            self._cached_active_lines = list(self._render_cells(
-                snapshot.active_cells,
-                width=width,
-                leading_content=bool(self._cached_stable_lines),
-                cache=self._active_cell_cache,
-            ))
-            self._cached_active_revision = snapshot.active_revision
+            self._cached_stable_cells = snapshot.committed_cells
+            self._cached_stable_revision = snapshot.committed_revision
+        if live_tail_changed:
+            self._cached_live_tail_lines = list(
+                self._render_live_tail(
+                    live_tail,
+                    width=width,
+                    leading_content=bool(self._cached_stable_lines),
+                )
+            )
+            self._cached_live_tail_key = live_tail_key
 
         self._cached_width = width
 
@@ -443,7 +470,35 @@ class TuiTranscriptOverlay(object):
             width == self._cached_width
             and stable_revision == self._cached_stable_revision + 1
             and len(cells) > len(self._cached_stable_cells)
+            and all(cell.transcript_stable for cell in cells)
         )
+
+    def _render_live_tail(
+        self,
+        live_tail: TranscriptLiveTail | None,
+        *,
+        width: int,
+        leading_content: bool,
+    ) -> tuple[FormattedText, ...]:
+        """把动态 cell 合成为一个不进入已提交缓存的渲染尾部。"""
+        if live_tail is None:
+            return ()
+
+        lines = self._render_cells(
+            live_tail.cells,
+            width=width,
+            leading_content=False,
+            cache={},
+        )
+
+        if (
+            leading_content
+            and lines
+            and not live_tail.stream_continuation
+        ):
+            return [], *lines
+
+        return lines
 
     def _render_cells(
         self,
@@ -461,7 +516,7 @@ class TuiTranscriptOverlay(object):
 
         for cell in cells:
             key = id(cell)
-            rendered = cache.get(key)
+            rendered = cache.get(key) if cell.transcript_stable else None
             if (
                 rendered is None
                 or rendered.cell is not cell
@@ -472,10 +527,11 @@ class TuiTranscriptOverlay(object):
                     width=width,
                     lines=self._render_cell(cell, width=width),
                 )
-            current_cache[key] = rendered
+            if cell.transcript_stable:
+                current_cache[key] = rendered
             if not rendered.lines:
                 continue
-            if has_content and cell.gap_before:
+            if has_content and not cell.stream_continuation:
                 out.append([])
             out.extend(rendered.lines)
             has_content = True

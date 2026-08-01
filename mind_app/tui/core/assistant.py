@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import unicodedata
 from prompt_toolkit.utils import get_cwidth
+from .render import next_text_unit_end
 
 
 class TuiAssistantStream(object):
@@ -56,7 +56,7 @@ class TuiAssistantStream(object):
         consumed  = 0
 
         while available and self.revealed_end < len(self.text):
-            unit_end = _next_text_unit_end(self.text, self.revealed_end)
+            unit_end = next_text_unit_end(self.text, self.revealed_end)
             unit_width = max(
                 0,
                 get_cwidth(self.text[self.revealed_end:unit_end]),
@@ -85,52 +85,6 @@ class TuiAssistantStream(object):
         self.text             = ""
         self.revealed_end     = 0
         self.boundary_pending = False
-
-
-def _next_text_unit_end(text: str, start: int) -> int:
-    """返回下一个组合文本单元的结束位置。"""
-    limit = len(text)
-    index = min(limit, max(0, int(start)))
-    if index >= limit:
-        return limit
-
-    first = text[index]
-    index += 1
-
-    if first == "\r" and index < limit and text[index] == "\n":
-        return index + 1
-    if _is_regional_indicator(first):
-        if index < limit and _is_regional_indicator(text[index]):
-            index += 1
-        return index
-
-    while index < limit:
-        char = text[index]
-        if _extends_text_unit(char):
-            index += 1
-            continue
-        if char == "\u200d" and index + 1 < limit:
-            index += 2
-            continue
-        break
-    return index
-
-
-def _extends_text_unit(char: str) -> bool:
-    """判断字符是否延续前一个组合文本单元。"""
-    codepoint = ord(char)
-    return bool(
-        unicodedata.combining(char)
-        or unicodedata.category(char).startswith("M")
-        or 0xFE00 <= codepoint <= 0xFE0F
-        or 0xE0100 <= codepoint <= 0xE01EF
-        or 0x1F3FB <= codepoint <= 0x1F3FF
-    )
-
-
-def _is_regional_indicator(char: str) -> bool:
-    """判断字符是否为区域指示符。"""
-    return 0x1F1E6 <= ord(char) <= 0x1F1FF
 
 
 if __name__ == '__main__':

@@ -6,6 +6,7 @@ from typing import get_args
 from unittest.mock import (
     AsyncMock,
     Mock,
+    PropertyMock,
     patch,
 )
 
@@ -178,7 +179,7 @@ def test_document_keeps_display_and_transcript_blocks_in_one_archive() -> None:
 def test_document_refreshes_active_transcript_revision() -> None:
     document = TuiDocument()
     document.append_block(_block("stable"), kind="assistant")
-    stable_cells = document.transcript_snapshot().stable_cells
+    committed_cells = document.transcript_snapshot().committed_cells
     document.set_active(
         _block("running"),
         kind="operation",
@@ -193,7 +194,10 @@ def test_document_refreshes_active_transcript_revision() -> None:
     )
 
     assert document.transcript_revision > revision
-    assert document.transcript_snapshot().stable_cells is stable_cells
+    snapshot = document.transcript_snapshot()
+    assert snapshot.committed_cells is committed_cells
+    assert snapshot.live_tail is not None
+    assert not snapshot.live_tail.cells[0].transcript_stable
     assert _transcript_text(document) == "stable\n\n$ command\nfirst\nsecond"
 
 
@@ -1029,6 +1033,108 @@ def test_transcript_overlay_does_not_cover_blocking_surface(surface: str) -> Non
     assert runtime.screen.bottom_pane.active_surface == surface
 
 
+def test_transcript_open_failure_restores_inline_renderer_state() -> None:
+    runtime = TuiRuntime()
+    screen = runtime.screen
+    renderer = screen.application.renderer
+    original_state = (
+        renderer._cursor_pos,
+        renderer._last_screen,
+        renderer._last_size,
+        renderer._last_style,
+        renderer._last_cursor_shape,
+        renderer._min_available_height,
+    )
+
+    with patch.object(
+        screen.transcript_overlay,
+        "_invalidate",
+        side_effect=RuntimeError("render failed"),
+    ), pytest.raises(RuntimeError, match="render failed"):
+        screen.set_transcript_overlay(True)
+
+    assert not screen.transcript_overlay.active
+    assert not screen.application.full_screen
+    assert not renderer.full_screen
+    assert not renderer._in_alternate_screen
+    assert screen._inline_renderer_state is None
+    assert screen.application.layout.current_control == screen.input.control
+    assert (
+        renderer._cursor_pos,
+        renderer._last_screen,
+        renderer._last_size,
+        renderer._last_style,
+        renderer._last_cursor_shape,
+        renderer._min_available_height,
+    ) == original_state
+
+
+def test_transcript_enter_failure_restores_inline_renderer_state() -> None:
+    runtime = TuiRuntime()
+    screen = runtime.screen
+    renderer = screen.application.renderer
+    original_cursor = renderer._cursor_pos
+
+    with patch.object(
+        type(screen),
+        "terminal_height",
+        new_callable=PropertyMock,
+        side_effect=OSError("terminal unavailable"),
+    ), pytest.raises(OSError, match="terminal unavailable"):
+        screen.set_transcript_overlay(True)
+
+    assert not screen.transcript_overlay.active
+    assert not screen.application.full_screen
+    assert not renderer.full_screen
+    assert not renderer._in_alternate_screen
+    assert renderer._cursor_pos == original_cursor
+    assert screen._inline_renderer_state is None
+    assert screen.application.layout.current_control == screen.input.control
+
+
+def test_transcript_close_failure_still_leaves_full_screen() -> None:
+    runtime = TuiRuntime()
+    screen = runtime.screen
+    renderer = screen.application.renderer
+    assert screen.set_transcript_overlay(True)
+
+    with patch.object(
+        screen.transcript_overlay,
+        "_invalidate",
+        side_effect=RuntimeError("render failed"),
+    ), pytest.raises(RuntimeError, match="render failed"):
+        screen.set_transcript_overlay(False)
+
+    assert not screen.transcript_overlay.active
+    assert not screen.application.full_screen
+    assert not renderer.full_screen
+    assert screen._inline_renderer_state is None
+    assert screen.application.layout.current_control == screen.input.control
+
+
+def test_transcript_leave_restores_state_after_output_failure() -> None:
+    runtime = TuiRuntime()
+    screen = runtime.screen
+    renderer = screen.application.renderer
+    original_cursor = renderer._cursor_pos
+
+    screen._enter_transcript_screen()
+    renderer._in_alternate_screen = True
+
+    with patch.object(
+        renderer.output,
+        "quit_alternate_screen",
+        side_effect=OSError("terminal unavailable"),
+    ), pytest.raises(OSError, match="terminal unavailable"):
+        screen._leave_transcript_screen()
+
+    assert not screen.application.full_screen
+    assert not renderer.full_screen
+    assert not renderer._in_alternate_screen
+    assert renderer._cursor_pos == original_cursor
+    assert screen._inline_renderer_state is None
+
+
 @pytest.mark.anyio
 async def test_runtime_close_leaves_active_transcript_screen() -> None:
     with create_pipe_input() as pipe_input:
@@ -1059,7 +1165,7 @@ async def test_transcript_screen_repeatedly_restores_inline_renderer() -> None:
         runtime.append_block(_block("conversation"), kind="assistant")
         await runtime.open()
         try:
-            for cycle in range(1, 6):
+            for cycle in range(1, 101):
                 output.size = Size(
                     rows=15 + cycle,
                     columns=60 + cycle * 3,
@@ -1097,8 +1203,8 @@ async def test_transcript_screen_repeatedly_restores_inline_renderer() -> None:
         finally:
             await runtime.close()
 
-    assert output.enter_count == 5
-    assert output.quit_count == 5
+    assert output.enter_count == 100
+    assert output.quit_count == 100
 
 
 @pytest.mark.anyio
@@ -1309,6 +1415,80 @@ def test_transcript_overlay_reuses_stable_cache_during_active_updates() -> None:
     assert second == "stable\n\n$ command\nfirst\nsecond"
 
 
+def test_transcript_overlay_live_tail_tracks_animation_tick() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("stable"), kind="assistant")
+    activity = _block("Thinking frame")
+    runtime.screen.set_activity_renderable(activity)
+
+    document_snapshot = runtime.document.transcript_snapshot()
+    screen_snapshot = runtime.screen._transcript_snapshot()
+
+    assert document_snapshot.live_tail is None
+    assert screen_snapshot.live_tail is not None
+    assert not screen_snapshot.live_tail.cells[-1].transcript_stable
+
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+    assert "Thinking frame" in "".join(
+        text for _style, text in overlay.fragments()
+    )
+    first_key = overlay._cached_live_tail_key
+
+    runtime.screen.set_activity_renderable(activity)
+    overlay.fragments()
+    second_key = overlay._cached_live_tail_key
+
+    assert first_key is not None
+    assert second_key is not None
+    assert second_key.width == first_key.width
+    assert second_key.revision == first_key.revision
+    assert second_key.animation_tick != first_key.animation_tick
+
+    runtime.screen.set_activity_renderable(_block("Thinking next frame"))
+    assert "Thinking next frame" in "".join(
+        text for _style, text in overlay.fragments()
+    )
+
+    runtime.screen.clear_activity_renderable()
+    assert "Thinking next frame" not in "".join(
+        text for _style, text in overlay.fragments()
+    )
+    assert overlay._cached_live_tail_key is None
+
+
+def test_transcript_overlay_stream_continuation_controls_shared_spacing() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("first"), kind="assistant")
+    runtime.set_active_renderable(
+        _block("second"),
+        kind="assistant",
+        stream_continuation=False,
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    assert "".join(text for _style, text in overlay.fragments()) == (
+        "first\n\nsecond"
+    )
+    first_key = overlay._cached_live_tail_key
+
+    runtime.set_active_renderable(
+        _block("second"),
+        kind="assistant",
+        stream_continuation=True,
+    )
+    transcript = "".join(text for _style, text in overlay.fragments())
+    second_key = overlay._cached_live_tail_key
+
+    assert transcript == "first\nsecond"
+    assert _document_text(runtime.document) == transcript
+    assert first_key is not None
+    assert second_key is not None
+    assert not first_key.stream_continuation
+    assert second_key.stream_continuation
+
+
 def test_transcript_overlay_reuses_existing_cells_when_stable_content_grows() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("first"), kind="assistant")
@@ -1479,6 +1659,39 @@ def test_transcript_overlay_rebuilds_cells_after_resize_and_removal() -> None:
     assert id(stable_cells[-1]) not in overlay._stable_cell_cache
 
 
+def test_transcript_overlay_reflows_live_tail_again_when_committed() -> None:
+    runtime = TuiRuntime()
+    output_size = [24, 10]
+    runtime.screen._output_size = lambda: tuple(output_size)
+    transcript_block = _block("$ command\n" + "output " * 12)
+    runtime.set_active_renderable(
+        _block("running"),
+        kind="operation",
+        transcript_block=transcript_block,
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    narrow_lines = split_formatted_lines(overlay.fragments())
+    output_size[0] = 60
+    wide_live = overlay.fragments()
+    wide_lines = split_formatted_lines(wide_live)
+
+    assert len(wide_lines) < len(narrow_lines)
+    assert overlay._cached_width == 60
+    assert overlay._cached_live_tail_key is not None
+
+    runtime.commit_active_renderable(
+        _block("completed"),
+        transcript_block=transcript_block,
+    )
+    committed = overlay.fragments()
+
+    assert committed == wide_live
+    assert overlay._cached_width == 60
+    assert overlay._cached_live_tail_key is None
+
+
 def test_transcript_overlay_promotes_active_tail_without_duplicate_content() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("first"), kind="assistant")
@@ -1499,8 +1712,9 @@ def test_transcript_overlay_promotes_active_tail_without_duplicate_content() -> 
 
     assert before == after
     assert after.count("$ command") == 1
-    assert len(runtime.document.transcript_snapshot().stable_cells) == 2
-    assert not runtime.document.transcript_snapshot().active_cells
+    snapshot = runtime.document.transcript_snapshot()
+    assert len(snapshot.committed_cells) == 2
+    assert snapshot.live_tail is None
 
 
 def test_transcript_overlay_owns_visible_rows_and_fills_unused_space() -> None:
@@ -1543,6 +1757,80 @@ def test_transcript_overlay_wraps_cells_before_selecting_visible_rows() -> None:
         get_cwidth("".join(text for _style, text in line)) <= 20
         for line in lines
     )
+
+
+@pytest.mark.parametrize(
+    ("prefix_length", "unit"),
+    [
+        (19, "A\u0301"),
+        (18, "👩\u200d💻"),
+        (18, "🇨🇳"),
+    ],
+)
+def test_transcript_overlay_does_not_split_combined_text_units(
+    prefix_length: int,
+    unit: str,
+) -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 10)
+    source = f"{'x' * prefix_length}{unit}tail"
+    runtime.append_block(_block(source), kind="operation")
+    runtime.toggle_transcript_overlay()
+
+    lines = split_formatted_lines(runtime.screen.transcript_overlay.fragments())
+    rendered_lines = [
+        "".join(text for _style, text in line)
+        for line in lines
+    ]
+
+    assert any(unit in line for line in rendered_lines)
+    assert "".join(rendered_lines) == source
+
+
+def test_transcript_overlay_keeps_text_unit_split_across_styles_together() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 10)
+    unit = "👩\u200d💻"
+    source = f"{'x' * 18}{unit}tail"
+    runtime.append_block(FragmentBlock((
+        ("class:first", f"{'x' * 18}👩"),
+        ("class:second", "\u200d💻tail"),
+    )), kind="operation")
+    runtime.toggle_transcript_overlay()
+
+    lines = split_formatted_lines(runtime.screen.transcript_overlay.fragments())
+    rendered_lines = [
+        "".join(text for _style, text in line)
+        for line in lines
+    ]
+
+    assert any(unit in line for line in rendered_lines)
+    assert "".join(rendered_lines) == source
+
+
+def test_transcript_overlay_rewraps_long_url_without_losing_text() -> None:
+    runtime = TuiRuntime()
+    output_size = [24, 10]
+    runtime.screen._output_size = lambda: tuple(output_size)
+    url = (
+        "https://example.test/deep/path/to/resource?"
+        "query=abcdefghijklmnopqrstuvwxyz&mode=transcript"
+    )
+    runtime.append_block(_block(url), kind="operation")
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    narrow = split_formatted_lines(overlay.fragments())
+    output_size[0] = 72
+    wide = split_formatted_lines(overlay.fragments())
+
+    assert len(wide) < len(narrow)
+    assert "".join(
+        text for line in narrow for _style, text in line
+    ) == url
+    assert "".join(
+        text for line in wide for _style, text in line
+    ) == url
 
 
 @pytest.mark.anyio
