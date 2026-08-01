@@ -5,10 +5,7 @@ import typing
 import asyncio
 from engine.errors import AppError
 from mind_app.mcp.config import normalize_mcp_servers
-from mind_app.mcp.group import (
-    ExternalMcpGroup,
-    open_optional_external_mcp_group
-)
+from mind_app.mcp.group import ExternalMcpGroup
 from mind_app.mcp.status import (
     ExternalMcpStatus,
     external_status_detail_from_exception
@@ -31,7 +28,6 @@ class ExternalMcpRuntime(object):
 
         self._group: typing.Optional[ExternalMcpGroup] = None
 
-        self._context: typing.Any = None
         self._started: bool       = False
         self._last_start_snapshot: dict[str, typing.Any] = {}
 
@@ -44,7 +40,7 @@ class ExternalMcpRuntime(object):
 
     @property
     def started(self) -> bool:
-        """返回外部 MCP 启动流程是否已执行过。"""
+        """返回外部 MCP 是否已经建立可用连接。"""
         return self._started
 
     @property
@@ -105,23 +101,33 @@ class ExternalMcpRuntime(object):
             include_disabled=include_disabled,
         )
 
-        status = ExternalMcpStatus(servers)
-
-        external_anim_started: bool = False
-        self._started = True
+        status: ExternalMcpStatus      = ExternalMcpStatus(servers)
+        external_anim_started: bool    = False
+        group: ExternalMcpGroup | None = None
 
         try:
             if status.visible:
                 await self._mind.start_external_mcp_anim(status.snapshot)
                 external_anim_started = True
 
-            self._context = open_optional_external_mcp_group(servers, status=status)
-            self._group = await self._context.__aenter__()
-            if self._group is None:
-                await self._stop_unlocked()
+            group = ExternalMcpGroup()
+
+            connected_servers = await group.start(servers, status=status)
+            if connected_servers > 0:
+                self._group   = group
+                self._started = True
+            else:
+                await self._mind.await_cleanup(group.close())
+
         except BaseException as exc:
             status.finish_unresolved(external_status_detail_from_exception(exc))
-            await self._stop_unlocked()
+
+            if group is not None:
+                await self._mind.await_cleanup(group.close())
+
+            self._group   = None
+            self._started = False
+
             if isinstance(
                 exc,
                 (asyncio.CancelledError, KeyboardInterrupt, SystemExit, AppError),
@@ -129,7 +135,6 @@ class ExternalMcpRuntime(object):
                 observe_exception("external_mcp.start.failed", exc)
                 raise
             observe_exception("external_mcp.start.failed", exc, level="WARNING")
-            self._group = None
         finally:
             if external_anim_started and not defer_activity_stop:
                 await self._mind.await_cleanup(self._mind.stop_anim(
@@ -137,13 +142,17 @@ class ExternalMcpRuntime(object):
                     settle=False,
                 ))
             self._last_start_snapshot = status.snapshot()
+
             items = list(self._last_start_snapshot.get("items") or [])
+
             states: dict[str, int] = {}
+
             for item in items:
                 if not isinstance(item, dict):
                     continue
                 state = str(item.get("state") or "unknown")
                 states[state] = states.get(state, 0) + 1
+
             observe(
                 "external_mcp.start.complete",
                 configured=len(servers),
@@ -158,25 +167,24 @@ class ExternalMcpRuntime(object):
 
     async def _stop_unlocked(self) -> None:
         """在生命周期锁内关闭外部 MCP。"""
-        context = self._context
+        group       = self._group
         was_started = self._started
+        self._group = None
 
-        self._context = None
-        self._group   = None
-        self._started = False
+        try:
+            if group is not None:
+                await self._mind.await_cleanup(group.close())
+        finally:
+            self._started = False
 
-        if context is not None:
-            await self._mind.await_cleanup(
-                context.__aexit__(None, None, None)
-            )
-        if was_started or context is not None:
+        if was_started or group is not None:
             observe("external_mcp.stopped")
 
     async def restart(
         self,
         *,
         include_disabled: bool = False,
-        defer_activity_stop: bool = False,
+        defer_activity_stop: bool = False
     ) -> None:
         """重新读取配置并刷新外部 MCP 连接。"""
         observe("external_mcp.restart")

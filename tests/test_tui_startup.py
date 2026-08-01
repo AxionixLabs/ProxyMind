@@ -230,15 +230,18 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     release = asyncio.Event()
     enter_count = 0
 
-    class ExternalContext(object):
-        async def __aenter__(self):
+    class ExternalGroup(object):
+        async def start(self, servers, status=None):
             nonlocal enter_count
             enter_count += 1
             entered.set()
             await release.wait()
-            return SimpleNamespace(tools={})
+            if status is not None:
+                status.mark_ready(servers[0], "docs", 2)
+                status.finish()
+            return 1
 
-        async def __aexit__(self, _type, _value, _traceback):
+        async def close(self):
             return None
 
     class MindStub(object):
@@ -260,13 +263,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         async def await_cleanup(self, awaitable):
             await awaitable
 
-    def open_group(servers, status=None):
-        if status is not None:
-            status.mark_ready(servers[0], "docs", 2)
-            status.finish()
-        return ExternalContext()
-
-    monkeypatch.setattr(external, "open_optional_external_mcp_group", open_group)
+    monkeypatch.setattr(external, "ExternalMcpGroup", ExternalGroup)
 
     mind = MindStub()
     runtime = ExternalMcpRuntime(mind)
@@ -300,13 +297,15 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> None:
     enter_count = 0
 
-    class ExternalContext(object):
-        async def __aenter__(self):
+    class ExternalGroup(object):
+        async def start(self, _servers, status=None):
             nonlocal enter_count
             enter_count += 1
-            return None
+            if status is not None:
+                status.finish()
+            return 0
 
-        async def __aexit__(self, _type, _value, _traceback):
+        async def close(self):
             return None
 
     class MindStub(object):
@@ -329,8 +328,8 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
 
     monkeypatch.setattr(
         external,
-        "open_optional_external_mcp_group",
-        lambda _servers, status=None: ExternalContext(),
+        "ExternalMcpGroup",
+        ExternalGroup,
     )
 
     runtime = ExternalMcpRuntime(MindStub())
@@ -348,8 +347,8 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
     release_cleanup = asyncio.Event()
     cleanup_finished = asyncio.Event()
 
-    class ExternalContext(object):
-        async def __aexit__(self, _type, _value, _traceback):
+    class ExternalGroup(object):
+        async def close(self):
             cleanup_started.set()
             await release_cleanup.wait()
             cleanup_finished.set()
@@ -365,8 +364,7 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
                 raise
 
     runtime = ExternalMcpRuntime(MindStub())
-    runtime._context = ExternalContext()
-    runtime._group = object()
+    runtime._group = ExternalGroup()
     runtime._started = True
 
     stop_task = asyncio.create_task(runtime.stop())
