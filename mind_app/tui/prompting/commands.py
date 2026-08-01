@@ -18,6 +18,7 @@ StreamCommandPolicy = typing.Literal[
     "background_barrier",
     "interrupt",
     "local_snapshot",
+    "interactive_panel",
 ]
 
 
@@ -94,7 +95,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "agent", "/agent", "查看和管理子代理线程",
         surface_on_bare=True,
-        stream_policy="local_snapshot",
+        stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
         "diff", "/diff", "查看本轮补丁净差异",

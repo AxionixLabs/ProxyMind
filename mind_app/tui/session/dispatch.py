@@ -141,6 +141,7 @@ class TuiCommandDispatcher(object):
 
         self._process_snapshot_task: asyncio.Task[None] | None = None
         self._agent_snapshot_task: asyncio.Task[None] | None   = None
+        self._agent_menu_task: asyncio.Task[None] | None       = None
 
     async def dispatch(self, prompt_text: str) -> DispatchAction:
         """处理一项输入并返回会话循环的下一步。"""
@@ -393,6 +394,7 @@ class TuiCommandDispatcher(object):
             self._start_process_snapshot()
             return True
         if matches_command(command, "agent"):
+            self._start_agent_menu()
             self._start_agent_snapshot()
             return True
 
@@ -428,6 +430,24 @@ class TuiCommandDispatcher(object):
         )
         self._agent_snapshot_task = task
         task.add_done_callback(self._forget_agent_snapshot)
+
+    def _start_agent_menu(self) -> None:
+        """在流式期间启动可交互的子执行线程菜单。"""
+        previous = self._agent_menu_task
+        if previous is not None and not previous.done():
+            previous.cancel()
+
+        task = self.runtime.start_background_task(
+            manage_agents(self.runtime, self.mind),
+            name="tui agents menu",
+        )
+        self._agent_menu_task = task
+        task.add_done_callback(self._forget_agent_menu)
+
+    def _forget_agent_menu(self, task: asyncio.Task[None]) -> None:
+        """回收已完成的子执行线程菜单任务。"""
+        if self._agent_menu_task is task:
+            self._agent_menu_task = None
 
     def _forget_agent_snapshot(self, task: asyncio.Task[None]) -> None:
         """回收已完成的子执行线程快照任务。"""

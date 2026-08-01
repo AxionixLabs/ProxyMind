@@ -179,7 +179,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_policy("/mcp start") == "background_barrier"
     assert stream_command_policy("/mcp force") == "background_barrier"
     assert stream_command_policy("/ps") == "local_snapshot"
-    assert stream_command_policy("/agent") == "local_snapshot"
+    assert stream_command_policy("/agent") == "interactive_panel"
     assert stream_command_policy("/compact") == "reject"
     assert stream_command_policy("/hooks") == "reject"
     assert stream_command_policy("/fork") == "reject"
@@ -438,12 +438,13 @@ async def test_dispatcher_routes_agent_to_the_management_surface(
 
 
 @pytest.mark.anyio
-async def test_dispatcher_routes_agent_stream_snapshot_without_interrupting(
+async def test_dispatcher_opens_agent_panel_and_snapshot_without_interrupting(
     monkeypatch,
 ) -> None:
     from mind_app.tui.session import dispatch as dispatch_module
 
-    called = asyncio.Event()
+    snapshot_called = asyncio.Event()
+    menu_called = asyncio.Event()
     runtime = TuiRuntime()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
@@ -454,13 +455,19 @@ async def test_dispatcher_routes_agent_stream_snapshot_without_interrupting(
     async def append_snapshot(received_runtime, received_mind):
         assert received_runtime is runtime
         assert received_mind is mind
-        called.set()
+        snapshot_called.set()
+
+    async def open_menu(received_runtime, received_mind):
+        assert received_runtime is runtime
+        assert received_mind is mind
+        menu_called.set()
 
     monkeypatch.setattr(
         dispatch_module,
         "append_agent_stream_snapshot",
         append_snapshot,
     )
+    monkeypatch.setattr(dispatch_module, "manage_agents", open_menu)
     dispatcher = TuiCommandDispatcher(
         mind,
         runtime,
@@ -473,7 +480,8 @@ async def test_dispatcher_routes_agent_stream_snapshot_without_interrupting(
         "/agent",
         lambda: cancelled.append(True) or True,
     )
-    await asyncio.wait_for(called.wait(), timeout=1)
+    await asyncio.wait_for(snapshot_called.wait(), timeout=1)
+    await asyncio.wait_for(menu_called.wait(), timeout=1)
 
     assert handled
     assert cancelled == []
