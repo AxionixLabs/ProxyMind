@@ -14,6 +14,7 @@ from .models import (
     TranscriptBacktrackRequest
 )
 from .queued import (
+    TuiPendingSteers,
     TuiQueuedMessages,
     TuiSubmission
 )
@@ -93,6 +94,7 @@ class TuiSubmissionFlow(object):
         self.message_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
 
         self.queued_messages = TuiQueuedMessages()
+        self.pending_steers  = TuiPendingSteers()
 
         self.interrupt_state = TuiInterruptState(
             timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC
@@ -270,6 +272,16 @@ class TuiSubmissionFlow(object):
         else:
             self.queued_messages.append(submission)
         self._invalidate()
+
+    def track_pending_steer(self, submission: TuiSubmission) -> None:
+        """展示一条等待写入当前轮次的输入。"""
+        self.pending_steers.add(submission)
+        self._invalidate()
+
+    def resolve_pending_steer(self, client_message_id: str) -> None:
+        """停止展示一条已经确认或转入下一轮的输入。"""
+        if self.pending_steers.remove(client_message_id) is not None:
+            self._invalidate()
 
     def queue_input(self, buffer: Buffer) -> None:
         """使用下一轮意图提交当前输入内容。"""

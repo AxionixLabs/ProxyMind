@@ -77,6 +77,10 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
+        attach=SimpleNamespace(
+            has_pending_attachments=lambda: False,
+            replace_pending_attachments=lambda _items: None,
+        ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         is_service_mcp_linked=lambda: False,

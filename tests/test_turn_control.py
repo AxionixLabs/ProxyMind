@@ -82,66 +82,6 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
 
 
 @pytest.mark.anyio
-async def test_follow_up_request_uses_the_same_stable_input_contract(
-    monkeypatch,
-) -> None:
-    captured = {}
-    response = httpx.Response(
-        200,
-        json={
-            "ok": True,
-            "status": "accepted",
-            "turn_id": "turn_001",
-            "client_message_id": "message_1",
-        },
-        request=httpx.Request("POST", "https://example.com/turn/follow-up"),
-    )
-
-    class ClientStub:
-        def __init__(self, *, timeout) -> None:
-            captured["timeout"] = timeout
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def post(self, url, **kwargs):
-            captured["url"] = url
-            captured.update(kwargs)
-            return response
-
-    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
-    monkeypatch.setattr(
-        turn_control.service_endpoints,
-        "endpoint",
-        lambda path: f"https://example.com{path}",
-    )
-
-    turn_input = TurnInput(client_message_id="message_1", text="next task")
-    result = await turn_control.follow_up_turn(
-        cid="cid_1",
-        sid="sid_1",
-        turn_id="turn_001",
-        turn_input=turn_input,
-    )
-
-    assert result.status == "accepted"
-    assert captured["url"] == "https://example.com/turn/follow-up"
-    assert captured["params"] == {"cid": "cid_1", "sid": "sid_1"}
-    assert captured["json"] == {
-        "turn_id": "turn_001",
-        "client_message_id": "message_1",
-        "input": {
-            "text": "next task",
-            "attachments": [],
-            "extras": {},
-        },
-    }
-
-
-@pytest.mark.anyio
 async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
     response = httpx.Response(
         200,

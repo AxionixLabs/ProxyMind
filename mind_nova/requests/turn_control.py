@@ -67,34 +67,6 @@ async def steer_turn(
     )
 
 
-async def follow_up_turn(
-    *,
-    cid: str,
-    sid: str,
-    turn_id: str,
-    turn_input: TurnInput,
-    timeout: float = 10.0
-) -> TurnControlResponse:
-    """向活动逻辑轮次提交一项后续输入。"""
-    normalized_turn_id = _turn_id(turn_id)
-
-    payload = {
-        "turn_id": normalized_turn_id,
-        "client_message_id": turn_input.client_message_id,
-        "input": turn_input.request_input(),
-    }
-
-    return await _post_control(
-        "/turn/follow-up",
-        cid=cid,
-        sid=sid,
-        payload=payload,
-        expected_turn_id=normalized_turn_id,
-        expected_message_id=turn_input.client_message_id,
-        timeout=timeout,
-    )
-
-
 async def interrupt_turn(
     *,
     cid: str,

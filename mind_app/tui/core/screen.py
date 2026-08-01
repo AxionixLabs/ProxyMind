@@ -95,7 +95,10 @@ from .models import (
 )
 from .process_status import TuiProcessStatus
 from .process_viewer import TuiProcessViewer
-from .queued import TuiQueuedMessages
+from .queued import (
+    TuiPendingSteers,
+    TuiQueuedMessages
+)
 from .render import (
     clip_fragments,
     cursor_point,
@@ -123,8 +126,8 @@ def _queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
             TerminalKind.WARP,
         }
     ):
-        return "Shift+Left"
-    return "Alt+Up"
+        return "shift + ←"
+    return "alt + ↑"
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +166,7 @@ class TuiScreen(object):
         *,
         input_model: TuiInputModel,
         document: TuiDocument,
+        pending_steers: TuiPendingSteers,
         queued_messages: TuiQueuedMessages,
         interrupt_state: TuiInterruptState,
         get_context: typing.Callable[[], PromptContext],
@@ -192,6 +196,7 @@ class TuiScreen(object):
     ) -> None:
         self.input_model     = input_model
         self.document        = document
+        self.pending_steers  = pending_steers
         self.queued_messages = queued_messages
         self.interrupt_state = interrupt_state
 
@@ -1014,11 +1019,28 @@ class TuiScreen(object):
 
     def _queued_fragments(self) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
-        return self.queued_messages.fragments(
+        pending_active = self.pending_steers.active
+        queued_active  = self.queued_messages.active
+
+        if pending_active and queued_active:
+            pending_rows = 3
+            queued_rows  = self.QUEUED_MAX_HEIGHT - pending_rows
+        else:
+            pending_rows = self.QUEUED_MAX_HEIGHT
+            queued_rows  = self.QUEUED_MAX_HEIGHT
+
+        pending = self.pending_steers.fragments(
             width=self.terminal_width,
-            max_rows=self.QUEUED_MAX_HEIGHT,
+            max_rows=pending_rows,
+        )
+        queued = self.queued_messages.fragments(
+            width=self.terminal_width,
+            max_rows=queued_rows,
             edit_binding=self._queued_message_edit_binding,
         )
+        if pending and queued:
+            return [*pending, ("", "\n"), *queued]
+        return pending or queued
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
@@ -1033,7 +1055,13 @@ class TuiScreen(object):
                 ("class:footer.exit-hint", " again to exit"),
             ]
         if self._queue_submission_hint_visible():
-            return [("class:footer.queue-hint", "  tab to queue message")]
+            full_hint = "  tab to queue message"
+            hint = (
+                full_hint
+                if get_cwidth(full_hint) <= self.terminal_width
+                else "  tab to queue"
+            )
+            return [("class:footer.queue-hint", hint)]
         if (
             self.document.has_pending_submission
             or self._get_surface_submission_pending()
@@ -1482,7 +1510,10 @@ class TuiScreen(object):
 
     def _queued_content_visible(self) -> bool:
         """判断待提交区域是否存在消息。"""
-        return self.queued_messages.active
+        return bool(
+            self.pending_steers.active
+            or self.queued_messages.active
+        )
 
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""

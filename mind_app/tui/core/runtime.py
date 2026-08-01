@@ -143,6 +143,7 @@ class TuiRuntime(object):
         self.screen = TuiScreen(
             input_model=self.input_model,
             document=self.document,
+            pending_steers=self.submissions.pending_steers,
             queued_messages=self.submissions.queued_messages,
             interrupt_state=self.submissions.interrupt_state,
             get_context=lambda: self.context,
@@ -825,6 +826,14 @@ class TuiRuntime(object):
             submission,
             next_input=next_input,
         )
+
+    def track_pending_steer(self, submission: TuiSubmission) -> None:
+        """展示一条等待当前轮次接收的输入。"""
+        self.submissions.track_pending_steer(submission)
+
+    def resolve_pending_steer(self, client_message_id: str) -> None:
+        """停止展示一条已经完成归属转换的输入。"""
+        self.submissions.resolve_pending_steer(client_message_id)
 
     def consume_submission_payload(self) -> TuiSubmission | None:
         """读取最近一项输入携带的附件和扩展字段。"""

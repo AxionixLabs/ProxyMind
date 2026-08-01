@@ -15,7 +15,11 @@ from mind_core.design.terminal_capabilities import (
     TerminalKind,
 )
 from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
+from mind_app.tui.core.queued import (
+    TuiPendingSteers,
+    TuiQueuedMessages,
+    TuiSubmission,
+)
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import text_block
 
@@ -26,8 +30,47 @@ def test_queue_uses_next_turn_title() -> None:
 
     text = _fragments_text(queue.fragments(width=100))
 
-    assert "• Queued follow-up inputs (Alt+Up edits latest)" in text
+    assert "• Queued follow-up inputs" in text
     assert "  ↳ next task" in text
+    assert "    alt + ↑ edit last queued message" in text
+    assert text.splitlines() == [
+        "• Queued follow-up inputs",
+        "  ↳ next task",
+        "    alt + ↑ edit last queued message",
+    ]
+
+
+def test_pending_steer_uses_current_turn_title() -> None:
+    pending = TuiPendingSteers()
+    pending.add(_submission("adjust current task"))
+
+    text = _fragments_text(pending.fragments(width=100))
+
+    assert (
+        "• Messages to be submitted after next tool call "
+        "(press ctrl + c to interrupt and send immediately)"
+    ) in text
+    assert "  ↳ adjust current task" in text
+    assert "Queued follow-up inputs" not in text
+
+
+def test_pending_steer_lists_each_enter_submission() -> None:
+    pending = TuiPendingSteers()
+    pending.add(_submission("first"))
+    pending.add(_submission("second"))
+    pending.add(_submission("third"))
+
+    text = _fragments_text(pending.fragments(width=100))
+
+    assert text.splitlines() == [
+        (
+            "• Messages to be submitted after next tool call "
+            "(press ctrl + c to interrupt and send immediately)"
+        ),
+        "  ↳ first",
+        "  ↳ second",
+        "  ↳ third",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -77,7 +120,7 @@ def test_queue_edit_hint_uses_terminal_fallback(identity) -> None:
 
     text = _fragments_text(runtime.screen._queued_fragments())
 
-    assert "Shift+Left edits latest" in text
+    assert "shift + ← edit last queued message" in text
 
 
 def test_queued_input_candidate_uses_dim_style() -> None:
@@ -93,8 +136,8 @@ def test_multiline_message_is_flattened_and_ellipsized() -> None:
     text = _fragments_text(queue.fragments(width=28))
     lines = text.splitlines()
 
-    assert len(lines) == 2
-    assert lines[1].endswith("…")
+    assert len(lines) == 3
+    assert lines[2].endswith("…")
     assert all(get_cwidth(line) <= 28 for line in lines)
 
 
@@ -107,8 +150,9 @@ def test_queue_reserves_last_row_for_hidden_count() -> None:
     lines = text.splitlines()
 
     assert len(lines) == 6
-    assert lines[-1] == "    … 3 more"
-    assert "message 5" not in text
+    assert lines[-2] == "    … 4 more"
+    assert lines[-1] == "    alt + ↑ edit last queued message"
+    assert "message 4" not in text
 
 
 def test_running_input_replaces_information_footer_with_queue_hint() -> None:
@@ -130,6 +174,31 @@ def test_running_input_replaces_information_footer_with_queue_hint() -> None:
     assert runtime.context.model not in text
     assert runtime.context.permissions_label not in text
     assert runtime.context.workspace_label not in text
+
+
+def test_running_input_shortens_queue_hint_on_narrow_terminal(monkeypatch) -> None:
+    runtime = TuiRuntime()
+    runtime.execution_active = True
+    monkeypatch.setattr(runtime.screen, "_output_size", lambda: (20, 24))
+    runtime.screen.input.buffer.text = "next task"
+
+    text = _fragments_text(runtime.screen._footer_fragments())
+
+    assert text == "  tab to queue"
+
+
+def test_pending_steer_and_follow_up_have_separate_sections() -> None:
+    runtime = TuiRuntime()
+    runtime.track_pending_steer(_submission("adjust current task"))
+    runtime.defer_submission(_submission("next task"))
+
+    text = _fragments_text(runtime.screen._queued_fragments())
+
+    assert "Messages to be submitted after next tool call" in text
+    assert "  ↳ adjust current task" in text
+    assert "Queued follow-up inputs" in text
+    assert "  ↳ next task" in text
+    assert len(text.splitlines()) <= runtime.screen.QUEUED_MAX_HEIGHT
 
 
 def test_queued_submission_restores_information_footer() -> None:

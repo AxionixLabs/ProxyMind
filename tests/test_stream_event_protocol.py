@@ -146,6 +146,17 @@ def test_turn_control_events_preserve_stable_input_identity() -> None:
     assert done.status == "interrupted"
 
 
+def test_logical_settlement_accepts_null_next_input() -> None:
+    settled = parse_stream_event({
+        "type": "turn.logical_settled",
+        "turn_id": "turn_1",
+        "next_input": None,
+    })
+
+    assert isinstance(settled, TurnLogicalSettledEvent)
+    assert settled.next_input is None
+
+
 @pytest.mark.parametrize("payload", ({}, {"type": ""}))
 def test_stream_event_requires_type(payload) -> None:
     with pytest.raises(ValueError, match="type is required"):

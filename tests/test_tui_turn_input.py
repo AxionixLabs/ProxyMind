@@ -80,19 +80,28 @@ async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> Non
     )
     fallback = Mock(return_value=True)
 
-    assert not control.submit(_submission("too early"), False)
+    assert control.submit(_submission("too early"), False)
+    assert runtime.submissions.pending_steers.active
+    assert not runtime.submissions.queued_messages.active
+    assert not runtime.submissions.rollback_queued_input()
+    steer.assert_not_awaited()
+
     assert control.submit(_submission("queue early"), True)
     assert runtime.submissions.rollback_queued_input()
     assert control.interrupt(fallback)
 
     _mark_started(control, "turn_other")
-    assert not control.submit(_submission("wrong turn"), False)
+    await asyncio.sleep(0)
+    steer.assert_not_awaited()
 
     _mark_started(control)
     assert control.submit(_submission("ready"), False)
     await control.close()
 
-    steer.assert_awaited_once()
+    assert [
+        call.kwargs["turn_input"].text
+        for call in steer.await_args_list
+    ] == ["too early", "ready"]
     fallback.assert_called_once()
 
 
@@ -118,7 +127,10 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
 
     assert control.submit(_submission("steer now"), False)
     assert control.submit(_submission("tab follow up"), True)
-    await control.close()
+    await asyncio.sleep(0)
+
+    assert runtime.submissions.pending_steers.active
+    assert runtime.submissions.queued_messages.active
 
     sent = steer.await_args.kwargs["turn_input"]
     assert sent.client_message_id == "message_steer_now"
@@ -136,6 +148,9 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
         ),
     ))
 
+    assert not runtime.submissions.pending_steers.active
+    await control.close()
+
     first = await runtime.submissions.read_submission()
     assert first.value == "steer now"
     assert first.attachments == sent.attachments
@@ -145,6 +160,32 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
     assert queued.value == "tab follow up"
     assert queued.attachments == ()
     assert queued.extras == {}
+
+
+@pytest.mark.anyio
+async def test_empty_settlement_keeps_local_tab_queue_fifo() -> None:
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+
+    assert control.submit(_submission("first local"), True)
+    assert control.submit(_submission("second local"), True)
+    assert control.handle_event(TurnLogicalSettledEvent(
+        type="turn.logical_settled",
+        turn_id="turn_001",
+        next_input=None,
+    )) is None
+
+    first = await runtime.submissions.read_submission()
+    second = await runtime.submissions.read_submission()
+    assert first.value == "first local"
+    assert second.value == "second local"
 
 
 def test_tab_queue_captures_payload_and_restores_editable_draft() -> None:
@@ -234,6 +275,9 @@ async def test_not_steerable_input_falls_back_to_local_next_turn(
     assert control.submit(submission, False)
     await control.close()
 
+    assert not runtime.submissions.pending_steers.active
+    assert runtime.submissions.queued_messages.active
+
     queued = await runtime.submissions.read_submission()
     assert queued.client_message_id == submission.client_message_id
 
@@ -260,7 +304,8 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
     submission = _submission("accepted steer")
 
     assert control.submit(submission, False)
-    await control.close()
+    await asyncio.sleep(0)
+    assert runtime.submissions.pending_steers.active
     accepted = control.handle_event(TurnInputAcceptedEvent(
         type="turn.input.accepted",
         turn_id="turn_001",
@@ -271,10 +316,38 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
         client_message_id=submission.client_message_id,
         text="accepted steer",
     )
+    assert not runtime.submissions.pending_steers.active
+    await control.close()
     assert not runtime.submissions.queued_messages.active
     assert runtime.document.blocks[-1].kind == "user"
     assert runtime.document.blocks[-1].turn_id == "turn_001"
     assert runtime.document.blocks[-1].prompt == "accepted steer"
+
+
+@pytest.mark.anyio
+async def test_closing_turn_clears_unsettled_steer_display(monkeypatch) -> None:
+    monkeypatch.setattr(
+        turn_input_session,
+        "steer_turn",
+        AsyncMock(return_value=SimpleNamespace(status="accepted")),
+    )
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    _mark_started(control)
+
+    assert control.submit(_submission("unsettled"), False)
+    assert runtime.submissions.pending_steers.active
+
+    await control.close()
+
+    assert not runtime.submissions.pending_steers.active
 
 
 @pytest.mark.anyio
