@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import typing
 import asyncio
 from dataclasses import (
@@ -13,13 +12,17 @@ from engine.observability import (
     observe_exception
 )
 from mind_core.hooks import (
-    HOOK_EVENT_CONFIG_SPECS,
     HookDefinitionConfig,
     HookEventName
 )
 from .command import HookCommandExecutor
 from .effects import normalize_business_block
 from .events import hook_event_spec
+from .matching import (
+    HookMatcher,
+    compile_hook_matcher,
+    hook_match_candidates
+)
 from .models import (
     HookDispatchResult,
     HookEventRequest,
@@ -100,7 +103,7 @@ class HookBackgroundTasks:
 class _RegisteredHook:
     """保存已编译 matcher 的活动 Hook。"""
     definition: HookDefinitionConfig
-    matcher: re.Pattern[str]
+    matcher: HookMatcher
 
 
 class HookDispatcher(typing.Protocol):
@@ -146,7 +149,10 @@ class HookRuntime:
         active = tuple(
             _RegisteredHook(
                 definition=definition,
-                matcher=re.compile(_matcher_pattern(definition)),
+                matcher=compile_hook_matcher(
+                    definition.event,
+                    definition.matcher,
+                ),
             )
             for definition in active_definitions
         )
@@ -213,7 +219,9 @@ class HookRuntime:
         """判断指定事件是否存在匹配的活动 Hook。"""
         return any(
             registered.definition.event == event
-            and registered.matcher.search(match_value)
+            and registered.matcher.matches(
+                hook_match_candidates(event, match_value)
+            )
             for registered in self._active
         )
 
@@ -463,7 +471,9 @@ class HookRuntime:
             registered
             for registered in active
             if registered.definition.event == event
-            and registered.matcher.search(match_value)
+            and registered.matcher.matches(
+                hook_match_candidates(event, match_value)
+            )
         )
 
     @staticmethod
@@ -531,14 +541,6 @@ def _replace_additional_context_output(
 
     replaced["additional_context"] = summary
     return replaced
-
-
-def _matcher_pattern(definition: HookDefinitionConfig) -> str:
-    """返回事件运行时实际使用的匹配表达式。"""
-    spec = HOOK_EVENT_CONFIG_SPECS[definition.event]
-    if spec.matcher_subject is None or definition.matcher in {"", "*"}:
-        return ".*"
-    return definition.matcher
 
 
 if __name__ == '__main__':

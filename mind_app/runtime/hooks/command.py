@@ -9,7 +9,10 @@ import asyncio
 import contextlib
 import subprocess
 from dataclasses import dataclass
-from mind_core.hooks import HookDefinitionConfig
+from mind_core.hooks import (
+    HookDefinitionConfig,
+    HookEventName
+)
 from mind_nova import const
 from .output_spill import (
     CapturedHookOutput,
@@ -18,6 +21,26 @@ from .output_spill import (
 
 HOOK_BUSINESS_BLOCK_EXIT_CODE = 2
 MAX_HOOK_DIAGNOSTIC_CHARS     = 8 * 1024
+
+_PLAIN_STDOUT_CONTEXT_EVENTS = frozenset({
+    "SessionStart",
+    "UserPromptSubmit",
+    "SubagentStart",
+})
+
+_JSON_STDOUT_EVENTS = frozenset({
+    "Stop",
+    "SubagentStop"
+})
+
+_BUSINESS_BLOCK_EVENTS = frozenset({
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "UserPromptSubmit",
+    "SubagentStop",
+    "Stop",
+})
 
 
 class HookCommandError(RuntimeError):
@@ -137,13 +160,20 @@ class HookCommandExecutor:
         stderr_text = stderr.text()
         spill_data  = self._spill_data(stdout, stderr)
 
-        if return_code == HOOK_BUSINESS_BLOCK_EXIT_CODE:
-            reason = stderr_text or stdout.text() or "hook command blocked execution"
+        if (
+            return_code == HOOK_BUSINESS_BLOCK_EXIT_CODE
+            and definition.event in _BUSINESS_BLOCK_EVENTS
+        ):
+            if not stderr_text:
+                raise HookCommandError(
+                    f"{definition.event} hook exited with code 2 without a "
+                    "reason on stderr"
+                )
             return HookCommandOutput(
                 data=spill_data,
                 stderr=stderr_text,
                 business_block=True,
-                block_reason=self._bounded_diagnostic(reason),
+                block_reason=self._bounded_diagnostic(stderr_text),
             )
 
         if return_code != 0:
@@ -158,7 +188,7 @@ class HookCommandExecutor:
                 f"hook command exited with code {return_code}{suffix}"
             )
 
-        data = self._parse_stdout(stdout)
+        data = self._parse_stdout(definition.event, stdout)
         data.update(spill_data)
 
         return HookCommandOutput(data=data, stderr=stderr_text)
@@ -200,20 +230,42 @@ class HookCommandExecutor:
         return int(return_code), stdout, stderr
 
     @staticmethod
-    def _parse_stdout(output: CapturedHookOutput) -> dict[str, typing.Any]:
-        """把小输出解析为 JSON，把大输出或普通文本转换为上下文。"""
+    def _parse_stdout(
+        event: HookEventName,
+        output: CapturedHookOutput
+    ) -> dict[str, typing.Any]:
+        """按事件语义解析命令 Hook 的 stdout。"""
         stdout_text = output.text()
         if not stdout_text:
             return {}
+
+        if event == "SessionEnd":
+            return {}
+
         if output.spill is not None:
-            return {"stdout": stdout_text}
+            if event in _PLAIN_STDOUT_CONTEXT_EVENTS:
+                return {"stdout": stdout_text}
+            if event in _JSON_STDOUT_EVENTS:
+                raise HookCommandError(f"{event} hook output must be JSON")
+
+            return {}
 
         try:
             data = json.loads(stdout_text)
-        except json.JSONDecodeError:
-            return {"stdout": stdout_text}
+        except json.JSONDecodeError as error:
+            looks_like_json = stdout_text.lstrip().startswith(("{", "["))
+            if event in _PLAIN_STDOUT_CONTEXT_EVENTS and not looks_like_json:
+                return {"stdout": stdout_text}
+            if event in _JSON_STDOUT_EVENTS or looks_like_json:
+                raise HookCommandError(
+                    f"{event} hook returned invalid JSON output"
+                ) from error
+
+            return {}
+
         if not isinstance(data, dict):
             raise HookCommandError("hook output must be a JSON object")
+
         return data
 
     @staticmethod
@@ -264,7 +316,7 @@ class HookCommandExecutor:
 
     @staticmethod
     async def _terminate_process_tree(
-        process: asyncio.subprocess.Process,
+        process: asyncio.subprocess.Process
     ) -> None:
         """终止指定 Hook 进程及其派生进程。"""
         if os.name == "nt":
@@ -292,16 +344,20 @@ class HookCommandExecutor:
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
+
                 killer_wait = asyncio.create_task(killer.wait())
+
                 completed, _ = await asyncio.wait(
                     (killer_wait,),
                     timeout=2,
                 )
+
                 if not completed and killer.returncode is None:
                     killer.kill()
                 await killer_wait
             except (OSError, RuntimeError, ValueError):
                 pass
+
         else:
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(process.pid, signal.SIGKILL)

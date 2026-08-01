@@ -149,7 +149,15 @@ def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
 
     assert context.session_id == "sid_child"
     assert context.root_session_id == "sid_root"
-    assert context.payload()["root_session_id"] == "sid_root"
+    payload = context.payload("PreToolUse", {
+        "tool_name": "Bash",
+        "tool_use_id": "call_test",
+        "tool_input": {"command": "rg TODO"},
+    })
+    assert payload["session_id"] == "sid_root"
+    assert payload["agent_id"] == "agent_child"
+    assert payload["agent_type"] == "explore"
+    assert "root_session_id" not in payload
 
 
 def test_tool_invocation_replaces_arguments_without_losing_context() -> None:

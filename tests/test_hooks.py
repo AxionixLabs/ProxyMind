@@ -60,7 +60,73 @@ class _CommandRunner:
         error = self.errors.get(definition.key)
         if error is not None:
             raise error
-        return SimpleNamespace(data=dict(self.outputs.get(definition.key) or {}))
+        return SimpleNamespace(data=_wire_output(
+            definition.event,
+            self.outputs.get(definition.key),
+        ))
+
+
+def _wire_output(event, output):
+    """把测试用例的语义输出写成当前 Hook wire 格式。"""
+    data = dict(output or {})
+    specific = dict(data.get("hookSpecificOutput") or {})
+
+    if event == "PermissionRequest" and isinstance(data.get("decision"), str):
+        message = data.pop("reason", "")
+        specific.update({
+            "hookEventName": event,
+            "decision": {
+                "behavior": data.pop("decision"),
+                **({"message": message} if message else {}),
+            },
+        })
+    elif event == "PreToolUse":
+        decision = data.pop("decision", None)
+        reason = data.pop("reason", "")
+        if decision == "deny":
+            specific.update({
+                "hookEventName": event,
+                "permissionDecision": decision,
+                "permissionDecisionReason": reason,
+            })
+        elif decision not in {None, "allow"}:
+            data["decision"] = decision
+        updated_input = data.pop("updatedInput", None)
+        if updated_input is not None:
+            specific.update({
+                "hookEventName": event,
+                "permissionDecision": specific.get("permissionDecision", "allow"),
+                "updatedInput": updated_input,
+            })
+    if event in {
+        "SessionStart",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "PreToolUse",
+        "PostToolUse",
+    }:
+        context = data.pop("additionalContext", None)
+        if context is not None:
+            if isinstance(context, list):
+                context = "\n\n".join(context)
+            specific.update({
+                "hookEventName": event,
+                "additionalContext": context,
+            })
+
+    data.pop("additional_context", None)
+    data.pop("hookSpecificOutput", None)
+    if specific:
+        data["hookSpecificOutput"] = specific
+    if event in {"Stop", "SubagentStop"}:
+        continuation = data.pop("continuationPrompt", None)
+        if continuation is not None:
+            data["decision"] = "block"
+            data["reason"] = continuation
+        context = data.pop("additionalContext", None)
+        if context is not None:
+            data["systemMessage"] = data.get("systemMessage", "")
+    return data
 
 
 def _definitions(raw):
@@ -145,7 +211,7 @@ def test_runtime_event_specs_cover_config_event_catalog() -> None:
 @pytest.mark.anyio
 async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
     definitions = _definitions({
-        "SessionEnd": [_hook("audit", matcher="exit")],
+        "SessionEnd": [_hook("audit", matcher="other")],
     })
     runner = _CommandRunner()
     runtime = HookRuntime(definitions, command_runner=runner)
@@ -184,10 +250,11 @@ async def test_session_end_gateway_dispatches_once_and_cleans_spills() -> None:
     assert len(runner.calls) == 1
     payload = runner.calls[0][1]
     assert payload["session_id"] == "sid_test"
-    assert payload["root_session_id"] == "sid_test"
-    assert payload["reason"] == "exit"
+    assert payload["hook_event_name"] == "SessionEnd"
+    assert payload["reason"] == "other"
     assert payload["transcript_path"] == "D:/logs/transcript.log"
-    assert payload["last_assistant_message"] == "final answer"
+    assert "root_session_id" not in payload
+    assert "last_assistant_message" not in payload
 
 
 def test_runtime_reports_matching_hooks() -> None:
@@ -202,6 +269,50 @@ def test_runtime_reports_matching_hooks() -> None:
     assert runtime.has_matching("PreToolUse", "shell_command")
     assert runtime.has_matching("PreToolUse", "apply_patch")
     assert not runtime.has_matching("PostToolUse", "shell_command")
+
+
+def test_tool_matcher_uses_exact_names_and_alias_candidates() -> None:
+    definitions = _definitions({
+        "PreToolUse": [
+            _hook("bash", matcher="Bash"),
+            _hook("patch", matcher="Edit|Write"),
+        ],
+    })
+    runtime = HookRuntime(definitions)
+
+    assert runtime.has_matching("PreToolUse", "shell_command")
+    assert not runtime.has_matching("PreToolUse", "BashOutput")
+    assert runtime.has_matching("PreToolUse", "apply_patch")
+
+
+def test_spawn_agent_matches_agent_alias() -> None:
+    definitions = _definitions({
+        "PreToolUse": [_hook("agent", matcher="Agent")],
+    })
+
+    assert HookRuntime(definitions).has_matching("PreToolUse", "spawn_agent")
+
+
+@pytest.mark.anyio
+async def test_tool_aliases_match_one_hook_once() -> None:
+    definitions = _definitions({
+        "PreToolUse": [_hook("patch", matcher="Edit|Write")],
+    })
+    runner = _CommandRunner()
+
+    result = await HookRuntime(
+        definitions,
+        command_runner=runner,
+    ).dispatch(HookEventRequest(
+        event="PreToolUse",
+        match_value="apply_patch",
+        payload={},
+    ))
+
+    assert [record.hook_key for record in result.records] == [
+        definitions[0].key,
+    ]
+    assert [call[0].key for call in runner.calls] == [definitions[0].key]
 
 
 def test_matcher_group_expands_handlers_with_platform_commands() -> None:
@@ -453,7 +564,9 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
             if self.started == len(definitions):
                 self.all_started.set()
             await self.release.wait()
-            return SimpleNamespace(data={"reason": definition.handler.command})
+            return SimpleNamespace(data={
+                "systemMessage": definition.handler.command,
+            })
 
     runner = ConcurrentRunner()
     dispatch = asyncio.create_task(HookRuntime(
@@ -471,7 +584,7 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
     runner.release.set()
     result = await dispatch
 
-    assert [record.output["reason"] for record in result.records] == [
+    assert [record.effect.system_message for record in result.records] == [
         "first",
         "second",
     ]
@@ -539,9 +652,8 @@ async def test_scope_owns_common_payload_fields() -> None:
         payload={
             "session_id": "spoofed",
             "turn_id": "spoofed",
-            "call_id": "call_test",
+            "tool_use_id": "call_test",
             "tool_name": "shell_command",
-            "tool_kind": "coding",
             "tool_input": {"command": "rg TODO"},
         },
         match_value="shell_command",
@@ -549,20 +661,18 @@ async def test_scope_owns_common_payload_fields() -> None:
 
     payload = runner.calls[0][1]
     assert payload["session_id"] == "sid_test"
-    assert payload["root_session_id"] == "sid_test"
-    assert payload["conversation_id"] == "cid_test"
     assert payload["turn_id"] == "turn_test"
-    assert payload["agent_id"] == "root"
-    assert payload["agent_type"] == "root"
-    assert payload["agent_depth"] == 0
-    assert payload["mode"] == "xtra"
-    assert payload["source"] == "test"
+    assert payload["tool_use_id"] == "call_test"
+    assert payload["hook_event_name"] == "PreToolUse"
+    assert "root_session_id" not in payload
+    assert "conversation_id" not in payload
+    assert "agent_id" not in payload
 
 
 @pytest.mark.anyio
 async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
     definitions = _definitions({
-        "SessionStart": [_hook("start", matcher="initial")],
+        "SessionStart": [_hook("start", matcher="startup")],
         "UserPromptSubmit": [_hook("prompt")],
         "Stop": [_hook("stop")],
     })
@@ -582,16 +692,16 @@ async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
         "UserPromptSubmit",
         "Stop",
     ]
-    assert runner.calls[0][1]["reason"] == "initial"
+    assert runner.calls[0][1]["source"] == "startup"
     assert runner.calls[1][1]["prompt"] == "hello"
-    assert runner.calls[2][1]["outcome"] == "completed"
-    assert runner.calls[2][1]["usage"] == {"output_tokens": 3}
+    assert runner.calls[2][1]["stop_hook_active"] is False
+    assert runner.calls[2][1]["last_assistant_message"] is None
 
 
 @pytest.mark.anyio
 async def test_turn_hooks_skip_session_start_for_existing_session() -> None:
     definitions = _definitions({
-        "SessionStart": [_hook("start", matcher="initial")],
+        "SessionStart": [_hook("start", matcher="startup")],
         "UserPromptSubmit": [_hook("prompt")],
     })
     runner = _CommandRunner()
@@ -712,8 +822,9 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
     assert decision.reason == "command is blocked"
     assert len(runner.calls) == 2
     payload = runner.calls[0][1]
-    assert payload["agent_id"] == "root"
     assert payload["turn_id"] == "turn_test"
+    assert payload["tool_name"] == "Bash"
+    assert payload["tool_use_id"] == "call_test"
     assert payload["tool_input"] == {"command": "rg TODO"}
     assert "execution" not in payload
     assert "secret-grant" not in str(payload)
@@ -752,7 +863,7 @@ async def test_pre_tool_use_treats_invalid_decision_as_hook_failure() -> None:
     ))).pre_tool_use(_invocation())
 
     assert not decision.allowed
-    assert "decision must be one of allow, deny, block" in decision.reason
+    assert "must be one of approve, block" in decision.reason
 
 
 @pytest.mark.anyio
@@ -912,8 +1023,8 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
         "PreToolUse",
         "PostToolUse",
     ]
-    assert runner.calls[1][1]["tool_outcome"]["ok"] is True
-    assert runner.calls[1][1]["tool_outcome"]["result"]["data"] == {
+    assert runner.calls[1][1]["tool_response"]["ok"] is True
+    assert runner.calls[1][1]["tool_response"]["data"] == {
         "answer": 42,
     }
 
@@ -954,6 +1065,39 @@ async def test_pre_tool_use_updated_input_reaches_execution_and_post_hook() -> N
         "PostToolUse",
     ]
     assert runner.calls[1][1]["tool_input"] == {"command": "pytest -q"}
+
+
+@pytest.mark.anyio
+async def test_apply_patch_uses_command_wire_input_and_rewrites_patch() -> None:
+    definitions = _definitions({
+        "PreToolUse": [_hook("rewrite", matcher="apply_patch")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "updatedInput": {"command": "*** Begin Patch\n*** End Patch"},
+        },
+    })
+    original = _invocation()
+    invocation = ToolInvocation(
+        turn=original.turn,
+        call_id="patch_call",
+        name="apply_patch",
+        arguments={"patch": "old", "force": False},
+    )
+    coordinator = ToolCallCoordinator(_scope(
+        HookRuntime(definitions, command_runner=runner),
+        invocation,
+    ))
+
+    decision = await coordinator.prepare(invocation)
+    effective = coordinator.effective_invocation(invocation, decision)
+
+    assert runner.calls[0][1]["tool_name"] == "apply_patch"
+    assert runner.calls[0][1]["tool_input"] == {"command": "old"}
+    assert effective.arguments == {
+        "patch": "*** Begin Patch\n*** End Patch",
+        "force": False,
+    }
 
 
 @pytest.mark.anyio
@@ -1057,7 +1201,9 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
     script.write_text(
         "import json, sys\n"
         "payload = json.load(sys.stdin)\n"
-        "print(json.dumps({'decision': 'deny', 'reason': payload['tool_name']}))\n",
+        "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', "
+        "'permissionDecision': 'deny', 'permissionDecisionReason': "
+        "payload['tool_name']}}))\n",
         encoding="utf-8",
     )
     command = subprocess.list2cmdline([sys.executable, str(script)])
@@ -1071,8 +1217,11 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
     )
 
     assert output.data == {
-        "decision": "deny",
-        "reason": "shell_command",
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": "shell_command",
+        },
     }
 
 
@@ -1091,7 +1240,26 @@ async def test_command_executor_uses_non_json_stdout_as_context(tmp_path) -> Non
         {"cwd": str(tmp_path)},
     )
 
-    assert output.data == {"stdout": "not-json"}
+    assert output.data == {}
+
+
+@pytest.mark.anyio
+async def test_command_executor_rejects_json_looking_invalid_stdout(
+    tmp_path,
+) -> None:
+    script = tmp_path / "invalid_json_hook.py"
+    script.write_text("print('{invalid')\n", encoding="utf-8")
+    definition = _definitions({
+        "PreToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+
+    with pytest.raises(HookCommandError, match="invalid JSON"):
+        await HookCommandExecutor().execute(
+            definition,
+            {"cwd": str(tmp_path)},
+        )
 
 
 @pytest.mark.anyio
@@ -1121,6 +1289,43 @@ async def test_command_executor_exit_two_is_business_block(tmp_path) -> None:
     assert result.records[0].stderr == "policy denied"
     assert not result.records[0].effect.continue_execution
     assert result.records[0].effect.reason == "policy denied"
+
+
+@pytest.mark.anyio
+async def test_command_executor_exit_two_requires_stderr_reason(tmp_path) -> None:
+    script = tmp_path / "silent_blocking_hook.py"
+    script.write_text("raise SystemExit(2)\n", encoding="utf-8")
+    definition = _definitions({
+        "PermissionRequest": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+
+    with pytest.raises(HookCommandError, match="reason on stderr"):
+        await HookCommandExecutor().execute(
+            definition,
+            {"cwd": str(tmp_path)},
+        )
+
+
+@pytest.mark.anyio
+async def test_session_start_exit_two_is_a_failure(tmp_path) -> None:
+    script = tmp_path / "failed_start_hook.py"
+    script.write_text(
+        "import sys\nprint('failed', file=sys.stderr)\nraise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "SessionStart": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+
+    with pytest.raises(HookCommandError, match="code 2: failed"):
+        await HookCommandExecutor().execute(
+            definition,
+            {"cwd": str(tmp_path)},
+        )
 
 
 @pytest.mark.anyio

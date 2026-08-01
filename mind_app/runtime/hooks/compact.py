@@ -27,21 +27,22 @@ class CompactHookEvents:
         trigger_source: CompactTriggerSource = "client"
     ) -> HookDecision:
         """执行压缩前事件并聚合是否继续操作。"""
-        if not self.scope.has_matching("PreCompact", trigger):
+        hook_trigger = _compact_trigger(trigger)
+        if not self.scope.has_matching("PreCompact", hook_trigger):
             return HookDecision.allow()
 
         dispatched = await self.scope.dispatch(
             "PreCompact",
-            payload={
-                "trigger": trigger,
+            payload={"trigger": hook_trigger},
+            match_value=hook_trigger,
+            diagnostics={
+                "compact_trigger": trigger,
                 "trigger_source": trigger_source,
             },
-            match_value=trigger,
-            diagnostics={"compact_trigger": trigger},
         )
 
         blocked_keys: list[str] = []
-        reasons: list[str] = []
+        reasons: list[str]      = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -94,13 +95,16 @@ class CompactHookEvents:
         after_items: int | None = None
     ) -> HookDecision:
         """执行压缩后事件并聚合下一步执行影响。"""
-        if not self.scope.has_matching("PostCompact", trigger):
+        hook_trigger = _compact_trigger(trigger)
+        if not self.scope.has_matching("PostCompact", hook_trigger):
             return HookDecision.allow()
 
         dispatched = await self.scope.dispatch(
             "PostCompact",
-            payload={
-                "trigger": trigger,
+            payload={"trigger": hook_trigger},
+            match_value=hook_trigger,
+            diagnostics={
+                "compact_trigger": trigger,
                 "trigger_source": trigger_source,
                 "result_source": result_source,
                 "outcome": outcome,
@@ -109,11 +113,6 @@ class CompactHookEvents:
                 "transcript_path": transcript_path,
                 "before_items": before_items,
                 "after_items": after_items,
-            },
-            match_value=trigger,
-            diagnostics={
-                "compact_trigger": trigger,
-                "outcome": outcome,
             },
         )
 
@@ -152,6 +151,11 @@ def _bounded_reason(value: str, limit: int = 2000) -> str:
     """返回适合压缩结果的有界 Hook 原因。"""
     text = str(value or "").strip()
     return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _compact_trigger(trigger: CompactTriggerReason) -> str:
+    """把本地压缩原因转换为 Hook 协议触发类型。"""
+    return "manual" if trigger == "manual" else "auto"
 
 
 if __name__ == '__main__':

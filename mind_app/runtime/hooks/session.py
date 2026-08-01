@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from dataclasses import replace
 from mind_core.hooks import (
     SESSION_END_REASONS,
     SessionEndReason
@@ -59,19 +60,21 @@ class SessionLifecycleGateway:
                 return False
 
             try:
-                scope = self._scope_factory(context)
-                if scope.has_matching("SessionEnd", normalized_reason):
+                scope = self._scope_factory(replace(
+                    context,
+                    transcript_path=str(transcript_path or "") or None,
+                ))
+                if scope.has_matching("SessionEnd", "other"):
                     await scope.dispatch(
                         "SessionEnd",
-                        payload={
+                        payload={"reason": "other"},
+                        match_value="other",
+                        diagnostics={
                             "reason": normalized_reason,
-                            "transcript_path": str(transcript_path or ""),
                             "last_assistant_message": str(
                                 last_assistant_message or ""
                             ),
                         },
-                        match_value=normalized_reason,
-                        diagnostics={"reason": normalized_reason},
                     )
             except asyncio.CancelledError:
                 raise

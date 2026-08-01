@@ -17,16 +17,31 @@ def normalize_business_block(
     transport_output: dict[str, typing.Any] | None = None
 ) -> HookNormalizedOutput:
     """把命令退出码表达的业务阻断转换为统一输出。"""
-    output = dict(transport_output or {})
-    output["reason"] = str(reason or "").strip() or "hook blocked execution"
+    output         = dict(transport_output or {})
+    blocked_reason = str(reason or "").strip() or "hook blocked execution"
 
     if event == "PermissionRequest":
-        output["decision"] = "deny"
+        output["hookSpecificOutput"] = {
+            "hookEventName": "PermissionRequest",
+            "decision": {
+                "behavior": "deny",
+                "message": blocked_reason,
+            },
+        }
+    elif event == "PreToolUse":
+        output["hookSpecificOutput"] = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": blocked_reason,
+        }
+    elif event in {"PostToolUse", "UserPromptSubmit"}:
+        output["decision"] = "block"
+        output["reason"] = blocked_reason
     elif event in {"Stop", "SubagentStop"}:
         output["decision"] = "block"
-        output["continuationPrompt"] = output["reason"]
+        output["reason"] = blocked_reason
     else:
-        output["continue"] = False
+        raise ValueError(f"{event} does not support exit-code-2 blocking")
 
     return normalize_hook_output(event, output)
 
@@ -37,26 +52,21 @@ def normalize_hook_output(
 ) -> HookNormalizedOutput:
     """把命令 Hook 的 JSON 输出归一化为统一影响模型。"""
     validate_hook_output(event, data)
+    _validate_output_semantics(event, data)
     merged        = _merge_specific_output(event, data)
     decision      = _normalize_decision(event, merged)
     continuation  = _normalize_continue(merged)
     reason        = _normalize_reason(merged)
     updated_input = _normalize_updated_input(merged)
-    contexts      = _normalize_additional_context(merged)
+    contexts      = _normalize_additional_context(event, merged)
 
     system_text = _normalize_optional_text(
         merged,
         "systemMessage",
-        "system_message",
         error="hook systemMessage must be a string",
     )
 
-    continuation_prompt = _normalize_optional_text(
-        merged,
-        "continuationPrompt",
-        "continuation_prompt",
-        error="hook continuationPrompt must be a string",
-    )
+    continuation_prompt = ""
 
     if (
         not continuation_prompt
@@ -79,7 +89,6 @@ def normalize_hook_output(
     suppress_original_output = _normalize_bool(
         merged,
         "suppressOriginalOutput",
-        "suppress_original_output",
         error="hook suppressOriginalOutput must be a boolean",
     )
 
@@ -135,6 +144,13 @@ def _merge_specific_output(
     merged   = dict(data)
     specific = data.get("hookSpecificOutput")
 
+    if event == "PreToolUse":
+        top_decision = data.get("decision")
+        if top_decision == "approve":
+            merged["decision"] = "allow"
+        elif top_decision == "block":
+            merged["decision"] = "deny"
+
     if specific is None:
         return merged
     if not isinstance(specific, dict):
@@ -150,6 +166,40 @@ def _merge_specific_output(
         for key, value in specific.items()
         if key != "hookEventName"
     })
+
+    if event == "PermissionRequest":
+        decision = specific.get("decision")
+        if decision is not None:
+            if not isinstance(decision, dict):
+                raise ValueError("PermissionRequest decision must be an object")
+            behavior = decision.get("behavior")
+            if not isinstance(behavior, str):
+                raise ValueError(
+                    "PermissionRequest decision.behavior must be a string"
+                )
+            merged["decision"] = behavior
+            message = decision.get("message")
+            if message is not None:
+                if not isinstance(message, str):
+                    raise ValueError(
+                        "PermissionRequest decision.message must be a string"
+                    )
+                merged["reason"] = (
+                    message
+                    if message.strip() or behavior != "deny"
+                    else "PermissionRequest hook denied approval"
+                )
+            elif behavior == "deny":
+                merged["reason"] = "PermissionRequest hook denied approval"
+
+    if event == "PreToolUse":
+        permission_decision = specific.get("permissionDecision")
+        if permission_decision is not None:
+            merged["decision"] = (
+                "" if permission_decision == "ask" else permission_decision
+            )
+            if "permissionDecisionReason" in specific:
+                merged["reason"] = specific["permissionDecisionReason"]
 
     return merged
 
@@ -189,14 +239,159 @@ def _allowed_decisions(event: HookEventName) -> set[str]:
         return {"", "allow", "deny", "block"}
     if event == "PermissionRequest":
         return {"allow", "deny", "abstain"}
-    if event in {"PreCompact", "UserPromptSubmit"}:
-        return {"", "allow", "deny", "block"}
+    if event == "UserPromptSubmit":
+        return {"", "block"}
     if event == "PostToolUse":
-        return {"", "allow", "block"}
+        return {"", "block"}
     if event in {"Stop", "SubagentStop"}:
         return {"", "block"}
 
     return {"", "allow"}
+
+
+def _validate_output_semantics(
+    event: HookEventName,
+    data: dict[str, typing.Any],
+) -> None:
+    """校验 schema 无法表达的事件控制约束。"""
+    if event == "PermissionRequest":
+        _reject_unsupported_universal(event, data)
+        specific = data.get("hookSpecificOutput")
+        if not isinstance(specific, dict):
+            return None
+        decision = specific.get("decision")
+        if not isinstance(decision, dict):
+            return None
+        reserved = {
+            key
+            for key in ("updatedInput", "updatedPermissions", "interrupt")
+            if key in decision and decision[key] not in (None, False)
+        }
+        if reserved:
+            raise ValueError(
+                "PermissionRequest decision does not support "
+                f"{sorted(reserved)[0]}"
+            )
+
+    if event == "PreToolUse":
+        _reject_unsupported_universal(event, data)
+        specific = data.get("hookSpecificOutput")
+        uses_specific_decision = isinstance(specific, dict) and any(
+            specific.get(key) is not None
+            for key in (
+                "permissionDecision",
+                "permissionDecisionReason",
+                "updatedInput",
+            )
+        )
+        if uses_specific_decision:
+            _validate_pre_tool_specific_output(specific)
+        else:
+            _validate_pre_tool_legacy_output(data)
+
+    if event == "PostToolUse":
+        if data.get("suppressOutput"):
+            raise ValueError(
+                "PostToolUse hook returned unsupported suppressOutput"
+            )
+        specific = data.get("hookSpecificOutput")
+        if (
+            isinstance(specific, dict)
+            and specific.get("updatedMCPToolOutput") is not None
+        ):
+            raise ValueError(
+                "PostToolUse hook returned unsupported updatedMCPToolOutput"
+            )
+        if (
+            data.get("continue", True) is True
+            and data.get("decision") == "block"
+            and not str(data.get("reason") or "").strip()
+        ):
+            raise ValueError(
+                "PostToolUse block decision requires a non-empty reason"
+            )
+        if (
+            data.get("continue", True) is True
+            and data.get("decision") is None
+            and data.get("reason") is not None
+        ):
+            raise ValueError(
+                "PostToolUse hook returned reason without decision"
+            )
+
+    if event == "UserPromptSubmit" and data.get("decision") == "block":
+        if not str(data.get("reason") or "").strip():
+            raise ValueError(
+                "UserPromptSubmit block decision requires a non-empty reason"
+            )
+
+    if event in {"Stop", "SubagentStop"} and data.get("decision") == "block":
+        if not str(data.get("reason") or "").strip():
+            raise ValueError(
+                f"{event} block decision requires a non-empty reason"
+            )
+
+    return None
+
+
+def _reject_unsupported_universal(
+    event: HookEventName,
+    data: dict[str, typing.Any],
+) -> None:
+    """拒绝工具前置与授权事件尚未实现的通用控制字段。"""
+    if data.get("continue", True) is False:
+        raise ValueError(f"{event} hook returned unsupported continue false")
+    if data.get("stopReason") is not None:
+        raise ValueError(f"{event} hook returned unsupported stopReason")
+    if data.get("suppressOutput"):
+        raise ValueError(f"{event} hook returned unsupported suppressOutput")
+
+
+def _validate_pre_tool_specific_output(
+    specific: dict[str, typing.Any],
+) -> None:
+    """校验 PreToolUse 的 hookSpecificOutput 控制组合。"""
+    decision = specific.get("permissionDecision")
+    updated_input_present = specific.get("updatedInput") is not None
+    reason = str(specific.get("permissionDecisionReason") or "").strip()
+
+    if updated_input_present and decision != "allow":
+        raise ValueError(
+            "PreToolUse updatedInput requires permissionDecision allow"
+        )
+    if decision == "allow" and not updated_input_present:
+        raise ValueError(
+            "PreToolUse permissionDecision allow requires updatedInput"
+        )
+    if decision == "ask":
+        raise ValueError(
+            "PreToolUse hook returned unsupported permissionDecision ask"
+        )
+    if decision == "deny" and not reason:
+        raise ValueError(
+            "PreToolUse permissionDecision deny requires a non-empty reason"
+        )
+    if decision is None and specific.get("permissionDecisionReason") is not None:
+        raise ValueError(
+            "PreToolUse permissionDecisionReason requires permissionDecision"
+        )
+
+
+def _validate_pre_tool_legacy_output(
+    data: dict[str, typing.Any],
+) -> None:
+    """校验 PreToolUse 顶层兼容控制字段。"""
+    decision = data.get("decision")
+    if decision == "approve":
+        raise ValueError(
+            "PreToolUse hook returned unsupported decision approve"
+        )
+    if decision == "block" and not str(data.get("reason") or "").strip():
+        raise ValueError(
+            "PreToolUse block decision requires a non-empty reason"
+        )
+    if decision is None and data.get("reason") is not None:
+        raise ValueError("PreToolUse hook returned reason without decision")
 
 
 def _normalize_continue(data: dict[str, typing.Any]) -> bool:
@@ -219,7 +414,7 @@ def _normalize_updated_input(
     data: dict[str, typing.Any]
 ) -> dict[str, typing.Any] | None:
     """读取可选的输入改写对象。"""
-    found, value = _first_present(data, "updatedInput", "updated_input")
+    found, value = _first_present(data, "updatedInput")
 
     if not found:
         return None
@@ -230,15 +425,19 @@ def _normalize_updated_input(
 
 
 def _normalize_additional_context(
+    event: HookEventName,
     data: dict[str, typing.Any]
 ) -> tuple[str, ...]:
     """读取可注入到后续请求的上下文文本。"""
     found, value = _first_present(
         data,
         "additionalContext",
-        "additional_context",
     )
-    if not found and isinstance(data.get("stdout"), str):
+    if (
+        not found
+        and event in {"SessionStart", "UserPromptSubmit", "SubagentStart"}
+        and isinstance(data.get("stdout"), str)
+    ):
         value = data.get("stdout")
         found = True
     if not found:
@@ -246,28 +445,17 @@ def _normalize_additional_context(
     if isinstance(value, str):
         text = value.strip()
         return (text,) if text else ()
-    if isinstance(value, list):
-        contexts: list[str] = []
-        for item in value:
-            if not isinstance(item, str):
-                raise ValueError("hook additionalContext entries must be strings")
-            text = item.strip()
-            if text:
-                contexts.append(text)
-        return tuple(contexts)
-
-    raise ValueError("hook additionalContext must be a string or string array")
+    raise ValueError("hook additionalContext must be a string")
 
 
 def _normalize_optional_text(
     data: dict[str, typing.Any],
     camel_key: str,
-    snake_key: str,
     *,
     error: str
 ) -> str:
     """读取可选的文本字段。"""
-    found, value = _first_present(data, camel_key, snake_key)
+    found, value = _first_present(data, camel_key)
 
     if not found:
         return ""
@@ -280,12 +468,11 @@ def _normalize_optional_text(
 def _normalize_bool(
     data: dict[str, typing.Any],
     camel_key: str,
-    snake_key: str,
     *,
     error: str
 ) -> bool:
     """读取可选的布尔字段。"""
-    found, value = _first_present(data, camel_key, snake_key)
+    found, value = _first_present(data, camel_key)
 
     if not found:
         return False
@@ -302,9 +489,6 @@ def _replacement_result(
     return _first_present(
         data,
         "replacementResult",
-        "replacement_result",
-        "toolResult",
-        "tool_result",
     )
 
 

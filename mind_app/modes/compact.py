@@ -324,6 +324,10 @@ def _hook_context(
         agent_depth=agent.depth,
         parent_agent_id=agent.parent_agent_id,
         root_session_id=agent.root_session_id,
+        transcript_path=(
+            str(getattr(getattr(mind, "report", None), "log_papers", "") or "")
+            or None
+        ),
     )
 
 

@@ -174,8 +174,11 @@ async def test_plan_step_executes_pre_hook_updated_input() -> None:
         },
         hook_outputs={
             "rewrite": {
-                "decision": "allow",
-                "updatedInput": {"value": 2},
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": {"value": 2},
+                },
             },
         },
     )
@@ -204,8 +207,11 @@ async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
                     "text": "redacted",
                     "data": {"redacted": True},
                 },
-                "additionalContext": "explain the redaction",
                 "systemMessage": "Do not expose the original result.",
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": "explain the redaction",
+                },
             },
         },
     )

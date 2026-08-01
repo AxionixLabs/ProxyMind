@@ -3,12 +3,7 @@
 
 import typing
 from mind_core.hooks import (
-    COMPACT_OUTCOMES,
-    COMPACT_RESULT_SOURCES,
-    COMPACT_TRIGGER_REASONS,
-    COMPACT_TRIGGER_SOURCES,
     HOOK_EVENT_NAMES,
-    SESSION_END_REASONS,
     HookEventName
 )
 
@@ -35,218 +30,237 @@ _BOOLEAN: JsonSchema = {"type": "boolean"}
 _INTEGER: JsonSchema = {"type": "integer"}
 
 _NULLABLE_STRING: JsonSchema  = {"type": ["string", "null"]}
-_NULLABLE_INTEGER: JsonSchema = {"type": ["integer", "null"]}
 
 _OBJECT: JsonSchema = _object_schema({}, additional_properties=True)
 
 _ANY: JsonSchema = {}
 
-_CONTEXT: JsonSchema = {
-    "oneOf": [
-        _STRING,
-        {"type": "array", "items": _STRING},
+_CONTEXT: JsonSchema = _STRING
+
+_PERMISSION_MODE: JsonSchema = {
+    "type": "string",
+    "enum": [
+        "default",
+        "acceptEdits",
+        "plan",
+        "dontAsk",
+        "bypassPermissions",
     ],
 }
 
-_COMMON_INPUT_PROPERTIES: dict[str, JsonSchema] = {
-    "hook_event_name": _STRING,
+_SESSION_INPUT_PROPERTIES: dict[str, JsonSchema] = {
     "session_id": _STRING,
-    "root_session_id": _STRING,
-    "conversation_id": _STRING,
-    "turn_id": _STRING,
+    "transcript_path": _NULLABLE_STRING,
     "cwd": _STRING,
-    "model": _STRING,
-    "mode": _STRING,
-    "source": _STRING,
-    "sandbox_mode": _STRING,
-    "permission_mode": _STRING,
+}
+
+_MODEL_INPUT_PROPERTIES: dict[str, JsonSchema] = {"model": _STRING}
+
+_TURN_INPUT_PROPERTIES: dict[str, JsonSchema] = {"turn_id": _STRING}
+
+_PERMISSION_INPUT_PROPERTIES: dict[str, JsonSchema] = {
+    "permission_mode": _PERMISSION_MODE,
+}
+
+_AGENT_INPUT_PROPERTIES: dict[str, JsonSchema] = {
     "agent_id": _STRING,
     "agent_type": _STRING,
-    "agent_depth": _INTEGER,
-    "parent_agent_id": _NULLABLE_STRING,
-    "session_started": _BOOLEAN,
-    "session_start_reason": _STRING,
 }
-
-_COMMON_INPUT_REQUIRED = tuple(_COMMON_INPUT_PROPERTIES)
 
 _TOOL_INPUT_PROPERTIES: dict[str, JsonSchema] = {
-    "call_id": _STRING,
     "tool_name": _STRING,
-    "tool_kind": _STRING,
-    "tool_input": _OBJECT,
-}
-
-_STOP_INPUT_PROPERTIES: dict[str, JsonSchema] = {
-    "outcome": _STRING,
-    "error": _STRING,
-    "usage": _OBJECT,
-    "stop_hook_active": _BOOLEAN,
-    "last_assistant_message": _STRING,
-    "continuation_count": _INTEGER,
+    "tool_input": _ANY,
 }
 
 
 def _input_schema(
     event: HookEventName,
-    properties: dict[str, JsonSchema],
-    *,
-    required: typing.Iterable[str]
+    *groups: dict[str, JsonSchema],
+    required: typing.Iterable[str],
+    include_model: bool = True
 ) -> JsonSchema:
-    """构建包含公共执行上下文的事件输入 schema。"""
-    common_properties = dict(_COMMON_INPUT_PROPERTIES)
+    """构建 Codex 命令 Hook 的事件输入 schema。"""
+    properties = dict(_SESSION_INPUT_PROPERTIES)
+    if include_model:
+        properties.update(_MODEL_INPUT_PROPERTIES)
+    for group in groups:
+        properties.update(group)
 
-    common_properties["hook_event_name"] = {
+    properties["hook_event_name"] = {
         "type": "string",
         "const": event,
     }
 
     return _object_schema(
-        {**common_properties, **properties},
-        required=(*_COMMON_INPUT_REQUIRED, *required),
+        properties,
+        required=(
+            *_SESSION_INPUT_PROPERTIES,
+            *(_MODEL_INPUT_PROPERTIES if include_model else ()),
+            "hook_event_name",
+            *required,
+        ),
     )
 
 
 HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
     "PreToolUse": _input_schema(
         "PreToolUse",
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
         _TOOL_INPUT_PROPERTIES,
-        required=_TOOL_INPUT_PROPERTIES,
+        {"tool_use_id": _STRING},
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            *_TOOL_INPUT_PROPERTIES,
+            "tool_use_id",
+        ),
     ),
     "PermissionRequest": _input_schema(
         "PermissionRequest",
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
         _TOOL_INPUT_PROPERTIES,
-        required=_TOOL_INPUT_PROPERTIES,
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            *_TOOL_INPUT_PROPERTIES,
+        ),
     ),
     "PostToolUse": _input_schema(
         "PostToolUse",
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
+        _TOOL_INPUT_PROPERTIES,
         {
-            **_TOOL_INPUT_PROPERTIES,
-            "tool_outcome": _object_schema(
-                {
-                    "executed": _BOOLEAN,
-                    "ok": _BOOLEAN,
-                    "duration_ms": _INTEGER,
-                    "result": _ANY,
-                    "error": _STRING,
-                    "cancelled": _BOOLEAN,
-                },
-                required=(
-                    "executed",
-                    "ok",
-                    "duration_ms",
-                    "result",
-                    "error",
-                    "cancelled",
-                ),
-            ),
+            "tool_use_id": _STRING,
+            "tool_response": _ANY,
         },
-        required=(*_TOOL_INPUT_PROPERTIES, "tool_outcome"),
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            *_TOOL_INPUT_PROPERTIES,
+            "tool_use_id",
+            "tool_response",
+        ),
     ),
     "PreCompact": _input_schema(
         "PreCompact",
+        _TURN_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
         {
             "trigger": {
                 "type": "string",
-                "enum": list(COMPACT_TRIGGER_REASONS),
-            },
-            "trigger_source": {
-                "type": "string",
-                "enum": list(COMPACT_TRIGGER_SOURCES),
+                "enum": ["manual", "auto"],
             },
         },
-        required=("trigger", "trigger_source"),
+        required=(*_TURN_INPUT_PROPERTIES, "trigger"),
     ),
     "PostCompact": _input_schema(
         "PostCompact",
+        _TURN_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
         {
             "trigger": {
                 "type": "string",
-                "enum": list(COMPACT_TRIGGER_REASONS),
+                "enum": ["manual", "auto"],
             },
-            "trigger_source": {
-                "type": "string",
-                "enum": list(COMPACT_TRIGGER_SOURCES),
-            },
-            "result_source": {
-                "type": "string",
-                "enum": list(COMPACT_RESULT_SOURCES),
-            },
-            "outcome": {
-                "type": "string",
-                "enum": list(COMPACT_OUTCOMES),
-            },
-            "message": _STRING,
-            "summary": _STRING,
-            "transcript_path": _STRING,
-            "before_items": _NULLABLE_INTEGER,
-            "after_items": _NULLABLE_INTEGER,
         },
-        required=(
-            "trigger",
-            "trigger_source",
-            "result_source",
-            "outcome",
-            "message",
-            "summary",
-            "transcript_path",
-            "before_items",
-            "after_items",
-        ),
+        required=(*_TURN_INPUT_PROPERTIES, "trigger"),
     ),
     "SessionStart": _input_schema(
         "SessionStart",
-        {"reason": _STRING},
-        required=("reason",),
+        _PERMISSION_INPUT_PROPERTIES,
+        {
+            "source": {
+                "type": "string",
+                "enum": ["startup", "resume", "clear", "compact"],
+            },
+        },
+        required=(*_PERMISSION_INPUT_PROPERTIES, "source"),
     ),
     "UserPromptSubmit": _input_schema(
         "UserPromptSubmit",
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
         {"prompt": _STRING},
-        required=("prompt",),
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            "prompt",
+        ),
     ),
     "SubagentStart": _input_schema(
         "SubagentStart",
-        {"task": _STRING},
-        required=("task",),
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            *_AGENT_INPUT_PROPERTIES,
+        ),
     ),
     "SubagentStop": _input_schema(
         "SubagentStop",
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        _AGENT_INPUT_PROPERTIES,
         {
-            **_STOP_INPUT_PROPERTIES,
             "agent_transcript_path": _NULLABLE_STRING,
+            "stop_hook_active": _BOOLEAN,
+            "last_assistant_message": _NULLABLE_STRING,
         },
-        required=(*_STOP_INPUT_PROPERTIES, "agent_transcript_path"),
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            *_AGENT_INPUT_PROPERTIES,
+            "agent_transcript_path",
+            "stop_hook_active",
+            "last_assistant_message",
+        ),
     ),
     "Stop": _input_schema(
         "Stop",
-        _STOP_INPUT_PROPERTIES,
-        required=_STOP_INPUT_PROPERTIES,
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        {
+            "stop_hook_active": _BOOLEAN,
+            "last_assistant_message": _NULLABLE_STRING,
+        },
+        required=(
+            *_TURN_INPUT_PROPERTIES,
+            *_PERMISSION_INPUT_PROPERTIES,
+            "stop_hook_active",
+            "last_assistant_message",
+        ),
     ),
     "SessionEnd": _input_schema(
         "SessionEnd",
         {
             "reason": {
                 "type": "string",
-                "enum": list(SESSION_END_REASONS),
+                "const": "other",
             },
-            "transcript_path": _STRING,
-            "last_assistant_message": _STRING,
         },
-        required=("reason", "transcript_path", "last_assistant_message"),
+        required=("reason",),
+        include_model=False,
     ),
 }
 
-_BASE_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
+_COMMON_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
     "continue": _BOOLEAN,
-    "reason": _STRING,
     "stopReason": _STRING,
+    "suppressOutput": _BOOLEAN,
+    "systemMessage": _STRING,
 }
 
 _CONTEXT_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
     "additionalContext": _CONTEXT,
-    "additional_context": _CONTEXT,
-    "systemMessage": _STRING,
-    "system_message": _STRING,
 }
 
 _SPILL_DETAIL_SCHEMA = _object_schema(
@@ -267,23 +281,9 @@ _COMMAND_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
     }),
 }
 
-_UPDATED_INPUT_PROPERTIES: dict[str, JsonSchema] = {
-    "updatedInput": _OBJECT,
-    "updated_input": _OBJECT,
-}
-
 _REPLACEMENT_PROPERTIES: dict[str, JsonSchema] = {
     "replacementResult": _ANY,
-    "replacement_result": _ANY,
-    "toolResult": _ANY,
-    "tool_result": _ANY,
     "suppressOriginalOutput": _BOOLEAN,
-    "suppress_original_output": _BOOLEAN,
-}
-
-_CONTINUATION_PROPERTIES: dict[str, JsonSchema] = {
-    "continuationPrompt": _STRING,
-    "continuation_prompt": _STRING,
 }
 
 
@@ -295,85 +295,115 @@ def _decision_schema(*values: str) -> JsonSchema:
 def _output_schema(
     event: HookEventName,
     *groups: dict[str, JsonSchema],
+    specific: dict[str, JsonSchema] | None = None
 ) -> JsonSchema:
-    """构建事件输出 schema。"""
-    properties = {
-        **_COMMAND_OUTPUT_PROPERTIES,
-        **_BASE_OUTPUT_PROPERTIES,
-    }
+    """构建 Codex 命令 Hook 的事件输出 schema。"""
+    properties = dict(_COMMAND_OUTPUT_PROPERTIES)
 
     for group in groups:
         properties.update(group)
 
-    properties["hookSpecificOutput"] = _object_schema({
-        "hookEventName": {
-            "type": "string",
-            "const": event,
-        },
-        **properties,
-    })
+    if specific is not None:
+        properties["hookSpecificOutput"] = _object_schema(
+            {
+                "hookEventName": {
+                    "type": "string",
+                    "const": event,
+                },
+                **specific,
+            },
+            required=("hookEventName",),
+        )
 
     return _object_schema(properties)
 
 
+_PERMISSION_REQUEST_DECISION = _object_schema(
+    {
+        "behavior": _decision_schema("allow", "deny"),
+        "message": _STRING,
+        "interrupt": _BOOLEAN,
+        "updatedInput": _ANY,
+        "updatedPermissions": _ANY,
+    },
+    required=("behavior",),
+)
+
 HOOK_OUTPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
     "PreToolUse": _output_schema(
         "PreToolUse",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("allow", "deny", "block")},
-        _UPDATED_INPUT_PROPERTIES,
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
+        {
+            "decision": _decision_schema("approve", "block"),
+            "reason": _STRING,
+        },
+        specific={
+            **_CONTEXT_OUTPUT_PROPERTIES,
+            "permissionDecision": _decision_schema("allow", "deny", "ask"),
+            "permissionDecisionReason": _STRING,
+            "updatedInput": _ANY,
+        },
     ),
     "PermissionRequest": _output_schema(
         "PermissionRequest",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("allow", "deny", "abstain")},
+        _COMMON_OUTPUT_PROPERTIES,
+        specific={"decision": _PERMISSION_REQUEST_DECISION},
     ),
     "PostToolUse": _output_schema(
         "PostToolUse",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("allow", "block")},
+        _COMMON_OUTPUT_PROPERTIES,
+        {
+            "decision": _decision_schema("block"),
+            "reason": _STRING,
+        },
         _REPLACEMENT_PROPERTIES,
-        _CONTEXT_OUTPUT_PROPERTIES,
+        specific={
+            **_CONTEXT_OUTPUT_PROPERTIES,
+            "updatedMCPToolOutput": _ANY,
+        },
     ),
     "PreCompact": _output_schema(
         "PreCompact",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("allow", "deny", "block")},
+        _COMMON_OUTPUT_PROPERTIES,
     ),
     "PostCompact": _output_schema(
         "PostCompact",
-        _BASE_OUTPUT_PROPERTIES,
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
     ),
     "SessionStart": _output_schema(
         "SessionStart",
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
+        specific=_CONTEXT_OUTPUT_PROPERTIES,
     ),
     "UserPromptSubmit": _output_schema(
         "UserPromptSubmit",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("allow", "deny", "block")},
-        _UPDATED_INPUT_PROPERTIES,
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
+        {
+            "decision": _decision_schema("block"),
+            "reason": _STRING,
+        },
+        specific=_CONTEXT_OUTPUT_PROPERTIES,
     ),
     "SubagentStart": _output_schema(
         "SubagentStart",
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
+        specific=_CONTEXT_OUTPUT_PROPERTIES,
     ),
     "SubagentStop": _output_schema(
         "SubagentStop",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("block")},
-        _CONTINUATION_PROPERTIES,
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
+        {
+            "decision": _decision_schema("block"),
+            "reason": _STRING,
+        },
     ),
     "Stop": _output_schema(
         "Stop",
-        _BASE_OUTPUT_PROPERTIES,
-        {"decision": _decision_schema("block")},
-        _CONTINUATION_PROPERTIES,
-        _CONTEXT_OUTPUT_PROPERTIES,
+        _COMMON_OUTPUT_PROPERTIES,
+        {
+            "decision": _decision_schema("block"),
+            "reason": _STRING,
+        },
     ),
     "SessionEnd": _output_schema("SessionEnd"),
 }
@@ -387,6 +417,53 @@ def hook_input_schema(event: HookEventName) -> JsonSchema:
 def hook_output_schema(event: HookEventName) -> JsonSchema:
     """返回指定事件的输出 schema。"""
     return HOOK_OUTPUT_SCHEMAS[event]
+
+
+def build_hook_input(
+    event: HookEventName,
+    *,
+    session_id: str,
+    transcript_path: str | None,
+    cwd: str,
+    model: str,
+    permission_mode: str,
+    turn_id: str,
+    agent_id: str,
+    agent_type: str,
+    include_agent: bool,
+    payload: dict[str, typing.Any] | None = None
+) -> dict[str, typing.Any]:
+    """按事件 schema 构建命令 Hook 的 stdin 对象。"""
+    properties = hook_input_schema(event)["properties"]
+
+    common = {
+        "session_id": session_id,
+        "transcript_path": transcript_path,
+        "cwd": cwd,
+        "hook_event_name": event,
+        "model": model,
+        "permission_mode": permission_mode,
+        "turn_id": turn_id,
+    }
+
+    if include_agent:
+        common.update({
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+        })
+
+    result = {
+        key: value
+        for key, value in (payload or {}).items()
+        if key in properties
+    }
+    result.update({
+        key: value
+        for key, value in common.items()
+        if key in properties
+    })
+
+    return result
 
 
 def validate_hook_input(

@@ -26,9 +26,11 @@ class SubagentHookEvents:
 
         result = await self.scope.dispatch(
             "SubagentStart",
-            payload={"task": str(task)},
             match_value=agent_type,
-            diagnostics={"agent_type": agent_type},
+            diagnostics={
+                "agent_type": agent_type,
+                "task": str(task),
+            },
         )
 
         contexts = tuple(
@@ -71,20 +73,21 @@ class SubagentHookEvents:
         result = await self.scope.dispatch(
             "SubagentStop",
             payload={
-                "outcome": normalized_outcome,
-                "error": str(error or ""),
-                "usage": dict(usage or {}),
                 "agent_transcript_path": None,
                 "stop_hook_active": continuation_count > 0,
-                "last_assistant_message": str(
-                    last_assistant_message or ""
+                "last_assistant_message": (
+                    str(last_assistant_message)
+                    if last_assistant_message
+                    else None
                 ),
-                "continuation_count": continuation_count,
             },
             match_value=agent_type,
             diagnostics={
                 "agent_type": agent_type,
                 "outcome": normalized_outcome,
+                "hook_error": str(error or ""),
+                "usage": dict(usage or {}),
+                "continuation_count": continuation_count,
             },
         )
 

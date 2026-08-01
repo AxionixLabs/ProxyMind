@@ -251,7 +251,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
             self.calls.append((definition.event, payload))
             return SimpleNamespace(data={
                 "continue": False,
-                "reason": "keep current context",
+                "stopReason": "keep current context",
             })
 
     runner = Runner()
@@ -341,19 +341,19 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     ]
     pre_payload = runner.calls[0][1]
     post_payload = runner.calls[1][1]
-    assert pre_payload["conversation_id"] == "cid"
-    assert pre_payload["session_id"] == "sid"
-    assert pre_payload["model"] == "test-model"
-    assert pre_payload["source"] == "test"
-    assert post_payload["outcome"] == "completed"
-    assert pre_payload["trigger_source"] == "client"
-    assert post_payload["trigger"] == "manual"
-    assert post_payload["trigger_source"] == "client"
-    assert post_payload["result_source"] == "server"
-    assert post_payload["summary"] == "Context compacted."
-    assert post_payload["transcript_path"] == ""
-    assert post_payload["before_items"] == 12
-    assert post_payload["after_items"] == 4
+    assert pre_payload == {
+        "trigger": "manual",
+        "session_id": "sid",
+        "transcript_path": None,
+        "cwd": str(tmp_path),
+        "hook_event_name": "PreCompact",
+        "model": "test-model",
+        "turn_id": "",
+    }
+    assert post_payload == {
+        **pre_payload,
+        "hook_event_name": "PostCompact",
+    }
 
 
 @pytest.mark.anyio
@@ -387,9 +387,8 @@ async def test_compact_failure_reports_failed_post_hook(
         "PreCompact",
         "PostCompact",
     ]
-    assert runner.calls[1][1]["outcome"] == "failed"
-    assert runner.calls[1][1]["message"] == "remote compact failed"
-    assert runner.calls[1][1]["result_source"] == "fallback"
+    assert runner.calls[1][1]["trigger"] == "manual"
+    assert runner.calls[1][1]["hook_event_name"] == "PostCompact"
 
 
 @pytest.mark.anyio
@@ -427,8 +426,8 @@ async def test_compact_cancellation_reports_interrupted_post_hook(
         "PreCompact",
         "PostCompact",
     ]
-    assert runner.calls[1][1]["outcome"] == "interrupted"
-    assert runner.calls[1][1]["message"] == "Context compaction interrupted."
+    assert runner.calls[1][1]["trigger"] == "manual"
+    assert runner.calls[1][1]["hook_event_name"] == "PostCompact"
 
 
 @pytest.mark.anyio
@@ -446,8 +445,7 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     runner = _RecordingHookRunner({
         "PostCompact": {
             "continue": False,
-            "reason": "review compacted state",
-            "additionalContext": ["Preserve the migration decision."],
+            "stopReason": "review compacted state",
             "systemMessage": "Check the compacted summary before proceeding.",
         },
     })
@@ -474,7 +472,7 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     assert not result.ok
     assert not result.continue_execution
     assert result.summary == "Earlier work was summarized."
-    assert result.additional_context == ("Preserve the migration decision.",)
+    assert result.additional_context == ()
     assert result.system_message == (
         "Check the compacted summary before proceeding."
     )
@@ -483,11 +481,10 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
         "review compacted state"
     )
     assert queued == [(
-        ("Preserve the migration decision.",),
+        (),
         "Check the compacted summary before proceeding.",
     )]
     assert runner.calls[1][1]["trigger"] == "manual"
-    assert runner.calls[1][1]["trigger_source"] == "server"
 
 
 if __name__ == '__main__':

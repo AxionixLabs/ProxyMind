@@ -27,13 +27,15 @@ class TurnHookEvents:
             return HookDecision.allow()
 
         reason = context.session_start_reason
-        if not self.scope.has_matching("SessionStart", reason):
+        source = _session_start_source(reason)
+
+        if not self.scope.has_matching("SessionStart", source):
             return HookDecision.allow()
 
         dispatched = await self.scope.dispatch(
             "SessionStart",
-            payload={"reason": reason},
-            match_value=reason,
+            payload={"source": source},
+            match_value=source,
             diagnostics={"session_start_reason": reason},
         )
 
@@ -154,14 +156,19 @@ class TurnHookEvents:
         dispatched = await self.scope.dispatch(
             "Stop",
             payload={
-                "outcome": str(outcome or "incomplete"),
-                "error": str(error or ""),
-                "usage": dict(usage or {}),
                 "stop_hook_active": continuation_count > 0,
-                "last_assistant_message": str(last_assistant_message or ""),
+                "last_assistant_message": (
+                    str(last_assistant_message)
+                    if last_assistant_message
+                    else None
+                ),
+            },
+            diagnostics={
+                "outcome": str(outcome or "incomplete"),
+                "hook_error": str(error or ""),
+                "usage": dict(usage or {}),
                 "continuation_count": continuation_count,
             },
-            diagnostics={"outcome": str(outcome or "incomplete")},
         )
 
         continuations = tuple(
@@ -198,6 +205,19 @@ class TurnHookEvents:
             additional_context=tuple(contexts),
             system_message="\n\n".join(system_messages),
         )
+
+
+def _session_start_source(reason: str) -> str:
+    """把本地会话边界原因转换为 Hook 启动来源。"""
+    normalized = str(reason or "").strip().lower()
+    if "compact" in normalized:
+        return "compact"
+    if "resume" in normalized or normalized in {"bound", "external"}:
+        return "resume"
+    if normalized in {"", "initial", "startup", "calling", "subagent"}:
+        return "startup"
+
+    return "clear"
 
 
 def _updated_prompt(

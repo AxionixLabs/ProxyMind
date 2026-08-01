@@ -175,20 +175,34 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
 
     start_payload = command_runner.calls[0][1]
     assert command_runner.calls[0][0] == definitions[0]
-    assert start_payload["task"] == "inspect workspace"
-    assert start_payload["session_id"] == "sid_child"
-    assert start_payload["root_session_id"] == "sid_root"
-    assert start_payload["conversation_id"] == "cid_child"
-    assert start_payload["agent_id"] == "agent_child"
-    assert start_payload["agent_type"] == "explore"
-    assert start_payload["agent_depth"] == 1
-    assert start_payload["parent_agent_id"] == "root"
+    assert start_payload == {
+        "session_id": "sid_root",
+        "transcript_path": None,
+        "cwd": "D:/workspace",
+        "hook_event_name": "SubagentStart",
+        "model": "test-model",
+        "permission_mode": "default",
+        "turn_id": "turn_child",
+        "agent_id": "agent_child",
+        "agent_type": "explore",
+    }
 
     stop_payload = command_runner.calls[1][1]
     assert command_runner.calls[1][0] == definitions[1]
-    assert stop_payload["outcome"] == "completed"
-    assert stop_payload["error"] == ""
-    assert stop_payload["usage"] == {"output_tokens": 3}
+    assert stop_payload == {
+        "agent_transcript_path": None,
+        "stop_hook_active": False,
+        "last_assistant_message": "done",
+        "session_id": "sid_root",
+        "transcript_path": None,
+        "cwd": "D:/workspace",
+        "hook_event_name": "SubagentStop",
+        "model": "test-model",
+        "permission_mode": "default",
+        "turn_id": "turn_child",
+        "agent_id": "agent_child",
+        "agent_type": "explore",
+    }
 
 
 @pytest.mark.anyio
@@ -235,7 +249,10 @@ async def test_subagent_start_injects_ordered_context_only_for_first_turn() -> N
             },
         },
         definitions[1].key: {
-            "additional_context": "check cancellation paths",
+            "hookSpecificOutput": {
+                "hookEventName": "SubagentStart",
+                "additionalContext": "check cancellation paths",
+            },
         },
     })
     runtime = HookRuntime(definitions, command_runner=command_runner)
@@ -288,7 +305,7 @@ async def test_subagent_stop_continue_false_overrides_block_decisions() -> None:
         },
         definitions[1].key: {
             "continue": False,
-            "reason": "finish now",
+            "stopReason": "finish now",
         },
         definitions[2].key: {
             "decision": "block",
@@ -311,7 +328,6 @@ async def test_subagent_stop_continue_false_overrides_block_decisions() -> None:
     assert len(command_runner.calls) == 3
     payload = command_runner.calls[0][1]
     assert payload["stop_hook_active"] is True
-    assert payload["continuation_count"] == 1
     assert payload["last_assistant_message"] == "done"
     assert payload["agent_transcript_path"] is None
 
@@ -324,11 +340,15 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
         "SubagentStop": [_hook("continue")],
     })
     command_runner = _CommandRunner(timeline, outputs={
-        definitions[0].key: {"additional_context": "initial context"},
+        definitions[0].key: {
+            "hookSpecificOutput": {
+                "hookEventName": "SubagentStart",
+                "additionalContext": "initial context",
+            },
+        },
         definitions[1].key: {
             "decision": "block",
             "reason": "run another focused pass",
-            "additionalContext": "review the last reply",
             "systemMessage": "Continue only with missing checks.",
         },
     })
@@ -362,11 +382,7 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
     assert [
         turn.additional_context
         for turn in prepared_turns[1:]
-    ] == [
-        ("review the last reply",),
-        ("review the last reply",),
-        ("review the last reply",),
-    ]
+    ] == [(), (), ()]
     assert [turn.system_message for turn in prepared_turns[1:]] == [
         "Continue only with missing checks.",
         "Continue only with missing checks.",
@@ -383,12 +399,6 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
         payload
         for definition, payload in command_runner.calls
         if definition.event == "SubagentStop"
-    ]
-    assert [payload["continuation_count"] for payload in stop_payloads] == [
-        0,
-        1,
-        2,
-        3,
     ]
     assert [payload["stop_hook_active"] for payload in stop_payloads] == [
         False,
@@ -459,9 +469,11 @@ async def test_subagent_runner_reports_failed_result() -> None:
 
     assert result.status == "failed"
     payload = command_runner.calls[0][1]
-    assert payload["outcome"] == "failed"
-    assert payload["error"] == "request failed"
-    assert payload["usage"] == {"input_tokens": 5}
+    assert payload["hook_event_name"] == "SubagentStop"
+    assert payload["stop_hook_active"] is False
+    assert payload["last_assistant_message"] is None
+    assert payload["agent_id"] == "agent_child"
+    assert payload["agent_type"] == "explore"
 
 
 @pytest.mark.anyio
@@ -488,8 +500,9 @@ async def test_subagent_runner_preserves_operation_failure() -> None:
 
     assert timeline == ["SubagentStart", "operation", "SubagentStop"]
     payload = command_runner.calls[-1][1]
-    assert payload["outcome"] == "failed"
-    assert payload["error"] == "RuntimeError: model failed"
+    assert payload["hook_event_name"] == "SubagentStop"
+    assert payload["stop_hook_active"] is False
+    assert payload["last_assistant_message"] is None
 
 
 @pytest.mark.anyio
@@ -516,8 +529,9 @@ async def test_subagent_runner_dispatches_stop_after_cancellation() -> None:
 
     assert timeline == ["SubagentStart", "operation", "SubagentStop"]
     payload = command_runner.calls[-1][1]
-    assert payload["outcome"] == "interrupted"
-    assert payload["error"] == "subagent execution cancelled"
+    assert payload["hook_event_name"] == "SubagentStop"
+    assert payload["stop_hook_active"] is False
+    assert payload["last_assistant_message"] is None
 
 
 @pytest.mark.anyio

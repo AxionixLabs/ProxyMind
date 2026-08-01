@@ -337,17 +337,23 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
         async def execute(self, definition, _payload):
             if definition.event == "SessionStart":
                 return SimpleNamespace(data={
-                    "additionalContext": ["session context"],
                     "systemMessage": "session system",
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": "session context",
+                    },
                 })
             return SimpleNamespace(data={
-                "additionalContext": "prompt context",
                 "systemMessage": "prompt system",
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": "prompt context",
+                },
             })
 
     definitions = resolve_hook_definitions(
         {
-            "SessionStart": [_hook("start", matcher="initial")],
+            "SessionStart": [_hook("start", matcher="startup")],
             "UserPromptSubmit": [_hook("prompt")],
         },
         source_scope="user",
@@ -388,7 +394,7 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
         {
-            "SessionStart": [_hook("start", matcher="initial")],
+            "SessionStart": [_hook("start", matcher="startup")],
             "UserPromptSubmit": [_hook("prompt")],
             "Stop": [_hook("stop")],
         },
@@ -409,10 +415,10 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
         "UserPromptSubmit",
         "Stop",
     ]
-    assert runner.calls[0][1]["session_started"] is True
+    assert runner.calls[0][1]["source"] == "startup"
     assert runner.calls[1][1]["prompt"] == "hello"
-    assert runner.calls[2][1]["outcome"] == "completed"
-    assert runner.calls[2][1]["usage"] == {"output_tokens": 2}
+    assert runner.calls[2][1]["stop_hook_active"] is False
+    assert runner.calls[2][1]["last_assistant_message"] is None
 
 
 @pytest.mark.anyio
@@ -479,7 +485,7 @@ async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
             if definition.event == "UserPromptSubmit":
                 return SimpleNamespace(data={
                     "continue": False,
-                    "reason": "prompt blocked",
+                    "stopReason": "prompt blocked",
                 })
             return SimpleNamespace(data={})
 
@@ -505,7 +511,7 @@ async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
         "UserPromptSubmit",
         "Stop",
     ]
-    assert runner.calls[1][1]["outcome"] == "failed"
+    assert runner.calls[1][1]["stop_hook_active"] is False
 
 
 @pytest.mark.anyio
@@ -556,7 +562,7 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
             self.calls.append((definition.event, payload))
             return SimpleNamespace(data={
                 "decision": "block",
-                "continuationPrompt": "should be ignored",
+                "reason": "should be ignored",
             })
 
     runner = CommandRunner()
@@ -578,7 +584,7 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
         await task
 
     assert [event for event, _payload in runner.calls] == ["Stop"]
-    assert runner.calls[0][1]["outcome"] == "interrupted"
+    assert runner.calls[0][1]["stop_hook_active"] is False
 
 
 @pytest.mark.anyio
@@ -589,11 +595,10 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
 
         async def execute(self, _definition, payload):
             self.payloads.append(payload)
-            if payload["continuation_count"] == 0:
+            if not payload["stop_hook_active"]:
                 return SimpleNamespace(data={
                     "decision": "block",
-                    "continuationPrompt": "continue once",
-                    "additionalContext": ["stop context"],
+                    "reason": "continue once",
                     "systemMessage": "stop system",
                 })
             return SimpleNamespace(data={})
@@ -626,12 +631,8 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
     assert result.status == "completed"
     assert result.assistant_text == "reply 2"
     assert messages == ["hello", "continue once"]
-    assert request_kwargs[1]["additional_context"] == ["stop context"]
+    assert "additional_context" not in request_kwargs[1]
     assert request_kwargs[1]["system_message"] == "stop system"
-    assert [payload["continuation_count"] for payload in runner.payloads] == [
-        0,
-        1,
-    ]
     assert [payload["stop_hook_active"] for payload in runner.payloads] == [
         False,
         True,
@@ -791,8 +792,11 @@ async def test_post_tool_hook_replaces_plan_result_for_model(monkeypatch) -> Non
                     "text": "plan result replaced",
                     "data": {"replaced": True},
                 },
-                "additionalContext": ["explain replacement"],
                 "systemMessage": "Use the replacement result.",
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": "explain replacement",
+                },
             })
 
     definitions = resolve_hook_definitions(
@@ -969,8 +973,11 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
         async def execute(self, _definition, payload):
             self.calls.append(payload)
             return SimpleNamespace(data={
-                "decision": "deny",
-                "reason": "blocked by test hook",
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "blocked by test hook",
+                },
             })
 
     runner = CommandRunner()
@@ -1031,8 +1038,11 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
         async def execute(self, _definition, payload):
             self.calls.append(payload)
             return SimpleNamespace(data={
-                "decision": "allow",
-                "updatedInput": {"value": 2},
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": {"value": 2},
+                },
             })
 
     definitions = resolve_hook_definitions(

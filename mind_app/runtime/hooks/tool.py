@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 from dataclasses import dataclass
 from mind_app.runtime.execution import ToolInvocation
+from .matching import hook_tool_name
 from .results import apply_tool_result_effect
 from .models import (
     HookDecision,
@@ -382,7 +383,11 @@ class ToolCallCoordinator:
         """返回应用前置 Hook 参数改写后的调用快照。"""
         if decision.updated_input is None:
             return invocation
-        return invocation.with_arguments(decision.updated_input)
+
+        return invocation.with_arguments(_updated_tool_arguments(
+            invocation,
+            decision.updated_input,
+        ))
 
 
 async def _dispatch_tool_event(
@@ -398,21 +403,16 @@ async def _dispatch_tool_event(
 ) -> HookDispatchResult:
     """分发不包含内部执行授权的工具事件。"""
     payload: dict[str, typing.Any] = {
-        "call_id": invocation.call_id,
-        "tool_name": invocation.name,
-        "tool_kind": _tool_kind(invocation.meta),
-        "tool_input": dict(invocation.arguments),
+        "tool_name": hook_tool_name(invocation.name),
+        "tool_input": _hook_tool_input(invocation),
     }
 
-    if outcome is not None:
-        payload["tool_outcome"] = {
-            "executed": outcome.executed,
-            "ok": outcome.ok,
-            "duration_ms": outcome.duration_ms,
-            "result": _bounded_result(outcome.result),
-            "error": outcome.error,
-            "cancelled": outcome.cancelled,
-        }
+    if event != "PermissionRequest":
+        payload["tool_use_id"] = invocation.call_id
+    if event == "PostToolUse":
+        if outcome is None:
+            raise ValueError("PostToolUse requires a tool outcome")
+        payload["tool_response"] = _tool_response(outcome)
 
     return await scope.dispatch(
         event,
@@ -423,6 +423,40 @@ async def _dispatch_tool_event(
             "call_id": invocation.call_id,
         },
     )
+
+
+def _hook_tool_input(invocation: ToolInvocation) -> dict[str, typing.Any]:
+    """返回工具 Hook stdin 使用的稳定参数对象。"""
+    arguments = invocation.arguments
+
+    if invocation.name in {"shell_command", "exec_command"}:
+        return {"command": str(arguments.get("command") or "")}
+    if invocation.name == "apply_patch":
+        return {"command": str(arguments.get("patch") or "")}
+
+    return dict(arguments)
+
+
+def _updated_tool_arguments(
+    invocation: ToolInvocation,
+    updated_input: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """把 Hook 参数对象转换回本地工具参数。"""
+    if invocation.name in {"shell_command", "exec_command"}:
+        command = updated_input.get("command")
+        if not isinstance(command, str):
+            raise ValueError("shell Hook updatedInput.command must be a string")
+        return {**invocation.arguments, "command": command}
+
+    if invocation.name == "apply_patch":
+        command = updated_input.get("command")
+        if not isinstance(command, str):
+            raise ValueError(
+                "apply_patch Hook updatedInput.command must be a string"
+            )
+        return {**invocation.arguments, "patch": command}
+
+    return dict(updated_input)
 
 
 def _invocation_fingerprint(invocation: ToolInvocation) -> str:
@@ -460,13 +494,6 @@ def _prepared_decision(
     )
 
 
-def _tool_kind(meta: dict[str, typing.Any] | None) -> str:
-    """从工具元数据中读取稳定类别。"""
-    if not isinstance(meta, dict):
-        return "local"
-    return str(meta.get("domain") or meta.get("class") or "local").strip() or "local"
-
-
 def _bounded_result(value: typing.Any, limit: int = 32768) -> typing.Any:
     """返回适合 Hook 输入的有界结果。"""
     try:
@@ -480,6 +507,19 @@ def _bounded_result(value: typing.Any, limit: int = 32768) -> typing.Any:
         "summary"   : encoded[:limit],
         "truncated" : True
     }
+
+
+def _tool_response(outcome: ToolOutcome) -> typing.Any:
+    """返回工具后置事件使用的模型可见结果。"""
+    if outcome.result is not None:
+        return _bounded_result(outcome.result)
+    if outcome.error:
+        return {
+            "error": outcome.error,
+            "cancelled": outcome.cancelled,
+        }
+
+    return None
 
 
 def _bounded_reason(value: str, limit: int = 2000) -> str:

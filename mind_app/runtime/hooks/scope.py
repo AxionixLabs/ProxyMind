@@ -9,7 +9,10 @@ from .models import (
     HookDispatchResult,
     HookEventRequest
 )
-from .protocol import validate_hook_input
+from .protocol import (
+    build_hook_input,
+    validate_hook_input
+)
 from .runtime import (
     HookDispatcher,
     HookRuntime
@@ -33,6 +36,7 @@ class HookExecutionContext:
     parent_agent_id: str | None = None
     root_session_id: str = ""
     turn_id: str = ""
+    transcript_path: str | None = None
     session_started: bool = False
     session_start_reason: str = ""
 
@@ -58,26 +62,28 @@ class HookExecutionContext:
             session_start_reason=turn.session_start_reason,
         )
 
-    def payload(self) -> dict[str, typing.Any]:
-        """返回命令 Hook 可见的公共字段。"""
-        return {
-            "session_id"           : self.session_id,
-            "root_session_id"      : self.root_session_id or self.session_id,
-            "conversation_id"      : self.conversation_id,
-            "turn_id"              : self.turn_id,
-            "cwd"                  : self.cwd,
-            "model"                : self.model,
-            "mode"                 : self.mode,
-            "source"               : self.source,
-            "sandbox_mode"         : self.sandbox_mode,
-            "permission_mode"      : self.permission_mode,
-            "agent_id"             : self.agent_id,
-            "agent_type"           : self.agent_type,
-            "agent_depth"          : self.agent_depth,
-            "parent_agent_id"      : self.parent_agent_id,
-            "session_started"      : self.session_started,
-            "session_start_reason" : self.session_start_reason
-        }
+    def payload(
+        self,
+        event: HookEventName,
+        event_payload: dict[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
+        """返回符合事件输入协议的 stdin 对象。"""
+        return build_hook_input(
+            event,
+            session_id=self.root_session_id or self.session_id,
+            transcript_path=self.transcript_path,
+            cwd=self.cwd,
+            model=self.model,
+            permission_mode=_permission_mode(
+                self.sandbox_mode,
+                self.permission_mode,
+            ),
+            turn_id=self.turn_id,
+            agent_id=self.agent_id,
+            agent_type=self.agent_type,
+            include_agent=self.agent_depth > 0,
+            payload=event_payload,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,12 +114,9 @@ class HookExecutionScope:
         diagnostics: dict[str, typing.Any] | None = None
     ) -> HookDispatchResult:
         """合并公共上下文并分发一次生命周期事件。"""
-        event_payload = {
-            **dict(payload or {}),
-            **self.context.payload(),
-            "hook_event_name": event,
-        }
+        event_payload = self.context.payload(event, payload)
         validate_hook_input(event, event_payload)
+
         return await self.dispatcher.dispatch(HookEventRequest(
             event=event,
             payload=event_payload,
@@ -125,6 +128,26 @@ class HookExecutionScope:
         """验证模型轮次属于当前固定作用域。"""
         if HookExecutionContext.from_turn(turn) != self.context:
             raise ValueError("turn does not belong to hook scope")
+
+
+def _permission_mode(sandbox_mode: str, approval_policy: str) -> str:
+    """把本地执行权限转换为 Hook 协议的权限模式。"""
+    value = str(approval_policy or "").strip()
+    if value in {
+        "default",
+        "acceptEdits",
+        "plan",
+        "dontAsk",
+        "bypassPermissions",
+    }:
+        return value
+
+    if value == "never" and sandbox_mode == "danger-full-access":
+        return "bypassPermissions"
+    if value == "never":
+        return "dontAsk"
+
+    return "default"
 
 
 if __name__ == '__main__':
