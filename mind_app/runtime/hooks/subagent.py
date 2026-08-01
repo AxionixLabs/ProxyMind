@@ -40,18 +40,11 @@ class SubagentHookEvents:
             for context in record.effect.additional_context
             if context
         )
-        system_messages = tuple(
-            record.effect.system_message
-            for record in result.records
-            if record.ok and record.effect.system_message
-        )
-
         return SubagentStartResult(
             additional_context=_bounded_parts(
                 contexts,
                 limit=_MAX_CONTEXT_CHARS,
             ),
-            system_message="\n\n".join(system_messages),
         )
 
     async def stop(
@@ -73,7 +66,7 @@ class SubagentHookEvents:
         result = await self.scope.dispatch(
             "SubagentStop",
             payload={
-                "agent_transcript_path": None,
+                "agent_transcript_path": self.scope.context.transcript_path,
                 "stop_hook_active": continuation_count > 0,
                 "last_assistant_message": (
                     str(last_assistant_message)
@@ -97,7 +90,6 @@ class SubagentHookEvents:
             if (
                 record.ok
                 and not record.effect.continue_execution
-                and not record.effect.continuation_prompt
             )
         )
         if vetoes:
@@ -129,12 +121,6 @@ class SubagentHookEvents:
             ),
             limit=_MAX_CONTEXT_CHARS,
         )
-        system_messages = tuple(
-            record.effect.system_message
-            for record in continuations
-            if record.effect.system_message
-        )
-
         return SubagentStopDecision(
             should_continue=True,
             continuation_prompt="\n\n".join(prompts),
@@ -150,7 +136,6 @@ class SubagentHookEvents:
             ),
             hook_keys=tuple(record.hook_key for record in continuations),
             additional_context=contexts,
-            system_message="\n\n".join(system_messages),
         )
 
 

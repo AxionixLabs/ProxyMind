@@ -3,7 +3,9 @@
 
 import copy
 import typing
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from mind_core.permissions import PermissionSettings
 from mind_nova.identifiers import (
@@ -11,6 +13,7 @@ from mind_nova.identifiers import (
     new_sid
 )
 from mind_nova.modes import RunMode
+from mind_nova import const
 from mind_app.history.ids import valid_session_ids
 from mind_app.runtime.execution import (
     AgentContext,
@@ -30,6 +33,7 @@ class AgentThreadContext:
     permissions: PermissionSettings
     pref_config: typing.Mapping[str, typing.Any]
     spawn_turn_id: str
+    transcript_path: str = ""
     skills: tuple[typing.Mapping[str, str], ...] = ()
 
     def __post_init__(self) -> None:
@@ -45,9 +49,10 @@ class AgentThreadContext:
         if not isinstance(self.permissions, PermissionSettings):
             raise TypeError("agent thread permissions are required")
 
-        source        = str(self.source or "").strip()
-        cwd           = str(self.cwd or "").strip()
-        spawn_turn_id = str(self.spawn_turn_id or "").strip()
+        source          = str(self.source or "").strip()
+        cwd             = str(self.cwd or "").strip()
+        spawn_turn_id   = str(self.spawn_turn_id or "").strip()
+        transcript_path = str(self.transcript_path or "").strip()
 
         if not source or not cwd or not spawn_turn_id:
             raise ValueError("agent thread source, cwd, and spawn turn are required")
@@ -69,6 +74,7 @@ class AgentThreadContext:
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "cwd", cwd)
         object.__setattr__(self, "spawn_turn_id", spawn_turn_id)
+        object.__setattr__(self, "transcript_path", transcript_path)
         object.__setattr__(self, "pref_config", pref_config)
         object.__setattr__(self, "skills", skills)
 
@@ -83,10 +89,11 @@ class AgentThreadContext:
         agent_id: str | None = None
     ) -> "AgentThreadContext":
         """从父轮次创建独立的子执行线程。"""
-        cid = new_cid()
+        cid   = new_cid()
+        agent = parent.agent.child(agent_type, agent_id=agent_id)
 
         return cls(
-            agent=parent.agent.child(agent_type, agent_id=agent_id),
+            agent=agent,
             cid=cid,
             sid=new_sid(cid),
             mode=parent.mode,
@@ -95,6 +102,7 @@ class AgentThreadContext:
             permissions=parent.permissions,
             pref_config=pref_config,
             spawn_turn_id=parent.turn_id,
+            transcript_path=_child_transcript_path(parent, agent),
             skills=tuple(skills),
         )
 
@@ -146,6 +154,22 @@ def _freeze_config(value: typing.Any) -> typing.Any:
         return tuple(_freeze_config(item) for item in value)
 
     return copy.deepcopy(value)
+
+
+def _child_transcript_path(
+    parent: TurnContext,
+    agent: AgentContext
+) -> str:
+    """返回子执行线程独立使用的记录文件路径。"""
+    parent_path = str(parent.transcript_path or "").strip()
+    if not parent_path:
+        return ""
+
+    digest = hashlib.sha256(
+        f"{agent.root_session_id}:{agent.agent_id}".encode(const.CHARSET)
+    ).hexdigest()[:20]
+
+    return str(Path(parent_path).parent / "subagents" / f"{digest}.log")
 
 
 def _thaw_config(value: typing.Any) -> typing.Any:

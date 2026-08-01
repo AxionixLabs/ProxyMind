@@ -316,6 +316,13 @@ class HookRuntime:
                 normalized,
             )
 
+            if normalized.effect.warning:
+                self._observe_warning(
+                    definition,
+                    request,
+                    normalized.effect.warning,
+                )
+
         except asyncio.CancelledError:
             raise
 
@@ -486,6 +493,25 @@ class HookRuntime:
         })
 
         observe("hook.stderr", level="WARNING", **fields)
+
+    @staticmethod
+    def _observe_warning(
+        definition: HookDefinitionConfig,
+        request: HookEventRequest,
+        message: str
+    ) -> None:
+        """把 Hook systemMessage 记录为警告而非模型指令。"""
+        fields = {
+            "hook_key"   : definition.key,
+            "hook_event" : definition.event,
+            "message"    : message[:8192],
+        }
+        fields.update({
+            key: value
+            for key, value in request.diagnostics.items()
+            if key not in fields
+        })
+        observe("hook.warning", level="WARNING", **fields)
 
 
 def _replace_additional_context_output(

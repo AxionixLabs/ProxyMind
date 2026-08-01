@@ -112,7 +112,6 @@ def normalize_hook_output(
         reason=reason,
         updated_input=updated_input,
         additional_context=contexts,
-        system_message=system_text,
         replacement_set=replacement_set,
         replacement_result=replacement_result,
         continuation_prompt=continuation_prompt,
@@ -127,7 +126,7 @@ def normalize_hook_output(
             reason=reason,
             updated_input=updated_input,
             additional_context=contexts,
-            system_message=system_text,
+            warning=system_text,
             replacement_result=replacement_result,
             replacement_result_set=replacement_set,
             continuation_prompt=continuation_prompt,
@@ -517,7 +516,6 @@ def _normalized_output(
     reason: str,
     updated_input: dict[str, typing.Any] | None,
     additional_context: tuple[str, ...],
-    system_message: str,
     replacement_set: bool,
     replacement_result: typing.Any,
     continuation_prompt: str,
@@ -533,8 +531,6 @@ def _normalized_output(
         output["updated_input"] = dict(updated_input)
     if additional_context:
         output["additional_context"] = "\n\n".join(additional_context)
-    if system_message:
-        output["system_message"] = system_message
     if replacement_set:
         output["replacement_result"] = replacement_result
     if continuation_prompt:

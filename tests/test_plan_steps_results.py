@@ -226,7 +226,7 @@ async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
     assert step.text == "redacted"
     assert step.result["data"] == {"redacted": True}
     assert report.additional_context == ("explain the redaction",)
-    assert report.system_message == "Do not expose the original result."
+    assert report.system_message == ""
 
 
 @pytest.mark.anyio

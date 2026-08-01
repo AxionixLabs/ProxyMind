@@ -58,6 +58,7 @@ class HookExecutionContext:
             agent_type=turn.agent.agent_type,
             agent_depth=turn.agent.depth,
             parent_agent_id=turn.agent.parent_agent_id,
+            transcript_path=turn.transcript_path or None,
             session_started=turn.session_started,
             session_start_reason=turn.session_start_reason,
         )

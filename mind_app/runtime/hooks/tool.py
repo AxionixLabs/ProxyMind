@@ -37,7 +37,6 @@ class _PostToolUseResult:
     replacement_result_set: bool = False
     suppress_original_output: bool = False
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
     reason: str = ""
 
     def __post_init__(self) -> None:
@@ -51,11 +50,6 @@ class _PostToolUseResult:
                 for text in [str(value or "").strip()]
                 if text
             ),
-        )
-        object.__setattr__(
-            self,
-            "system_message",
-            str(self.system_message or "").strip(),
         )
         object.__setattr__(self, "reason", str(self.reason or "").strip())
 
@@ -78,10 +72,9 @@ class ToolHookEvents:
             invocation,
         )
 
-        reasons: list[str]         = []
-        denied_keys: list[str]     = []
-        contexts: list[str]        = []
-        system_messages: list[str] = []
+        reasons: list[str]     = []
+        denied_keys: list[str] = []
+        contexts: list[str]    = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -97,13 +90,10 @@ class ToolHookEvents:
 
             contexts.extend(effect.additional_context)
 
-            if effect.system_message:
-                system_messages.append(effect.system_message)
-
         if denied_keys:
             return HookDecision(
                 allowed=False,
-                reason="; ".join(reason for reason in reasons if reason),
+                reason=reasons[0],
                 hook_keys=tuple(denied_keys),
             )
 
@@ -126,7 +116,6 @@ class ToolHookEvents:
             allowed=True,
             updated_input=updated_input,
             additional_context=tuple(contexts),
-            system_message="\n\n".join(system_messages),
         )
 
     async def post_tool_use(
@@ -146,9 +135,8 @@ class ToolHookEvents:
             outcome=outcome,
         )
 
-        contexts: list[str]        = []
-        system_messages: list[str] = []
-        reasons: list[str]         = []
+        contexts: list[str] = []
+        reasons: list[str]  = []
 
         replacement_result: typing.Any = None
         replacement_result_set         = False
@@ -161,8 +149,6 @@ class ToolHookEvents:
             effect = record.effect
 
             contexts.extend(effect.additional_context)
-            if effect.system_message:
-                system_messages.append(effect.system_message)
             if effect.reason:
                 reasons.append(_bounded_reason(effect.reason))
             if effect.replacement_result_set:
@@ -176,7 +162,6 @@ class ToolHookEvents:
             replacement_result_set=replacement_result_set,
             suppress_original_output=suppress_original_output,
             additional_context=tuple(contexts),
-            system_message="\n\n".join(system_messages),
             reason="; ".join(reason for reason in reasons if reason),
         )
 
@@ -341,12 +326,6 @@ class ToolCallCoordinator:
             *post_result.additional_context,
         )
 
-        system_message = _join_text(
-            decision.system_message,
-            operation_result.system_message,
-            post_result.system_message,
-        )
-
         visible_result = apply_tool_result_effect(
             ok=operation_result.snapshot.ok,
             text=operation_result.snapshot.text,
@@ -356,7 +335,7 @@ class ToolCallCoordinator:
             suppress_original_output=post_result.suppress_original_output,
             reason=post_result.reason,
             additional_context=additional_context,
-            system_message=system_message,
+            system_message=operation_result.system_message,
         )
 
         return ToolCallRunResult(
@@ -529,16 +508,6 @@ def _bounded_reason(value: str, limit: int = 2000) -> str:
     """返回可安全回填的有界 Hook 原因。"""
     text = str(value or "").strip()
     return text if len(text) <= limit else f"{text[:limit]}..."
-
-
-def _join_text(*values: str) -> str:
-    """合并非空文本段。"""
-    return "\n\n".join(
-        text
-        for value in values
-        for text in [str(value or "").strip()]
-        if text
-    )
 
 
 def _duration_ms(started_at: float) -> int:

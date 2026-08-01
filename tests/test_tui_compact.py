@@ -514,17 +514,12 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     assert not result.continue_execution
     assert result.summary == "Earlier work was summarized."
     assert result.additional_context == ()
-    assert result.system_message == (
-        "Check the compacted summary before proceeding."
-    )
+    assert result.system_message == ""
     assert result.message == (
         "Context compacted. Post-compact continuation blocked: "
         "review compacted state"
     )
-    assert queued == [(
-        (),
-        "Check the compacted summary before proceeding.",
-    )]
+    assert queued == []
     assert runner.calls[1][1]["trigger"] == "manual"
 
 

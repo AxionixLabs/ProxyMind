@@ -150,6 +150,9 @@ async def run_tui_model_turn(
         pref_config=pref_config,
         cwd=mind.history_workspace,
         permissions=permissions,
+        transcript_path=str(
+            getattr(getattr(mind, "report", None), "log_papers", "") or ""
+        ),
         turn_id=turn_id,
         session_started=conversation_turn.session_started,
         session_start_reason=conversation_turn.start_reason,

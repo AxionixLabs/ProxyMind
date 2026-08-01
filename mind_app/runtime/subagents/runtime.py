@@ -223,6 +223,7 @@ class SubagentRuntime:
                 pref_config=pref_config,
                 cwd=thread.cwd,
                 permissions=thread.permissions,
+                transcript_path=thread.transcript_path,
                 session_started=turn.turn_index == 1,
                 session_start_reason="subagent",
             )

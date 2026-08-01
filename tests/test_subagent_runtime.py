@@ -95,6 +95,7 @@ def _execution(
         pref_config={"primary": {"model": "test-model"}},
         cwd="D:/workspace",
         permissions=preset_permissions("auto"),
+        transcript_path="D:/logs/subagent.log",
         turn_id="turn_child",
         session_started=session_started,
         session_start_reason="subagent" if session_started else "",
@@ -177,7 +178,7 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
     assert command_runner.calls[0][0] == definitions[0]
     assert start_payload == {
         "session_id": "sid_root",
-        "transcript_path": None,
+        "transcript_path": "D:/logs/subagent.log",
         "cwd": "D:/workspace",
         "hook_event_name": "SubagentStart",
         "model": "test-model",
@@ -190,11 +191,11 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
     stop_payload = command_runner.calls[1][1]
     assert command_runner.calls[1][0] == definitions[1]
     assert stop_payload == {
-        "agent_transcript_path": None,
+        "agent_transcript_path": "D:/logs/subagent.log",
         "stop_hook_active": False,
         "last_assistant_message": "done",
         "session_id": "sid_root",
-        "transcript_path": None,
+        "transcript_path": "D:/logs/subagent.log",
         "cwd": "D:/workspace",
         "hook_event_name": "SubagentStop",
         "model": "test-model",
@@ -329,7 +330,7 @@ async def test_subagent_stop_continue_false_overrides_block_decisions() -> None:
     payload = command_runner.calls[0][1]
     assert payload["stop_hook_active"] is True
     assert payload["last_assistant_message"] == "done"
-    assert payload["agent_transcript_path"] is None
+    assert payload["agent_transcript_path"] == "D:/logs/subagent.log"
 
 
 @pytest.mark.anyio
@@ -383,11 +384,7 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
         turn.additional_context
         for turn in prepared_turns[1:]
     ] == [(), (), ()]
-    assert [turn.system_message for turn in prepared_turns[1:]] == [
-        "Continue only with missing checks.",
-        "Continue only with missing checks.",
-        "Continue only with missing checks.",
-    ]
+    assert [turn.system_message for turn in prepared_turns[1:]] == ["", "", ""]
     assert [turn.context.session_started for turn in prepared_turns] == [
         True,
         False,

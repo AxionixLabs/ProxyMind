@@ -48,7 +48,24 @@ ANSI_BOLD    = "\x1b[1m"
 ANSI_CYAN    = "\x1b[1;96m"
 ANSI_MAGENTA = "\x1b[1;95m"
 
-def _write(stream: typing.TextIO, text: str) -> None:
+
+class TextStream(typing.Protocol):
+    """定义文本输出只依赖的最小流能力。"""
+
+    def write(self, text: str) -> int:
+        """写入文本并返回已接收字符数。"""
+        ...
+
+    def flush(self) -> None:
+        """刷新已写入内容。"""
+        ...
+
+    def isatty(self) -> bool:
+        """返回当前流是否连接交互终端。"""
+        ...
+
+
+def _write(stream: TextStream, text: str) -> None:
     """写入并刷新一个文本块。"""
     if not text:
         return None
@@ -72,16 +89,14 @@ def _styled_text(text: str, style: str) -> str:
     return f"{style}{body}{ANSI_RESET}{trailing}"
 
 
-def _supports_color(stream: typing.TextIO) -> bool:
+def _supports_color(stream: TextStream) -> bool:
     """判断输出流是否适合写入 ANSI 样式。"""
     if "NO_COLOR" in os.environ:
         return False
     if os.environ.get("FORCE_COLOR") not in {None, "", "0"}:
         return True
 
-    isatty = getattr(stream, "isatty", None)
-
-    return bool(callable(isatty) and isatty())
+    return stream.isatty()
 
 
 def _line(value: typing.Any) -> str:
@@ -122,9 +137,9 @@ class TextOutputState:
     def __init__(
         self,
         record_writer: StreamRecordWriter,
-        stdout: typing.TextIO,
-        stderr: typing.TextIO,
-        color: bool = False,
+        stdout: TextStream,
+        stderr: TextStream,
+        color: bool = False
     ) -> None:
         self.record_writer  = record_writer
         self.stdout         = stdout

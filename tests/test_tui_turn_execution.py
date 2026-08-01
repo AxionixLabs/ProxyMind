@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,7 @@ class _TuiController:
         self.attach = _Attachments(attachments)
         self.failure = failure
         self.history_workspace = "D:/workspace"
+        self.report = SimpleNamespace(log_papers="D:/logs/transcript.log")
         self.stream_looper = object()
         self.sessions = []
         self.lifecycle_calls = []
@@ -122,6 +124,9 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
         "filename": "screen.png",
         "kind": "image",
     }]
+    assert controller.lifecycle_calls[0][1][
+        "turn_execution"
+    ].context.transcript_path == "D:/logs/transcript.log"
     assert controller.conversation_calls == [("screen.png", "tui")]
     assert controller.sessions == [pref_config]
     assert controller.events == [

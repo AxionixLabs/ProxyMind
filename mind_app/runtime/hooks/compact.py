@@ -113,10 +113,9 @@ class CompactHookEvents:
             },
         )
 
-        blocked_keys: list[str]    = []
-        reasons: list[str]         = []
-        contexts: list[str]        = []
-        system_messages: list[str] = []
+        blocked_keys: list[str] = []
+        reasons: list[str]      = []
+        contexts: list[str]     = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -125,8 +124,6 @@ class CompactHookEvents:
             effect = record.effect
 
             contexts.extend(effect.additional_context)
-            if effect.system_message:
-                system_messages.append(effect.system_message)
 
             if not effect.continue_execution:
                 blocked_keys.append(record.hook_key)
@@ -140,7 +137,6 @@ class CompactHookEvents:
             reason="; ".join(reason for reason in reasons if reason),
             hook_keys=tuple(blocked_keys),
             additional_context=tuple(contexts),
-            system_message="\n\n".join(system_messages),
         )
 
 

@@ -26,6 +26,7 @@ def test_root_agent_and_turn_context_share_session_identity() -> None:
         pref_config={"primary": {"model": "test-model"}},
         cwd="D:/workspace",
         permissions=permissions,
+        transcript_path="D:/logs/transcript.log",
         turn_id="turn_test",
         session_started=True,
         session_start_reason="initial",
@@ -38,6 +39,7 @@ def test_root_agent_and_turn_context_share_session_identity() -> None:
     assert turn.turn_id == "turn_test"
     assert turn.model == "test-model"
     assert turn.permissions is permissions
+    assert turn.transcript_path == "D:/logs/transcript.log"
     assert turn.session_started is True
     assert turn.session_start_reason == "initial"
 
@@ -96,6 +98,7 @@ def test_child_turn_can_use_an_independent_session() -> None:
         pref_config={},
         cwd=".",
         permissions=preset_permissions("auto"),
+        transcript_path="D:/logs/subagent.log",
     )
 
     assert turn.sid == "sid_child"
@@ -143,6 +146,7 @@ def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
         pref_config={},
         cwd=".",
         permissions=preset_permissions("auto"),
+        transcript_path="D:/logs/subagent.log",
     )
 
     context = HookExecutionContext.from_turn(turn)
@@ -157,6 +161,7 @@ def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
     assert payload["session_id"] == "sid_root"
     assert payload["agent_id"] == "agent_child"
     assert payload["agent_type"] == "explore"
+    assert payload["transcript_path"] == "D:/logs/subagent.log"
     assert "root_session_id" not in payload
 
 

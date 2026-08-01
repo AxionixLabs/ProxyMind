@@ -62,7 +62,7 @@ class HookOutputEffect:
     reason: str = ""
     updated_input: dict[str, typing.Any] | None = None
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
+    warning: str = ""
     replacement_result: typing.Any = None
     replacement_result_set: bool = False
     continuation_prompt: str = ""
@@ -85,8 +85,8 @@ class HookOutputEffect:
         object.__setattr__(self, "decision", str(self.decision or "").strip())
         object.__setattr__(
             self,
-            "system_message",
-            str(self.system_message or "").strip(),
+            "warning",
+            str(self.warning or "").strip(),
         )
         object.__setattr__(
             self,
@@ -142,7 +142,6 @@ class HookDecision:
     hook_keys: tuple[str, ...] = ()
     updated_input: dict[str, typing.Any] | None = None
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     @classmethod
     def allow(cls) -> "HookDecision":
@@ -164,7 +163,6 @@ class HookDecision:
                 if text
             ),
         )
-        object.__setattr__(self, "system_message", str(self.system_message or "").strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +188,6 @@ class HookPermissionDecision:
 class SubagentStartResult:
     """保存子执行主体开始 Hook 注入的上下文。"""
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     def __post_init__(self) -> None:
         """规范化注入文本。"""
@@ -204,7 +201,6 @@ class SubagentStartResult:
                 if text
             ),
         )
-        object.__setattr__(self, "system_message", str(self.system_message or "").strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,7 +211,6 @@ class SubagentStopDecision:
     reason: str = ""
     hook_keys: tuple[str, ...] = ()
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     @classmethod
     def stop(cls) -> "SubagentStopDecision":
@@ -240,7 +235,6 @@ class SubagentStopDecision:
                 if text
             ),
         )
-        object.__setattr__(self, "system_message", str(self.system_message or "").strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,7 +242,6 @@ class TurnStartResult:
     """保存轮次开始 Hook 处理后的请求输入。"""
     message: str
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     def __post_init__(self) -> None:
         """规范化请求输入和注入文本。"""
@@ -263,7 +256,6 @@ class TurnStartResult:
                 if text
             ),
         )
-        object.__setattr__(self, "system_message", str(self.system_message or "").strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,7 +266,6 @@ class StopHookDecision:
     reason: str = ""
     hook_keys: tuple[str, ...] = ()
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     @classmethod
     def stop(cls) -> "StopHookDecision":
@@ -299,7 +290,6 @@ class StopHookDecision:
                 if text
             ),
         )
-        object.__setattr__(self, "system_message", str(self.system_message or "").strip())
 
 
 @dataclass(frozen=True, slots=True)

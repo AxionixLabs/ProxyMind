@@ -111,6 +111,9 @@ async def calling(
         pref_config=pref_config,
         cwd=mind.history_workspace,
         permissions=permissions,
+        transcript_path=str(
+            getattr(getattr(mind, "report", None), "log_papers", "") or ""
+        ),
         turn_id=kwargs.pop("turn_id", None),
         session_started=conversation_turn.session_started,
         session_start_reason=conversation_turn.start_reason,

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -45,7 +46,7 @@ class _Controller:
         await awaitable
 
 
-def _parent_turn() -> TurnContext:
+def _parent_turn(*, transcript_path: str = "") -> TurnContext:
     cid = new_cid()
     sid = new_sid(cid)
     return TurnContext.create(
@@ -57,6 +58,7 @@ def _parent_turn() -> TurnContext:
         pref_config={"primary": {"model": "parent-model"}},
         cwd="D:/workspace",
         permissions=preset_permissions("auto"),
+        transcript_path=transcript_path,
         turn_id="parent_turn",
     )
 
@@ -129,6 +131,46 @@ async def test_runtime_keeps_thread_context_across_submissions() -> None:
         },
     ]
     await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
+    controller = _Controller()
+    parent = _parent_turn(
+        transcript_path=str(tmp_path / "root.log"),
+    )
+    runtime = SubagentRuntime(controller)
+
+    spawned = await runtime.spawn(
+        parent,
+        "inspect",
+        {},
+        agent_type="review",
+        agent_id="agent_review",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    first = controller.stream_calls[0]["turn_execution"]
+
+    await runtime.submit(parent.sid, spawned.agent_id, "inspect again")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    second = controller.stream_calls[1]["turn_execution"]
+
+    assert first.context.transcript_path == second.context.transcript_path
+    assert first.context.transcript_path != parent.transcript_path
+    assert Path(first.context.transcript_path).parent == tmp_path / "subagents"
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_silent_output_session_records_transcript(tmp_path) -> None:
+    transcript = tmp_path / "agent.log"
+    session = create_silent_output_session(str(transcript))
+
+    await session.control.open()
+    await session.control.record_hidden_output("child result")
+    await session.control.stop()
+
+    assert transcript.read_text(encoding="utf-8") == "child result\n"
 
 
 @pytest.mark.anyio

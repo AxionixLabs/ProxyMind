@@ -260,13 +260,9 @@ async def compact_conversation(
                 )
             else:
                 result = _apply_post_compact_decision(result, post_decision)
-                if (
-                    post_decision.additional_context
-                    or post_decision.system_message
-                ):
+                if post_decision.additional_context:
                     mind.conversation.queue_turn_context(
                         post_decision.additional_context,
-                        system_message=post_decision.system_message,
                     )
 
     return result
@@ -288,7 +284,6 @@ def _apply_post_compact_decision(
         message=message,
         continue_execution=decision.allowed,
         additional_context=decision.additional_context,
-        system_message=decision.system_message,
     )
 
 

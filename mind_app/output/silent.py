@@ -1,92 +1,31 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
-from mind_app.presentation.contracts import (
-    PresentationSink,
-    PresentationView
-)
-from .content import (
-    ContentOutput,
-    ContentSink
-)
-from .contracts import (
-    OutputControlPort,
-    OutputStatusPort
-)
+from ..stream_io.output_record import StreamRecordWriter
 from .session import OutputSession
+from .text import (
+    TextContentSink,
+    TextOutputControl,
+    TextOutputState,
+    TextPresentationSink,
+    TextStream
+)
 
 
-class SilentOutputControl(OutputControlPort, OutputStatusPort):
-    """提供不写入终端的单轮输出控制。"""
+class _DiscardTextStream(TextStream):
+    """接收文本写入但不输出到终端。"""
 
-    async def open(self) -> None:
-        """忽略输出会话启动。"""
+    def write(self, text: str) -> int:
+        """丢弃文本并返回已接收字符数。"""
+        return len(text)
+
+    def flush(self) -> None:
+        """忽略刷新请求。"""
         return None
 
-    async def stop(self, *, blink: bool = True) -> None:
-        """忽略输出会话停止。"""
-        _ = blink
-        return None
-
-    async def record_hidden_output(self, text: str) -> None:
-        """忽略隐藏输出记录。"""
-        _ = text
-        return None
-
-    def record_tool_arguments(
-        self,
-        name: str,
-        arguments: dict[str, typing.Any],
-        *,
-        call_id: str | None = None,
-    ) -> None:
-        """忽略工具参数展示。"""
-        _ = name, arguments, call_id
-        return None
-
-    async def begin_tool_status(self) -> None:
-        """忽略工具状态。"""
-        return None
-
-    async def begin_custom_tool_status(self, text: str | None) -> None:
-        """忽略自定义工具状态。"""
-        _ = text
-        return None
-
-    async def begin_reply_wait_status(
-        self,
-        text: str | None = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
-    ) -> None:
-        """忽略回复等待状态。"""
-        _ = text, delay_sec, animate_after_sec
-        return None
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        """忽略状态结束。"""
-        _ = immediate
-        return None
-
-
-class SilentContentSink(ContentSink):
-    """忽略无终端前端的正文事件。"""
-
-    async def emit(self, output: ContentOutput) -> None:
-        """忽略正文事件。"""
-        _ = output
-        return None
-
-
-class SilentPresentationSink(PresentationSink):
-    """忽略无终端前端的展示事件。"""
-
-    async def emit(self, view: PresentationView) -> None:
-        """忽略展示事件。"""
-        _ = view
-        return None
+    def isatty(self) -> bool:
+        """声明当前流不是交互终端。"""
+        return False
 
 
 def create_silent_output_session(
@@ -94,16 +33,24 @@ def create_silent_output_session(
     *,
     animate: bool = True,
 ) -> OutputSession:
-    """创建不写入终端的单轮输出会话。"""
-    _ = log_file, animate
+    """创建只写入记录文件的无终端输出会话。"""
+    _ = animate
 
-    control = SilentOutputControl()
+    discard = _DiscardTextStream()
+
+    state = TextOutputState(
+        record_writer=StreamRecordWriter(log_file),
+        stdout=discard,
+        stderr=discard,
+    )
+
+    control = TextOutputControl(state)
 
     return OutputSession(
         control=control,
         status=control,
-        content=SilentContentSink(),
-        presentation=SilentPresentationSink(),
+        content=TextContentSink(state),
+        presentation=TextPresentationSink(state),
     )
 
 

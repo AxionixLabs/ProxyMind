@@ -86,16 +86,12 @@ class SubagentRunner:
                 execution.hook_scope
             ).start(execution.message)
 
-            if start_result.additional_context or start_result.system_message:
+            if start_result.additional_context:
                 current_execution = replace(
                     execution,
                     additional_context=(
                         *execution.additional_context,
                         *start_result.additional_context,
-                    ),
-                    system_message=_join_text(
-                        execution.system_message,
-                        start_result.system_message,
                     ),
                 )
 
@@ -163,7 +159,6 @@ class SubagentRunner:
                 decision.continuation_prompt,
                 continuation_count=continuation_count,
                 additional_context=decision.additional_context,
-                system_message=decision.system_message,
             )
 
     async def _dispatch_stop(
@@ -233,16 +228,6 @@ def _result_assistant_text(result: typing.Any) -> str:
     """返回模型结果中的有界最后回复。"""
     value = getattr(result, "assistant_text", "")
     return _bounded_text(str(value or ""))
-
-
-def _join_text(*values: str) -> str:
-    """合并非空文本段。"""
-    return "\n\n".join(
-        text
-        for value in values
-        for text in [str(value or "").strip()]
-        if text
-    )
 
 
 def _bounded_error(error: BaseException) -> str:

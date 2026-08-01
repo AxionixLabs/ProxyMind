@@ -99,6 +99,7 @@ def _hook(command, *, matcher=None):
 
 def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
     remembered: list[str] = []
+    queued_context: list[tuple[str, ...]] = []
 
     async def await_cleanup(awaitable) -> None:
         await awaitable
@@ -117,6 +118,12 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
         remembered=remembered,
+        conversation=SimpleNamespace(
+            queue_turn_context=lambda contexts: queued_context.append(
+                tuple(contexts)
+            ),
+        ),
+        queued_context=queued_context,
     )
 
 
@@ -365,9 +372,7 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
             "session context",
             "prompt context",
         ]
-        assert kwargs["system_message"] == (
-            "session system\n\nprompt system"
-        )
+        assert "system_message" not in kwargs
         yield parse_stream_event({"type": "turn.done"})
 
     result, _mind_state = await _run_stream(
@@ -379,6 +384,37 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
     )
 
     assert result.status == "completed"
+
+
+@pytest.mark.anyio
+async def test_session_start_stop_queues_context_for_next_turn(monkeypatch) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "continue": False,
+                "stopReason": "configure first",
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "Python 3.13 is required",
+                },
+            })
+
+    definitions = resolve_hook_definitions(
+        {"SessionStart": [_hook("start", matcher="startup")]},
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    result, mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        session_started=True,
+    )
+
+    assert result.status == "failed"
+    assert result.error == "configure first"
+    assert mind_state.queued_context == [("Python 3.13 is required",)]
 
 
 @pytest.mark.anyio
@@ -632,7 +668,7 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
     assert result.assistant_text == "reply 2"
     assert messages == ["hello", "continue once"]
     assert "additional_context" not in request_kwargs[1]
-    assert request_kwargs[1]["system_message"] == "stop system"
+    assert "system_message" not in request_kwargs[1]
     assert [payload["stop_hook_active"] for payload in runner.payloads] == [
         False,
         True,
@@ -848,7 +884,7 @@ async def test_post_tool_hook_replaces_plan_result_for_model(monkeypatch) -> Non
     )
     assert posted[0][0][5]["data"] == {"replaced": True}
     assert posted[0][1]["additional_context"] == ("explain replacement",)
-    assert posted[0][1]["system_message"] == "Use the replacement result."
+    assert "system_message" not in posted[0][1]
 
 
 @pytest.mark.anyio

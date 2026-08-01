@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import mind_app.runtime.hooks.runtime as hook_runtime_module
 
 from mind_app.runtime.execution import (
     AgentContext,
@@ -581,10 +582,44 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
     runner.release.set()
     result = await dispatch
 
-    assert [record.effect.system_message for record in result.records] == [
+    assert [record.effect.warning for record in result.records] == [
         "first",
         "second",
     ]
+
+
+@pytest.mark.anyio
+async def test_runtime_records_system_message_as_warning(monkeypatch) -> None:
+    definitions = _definitions({
+        "SessionStart": [_hook("policy", matcher="startup")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"systemMessage": "Policy check completed"},
+    })
+    observed = []
+    monkeypatch.setattr(
+        hook_runtime_module,
+        "observe",
+        lambda event, **fields: observed.append((event, fields)),
+    )
+
+    await HookRuntime(definitions, command_runner=runner).dispatch(
+        HookEventRequest(
+            event="SessionStart",
+            match_value="startup",
+            payload={"session_id": "sid_test"},
+        )
+    )
+
+    assert observed == [(
+        "hook.warning",
+        {
+            "level": "WARNING",
+            "hook_key": definitions[0].key,
+            "hook_event": "SessionStart",
+            "message": "Policy check completed",
+        },
+    )]
 
 
 @pytest.mark.anyio
@@ -756,6 +791,10 @@ async def test_session_start_continue_false_stops_turn_start() -> None:
         definitions[0].key: {
             "continue": False,
             "stopReason": "startup stopped",
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": "Python 3.13 is required",
+            },
         },
     })
     events = TurnHookEvents(_scope(
@@ -763,9 +802,10 @@ async def test_session_start_continue_false_stops_turn_start() -> None:
         _invocation(session_started=True),
     ))
 
-    with pytest.raises(PromptHookBlockedError, match="startup stopped"):
+    with pytest.raises(PromptHookBlockedError, match="startup stopped") as caught:
         await events.begin("hello")
 
+    assert caught.value.additional_context == ("Python 3.13 is required",)
     assert [call[0].event for call in runner.calls] == ["SessionStart"]
 
 
@@ -925,6 +965,37 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
     assert payload["tool_input"] == {"command": "rg TODO"}
     assert "execution" not in payload
     assert "secret-grant" not in str(payload)
+
+
+@pytest.mark.anyio
+async def test_pre_tool_use_uses_first_configured_deny_reason() -> None:
+    definitions = _definitions({
+        "PreToolUse": [
+            _hook("first", matcher="shell_command"),
+            _hook("second", matcher="shell_command"),
+        ],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "decision": "deny",
+            "reason": "first reason",
+        },
+        definitions[1].key: {
+            "decision": "deny",
+            "reason": "second reason",
+        },
+    })
+
+    decision = await ToolHookEvents(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    ))).pre_tool_use(_invocation())
+
+    assert not decision.allowed
+    assert decision.reason == "first reason"
+    assert decision.hook_keys == tuple(
+        definition.key for definition in definitions
+    )
 
 
 @pytest.mark.anyio
@@ -1231,9 +1302,7 @@ async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
         "prefer concise output",
         "post context",
     )
-    assert result.visible_result.system_message == (
-        "Treat the tool result as summarized.\n\nPost message."
-    )
+    assert result.visible_result.system_message == ""
 
 
 @pytest.mark.anyio
@@ -1268,7 +1337,7 @@ async def test_post_tool_use_exposes_replacement_result_effect() -> None:
     assert result.visible_result.text == "redacted"
     assert result.visible_result.fields["data"] == {"redacted": True}
     assert result.visible_result.additional_context == ("explain the redaction",)
-    assert result.visible_result.system_message == "Do not reveal the original output."
+    assert result.visible_result.system_message == ""
 
 
 @pytest.mark.anyio

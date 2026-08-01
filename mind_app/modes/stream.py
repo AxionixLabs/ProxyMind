@@ -275,7 +275,7 @@ async def stream_looper(
     reentry_kwargs["session_factory"] = session_factory
 
     output_session: OutputSession = session_factory(
-        mind.report.log_papers,
+        turn_context.transcript_path or mind.report.log_papers,
         animate=bool(getattr(mind, "animate", True)),
     )
 
@@ -296,6 +296,7 @@ async def stream_looper(
     result_status: RunStatus  = "incomplete"
 
     turn_hook_events: TurnHookEvents | None = None
+
     stop_decision = StopHookDecision.stop()
 
     approvals: ApprovalStore = ApprovalStore()
@@ -333,11 +334,11 @@ async def stream_looper(
         turn_hook_events      = TurnHookEvents(hook_scope)
 
         begin_result = await turn_hook_events.begin(message)
-        message = begin_result.message
+        message      = begin_result.message
+
         _extend_request_context(
             kwargs,
             additional_context=begin_result.additional_context,
-            system_message=begin_result.system_message,
         )
 
         client_tool_runner = ClientToolCallRunner(
@@ -849,12 +850,17 @@ async def stream_looper(
     except PromptHookBlockedError as error:
         result_status = "failed"
         failure_error = str(error)
+
+        if error.additional_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(error.additional_context)
+
         observe(
             "stream.prompt_blocked",
             level="WARNING",
             mode=mode,
             turn_id=turn_context.turn_id,
         )
+
         await finish_failure(
             status_control,
             presentation,
@@ -997,7 +1003,6 @@ async def stream_looper(
                 turn_execution,
                 stop_decision.continuation_prompt,
                 additional_context=stop_decision.additional_context,
-                system_message=stop_decision.system_message,
             ),
             **reentry_kwargs,
         )

@@ -13,6 +13,21 @@ from .scope import HookExecutionScope
 class PromptHookBlockedError(RuntimeError):
     """表示用户输入被前置生命周期 Hook 阻止。"""
 
+    def __init__(
+        self,
+        reason: str,
+        *,
+        additional_context: typing.Iterable[str] = ()
+    ) -> None:
+        super().__init__(reason)
+
+        self.additional_context = tuple(
+            text
+            for value in additional_context
+            for text in [str(value or "").strip()]
+            if text
+        )
+
 
 class TurnHookEvents:
     """构建并聚合模型轮次生命周期事件。"""
@@ -39,8 +54,11 @@ class TurnHookEvents:
             diagnostics={"session_start_reason": reason},
         )
 
-        contexts: list[str]        = []
-        system_messages: list[str] = []
+        contexts: list[str] = []
+
+        for record in dispatched.records:
+            if record.ok:
+                contexts.extend(record.effect.additional_context)
 
         blocked = tuple(
             record
@@ -59,19 +77,12 @@ class TurnHookEvents:
                     for record in blocked
                 ),
                 hook_keys=tuple(record.hook_key for record in blocked),
+                additional_context=tuple(contexts),
             )
-
-        for record in dispatched.records:
-            if not record.ok:
-                continue
-            contexts.extend(record.effect.additional_context)
-            if record.effect.system_message:
-                system_messages.append(record.effect.system_message)
 
         return HookDecision(
             allowed=True,
             additional_context=tuple(contexts),
-            system_message="\n\n".join(system_messages),
         )
 
     async def user_prompt_submit(self, prompt: str) -> HookDecision:
@@ -86,10 +97,9 @@ class TurnHookEvents:
 
         updated_input: dict[str, typing.Any] | None = None
 
-        blocked_keys: list[str]    = []
-        reasons: list[str]         = []
-        contexts: list[str]        = []
-        system_messages: list[str] = []
+        blocked_keys: list[str] = []
+        reasons: list[str]      = []
+        contexts: list[str]     = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -111,9 +121,6 @@ class TurnHookEvents:
 
             contexts.extend(effect.additional_context)
 
-            if effect.system_message:
-                system_messages.append(effect.system_message)
-
         if blocked_keys:
             return HookDecision(
                 allowed=False,
@@ -125,7 +132,6 @@ class TurnHookEvents:
             allowed=True,
             updated_input=updated_input,
             additional_context=tuple(contexts),
-            system_message="\n\n".join(system_messages),
         )
 
     async def begin(self, prompt: str) -> TurnStartResult:
@@ -134,7 +140,8 @@ class TurnHookEvents:
 
         if not session_decision.allowed:
             raise PromptHookBlockedError(
-                session_decision.reason or "session start denied by hook"
+                session_decision.reason or "session start denied by hook",
+                additional_context=session_decision.additional_context,
             )
 
         decision = await self.user_prompt_submit(prompt)
@@ -150,14 +157,6 @@ class TurnHookEvents:
             additional_context=(
                 *session_decision.additional_context,
                 *decision.additional_context,
-            ),
-            system_message="\n\n".join(
-                text
-                for text in (
-                    session_decision.system_message,
-                    decision.system_message,
-                )
-                if text
             ),
         )
 
@@ -211,13 +210,10 @@ class TurnHookEvents:
         if not continuations:
             return StopHookDecision.stop()
 
-        contexts: list[str]        = []
-        system_messages: list[str] = []
+        contexts: list[str] = []
 
         for record in continuations:
             contexts.extend(record.effect.additional_context)
-            if record.effect.system_message:
-                system_messages.append(record.effect.system_message)
 
         prompt = "\n\n".join(
             _bounded_reason(record.effect.continuation_prompt, limit=6000)
@@ -235,7 +231,6 @@ class TurnHookEvents:
             ),
             hook_keys=tuple(record.hook_key for record in continuations),
             additional_context=tuple(contexts),
-            system_message="\n\n".join(system_messages),
         )
 
 
