@@ -50,6 +50,7 @@ from .client_tools import (
 from .native_coding import NativeCoding
 from .approval.coordinator import ApprovalCoordinator
 from .runtime.subagents.runtime import SubagentRuntime
+from .runtime.subagents.graph import AgentGraphStore
 from .frontend.contracts import (
     ActivityStatusKind,
     Frontend
@@ -168,6 +169,10 @@ class Mind(object):
                 self,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
                 transcript_path_for=self.transcripts.path_for_session,
+                graph_store=(
+                    kwargs.get("agent_graph_store")
+                    or AgentGraphStore()
+                ),
             )
         )
 

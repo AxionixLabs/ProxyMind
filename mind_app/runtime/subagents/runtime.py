@@ -44,6 +44,10 @@ from mind_app.runtime.subagents.delivery import (
     AgentMessageDispatch,
     SteeringMessageDelivery
 )
+from mind_app.runtime.subagents.graph import (
+    AgentGraphPersistence,
+    AgentGraphStore
+)
 from mind_app.runtime.subagents.runner import SubagentRunner
 from mind_app.runtime.subagents.thread import (
     AgentThreadContext,
@@ -77,6 +81,7 @@ class SubagentRuntime:
         settings: AgentSettings | None = None,
         executor: SubagentExecutionPort | None = None,
         message_delivery: AgentMessageDeliveryPort | None = None,
+        graph_store: AgentGraphStore | None = None,
         skills_provider: SkillsProvider | None = None,
         transcript_path_for: TranscriptPathResolver | None = None
     ) -> None:
@@ -84,6 +89,13 @@ class SubagentRuntime:
         self._settings            = settings or AgentSettings()
         self._executor            = executor or StreamSubagentExecutor(controller)
         self._message_delivery    = message_delivery or SteeringMessageDelivery()
+
+        self._graph_persistence   = (
+            AgentGraphPersistence(graph_store)
+            if graph_store is not None
+            else None
+        )
+
         self._skills_provider     = skills_provider or self._configured_skills
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._runner              = SubagentRunner(controller)
@@ -324,6 +336,8 @@ class SubagentRuntime:
                 *(control.shutdown() for control in controls.values()),
                 return_exceptions=False,
             )
+        if self._graph_persistence is not None:
+            await self._graph_persistence.close()
 
     async def _execute_submission(
         self,
@@ -510,6 +524,11 @@ class SubagentRuntime:
                         self._settings.max_concurrent_threads_per_session
                     ),
                     max_depth=self._settings.max_depth,
+                    checkpoint_publisher=(
+                        self._graph_persistence.publish
+                        if self._graph_persistence is not None
+                        else None
+                    ),
                 )
                 self._controls[normalized] = control
 

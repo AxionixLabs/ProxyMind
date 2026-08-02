@@ -6,6 +6,7 @@ import typing
 import asyncio
 from collections import deque
 from dataclasses import dataclass
+from engine.observability import observe_exception
 from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import AgentContext
 from mind_app.runtime.subagents.mailbox import (
@@ -37,6 +38,8 @@ FINAL_AGENT_STATUSES = frozenset({
     "interrupted",
     "closed",
 })
+
+AGENT_GRAPH_SCHEMA_VERSION = 1
 
 
 class AgentControlError(RuntimeError):
@@ -158,6 +161,102 @@ class AgentMailboxWaitResult:
     timed_out: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class AgentGraphRecord:
+    """保存可用于重建单个执行主体的控制快照。"""
+    thread: AgentThreadContext
+    status: AgentStatus
+    submission: AgentSubmission | None = None
+    queue: tuple[AgentSubmission, ...] = ()
+    turn_count: int = 0
+    error: str = ""
+    status_before_close: AgentResumeStatus | None = None
+
+    def __post_init__(self) -> None:
+        """校验执行主体快照的持久化字段。"""
+        if not isinstance(self.thread, AgentThreadContext):
+            raise TypeError("agent graph thread is required")
+        if self.status not in FINAL_AGENT_STATUSES | {"pending", "running"}:
+            raise ValueError("agent graph status is invalid")
+        if self.submission is not None and not isinstance(
+            self.submission,
+            AgentSubmission,
+        ):
+            raise TypeError("agent graph submission is invalid")
+        if not isinstance(self.queue, tuple) or any(
+            not isinstance(item, AgentSubmission)
+            for item in self.queue
+        ):
+            raise TypeError("agent graph queue is invalid")
+        if (
+            isinstance(self.turn_count, bool)
+            or not isinstance(self.turn_count, int)
+            or self.turn_count < 0
+        ):
+            raise ValueError("agent graph turn count must be non-negative")
+        if self.status_before_close not in {
+            None,
+            "completed",
+            "failed",
+            "interrupted",
+        }:
+            raise ValueError("agent graph resume status is invalid")
+        object.__setattr__(self, "error", str(self.error or ""))
+
+
+@dataclass(frozen=True, slots=True)
+class AgentGraphCheckpoint:
+    """保存单个根会话执行树的版本化快照。"""
+    root_session_id: str
+    revision: int
+    updated_at_ms: int
+    records: tuple[AgentGraphRecord, ...] = ()
+    schema_version: int = AGENT_GRAPH_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        """校验执行树快照的版本、顺序和根会话。"""
+        root_session_id = str(self.root_session_id or "").strip()
+        if not root_session_id:
+            raise ValueError("agent graph root session id is required")
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision <= 0
+        ):
+            raise ValueError("agent graph revision must be positive")
+        if (
+            isinstance(self.updated_at_ms, bool)
+            or not isinstance(self.updated_at_ms, int)
+            or self.updated_at_ms <= 0
+        ):
+            raise ValueError("agent graph timestamp must be positive")
+        if self.schema_version != AGENT_GRAPH_SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported agent graph schema: {self.schema_version}"
+            )
+        if not isinstance(self.records, tuple) or any(
+            not isinstance(record, AgentGraphRecord)
+            for record in self.records
+        ):
+            raise TypeError("agent graph records must be a tuple")
+
+        agent_ids = [record.thread.agent.agent_id for record in self.records]
+        task_paths = [record.thread.agent.task_path for record in self.records]
+        if len(agent_ids) != len(set(agent_ids)):
+            raise ValueError("agent graph agent ids must be unique")
+        if len(task_paths) != len(set(task_paths)):
+            raise ValueError("agent graph task paths must be unique")
+        if any(
+            record.thread.agent.root_session_id != root_session_id
+            for record in self.records
+        ):
+            raise ValueError("agent graph record belongs to another root session")
+        object.__setattr__(self, "root_session_id", root_session_id)
+
+
+AgentGraphPublisher = typing.Callable[[AgentGraphCheckpoint], None]
+
+
 class _AgentRecord:
     """保存根会话树内部的可变执行状态。"""
 
@@ -212,7 +311,8 @@ class AgentControl:
         executor: AgentTurnExecutor,
         *,
         max_open_agents: int = 4,
-        max_depth: int = 1
+        max_depth: int = 1,
+        checkpoint_publisher: AgentGraphPublisher | None = None,
     ) -> None:
         if root.depth != 0:
             raise ValueError("agent control requires a root context")
@@ -230,11 +330,15 @@ class AgentControl:
             or max_depth < 0
         ):
             raise ValueError("max agent depth must be a non-negative integer")
+        if checkpoint_publisher is not None and not callable(checkpoint_publisher):
+            raise TypeError("agent graph checkpoint publisher must be callable")
 
         self._root            = root
         self._executor        = executor
         self._max_open_agents = max_open_agents
         self._max_depth       = max_depth
+
+        self._checkpoint_publisher = checkpoint_publisher
 
         self._condition = asyncio.Condition()
 
@@ -245,6 +349,7 @@ class AgentControl:
         self._mailbox = AgentMailboxStore()
 
         self._shutdown: bool = False
+        self._revision: int  = 0
 
     @property
     def root(self) -> AgentContext:
@@ -299,6 +404,7 @@ class AgentControl:
             self._records[thread.agent.agent_id] = record
             self._records_by_path[thread.agent.task_path] = record
             self._start(record, submission)
+            self._publish_checkpoint()
             self._condition.notify_all()
 
             return self._snapshot(record)
@@ -333,6 +439,7 @@ class AgentControl:
                 submission_id=submission.submission_id,
                 queued_count=len(record.queue),
             )
+            self._publish_checkpoint()
             self._condition.notify_all()
             return submission.submission_id
 
@@ -410,6 +517,7 @@ class AgentControl:
             else:
                 record.status = record.status_before_close
             record.status_before_close = None
+            self._publish_checkpoint()
             self._condition.notify_all()
             return self._snapshot(record)
 
@@ -619,7 +727,10 @@ class AgentControl:
         if task is not None:
             await asyncio.gather(task, return_exceptions=True)
             async with self._condition:
-                record = self._records.get(agent_id)
+
+                record  = self._records.get(agent_id)
+                changed = False
+
                 if (
                     record is not None
                     and record.submission_id == submission_id
@@ -629,6 +740,8 @@ class AgentControl:
                     record.result = None
                     record.error  = ""
 
+                    changed = True
+
                     self._mailbox.publish(
                         "status",
                         record.context,
@@ -637,6 +750,8 @@ class AgentControl:
                     )
                 if record is not None and record.task is task:
                     record.task = None
+                if changed:
+                    self._publish_checkpoint()
                 self._condition.notify_all()
 
         return await self.get(agent_id)
@@ -715,6 +830,7 @@ class AgentControl:
                 submission_id=submission_id,
                 turn_index=record.turn_count,
             )
+            self._publish_checkpoint()
             self._condition.notify_all()
 
         try:
@@ -801,6 +917,7 @@ class AgentControl:
             if record.queue:
                 self._start(record, record.queue.popleft())
 
+            self._publish_checkpoint()
             self._condition.notify_all()
 
     async def _clear_task(
@@ -869,6 +986,8 @@ class AgentControl:
                         agent_id,
                         agent_record.task,
                     ))
+            if records:
+                self._publish_checkpoint()
             self._condition.notify_all()
 
         if tasks:
@@ -880,6 +999,41 @@ class AgentControl:
                 await self._clear_task(agent_id, task)
 
         return previous
+
+    def _publish_checkpoint(self) -> None:
+        """向非阻塞端口发布当前执行树快照。"""
+        publisher = self._checkpoint_publisher
+        if publisher is None:
+            return None
+
+        self._revision += 1
+        checkpoint = AgentGraphCheckpoint(
+            root_session_id=self._root.root_session_id,
+            revision=self._revision,
+            updated_at_ms=time.time_ns() // 1_000_000,
+            records=tuple(
+                AgentGraphRecord(
+                    thread=record.thread,
+                    status=record.status,
+                    submission=record.submission,
+                    queue=tuple(record.queue),
+                    turn_count=record.turn_count,
+                    error=record.error,
+                    status_before_close=record.status_before_close,
+                )
+                for record in self._records.values()
+            ),
+        )
+        try:
+            publisher(checkpoint)
+        except Exception as error:
+            observe_exception(
+                "subagent.graph.publish_failed",
+                error,
+                level="WARNING",
+                root_session_id=self._root.root_session_id,
+                revision=self._revision,
+            )
 
     def _require_thread_parent(self, thread: AgentThreadContext) -> None:
         """验证线程身份及父级属于当前根会话树。"""

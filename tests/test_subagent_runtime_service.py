@@ -15,6 +15,7 @@ from mind_app.runtime.hooks.scope import (
 )
 from mind_app.runtime.subagents.control import AgentStateError
 from mind_app.runtime.subagents.runtime import SubagentRuntime
+from mind_app.runtime.subagents.graph import AgentGraphStore
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
@@ -182,6 +183,31 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
     assert child_path.is_relative_to(tmp_path / "sessions")
     assert child_path.name == f"session-{first.context.sid}.jsonl"
     await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_flushes_graph_checkpoint_on_shutdown(tmp_path) -> None:
+    controller = _Controller()
+    store = AgentGraphStore(tmp_path / "agents.db")
+    runtime = SubagentRuntime(controller, graph_store=store)
+    parent = _parent_turn()
+    spawned = await runtime.spawn(
+        parent,
+        "inspect",
+        {},
+        agent_type="review",
+        task_name="inspect",
+        agent_id="agent_review",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+
+    await runtime.shutdown()
+
+    checkpoint = store.load(parent.sid)
+    assert checkpoint is not None
+    assert checkpoint.records[0].thread.agent.agent_id == spawned.agent_id
+    assert checkpoint.records[0].status == "closed"
+    assert checkpoint.records[0].status_before_close == "completed"
 
 
 @pytest.mark.anyio

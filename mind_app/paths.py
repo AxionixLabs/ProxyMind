@@ -50,6 +50,11 @@ def mind_history_db_path() -> Path:
     return mind_history_dir() / "history.db"
 
 
+def agent_graph_db_path() -> Path:
+    """返回执行树 SQLite 文件路径。"""
+    return mind_history_dir() / "agents.db"
+
+
 def ensure_writable_dir(path: Path) -> Path:
     """确保目录存在且可写。"""
     target = Path(path).expanduser()
