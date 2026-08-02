@@ -8,6 +8,7 @@ from mind_app.approval.policy import (
     ApprovalStore,
     approval_decisions,
     approval_decision_label,
+    approval_from_event,
     approval_prompt,
     approval_show_timer,
     validate_tool_approval,
@@ -31,6 +32,7 @@ from mind_core.permissions import (
 from mind_nova import const
 from mind_nova.requests.payload import build_chat_payload
 from mind_nova.stream_events import (
+    ToolApprovalRequiredEvent,
     ToolCallEvent,
     parse_stream_event,
 )
@@ -259,7 +261,7 @@ def test_approval_card_presentation_is_owned_by_client() -> None:
         "decision_labels": {"accept": "server label"},
     }
 
-    assert approval_prompt(approval) == "Would you like to approve the following command?"
+    assert approval_prompt(approval) == "Would you like to run the following command?"
     assert approval_show_timer() is True
     assert approval_decision_label("accept") == "Yes, proceed"
     assert approval_decision_label(
@@ -271,3 +273,19 @@ def test_approval_card_presentation_is_owned_by_client() -> None:
     assert approval_decisions() == [
         "accept", "acceptForSession", "decline"
     ]
+
+
+def test_approval_uses_execution_target_as_environment() -> None:
+    approval = approval_from_event(ToolApprovalRequiredEvent(
+        type="tool.approval_required",
+        name="shell_command",
+        call_id="call-1",
+        approval={
+            "id": "approval-1",
+            "justification": "需要检查命令输出",
+        },
+        execution={"target": "cloud_sandbox"},
+    ))
+
+    assert approval["environment"] == "cloud_sandbox"
+    assert approval["justification"] == "需要检查命令输出"

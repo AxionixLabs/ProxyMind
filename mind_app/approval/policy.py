@@ -113,6 +113,11 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
     if "tool" not in approval:
         approval["tool"] = event.name
 
+    if "environment" not in approval and event.execution:
+        target = str(event.execution.get("target") or "").strip()
+        if target:
+            approval["environment"] = target
+
     return approval
 
 
@@ -485,6 +490,8 @@ def approval_decision_label(
 def approval_prompt(approval: dict[str, typing.Any] | None) -> str:
     """按工具类型生成客户端审批询问文案。"""
     noun = _approval_prompt_noun(approval or {})
+    if noun == "command":
+        return "Would you like to run the following command?"
     return f"Would you like to approve the following {noun}?"
 
 

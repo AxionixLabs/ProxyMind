@@ -36,9 +36,12 @@ def test_approval_content_keeps_question_without_card_title() -> None:
     text_lines = ["".join(text for _, text in line) for line in lines]
     command_index = text_lines.index("$ pytest -q")
 
-    assert text_lines[0] == "Would you like to approve the following command?"
+    assert text_lines[0] == ""
+    assert text_lines[1] == "Would you like to run the following command?"
     assert text_lines[command_index - 1] == ""
     assert text_lines[command_index + 1] == ""
+    assert text_lines[-2] == ""
+    assert text_lines[-1] == "Press enter to confirm or esc to cancel"
     assert "Review command" not in "\n".join(text_lines)
 
 
@@ -56,7 +59,8 @@ def test_subagent_approval_displays_trusted_source_before_question() -> None:
     )
     text_lines = _line_texts(lines)
 
-    assert text_lines[0] == "Would you like to approve the"
+    assert text_lines[0] == ""
+    assert text_lines[1] == "Would you like to run the"
     assert "Agent review · agent_review" in text_lines
     assert all(get_cwidth(line) <= 32 for line in text_lines)
 
@@ -73,7 +77,7 @@ def test_subagent_approval_displays_trusted_source_before_question() -> None:
         max_height=5,
     )
     assert _line_texts(constrained)[0].startswith(
-        "Would you like to approve"
+        "Would you like to run"
     )
 
 
@@ -97,6 +101,48 @@ def test_multiline_command_preserves_lines_and_prefix_alignment() -> None:
         "  echo third",
     ]
     assert text_lines[command_index + 3] == ""
+
+
+def test_approval_displays_environment_and_justification_only() -> None:
+    lines = tui_approval_content_lines(
+        ["accept", "acceptForSession", "decline"],
+        approval={
+            "tool": "shell_command",
+            "command": "git clone https://example.test/repo.git",
+            "environment": "local",
+            "justification": "需要下载官方仓库以检查源码",
+            "reason": "legacy request reason must not be displayed",
+            "show_timer": False,
+        },
+        width=80,
+    )
+    text_lines = _line_texts(lines)
+
+    assert text_lines[0] == ""
+    assert "Environment: local" in text_lines
+    assert "Reason: 需要下载官方仓库以检查源码" in text_lines
+    assert "legacy request reason" not in "\n".join(text_lines)
+    assert text_lines[-2] == ""
+    assert text_lines[-1] == "Press enter to confirm or esc to cancel"
+
+
+def test_approval_does_not_render_legacy_reason_without_justification() -> None:
+    lines = tui_approval_content_lines(
+        ["accept", "decline"],
+        approval={
+            "tool": "shell_command",
+            "command": "pytest -q",
+            "environment": "local",
+            "reason": "legacy reason",
+            "show_timer": False,
+        },
+        width=80,
+    )
+
+    assert not any(
+        line.startswith("Reason:")
+        for line in _line_texts(lines)
+    )
 
 
 def test_long_command_wraps_within_content_width() -> None:
@@ -154,17 +200,24 @@ def test_command_truncation_keeps_head_tail_and_all_options() -> None:
             "show_timer": False,
         },
         width=60,
-        max_height=9,
+        max_height=13,
     )
     text_lines = _line_texts(lines)
 
-    assert len(lines) == 9
-    assert text_lines[2] == "$ echo line-0"
-    assert "display lines omitted" in text_lines[3]
-    assert text_lines[4] == "  echo line-11"
-    assert text_lines[-3].startswith("> 1. ")
-    assert text_lines[-2].startswith("  2. ")
-    assert text_lines[-1].startswith("  3. ")
+    assert len(lines) == 13
+    command_index = text_lines.index("$ echo line-0")
+    omitted_index = next(
+        index for index, line in enumerate(text_lines)
+        if "display lines omitted" in line
+    )
+    assert omitted_index > command_index
+    assert text_lines[omitted_index + 1] == "  echo line-11"
+    option_index = next(
+        index for index, line in enumerate(text_lines)
+        if line.startswith("› 1. ")
+    )
+    assert text_lines[option_index + 1].startswith("  2. ")
+    assert text_lines[option_index + 2].startswith("  3. ")
 
 
 def test_single_command_row_budget_marks_truncation() -> None:
@@ -184,7 +237,7 @@ def test_single_command_row_budget_marks_truncation() -> None:
     assert len(lines) == 7
     assert text_lines[2].startswith("$ echo line-0")
     assert text_lines[2].endswith(" …")
-    assert text_lines[-3].startswith("> 1. ")
+    assert any(line.startswith("› 1. ") for line in text_lines)
 
 
 def test_approval_layout_respects_width_and_height_budgets() -> None:
@@ -389,7 +442,14 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
 
     assert fragments[0] == ("class:approval-card", "  ")
     assert fragment_text.count("\n  \n") == 2
+    assert fragment_text.startswith("  \n")
+    assert fragment_text.endswith("\n  ")
     assert not fragment_text.endswith("\n")
+    footer_text = "".join(
+        text for _, text in runtime.screen.approval.footer_fragments()
+    )
+    assert footer_text == "  Press enter to confirm or esc to cancel"
+    assert runtime.screen.approval_footer_window.style == ""
     assert runtime.screen.approval_window.width is None
     assert not runtime.screen.approval_window.dont_extend_width()
     assert "class:input-surface" in runtime.screen.input.window.style

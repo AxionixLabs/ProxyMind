@@ -311,6 +311,9 @@ class TuiScreen(object):
             modal=True,
             key_bindings=self.approval.key_bindings,
         )
+        self.approval_footer_control = FormattedTextControl(
+            self.approval.footer_fragments,
+        )
         self.menu = TuiMenu(
             invalidate=self.invalidate,
             focus_menu=lambda: self.bottom_pane.activate("menu"),
@@ -434,6 +437,13 @@ class TuiScreen(object):
             style="class:approval-card",
             char=" ",
         )
+        self.approval_footer_window = Window(
+            content=self.approval_footer_control,
+            height=self._approval_footer_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
         self.menu_window = Window(
             content=self.menu_control,
             height=self._menu_dimension,
@@ -469,7 +479,14 @@ class TuiScreen(object):
         )
 
         self.approval_card = ConditionalContainer(
-            self.approval_window,
+            HSplit(
+                [
+                    self.approval_window,
+                    self.approval_footer_window,
+                ],
+                align=VerticalAlign.TOP,
+                window_too_small=Window(),
+            ),
             filter=Condition(lambda: self.bottom_pane.is_active("approval")),
         )
         self.menu_card = ConditionalContainer(
@@ -1450,8 +1467,12 @@ class TuiScreen(object):
         return Dimension.exact(self._input_stack_height())
 
     def _approval_dimension(self) -> Dimension:
-        """返回审批卡当前显示高度。"""
-        return Dimension.exact(self._approval_height())
+        """返回审批卡背景区域的当前显示高度。"""
+        return Dimension.exact(self._approval_card_height())
+
+    def _approval_footer_dimension(self) -> Dimension:
+        """返回审批卡透明提示区域的当前显示高度。"""
+        return Dimension.exact(self._approval_footer_height())
 
     def _menu_dimension(self) -> Dimension:
         """返回内嵌菜单当前显示高度。"""
@@ -1668,9 +1689,30 @@ class TuiScreen(object):
         if not self.bottom_pane.is_active("approval"):
             return 0
 
+        return min(
+            self._approval_card_height() + self._approval_footer_height(),
+            self._approval_available_height(),
+        )
+
+    def _approval_card_height(self) -> int:
+        """计算审批卡背景区域占用的显示行数。"""
+        if not self.bottom_pane.is_active("approval"):
+            return 0
+
         text = fragments_text(self.approval.fragments())
-        rows = display_line_count(text, width=self.terminal_width)
-        return min(rows, self._approval_available_height())
+        if not text:
+            return 0
+        return display_line_count(text, width=self.terminal_width)
+
+    def _approval_footer_height(self) -> int:
+        """计算审批卡透明提示区域占用的显示行数。"""
+        if not self.bottom_pane.is_active("approval"):
+            return 0
+
+        text = fragments_text(self.approval.footer_fragments())
+        if not text:
+            return 0
+        return display_line_count(text, width=self.terminal_width)
 
     def _approval_available_height(self) -> int:
         """返回审批内容在当前终端中的可用高度。"""

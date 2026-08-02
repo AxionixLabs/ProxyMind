@@ -34,8 +34,11 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card"              : "",
     "approval-question"          : "bold #4DE3FF",
     "approval-context"           : "#7D8A98",
+    "approval-field-label"       : "bold #AAB7C4",
+    "approval-field-value"       : "#AAB7C4",
     "approval-meta"              : "dim #8896A5",
     "approval-omitted"           : "dim #8896A5",
+    "approval-footer"            : "dim #8896A5",
     "approval-option"            : "#8B96A3",
     "approval-option-selected"   : "bold #4DE3FF",
     "approval-shortcut"          : "bold #C4CED8",
@@ -77,6 +80,23 @@ def tui_approval_content_lines(
         max_width=content_width,
     )
 
+    detail_groups: list[list[list[tuple[str, str]]]] = []
+
+    if environment := _approval_environment(approval):
+        detail_groups.append(_approval_field_lines(
+            "Environment",
+            environment,
+            max_width=content_width,
+        ))
+
+    justification = str(approval.get("justification") or "").strip()
+    if justification:
+        detail_groups.append(_approval_field_lines(
+            "Reason",
+            justification,
+            max_width=content_width,
+        ))
+
     expiry_lines: list[list[tuple[str, str]]] = []
 
     if expiry_label := approval_expiry_label(approval):
@@ -91,13 +111,40 @@ def tui_approval_content_lines(
         max_width=content_width,
     )
 
+    footer_lines = _wrap_fragment_line(
+        [("class:approval-footer", "Press enter to confirm or esc to cancel")],
+        max_width=content_width,
+    )
+
     return _fit_approval_sections(
         question_lines=question_lines,
+        detail_groups=detail_groups,
         command_lines=command_lines,
         expiry_lines=expiry_lines,
         option_groups=option_groups,
+        footer_lines=footer_lines,
         max_width=content_width,
         max_height=max_height,
+    )
+
+
+def _approval_environment(approval: dict[str, typing.Any]) -> str:
+    """生成审批执行环境的展示名称。"""
+    value = str(approval.get("environment") or "").strip()
+    return value.replace("_", " ")
+
+
+def _approval_field_lines(
+    label: str,
+    value: str,
+    *,
+    max_width: int
+) -> list[list[tuple[str, str]]]:
+    """生成带标签且续行对齐的审批说明字段。"""
+    return _wrap_prefixed_line(
+        ("class:approval-field-label", f"{label}: "),
+        [("class:approval-field-value", value)],
+        max_width=max_width,
     )
 
 
@@ -143,7 +190,7 @@ def _approval_option_groups(
             else "class:approval-shortcut"
         )
 
-        prefix = (label_style, f"{'>' if active else ' '} {index}. ")
+        prefix = (label_style, f"{'›' if active else ' '} {index}. ")
 
         body = _decision_parts(
             decision,
@@ -248,25 +295,33 @@ def _command_parts(command: str) -> list[tuple[str, str]]:
 def _fit_approval_sections(
     *,
     question_lines: list[list[tuple[str, str]]],
+    detail_groups: list[list[list[tuple[str, str]]]],
     command_lines: list[list[tuple[str, str]]],
     expiry_lines: list[list[tuple[str, str]]],
     option_groups: list[list[list[tuple[str, str]]]],
+    footer_lines: list[list[tuple[str, str]]],
     max_width: int,
-    max_height: int | None,
+    max_height: int | None
 ) -> list[list[tuple[str, str]]]:
     """按高度预算组合询问、命令和审批选项。"""
+    full = _approval_sections(
+        question_lines,
+        detail_groups,
+        command_lines,
+        expiry_lines,
+        option_groups,
+        footer_lines,
+    )
     if max_height is None:
-        return _approval_sections(
-            question_lines,
-            command_lines,
-            expiry_lines,
-            option_groups,
-        )
+        return full
 
     height  = max(1, int(max_height))
+    if len(full) <= height:
+        return full
+
     options = [line for group in option_groups for line in group]
 
-    if len(options) + 4 > height:
+    if len(options) + 2 > height:
         options = [
             _collapse_wrapped_group(group, max_width=max_width)
             for group in option_groups
@@ -277,82 +332,218 @@ def _fit_approval_sections(
         budget=1,
         max_width=max_width,
     )
+    compact_details = [
+        line
+        for group in detail_groups
+        for line in group
+    ]
 
-    question_gap = True
-    option_gap   = bool(options)
+    variants = (
+        (True, True, True),
+        (False, True, True),
+        (False, False, True),
+        (False, False, False),
+    )
 
-    def minimum_height() -> int:
-        return (
-            2
-            + len(expiry)
-            + len(options)
-            + int(question_gap)
-            + int(option_gap)
-        )
+    layout: tuple[
+        bool,
+        bool,
+        bool,
+        bool,
+        list[list[tuple[str, str]]],
+    ] | None = None
 
-    if minimum_height() > height:
-        expiry = []
-    if minimum_height() > height:
-        question_gap = False
-    if minimum_height() > height:
-        option_gap = False
+    expiry_candidates = (expiry, []) if expiry else ([],)
+    for include_details in (bool(compact_details), False):
+        for active_expiry in expiry_candidates:
+            detail_min = min(2, len(compact_details)) if include_details else 0
+            for padding, include_footer, gaps in variants:
+                footer = footer_lines[:1] if include_footer else []
+                gap_count = _approval_gap_count(
+                    has_details=include_details,
+                    has_options=bool(options),
+                    has_footer=bool(footer),
+                    gaps=gaps,
+                )
+                minimum = (
+                    2
+                    + detail_min
+                    + len(active_expiry)
+                    + len(options)
+                    + len(footer)
+                    + gap_count
+                    + _approval_padding_count(
+                        padding=padding,
+                        has_footer=bool(footer),
+                    )
+                )
+                if minimum <= height:
+                    layout = (
+                        padding,
+                        bool(footer),
+                        gaps,
+                        include_details,
+                        active_expiry,
+                    )
+                    break
+            if layout is not None:
+                break
+        if layout is not None:
+            break
 
+    if layout is None:
+        layout = (False, False, False, False, [])
+
+    padding, include_footer, gaps, include_details, expiry = layout
+
+    footer = footer_lines[:1] if include_footer else []
+
+    gap_count = _approval_gap_count(
+        has_details=include_details,
+        has_options=bool(options),
+        has_footer=bool(footer),
+        gaps=gaps,
+    )
     fixed_height = (
         len(expiry)
         + len(options)
-        + int(question_gap)
-        + int(option_gap)
+        + len(footer)
+        + gap_count
+        + _approval_padding_count(
+            padding=padding,
+            has_footer=bool(footer),
+        )
     )
-    content_budget = max(2, height - fixed_height)
+    text_budget = max(2, height - fixed_height)
 
-    if len(question_lines) + len(command_lines) <= content_budget:
-        question = question_lines
-        command  = command_lines
-
-    else:
-        question_budget = min(
-            len(question_lines),
-            max(1, min(3, content_budget - 1)),
+    details: list[list[tuple[str, str]]] = []
+    if include_details:
+        detail_budget = min(
+            len(compact_details),
+            4,
+            max(0, text_budget - 2),
         )
-
-        command_budget = max(1, content_budget - question_budget)
-
-        question = _truncate_text_lines(
-            question_lines,
-            budget=question_budget,
+        details = _truncate_text_lines(
+            compact_details,
+            budget=detail_budget,
             max_width=max_width,
         )
 
-        command = _truncate_command_lines(
-            command_lines,
-            budget=command_budget,
-            max_width=max_width,
-        )
+    question_command_budget = max(2, text_budget - len(details))
 
-    lines = [*question]
-    if question_gap:
-        lines.append([])
-    lines.extend(command)
-    lines.extend(expiry)
-    if option_gap:
-        lines.append([])
-    lines.extend(options)
-    return lines
+    question_budget = min(
+        len(question_lines),
+        max(1, min(3, question_command_budget - 1)),
+    )
+
+    command_budget = max(1, question_command_budget - question_budget)
+
+    question = _truncate_text_lines(
+        question_lines,
+        budget=question_budget,
+        max_width=max_width,
+    )
+    command = _truncate_command_lines(
+        command_lines,
+        budget=command_budget,
+        max_width=max_width,
+    )
+
+    return _assemble_approval_sections(
+        question_lines=question,
+        detail_lines=details,
+        command_lines=command,
+        expiry_lines=expiry,
+        option_lines=options,
+        footer_lines=footer,
+        padding=padding,
+        gaps=gaps,
+    )
+
+
+def _approval_gap_count(
+    *,
+    has_details: bool,
+    has_options: bool,
+    has_footer: bool,
+    gaps: bool
+) -> int:
+    """计算压缩布局中的 section 间隔行数。"""
+    if not gaps:
+        return 0
+    return 1 + int(has_details) + int(has_options) + int(has_footer)
+
+
+def _approval_padding_count(*, padding: bool, has_footer: bool) -> int:
+    """计算卡片首尾留白占用的行数。"""
+    if not padding:
+        return 0
+    return 1 if has_footer else 2
 
 
 def _approval_sections(
     question_lines: list[list[tuple[str, str]]],
+    detail_groups: list[list[list[tuple[str, str]]]],
     command_lines: list[list[tuple[str, str]]],
     expiry_lines: list[list[tuple[str, str]]],
     option_groups: list[list[list[tuple[str, str]]]],
+    footer_lines: list[list[tuple[str, str]]]
 ) -> list[list[tuple[str, str]]]:
     """组合不受高度限制的审批内容。"""
-    options = [line for group in option_groups for line in group]
-    lines   = [*question_lines, [], *command_lines, *expiry_lines]
+    details: list[list[tuple[str, str]]] = []
+    for group in detail_groups:
+        if details:
+            details.append([])
+        details.extend(group)
 
-    if options:
+    return _assemble_approval_sections(
+        question_lines=question_lines,
+        detail_lines=details,
+        command_lines=command_lines,
+        expiry_lines=expiry_lines,
+        option_lines=[line for group in option_groups for line in group],
+        footer_lines=footer_lines,
+        padding=True,
+        gaps=True,
+    )
+
+
+def _assemble_approval_sections(
+    *,
+    question_lines: list[list[tuple[str, str]]],
+    detail_lines: list[list[tuple[str, str]]],
+    command_lines: list[list[tuple[str, str]]],
+    expiry_lines: list[list[tuple[str, str]]],
+    option_lines: list[list[tuple[str, str]]],
+    footer_lines: list[list[tuple[str, str]]],
+    padding: bool,
+    gaps: bool
+) -> list[list[tuple[str, str]]]:
+    """按确定的留白策略组装审批卡片。"""
+    lines: list[list[tuple[str, str]]] = [[]] if padding else []
+    lines.extend(question_lines)
+
+    if gaps:
         lines.append([])
-        lines.extend(options)
+    if detail_lines:
+        lines.extend(detail_lines)
+        if gaps:
+            lines.append([])
+
+    lines.extend(command_lines)
+    lines.extend(expiry_lines)
+
+    if option_lines:
+        if gaps:
+            lines.append([])
+        lines.extend(option_lines)
+
+    if footer_lines:
+        if gaps:
+            lines.append([])
+        lines.extend(footer_lines)
+    elif padding:
+        lines.append([])
 
     return lines
 

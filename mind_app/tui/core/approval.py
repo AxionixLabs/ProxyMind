@@ -121,10 +121,28 @@ class TuiApproval(object):
         await self._cancel_expiry()
 
     def fragments(self) -> StyleAndTextTuples:
-        """生成审批面板内容。"""
+        """生成带表面背景的审批卡片内容。"""
+        card_lines, _footer_lines = self._render_lines()
+        return self._format_lines(card_lines)
+
+    def footer_fragments(self) -> StyleAndTextTuples:
+        """生成审批卡片下方的透明操作提示。"""
+        _card_lines, footer_lines = self._render_lines()
+        return self._format_lines(
+            footer_lines,
+            prefix_style="class:approval-footer",
+        )
+
+    def _render_lines(
+        self,
+    ) -> tuple[
+        list[list[tuple[str, str]]],
+        list[list[tuple[str, str]]],
+    ]:
+        """生成审批布局并按表面和提示区域拆分。"""
         state = self.state
         if state is None:
-            return []
+            return [], []
 
         lines = tui_approval_content_lines(
             state.decisions,
@@ -134,13 +152,31 @@ class TuiApproval(object):
             max_height=self.get_max_height(),
         )
 
+        footer_start = next((
+            index
+            for index, line in enumerate(lines)
+            if any(style == "class:approval-footer" for style, _text in line)
+        ), len(lines))
+
+        return lines[:footer_start], lines[footer_start:]
+
+    @staticmethod
+    def _format_lines(
+        lines: list[list[tuple[str, str]]],
+        *,
+        prefix_style: str = "class:approval-card",
+    ) -> StyleAndTextTuples:
+        """把审批行转换为带统一左侧留白的格式化文本。"""
+        if not lines:
+            return []
+
         out: StyleAndTextTuples = []
 
         for index, line in enumerate(lines):
-            out.append(("class:approval-card", "  "))
+            out.append((prefix_style, "  "))
             out.extend(line)
             if index < len(lines) - 1:
-                out.append(("class:approval-card", "\n"))
+                out.append((prefix_style, "\n"))
 
         return out
 
