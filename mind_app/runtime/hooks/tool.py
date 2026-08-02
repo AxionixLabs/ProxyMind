@@ -312,11 +312,6 @@ class ToolCallCoordinator:
             )
 
             self._record_outcome(effective_invocation, outcome)
-
-            await self.events.post_tool_use(
-                effective_invocation,
-                outcome,
-            )
             raise
 
         except BaseException as error:
@@ -328,11 +323,6 @@ class ToolCallCoordinator:
             )
 
             self._record_outcome(effective_invocation, outcome)
-
-            await self.events.post_tool_use(
-                effective_invocation,
-                outcome,
-            )
             raise
 
         outcome = ToolOutcome(
@@ -344,10 +334,12 @@ class ToolCallCoordinator:
 
         self._record_outcome(effective_invocation, outcome)
 
-        post_result = await self.events.post_tool_use(
-            effective_invocation,
-            outcome,
-        )
+        post_result = _PostToolUseResult()
+        if outcome.ok:
+            post_result = await self.events.post_tool_use(
+                effective_invocation,
+                outcome,
+            )
 
         additional_context = (
             *decision.additional_context,

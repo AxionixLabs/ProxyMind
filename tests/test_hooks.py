@@ -1265,6 +1265,90 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
 
 
 @pytest.mark.anyio
+async def test_tool_coordinator_skips_post_for_failed_result() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner()
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+
+    result = await coordinator.run_invocation(
+        _invocation(),
+        lambda _prepared: _return_value(SimpleNamespace(
+            ok=False,
+            text="failed",
+            fields={"ok": False, "error": "failed"},
+        )),
+    )
+
+    assert result.allowed
+    assert result.visible_result.ok is False
+    assert runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_tool_coordinator_skips_post_after_operation_error() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner()
+    transcript_entries = []
+
+    def record_transcript(event, *, actor=None, payload=None) -> None:
+        transcript_entries.append((event, actor, dict(payload or {})))
+
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner)),
+        transcript=SimpleNamespace(append=record_transcript),
+    )
+
+    async def fail(_prepared):
+        raise RuntimeError("tool failed")
+
+    with pytest.raises(RuntimeError, match="tool failed"):
+        await coordinator.run_invocation(_invocation(), fail)
+
+    assert runner.calls == []
+    assert [entry[0] for entry in transcript_entries] == [
+        "tool.started",
+        "tool.failed",
+    ]
+    assert transcript_entries[1][2]["error"] == "RuntimeError: tool failed"
+
+
+@pytest.mark.anyio
+async def test_tool_coordinator_skips_post_after_operation_cancellation() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner()
+    transcript_entries = []
+
+    def record_transcript(event, *, actor=None, payload=None) -> None:
+        transcript_entries.append((event, actor, dict(payload or {})))
+
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner)),
+        transcript=SimpleNamespace(append=record_transcript),
+    )
+
+    async def cancel(_prepared):
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator.run_invocation(_invocation(), cancel)
+
+    assert runner.calls == []
+    assert [entry[0] for entry in transcript_entries] == [
+        "tool.started",
+        "tool.failed",
+    ]
+    assert transcript_entries[1][2]["cancelled"] is True
+
+
+@pytest.mark.anyio
 async def test_pre_tool_use_updated_input_reaches_execution_and_post_hook() -> None:
     definitions = _definitions({
         "PreToolUse": [_hook("pre")],
