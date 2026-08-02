@@ -16,10 +16,13 @@ from mind_app.paths import agent_graph_db_path
 from mind_app.runtime.execution import AgentContext
 from mind_app.runtime.subagents.context import ForkContextSnapshot
 from mind_app.runtime.subagents.control import (
-    AGENT_GRAPH_SCHEMA_VERSION,
     AgentGraphCheckpoint,
     AgentGraphRecord,
     AgentSubmission
+)
+from mind_app.runtime.subagents.mailbox import (
+    AgentMailboxEvent,
+    AgentMailboxSnapshot
 )
 from mind_app.runtime.subagents.thread import AgentThreadContext
 
@@ -30,7 +33,6 @@ CREATE TABLE IF NOT EXISTS {TABLE_AGENT_GRAPH_CHECKPOINTS} (
     root_session_id TEXT PRIMARY KEY,
     revision        INTEGER NOT NULL,
     updated_at_ms   INTEGER NOT NULL,
-    schema_version  INTEGER NOT NULL,
     payload         TEXT NOT NULL
 );
 
@@ -62,14 +64,12 @@ class AgentGraphStore:
                         root_session_id,
                         revision,
                         updated_at_ms,
-                        schema_version,
                         payload
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(root_session_id) DO UPDATE SET
                         revision = excluded.revision,
                         updated_at_ms = excluded.updated_at_ms,
-                        schema_version = excluded.schema_version,
                         payload = excluded.payload
                     WHERE excluded.revision > revision
                     """,
@@ -77,7 +77,6 @@ class AgentGraphStore:
                         checkpoint.root_session_id,
                         checkpoint.revision,
                         checkpoint.updated_at_ms,
-                        checkpoint.schema_version,
                         payload,
                     ),
                 )
@@ -120,6 +119,20 @@ class AgentGraphStore:
     @staticmethod
     def _init_schema(connection: sqlite3.Connection) -> None:
         """初始化执行树存储结构。"""
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({TABLE_AGENT_GRAPH_CHECKPOINTS})"
+            )
+        }
+        expected = {
+            "root_session_id",
+            "revision",
+            "updated_at_ms",
+            "payload",
+        }
+        if columns and columns != expected:
+            connection.execute(f"DROP TABLE {TABLE_AGENT_GRAPH_CHECKPOINTS}")
         connection.executescript(SCHEMA_SQL)
 
 
@@ -130,6 +143,8 @@ class AgentGraphPersistence:
         self._store = store
         self._pending: dict[str, AgentGraphCheckpoint] = {}
         self._wake = asyncio.Event()
+        self._idle = asyncio.Event()
+        self._idle.set()
         self._worker: asyncio.Task[None] | None = None
         self._closed = False
 
@@ -140,12 +155,17 @@ class AgentGraphPersistence:
         current = self._pending.get(checkpoint.root_session_id)
         if current is None or checkpoint.revision > current.revision:
             self._pending[checkpoint.root_session_id] = checkpoint
+        self._idle.clear()
         self._wake.set()
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(
                 self._run(),
                 name="agent graph persistence",
             )
+
+    async def flush(self) -> None:
+        """等待当前已提交的快照刷新完成。"""
+        await self._idle.wait()
 
     async def close(self) -> None:
         """刷新待写快照并停止单写者。"""
@@ -169,8 +189,10 @@ class AgentGraphPersistence:
             for checkpoint in batch:
                 await self._save(checkpoint)
 
-            if self._closed and not self._pending:
-                return None
+            if not self._pending:
+                self._idle.set()
+                if self._closed:
+                    return None
 
     async def _save(self, checkpoint: AgentGraphCheckpoint) -> None:
         """在工作线程中保存快照并隔离存储故障。"""
@@ -191,11 +213,11 @@ def _checkpoint_payload(checkpoint: AgentGraphCheckpoint) -> dict[str, typing.An
     if not isinstance(checkpoint, AgentGraphCheckpoint):
         raise TypeError("agent graph checkpoint is required")
     return {
-        "schema_version": checkpoint.schema_version,
         "root_session_id": checkpoint.root_session_id,
         "revision": checkpoint.revision,
         "updated_at_ms": checkpoint.updated_at_ms,
         "records": [_record_payload(record) for record in checkpoint.records],
+        "mailbox": _mailbox_payload(checkpoint.mailbox),
     }
 
 
@@ -263,13 +285,24 @@ def _submission_payload(
     }
 
 
+def _mailbox_payload(snapshot: AgentMailboxSnapshot) -> dict[str, typing.Any]:
+    """把邮箱事件和消费位置转换为存储载荷。"""
+    return {
+        "sequence": snapshot.sequence,
+        "events": [event.to_dict() for event in snapshot.events],
+        "consumed": [
+            {
+                "reader_agent_id": reader,
+                "event_ids": list(event_ids),
+            }
+            for reader, event_ids in snapshot.consumed
+        ],
+    }
+
+
 def _checkpoint_from_payload(payload: typing.Any) -> AgentGraphCheckpoint:
     """校验存储载荷并还原执行树快照。"""
     data = _mapping(payload, "agent graph checkpoint")
-
-    schema_version = _positive_int(data.get("schema_version"), "schema version")
-    if schema_version != AGENT_GRAPH_SCHEMA_VERSION:
-        raise ValueError(f"unsupported agent graph schema: {schema_version}")
 
     records = data.get("records")
     if not isinstance(records, list):
@@ -280,7 +313,7 @@ def _checkpoint_from_payload(payload: typing.Any) -> AgentGraphCheckpoint:
         revision=_positive_int(data.get("revision"), "revision"),
         updated_at_ms=_positive_int(data.get("updated_at_ms"), "updated timestamp"),
         records=tuple(_record_from_payload(item) for item in records),
-        schema_version=schema_version,
+        mailbox=_mailbox_from_payload(data.get("mailbox")),
     )
 
 
@@ -290,12 +323,19 @@ def _record_from_payload(payload: typing.Any) -> AgentGraphRecord:
 
     status = _required_text(data.get("status"), "agent status")
     if status not in {
-        "pending", "running", "completed", "failed", "interrupted", "closed",
+        "pending", "running", "completed", "failed", "interrupted",
+        "interrupted_by_restart", "closed",
     }:
         raise ValueError("agent graph status is invalid")
 
     resume_status = data.get("status_before_close")
-    if resume_status not in {None, "completed", "failed", "interrupted"}:
+    if resume_status not in {
+        None,
+        "completed",
+        "failed",
+        "interrupted",
+        "interrupted_by_restart",
+    }:
         raise ValueError("agent graph resume status is invalid")
 
     queue = data.get("queue")
@@ -415,6 +455,75 @@ def _submission_from_payload(payload: typing.Any) -> AgentSubmission | None:
             "submission timestamp",
         ),
         parent_turn_id=str(data.get("parent_turn_id") or ""),
+    )
+
+
+def _mailbox_from_payload(payload: typing.Any) -> AgentMailboxSnapshot:
+    """校验并还原邮箱事件与消费位置。"""
+    data     = _mapping(payload, "agent mailbox")
+    events   = data.get("events")
+    consumed = data.get("consumed")
+
+    if not isinstance(events, list):
+        raise TypeError("agent mailbox events must be a list")
+    if not isinstance(consumed, list):
+        raise TypeError("agent mailbox consumed cursors must be a list")
+    return AgentMailboxSnapshot(
+        sequence=_nonnegative_int(data.get("sequence"), "mailbox sequence"),
+        events=tuple(_mailbox_event_from_payload(item) for item in events),
+        consumed=tuple(_consumed_cursor_from_payload(item) for item in consumed),
+    )
+
+
+def _mailbox_event_from_payload(payload: typing.Any) -> AgentMailboxEvent:
+    """校验并还原一项邮箱事件。"""
+    data = _mapping(payload, "agent mailbox event")
+    return AgentMailboxEvent(
+        event_id=_required_text(data.get("event_id"), "mailbox event id"),
+        sequence=_positive_int(data.get("sequence"), "mailbox event sequence"),
+        kind=typing.cast(
+            typing.Any,
+            _required_text(data.get("kind"), "mailbox event kind"),
+        ),
+        created_at_ms=_positive_int(
+            data.get("created_at_ms"),
+            "mailbox event timestamp",
+        ),
+        source_agent_id=_required_text(
+            data.get("source_agent_id"),
+            "mailbox event source id",
+        ),
+        source_task_path=_required_text(
+            data.get("source_task_path"),
+            "mailbox event source path",
+        ),
+        recipient_agent_id=str(data.get("recipient_agent_id") or ""),
+        recipient_task_path=str(data.get("recipient_task_path") or ""),
+        message=str(data.get("message") or ""),
+        status=str(data.get("status") or ""),
+        submission_id=str(data.get("submission_id") or ""),
+        queued_count=_nonnegative_int(
+            data.get("queued_count"),
+            "mailbox queued count",
+        ),
+        detail=str(data.get("detail") or ""),
+    )
+
+
+def _consumed_cursor_from_payload(
+    payload: typing.Any,
+) -> tuple[str, tuple[str, ...]]:
+    """校验并还原一个读取主体的消费位置。"""
+    data = _mapping(payload, "agent mailbox consumed cursor")
+    event_ids = data.get("event_ids")
+    if not isinstance(event_ids, list) or any(
+        not isinstance(event_id, str)
+        for event_id in event_ids
+    ):
+        raise TypeError("mailbox consumed event ids must be a list of strings")
+    return (
+        _required_text(data.get("reader_agent_id"), "mailbox reader id"),
+        tuple(event_ids),
     )
 
 

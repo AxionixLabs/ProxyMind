@@ -11,6 +11,7 @@ from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import AgentContext
 from mind_app.runtime.subagents.mailbox import (
     AgentMailboxEvent,
+    AgentMailboxSnapshot,
     AgentMailboxStore
 )
 from mind_app.runtime.subagents.thread import (
@@ -24,22 +25,25 @@ AgentStatus = typing.Literal[
     "completed",
     "failed",
     "interrupted",
+    "interrupted_by_restart",
     "closed",
 ]
 AgentResumeStatus = typing.Literal[
     "completed",
     "failed",
     "interrupted",
+    "interrupted_by_restart",
 ]
 
 FINAL_AGENT_STATUSES = frozenset({
     "completed",
     "failed",
     "interrupted",
+    "interrupted_by_restart",
     "closed",
 })
 
-AGENT_GRAPH_SCHEMA_VERSION = 1
+RESTART_INTERRUPTION_ERROR = "agent execution interrupted by process restart"
 
 
 class AgentControlError(RuntimeError):
@@ -188,6 +192,8 @@ class AgentGraphRecord:
             for item in self.queue
         ):
             raise TypeError("agent graph queue is invalid")
+        if any(item.kind != "followup" for item in self.queue):
+            raise ValueError("agent graph queue requires followup submissions")
         if (
             isinstance(self.turn_count, bool)
             or not isinstance(self.turn_count, int)
@@ -199,6 +205,7 @@ class AgentGraphRecord:
             "completed",
             "failed",
             "interrupted",
+            "interrupted_by_restart",
         }:
             raise ValueError("agent graph resume status is invalid")
         object.__setattr__(self, "error", str(self.error or ""))
@@ -206,15 +213,15 @@ class AgentGraphRecord:
 
 @dataclass(frozen=True, slots=True)
 class AgentGraphCheckpoint:
-    """保存单个根会话执行树的版本化快照。"""
+    """保存单个根会话执行树与邮箱的完整快照。"""
     root_session_id: str
     revision: int
     updated_at_ms: int
     records: tuple[AgentGraphRecord, ...] = ()
-    schema_version: int = AGENT_GRAPH_SCHEMA_VERSION
+    mailbox: AgentMailboxSnapshot = AgentMailboxSnapshot.empty()
 
     def __post_init__(self) -> None:
-        """校验执行树快照的版本、顺序和根会话。"""
+        """校验执行树快照的顺序、根会话和邮箱。"""
         root_session_id = str(self.root_session_id or "").strip()
         if not root_session_id:
             raise ValueError("agent graph root session id is required")
@@ -230,10 +237,6 @@ class AgentGraphCheckpoint:
             or self.updated_at_ms <= 0
         ):
             raise ValueError("agent graph timestamp must be positive")
-        if self.schema_version != AGENT_GRAPH_SCHEMA_VERSION:
-            raise ValueError(
-                f"unsupported agent graph schema: {self.schema_version}"
-            )
         if not isinstance(self.records, tuple) or any(
             not isinstance(record, AgentGraphRecord)
             for record in self.records
@@ -251,6 +254,23 @@ class AgentGraphCheckpoint:
             for record in self.records
         ):
             raise ValueError("agent graph record belongs to another root session")
+        if not isinstance(self.mailbox, AgentMailboxSnapshot):
+            raise TypeError("agent graph mailbox snapshot is required")
+
+        identities = {
+            "root": "/root",
+            **{
+                record.thread.agent.agent_id: record.thread.agent.task_path
+                for record in self.records
+            },
+        }
+        for event in self.mailbox.events:
+            if identities.get(event.source_agent_id) != event.source_task_path:
+                raise ValueError("mailbox event source is outside the agent graph")
+            if event.kind == "message" and identities.get(
+                event.recipient_agent_id
+            ) != event.recipient_task_path:
+                raise ValueError("mailbox recipient is outside the agent graph")
         object.__setattr__(self, "root_session_id", root_session_id)
 
 
@@ -351,6 +371,63 @@ class AgentControl:
         self._shutdown: bool = False
         self._revision: int  = 0
 
+    @classmethod
+    def restore(
+        cls,
+        checkpoint: AgentGraphCheckpoint,
+        executor: AgentTurnExecutor,
+        *,
+        max_open_agents: int = 4,
+        max_depth: int = 1,
+        checkpoint_publisher: AgentGraphPublisher | None = None,
+    ) -> "AgentControl":
+        """从持久化快照重建不自动执行旧任务的控制树。"""
+        if not isinstance(checkpoint, AgentGraphCheckpoint):
+            raise TypeError("agent graph checkpoint is required")
+
+        control = cls(
+            AgentContext.root(checkpoint.root_session_id),
+            executor,
+            max_open_agents=max_open_agents,
+            max_depth=max_depth,
+            checkpoint_publisher=checkpoint_publisher,
+        )
+        control._revision = checkpoint.revision
+        control._mailbox = AgentMailboxStore.from_snapshot(checkpoint.mailbox)
+
+        for saved in checkpoint.records:
+            control._require_thread_parent(saved.thread)
+            record = _AgentRecord(saved.thread)
+            record.status = saved.status
+            record.submission = saved.submission
+            record.submission_id = (
+                saved.submission.submission_id
+                if saved.submission is not None
+                else ""
+            )
+            record.turn_count = saved.turn_count
+            record.queue.extend(saved.queue)
+            record.error = saved.error
+            record.status_before_close = saved.status_before_close
+
+            if saved.status in {"pending", "running"}:
+                record.status = "interrupted_by_restart"
+                record.error = RESTART_INTERRUPTION_ERROR
+                control._mailbox.publish(
+                    "status",
+                    record.context,
+                    status="interrupted_by_restart",
+                    submission_id=record.submission_id,
+                    queued_count=len(record.queue),
+                    detail=record.error,
+                )
+
+            control._records[record.context.agent_id] = record
+            control._records_by_path[record.context.task_path] = record
+
+        control._publish_checkpoint()
+        return control
+
     @property
     def root(self) -> AgentContext:
         """返回根执行主体身份。"""
@@ -430,6 +507,9 @@ class AgentControl:
 
             if record.status in {"pending", "running"}:
                 record.queue.append(submission)
+            elif record.queue:
+                record.queue.append(submission)
+                self._start(record, record.queue.popleft())
             else:
                 self._start(record, submission)
 
@@ -470,6 +550,7 @@ class AgentControl:
                 recipient=recipient,
                 message=message,
             )
+            self._publish_checkpoint()
             self._condition.notify_all()
             return event
 
@@ -480,16 +561,22 @@ class AgentControl:
         """取出目标执行主体尚未消费的消息。"""
         async with self._condition:
             record = self._require_record(target)
-            return self._mailbox.take_messages(record.context.agent_id)
+            events = self._mailbox.take_messages(record.context.agent_id)
+            if events:
+                self._publish_checkpoint()
+            return events
 
     async def acknowledge_message(self, event: AgentMailboxEvent) -> bool:
         """标记已通过活动轮次投递的邮箱消息。"""
         async with self._condition:
             self._require_record(event.recipient_agent_id)
-            return self._mailbox.acknowledge_message(
+            acknowledged = self._mailbox.acknowledge_message(
                 event.recipient_agent_id,
                 event.event_id,
             )
+            if acknowledged:
+                self._publish_checkpoint()
+            return acknowledged
 
     async def resume(
         self,
@@ -664,6 +751,7 @@ class AgentControl:
                     if agent_id in self._records
                 )
                 if events:
+                    self._publish_checkpoint()
                     return AgentMailboxWaitResult(
                         events=events,
                         snapshots=snapshots,
@@ -1023,6 +1111,7 @@ class AgentControl:
                 )
                 for record in self._records.values()
             ),
+            mailbox=self._mailbox.snapshot(),
         )
         try:
             publisher(checkpoint)
@@ -1227,6 +1316,8 @@ def _status_for_resume(status: AgentStatus) -> AgentResumeStatus:
         return "failed"
     if status in {"pending", "running", "interrupted"}:
         return "interrupted"
+    if status == "interrupted_by_restart":
+        return "interrupted_by_restart"
 
     raise AgentStateError("closed agent has no resumable status")
 

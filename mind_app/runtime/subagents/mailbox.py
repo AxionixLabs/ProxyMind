@@ -106,6 +106,63 @@ class AgentMailboxEvent:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class AgentMailboxSnapshot:
+    """保存有界事件日志与各读取主体的消费位置。"""
+    sequence: int = 0
+    events: tuple[AgentMailboxEvent, ...] = ()
+    consumed: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def __post_init__(self) -> None:
+        """校验邮箱快照的顺序、事件和消费引用。"""
+        if (
+            isinstance(self.sequence, bool)
+            or not isinstance(self.sequence, int)
+            or self.sequence < 0
+        ):
+            raise ValueError("mailbox sequence must be non-negative")
+        if not isinstance(self.events, tuple) or any(
+            not isinstance(event, AgentMailboxEvent)
+            for event in self.events
+        ):
+            raise TypeError("mailbox snapshot events must be a tuple")
+
+        sequences = [event.sequence for event in self.events]
+        event_ids = [event.event_id for event in self.events]
+        if sequences != sorted(sequences) or len(sequences) != len(set(sequences)):
+            raise ValueError("mailbox snapshot event order is invalid")
+        if sequences and sequences[-1] > self.sequence:
+            raise ValueError("mailbox snapshot sequence is behind its events")
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("mailbox snapshot event ids must be unique")
+
+        readers: set[str] = set()
+        known_ids = set(event_ids)
+        for item in self.consumed:
+            if (
+                not isinstance(item, tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not item[0]
+                or not isinstance(item[1], tuple)
+                or any(not isinstance(event_id, str) for event_id in item[1])
+            ):
+                raise TypeError("mailbox consumed cursor is invalid")
+            reader, consumed_ids = item
+            if reader in readers:
+                raise ValueError("mailbox consumed readers must be unique")
+            if len(consumed_ids) != len(set(consumed_ids)):
+                raise ValueError("mailbox consumed event ids must be unique")
+            if not set(consumed_ids).issubset(known_ids):
+                raise ValueError("mailbox consumed event is missing")
+            readers.add(reader)
+
+    @classmethod
+    def empty(cls) -> "AgentMailboxSnapshot":
+        """创建空邮箱快照。"""
+        return cls()
+
+
 class AgentMailboxStore:
     """保存有界事件日志和各调用主体的消费位置。"""
 
@@ -120,6 +177,38 @@ class AgentMailboxStore:
         self._sequence = 0
         self._events: deque[AgentMailboxEvent] = deque()
         self._consumed: dict[str, set[str]] = {}
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: AgentMailboxSnapshot,
+        *,
+        capacity: int = MAX_MAILBOX_EVENTS,
+    ) -> "AgentMailboxStore":
+        """从已校验快照重建有界邮箱。"""
+        if not isinstance(snapshot, AgentMailboxSnapshot):
+            raise TypeError("mailbox snapshot is required")
+        store = cls(capacity=capacity)
+        store._sequence = snapshot.sequence
+        store._events.extend(snapshot.events)
+        store._consumed = {
+            reader: set(event_ids)
+            for reader, event_ids in snapshot.consumed
+        }
+        store._trim()
+        return store
+
+    def snapshot(self) -> AgentMailboxSnapshot:
+        """返回可持久化的当前邮箱快照。"""
+        return AgentMailboxSnapshot(
+            sequence=self._sequence,
+            events=tuple(self._events),
+            consumed=tuple(
+                (reader, tuple(sorted(event_ids)))
+                for reader, event_ids in sorted(self._consumed.items())
+                if event_ids
+            ),
+        )
 
     def publish(
         self,

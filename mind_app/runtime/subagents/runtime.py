@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+import sqlite3
 from engine.observability import observe_exception
 from mind_core.agent_config import AgentSettings
 from mind_core.skills import skills_payload
@@ -19,6 +20,7 @@ from mind_app.runtime.turns.executor import (
 )
 from mind_app.runtime.subagents.control import (
     AgentControl,
+    AgentGraphCheckpoint,
     AgentMailboxWaitResult,
     AgentNotFoundError,
     AgentSnapshot,
@@ -89,6 +91,7 @@ class SubagentRuntime:
         self._settings            = settings or AgentSettings()
         self._executor            = executor or StreamSubagentExecutor(controller)
         self._message_delivery    = message_delivery or SteeringMessageDelivery()
+        self._graph_store         = graph_store
 
         self._graph_persistence   = (
             AgentGraphPersistence(graph_store)
@@ -318,7 +321,10 @@ class SubagentRuntime:
         if control is None:
             return ()
 
-        return await control.shutdown()
+        snapshots = await control.shutdown()
+        if self._graph_persistence is not None:
+            await self._graph_persistence.flush()
+        return snapshots
 
     async def shutdown(self) -> None:
         """终止运行时并关闭全部根会话执行树。"""
@@ -506,7 +512,12 @@ class SubagentRuntime:
         for delivery in active:
             delivery.close()
 
-    async def _control(self, root_session_id: str) -> AgentControl:
+    async def _control(
+        self,
+        root_session_id: str,
+        *,
+        create_empty: bool = True,
+    ) -> AgentControl:
         """返回或创建根会话对应的执行控制器。"""
         normalized = _normalize_root_session_id(root_session_id)
 
@@ -517,37 +528,73 @@ class SubagentRuntime:
 
             control = self._controls.get(normalized)
             if control is None:
-                control = AgentControl(
-                    AgentContext.root(normalized),
-                    self._execute_submission,
-                    max_open_agents=(
-                        self._settings.max_concurrent_threads_per_session
-                    ),
-                    max_depth=self._settings.max_depth,
-                    checkpoint_publisher=(
-                        self._graph_persistence.publish
-                        if self._graph_persistence is not None
-                        else None
-                    ),
-                )
+                checkpoint = await self._load_checkpoint(normalized)
+                if checkpoint is None and not create_empty:
+                    raise AgentNotFoundError(
+                        f"agent root session not found: {normalized}"
+                    )
+                control = self._create_control(normalized, checkpoint)
                 self._controls[normalized] = control
 
             return control
 
     async def _existing_control(self, root_session_id: str) -> AgentControl:
         """返回已经建立的根会话执行控制器。"""
-        normalized = _normalize_root_session_id(root_session_id)
+        return await self._control(root_session_id, create_empty=False)
 
-        async with self._lock:
-            self._require_active()
-            control = self._controls.get(normalized)
-
-        if control is None:
-            raise AgentNotFoundError(
-                f"agent root session not found: {normalized}"
+    async def _load_checkpoint(
+        self,
+        root_session_id: str,
+    ) -> AgentGraphCheckpoint | None:
+        """从本地存储读取根会话执行树快照。"""
+        if self._graph_store is None:
+            return None
+        try:
+            return await asyncio.to_thread(
+                self._graph_store.load,
+                root_session_id,
             )
+        except (OSError, TypeError, ValueError, sqlite3.Error) as error:
+            observe_exception(
+                "subagent.graph.restore_failed",
+                error,
+                level="WARNING",
+                root_session_id=root_session_id,
+            )
+            raise AgentStateError(
+                f"agent graph restore failed: {root_session_id}"
+            ) from error
 
-        return control
+    def _create_control(
+        self,
+        root_session_id: str,
+        checkpoint: AgentGraphCheckpoint | None,
+    ) -> AgentControl:
+        """创建空控制树或从已校验快照重建。"""
+        publisher = (
+            self._graph_persistence.publish
+            if self._graph_persistence is not None
+            else None
+        )
+        if checkpoint is not None:
+            return AgentControl.restore(
+                checkpoint,
+                self._execute_submission,
+                max_open_agents=(
+                    self._settings.max_concurrent_threads_per_session
+                ),
+                max_depth=self._settings.max_depth,
+                checkpoint_publisher=publisher,
+            )
+        return AgentControl(
+            AgentContext.root(root_session_id),
+            self._execute_submission,
+            max_open_agents=(
+                self._settings.max_concurrent_threads_per_session
+            ),
+            max_depth=self._settings.max_depth,
+            checkpoint_publisher=publisher,
+        )
 
     def _require_active(self) -> None:
         """确认运行时仍可接受操作。"""

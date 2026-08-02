@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 
@@ -15,6 +16,7 @@ from mind_app.runtime.subagents.graph import (
     AgentGraphPersistence,
     AgentGraphStore,
 )
+from mind_app.runtime.subagents.mailbox import AgentMailboxStore
 from mind_app.runtime.subagents.thread import AgentThreadContext
 from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
@@ -75,6 +77,14 @@ def _checkpoint(revision: int) -> AgentGraphCheckpoint:
 def test_graph_store_round_trips_latest_checkpoint(tmp_path) -> None:
     store = AgentGraphStore(tmp_path / "agents.db")
     latest = _checkpoint(2)
+    mailbox = AgentMailboxStore()
+    message = mailbox.publish(
+        "message",
+        AgentContext.root(latest.root_session_id),
+        recipient=latest.records[0].thread.agent,
+        message="preserve this constraint",
+    )
+    latest = replace(latest, mailbox=mailbox.snapshot())
     stale = AgentGraphCheckpoint(
         root_session_id=latest.root_session_id,
         revision=1,
@@ -94,6 +104,51 @@ def test_graph_store_round_trips_latest_checkpoint(tmp_path) -> None:
         "routing": {"tags": ["code", "test"]},
     }
     assert restored.records[0].queue[0].message == "run tests"
+    restored_mailbox = AgentMailboxStore.from_snapshot(restored.mailbox)
+    assert restored_mailbox.take_messages("agent_worker") == (message,)
+
+
+@pytest.mark.anyio
+async def test_control_restores_active_turn_without_replaying_it() -> None:
+    checkpoint = _checkpoint(4)
+    calls = []
+    published = []
+
+    async def execute(_turn, submission):
+        calls.append(submission.message)
+        return submission.message
+
+    control = AgentControl.restore(
+        checkpoint,
+        execute,
+        checkpoint_publisher=published.append,
+    )
+    restored = await control.get("/root/worker")
+
+    assert restored.status == "interrupted_by_restart"
+    assert restored.error == "agent execution interrupted by process restart"
+    assert restored.queued_count == 1
+    assert calls == []
+    assert published[0].revision == checkpoint.revision + 1
+    assert published[0].records[0].status == "interrupted_by_restart"
+
+    updates = await control.wait_updates(
+        ["/root/worker"],
+        caller=AgentContext.root(checkpoint.root_session_id),
+        timeout_sec=0,
+    )
+    assert [event.status for event in updates.events] == [
+        "interrupted_by_restart",
+    ]
+
+    await control.followup(
+        "worker",
+        AgentSubmission.create("new task", kind="followup"),
+    )
+    result = await control.wait(["worker"], timeout_sec=1)
+
+    assert result.snapshots[0].status == "completed"
+    assert calls == ["run tests", "new task"]
 
 
 @pytest.mark.anyio

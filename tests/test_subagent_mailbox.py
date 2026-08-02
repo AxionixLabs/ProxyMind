@@ -92,3 +92,34 @@ def test_mailbox_acknowledges_only_matching_recipient_message() -> None:
     assert not mailbox.acknowledge_message(reviewer.agent_id, event.event_id)
     assert mailbox.acknowledge_message(worker.agent_id, event.event_id)
     assert mailbox.take_messages(worker.agent_id) == ()
+
+
+def test_mailbox_snapshot_restores_events_consumption_and_sequence() -> None:
+    root = AgentContext.root("sid_root")
+    worker = root.child("worker", "worker", agent_id="agent_worker")
+    mailbox = AgentMailboxStore()
+    status = mailbox.publish(
+        "status",
+        worker,
+        status="completed",
+        submission_id="submission_one",
+    )
+    message = mailbox.publish(
+        "message",
+        root,
+        recipient=worker,
+        message="continue with the API only",
+    )
+    assert mailbox.take_updates(root.agent_id, {worker.agent_id}) == (status,)
+
+    restored = AgentMailboxStore.from_snapshot(mailbox.snapshot())
+
+    assert restored.take_updates(root.agent_id, {worker.agent_id}) == ()
+    assert restored.take_messages(worker.agent_id) == (message,)
+    following = restored.publish(
+        "status",
+        worker,
+        status="completed",
+        submission_id="submission_two",
+    )
+    assert following.sequence == message.sequence + 1

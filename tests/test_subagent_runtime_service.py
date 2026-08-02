@@ -13,9 +13,16 @@ from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import (
     HookExecutionScope,
 )
-from mind_app.runtime.subagents.control import AgentStateError
+from mind_app.runtime.subagents.control import (
+    AgentGraphCheckpoint,
+    AgentGraphRecord,
+    AgentStateError,
+    AgentSubmission,
+)
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.subagents.graph import AgentGraphStore
+from mind_app.runtime.subagents.mailbox import AgentMailboxStore
+from mind_app.runtime.subagents.thread import AgentThreadContext
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
@@ -208,6 +215,130 @@ async def test_runtime_flushes_graph_checkpoint_on_shutdown(tmp_path) -> None:
     assert checkpoint.records[0].thread.agent.agent_id == spawned.agent_id
     assert checkpoint.records[0].status == "closed"
     assert checkpoint.records[0].status_before_close == "completed"
+
+
+@pytest.mark.anyio
+async def test_runtime_lazily_restores_graph_and_continues_queue(tmp_path) -> None:
+    controller = _Controller()
+    store = AgentGraphStore(tmp_path / "agents.db")
+    parent = _parent_turn()
+    thread = AgentThreadContext.child(
+        parent,
+        "worker",
+        "worker",
+        {},
+        agent_id="agent_worker",
+    )
+    active = AgentSubmission.create(
+        "interrupted task",
+        kind="initial",
+        parent_turn_id=parent.turn_id,
+    )
+    queued = AgentSubmission.create(
+        "persisted followup",
+        kind="followup",
+        parent_turn_id=parent.turn_id,
+    )
+    store.save(AgentGraphCheckpoint(
+        root_session_id=parent.sid,
+        revision=7,
+        updated_at_ms=1_700_000_000_000,
+        records=(AgentGraphRecord(
+            thread=thread,
+            status="running",
+            submission=active,
+            queue=(queued,),
+            turn_count=1,
+        ),),
+    ))
+    runtime = SubagentRuntime(controller, graph_store=store)
+
+    restored = await runtime.get(parent.sid, "/root/worker")
+
+    assert restored.status == "interrupted_by_restart"
+    assert restored.queued_count == 1
+    assert controller.stream_calls == []
+
+    await runtime.followup_task(
+        parent.sid,
+        "worker",
+        "new followup",
+        caller=parent.agent,
+    )
+    waited = await runtime.wait(
+        parent.sid,
+        ["/root/worker"],
+        timeout_sec=1,
+    )
+
+    assert waited.snapshots[0].status == "completed"
+    assert [
+        call["turn_execution"].message
+        for call in controller.stream_calls
+    ] == ["persisted followup", "new followup"]
+    assert [
+        call["turn_execution"].metadata["turn_index"]
+        for call in controller.stream_calls
+    ] == [2, 3]
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_restores_unread_mailbox_message_once(tmp_path) -> None:
+    controller = _Controller()
+    store = AgentGraphStore(tmp_path / "agents.db")
+    parent = _parent_turn()
+    thread = AgentThreadContext.child(
+        parent,
+        "worker",
+        "worker",
+        {},
+        agent_id="agent_worker",
+    )
+    submission = AgentSubmission.create(
+        "initial task",
+        kind="initial",
+        parent_turn_id=parent.turn_id,
+    )
+    mailbox = AgentMailboxStore()
+    message = mailbox.publish(
+        "message",
+        parent.agent,
+        recipient=thread.agent,
+        message="do not change the database layer",
+    )
+    store.save(AgentGraphCheckpoint(
+        root_session_id=parent.sid,
+        revision=3,
+        updated_at_ms=1_700_000_000_000,
+        records=(AgentGraphRecord(
+            thread=thread,
+            status="completed",
+            submission=submission,
+            turn_count=1,
+        ),),
+        mailbox=mailbox.snapshot(),
+    ))
+    runtime = SubagentRuntime(controller, graph_store=store)
+
+    await runtime.followup_task(
+        parent.sid,
+        "/root/worker",
+        "continue",
+        caller=parent.agent,
+    )
+    await runtime.wait(parent.sid, ["worker"], timeout_sec=1)
+
+    execution = controller.stream_calls[0]["turn_execution"]
+    assert execution.metadata["mailbox_event_ids"] == [message.event_id]
+    assert "do not change the database layer" in execution.additional_context[0]
+
+    await runtime.shutdown()
+
+    persisted = store.load(parent.sid)
+    assert persisted is not None
+    restored_mailbox = AgentMailboxStore.from_snapshot(persisted.mailbox)
+    assert restored_mailbox.take_messages(thread.agent.agent_id) == ()
 
 
 @pytest.mark.anyio
