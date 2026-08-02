@@ -6,11 +6,15 @@ from dataclasses import dataclass
 
 DEFAULT_MAX_CONCURRENT_THREADS = 4
 DEFAULT_MAX_AGENT_DEPTH        = 1
+DEFAULT_FORK_TURNS             = 5
+DEFAULT_MAX_FORK_CONTEXT_CHARS = 40_000
 
 AGENT_CONFIG_FIELDS = frozenset({
     "enabled",
     "max_concurrent_threads_per_session",
     "max_depth",
+    "default_fork_turns",
+    "max_fork_context_chars",
 })
 
 
@@ -24,6 +28,8 @@ class AgentSettings:
     enabled: bool = True
     max_concurrent_threads_per_session: int = DEFAULT_MAX_CONCURRENT_THREADS
     max_depth: int = DEFAULT_MAX_AGENT_DEPTH
+    default_fork_turns: int = DEFAULT_FORK_TURNS
+    max_fork_context_chars: int = DEFAULT_MAX_FORK_CONTEXT_CHARS
 
     @classmethod
     def from_config(cls, config: typing.Any) -> "AgentSettings":
@@ -37,6 +43,8 @@ class AgentSettings:
                 values["max_concurrent_threads_per_session"]
             ),
             max_depth=values["max_depth"],
+            default_fork_turns=values["default_fork_turns"],
+            max_fork_context_chars=values["max_fork_context_chars"],
         )
 
 
@@ -68,11 +76,24 @@ def normalize_agent_table(raw: typing.Any) -> dict[str, typing.Any]:
         data.get("max_depth", DEFAULT_MAX_AGENT_DEPTH),
         "agents.max_depth",
     )
+    default_fork_turns = _positive_integer(
+        data.get("default_fork_turns", DEFAULT_FORK_TURNS),
+        "agents.default_fork_turns",
+    )
+    max_fork_context_chars = _positive_integer(
+        data.get(
+            "max_fork_context_chars",
+            DEFAULT_MAX_FORK_CONTEXT_CHARS,
+        ),
+        "agents.max_fork_context_chars",
+    )
 
     return {
         "enabled": enabled,
         "max_concurrent_threads_per_session": max_threads,
         "max_depth": max_depth,
+        "default_fork_turns": default_fork_turns,
+        "max_fork_context_chars": max_fork_context_chars,
     }
 
 

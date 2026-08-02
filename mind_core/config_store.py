@@ -43,6 +43,8 @@ disabled = []
 enabled = true
 max_concurrent_threads_per_session = 4
 max_depth = 1
+default_fork_turns = 5
+max_fork_context_chars = 40000
 
 [mcp_servers]
 

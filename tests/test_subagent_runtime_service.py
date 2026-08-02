@@ -198,6 +198,7 @@ async def test_runtime_forks_recent_parent_turns_into_first_child_turn(tmp_path)
 
     runtime = SubagentRuntime(
         controller,
+        settings=AgentSettings(default_fork_turns=1),
         transcript_path_for=ConversationTranscriptStore(
             tmp_path / "sessions"
         ).path_for_session,
@@ -210,7 +211,6 @@ async def test_runtime_forks_recent_parent_turns_into_first_child_turn(tmp_path)
         {},
         agent_type="review",
         task_name="review",
-        fork_turns="1",
     )
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
     execution = controller.stream_calls[-1]["turn_execution"]
@@ -218,6 +218,14 @@ async def test_runtime_forks_recent_parent_turns_into_first_child_turn(tmp_path)
     assert "parent task" in execution.additional_context[0]
     assert execution.metadata["task_path"] == "/root/review"
     assert execution.metadata["fork_turns"] == "1"
+    assert execution.metadata["submission_kind"] == "initial"
+    assert execution.metadata["fork_context"] == {
+        "available_turns": 1,
+        "selected_turns": 1,
+        "included_turns": 1,
+        "chars": len(execution.additional_context[0]),
+        "truncated": False,
+    }
     await runtime.shutdown()
 
 

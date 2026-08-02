@@ -22,7 +22,7 @@ from mind_app.runtime.subagents.control import (
     AgentNotFoundError,
     AgentSnapshot,
     AgentStateError,
-    AgentTurnOperation,
+    AgentSubmission,
     AgentWaitResult
 )
 from mind_app.runtime.subagents.context import (
@@ -94,13 +94,16 @@ class SubagentRuntime:
         *,
         agent_type: str,
         task_name: str,
-        fork_turns: ForkTurns = "all",
+        fork_turns: ForkTurns | None = None,
         agent_id: str | None = None
     ) -> AgentSnapshot:
         """在父轮次所属根会话中创建子执行线程。"""
         task = _normalize_task(message)
 
-        normalized_fork_turns = normalize_fork_turns(fork_turns)
+        normalized_fork_turns = normalize_fork_turns(
+            fork_turns,
+            default_turns=self._settings.default_fork_turns,
+        )
 
         control = await self._control(parent.agent.root_session_id)
 
@@ -115,13 +118,18 @@ class SubagentRuntime:
             fork_context=build_fork_context(
                 parent.transcript_path,
                 normalized_fork_turns,
+                max_chars=self._settings.max_fork_context_chars,
             ),
             transcript_path_for=self._transcript_path_for,
         )
 
         return await control.spawn(
             thread,
-            self._turn_operation(task),
+            AgentSubmission.create(
+                task,
+                kind="initial",
+                parent_turn_id=parent.turn_id,
+            ),
         )
 
     async def submit(
@@ -130,7 +138,8 @@ class SubagentRuntime:
         agent_id: str,
         message: str,
         *,
-        interrupt: bool = False
+        interrupt: bool = False,
+        parent_turn_id: str = "",
     ) -> str:
         """向根会话中的已有执行线程提交或排队下一轮任务。"""
         task    = _normalize_task(message)
@@ -138,7 +147,11 @@ class SubagentRuntime:
 
         return await control.submit(
             agent_id,
-            self._turn_operation(task),
+            AgentSubmission.create(
+                task,
+                kind="followup",
+                parent_turn_id=parent_turn_id,
+            ),
             interrupt=interrupt,
         )
 
@@ -226,73 +239,82 @@ class SubagentRuntime:
                 return_exceptions=False,
             )
 
-    def _turn_operation(
+    async def _execute_submission(
         self,
-        message: str
-    ) -> AgentTurnOperation[RunResult]:
-        """创建由控制器分配轮次序号的任务操作。"""
-        async def run(turn: AgentTurnContext) -> RunResult:
-            thread      = turn.thread
-            pref_config = thread.config_snapshot()
+        turn: AgentTurnContext,
+        submission: AgentSubmission,
+    ) -> RunResult:
+        """执行控制器已经分配的结构化任务。"""
+        thread      = turn.thread
+        pref_config = thread.config_snapshot()
 
-            context = TurnContext.create(
-                agent=thread.agent,
-                cid=thread.cid,
-                sid=thread.sid,
-                source=thread.source,
-                pref_config=pref_config,
-                cwd=thread.cwd,
-                permissions=thread.permissions,
-                transcript_path=thread.transcript_path,
-                session_started=turn.turn_index == 1,
-                session_start_reason="subagent",
-            )
+        context = TurnContext.create(
+            agent=thread.agent,
+            cid=thread.cid,
+            sid=thread.sid,
+            source=thread.source,
+            pref_config=pref_config,
+            cwd=thread.cwd,
+            permissions=thread.permissions,
+            transcript_path=thread.transcript_path,
+            session_started=turn.turn_index == 1,
+            session_start_reason="subagent",
+        )
 
-            execution = TurnExecution(
-                context=context,
-                message=message,
-                hook_scope=resolve_turn_hook_scope(self._controller, context),
-                metadata={
-                    "parent_turn_id": thread.spawn_turn_id,
-                    "submission_id": turn.submission_id,
-                    "turn_index": turn.turn_index,
-                    "task_name": thread.agent.task_name,
-                    "task_path": thread.agent.task_path,
-                    "fork_turns": thread.fork_turns,
-                },
-                additional_context=(
-                    thread.fork_context
-                    if turn.turn_index == 1
-                    else ()
+        execution = TurnExecution(
+            context=context,
+            message=submission.message,
+            hook_scope=resolve_turn_hook_scope(self._controller, context),
+            metadata={
+                "parent_turn_id": (
+                    submission.parent_turn_id
+                    or thread.spawn_turn_id
                 ),
+                "submission_id": turn.submission_id,
+                "submission_kind": submission.kind,
+                "turn_index": turn.turn_index,
+                "task_name": thread.agent.task_name,
+                "task_path": thread.agent.task_path,
+                "fork_turns": thread.fork_turns,
+                "fork_context": {
+                    "available_turns": thread.fork_context.available_turns,
+                    "selected_turns": thread.fork_context.selected_turns,
+                    "included_turns": thread.fork_context.included_turns,
+                    "chars": thread.fork_context.chars,
+                    "truncated": thread.fork_context.truncated,
+                },
+            },
+            additional_context=(
+                thread.fork_context.parts
+                if turn.turn_index == 1
+                else ()
+            ),
+        )
+
+        async def execute_subagent(
+            prepared: TurnExecution,
+            session: McpSessionLike,
+            tools: list[dict[str, typing.Any]],
+            event_report: EventReport
+        ) -> RunResult:
+            """通过运行时装配的执行端口运行固定子轮次。"""
+            return await self._executor.execute(
+                pref_config=pref_config,
+                skills=thread.skills_snapshot(),
+                execution=prepared,
+                session=session,
+                tools=tools,
+                event_report=event_report,
             )
 
-            async def execute_subagent(
-                prepared: TurnExecution,
-                session: McpSessionLike,
-                tools: list[dict[str, typing.Any]],
-                event_report: EventReport
-            ) -> RunResult:
-                """通过运行时装配的执行端口运行固定子轮次。"""
-                return await self._executor.execute(
-                    pref_config=pref_config,
-                    skills=thread.skills_snapshot(),
-                    execution=prepared,
-                    session=session,
-                    tools=tools,
-                    event_report=event_report,
-                )
-
-            result = await self._runner.run(
-                pref_config,
-                execution,
-                execute_subagent,
-            )
-            if result.status != "completed":
-                raise SubagentTurnFailedError(result)
-            return result
-
-        return run
+        result = await self._runner.run(
+            pref_config,
+            execution,
+            execute_subagent,
+        )
+        if result.status != "completed":
+            raise SubagentTurnFailedError(result)
+        return result
 
     def _configured_skills(self) -> list[dict[str, str]]:
         """读取并固定创建线程时有效的技能描述。"""
@@ -320,6 +342,7 @@ class SubagentRuntime:
             if control is None:
                 control = AgentControl(
                     AgentContext.root(normalized),
+                    self._execute_submission,
                     max_open_agents=(
                         self._settings.max_concurrent_threads_per_session
                     ),

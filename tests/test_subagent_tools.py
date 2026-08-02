@@ -127,6 +127,8 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         any("\u4e00" <= char <= "\u9fff" for char in tool.description)
         for tool in agent_tools
     )
+    spawn_tool = next(tool for tool in agent_tools if tool.name == "spawn_agent")
+    assert spawn_tool.inputSchema["properties"]["fork_turns"]["default"] == "5"
 
 
 @pytest.mark.anyio

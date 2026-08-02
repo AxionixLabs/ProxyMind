@@ -11,17 +11,35 @@ from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentDepthError,
     AgentLimitError,
+    AgentSubmission,
     AgentStateError,
 )
 from mind_app.runtime.subagents.thread import AgentThreadContext
+
+
+class _TestControl(AgentControl):
+    def __init__(self, *args, **kwargs) -> None:
+        self._operations = {}
+        super().__init__(*args, executor=self._execute, **kwargs)
+
+    def submission(self, operation, *, kind):
+        submission = AgentSubmission.create(
+            f"operation-{len(self._operations) + 1}",
+            kind=kind,
+        )
+        self._operations[submission.submission_id] = operation
+        return submission
+
+    async def _execute(self, context, submission):
+        return await self._operations[submission.submission_id](context)
 
 
 def _control(
     *,
     max_open_agents: int = 4,
     max_depth: int = 2,
-) -> AgentControl:
-    return AgentControl(
+) -> _TestControl:
+    return _TestControl(
         AgentContext.root("sid_root"),
         max_open_agents=max_open_agents,
         max_depth=max_depth,
@@ -52,7 +70,7 @@ def _thread(
 
 
 async def _spawn(
-    control: AgentControl,
+    control: _TestControl,
     parent: AgentContext,
     agent_type: str,
     operation,
@@ -61,7 +79,7 @@ async def _spawn(
 ):
     return await control.spawn(
         _thread(parent, agent_type, agent_id=agent_id),
-        operation,
+        control.submission(operation, kind="initial"),
     )
 
 
@@ -97,6 +115,8 @@ async def test_agent_control_runs_child_and_records_result() -> None:
     assert not waited.timed_out
     assert len(waited.snapshots) == 1
     assert waited.snapshots[0].status == "completed"
+    assert waited.snapshots[0].submission is not None
+    assert waited.snapshots[0].submission.kind == "initial"
     assert waited.snapshots[0].turn_count == 1
     assert waited.snapshots[0].queued_count == 0
     assert waited.snapshots[0].result == {"answer": 42}
@@ -118,7 +138,10 @@ async def test_agent_control_reuses_open_agent_for_new_submission() -> None:
 
     submission_id = await control.submit(
         first.agent_id,
-        lambda context: _return_value("second"),
+        control.submission(
+            lambda context: _return_value("second"),
+            kind="followup",
+        ),
     )
     second_result = await control.wait([first.agent_id], timeout_sec=1)
 
@@ -283,7 +306,10 @@ async def test_submit_queues_until_active_turn_cleanup_finishes() -> None:
     )
     await started.wait()
 
-    submission_id = await control.submit(spawned.agent_id, follow_up)
+    submission_id = await control.submit(
+        spawned.agent_id,
+        control.submission(follow_up, kind="followup"),
+    )
     await asyncio.sleep(0)
     assert not second_started.is_set()
     queued = await control.get(spawned.agent_id)
@@ -334,7 +360,7 @@ async def test_interrupting_submission_runs_after_cancelled_turn_cleanup() -> No
 
     submission_id = await control.submit(
         spawned.agent_id,
-        follow_up,
+        control.submission(follow_up, kind="followup"),
         interrupt=True,
     )
     await follow_up_started.wait()
@@ -371,7 +397,10 @@ async def test_interrupt_during_terminal_commit_still_advances_queue() -> None:
 
     submission_id = await control.submit(
         spawned.agent_id,
-        lambda context: _return_value("redirected"),
+        control.submission(
+            lambda context: _return_value("redirected"),
+            kind="followup",
+        ),
         interrupt=True,
     )
     result = await control.wait([spawned.agent_id], timeout_sec=1)
@@ -397,7 +426,10 @@ async def test_closed_agent_can_resume_with_same_thread_context() -> None:
     resumed = await control.resume(spawned.agent_id)
     submission_id = await control.submit(
         spawned.agent_id,
-        lambda context: _return_value("second"),
+        control.submission(
+            lambda context: _return_value("second"),
+            kind="followup",
+        ),
     )
     result = await control.wait([spawned.agent_id], timeout_sec=1)
 

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 import asyncio
 from collections import deque
@@ -54,11 +55,64 @@ class AgentStateError(AgentControlError):
     """表示执行主体当前状态不允许指定操作。"""
 
 
-AgentTurnResultValue = typing.TypeVar("AgentTurnResultValue")
+AgentSubmissionKind = typing.Literal["initial", "followup"]
 
-AgentTurnOperation = typing.Callable[
-    [AgentTurnContext],
-    typing.Awaitable[AgentTurnResultValue],
+
+@dataclass(frozen=True, slots=True)
+class AgentSubmission:
+    """保存可排队和持久化的执行主体任务。"""
+    submission_id: str
+    message: str
+    kind: AgentSubmissionKind
+    created_at_ms: int
+    parent_turn_id: str = ""
+
+    def __post_init__(self) -> None:
+        """校验任务载荷中的稳定字段。"""
+        submission_id = str(self.submission_id or "").strip()
+        message = str(self.message or "").strip()
+        parent_turn_id = str(self.parent_turn_id or "").strip()
+
+        if not submission_id:
+            raise ValueError("agent submission id is required")
+        if not message:
+            raise ValueError("agent submission message is required")
+        if self.kind not in {"initial", "followup"}:
+            raise ValueError("agent submission kind is invalid")
+        if (
+            isinstance(self.created_at_ms, bool)
+            or not isinstance(self.created_at_ms, int)
+            or self.created_at_ms <= 0
+        ):
+            raise ValueError("agent submission timestamp must be positive")
+
+        object.__setattr__(self, "submission_id", submission_id)
+        object.__setattr__(self, "message", message)
+        object.__setattr__(self, "parent_turn_id", parent_turn_id)
+
+    @classmethod
+    def create(
+        cls,
+        message: str,
+        *,
+        kind: AgentSubmissionKind,
+        parent_turn_id: str = ""
+    ) -> "AgentSubmission":
+        """创建带稳定标识和时间的任务载荷。"""
+        if not isinstance(message, str):
+            raise TypeError("agent submission message must be a string")
+        return cls(
+            submission_id=short_uid(12),
+            message=message,
+            kind=kind,
+            created_at_ms=time.time_ns() // 1_000_000,
+            parent_turn_id=parent_turn_id,
+        )
+
+
+AgentTurnExecutor = typing.Callable[
+    [AgentTurnContext, AgentSubmission],
+    typing.Awaitable[typing.Any],
 ]
 
 
@@ -67,6 +121,7 @@ class AgentSnapshot:
     """保存执行主体当前状态的不可变快照。"""
     thread: AgentThreadContext
     status: AgentStatus
+    submission: AgentSubmission | None = None
     submission_id: str = ""
     turn_count: int = 0
     queued_count: int = 0
@@ -97,6 +152,7 @@ class _AgentRecord:
     __slots__ = (
         "thread",
         "status",
+        "submission",
         "submission_id",
         "turn_count",
         "task",
@@ -108,10 +164,11 @@ class _AgentRecord:
 
     thread: AgentThreadContext
     status: AgentStatus
+    submission: AgentSubmission | None
     submission_id: str
     turn_count: int
     task: asyncio.Task[None] | None
-    queue: deque[tuple[str, AgentTurnOperation[typing.Any]]]
+    queue: deque[AgentSubmission]
     result: typing.Any
     error: str
     status_before_close: AgentResumeStatus | None
@@ -119,6 +176,7 @@ class _AgentRecord:
     def __init__(self, thread: AgentThreadContext) -> None:
         self.thread              = thread
         self.status              = "pending"
+        self.submission          = None
         self.submission_id       = ""
         self.turn_count          = 0
         self.task                = None
@@ -139,12 +197,15 @@ class AgentControl:
     def __init__(
         self,
         root: AgentContext,
+        executor: AgentTurnExecutor,
         *,
         max_open_agents: int = 4,
         max_depth: int = 1
     ) -> None:
         if root.depth != 0:
             raise ValueError("agent control requires a root context")
+        if not callable(executor):
+            raise TypeError("agent turn executor must be callable")
         if (
             isinstance(max_open_agents, bool)
             or not isinstance(max_open_agents, int)
@@ -159,6 +220,7 @@ class AgentControl:
             raise ValueError("max agent depth must be a non-negative integer")
 
         self._root            = root
+        self._executor        = executor
         self._max_open_agents = max_open_agents
         self._max_depth       = max_depth
 
@@ -186,11 +248,13 @@ class AgentControl:
     async def spawn(
         self,
         thread: AgentThreadContext,
-        operation: AgentTurnOperation[AgentTurnResultValue]
+        submission: AgentSubmission
     ) -> AgentSnapshot:
         """分配子执行主体并提交首轮任务。"""
-        if not callable(operation):
-            raise TypeError("agent operation must be callable")
+        if not isinstance(submission, AgentSubmission):
+            raise TypeError("agent submission is required")
+        if submission.kind != "initial":
+            raise AgentStateError("spawn requires an initial submission")
 
         async with self._condition:
             self._require_active()
@@ -220,20 +284,22 @@ class AgentControl:
 
             record = _AgentRecord(thread=thread)
             self._records[thread.agent.agent_id] = record
-            self._start(record, operation)
+            self._start(record, submission)
             self._condition.notify_all()
             return self._snapshot(record)
 
     async def submit(
         self,
         agent_id: str,
-        operation: AgentTurnOperation[AgentTurnResultValue],
+        submission: AgentSubmission,
         *,
         interrupt: bool = False
     ) -> str:
         """向已开放的执行主体提交或排队新一轮任务。"""
-        if not callable(operation):
-            raise TypeError("agent operation must be callable")
+        if not isinstance(submission, AgentSubmission):
+            raise TypeError("agent submission is required")
+        if submission.kind != "followup":
+            raise AgentStateError("submit requires a followup submission")
 
         async with self._condition:
             self._require_active()
@@ -241,23 +307,18 @@ class AgentControl:
             if record.status == "closed":
                 raise AgentStateError(f"agent is closed: {record.context.agent_id}")
 
-            submission_id = short_uid(12)
             if record.status in {"pending", "running"}:
-                queued = (submission_id, operation)
                 if interrupt:
-                    record.queue.appendleft(queued)
+                    record.queue.appendleft(submission)
                     if record.task is not None:
                         _request_cancel(record.task)
                 else:
-                    record.queue.append(queued)
+                    record.queue.append(submission)
             else:
-                self._start(
-                    record,
-                    operation,
-                    submission_id=submission_id,
-                )
+                self._start(record, submission)
+
             self._condition.notify_all()
-            return submission_id
+            return submission.submission_id
 
     async def resume(self, agent_id: str) -> AgentSnapshot:
         """重新开放已经关闭的执行主体。"""
@@ -412,15 +473,12 @@ class AgentControl:
     def _start(
         self,
         record: _AgentRecord,
-        operation: AgentTurnOperation[AgentTurnResultValue],
-        *,
-        submission_id: str | None = None
+        submission: AgentSubmission,
     ) -> None:
         """在持锁状态下启动一次轮次任务。"""
-        submission_id = submission_id or short_uid(12)
-
         record.status        = "pending"
-        record.submission_id = submission_id
+        record.submission    = submission
+        record.submission_id = submission.submission_id
 
         record.turn_count += 1
 
@@ -430,8 +488,7 @@ class AgentControl:
         record.task = asyncio.create_task(
             self._run_turn(
                 record.context.agent_id,
-                submission_id,
-                operation,
+                submission,
             ),
             name=f"subagent {record.context.agent_id}",
         )
@@ -439,10 +496,11 @@ class AgentControl:
     async def _run_turn(
         self,
         agent_id: str,
-        submission_id: str,
-        operation: AgentTurnOperation[AgentTurnResultValue]
+        submission: AgentSubmission,
     ) -> None:
         """执行任务并提交与当前轮次匹配的终态。"""
+        submission_id = submission.submission_id
+
         async with self._condition:
             record = self._records.get(agent_id)
             if (
@@ -462,7 +520,7 @@ class AgentControl:
             self._condition.notify_all()
 
         try:
-            result = await operation(turn_context)
+            result = await self._executor(turn_context, submission)
         except asyncio.CancelledError:
             await self._commit_turn(
                 agent_id,
@@ -534,12 +592,7 @@ class AgentControl:
             record.task   = None
 
             if record.queue:
-                next_submission_id, operation = record.queue.popleft()
-                self._start(
-                    record,
-                    operation,
-                    submission_id=next_submission_id,
-                )
+                self._start(record, record.queue.popleft())
 
             self._condition.notify_all()
 
@@ -680,6 +733,7 @@ class AgentControl:
         return AgentSnapshot(
             thread=record.thread,
             status=record.status,
+            submission=record.submission,
             submission_id=record.submission_id,
             turn_count=record.turn_count,
             queued_count=len(record.queue),

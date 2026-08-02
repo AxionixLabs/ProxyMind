@@ -37,7 +37,7 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
                 "为边界清晰的独立任务创建子 Agent。子 Agent 继承当前轮次的"
                 "运行配置和权限。仅在用户或项目指令允许委派时使用。"
             ),
-            input_schema=_spawn_schema(),
+            input_schema=_spawn_schema(agents.settings.default_fork_turns),
             handler=_spawn_handler(agents),
             meta=_agent_tool_meta(),
         ),
@@ -94,7 +94,11 @@ def _spawn_handler(agents: SubagentRuntime):
             message    = _required_text(arguments, "message")
             agent_type = _spawn_agent_type(arguments, tool_runtime)
             task_name  = _required_text(arguments, "task_name")
-            fork_turns = normalize_fork_turns(arguments.get("fork_turns"))
+
+            fork_turns = normalize_fork_turns(
+                arguments.get("fork_turns"),
+                default_turns=agents.settings.default_fork_turns,
+            )
 
             snapshot = await agents.spawn(
                 tool_runtime.turn_context,
@@ -115,6 +119,19 @@ def _spawn_handler(agents: SubagentRuntime):
                     "task_name": snapshot.context.task_name,
                     "task_path": snapshot.context.task_path,
                     "fork_turns": snapshot.thread.fork_turns,
+                    "fork_context": {
+                        "available_turns": (
+                            snapshot.thread.fork_context.available_turns
+                        ),
+                        "selected_turns": (
+                            snapshot.thread.fork_context.selected_turns
+                        ),
+                        "included_turns": (
+                            snapshot.thread.fork_context.included_turns
+                        ),
+                        "chars": snapshot.thread.fork_context.chars,
+                        "truncated": snapshot.thread.fork_context.truncated,
+                    },
                 },
             )
         except asyncio.CancelledError:
@@ -145,6 +162,7 @@ def _send_handler(agents: SubagentRuntime):
                 target,
                 message,
                 interrupt=interrupt,
+                parent_turn_id=tool_runtime.turn_context.turn_id,
             )
 
             return client_tool_result(
@@ -386,7 +404,7 @@ def _agent_tool_meta() -> dict[str, typing.Any]:
     }
 
 
-def _spawn_schema() -> dict[str, typing.Any]:
+def _spawn_schema(default_fork_turns: int) -> dict[str, typing.Any]:
     """返回创建工具输入结构。"""
     return {
         "type": "object",
@@ -410,7 +428,7 @@ def _spawn_schema() -> dict[str, typing.Any]:
                     "继承的父会话上下文范围：none、all 或正整数轮次数。"
                 ),
                 "pattern": "^(none|all|[1-9][0-9]*)$",
-                "default": "all",
+                "default": str(default_fork_turns),
             },
         },
         "required": ["message", "task_name"],

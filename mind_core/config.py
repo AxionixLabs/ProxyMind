@@ -226,6 +226,8 @@ BOOL_CONFIG_PATHS = frozenset({
 INTEGER_CONFIG_PATHS = frozenset({
     ("agents", "max_concurrent_threads_per_session"),
     ("agents", "max_depth"),
+    ("agents", "default_fork_turns"),
+    ("agents", "max_fork_context_chars"),
 })
 
 STRING_LIST_CONFIG_PATHS = frozenset({

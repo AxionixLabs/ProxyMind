@@ -13,6 +13,8 @@ def test_agent_settings_use_normalized_defaults() -> None:
         "enabled": True,
         "max_concurrent_threads_per_session": 4,
         "max_depth": 1,
+        "default_fork_turns": 5,
+        "max_fork_context_chars": 40000,
     }
     assert AgentSettings.from_config(config) == AgentSettings()
 
@@ -23,6 +25,8 @@ def test_agent_settings_read_explicit_config() -> None:
             "enabled": False,
             "max_concurrent_threads_per_session": 8,
             "max_depth": 2,
+            "default_fork_turns": 3,
+            "max_fork_context_chars": 12000,
         },
     })
 
@@ -30,6 +34,8 @@ def test_agent_settings_read_explicit_config() -> None:
         enabled=False,
         max_concurrent_threads_per_session=8,
         max_depth=2,
+        default_fork_turns=3,
+        max_fork_context_chars=12000,
     )
 
 
@@ -42,6 +48,8 @@ def test_agent_settings_read_explicit_config() -> None:
             "must be a positive integer",
         ),
         ({"max_depth": -1}, "must be a non-negative integer"),
+        ({"default_fork_turns": 0}, "must be a positive integer"),
+        ({"max_fork_context_chars": 0}, "must be a positive integer"),
         ({"unknown": True}, "unknown agents key"),
     ],
 )
