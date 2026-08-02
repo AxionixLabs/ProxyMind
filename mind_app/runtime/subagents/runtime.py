@@ -197,17 +197,46 @@ class SubagentRuntime:
         caller: AgentContext | None = None,
     ) -> AgentMessageDispatch:
         """优先向活动轮次投递消息，不可用时保留在邮箱。"""
-        task    = _normalize_task(message)
-        control = await self._existing_control(root_session_id)
-        event   = await control.send_message(target, task, caller=caller)
+        task      = _normalize_task(message)
+        control   = await self._existing_control(root_session_id)
+        recipient = await control.get(target, caller=caller)
 
         active = await self._active_delivery(
-            event.recipient_agent_id,
+            recipient.agent_id,
             root_session_id=root_session_id,
         )
-        if active is not None and await active.deliver(event):
-            await control.acknowledge_message(event)
-            return AgentMessageDispatch(event, "active_turn")
+
+        claim_owner = active.context.turn_id if active is not None else ""
+
+        event = await control.send_message(
+            target,
+            task,
+            caller=caller,
+            claim_owner=claim_owner,
+        )
+        if active is not None:
+            delivered = False
+            try:
+                receipt = await active.deliver(event)
+                if receipt is not None:
+                    await control.acknowledge_messages(
+                        event.recipient_agent_id,
+                        claim_owner,
+                        (event,),
+                    )
+                    delivered = True
+                    return AgentMessageDispatch(
+                        event,
+                        "active_turn",
+                        receipt=receipt,
+                    )
+            finally:
+                if not delivered:
+                    await control.release_messages(
+                        event.recipient_agent_id,
+                        claim_owner,
+                        (event,),
+                    )
         return AgentMessageDispatch(event, "mailbox")
 
     async def resume(
@@ -358,93 +387,113 @@ class SubagentRuntime:
             thread.agent.root_session_id
         )
 
-        mailbox_events  = await control.take_messages(thread.agent.agent_id)
-        mailbox_context = format_mailbox_context(mailbox_events)
-
-        context = TurnContext.create(
-            agent=thread.agent,
-            cid=thread.cid,
-            sid=thread.sid,
-            source=thread.source,
-            pref_config=pref_config,
-            cwd=thread.cwd,
-            permissions=thread.permissions,
-            transcript_path=thread.transcript_path,
-            session_started=turn.turn_index == 1,
-            session_start_reason="subagent",
+        mailbox_events = await control.claim_messages(
+            thread.agent.agent_id,
+            submission.submission_id,
         )
+        acknowledged = False
 
-        execution = TurnExecution(
-            context=context,
-            message=submission.message,
-            hook_scope=resolve_turn_hook_scope(self._controller, context),
-            metadata={
-                "parent_turn_id": (
-                    submission.parent_turn_id
-                    or thread.spawn_turn_id
-                ),
-                "submission_id": turn.submission_id,
-                "submission_kind": submission.kind,
-                "mailbox_event_ids": [
-                    event.event_id
-                    for event in mailbox_events
-                ],
-                "turn_index": turn.turn_index,
-                "task_name": thread.agent.task_name,
-                "task_path": thread.agent.task_path,
-                "fork_turns": thread.fork_turns,
-                "fork_context": {
-                    "available_turns": thread.fork_context.available_turns,
-                    "selected_turns": thread.fork_context.selected_turns,
-                    "included_turns": thread.fork_context.included_turns,
-                    "chars": thread.fork_context.chars,
-                    "truncated": thread.fork_context.truncated,
-                },
-            },
-            additional_context=(
-                *(
-                    thread.fork_context.parts
-                    if turn.turn_index == 1
-                    else ()
-                ),
-                *((mailbox_context,) if mailbox_context else ()),
-            ),
-        )
+        try:
+            mailbox_context = format_mailbox_context(mailbox_events)
 
-        async def execute_subagent(
-            prepared: TurnExecution,
-            session: McpSessionLike,
-            tools: list[dict[str, typing.Any]],
-            event_report: EventReport
-        ) -> RunResult:
-            """通过运行时装配的执行端口运行固定子轮次。"""
-            active = AgentActiveTurn(
-                prepared.context,
-                self._message_delivery,
+            context = TurnContext.create(
+                agent=thread.agent,
+                cid=thread.cid,
+                sid=thread.sid,
+                source=thread.source,
+                pref_config=pref_config,
+                cwd=thread.cwd,
+                permissions=thread.permissions,
+                transcript_path=thread.transcript_path,
+                session_started=turn.turn_index == 1,
+                session_start_reason="subagent",
             )
-            await self._register_active_delivery(active)
-            try:
-                return await self._executor.execute(
-                    pref_config=pref_config,
-                    skills=thread.skills_snapshot(),
-                    execution=prepared,
-                    session=session,
-                    tools=tools,
-                    event_report=event_report,
-                    on_turn_input_event=active.handle_event,
-                )
-            finally:
-                active.close()
-                await self._unregister_active_delivery(active)
 
-        result = await self._runner.run(
-            pref_config,
-            execution,
-            execute_subagent,
-        )
-        if result.status != "completed":
-            raise SubagentTurnFailedError(result)
-        return result
+            execution = TurnExecution(
+                context=context,
+                message=submission.message,
+                hook_scope=resolve_turn_hook_scope(self._controller, context),
+                metadata={
+                    "parent_turn_id": (
+                        submission.parent_turn_id
+                        or thread.spawn_turn_id
+                    ),
+                    "submission_id": turn.submission_id,
+                    "submission_kind": submission.kind,
+                    "mailbox_event_ids": [
+                        event.event_id
+                        for event in mailbox_events
+                    ],
+                    "turn_index": turn.turn_index,
+                    "task_name": thread.agent.task_name,
+                    "task_path": thread.agent.task_path,
+                    "fork_turns": thread.fork_turns,
+                    "fork_context": {
+                        "available_turns": thread.fork_context.available_turns,
+                        "selected_turns": thread.fork_context.selected_turns,
+                        "included_turns": thread.fork_context.included_turns,
+                        "chars": thread.fork_context.chars,
+                        "truncated": thread.fork_context.truncated,
+                    },
+                },
+                additional_context=(
+                    *(
+                        thread.fork_context.parts
+                        if turn.turn_index == 1
+                        else ()
+                    ),
+                    *((mailbox_context,) if mailbox_context else ()),
+                ),
+            )
+
+            async def execute_subagent(
+                prepared: TurnExecution,
+                session: McpSessionLike,
+                tools: list[dict[str, typing.Any]],
+                event_report: EventReport
+            ) -> RunResult:
+                """通过运行时装配的执行端口运行固定子轮次。"""
+                active = AgentActiveTurn(
+                    prepared.context,
+                    self._message_delivery,
+                )
+                await self._register_active_delivery(active)
+                try:
+                    return await self._executor.execute(
+                        pref_config=pref_config,
+                        skills=thread.skills_snapshot(),
+                        execution=prepared,
+                        session=session,
+                        tools=tools,
+                        event_report=event_report,
+                        on_turn_input_event=active.handle_event,
+                    )
+                finally:
+                    active.close()
+                    await self._unregister_active_delivery(active)
+
+            result = await self._runner.run(
+                pref_config,
+                execution,
+                execute_subagent,
+            )
+            if result.status != "completed":
+                raise SubagentTurnFailedError(result)
+            if mailbox_events:
+                await control.acknowledge_messages(
+                    thread.agent.agent_id,
+                    submission.submission_id,
+                    mailbox_events,
+                )
+            acknowledged = True
+            return result
+        finally:
+            if mailbox_events and not acknowledged:
+                await control.release_messages(
+                    thread.agent.agent_id,
+                    submission.submission_id,
+                    mailbox_events,
+                )
 
     def _configured_skills(self) -> list[dict[str, str]]:
         """读取并固定创建线程时有效的技能描述。"""

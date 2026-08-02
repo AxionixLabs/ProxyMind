@@ -8,6 +8,7 @@ from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.subagents import delivery as delivery_module
 from mind_app.runtime.subagents.delivery import (
     AgentActiveTurn,
+    AgentMessageReceipt,
     SteeringMessageDelivery,
 )
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
@@ -25,13 +26,19 @@ from mind_nova.turn_inputs import TurnInput
 
 
 class _Delivery:
-    def __init__(self, accepted: bool = True) -> None:
-        self.accepted = accepted
+    def __init__(self, status="accepted") -> None:
+        self.status = status
         self.calls = []
 
-    async def deliver(self, context, turn_input) -> bool:
+    async def deliver(self, context, turn_input):
         self.calls.append((context, turn_input))
-        return self.accepted
+        if self.status is None:
+            return None
+        return AgentMessageReceipt(
+            status=self.status,
+            turn_id=context.turn_id,
+            client_message_id=turn_input.client_message_id,
+        )
 
 
 def _context() -> TurnContext:
@@ -79,9 +86,14 @@ async def test_active_turn_delivers_and_correlates_accepted_input() -> None:
         type="turn.start",
         turn_id=context.turn_id,
     ))
-    assert await active.deliver(event)
+    receipt = await active.deliver(event)
 
     delivered_context, turn_input = port.calls[0]
+    assert receipt == AgentMessageReceipt(
+        status="accepted",
+        turn_id=context.turn_id,
+        client_message_id=event.event_id,
+    )
     assert delivered_context is context
     assert turn_input.client_message_id == event.event_id
     assert turn_input.text == event.message
@@ -97,6 +109,55 @@ async def test_active_turn_delivers_and_correlates_accepted_input() -> None:
         turn_id=context.turn_id,
         client_message_id=event.event_id,
     )) is turn_input
+    assert active.handle_event(TurnInputAcceptedEvent(
+        type="turn.input.accepted",
+        turn_id=context.turn_id,
+        client_message_id=event.event_id,
+    )) is None
+
+
+@pytest.mark.anyio
+async def test_active_turn_settles_duplicate_receipt_without_stream_event() -> None:
+    context = _context()
+    active = AgentActiveTurn(context, _Delivery("duplicate"))
+    event = _message()
+    active.handle_event(MarkerEvent(
+        type="turn.start",
+        turn_id=context.turn_id,
+    ))
+
+    receipt = await active.deliver(event)
+
+    assert receipt is not None
+    assert receipt.status == "duplicate"
+    assert active.handle_event(TurnInputAcceptedEvent(
+        type="turn.input.accepted",
+        turn_id=context.turn_id,
+        client_message_id=event.event_id,
+    )) is None
+
+
+@pytest.mark.anyio
+async def test_active_turn_rejects_mismatched_delivery_receipt() -> None:
+    class MismatchedDelivery:
+        async def deliver(self, context, _turn_input):
+            return AgentMessageReceipt(
+                status="accepted",
+                turn_id=context.turn_id,
+                client_message_id="another_event",
+            )
+
+    context = _context()
+    active = AgentActiveTurn(context, MismatchedDelivery())
+    event = _message()
+    active.handle_event(MarkerEvent(
+        type="turn.start",
+        turn_id=context.turn_id,
+    ))
+
+    with pytest.raises(ValueError, match="does not match delivery"):
+        await active.deliver(event)
+
     assert active.handle_event(TurnInputAcceptedEvent(
         type="turn.input.accepted",
         turn_id=context.turn_id,
@@ -134,19 +195,19 @@ async def test_active_turn_refuses_unready_settled_and_closed_delivery() -> None
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("status", "accepted"),
+    ("status", "receipt_status"),
     [
-        ("accepted", True),
-        ("duplicate", True),
-        ("turn_not_active", False),
-        ("turn_not_steerable", False),
-        ("turn_mismatch", False),
+        ("accepted", "accepted"),
+        ("duplicate", "duplicate"),
+        ("turn_not_active", None),
+        ("turn_not_steerable", None),
+        ("turn_mismatch", None),
     ],
 )
 async def test_steering_delivery_maps_remote_status(
     monkeypatch,
     status,
-    accepted,
+    receipt_status,
 ) -> None:
     async def request(**kwargs):
         return TurnControlResponse(
@@ -160,10 +221,15 @@ async def test_steering_delivery_maps_remote_status(
     context = _context()
     turn_input = _turn_input(event)
 
-    assert await SteeringMessageDelivery().deliver(
+    receipt = await SteeringMessageDelivery().deliver(
         context,
         turn_input,
-    ) is accepted
+    )
+
+    assert (receipt.status if receipt is not None else None) == receipt_status
+    if receipt is not None:
+        assert receipt.turn_id == context.turn_id
+        assert receipt.client_message_id == event.event_id
 
 
 @pytest.mark.anyio
@@ -182,3 +248,31 @@ async def test_steering_delivery_retries_request_errors(monkeypatch) -> None:
         _turn_input(event),
     )
     assert len(calls) == 2
+
+
+@pytest.mark.anyio
+async def test_steering_delivery_recovers_ambiguous_acceptance_as_duplicate(
+    monkeypatch,
+) -> None:
+    calls = []
+
+    async def request(**kwargs):
+        calls.append(kwargs["turn_input"].client_message_id)
+        if len(calls) == 1:
+            raise TurnControlRequestError("response lost after acceptance")
+        return TurnControlResponse(
+            status="duplicate",
+            turn_id=kwargs["turn_id"],
+            client_message_id=kwargs["turn_input"].client_message_id,
+        )
+
+    monkeypatch.setattr(delivery_module, "steer_turn", request)
+    event = _message()
+    receipt = await SteeringMessageDelivery().deliver(
+        _context(),
+        _turn_input(event),
+    )
+
+    assert receipt is not None
+    assert receipt.status == "duplicate"
+    assert calls == [event.event_id, event.event_id]

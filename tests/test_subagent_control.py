@@ -774,6 +774,47 @@ async def test_mailbox_message_does_not_create_a_new_turn() -> None:
 
 
 @pytest.mark.anyio
+async def test_claimed_message_is_hidden_from_wait_until_released() -> None:
+    control = _control()
+    spawned = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value("done"),
+        agent_id="agent_worker",
+        task_name="worker",
+    )
+    await control.wait([spawned.agent_id], timeout_sec=1)
+
+    event = await control.send_message(
+        "worker",
+        "new constraint",
+        claim_owner="turn_delivery",
+    )
+    hidden = await control.wait_updates(
+        ["root"],
+        caller=spawned.context,
+        timeout_sec=0,
+    )
+
+    assert hidden.timed_out
+    assert hidden.events == ()
+
+    assert await control.release_messages(
+        spawned.agent_id,
+        "turn_delivery",
+        (event,),
+    ) == (event.event_id,)
+    visible = await control.wait_updates(
+        ["root"],
+        caller=spawned.context,
+        timeout_sec=0,
+    )
+    assert visible.events == (event,)
+    await control.close_all()
+
+
+@pytest.mark.anyio
 async def test_wait_updates_returns_queue_and_terminal_events() -> None:
     control = _control()
     started = asyncio.Event()

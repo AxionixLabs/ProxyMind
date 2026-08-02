@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import json
+import time
 import typing
 import asyncio
 import sqlite3
@@ -28,6 +29,9 @@ from mind_app.runtime.subagents.thread import AgentThreadContext
 
 TABLE_AGENT_GRAPH_CHECKPOINTS = "agent_graph_checkpoints"
 
+DEFAULT_AGENT_GRAPH_TTL_MS = 24 * 60 * 60 * 1000
+DEFAULT_AGENT_GRAPH_LIMIT  = 200
+
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_AGENT_GRAPH_CHECKPOINTS} (
     root_session_id TEXT PRIMARY KEY,
@@ -44,11 +48,32 @@ ON {TABLE_AGENT_GRAPH_CHECKPOINTS} (updated_at_ms DESC);
 class AgentGraphStore:
     """持久化每个根会话的最新执行树快照。"""
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
-        self.db_path = Path(db_path or agent_graph_db_path()).expanduser()
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        *,
+        ttl_ms: int = DEFAULT_AGENT_GRAPH_TTL_MS,
+        max_items: int = DEFAULT_AGENT_GRAPH_LIMIT,
+    ) -> None:
+        _require_positive_integer(ttl_ms, "agent graph ttl")
+        _require_positive_integer(max_items, "agent graph item limit")
 
-    def save(self, checkpoint: AgentGraphCheckpoint) -> bool:
+        self.db_path   = Path(db_path or agent_graph_db_path()).expanduser()
+        self.ttl_ms    = ttl_ms
+        self.max_items = max_items
+
+    def save(
+        self,
+        checkpoint: AgentGraphCheckpoint,
+        *,
+        now_ms: int | None = None,
+    ) -> bool:
         """原子保存更新的 revision，忽略过期快照。"""
+        if not isinstance(checkpoint, AgentGraphCheckpoint):
+            raise TypeError("agent graph checkpoint is required")
+        now = _normalize_now_ms(now_ms)
+        if checkpoint.updated_at_ms <= now - self.ttl_ms:
+            return False
         payload = json.dumps(
             _checkpoint_payload(checkpoint),
             ensure_ascii=False,
@@ -58,6 +83,7 @@ class AgentGraphStore:
         try:
             with connection:
                 self._init_schema(connection)
+                self._prune_expired(connection, now_ms=now)
                 cursor = connection.execute(
                     f"""
                     INSERT INTO {TABLE_AGENT_GRAPH_CHECKPOINTS} (
@@ -80,20 +106,29 @@ class AgentGraphStore:
                         payload,
                     ),
                 )
+                self._trim(connection)
                 return cursor.rowcount > 0
         finally:
             connection.close()
 
-    def load(self, root_session_id: str) -> AgentGraphCheckpoint | None:
+    def load(
+        self,
+        root_session_id: str,
+        *,
+        now_ms: int | None = None,
+    ) -> AgentGraphCheckpoint | None:
         """读取指定根会话的最新快照。"""
         normalized = str(root_session_id or "").strip()
         if not normalized:
             raise ValueError("agent graph root session id is required")
+        now = _normalize_now_ms(now_ms)
 
         connection = self._connect()
         try:
             with connection:
                 self._init_schema(connection)
+                self._prune_expired(connection, now_ms=now)
+                self._trim(connection)
                 row = connection.execute(
                     f"""
                     SELECT payload
@@ -108,6 +143,20 @@ class AgentGraphStore:
         if row is None:
             return None
         return _checkpoint_from_payload(json.loads(str(row["payload"])))
+
+    def prune(self, *, now_ms: int | None = None) -> int:
+        """删除过期及超出数量上限的根会话快照。"""
+        now = _normalize_now_ms(now_ms)
+        connection = self._connect()
+        try:
+            with connection:
+                self._init_schema(connection)
+                before = connection.total_changes
+                self._prune_expired(connection, now_ms=now)
+                self._trim(connection)
+                return connection.total_changes - before
+        finally:
+            connection.close()
 
     def _connect(self) -> sqlite3.Connection:
         """建立执行树存储连接。"""
@@ -135,6 +184,40 @@ class AgentGraphStore:
             connection.execute(f"DROP TABLE {TABLE_AGENT_GRAPH_CHECKPOINTS}")
         connection.executescript(SCHEMA_SQL)
 
+    def _prune_expired(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        now_ms: int,
+    ) -> None:
+        """删除已经超过恢复窗口的执行树快照。"""
+        connection.execute(
+            f"""
+            DELETE FROM {TABLE_AGENT_GRAPH_CHECKPOINTS}
+            WHERE updated_at_ms <= ?
+            """,
+            (now_ms - self.ttl_ms,),
+        )
+
+    def _trim(self, connection: sqlite3.Connection) -> None:
+        """只保留最近更新的有限数量执行树。"""
+        connection.execute(
+            f"""
+            DELETE FROM {TABLE_AGENT_GRAPH_CHECKPOINTS}
+            WHERE root_session_id NOT IN (
+                SELECT root_session_id
+                FROM {TABLE_AGENT_GRAPH_CHECKPOINTS}
+                ORDER BY updated_at_ms DESC, root_session_id ASC
+                LIMIT ?
+            )
+            """,
+            (self.max_items,),
+        )
+
+
+class AgentGraphPersistenceError(RuntimeError):
+    """表示最新执行树快照未能持久化。"""
+
 
 class AgentGraphPersistence:
     """将控制层 checkpoint 合并后串行写入本地存储。"""
@@ -142,6 +225,10 @@ class AgentGraphPersistence:
     def __init__(self, store: AgentGraphStore) -> None:
         self._store = store
         self._pending: dict[str, AgentGraphCheckpoint] = {}
+        self._failed: dict[
+            str,
+            tuple[AgentGraphCheckpoint, Exception],
+        ] = {}
         self._wake = asyncio.Event()
         self._idle = asyncio.Event()
         self._idle.set()
@@ -152,31 +239,65 @@ class AgentGraphPersistence:
         """非阻塞提交快照，并按根会话保留最新 revision。"""
         if self._closed:
             return None
-        current = self._pending.get(checkpoint.root_session_id)
+
+        root_session_id = checkpoint.root_session_id
+
+        current = self._pending.get(root_session_id)
+
+        failed = self._failed.get(root_session_id)
+        if failed is not None and (
+            current is None
+            or failed[0].revision > current.revision
+        ):
+            current = failed[0]
         if current is None or checkpoint.revision > current.revision:
-            self._pending[checkpoint.root_session_id] = checkpoint
+            self._pending[root_session_id] = checkpoint
+            self._failed.pop(root_session_id, None)
+        elif root_session_id in self._failed:
+            self._pending[root_session_id] = current
+            self._failed.pop(root_session_id, None)
         self._idle.clear()
         self._wake.set()
-        if self._worker is None or self._worker.done():
-            self._worker = asyncio.create_task(
-                self._run(),
-                name="agent graph persistence",
-            )
+        self._ensure_worker()
 
     async def flush(self) -> None:
-        """等待当前已提交的快照刷新完成。"""
+        """等待当前快照落盘，并对失败 revision 做一次受控重试。"""
         await self._idle.wait()
+        if self._failed:
+            retry = tuple(
+                checkpoint
+                for checkpoint, _error in self._failed.values()
+            )
+            self._failed.clear()
+            for checkpoint in retry:
+                current = self._pending.get(checkpoint.root_session_id)
+                if current is None or checkpoint.revision > current.revision:
+                    self._pending[checkpoint.root_session_id] = checkpoint
+            self._idle.clear()
+            self._wake.set()
+            self._ensure_worker()
+            await self._idle.wait()
+        self._raise_failed()
 
     async def close(self) -> None:
         """刷新待写快照并停止单写者。"""
         if self._closed:
             if self._worker is not None:
                 await asyncio.gather(self._worker, return_exceptions=False)
+            self._raise_failed()
             return None
-        self._closed = True
-        self._wake.set()
-        if self._worker is not None:
-            await asyncio.gather(self._worker, return_exceptions=False)
+        failure: AgentGraphPersistenceError | None = None
+        try:
+            await self.flush()
+        except AgentGraphPersistenceError as error:
+            failure = error
+        finally:
+            self._closed = True
+            self._wake.set()
+            if self._worker is not None:
+                await asyncio.gather(self._worker, return_exceptions=False)
+        if failure is not None:
+            raise failure
 
     async def _run(self) -> None:
         """按 revision 串行刷新各根会话的最新快照。"""
@@ -187,15 +308,28 @@ class AgentGraphPersistence:
             self._pending.clear()
 
             for checkpoint in batch:
-                await self._save(checkpoint)
+                error   = await self._save(checkpoint)
+                current = self._pending.get(checkpoint.root_session_id)
+
+                if error is not None and (
+                    current is None
+                    or current.revision <= checkpoint.revision
+                ):
+                    self._failed[checkpoint.root_session_id] = (
+                        checkpoint,
+                        error,
+                    )
 
             if not self._pending:
                 self._idle.set()
                 if self._closed:
                     return None
 
-    async def _save(self, checkpoint: AgentGraphCheckpoint) -> None:
-        """在工作线程中保存快照并隔离存储故障。"""
+    async def _save(
+        self,
+        checkpoint: AgentGraphCheckpoint,
+    ) -> Exception | None:
+        """在工作线程中保存快照并返回可重试故障。"""
         try:
             await asyncio.to_thread(self._store.save, checkpoint)
         except (OSError, TypeError, ValueError, sqlite3.Error) as error:
@@ -206,6 +340,25 @@ class AgentGraphPersistence:
                 root_session_id=checkpoint.root_session_id,
                 revision=checkpoint.revision,
             )
+            return error
+        return None
+
+    def _ensure_worker(self) -> None:
+        """确保串行持久化工作协程正在运行。"""
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(
+                self._run(),
+                name="agent graph persistence",
+            )
+
+    def _raise_failed(self) -> None:
+        """在仍有失败 revision 时抛出聚合边界错误。"""
+        if not self._failed:
+            return None
+        roots = ", ".join(sorted(self._failed))
+        raise AgentGraphPersistenceError(
+            f"agent graph persistence failed: {roots}"
+        )
 
 
 def _checkpoint_payload(checkpoint: AgentGraphCheckpoint) -> dict[str, typing.Any]:
@@ -561,6 +714,20 @@ def _boolean(value: typing.Any, label: str) -> bool:
     """返回经校验的布尔值。"""
     if not isinstance(value, bool):
         raise TypeError(f"{label} must be a boolean")
+    return value
+
+
+def _require_positive_integer(value: typing.Any, label: str) -> None:
+    """校验存储边界使用的正整数。"""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+
+
+def _normalize_now_ms(value: int | None) -> int:
+    """返回用于存储清理的正整数毫秒时间。"""
+    if value is None:
+        return time.time_ns() // 1_000_000
+    _require_positive_integer(value, "agent graph current timestamp")
     return value
 
 

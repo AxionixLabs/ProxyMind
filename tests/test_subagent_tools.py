@@ -137,6 +137,16 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         tool for tool in agent_tools if tool.name == "send_message"
     )
     assert message_tool.inputSchema["properties"]["message"]["maxLength"] > 0
+    for tool_name in {
+        "send_message",
+        "followup_task",
+        "interrupt_agent",
+        "resume_agent",
+        "close_agent",
+    }:
+        tool = next(item for item in agent_tools if item.name == tool_name)
+        assert "target" in tool.inputSchema["properties"]
+        assert "target" in tool.inputSchema["required"]
 
 
 @pytest.mark.anyio
@@ -204,7 +214,7 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
         session,
         turn,
         "resume_agent",
-        {"id": "review"},
+        {"target": "review"},
         pref_config,
     )
     submitted = await _call(
@@ -398,6 +408,7 @@ async def test_send_message_reaches_target_mailbox_without_new_turn() -> None:
     assert _data(sent)["target_agent_id"] == agent_id
     assert _data(sent)["target_task_path"] == "/root/worker"
     assert _data(sent)["delivery"] == "mailbox"
+    assert _data(sent)["receipt"] is None
     assert len(_data(received)["updates"]) == 1
     update = _data(received)["updates"][0]
     assert update["kind"] == "message"

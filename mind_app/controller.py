@@ -171,7 +171,10 @@ class Mind(object):
                 transcript_path_for=self.transcripts.path_for_session,
                 graph_store=(
                     kwargs.get("agent_graph_store")
-                    or AgentGraphStore()
+                    or AgentGraphStore(
+                        ttl_ms=self.history_store.ttl_ms,
+                        max_items=self.history_store.max_items,
+                    )
                 ),
             )
         )
@@ -476,6 +479,7 @@ class Mind(object):
             finally:
                 transcript.close()
 
+        await self.subagents.shutdown_root(sid)
         await self.session_lifecycle.end(
             self._conversation_lifecycle_id,
             self._session_hook_context(cid=cid, sid=sid),

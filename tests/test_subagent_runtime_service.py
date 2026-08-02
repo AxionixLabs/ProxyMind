@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,9 +20,13 @@ from mind_app.runtime.subagents.control import (
     AgentStateError,
     AgentSubmission,
 )
+from mind_app.runtime.subagents.delivery import AgentMessageReceipt
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.subagents.graph import AgentGraphStore
-from mind_app.runtime.subagents.mailbox import AgentMailboxStore
+from mind_app.runtime.subagents.mailbox import (
+    AgentMailboxStore,
+    format_mailbox_context,
+)
 from mind_app.runtime.subagents.thread import AgentThreadContext
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
@@ -63,9 +68,13 @@ class _Delivery:
     def __init__(self) -> None:
         self.calls = []
 
-    async def deliver(self, context, turn_input) -> bool:
+    async def deliver(self, context, turn_input):
         self.calls.append((context, turn_input))
-        return True
+        return AgentMessageReceipt(
+            status="accepted",
+            turn_id=context.turn_id,
+            client_message_id=turn_input.client_message_id,
+        )
 
 
 def _parent_turn(*, transcript_path: str = "") -> TurnContext:
@@ -218,6 +227,34 @@ async def test_runtime_flushes_graph_checkpoint_on_shutdown(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_runtime_releases_root_and_restores_closed_graph(tmp_path) -> None:
+    controller = _Controller()
+    store = AgentGraphStore(tmp_path / "agents.db")
+    runtime = SubagentRuntime(controller, graph_store=store)
+    parent = _parent_turn()
+    spawned = await runtime.spawn(
+        parent,
+        "inspect",
+        {},
+        agent_type="review",
+        task_name="inspect",
+        agent_id="agent_review",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+
+    released = await runtime.shutdown_root(parent.sid)
+
+    assert released[0].status == "closed"
+    persisted = store.load(parent.sid)
+    assert persisted is not None
+    assert persisted.records[0].status == "closed"
+    restored = await runtime.get(parent.sid, spawned.agent_id)
+    assert restored.status == "closed"
+    assert restored.thread.agent.task_path == "/root/inspect"
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
 async def test_runtime_lazily_restores_graph_and_continues_queue(tmp_path) -> None:
     controller = _Controller()
     store = AgentGraphStore(tmp_path / "agents.db")
@@ -242,7 +279,7 @@ async def test_runtime_lazily_restores_graph_and_continues_queue(tmp_path) -> No
     store.save(AgentGraphCheckpoint(
         root_session_id=parent.sid,
         revision=7,
-        updated_at_ms=1_700_000_000_000,
+        updated_at_ms=time.time_ns() // 1_000_000,
         records=(AgentGraphRecord(
             thread=thread,
             status="running",
@@ -310,7 +347,7 @@ async def test_runtime_restores_unread_mailbox_message_once(tmp_path) -> None:
     store.save(AgentGraphCheckpoint(
         root_session_id=parent.sid,
         revision=3,
-        updated_at_ms=1_700_000_000_000,
+        updated_at_ms=time.time_ns() // 1_000_000,
         records=(AgentGraphRecord(
             thread=thread,
             status="completed",
@@ -380,6 +417,96 @@ async def test_runtime_injects_unread_mailbox_messages_into_followup() -> None:
 
 
 @pytest.mark.anyio
+async def test_runtime_releases_mailbox_claim_after_failed_followup() -> None:
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    spawned = await runtime.spawn(
+        parent,
+        "first task",
+        {},
+        agent_type="worker",
+        task_name="worker",
+        agent_id="agent_worker",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    dispatch = await runtime.send_message(
+        parent.sid,
+        spawned.agent_id,
+        "preserve this constraint",
+        caller=parent.agent,
+    )
+
+    async def fail(**_kwargs):
+        return RunResult(status="failed", error="temporary failure")
+
+    controller.stream_handler = fail
+    await runtime.followup_task(parent.sid, spawned.agent_id, "try once")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    failed = controller.stream_calls[-1]["turn_execution"]
+
+    controller.stream_handler = None
+    await runtime.followup_task(parent.sid, spawned.agent_id, "try again")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    retried = controller.stream_calls[-1]["turn_execution"]
+
+    await runtime.followup_task(parent.sid, spawned.agent_id, "after success")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    following = controller.stream_calls[-1]["turn_execution"]
+
+    assert failed.metadata["mailbox_event_ids"] == [dispatch.event.event_id]
+    assert retried.metadata["mailbox_event_ids"] == [dispatch.event.event_id]
+    assert following.metadata["mailbox_event_ids"] == []
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_releases_mailbox_claim_after_context_failure(
+    monkeypatch,
+) -> None:
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    spawned = await runtime.spawn(
+        parent,
+        "first task",
+        {},
+        agent_type="worker",
+        task_name="worker",
+        agent_id="agent_worker",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    dispatch = await runtime.send_message(
+        parent.sid,
+        spawned.agent_id,
+        "preserve this constraint",
+        caller=parent.agent,
+    )
+
+    format_calls = []
+
+    def fail_once(events):
+        format_calls.append(events)
+        if len(format_calls) == 1:
+            raise RuntimeError("context preparation failed")
+        return format_mailbox_context(events)
+
+    monkeypatch.setattr(
+        "mind_app.runtime.subagents.runtime.format_mailbox_context",
+        fail_once,
+    )
+    await runtime.followup_task(parent.sid, spawned.agent_id, "try once")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+
+    await runtime.followup_task(parent.sid, spawned.agent_id, "try again")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    retried = controller.stream_calls[-1]["turn_execution"]
+
+    assert retried.metadata["mailbox_event_ids"] == [dispatch.event.event_id]
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
 async def test_runtime_steers_active_turn_without_reinjecting_message() -> None:
     controller = _Controller()
     delivery = _Delivery()
@@ -428,6 +555,11 @@ async def test_runtime_steers_active_turn_without_reinjecting_message() -> None:
 
     followup = controller.stream_calls[-1]["turn_execution"]
     assert dispatch.delivery == "active_turn"
+    assert dispatch.receipt == AgentMessageReceipt(
+        status="accepted",
+        turn_id=delivery.calls[0][0].turn_id,
+        client_message_id=dispatch.event.event_id,
+    )
     assert delivery.calls[0][0].agent.agent_id == spawned.agent_id
     assert delivery.calls[0][1].client_message_id == dispatch.event.event_id
     assert followup.metadata["mailbox_event_ids"] == []

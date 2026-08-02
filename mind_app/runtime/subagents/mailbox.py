@@ -177,6 +177,7 @@ class AgentMailboxStore:
         self._sequence = 0
         self._events: deque[AgentMailboxEvent] = deque()
         self._consumed: dict[str, set[str]] = {}
+        self._claims: dict[str, tuple[str, str]] = {}
 
     @classmethod
     def from_snapshot(
@@ -270,7 +271,11 @@ class AgentMailboxStore:
         consumed = self._consumed.setdefault(reader, set())
         selected: list[AgentMailboxEvent] = []
         for event in self._events:
-            if event.event_id in consumed or event.source_agent_id not in sources:
+            if (
+                event.event_id in consumed
+                or event.event_id in self._claims
+                or event.source_agent_id not in sources
+            ):
                 continue
             if event.kind == "message" and event.recipient_agent_id != reader:
                 continue
@@ -296,12 +301,124 @@ class AgentMailboxStore:
             raise ValueError("mailbox reader is required")
 
         consumed = self._consumed.setdefault(reader, set())
+        selected = self._select_messages(reader, limit=limit, max_chars=max_chars)
+        consumed.update(event.event_id for event in selected)
+        return selected
+
+    def claim_message(
+        self,
+        reader_agent_id: str,
+        event_id: str,
+        owner_id: str,
+    ) -> bool:
+        """为指定投递者临时锁定一项未读消息。"""
+        reader = str(reader_agent_id or "").strip()
+        target_event_id = str(event_id or "").strip()
+        owner = str(owner_id or "").strip()
+        if not reader or not target_event_id or not owner:
+            raise ValueError("mailbox reader, event id, and owner are required")
+
+        event = next(
+            (item for item in self._events if item.event_id == target_event_id),
+            None,
+        )
+        if (
+            event is None
+            or event.kind != "message"
+            or event.recipient_agent_id != reader
+            or event.event_id in self._consumed.get(reader, set())
+            or event.event_id in self._claims
+        ):
+            return False
+
+        self._claims[target_event_id] = (reader, owner)
+        return True
+
+    def claim_messages(
+        self,
+        reader_agent_id: str,
+        owner_id: str,
+        *,
+        limit: int = MAX_MAILBOX_UPDATES,
+        max_chars: int = MAX_MAILBOX_CONTEXT_CHARS,
+    ) -> tuple[AgentMailboxEvent, ...]:
+        """为一次轮次临时锁定指定主体的未读消息。"""
+        _require_positive_limit(limit, "mailbox message limit")
+        _require_positive_limit(max_chars, "mailbox context character limit")
+        reader = str(reader_agent_id or "").strip()
+        owner = str(owner_id or "").strip()
+        if not reader or not owner:
+            raise ValueError("mailbox reader and owner are required")
+
+        selected = self._select_messages(reader, limit=limit, max_chars=max_chars)
+        for event in selected:
+            self._claims[event.event_id] = (reader, owner)
+        return selected
+
+    def acknowledge_claim(
+        self,
+        reader_agent_id: str,
+        owner_id: str,
+        event_ids: typing.Collection[str],
+    ) -> tuple[str, ...]:
+        """确认指定投递者已完成的消息并写入消费位置。"""
+        reader, owner, normalized_ids = _claim_identity(
+            reader_agent_id,
+            owner_id,
+            event_ids,
+        )
+        acknowledged = tuple(
+            event_id
+            for event_id in normalized_ids
+            if self._claims.get(event_id) == (reader, owner)
+        )
+        if not acknowledged:
+            return ()
+
+        self._consumed.setdefault(reader, set()).update(acknowledged)
+        for event_id in acknowledged:
+            self._claims.pop(event_id, None)
+        return acknowledged
+
+    def release_claim(
+        self,
+        reader_agent_id: str,
+        owner_id: str,
+        event_ids: typing.Collection[str],
+    ) -> tuple[str, ...]:
+        """释放指定投递者尚未确认的消息。"""
+        reader, owner, normalized_ids = _claim_identity(
+            reader_agent_id,
+            owner_id,
+            event_ids,
+        )
+        released = tuple(
+            event_id
+            for event_id in normalized_ids
+            if self._claims.get(event_id) == (reader, owner)
+        )
+        for event_id in released:
+            self._claims.pop(event_id, None)
+        return released
+
+    def _select_messages(
+        self,
+        reader: str,
+        *,
+        limit: int,
+        max_chars: int,
+    ) -> tuple[AgentMailboxEvent, ...]:
+        """在不改变消费位置的前提下选择可投递消息。"""
+        consumed = self._consumed.setdefault(reader, set())
         selected: list[AgentMailboxEvent] = []
+
         selected_chars = 0
         context_budget = max_chars - 128
+
         for event in self._events:
             if (
                 event.event_id in consumed
+                or event.event_id in self._claims
                 or event.kind != "message"
                 or event.recipient_agent_id != reader
             ):
@@ -317,39 +434,13 @@ class AgentMailboxStore:
             selected_chars += event_chars
             if len(selected) >= limit:
                 break
-
-        consumed.update(event.event_id for event in selected)
         return tuple(selected)
-
-    def acknowledge_message(
-        self,
-        reader_agent_id: str,
-        event_id: str,
-    ) -> bool:
-        """标记指定接收主体的邮箱消息已消费。"""
-        reader = str(reader_agent_id or "").strip()
-        target_event_id = str(event_id or "").strip()
-        if not reader or not target_event_id:
-            raise ValueError("mailbox reader and event id are required")
-
-        event = next(
-            (item for item in self._events if item.event_id == target_event_id),
-            None,
-        )
-        if (
-            event is None
-            or event.kind != "message"
-            or event.recipient_agent_id != reader
-        ):
-            return False
-
-        self._consumed.setdefault(reader, set()).add(target_event_id)
-        return True
 
     def _trim(self) -> None:
         """丢弃超出容量的最旧事件及其消费标记。"""
         while len(self._events) > self._capacity:
             removed = self._events.popleft()
+            self._claims.pop(removed.event_id, None)
             for consumed in self._consumed.values():
                 consumed.discard(removed.event_id)
 
@@ -385,6 +476,27 @@ def _require_positive_limit(value: int, field: str) -> None:
     """校验邮箱读取使用的正整数上限。"""
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{field} must be a positive integer")
+
+
+def _claim_identity(
+    reader_agent_id: str,
+    owner_id: str,
+    event_ids: typing.Collection[str],
+) -> tuple[str, str, tuple[str, ...]]:
+    """校验并规范化一项邮箱 claim 操作。"""
+    if isinstance(event_ids, (str, bytes)):
+        raise TypeError("mailbox event ids must be a collection")
+
+    reader = str(reader_agent_id or "").strip()
+    owner  = str(owner_id or "").strip()
+
+    normalized_ids = tuple(dict.fromkeys(
+        str(event_id or "").strip()
+        for event_id in event_ids
+    ))
+    if not reader or not owner or not normalized_ids or "" in normalized_ids:
+        raise ValueError("mailbox reader, owner, and event ids are required")
+    return reader, owner, normalized_ids
 
 
 if __name__ == '__main__':

@@ -217,7 +217,9 @@ def _send_message_handler(agents: SubagentRuntime):
                 message,
                 caller=caller,
             )
-            event = dispatch.event
+
+            event   = dispatch.event
+            receipt = dispatch.receipt
 
             return client_tool_result(
                 tool=SEND_MESSAGE_TOOL,
@@ -232,6 +234,15 @@ def _send_message_handler(agents: SubagentRuntime):
                     "target_agent_id": event.recipient_agent_id,
                     "target_task_path": event.recipient_task_path,
                     "delivery": dispatch.delivery,
+                    "receipt": (
+                        {
+                            "status": receipt.status,
+                            "turn_id": receipt.turn_id,
+                            "client_message_id": receipt.client_message_id,
+                        }
+                        if receipt is not None
+                        else None
+                    ),
                 },
             )
         except asyncio.CancelledError:
@@ -320,7 +331,7 @@ def _resume_handler(agents: SubagentRuntime):
         tool_runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         try:
-            target = _required_text(arguments, "id")
+            target = _required_text(arguments, "target")
             caller = tool_runtime.turn_context.agent
 
             snapshot = await agents.resume(
@@ -608,12 +619,12 @@ def _resume_schema() -> dict[str, typing.Any]:
     return {
         "type": "object",
         "properties": {
-            "id": {
+            "target": {
                 "type": "string",
                 "description": "待恢复的 Agent 标识或任务路径。",
             }
         },
-        "required": ["id"],
+        "required": ["target"],
         "additionalProperties": False,
     }
 

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import sqlite3
+import time
 from dataclasses import replace
 
 import pytest
@@ -14,6 +16,7 @@ from mind_app.runtime.subagents.control import (
 )
 from mind_app.runtime.subagents.graph import (
     AgentGraphPersistence,
+    AgentGraphPersistenceError,
     AgentGraphStore,
 )
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
@@ -48,7 +51,11 @@ def _thread() -> AgentThreadContext:
     )
 
 
-def _checkpoint(revision: int) -> AgentGraphCheckpoint:
+def _checkpoint(
+    revision: int,
+    *,
+    updated_at_ms: int | None = None,
+) -> AgentGraphCheckpoint:
     thread = _thread()
     active = AgentSubmission.create(
         "implement feature",
@@ -63,7 +70,11 @@ def _checkpoint(revision: int) -> AgentGraphCheckpoint:
     return AgentGraphCheckpoint(
         root_session_id=thread.agent.root_session_id,
         revision=revision,
-        updated_at_ms=1_700_000_000_000 + revision,
+        updated_at_ms=(
+            updated_at_ms
+            if updated_at_ms is not None
+            else time.time_ns() // 1_000_000
+        ),
         records=(AgentGraphRecord(
             thread=thread,
             status="running",
@@ -106,6 +117,30 @@ def test_graph_store_round_trips_latest_checkpoint(tmp_path) -> None:
     assert restored.records[0].queue[0].message == "run tests"
     restored_mailbox = AgentMailboxStore.from_snapshot(restored.mailbox)
     assert restored_mailbox.take_messages("agent_worker") == (message,)
+
+
+def test_graph_store_prunes_expired_and_excess_roots(tmp_path) -> None:
+    now_ms = 1_800_000_000_000
+    store = AgentGraphStore(
+        tmp_path / "agents.db",
+        ttl_ms=100,
+        max_items=2,
+    )
+    expired = _checkpoint(1, updated_at_ms=now_ms - 101)
+    first = _checkpoint(1, updated_at_ms=now_ms - 3)
+    second = _checkpoint(1, updated_at_ms=now_ms - 2)
+    third = _checkpoint(1, updated_at_ms=now_ms - 1)
+
+    assert not store.save(expired, now_ms=now_ms)
+    assert store.save(first, now_ms=now_ms)
+    assert store.save(second, now_ms=now_ms)
+    assert store.save(third, now_ms=now_ms)
+
+    assert store.load(first.root_session_id, now_ms=now_ms) is None
+    assert store.load(second.root_session_id, now_ms=now_ms) is not None
+    assert store.load(third.root_session_id, now_ms=now_ms) is not None
+    assert store.prune(now_ms=now_ms + 99) == 2
+    assert store.load(second.root_session_id, now_ms=now_ms + 99) is None
 
 
 @pytest.mark.anyio
@@ -176,6 +211,58 @@ async def test_graph_persistence_coalesces_pending_revisions() -> None:
     assert [(item.root_session_id, item.revision) for item in saved] == [
         (latest.root_session_id, 2),
     ]
+
+
+@pytest.mark.anyio
+async def test_graph_persistence_retries_transient_failure_on_flush() -> None:
+    saved = []
+
+    class FlakyStore:
+        def save(self, checkpoint):
+            saved.append(checkpoint)
+            if len(saved) == 1:
+                raise sqlite3.OperationalError("database is busy")
+            return True
+
+    persistence = AgentGraphPersistence(FlakyStore())
+    checkpoint = _checkpoint(1)
+
+    persistence.publish(checkpoint)
+    await persistence.flush()
+    await persistence.close()
+
+    assert [item.revision for item in saved] == [1, 1]
+
+
+@pytest.mark.anyio
+async def test_graph_persistence_keeps_failed_revision_for_newer_publish() -> None:
+    attempts = []
+    available = False
+
+    class RecoveringStore:
+        def save(self, checkpoint):
+            attempts.append(checkpoint)
+            if not available:
+                raise sqlite3.OperationalError("storage unavailable")
+            return True
+
+    persistence = AgentGraphPersistence(RecoveringStore())
+    first = _checkpoint(1)
+    persistence.publish(first)
+
+    with pytest.raises(AgentGraphPersistenceError):
+        await persistence.flush()
+
+    available = True
+    latest = replace(
+        first,
+        revision=2,
+        updated_at_ms=first.updated_at_ms + 1,
+    )
+    persistence.publish(latest)
+    await persistence.close()
+
+    assert [item.revision for item in attempts] == [1, 1, 2]
 
 
 @pytest.mark.anyio

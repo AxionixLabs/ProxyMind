@@ -19,6 +19,7 @@ from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.subagents.mailbox import AgentMailboxEvent
 
 AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]
+AgentMessageReceiptStatus  = typing.Literal["accepted", "duplicate"]
 
 ACTIVE_TURN_READY_TIMEOUT_SEC = 1.0
 
@@ -26,10 +27,42 @@ STEERING_ATTEMPTS = 2
 
 
 @dataclass(frozen=True, slots=True)
+class AgentMessageReceipt:
+    """描述远程轮次对一项稳定消息标识的接收结果。"""
+    status: AgentMessageReceiptStatus
+    turn_id: str
+    client_message_id: str
+
+    def __post_init__(self) -> None:
+        """校验回执中的远程关联标识。"""
+        turn_id = str(self.turn_id or "").strip()
+        client_message_id = str(self.client_message_id or "").strip()
+        if self.status not in {"accepted", "duplicate"}:
+            raise ValueError("agent message receipt status is invalid")
+        if not turn_id or not client_message_id:
+            raise ValueError("agent message receipt identifiers are required")
+        object.__setattr__(self, "turn_id", turn_id)
+        object.__setattr__(self, "client_message_id", client_message_id)
+
+
+@dataclass(frozen=True, slots=True)
 class AgentMessageDispatch:
     """描述邮箱消息的事件及实际投递通道。"""
     event: AgentMailboxEvent
     delivery: AgentMessageDeliveryStatus
+    receipt: AgentMessageReceipt | None = None
+
+    def __post_init__(self) -> None:
+        """校验投递通道与远程回执的一致性。"""
+        if self.delivery not in {"active_turn", "mailbox"}:
+            raise ValueError("agent message delivery status is invalid")
+        if self.delivery == "active_turn":
+            if self.receipt is None:
+                raise ValueError("active turn delivery requires a receipt")
+            if self.receipt.client_message_id != self.event.event_id:
+                raise ValueError("agent message receipt does not match event")
+        elif self.receipt is not None:
+            raise ValueError("mailbox delivery cannot include a receipt")
 
 
 class AgentMessageDeliveryPort(typing.Protocol):
@@ -39,8 +72,8 @@ class AgentMessageDeliveryPort(typing.Protocol):
         self,
         context: TurnContext,
         turn_input: TurnInput,
-    ) -> bool:
-        """投递输入并返回远程轮次是否已接收。"""
+    ) -> AgentMessageReceipt | None:
+        """投递输入并返回匹配的远程接收回执。"""
         ...
 
 
@@ -51,8 +84,8 @@ class SteeringMessageDelivery:
         self,
         context: TurnContext,
         turn_input: TurnInput,
-    ) -> bool:
-        """尝试投递输入，不可用时返回邮箱回退信号。"""
+    ) -> AgentMessageReceipt | None:
+        """尝试投递输入，不可用时返回空回执。"""
         response = None
         for attempt in range(STEERING_ATTEMPTS):
             try:
@@ -74,10 +107,13 @@ class SteeringMessageDelivery:
                     turn_id=context.turn_id,
                 )
 
-        return response is not None and response.status in {
-            "accepted",
-            "duplicate",
-        }
+        if response is None or response.status not in {"accepted", "duplicate"}:
+            return None
+        return AgentMessageReceipt(
+            status=response.status,
+            turn_id=response.turn_id,
+            client_message_id=response.client_message_id,
+        )
 
 
 class AgentActiveTurn:
@@ -124,7 +160,10 @@ class AgentActiveTurn:
 
         return None
 
-    async def deliver(self, event: AgentMailboxEvent) -> bool:
+    async def deliver(
+        self,
+        event: AgentMailboxEvent,
+    ) -> AgentMessageReceipt | None:
         """在轮次就绪后投递邮箱事件。"""
         if event.kind != "message":
             raise ValueError("active turn delivery requires a message event")
@@ -137,10 +176,17 @@ class AgentActiveTurn:
 
             turn_input = _turn_input_from_event(event)
             self._pending[event.event_id] = turn_input
-            accepted = await self._delivery.deliver(self._context, turn_input)
-            if not accepted:
+
+            receipt = await self._delivery.deliver(self._context, turn_input)
+            if receipt is not None and (
+                receipt.turn_id != self._context.turn_id
+                or receipt.client_message_id != event.event_id
+            ):
                 self._pending.pop(event.event_id, None)
-            return accepted
+                raise ValueError("agent message receipt does not match delivery")
+            if receipt is None or receipt.status == "duplicate":
+                self._pending.pop(event.event_id, None)
+            return receipt
 
     def close(self) -> None:
         """关闭活动轮次并释放未确认输入。"""

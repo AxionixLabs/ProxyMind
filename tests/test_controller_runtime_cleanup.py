@@ -109,6 +109,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     controller.event_reports = SimpleNamespace(
         close_session=AsyncMock(),
     )
+    controller.subagents = SimpleNamespace(
+        shutdown_root=AsyncMock(return_value=()),
+    )
 
     ended = await Mind.end_conversation(controller, reason="exit")
 
@@ -123,6 +126,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     assert call.kwargs["reason"] == "exit"
     assert call.kwargs["transcript_path"] == "D:/sessions/session.jsonl"
     assert call.kwargs["last_assistant_message"] == "final answer"
+    controller.subagents.shutdown_root.assert_awaited_once_with(
+        "sid_test_1_abcdef"
+    )
 
     call.kwargs["before_dispatch"]()
 

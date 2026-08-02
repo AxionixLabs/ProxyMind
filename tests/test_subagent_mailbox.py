@@ -77,7 +77,7 @@ def test_mailbox_capacity_discards_oldest_events() -> None:
     assert [event.sequence for event in updates] == [2, 3]
 
 
-def test_mailbox_acknowledges_only_matching_recipient_message() -> None:
+def test_mailbox_claim_acknowledges_only_matching_recipient_message() -> None:
     root = AgentContext.root("sid_root")
     worker = root.child("worker", "worker", agent_id="agent_worker")
     reviewer = root.child("reviewer", "reviewer", agent_id="agent_reviewer")
@@ -89,9 +89,51 @@ def test_mailbox_acknowledges_only_matching_recipient_message() -> None:
         message="new constraint",
     )
 
-    assert not mailbox.acknowledge_message(reviewer.agent_id, event.event_id)
-    assert mailbox.acknowledge_message(worker.agent_id, event.event_id)
+    assert not mailbox.claim_message(
+        reviewer.agent_id,
+        event.event_id,
+        "turn_reviewer",
+    )
+    assert mailbox.claim_message(
+        worker.agent_id,
+        event.event_id,
+        "turn_worker",
+    )
+    assert mailbox.acknowledge_claim(
+        worker.agent_id,
+        "turn_worker",
+        (event.event_id,),
+    ) == (event.event_id,)
     assert mailbox.take_messages(worker.agent_id) == ()
+
+
+def test_mailbox_claim_hides_message_until_release_and_is_not_persisted() -> None:
+    root = AgentContext.root("sid_root")
+    worker = root.child("worker", "worker", agent_id="agent_worker")
+    mailbox = AgentMailboxStore()
+    event = mailbox.publish(
+        "message",
+        root,
+        recipient=worker,
+        message="temporary constraint",
+    )
+
+    assert mailbox.claim_messages(
+        worker.agent_id,
+        "submission_one",
+    ) == (event,)
+    assert mailbox.take_messages(worker.agent_id) == ()
+    assert mailbox.take_updates(worker.agent_id, {root.agent_id}) == ()
+
+    restored = AgentMailboxStore.from_snapshot(mailbox.snapshot())
+    assert restored.take_messages(worker.agent_id) == (event,)
+
+    assert mailbox.release_claim(
+        worker.agent_id,
+        "submission_one",
+        (event.event_id,),
+    ) == (event.event_id,)
+    assert mailbox.take_messages(worker.agent_id) == (event,)
 
 
 def test_mailbox_snapshot_restores_events_consumption_and_sequence() -> None:

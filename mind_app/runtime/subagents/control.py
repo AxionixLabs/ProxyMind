@@ -529,8 +529,9 @@ class AgentControl:
         message: str,
         *,
         caller: AgentContext | None = None,
+        claim_owner: str = "",
     ) -> AgentMailboxEvent:
-        """向目标邮箱投递不创建新轮次的消息。"""
+        """向目标邮箱投递消息，并可为活动投递临时锁定。"""
         async with self._condition:
             self._require_active()
             source = self._require_caller(caller)
@@ -550,33 +551,64 @@ class AgentControl:
                 recipient=recipient,
                 message=message,
             )
+            if claim_owner and not self._mailbox.claim_message(
+                recipient.agent_id,
+                event.event_id,
+                claim_owner,
+            ):
+                raise AgentStateError("mailbox message could not be claimed")
             self._publish_checkpoint()
             self._condition.notify_all()
             return event
 
-    async def take_messages(
+    async def claim_messages(
         self,
         target: str,
+        owner_id: str,
     ) -> tuple[AgentMailboxEvent, ...]:
-        """取出目标执行主体尚未消费的消息。"""
+        """为一次轮次临时锁定目标执行主体的未读消息。"""
         async with self._condition:
             record = self._require_record(target)
-            events = self._mailbox.take_messages(record.context.agent_id)
-            if events:
-                self._publish_checkpoint()
-            return events
+            return self._mailbox.claim_messages(
+                record.context.agent_id,
+                owner_id,
+            )
 
-    async def acknowledge_message(self, event: AgentMailboxEvent) -> bool:
-        """标记已通过活动轮次投递的邮箱消息。"""
+    async def acknowledge_messages(
+        self,
+        target: str,
+        owner_id: str,
+        events: typing.Collection[AgentMailboxEvent],
+    ) -> tuple[str, ...]:
+        """确认一次投递已完成的邮箱消息。"""
         async with self._condition:
-            self._require_record(event.recipient_agent_id)
-            acknowledged = self._mailbox.acknowledge_message(
-                event.recipient_agent_id,
-                event.event_id,
+            record = self._require_record(target)
+            acknowledged = self._mailbox.acknowledge_claim(
+                record.context.agent_id,
+                owner_id,
+                tuple(event.event_id for event in events),
             )
             if acknowledged:
                 self._publish_checkpoint()
             return acknowledged
+
+    async def release_messages(
+        self,
+        target: str,
+        owner_id: str,
+        events: typing.Collection[AgentMailboxEvent],
+    ) -> tuple[str, ...]:
+        """释放一次未完成投递临时锁定的邮箱消息。"""
+        async with self._condition:
+            record = self._require_record(target)
+            released = self._mailbox.release_claim(
+                record.context.agent_id,
+                owner_id,
+                tuple(event.event_id for event in events),
+            )
+            if released:
+                self._condition.notify_all()
+            return released
 
     async def resume(
         self,
