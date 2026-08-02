@@ -28,6 +28,11 @@ def test_tui_keymap_resolves_defaults_remaps_and_explicit_unbinding() -> None:
         "K",
     ]
     assert [binding.label for binding in defaults.pager.toggle_raw] == ["R"]
+    assert [binding.label for binding in defaults.pager.search] == ["/"]
+    assert [binding.label for binding in defaults.pager.search_next] == ["N"]
+    assert [binding.label for binding in defaults.pager.search_previous] == [
+        "Shift+N",
+    ]
 
     config = normalize_config({
         "tui": {
@@ -47,6 +52,7 @@ def test_tui_keymap_resolves_defaults_remaps_and_explicit_unbinding() -> None:
         "N",
         "Ctrl+N",
     ]
+    assert resolved.pager.search_next == ()
     assert resolved.pager.page_down == ()
 
     unbound = TuiRuntimeKeymap.from_config({
@@ -191,6 +197,56 @@ async def test_configured_transcript_keys_replace_default_dispatch() -> None:
                 if not overlay.active:
                     break
             assert not overlay.active
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_transcript_search_captures_text_and_steps_results() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        runtime.screen._output_size = lambda: (40, 10)
+        runtime.append_block(_block("first target"), kind="assistant")
+        for index in range(8):
+            runtime.append_block(_block(f"filler {index}"), kind="assistant")
+        runtime.append_block(_block("second target"), kind="assistant")
+
+        await runtime.open()
+        try:
+            runtime.toggle_transcript_overlay()
+            overlay = runtime.screen.transcript_overlay
+            overlay.jump_top()
+
+            pipe_input.send_text("/target\r")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if overlay.search_result_position == (1, 2):
+                    break
+
+            assert not overlay.search_editing
+            assert overlay.search_query == "target"
+            assert overlay.search_result_position == (1, 2)
+            assert overlay.scroll_offset == 0
+
+            pipe_input.send_text("n")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if overlay.search_result_position == (2, 2):
+                    break
+
+            assert overlay.search_result_position == (2, 2)
+            assert overlay.scroll_offset > 0
+
+            pipe_input.send_text("N")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if overlay.search_result_position == (1, 2):
+                    break
+
+            assert overlay.search_result_position == (1, 2)
         finally:
             await runtime.close()
 

@@ -89,6 +89,10 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "transcript.overlay.progress": "fg:#DDE7EF bold",
     "transcript.overlay.filler": "fg:#69727D dim",
     "transcript.overlay.selection": "reverse",
+    "transcript.overlay.search-match": "bg:#375A64 fg:#F4F7FA",
+    "transcript.overlay.search-prompt": "fg:#8FC7EA bold",
+    "transcript.overlay.search-query": "fg:#F4F7FA",
+    "transcript.overlay.search-cursor": "fg:#8FC7EA",
 })
 
 

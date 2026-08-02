@@ -28,6 +28,9 @@ class TuiPagerKeymap(object):
     jump_top: tuple[TuiKeyBinding, ...]
     jump_bottom: tuple[TuiKeyBinding, ...]
     toggle_raw: tuple[TuiKeyBinding, ...]
+    search: tuple[TuiKeyBinding, ...]
+    search_next: tuple[TuiKeyBinding, ...]
+    search_previous: tuple[TuiKeyBinding, ...]
     close: tuple[TuiKeyBinding, ...]
     close_transcript: tuple[TuiKeyBinding, ...]
 
@@ -74,74 +77,7 @@ class TuiRuntimeKeymap(object):
             path="tui.keymap.global.open_transcript",
         )
 
-        pager = TuiPagerKeymap(
-            scroll_up=_resolve_bindings(
-                pager_config,
-                "scroll_up",
-                defaults=("up", "k"),
-                path="tui.keymap.pager.scroll_up",
-            ),
-            scroll_down=_resolve_bindings(
-                pager_config,
-                "scroll_down",
-                defaults=("down", "j"),
-                path="tui.keymap.pager.scroll_down",
-            ),
-            page_up=_resolve_bindings(
-                pager_config,
-                "page_up",
-                defaults=("page-up", "ctrl-b"),
-                path="tui.keymap.pager.page_up",
-            ),
-            page_down=_resolve_bindings(
-                pager_config,
-                "page_down",
-                defaults=("page-down", "space", "ctrl-f"),
-                path="tui.keymap.pager.page_down",
-            ),
-            half_page_up=_resolve_bindings(
-                pager_config,
-                "half_page_up",
-                defaults=("ctrl-u",),
-                path="tui.keymap.pager.half_page_up",
-            ),
-            half_page_down=_resolve_bindings(
-                pager_config,
-                "half_page_down",
-                defaults=("ctrl-d",),
-                path="tui.keymap.pager.half_page_down",
-            ),
-            jump_top=_resolve_bindings(
-                pager_config,
-                "jump_top",
-                defaults=("home",),
-                path="tui.keymap.pager.jump_top",
-            ),
-            jump_bottom=_resolve_bindings(
-                pager_config,
-                "jump_bottom",
-                defaults=("end",),
-                path="tui.keymap.pager.jump_bottom",
-            ),
-            toggle_raw=_resolve_bindings(
-                pager_config,
-                "toggle_raw",
-                defaults=("r",),
-                path="tui.keymap.pager.toggle_raw",
-            ),
-            close=_resolve_bindings(
-                pager_config,
-                "close",
-                defaults=("q", "ctrl-c"),
-                path="tui.keymap.pager.close",
-            ),
-            close_transcript=_resolve_bindings(
-                pager_config,
-                "close_transcript",
-                defaults=("ctrl-t",),
-                path="tui.keymap.pager.close_transcript",
-            ),
-        )
+        pager = _resolve_pager_keymap(pager_config)
 
         _validate_context_conflicts("pager", pager)
         _validate_reserved_pager_bindings(pager)
@@ -207,6 +143,66 @@ def _resolve_bindings(
         out.append(binding)
 
     return tuple(out)
+
+
+def _resolve_pager_keymap(config: dict[str, typing.Any]) -> TuiPagerKeymap:
+    """解析页面按键，并让显式覆盖优先于其他动作的默认键。"""
+    defaults: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("scroll_up", ("up", "k")),
+        ("scroll_down", ("down", "j")),
+        ("page_up", ("page-up", "ctrl-b")),
+        ("page_down", ("page-down", "space", "ctrl-f")),
+        ("half_page_up", ("ctrl-u",)),
+        ("half_page_down", ("ctrl-d",)),
+        ("jump_top", ("home",)),
+        ("jump_bottom", ("end",)),
+        ("toggle_raw", ("r",)),
+        ("search", ("/",)),
+        ("search_next", ("n",)),
+        ("search_previous", ("shift-n",)),
+        ("close", ("q", "ctrl-c")),
+        ("close_transcript", ("ctrl-t",)),
+    )
+    resolved: dict[str, tuple[TuiKeyBinding, ...]] = {}
+    owners: dict[tuple[typing.Any, ...], tuple[str, bool]] = {}
+
+    for action, action_defaults in defaults:
+        explicit = action in config
+        bindings = _resolve_bindings(
+            config,
+            action,
+            defaults=action_defaults,
+            path=f"tui.keymap.pager.{action}",
+        )
+        accepted: list[TuiKeyBinding] = []
+
+        for binding in bindings:
+            previous = owners.get(binding.keys)
+            if previous is None:
+                owners[binding.keys] = action, explicit
+                accepted.append(binding)
+                continue
+
+            previous_action, previous_explicit = previous
+            if previous_explicit and not explicit:
+                continue
+            if explicit and not previous_explicit:
+                resolved[previous_action] = tuple(
+                    item
+                    for item in resolved[previous_action]
+                    if item.keys != binding.keys
+                )
+                owners[binding.keys] = action, True
+                accepted.append(binding)
+                continue
+            raise ValueError(
+                f"tui.keymap.pager.{action} conflicts with "
+                f"tui.keymap.pager.{previous_action}: {binding.label}"
+            )
+
+        resolved[action] = tuple(accepted)
+
+    return TuiPagerKeymap(**resolved)
 
 
 def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:

@@ -28,6 +28,7 @@ from prompt_toolkit.key_binding import (
     KeyBindings,
     merge_key_bindings
 )
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import (
     Dimension,
     Layout
@@ -1177,9 +1178,15 @@ class TuiScreen(object):
     def _transcript_overlay_key_bindings(self) -> KeyBindings:
         """创建完整会话记录的模态按键。"""
         bindings = KeyBindings()
-        pager = self.keymap.pager
+        pager    = self.keymap.pager
 
-        @bindings.add("escape", eager=True)
+        search_editing = Condition(
+            lambda: self.transcript_overlay.search_editing
+        )
+
+        browsing = ~search_editing
+
+        @bindings.add("escape", eager=True, filter=browsing)
         def _(event) -> None:
             _ = event
             if not self._can_transcript_backtrack():
@@ -1189,18 +1196,18 @@ class TuiScreen(object):
                 self._toggle_transcript_overlay()
                 self._report_missing_transcript_backtrack()
 
-        @bindings.add("left", eager=True)
+        @bindings.add("left", eager=True, filter=browsing)
         def _(event) -> None:
             _ = event
             if self.transcript_overlay.backtrack_active:
                 self.transcript_overlay.begin_or_step_backtrack()
 
-        @bindings.add("right", eager=True)
+        @bindings.add("right", eager=True, filter=browsing)
         def _(event) -> None:
             _ = event
             self.transcript_overlay.step_backtrack_forward()
 
-        @bindings.add("enter", eager=True)
+        @bindings.add("enter", eager=True, filter=browsing)
         def _(event) -> None:
             _ = event
             request = self.transcript_overlay.confirm_backtrack()
@@ -1217,6 +1224,37 @@ class TuiScreen(object):
             bindings,
             pager.toggle_raw,
             toggle_raw,
+            binding_filter=browsing,
+        )
+
+        def begin_search(event) -> None:
+            _ = event
+            self.transcript_overlay.begin_search()
+        self._add_configured_bindings(
+            bindings,
+            pager.search,
+            begin_search,
+            binding_filter=browsing,
+        )
+
+        def search_next(event) -> None:
+            _ = event
+            self.transcript_overlay.step_search(1)
+        self._add_configured_bindings(
+            bindings,
+            pager.search_next,
+            search_next,
+            binding_filter=browsing,
+        )
+
+        def search_previous(event) -> None:
+            _ = event
+            self.transcript_overlay.step_search(-1)
+        self._add_configured_bindings(
+            bindings,
+            pager.search_previous,
+            search_previous,
+            binding_filter=browsing,
         )
 
         def close(event) -> None:
@@ -1226,27 +1264,48 @@ class TuiScreen(object):
             bindings,
             (*pager.close, *pager.close_transcript),
             close,
+            binding_filter=browsing,
         )
 
         def scroll_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_line(-1)
-        self._add_configured_bindings(bindings, pager.scroll_up, scroll_up)
+        self._add_configured_bindings(
+            bindings,
+            pager.scroll_up,
+            scroll_up,
+            binding_filter=browsing,
+        )
 
         def scroll_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_line(1)
-        self._add_configured_bindings(bindings, pager.scroll_down, scroll_down)
+        self._add_configured_bindings(
+            bindings,
+            pager.scroll_down,
+            scroll_down,
+            binding_filter=browsing,
+        )
 
         def page_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_page(-1)
-        self._add_configured_bindings(bindings, pager.page_up, page_up)
+        self._add_configured_bindings(
+            bindings,
+            pager.page_up,
+            page_up,
+            binding_filter=browsing,
+        )
 
         def page_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_page(1)
-        self._add_configured_bindings(bindings, pager.page_down, page_down)
+        self._add_configured_bindings(
+            bindings,
+            pager.page_down,
+            page_down,
+            binding_filter=browsing,
+        )
 
         def half_page_up(event) -> None:
             _ = event
@@ -1255,6 +1314,7 @@ class TuiScreen(object):
             bindings,
             pager.half_page_up,
             half_page_up,
+            binding_filter=browsing,
         )
 
         def half_page_down(event) -> None:
@@ -1264,17 +1324,48 @@ class TuiScreen(object):
             bindings,
             pager.half_page_down,
             half_page_down,
+            binding_filter=browsing,
         )
 
         def jump_top(event) -> None:
             _ = event
             self.transcript_overlay.jump_top()
-        self._add_configured_bindings(bindings, pager.jump_top, jump_top)
+        self._add_configured_bindings(
+            bindings,
+            pager.jump_top,
+            jump_top,
+            binding_filter=browsing,
+        )
 
         def jump_bottom(event) -> None:
             _ = event
             self.transcript_overlay.jump_bottom()
-        self._add_configured_bindings(bindings, pager.jump_bottom, jump_bottom)
+        self._add_configured_bindings(
+            bindings,
+            pager.jump_bottom,
+            jump_bottom,
+            binding_filter=browsing,
+        )
+
+        @bindings.add("escape", eager=True, filter=search_editing)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.cancel_search()
+
+        @bindings.add("enter", eager=True, filter=search_editing)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.confirm_search()
+
+        @bindings.add("backspace", eager=True, filter=search_editing)
+        @bindings.add("c-h", eager=True, filter=search_editing)
+        def _(event) -> None:
+            _ = event
+            self.transcript_overlay.backspace_search()
+
+        @bindings.add(Keys.Any, eager=True, filter=search_editing)
+        def _(event) -> None:
+            self.transcript_overlay.append_search_text(event.data)
 
         return bindings
 
@@ -1373,6 +1464,15 @@ class TuiScreen(object):
 
     def _transcript_overlay_primary_help_fragments(self) -> FormattedText:
         """生成完整记录的滚动提示。"""
+        if self.transcript_overlay.search_editing:
+            return [
+                ("class:transcript.overlay.search-prompt", "/ "),
+                (
+                    "class:transcript.overlay.search-query",
+                    self.transcript_overlay.search_query,
+                ),
+                ("class:transcript.overlay.search-cursor", "█"),
+            ]
         if self.transcript_overlay.backtrack_active:
             return [(
                 "class:transcript.overlay.help",
@@ -1382,24 +1482,44 @@ class TuiScreen(object):
         pager     = self.keymap.pager
         raw_label = primary_binding_label(pager.toggle_raw)
 
+        search_label  = primary_binding_label(pager.search)
+        search_status = ""
+
+        if self.transcript_overlay.search_query:
+            current, total = self.transcript_overlay.search_result_position
+            search_status = (
+                f"{current}/{total} {self.transcript_overlay.search_query}"
+            )
+
+        scroll_hint = self._paired_key_hint(
+            pager.scroll_up,
+            pager.scroll_down,
+            "to scroll",
+        )
+        raw_hint = (
+            f"{raw_label} "
+            f"{'rich' if self.transcript_overlay.raw_mode else 'raw'}"
+            if raw_label
+            else ""
+        )
         hints = (
-            self._paired_key_hint(
-                pager.scroll_up,
-                pager.scroll_down,
-                "to scroll",
-            ),
-            self._paired_key_hint(pager.page_up, pager.page_down, "to page"),
-            self._paired_key_hint(
-                pager.jump_top,
-                pager.jump_bottom,
-                "to jump",
-            ),
-            (
-                f"{raw_label} "
-                f"{'rich' if self.transcript_overlay.raw_mode else 'raw'}"
-                if raw_label
-                else ""
-            ),
+            (search_status, scroll_hint, raw_hint)
+            if search_status
+            else (
+                scroll_hint,
+                self._paired_key_hint(
+                    pager.page_up,
+                    pager.page_down,
+                    "to page",
+                ),
+                self._paired_key_hint(
+                    pager.jump_top,
+                    pager.jump_bottom,
+                    "to jump",
+                ),
+                raw_hint,
+                f"{search_label} search" if search_label else "",
+            )
         )
 
         return [("class:transcript.overlay.help", self._help_line(hints))]
@@ -1408,6 +1528,12 @@ class TuiScreen(object):
         """生成完整记录的跳转和退出提示。"""
         pager = self.keymap.pager
         close = binding_labels((*pager.close, *pager.close_transcript))
+
+        if self.transcript_overlay.search_editing:
+            return [(
+                "class:transcript.overlay.help",
+                " Enter search   Esc cancel",
+            )]
 
         if self.transcript_overlay.backtrack_active:
             hint = f" {close} to cancel" if close else ""
@@ -1427,6 +1553,11 @@ class TuiScreen(object):
         hints = (
             "Esc to edit previous" if has_target else "",
             close_hint,
+            self._paired_key_hint(
+                pager.search_next,
+                pager.search_previous,
+                "search result",
+            ) if self.transcript_overlay.search_query else "",
             self._paired_key_hint(
                 pager.half_page_up,
                 pager.half_page_down,
