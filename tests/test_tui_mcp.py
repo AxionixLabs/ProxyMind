@@ -353,6 +353,40 @@ def test_external_mcp_start_result_is_committed_to_tui(
     assert status.renderable.plain_text == expected
 
 
+def test_partial_external_mcp_failure_is_not_bold() -> None:
+    snapshot = {
+        "done": True,
+        "items": [
+            {"name": "github", "state": "ready", "tools": 7},
+            {
+                "name": "docs",
+                "state": "failed",
+                "tools": 0,
+                "detail": "timeout",
+            },
+        ],
+    }
+    views = []
+    mind = SimpleNamespace(
+        external_mcp=SimpleNamespace(last_start_snapshot=snapshot),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    assert mcp.render_external_mcp_start_status(mind)
+
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == (
+        "■ External MCP ready · 1/2 servers · 7 tools\n"
+        "└ docs: timeout"
+    )
+    assert all(not span.style.bold for span in status.renderable.spans)
+
+
 def test_mcp_force_result_keeps_activity_prefix() -> None:
     views = []
     mind = SimpleNamespace(

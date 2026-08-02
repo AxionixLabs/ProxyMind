@@ -424,6 +424,11 @@ async def test_external_mcp_final_status_settles_without_entering_document() -> 
     final_text = _block_text(runtime.screen.activity_block)
     assert "External MCP ready · 1/2 servers · 7 tools" in final_text
     assert "docs: timeout" not in final_text
+    assert all(
+        "bold" not in style
+        for style, text in runtime.screen.activity_block.fragments
+        if text.strip()
+    )
 
     await asyncio.sleep(0.1)
     assert runtime.screen.activity_block is None

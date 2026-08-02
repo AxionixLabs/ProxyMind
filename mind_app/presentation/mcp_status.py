@@ -15,7 +15,7 @@ from .styles import (
 )
 
 MCP_STATUS_BODY_STYLE    = TextStyle(foreground="#DDE7EF")
-MCP_STATUS_WARNING_STYLE = TextStyle(foreground="#F59E0B", bold=True)
+MCP_STATUS_WARNING_STYLE = TextStyle(foreground="#F59E0B")
 
 
 def render_mcp_status_block(view: McpStatusView) -> StyledBlock:
