@@ -27,7 +27,6 @@ from mind_app.runtime.subagents.control import (
     AgentWaitResult
 )
 from mind_app.runtime.subagents.mailbox import (
-    AgentMailboxEvent,
     format_mailbox_context
 )
 from mind_app.runtime.subagents.context import (
@@ -38,6 +37,12 @@ from mind_app.runtime.subagents.context import (
 from mind_app.runtime.subagents.executor import (
     StreamSubagentExecutor,
     SubagentExecutionPort
+)
+from mind_app.runtime.subagents.delivery import (
+    AgentActiveTurn,
+    AgentMessageDeliveryPort,
+    AgentMessageDispatch,
+    SteeringMessageDelivery
 )
 from mind_app.runtime.subagents.runner import SubagentRunner
 from mind_app.runtime.subagents.thread import (
@@ -71,18 +76,26 @@ class SubagentRuntime:
         *,
         settings: AgentSettings | None = None,
         executor: SubagentExecutionPort | None = None,
+        message_delivery: AgentMessageDeliveryPort | None = None,
         skills_provider: SkillsProvider | None = None,
         transcript_path_for: TranscriptPathResolver | None = None
     ) -> None:
         self._controller          = controller
         self._settings            = settings or AgentSettings()
         self._executor            = executor or StreamSubagentExecutor(controller)
+        self._message_delivery    = message_delivery or SteeringMessageDelivery()
         self._skills_provider     = skills_provider or self._configured_skills
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._runner              = SubagentRunner(controller)
         self._lock                = asyncio.Lock()
+        self._delivery_lock       = asyncio.Lock()
 
         self._controls: dict[str, AgentControl] = {}
+
+        self._active_deliveries: dict[
+            tuple[str, str],
+            AgentActiveTurn,
+        ] = {}
 
         self._shutdown: bool = False
 
@@ -167,11 +180,20 @@ class SubagentRuntime:
         message: str,
         *,
         caller: AgentContext | None = None,
-    ) -> AgentMailboxEvent:
-        """向根会话中的目标邮箱投递消息。"""
-        task = _normalize_task(message)
+    ) -> AgentMessageDispatch:
+        """优先向活动轮次投递消息，不可用时保留在邮箱。"""
+        task    = _normalize_task(message)
         control = await self._existing_control(root_session_id)
-        return await control.send_message(target, task, caller=caller)
+        event   = await control.send_message(target, task, caller=caller)
+
+        active = await self._active_delivery(
+            event.recipient_agent_id,
+            root_session_id=root_session_id,
+        )
+        if active is not None and await active.deliver(event):
+            await control.acknowledge_message(event)
+            return AgentMessageDispatch(event, "active_turn")
+        return AgentMessageDispatch(event, "mailbox")
 
     async def resume(
         self,
@@ -280,6 +302,7 @@ class SubagentRuntime:
 
         async with self._lock:
             control = self._controls.pop(normalized, None)
+        await self._close_active_deliveries(normalized)
         if control is None:
             return ()
 
@@ -293,6 +316,8 @@ class SubagentRuntime:
             self._shutdown = True
             controls = self._controls
             self._controls = {}
+
+        await self._close_active_deliveries()
 
         if controls:
             await asyncio.gather(
@@ -373,14 +398,24 @@ class SubagentRuntime:
             event_report: EventReport
         ) -> RunResult:
             """通过运行时装配的执行端口运行固定子轮次。"""
-            return await self._executor.execute(
-                pref_config=pref_config,
-                skills=thread.skills_snapshot(),
-                execution=prepared,
-                session=session,
-                tools=tools,
-                event_report=event_report,
+            active = AgentActiveTurn(
+                prepared.context,
+                self._message_delivery,
             )
+            await self._register_active_delivery(active)
+            try:
+                return await self._executor.execute(
+                    pref_config=pref_config,
+                    skills=thread.skills_snapshot(),
+                    execution=prepared,
+                    session=session,
+                    tools=tools,
+                    event_report=event_report,
+                    on_turn_input_event=active.handle_event,
+                )
+            finally:
+                active.close()
+                await self._unregister_active_delivery(active)
 
         result = await self._runner.run(
             pref_config,
@@ -403,6 +438,59 @@ class SubagentRuntime:
                 level="WARNING",
             )
             return []
+
+    async def _register_active_delivery(self, active: AgentActiveTurn) -> None:
+        """登记子执行主体当前可投递的远程轮次。"""
+        context = active.context
+        key     = (context.agent.root_session_id, context.agent.agent_id)
+
+        async with self._delivery_lock:
+            previous = self._active_deliveries.get(key)
+            self._active_deliveries[key] = active
+
+        if previous is not None and previous is not active:
+            previous.close()
+
+    async def _unregister_active_delivery(self, active: AgentActiveTurn) -> None:
+        """仅在登记仍指向当前轮次时移除投递状态。"""
+        context = active.context
+        key = (context.agent.root_session_id, context.agent.agent_id)
+        async with self._delivery_lock:
+            if self._active_deliveries.get(key) is active:
+                self._active_deliveries.pop(key, None)
+
+    async def _active_delivery(
+        self,
+        agent_id: str,
+        *,
+        root_session_id: str,
+    ) -> AgentActiveTurn | None:
+        """返回指定根会话与执行主体的活动投递状态。"""
+        key = (_normalize_root_session_id(root_session_id), agent_id)
+        async with self._delivery_lock:
+            return self._active_deliveries.get(key)
+
+    async def _close_active_deliveries(
+        self,
+        root_session_id: str | None = None,
+    ) -> None:
+        """关闭全部或指定根会话的活动投递状态。"""
+        async with self._delivery_lock:
+            if root_session_id is None:
+                active = tuple(self._active_deliveries.values())
+                self._active_deliveries.clear()
+            else:
+                keys = tuple(
+                    key
+                    for key in self._active_deliveries
+                    if key[0] == root_session_id
+                )
+                active = tuple(
+                    self._active_deliveries.pop(key)
+                    for key in keys
+                )
+        for delivery in active:
+            delivery.close()
 
     async def _control(self, root_session_id: str) -> AgentControl:
         """返回或创建根会话对应的执行控制器。"""

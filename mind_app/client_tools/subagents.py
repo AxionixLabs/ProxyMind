@@ -53,7 +53,8 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
         ClientTool(
             name=SEND_MESSAGE_TOOL,
             description=(
-                "向目标 Agent 的 mailbox 投递轻量消息，不创建新轮次。"
+                "向目标 Agent 投递轻量消息；活动轮次可接收时"
+                "即时送达，否则保留在 mailbox，不创建新轮次。"
             ),
             input_schema=_message_schema("发送给目标 Agent 的消息。"),
             handler=_send_message_handler(agents),
@@ -200,7 +201,7 @@ def _list_handler(agents: SubagentRuntime):
 
 
 def _send_message_handler(agents: SubagentRuntime):
-    """创建邮箱消息投递工具处理函数。"""
+    """创建轻量消息投递工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ClientToolRuntime
@@ -210,22 +211,27 @@ def _send_message_handler(agents: SubagentRuntime):
             message = _required_text(arguments, "message")
             caller  = tool_runtime.turn_context.agent
 
-            event = await agents.send_message(
+            dispatch = await agents.send_message(
                 caller.root_session_id,
                 target,
                 message,
                 caller=caller,
             )
+            event = dispatch.event
 
             return client_tool_result(
                 tool=SEND_MESSAGE_TOOL,
                 ok=True,
-                text=f"delivered mailbox message {event.event_id}",
+                text=(
+                    f"delivered agent message {event.event_id} "
+                    f"via {dispatch.delivery}"
+                ),
                 args=arguments,
                 data={
                     "event_id": event.event_id,
                     "target_agent_id": event.recipient_agent_id,
                     "target_task_path": event.recipient_task_path,
+                    "delivery": dispatch.delivery,
                 },
             )
         except asyncio.CancelledError:

@@ -397,6 +397,7 @@ async def test_send_message_reaches_target_mailbox_without_new_turn() -> None:
     assert not sent.isError
     assert _data(sent)["target_agent_id"] == agent_id
     assert _data(sent)["target_task_path"] == "/root/worker"
+    assert _data(sent)["delivery"] == "mailbox"
     assert len(_data(received)["updates"]) == 1
     update = _data(received)["updates"][0]
     assert update["kind"] == "message"

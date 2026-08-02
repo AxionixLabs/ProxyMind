@@ -18,6 +18,7 @@ from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
+from mind_nova.stream_events import MarkerEvent
 
 
 class _Controller:
@@ -48,6 +49,15 @@ class _Controller:
     @staticmethod
     async def await_cleanup(awaitable) -> None:
         await awaitable
+
+
+class _Delivery:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def deliver(self, context, turn_input) -> bool:
+        self.calls.append((context, turn_input))
+        return True
 
 
 def _parent_turn(*, transcript_path: str = "") -> TurnContext:
@@ -189,7 +199,7 @@ async def test_runtime_injects_unread_mailbox_messages_into_followup() -> None:
     )
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
 
-    event = await runtime.send_message(
+    dispatch = await runtime.send_message(
         parent.sid,
         "/root/worker",
         "do not change the database layer",
@@ -204,10 +214,67 @@ async def test_runtime_injects_unread_mailbox_messages_into_followup() -> None:
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
 
     execution = controller.stream_calls[-1]["turn_execution"]
-    assert execution.metadata["mailbox_event_ids"] == [event.event_id]
+    assert dispatch.delivery == "mailbox"
+    assert execution.metadata["mailbox_event_ids"] == [dispatch.event.event_id]
     assert len(execution.additional_context) == 1
     assert "do not change the database layer" in execution.additional_context[0]
     assert "/root" in execution.additional_context[0]
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_steers_active_turn_without_reinjecting_message() -> None:
+    controller = _Controller()
+    delivery = _Delivery()
+    runtime = SubagentRuntime(controller, message_delivery=delivery)
+    parent = _parent_turn()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stream(**kwargs):
+        execution = kwargs["turn_execution"]
+        if execution.metadata["turn_index"] == 1:
+            kwargs["on_turn_input_event"](MarkerEvent(
+                type="turn.start",
+                turn_id=execution.context.turn_id,
+            ))
+            started.set()
+            await release.wait()
+        return RunResult(status="completed")
+
+    controller.stream_handler = stream
+    spawned = await runtime.spawn(
+        parent,
+        "first task",
+        {},
+        agent_type="worker",
+        task_name="worker",
+        agent_id="agent_worker",
+    )
+    await started.wait()
+
+    dispatch = await runtime.send_message(
+        parent.sid,
+        spawned.agent_id,
+        "new active constraint",
+        caller=parent.agent,
+    )
+    release.set()
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    await runtime.followup_task(
+        parent.sid,
+        spawned.agent_id,
+        "continue",
+        caller=parent.agent,
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+
+    followup = controller.stream_calls[-1]["turn_execution"]
+    assert dispatch.delivery == "active_turn"
+    assert delivery.calls[0][0].agent.agent_id == spawned.agent_id
+    assert delivery.calls[0][1].client_message_id == dispatch.event.event_id
+    assert followup.metadata["mailbox_event_ids"] == []
+    assert followup.additional_context == ()
     await runtime.shutdown()
 
 

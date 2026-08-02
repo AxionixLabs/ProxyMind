@@ -232,6 +232,31 @@ class AgentMailboxStore:
         consumed.update(event.event_id for event in selected)
         return tuple(selected)
 
+    def acknowledge_message(
+        self,
+        reader_agent_id: str,
+        event_id: str,
+    ) -> bool:
+        """标记指定接收主体的邮箱消息已消费。"""
+        reader = str(reader_agent_id or "").strip()
+        target_event_id = str(event_id or "").strip()
+        if not reader or not target_event_id:
+            raise ValueError("mailbox reader and event id are required")
+
+        event = next(
+            (item for item in self._events if item.event_id == target_event_id),
+            None,
+        )
+        if (
+            event is None
+            or event.kind != "message"
+            or event.recipient_agent_id != reader
+        ):
+            return False
+
+        self._consumed.setdefault(reader, set()).add(target_event_id)
+        return True
+
     def _trim(self) -> None:
         """丢弃超出容量的最旧事件及其消费标记。"""
         while len(self._events) > self._capacity:

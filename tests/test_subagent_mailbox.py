@@ -75,3 +75,20 @@ def test_mailbox_capacity_discards_oldest_events() -> None:
         "submission_2",
     ]
     assert [event.sequence for event in updates] == [2, 3]
+
+
+def test_mailbox_acknowledges_only_matching_recipient_message() -> None:
+    root = AgentContext.root("sid_root")
+    worker = root.child("worker", "worker", agent_id="agent_worker")
+    reviewer = root.child("reviewer", "reviewer", agent_id="agent_reviewer")
+    mailbox = AgentMailboxStore()
+    event = mailbox.publish(
+        "message",
+        root,
+        recipient=worker,
+        message="new constraint",
+    )
+
+    assert not mailbox.acknowledge_message(reviewer.agent_id, event.event_id)
+    assert mailbox.acknowledge_message(worker.agent_id, event.event_id)
+    assert mailbox.take_messages(worker.agent_id) == ()

@@ -375,6 +375,15 @@ class AgentControl:
             record = self._require_record(target)
             return self._mailbox.take_messages(record.context.agent_id)
 
+    async def acknowledge_message(self, event: AgentMailboxEvent) -> bool:
+        """标记已通过活动轮次投递的邮箱消息。"""
+        async with self._condition:
+            self._require_record(event.recipient_agent_id)
+            return self._mailbox.acknowledge_message(
+                event.recipient_agent_id,
+                event.event_id,
+            )
+
     async def resume(
         self,
         target: str,

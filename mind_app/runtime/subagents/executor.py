@@ -3,6 +3,8 @@
 
 import typing
 from mind_nova.events import EventReport
+from mind_nova.stream_events import StreamEvent
+from mind_nova.turn_inputs import TurnInput
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.turns.result import RunResult
 from mind_app.output.silent import create_silent_output_session
@@ -22,7 +24,10 @@ class SubagentExecutionPort(typing.Protocol):
         execution: TurnExecution,
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport
+        event_report: EventReport,
+        on_turn_input_event: (
+            typing.Callable[[StreamEvent], TurnInput | None] | None
+        ) = None,
     ) -> RunResult:
         """执行子模型轮次并返回结构化结果。"""
         ...
@@ -41,7 +46,10 @@ class StreamSubagentExecutor:
         execution: TurnExecution,
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport
+        event_report: EventReport,
+        on_turn_input_event: (
+            typing.Callable[[StreamEvent], TurnInput | None] | None
+        ) = None,
     ) -> RunResult:
         """使用独立静默输出会话执行固定子轮次。"""
         if execution.context.agent.depth == 0:
@@ -55,6 +63,7 @@ class StreamSubagentExecutor:
             ev_report=event_report,
             skills=skills,
             session_factory=create_silent_output_session,
+            on_turn_input_event=on_turn_input_event,
         )
 
 
