@@ -23,6 +23,7 @@ from mind_core.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )
+from mind_core.design.terminal_capabilities import TerminalColorLevel
 from .models import FragmentBlock
 from .render import clip_fragments
 from .styles import (
@@ -89,10 +90,12 @@ class TuiActivity(object):
         set_renderable: typing.Callable[[FragmentBlock], None],
         clear_renderable: typing.Callable[[], None],
         get_width: typing.Callable[[], int] = lambda: 80,
+        color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
     ) -> None:
         self.set_renderable   = set_renderable
         self.clear_renderable = clear_renderable
         self.get_width        = get_width
+        self.color_level      = color_level
 
         self.task: asyncio.Task[None] | None = None
 
@@ -126,6 +129,7 @@ class TuiActivity(object):
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
+                color_level=self.color_level,
             ),
         ))
 
@@ -314,6 +318,7 @@ class TuiActivity(object):
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
+                color_level=self.color_level,
             ),
         ))
 
@@ -594,6 +599,7 @@ def _status_block(
     elapsed_sec: float | None = None,
     spinner: bool = False,
     sweep: bool = True,
+    color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
 ) -> FragmentBlock:
     """生成一行 TUI 活动状态。"""
     fragments = render_status_fragments(
@@ -601,6 +607,7 @@ def _status_block(
         family=family,
         phase=phase,
         animated=sweep,
+        color_level=color_level,
     )
 
     if spinner:

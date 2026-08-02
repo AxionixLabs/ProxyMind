@@ -2,6 +2,7 @@
 
 import pytest
 from prompt_toolkit.utils import get_cwidth
+from mind_core.design.terminal_capabilities import TerminalColorLevel
 
 from mind_app.tui.core.status_frames import (
     SPINNER_FRAMES,
@@ -9,9 +10,8 @@ from mind_app.tui.core.status_frames import (
     _animated_palette,
     _character_cells,
     _display_span,
-    _sweep_boundaries,
-    _sweep_durations,
     _sweep_duration,
+    _sweep_focus,
     _sweep_intensity,
     render_status_fragments,
     spinner_indicator_fragment,
@@ -40,6 +40,7 @@ def test_status_sweep_changes_text_colors_through_active_pass(
             family=family,
             phase=index * interval,
             animated=True,
+            color_level=TerminalColorLevel.TRUECOLOR,
         )
         for index in range(31)
     ]
@@ -58,7 +59,12 @@ def test_status_sweep_changes_text_colors_through_active_pass(
         for frame in frames
     } == {"◦", "•"}
     assert all("bg:" not in style for frame in frames for style, _value in frame)
-    assert all("bold" not in style for frame in frames for style, _value in frame)
+    assert all(
+        "bold" in style and "dim" not in style
+        for frame in frames
+        for style, value in frame[2:]
+        if value.strip()
+    )
 
 
 def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
@@ -104,36 +110,36 @@ def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:
     assert _sweep_duration(short_span) < _sweep_duration(long_span)
 
     interval = status_interval("tool")
-    tool_short_step = _sweep_boundaries(
+    tool_short_step = _sweep_focus(
         interval,
         span=short_span,
         profile=SWEEP_PROFILES["tool"],
-    )[0] - _sweep_boundaries(
+    ) - _sweep_focus(
         0.0,
         span=short_span,
         profile=SWEEP_PROFILES["tool"],
-    )[0]
-    tool_long_step = _sweep_boundaries(
+    )
+    tool_long_step = _sweep_focus(
         interval,
         span=long_span,
         profile=SWEEP_PROFILES["tool"],
-    )[0] - _sweep_boundaries(
+    ) - _sweep_focus(
         0.0,
         span=long_span,
         profile=SWEEP_PROFILES["tool"],
-    )[0]
-    wait_short_step = _sweep_boundaries(
+    )
+    wait_short_step = _sweep_focus(
         interval,
         span=short_span,
         profile=SWEEP_PROFILES["wait"],
-    )[0] - _sweep_boundaries(
+    ) - _sweep_focus(
         0.0,
         span=short_span,
         profile=SWEEP_PROFILES["wait"],
-    )[0]
+    )
 
     assert 0.0 < wait_short_step < tool_short_step < tool_long_step < 1.2
-    assert SWEEP_PROFILES["wait"].tail_span > SWEEP_PROFILES["tool"].tail_span
+    assert SWEEP_PROFILES["wait"].glow_span > SWEEP_PROFILES["tool"].glow_span
     assert status_phase_rate("tool") == status_phase_rate("wait") == 1.0
 
 
@@ -142,86 +148,81 @@ def test_status_sweep_has_a_wide_band_and_quiet_interval() -> None:
 
     for family in ("tool", "wait"):
         profile = SWEEP_PROFILES[family]
-        fill_duration, tail_duration = _sweep_durations(span, profile)
-        active_duration = fill_duration + tail_duration
-        resting_edges   = _sweep_boundaries(
+        active_duration = _sweep_duration(span) / profile.speed_factor
+        resting_focus   = _sweep_focus(
             active_duration + (profile.rest_duration * 0.25),
             span=span,
             profile=profile,
         )
-        late_rest_edges = _sweep_boundaries(
+        late_rest_focus = _sweep_focus(
             active_duration + (profile.rest_duration * 0.9),
             span=span,
             profile=profile,
         )
 
-        assert profile.lead_span >= 2.3
-        assert profile.tail_span >= 7.0
-        assert profile.rest_duration > fill_duration
-        assert resting_edges == late_rest_edges
+        assert profile.peak_radius >= 0.7
+        assert profile.glow_span >= 2.6
+        assert active_duration + profile.rest_duration <= 2.1
+        assert resting_focus == late_rest_focus
 
 
-def test_status_sweep_fully_lights_text_before_tail_begins() -> None:
-    cells   = _character_cells("Thinking")
+def test_status_sweep_keeps_a_local_symmetric_glow_band() -> None:
+    cells   = _character_cells("abcdefghijklmnop")
     span    = _display_span(cells)
     profile = SWEEP_PROFILES["wait"]
 
-    fill_duration, tail_duration = _sweep_durations(span, profile)
-    full_head, full_tail = _sweep_boundaries(
-        fill_duration,
+    active_duration = _sweep_duration(span) / profile.speed_factor
+    focus = _sweep_focus(
+        active_duration * 0.5,
         span=span,
         profile=profile,
     )
-    full_intensities = [
+    intensities = [
         _sweep_intensity(
             position,
-            head=full_head,
-            tail=full_tail,
-            lead_span=profile.lead_span,
-            tail_span=profile.tail_span,
+            focus=focus,
+            peak_radius=profile.peak_radius,
+            glow_span=profile.glow_span,
         )
         for position, char in cells
         if not char.isspace()
     ]
+    visible = [level for level in intensities if level >= 0.2]
 
-    assert full_intensities == [1.0] * len(full_intensities)
+    assert 5 <= len(visible) <= 7
+    assert max(intensities) >= 0.95
+    assert intensities[0] == intensities[-1] == 0.0
+    assert _sweep_intensity(
+        focus - 2.0,
+        focus=focus,
+        peak_radius=profile.peak_radius,
+        glow_span=profile.glow_span,
+    ) == pytest.approx(_sweep_intensity(
+        focus + 2.0,
+        focus=focus,
+        peak_radius=profile.peak_radius,
+        glow_span=profile.glow_span,
+    ))
 
-    next_head, next_tail = _sweep_boundaries(
-        fill_duration + status_interval("wait"),
-        span=span,
-        profile=profile,
+
+def test_limited_color_status_uses_intensity_modifiers() -> None:
+    text    = "abcdefghijklmnop"
+    span    = _display_span(_character_cells(text))
+    profile = SWEEP_PROFILES["wait"]
+    phase   = (_sweep_duration(span) / profile.speed_factor) * 0.5
+
+    frame = render_status_fragments(
+        text,
+        family="wait",
+        phase=phase,
+        animated=True,
+        color_level=TerminalColorLevel.ANSI16,
     )
-    assert next_tail > full_tail
-    assert _sweep_intensity(
-        cells[0][0],
-        head=next_head,
-        tail=next_tail,
-        lead_span=profile.lead_span,
-        tail_span=profile.tail_span,
-    ) < 1.0
+    styles = [style for style, value in frame[2:] if value.strip()]
 
-    tail_head, tail_edge = _sweep_boundaries(
-        fill_duration + (tail_duration * 0.4),
-        span=span,
-        profile=profile,
-    )
-    first_position = cells[0][0]
-    last_position  = cells[-1][0]
-
-    assert _sweep_intensity(
-        first_position,
-        head=tail_head,
-        tail=tail_edge,
-        lead_span=profile.lead_span,
-        tail_span=profile.tail_span,
-    ) < 1.0
-    assert _sweep_intensity(
-        last_position,
-        head=tail_head,
-        tail=tail_edge,
-        lead_span=profile.lead_span,
-        tail_span=profile.tail_span,
-    ) == 1.0
+    assert any("dim" in style for style in styles)
+    assert any("bold" in style for style in styles)
+    assert any("dim" not in style and "bold" not in style for style in styles)
 
 
 def test_status_palette_changes_smoothly_over_time() -> None:

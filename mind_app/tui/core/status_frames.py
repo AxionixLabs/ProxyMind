@@ -5,12 +5,13 @@ import math
 import typing
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
+from mind_core.design.terminal_capabilities import TerminalColorLevel
 from .models import FormattedText
 
 StatusFamily = typing.Literal["tool", "wait"]
 
-SWEEP_TAIL_SPAN    = 7.2
-SWEEP_MIN_DURATION = 1.08
+SWEEP_GLOW_SPAN    = 2.8
+SWEEP_MIN_DURATION = 1.22
 SWEEP_MAX_DURATION = 1.48
 
 SWEEP_REFRESH_PER_SECOND   = 30
@@ -34,8 +35,8 @@ class SweepProfile(object):
     peak_glyph: str
     speed_factor: float
     rest_duration: float
-    lead_span: float
-    tail_span: float
+    peak_radius: float
+    glow_span: float
     breathe_rate: float
     palette_period: float
     palettes: tuple[SweepPalette, ...]
@@ -45,10 +46,10 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
     "tool": SweepProfile(
         dim_glyph="◦",
         peak_glyph="•",
-        speed_factor=1.12,
-        rest_duration=1.25,
-        lead_span=2.35,
-        tail_span=7.4,
+        speed_factor=1.05,
+        rest_duration=0.58,
+        peak_radius=0.72,
+        glow_span=2.65,
         breathe_rate=4.4,
         palette_period=8.5,
         palettes=(
@@ -93,10 +94,10 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
     "wait": SweepProfile(
         dim_glyph="◦",
         peak_glyph="•",
-        speed_factor=0.96,
-        rest_duration=1.65,
-        lead_span=2.7,
-        tail_span=8.6,
+        speed_factor=0.94,
+        rest_duration=0.68,
+        peak_radius=0.80,
+        glow_span=2.90,
         breathe_rate=3.6,
         palette_period=10.5,
         palettes=(
@@ -147,6 +148,7 @@ def render_status_fragments(
     family: StatusFamily,
     phase: float,
     animated: bool,
+    color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
 ) -> FormattedText:
     """生成带固定指示符和连续扫光的状态片段。"""
     profile = _profile(family)
@@ -170,6 +172,7 @@ def render_status_fragments(
         phase=phase,
         profile=profile,
         palette=palette,
+        color_level=color_level,
     ))
     return out
 
@@ -251,110 +254,84 @@ def _sweep_fragments(
     phase: float,
     profile: SweepProfile,
     palette: SweepPalette,
+    color_level: TerminalColorLevel
 ) -> FormattedText:
-    """按点亮头部和收尾边界生成累积扫光。"""
-    cells = _character_cells(text)
-    span  = max(1, _display_span(cells))
-
-    head, tail = _sweep_boundaries(float(phase), span=span, profile=profile)
-
+    """按字符到光带中心的距离生成局部扫光。"""
+    cells     = _character_cells(text)
+    span      = max(1, _display_span(cells))
+    focus     = _sweep_focus(float(phase), span=span, profile=profile)
     dim_color = palette.color_stops[0][1]
 
     out: FormattedText = []
 
     for position, char in cells:
         if char.isspace():
-            out.append((_style(dim_color), char))
+            out.append((_sweep_style(
+                dim_color,
+                intensity=0.0,
+                color_level=color_level,
+            ), char))
             continue
 
         intensity = _sweep_intensity(
             position,
-            head=head,
-            tail=tail,
-            lead_span=profile.lead_span,
-            tail_span=profile.tail_span,
+            focus=focus,
+            peak_radius=profile.peak_radius,
+            glow_span=profile.glow_span,
         )
 
         color = _gradient_color(palette.color_stops, intensity)
-        out.append((_style(color), char))
+
+        out.append((_sweep_style(
+            color,
+            intensity=intensity,
+            color_level=color_level,
+        ), char))
 
     return out
 
 
-def _sweep_boundaries(
+def _sweep_focus(
     elapsed: float,
     *,
     span: int,
     profile: SweepProfile
-) -> tuple[float, float]:
-    """按连续点亮、收尾和静默阶段计算前后边界。"""
-    width         = max(1, int(span))
-    last_position = float(max(0, width - 1))
-
-    fill_duration, tail_duration = _sweep_durations(width, profile)
-
-    active_duration = fill_duration + tail_duration
+) -> float:
+    """按真实时间计算带静默间隔的局部光带中心。"""
+    width           = max(1, int(span))
+    last_position   = float(max(0, width - 1))
+    band_extent     = profile.peak_radius + profile.glow_span
+    active_duration = _sweep_duration(width) / profile.speed_factor
     cycle_duration  = active_duration + profile.rest_duration
     cycle_elapsed   = max(0.0, float(elapsed)) % cycle_duration
 
-    head_start = -profile.lead_span
-    head_end   = last_position
-    tail_start = 0.0
-    tail_end   = last_position + profile.tail_span
+    if cycle_elapsed >= active_duration:
+        return last_position + band_extent
 
-    if cycle_elapsed < fill_duration:
-        progress = cycle_elapsed / max(0.001, fill_duration)
-        head     = head_start + ((head_end - head_start) * progress)
+    progress = cycle_elapsed / max(0.001, active_duration)
+    travel   = last_position + (band_extent * 2.0)
 
-        return head, tail_start
-
-    if cycle_elapsed < active_duration:
-        tail_elapsed = cycle_elapsed - fill_duration
-        progress     = tail_elapsed / max(0.001, tail_duration)
-        tail         = tail_start + ((tail_end - tail_start) * progress)
-
-        return head_end, tail
-
-    return head_end, tail_end
-
-
-def _sweep_durations(
-    span: int,
-    profile: SweepProfile,
-) -> tuple[float, float]:
-    """以相同边界速度计算点亮和收尾阶段时长。"""
-    width         = max(1, int(span))
-    last_position = float(max(0, width - 1))
-    fill_duration = _sweep_duration(width) / profile.speed_factor
-    fill_travel   = last_position + profile.lead_span
-    tail_travel   = last_position + profile.tail_span
-
-    tail_duration = fill_duration * (
-        tail_travel / max(0.001, fill_travel)
-    )
-    return fill_duration, tail_duration
+    return -band_extent + (travel * progress)
 
 
 def _sweep_intensity(
     position: float,
     *,
-    head: float,
-    tail: float,
-    lead_span: float = 2.35,
-    tail_span: float = SWEEP_TAIL_SPAN
+    focus: float,
+    peak_radius: float = 0.76,
+    glow_span: float = SWEEP_GLOW_SPAN,
 ) -> float:
-    """先累积点亮全部字符，再从左向右渐进收尾。"""
-    location = float(position)
+    """计算具有柔和中心和对称衰减的局部光带强度。"""
+    distance = abs(float(position) - float(focus))
 
-    if location > head:
-        distance = (location - head) / max(0.001, lead_span)
-        return 1.0 - _smoothstep(distance)
+    if distance <= peak_radius:
+        core = distance / max(0.001, peak_radius)
+        return 1.0 - (0.05 * _smoothstep(core))
 
-    if location < tail:
-        distance = (tail - location) / max(0.001, tail_span)
-        return 1.0 - _smoothstep(distance)
+    normalized = (distance - peak_radius) / max(0.001, glow_span)
+    intensity  = 0.95 * (1.0 - _smoothstep(normalized))
 
-    return 1.0
+    return max(0.0, min(1.0, intensity))
 
 
 def _animated_palette(profile: SweepProfile, elapsed: float) -> SweepPalette:
@@ -454,6 +431,23 @@ def _smoothstep(value: float) -> float:
 def _style(color: str) -> str:
     """生成 prompt_toolkit 使用的前景样式。"""
     return f"fg:{color}"
+
+
+def _sweep_style(
+    color: str,
+    *,
+    intensity: float,
+    color_level: TerminalColorLevel,
+) -> str:
+    """根据终端色深生成扫光字符的颜色和字重。"""
+    if color_level == TerminalColorLevel.TRUECOLOR:
+        return f"bold {_style(color)}"
+    if intensity < 0.2:
+        return f"dim {_style(color)}"
+    if intensity > 0.6:
+        return f"bold {_style(color)}"
+
+    return _style(color)
 
 
 def _profile(family: StatusFamily) -> SweepProfile:

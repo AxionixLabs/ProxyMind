@@ -291,15 +291,16 @@ def test_approval_surface_uses_no_background() -> None:
 
 
 @pytest.mark.parametrize(
-    ("kind", "name"),
+    ("kind", "name", "background"),
     (
-        (TerminalKind.WINDOWS_TERMINAL, "Windows Terminal"),
-        (TerminalKind.APPLE_TERMINAL, "Apple Terminal"),
+        (TerminalKind.WINDOWS_TERMINAL, "Windows Terminal", "1F1F1F"),
+        (TerminalKind.APPLE_TERMINAL, "Apple Terminal", ""),
     ),
 )
-def test_truecolor_terminal_uses_background_derived_surface_color(
+def test_surface_background_depends_on_terminal_support(
     kind: TerminalKind,
     name: str,
+    background: str,
 ) -> None:
     empty = Style.from_dict({})
     style = build_tui_application_style(
@@ -318,10 +319,10 @@ def test_truecolor_terminal_uses_background_derived_surface_color(
 
     assert style.get_attrs_for_style_str(
         "class:input-surface"
-    ).bgcolor == "1F1F1F"
+    ).bgcolor == background
     assert style.get_attrs_for_style_str(
         "class:approval-card"
-    ).bgcolor == "1F1F1F"
+    ).bgcolor == background
 
 
 @pytest.mark.parametrize(

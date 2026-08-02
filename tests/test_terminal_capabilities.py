@@ -113,9 +113,13 @@ def test_terminal_color_level_honors_overrides_and_capabilities(
     assert detect_terminal_color_level(environ) == expected
 
 
-@pytest.mark.parametrize("program", ("WezTerm", "Apple_Terminal"))
-def test_supported_terminal_requires_theme_probe_for_dynamic_surface(
+@pytest.mark.parametrize(
+    ("program", "supported"),
+    (("WezTerm", True), ("Apple_Terminal", False)),
+)
+def test_dynamic_surface_probe_depends_on_terminal_support(
     program: str,
+    supported: bool,
 ) -> None:
     stream = _InteractiveStream()
     calls: list[float] = []
@@ -134,9 +138,11 @@ def test_supported_terminal_requires_theme_probe_for_dynamic_surface(
         color_probe=probe,
     )
 
-    assert capabilities.dynamic_surfaces
-    assert capabilities.theme.background == (12, 18, 24)
-    assert calls == [0.1]
+    assert capabilities.dynamic_surfaces is supported
+    assert capabilities.theme.background == (
+        (12, 18, 24) if supported else None
+    )
+    assert calls == ([0.1] if supported else [])
 
 
 def test_unknown_terminal_does_not_run_active_color_probe() -> None:

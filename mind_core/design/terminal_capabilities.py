@@ -58,6 +58,10 @@ HIGH_CAPABILITY_TERMINALS = frozenset({
     TerminalKind.APPLE_TERMINAL,
 })
 
+DYNAMIC_SURFACE_TERMINALS = (
+    HIGH_CAPABILITY_TERMINALS - {TerminalKind.APPLE_TERMINAL}
+)
+
 HYPERLINK_TERMINALS = frozenset({
     *(HIGH_CAPABILITY_TERMINALS - {TerminalKind.APPLE_TERMINAL}),
     TerminalKind.VSCODE,
@@ -78,6 +82,11 @@ class TerminalIdentity:
         """判断终端是否位于高能力白名单。"""
         return self.kind in HIGH_CAPABILITY_TERMINALS
 
+    @property
+    def supports_dynamic_surfaces(self) -> bool:
+        """判断终端是否适合展示动态背景表面。"""
+        return self.kind in DYNAMIC_SURFACE_TERMINALS
+
 
 @dataclass(frozen=True)
 class TerminalTheme:
@@ -97,7 +106,7 @@ class TerminalCapabilities:
     def dynamic_surfaces(self) -> bool:
         """判断是否可以安全生成动态 RGB 表面。"""
         return bool(
-            self.identity.high_capability
+            self.identity.supports_dynamic_surfaces
             and self.color_level == TerminalColorLevel.TRUECOLOR
             and self.theme.background is not None
         )
@@ -137,7 +146,7 @@ def detect_terminal_capabilities(
     stdout   = sys.stdout if output_stream is None else output_stream
 
     if not (
-        identity.high_capability
+        identity.supports_dynamic_surfaces
         and level == TerminalColorLevel.TRUECOLOR
         and _stream_is_tty(stdin)
         and _stream_is_tty(stdout)
