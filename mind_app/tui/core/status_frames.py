@@ -9,12 +9,9 @@ from .models import FormattedText
 
 StatusFamily = typing.Literal["tool", "wait"]
 
-SWEEP_ENTRY_PAD    = 1.2
-SWEEP_PEAK_RADIUS  = 0.58
-SWEEP_LEAD_SPAN    = 1.25
-SWEEP_TAIL_SPAN    = 5.2
-SWEEP_MIN_DURATION = 1.75
-SWEEP_MAX_DURATION = 2.65
+SWEEP_TAIL_SPAN    = 7.2
+SWEEP_MIN_DURATION = 1.08
+SWEEP_MAX_DURATION = 1.48
 
 SWEEP_REFRESH_PER_SECOND   = 30
 SPINNER_REFRESH_PER_SECOND = 10
@@ -23,51 +20,122 @@ SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇",
 
 
 @dataclass(frozen=True, slots=True)
-class SweepProfile(object):
-    """描述状态族的字符、配色和相对扫光速度。"""
-    dim_glyph: str
-    peak_glyph: str
-    speed_factor: float
-    tail_span: float
-    breathe_rate: float
+class SweepPalette(object):
+    """描述状态动画的一组连续渐变颜色。"""
     indicator_dim: str
     indicator_peak: str
     color_stops: tuple[tuple[float, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SweepProfile(object):
+    """描述状态族的字符、节奏和动态配色。"""
+    dim_glyph: str
+    peak_glyph: str
+    speed_factor: float
+    rest_duration: float
+    lead_span: float
+    tail_span: float
+    breathe_rate: float
+    palette_period: float
+    palettes: tuple[SweepPalette, ...]
 
 
 SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
     "tool": SweepProfile(
         dim_glyph="◦",
         peak_glyph="•",
-        speed_factor=1.08,
-        tail_span=5.2,
-        breathe_rate=4.7,
-        indicator_dim="#5A4B42",
-        indicator_peak="#DCC8AB",
-        color_stops=(
-            (0.00, "#755F4E"),
-            (0.18, "#8D7358"),
-            (0.44, "#A48662"),
-            (0.72, "#D8B77F"),
-            (0.90, "#F6DCA8"),
-            (1.00, "#FFF4D8"),
+        speed_factor=1.12,
+        rest_duration=1.25,
+        lead_span=2.35,
+        tail_span=7.4,
+        breathe_rate=4.4,
+        palette_period=8.5,
+        palettes=(
+            SweepPalette(
+                indicator_dim="#594D45",
+                indicator_peak="#E8CF9B",
+                color_stops=(
+                    (0.00, "#69584F"),
+                    (0.18, "#806D5E"),
+                    (0.44, "#A98867"),
+                    (0.72, "#DDBA79"),
+                    (0.90, "#F6D99C"),
+                    (1.00, "#FFF0C2"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#5E4A47",
+                indicator_peak="#EDBFA5",
+                color_stops=(
+                    (0.00, "#6D5651"),
+                    (0.18, "#87665D"),
+                    (0.44, "#AF7B66"),
+                    (0.72, "#E4A477"),
+                    (0.90, "#F8C69E"),
+                    (1.00, "#FFE0C2"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#4F5850",
+                indicator_peak="#CED89D",
+                color_stops=(
+                    (0.00, "#5A635A"),
+                    (0.18, "#6D786A"),
+                    (0.44, "#8C9573"),
+                    (0.72, "#C0BC78"),
+                    (0.90, "#E6D69A"),
+                    (1.00, "#F7EAB9"),
+                ),
+            ),
         ),
     ),
     "wait": SweepProfile(
         dim_glyph="◦",
         peak_glyph="•",
-        speed_factor=0.80,
-        tail_span=6.0,
-        breathe_rate=3.9,
-        indicator_dim="#465652",
-        indicator_peak="#B5CAC4",
-        color_stops=(
-            (0.00, "#667873"),
-            (0.18, "#71847E"),
-            (0.44, "#7C8F89"),
-            (0.72, "#A4B5B0"),
-            (0.90, "#C5D4CF"),
-            (1.00, "#DDE7E3"),
+        speed_factor=0.96,
+        rest_duration=1.65,
+        lead_span=2.7,
+        tail_span=8.6,
+        breathe_rate=3.6,
+        palette_period=10.5,
+        palettes=(
+            SweepPalette(
+                indicator_dim="#405552",
+                indicator_peak="#B9DDD2",
+                color_stops=(
+                    (0.00, "#536864"),
+                    (0.18, "#627A76"),
+                    (0.44, "#78948D"),
+                    (0.72, "#A8C8BF"),
+                    (0.90, "#CAE4DC"),
+                    (1.00, "#E5F6F0"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#405162",
+                indicator_peak="#B9D5EC",
+                color_stops=(
+                    (0.00, "#516372"),
+                    (0.18, "#5F7688"),
+                    (0.44, "#7490A8"),
+                    (0.72, "#A5C3DA"),
+                    (0.90, "#C8DDF0"),
+                    (1.00, "#E6F1FC"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#46565B",
+                indicator_peak="#BEDCD9",
+                color_stops=(
+                    (0.00, "#58696C"),
+                    (0.18, "#657C7E"),
+                    (0.44, "#7D9697"),
+                    (0.72, "#ACC8C7"),
+                    (0.90, "#CEE2E0"),
+                    (1.00, "#E8F3F1"),
+                ),
+            ),
         ),
     ),
 }
@@ -82,6 +150,7 @@ def render_status_fragments(
 ) -> FormattedText:
     """生成带固定指示符和连续扫光的状态片段。"""
     profile = _profile(family)
+    palette = _animated_palette(profile, phase if animated else 0.0)
 
     out = [
         status_indicator_fragment(
@@ -89,14 +158,19 @@ def render_status_fragments(
             family=family,
             animated=animated,
         ),
-        (_style(profile.color_stops[0][1]), " "),
+        (_style(palette.color_stops[0][1]), " "),
     ]
 
     if not animated:
-        out.append((_style(_gradient_color(profile.color_stops, 0.82)), text))
+        out.append((_style(_gradient_color(palette.color_stops, 0.82)), text))
         return out
 
-    out.extend(_sweep_fragments(text, phase=phase, profile=profile))
+    out.extend(_sweep_fragments(
+        text,
+        phase=phase,
+        profile=profile,
+        palette=palette,
+    ))
     return out
 
 
@@ -120,11 +194,12 @@ def status_indicator_fragment(
 ) -> tuple[str, str]:
     """生成宽度固定的状态指示符。"""
     profile = _profile(family)
+    palette = _animated_palette(profile, phase if animated else 0.0)
 
     if not animated:
         color = _mix_hex_color(
-            profile.indicator_dim,
-            profile.indicator_peak,
+            palette.indicator_dim,
+            palette.indicator_peak,
             0.72,
         )
         return _style(color), profile.peak_glyph
@@ -132,8 +207,8 @@ def status_indicator_fragment(
     breathe = 0.5 + (0.5 * math.sin(float(phase) * profile.breathe_rate))
 
     color = _mix_hex_color(
-        profile.indicator_dim,
-        profile.indicator_peak,
+        palette.indicator_dim,
+        palette.indicator_peak,
         _smoothstep(breathe) * 0.72,
     )
 
@@ -161,12 +236,12 @@ def spinner_indicator_fragment(
 
 
 def _sweep_duration(span: int) -> float:
-    """返回随文本宽度温和增长的基础扫光周期。"""
+    """返回随文本宽度温和增长的单次扫光时长。"""
     width = max(1, int(span))
 
     return max(
         SWEEP_MIN_DURATION,
-        min(SWEEP_MAX_DURATION, 1.55 + (width * 0.035)),
+        min(SWEEP_MAX_DURATION, 0.96 + (width * 0.019)),
     )
 
 
@@ -175,12 +250,15 @@ def _sweep_fragments(
     *,
     phase: float,
     profile: SweepProfile,
+    palette: SweepPalette,
 ) -> FormattedText:
-    """按字符到光头的距离生成连续渐变光带。"""
-    cells     = _character_cells(text)
-    span      = max(1, _display_span(cells))
-    focus     = _sweep_focus(float(phase), span=span, profile=profile)
-    dim_color = profile.color_stops[0][1]
+    """按点亮头部和收尾边界生成累积扫光。"""
+    cells = _character_cells(text)
+    span  = max(1, _display_span(cells))
+
+    head, tail = _sweep_boundaries(float(phase), span=span, profile=profile)
+
+    dim_color = palette.color_stops[0][1]
 
     out: FormattedText = []
 
@@ -191,54 +269,129 @@ def _sweep_fragments(
 
         intensity = _sweep_intensity(
             position,
-            focus=focus,
+            head=head,
+            tail=tail,
+            lead_span=profile.lead_span,
             tail_span=profile.tail_span,
         )
 
-        color = _gradient_color(profile.color_stops, intensity)
+        color = _gradient_color(palette.color_stops, intensity)
         out.append((_style(color), char))
 
     return out
 
 
-def _sweep_focus(
+def _sweep_boundaries(
     elapsed: float,
     *,
     span: int,
+    profile: SweepProfile
+) -> tuple[float, float]:
+    """按连续点亮、收尾和静默阶段计算前后边界。"""
+    width         = max(1, int(span))
+    last_position = float(max(0, width - 1))
+
+    fill_duration, tail_duration = _sweep_durations(width, profile)
+
+    active_duration = fill_duration + tail_duration
+    cycle_duration  = active_duration + profile.rest_duration
+    cycle_elapsed   = max(0.0, float(elapsed)) % cycle_duration
+
+    head_start = -profile.lead_span
+    head_end   = last_position
+    tail_start = 0.0
+    tail_end   = last_position + profile.tail_span
+
+    if cycle_elapsed < fill_duration:
+        progress = cycle_elapsed / max(0.001, fill_duration)
+        head     = head_start + ((head_end - head_start) * progress)
+
+        return head, tail_start
+
+    if cycle_elapsed < active_duration:
+        tail_elapsed = cycle_elapsed - fill_duration
+        progress     = tail_elapsed / max(0.001, tail_duration)
+        tail         = tail_start + ((tail_end - tail_start) * progress)
+
+        return head_end, tail
+
+    return head_end, tail_end
+
+
+def _sweep_durations(
+    span: int,
     profile: SweepProfile,
-) -> float:
-    """按文本宽度和真实时间计算循环光头位置。"""
-    width    = max(1, int(span))
-    exit_pad = SWEEP_PEAK_RADIUS + profile.tail_span
+) -> tuple[float, float]:
+    """以相同边界速度计算点亮和收尾阶段时长。"""
+    width         = max(1, int(span))
+    last_position = float(max(0, width - 1))
+    fill_duration = _sweep_duration(width) / profile.speed_factor
+    fill_travel   = last_position + profile.lead_span
+    tail_travel   = last_position + profile.tail_span
 
-    travel = max(
-        1.0,
-        float(max(0, width - 1)) + SWEEP_ENTRY_PAD + exit_pad,
+    tail_duration = fill_duration * (
+        tail_travel / max(0.001, fill_travel)
     )
-
-    speed = travel / _sweep_duration(width) * profile.speed_factor
-    return ((max(0.0, float(elapsed)) * speed) % travel) - SWEEP_ENTRY_PAD
+    return fill_duration, tail_duration
 
 
 def _sweep_intensity(
     position: float,
     *,
-    focus: float,
+    head: float,
+    tail: float,
+    lead_span: float = 2.35,
     tail_span: float = SWEEP_TAIL_SPAN
 ) -> float:
-    """计算带短前沿和长尾迹的连续扫光强度。"""
-    delta    = float(position) - float(focus)
-    distance = abs(delta)
+    """先累积点亮全部字符，再从左向右渐进收尾。"""
+    location = float(position)
 
-    if distance <= SWEEP_PEAK_RADIUS:
-        core = distance / max(0.001, SWEEP_PEAK_RADIUS)
-        return 1.0 - (0.06 * _smoothstep(core))
+    if location > head:
+        distance = (location - head) / max(0.001, lead_span)
+        return 1.0 - _smoothstep(distance)
 
-    span       = SWEEP_LEAD_SPAN if delta >= 0.0 else tail_span
-    normalized = (distance - SWEEP_PEAK_RADIUS) / max(0.001, span)
-    intensity  = 0.94 * (1.0 - _smoothstep(normalized))
+    if location < tail:
+        distance = (tail - location) / max(0.001, tail_span)
+        return 1.0 - _smoothstep(distance)
 
-    return max(0.0, min(1.0, intensity))
+    return 1.0
+
+
+def _animated_palette(profile: SweepProfile, elapsed: float) -> SweepPalette:
+    """在同一状态族的配色之间缓慢循环插值。"""
+    palettes = profile.palettes
+    if len(palettes) == 1:
+        return palettes[0]
+
+    position = max(0.0, float(elapsed)) / max(0.001, profile.palette_period)
+    index    = int(position) % len(palettes)
+    blend    = _smoothstep(position - int(position))
+
+    start = palettes[index]
+    end   = palettes[(index + 1) % len(palettes)]
+
+    color_stops = tuple(
+        (
+            start_level,
+            _mix_hex_color(start_color, end_color, blend),
+        )
+        for (start_level, start_color), (_end_level, end_color)
+        in zip(start.color_stops, end.color_stops)
+    )
+
+    return SweepPalette(
+        indicator_dim=_mix_hex_color(
+            start.indicator_dim,
+            end.indicator_dim,
+            blend,
+        ),
+        indicator_peak=_mix_hex_color(
+            start.indicator_peak,
+            end.indicator_peak,
+            blend,
+        ),
+        color_stops=color_stops,
+    )
 
 
 def _gradient_color(stops: tuple[tuple[float, str], ...], intensity: float) -> str:
