@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 
+import sys
+import types
+
 import pytest
 
+from mind_core.design import terminal_capabilities
 from mind_core.design.terminal_capabilities import (
     TerminalColorLevel,
     TerminalKind,
@@ -137,3 +141,36 @@ def test_osc_color_response_parses_eight_and_sixteen_bit_rgb() -> None:
 
     assert theme.foreground == (238, 221, 204)
     assert theme.background == (16, 32, 48)
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    (
+        (
+            "\x1b]10;#010203\x07\x1b]11;#040506\x07",
+            TerminalTheme(
+                foreground=(1, 2, 3),
+                background=(4, 5, 6),
+            ),
+        ),
+        (
+            "\x1b]10;#010203\x07",
+            TerminalTheme(foreground=(1, 2, 3)),
+        ),
+    ),
+)
+def test_windows_color_response_returns_complete_or_timeout_partial_theme(
+    monkeypatch,
+    response: str,
+    expected: TerminalTheme,
+) -> None:
+    characters = list(response)
+    console_input = types.SimpleNamespace(
+        kbhit=lambda: bool(characters),
+        getwch=lambda: characters.pop(0),
+    )
+    monkeypatch.setitem(sys.modules, "msvcrt", console_input)
+
+    theme = terminal_capabilities._read_windows_color_response(0)
+
+    assert theme == expected

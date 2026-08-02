@@ -497,7 +497,6 @@ def _query_windows_theme(
 ) -> TerminalTheme:
     """通过 Windows 控制台查询默认颜色并提供调色板回退。"""
     import ctypes
-    import msvcrt
     from ctypes import wintypes
 
     input_handle = _windows_handle(input_stream)
@@ -535,19 +534,9 @@ def _query_windows_theme(
             original_mode.value | 0x0200,
         ))
 
-    response: list[str] = []
-
     try:
         _write_terminal_query(output_stream)
-
-        deadline = time.monotonic() + max(0.0, timeout)
-        while time.monotonic() < deadline:
-            while msvcrt.kbhit():
-                response.append(msvcrt.getwch())
-            theme = parse_terminal_color_responses("".join(response))
-            if theme.foreground is not None and theme.background is not None:
-                return theme
-            time.sleep(0.002)
+        osc_theme = _read_windows_color_response(timeout)
 
     finally:
         if console_handle is not None and mode_changed:
@@ -556,13 +545,33 @@ def _query_windows_theme(
                 original_mode.value,
             )
 
-    osc_theme     = parse_terminal_color_responses("".join(response))
     palette_theme = _windows_palette_theme(output_stream)
 
     return TerminalTheme(
         foreground=osc_theme.foreground or palette_theme.foreground,
         background=osc_theme.background or palette_theme.background,
     )
+
+
+def _read_windows_color_response(timeout: float) -> TerminalTheme:
+    """在截止时间内收集 Windows 控制台颜色响应。"""
+    import msvcrt
+
+    deadline = time.monotonic() + max(0.0, timeout)
+    response: list[str] = []
+
+    while True:
+        while msvcrt.kbhit():
+            response.append(msvcrt.getwch())
+
+        theme = parse_terminal_color_responses("".join(response))
+        if theme.foreground is not None and theme.background is not None:
+            return theme
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return theme
+        time.sleep(min(0.002, remaining))
 
 
 def _windows_handle(stream: object) -> int | None:
