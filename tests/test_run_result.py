@@ -22,6 +22,7 @@ from mind_app.output.content import (
     SourcesOutput,
 )
 from mind_app.output.session import OutputSession
+from mind_app.presentation.models import ApprovalView
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.runtime import HookRuntime
@@ -470,6 +471,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
             "name": "remote_tool",
             "call_id": "call-1",
             "arguments": {"value": 1},
+            "status": "completed",
             "result": {"ok": True, "text": "done"},
         },
         {"type": "text.delta", "text": "after"},
@@ -1279,7 +1281,9 @@ async def test_pre_tool_approval_denial_reports_additional_context(
 
     assert result.status == "completed"
     mind.frontend.interaction.request_approval.assert_not_awaited()
-    assert approval_posts[0][1] == {
+    approval_kwargs = dict(approval_posts[0][1])
+    assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs == {
         "decision": "decline",
         "reason": "unsafe operation",
         "additional_context": ("Use the safe tool instead.",),
@@ -1346,7 +1350,9 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         "call-approved",
         "approval-1",
     )
-    assert approval_posts[0][1] == {
+    approval_kwargs = dict(approval_posts[0][1])
+    assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs == {
         "decision": "accept",
         "reason": None,
     }
@@ -1357,6 +1363,187 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         "test_tool",
         True,
     )
+
+
+@pytest.mark.anyio
+async def test_stream_posts_only_amendment_id_for_policy_approval(
+    monkeypatch,
+) -> None:
+    approval_posts = []
+
+    async def request(_coordinator, approval):
+        assert approval["proposed_execpolicy_amendment"]["display"] == "git clone"
+        return "acceptWithExecpolicyAmendment"
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(ApprovalCoordinator, "request", request)
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.approval_required",
+            "call_id": "call-amendment",
+            "name": "shell_command",
+            "arguments": {"command": "git clone https://example.test/repo.git"},
+            "approval": {
+                "id": "approval-amendment",
+                "tool": "shell_command",
+                "justification": "需要检查源码",
+                "proposed_execpolicy_amendment": {
+                    "id": "amendment_1",
+                    "command_prefix": ["git", "clone"],
+                    "display": "git clone",
+                },
+            },
+        },
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert approval_posts[0][0] == (
+        "cid_test",
+        "sid_test",
+        "call-amendment",
+        "approval-amendment",
+    )
+    approval_kwargs = dict(approval_posts[0][1])
+    assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs == {
+        "decision": "acceptWithExecpolicyAmendment",
+        "reason": None,
+        "execpolicy_amendment_id": "amendment_1",
+    }
+
+
+@pytest.mark.anyio
+async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> None:
+    approval_posts = []
+
+    async def request(_coordinator, _approval):
+        return "decline"
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(ApprovalCoordinator, "request", request)
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.approval_required",
+            "call_id": "call-declined",
+            "name": "shell_command",
+            "approval": {
+                "id": "approval-declined",
+                "tool": "shell_command",
+            },
+        },
+        {
+            "type": "tool.output",
+            "call_id": "call-declined",
+            "name": "shell_command",
+            "status": "declined",
+            "ok": False,
+            "result": {"ok": False, "text": "user denied"},
+        },
+        {"type": "text.delta", "text": "我会换一种方式。"},
+        {"type": "text.done"},
+        {"type": "turn.done", "status": "completed"},
+    ])
+
+    assert result.status == "completed"
+    assert result.assistant_text == "我会换一种方式。"
+    assert approval_posts[0][1]["decision"] == "decline"
+    tool_entry = next(
+        entry
+        for entry in mind.transcripts.entries
+        if entry["event"] == "tool.completed"
+    )
+    assert tool_entry["payload"]["status"] == "declined"
+    approval_views = [
+        item
+        for item in mind.output_session.presentation.items
+        if isinstance(item, ApprovalView)
+    ]
+    assert [view.decision for view in approval_views] == ["decline"]
+    assert len(mind.output_session.presentation.items) == 3
+
+
+@pytest.mark.anyio
+async def test_cancelled_approval_drains_interrupted_turn_settlement(
+    monkeypatch,
+) -> None:
+    approval_posts = []
+    input_events = []
+
+    async def request(_coordinator, _approval):
+        return "cancel"
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(ApprovalCoordinator, "request", request)
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_required",
+                "turn_id": "turn_cancelled",
+                "call_id": "call-cancelled",
+                "name": "shell_command",
+                "approval": {
+                    "id": "approval-cancelled",
+                    "tool": "shell_command",
+                },
+            },
+            {
+                "type": "tool.output",
+                "turn_id": "turn_cancelled",
+                "call_id": "call-cancelled",
+                "name": "shell_command",
+                "status": "cancelled",
+                "ok": False,
+                "result": {"ok": False, "text": "user cancelled"},
+            },
+            {
+                "type": "turn.done",
+                "turn_id": "turn_cancelled",
+                "status": "interrupted",
+            },
+            {
+                "type": "turn.logical_settled",
+                "turn_id": "turn_cancelled",
+            },
+        ],
+        on_turn_input_event=input_events.append,
+    )
+
+    assert result.status == "interrupted"
+    approval_kwargs = dict(approval_posts[0][1])
+    assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs == {
+        "decision": "cancel",
+        "reason": "user cancelled",
+    }
+    tool_entry = next(
+        entry
+        for entry in mind.transcripts.entries
+        if entry["event"] == "tool.completed"
+    )
+    assert tool_entry["payload"]["status"] == "cancelled"
+    approval_views = [
+        item
+        for item in mind.output_session.presentation.items
+        if isinstance(item, ApprovalView)
+    ]
+    assert [view.decision for view in approval_views] == ["cancel"]
+    assert len(mind.output_session.presentation.items) == 2
+    assert len(input_events) == 1
+    assert input_events[0].type == "turn.logical_settled"
 
 
 @pytest.mark.anyio

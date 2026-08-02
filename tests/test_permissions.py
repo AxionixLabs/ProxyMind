@@ -275,6 +275,44 @@ def test_approval_card_presentation_is_owned_by_client() -> None:
     ]
 
 
+def test_approval_uses_amendment_as_second_visible_option() -> None:
+    approval = {
+        "proposed_execpolicy_amendment": {
+            "id": "amendment_1",
+            "command_prefix": ["git", "clone"],
+            "display": "git clone",
+        },
+    }
+
+    assert approval_decisions(approval) == [
+        "accept", "acceptWithExecpolicyAmendment", "decline"
+    ]
+    assert approval_decision_label(
+        "acceptWithExecpolicyAmendment",
+        approval,
+    ) == (
+        "Yes, and don't ask again for commands that start with `git clone`"
+    )
+
+
+@pytest.mark.parametrize(
+    "proposal",
+    (
+        None,
+        {},
+        {"id": "amendment_1", "command_prefix": [], "display": "git clone"},
+        {"id": "", "command_prefix": ["git", "clone"], "display": "git clone"},
+        {"id": "amendment_1", "command_prefix": ["git", "clone"], "display": ""},
+    ),
+)
+def test_invalid_amendment_keeps_session_option(proposal) -> None:
+    approval = {"proposed_execpolicy_amendment": proposal}
+
+    assert approval_decisions(approval) == [
+        "accept", "acceptForSession", "decline"
+    ]
+
+
 def test_approval_uses_execution_target_as_environment() -> None:
     approval = approval_from_event(ToolApprovalRequiredEvent(
         type="tool.approval_required",

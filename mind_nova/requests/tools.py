@@ -5,6 +5,11 @@ import httpx
 import typing
 from engine.channel import Channel
 from mind_nova.services import service_endpoints
+from mind_nova.tool_approval import (
+    TOOL_APPROVAL_DECISIONS,
+    ToolApprovalAck,
+    ToolApprovalDecision,
+)
 
 
 _ToolResultValue = typing.Union[
@@ -35,9 +40,11 @@ class _ToolApprovalPayload(typing.TypedDict):
     """描述工具审批决定的请求载荷。"""
     cid: str
     sid: str
+    turn_id: str
     call_id: str
     approval_id: str
-    decision: str
+    decision: ToolApprovalDecision
+    execpolicy_amendment_id: typing.NotRequired[str]
     reason: typing.NotRequired[str]
     additional_context: typing.NotRequired[list[str]]
 
@@ -47,7 +54,15 @@ class ToolApprovalExpired(Exception):
 
     def __init__(self, message: str = "tool approval not pending") -> None:
         super().__init__(message)
-        self.message = message
+
+
+class ToolApprovalRequestError(Exception):
+    """描述服务端拒绝或无法确认的审批决定。"""
+
+    def __init__(self, code: str, message: str, *, status_code: int = 0) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
 
 
 async def post_tool_result(
@@ -94,22 +109,44 @@ async def post_tool_approval(
     call_id: str,
     approval_id: str,
     decision: str,
+    *,
+    turn_id: str,
+    execpolicy_amendment_id: str | None = None,
     reason: str | None = None,
     timeout: float = 60.0,
     additional_context: typing.Sequence[str] = (),
-) -> None:
+) -> ToolApprovalAck:
     """把用户对服务端审批请求的决定回传给主循环。"""
-    clean_decision = str(decision or "").strip() or "decline"
+    clean_decision = str(decision or "").strip()
+    clean_turn_id = str(turn_id or "").strip()
+    amendment_id = str(execpolicy_amendment_id or "").strip()
+    reason_text = str(reason or "").strip()
+    if not clean_turn_id:
+        raise ValueError("tool approval requires turn_id")
+    if clean_decision not in TOOL_APPROVAL_DECISIONS:
+        raise ValueError("tool approval requires a supported decision")
+    typed_decision = typing.cast(ToolApprovalDecision, clean_decision)
+    if clean_decision == "acceptWithExecpolicyAmendment":
+        if not amendment_id:
+            raise ValueError("exec policy amendment approval requires amendment id")
+    elif amendment_id:
+        raise ValueError("exec policy amendment id requires amendment decision")
+    if reason_text and clean_decision not in {"decline", "cancel"}:
+        raise ValueError("tool approval reason requires decline or cancel")
+
     headers = Channel.make_headers()
     payload: _ToolApprovalPayload = {
         "cid"         : cid,
         "sid"         : sid,
+        "turn_id"     : clean_turn_id,
         "call_id"     : call_id,
         "approval_id" : approval_id,
-        "decision"    : clean_decision
+        "decision"    : typed_decision
     }
-    if reason:
-        payload["reason"] = reason
+    if amendment_id:
+        payload["execpolicy_amendment_id"] = amendment_id
+    if reason_text:
+        payload["reason"] = reason_text
 
     contexts = _normalized_contexts(additional_context)
     if contexts:
@@ -117,17 +154,91 @@ async def post_tool_approval(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(service_endpoints.endpoint("/tool-approval"), headers=headers, json=payload)
-        if _tool_approval_expired_response(r):
-            raise ToolApprovalExpired(_response_text(r) or "tool approval not pending")
-        r.raise_for_status()
+        if r.is_error:
+            code, message = _tool_approval_error(r)
+            if r.status_code == 404 and code == "approval_not_pending":
+                raise ToolApprovalExpired(message)
+            raise ToolApprovalRequestError(
+                code,
+                message,
+                status_code=r.status_code,
+            )
+        return _tool_approval_ack(
+            r,
+            turn_id=clean_turn_id,
+            approval_id=approval_id,
+            call_id=call_id,
+            decision=typed_decision,
+        )
 
 
-def _tool_approval_expired_response(response: httpx.Response) -> bool:
-    """识别服务端返回的审批已过期/不再 pending 响应。"""
-    if response.status_code != 404:
-        return False
-    text = _response_text(response).lower()
-    return "tool approval not pending" in text or "approval not pending" in text
+def _tool_approval_ack(
+    response: httpx.Response,
+    *,
+    turn_id: str,
+    approval_id: str,
+    call_id: str,
+    decision: ToolApprovalDecision,
+) -> ToolApprovalAck:
+    """校验审批响应与当前请求是否严格对应。"""
+    try:
+        body = response.json()
+    except (TypeError, ValueError) as error:
+        raise ToolApprovalRequestError(
+            "approval_ack_invalid",
+            "tool approval returned an invalid response",
+            status_code=response.status_code,
+        ) from error
+
+    expected = {
+        "turn_id": turn_id,
+        "approval_id": approval_id,
+        "call_id": call_id,
+        "decision": decision,
+    }
+    if (
+        not isinstance(body, dict)
+        or body.get("ok") is not True
+        or any(str(body.get(key) or "").strip() != value for key, value in expected.items())
+    ):
+        raise ToolApprovalRequestError(
+            "approval_ack_mismatch",
+            "tool approval response does not match request",
+            status_code=response.status_code,
+        )
+
+    tool_status = str(body.get("tool_status") or "").strip()
+    turn_status = str(body.get("turn_status") or "").strip()
+    if not tool_status or not turn_status:
+        raise ToolApprovalRequestError(
+            "approval_ack_invalid",
+            "tool approval response is missing lifecycle status",
+            status_code=response.status_code,
+        )
+    return ToolApprovalAck(
+        turn_id=turn_id,
+        approval_id=approval_id,
+        call_id=call_id,
+        decision=decision,
+        tool_status=tool_status,
+        turn_status=turn_status,
+    )
+
+
+def _tool_approval_error(response: httpx.Response) -> tuple[str, str]:
+    """读取审批错误响应中的稳定代码和说明。"""
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        body = None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or "").strip()
+        message = str(detail.get("message") or detail.get("detail") or "").strip()
+        if code:
+            return code, message or code
+    text = _response_text(response)
+    return "tool_approval_failed", text or "tool approval request failed"
 
 
 def _normalized_contexts(values: typing.Sequence[str]) -> list[str]:

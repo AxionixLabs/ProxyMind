@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+from mind_app.approval.models import ApprovalDecisionValue
 
 PlanStatus = typing.Literal[
     "pending",
@@ -10,16 +11,12 @@ PlanStatus = typing.Literal[
     "completed"
 ]
 
-ApprovalDecision = typing.Literal[
-    "accept",
-    "acceptForSession",
-    "decline",
-    "expired",
-]
+ApprovalDecision: typing.TypeAlias = ApprovalDecisionValue
 
 ApprovalState = typing.Literal[
     "approved",
     "denied",
+    "cancelled",
     "expired",
 ]
 

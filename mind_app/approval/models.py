@@ -3,13 +3,20 @@
 
 import typing
 from dataclasses import dataclass
+from mind_nova.tool_approval import ToolApprovalDecision
 
-ApprovalDecisionValue = typing.Literal[
-    "accept",
-    "acceptForSession",
-    "decline",
-    "expired"
-]
+
+ApprovalDecisionValue: typing.TypeAlias = (
+    ToolApprovalDecision | typing.Literal["expired"]
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ExecPolicyAmendmentProposal(object):
+    """保存服务端提供的执行策略修订提案。"""
+    id: str
+    command_prefix: tuple[str, ...]
+    display: str
 
 
 @dataclass(slots=True)

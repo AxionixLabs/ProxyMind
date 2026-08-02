@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_nova.tool_approval import (
+    TOOL_APPROVAL_ACCEPT_DECISIONS,
+    TOOL_APPROVAL_DECISIONS,
+)
 from .models import (
     ApprovalDecision,
     ApprovalSource,
@@ -30,7 +34,7 @@ def build_approval_view(
 
 def _approval_decision(decision: str) -> ApprovalDecision:
     """归一化工具审批结果。"""
-    if decision in {"accept", "acceptForSession", "expired"}:
+    if decision == "expired" or decision in TOOL_APPROVAL_DECISIONS:
         return typing.cast(ApprovalDecision, decision)
 
     return "decline"
@@ -40,7 +44,9 @@ def _approval_state(decision: ApprovalDecision) -> ApprovalState:
     """返回工具审批结果对应的展示状态。"""
     if decision == "expired":
         return "expired"
-    if decision in {"accept", "acceptForSession"}:
+    if decision == "cancel":
+        return "cancelled"
+    if decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
         return "approved"
 
     return "denied"

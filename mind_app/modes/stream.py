@@ -8,12 +8,15 @@ from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_core.skills import skills_payload
+from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from mind_app.approval.policy import (
     ApprovalStore,
+    approval_execpolicy_amendment,
     approval_from_event,
     approval_id_from_event,
     validate_tool_approval
 )
+from mind_app.approval.models import ApprovalDecisionValue
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
 from mind_nova.turn_inputs import TurnInput
@@ -152,6 +155,43 @@ def _approval_with_updated_input(
     updated["tool"] = tool or updated.get("tool") or ""
     updated["arguments"] = dict(updated_input)
     return updated
+
+
+def _approval_report_kwargs(
+    approval: dict[str, typing.Any],
+    *,
+    decision: ApprovalDecisionValue,
+    source: ApprovalSource,
+    turn_id: str,
+    hook_reason: str = "",
+    additional_context: typing.Sequence[str] = (),
+) -> dict[str, typing.Any]:
+    """构造审批决定回传所需的协议字段。"""
+    approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
+    if approved:
+        reason = None
+    elif source == "hook":
+        reason = hook_reason
+    elif source == "policy":
+        reason = "approval policy is never"
+    elif decision == "cancel":
+        reason = "user cancelled"
+    else:
+        reason = "user denied"
+
+    fields: dict[str, typing.Any] = {
+        "decision": decision,
+        "reason": reason,
+        "turn_id": turn_id,
+    }
+    if decision == "acceptWithExecpolicyAmendment":
+        amendment = approval_execpolicy_amendment(approval)
+        if amendment is None:
+            raise RuntimeError("approval amendment decision is missing proposal")
+        fields["execpolicy_amendment_id"] = amendment.id
+    if not approved and additional_context:
+        fields["additional_context"] = additional_context
+    return fields
 
 
 def _extend_request_context(
@@ -693,19 +733,7 @@ async def stream_looper(
                     await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                     continue
 
-                approved = decision in {"accept", "acceptForSession"}
-
-                reason = (
-                    permission_decision.reason
-                    if (
-                        permission_decision is not None
-                        and permission_decision.action == "deny"
-                    )
-                    else None if approved
-                    else "approval policy is never"
-                    if kwargs["permissions"].approval_policy == "never"
-                    else "user denied"
-                )
+                approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
 
                 approvals.mark_decision(
                     call_id=event.call_id,
@@ -719,18 +747,22 @@ async def stream_looper(
                     source=decision_source,
                 ))
                 try:
-                    approval_post_kwargs: dict[str, typing.Any] = {
-                        "decision": decision,
-                        "reason": reason,
-                    }
-                    if (
-                        not approved
-                        and permission_decision is not None
-                        and permission_decision.additional_context
-                    ):
-                        approval_post_kwargs["additional_context"] = (
+                    approval_post_kwargs = _approval_report_kwargs(
+                        approval,
+                        decision=decision,
+                        source=decision_source,
+                        turn_id=turn_context.turn_id,
+                        hook_reason=(
+                            permission_decision.reason
+                            if permission_decision is not None
+                            else ""
+                        ),
+                        additional_context=(
                             permission_decision.additional_context
-                        )
+                            if permission_decision is not None
+                            else ()
+                        ),
+                    )
                     await post_tool_approval(
                         turn_context.cid,
                         turn_context.sid,
@@ -988,13 +1020,18 @@ async def stream_looper(
                 tool_run         = server_tool_output_result(name, event.payload)
 
                 transcript.append(
-                    "tool.completed" if tool_run.ok else "tool.failed",
+                    (
+                        "tool.failed"
+                        if tool_run.status == "failed"
+                        else "tool.completed"
+                    ),
                     actor="tool",
                     payload={
                         "call_id": event.call_id,
                         "name": name,
                         "arguments": arguments,
                         "ok": tool_run.ok,
+                        "status": tool_run.status,
                         "result": tool_run.fields,
                     },
                 )
@@ -1002,14 +1039,15 @@ async def stream_looper(
                 if use_coding_trace:
                     await status_control.end_status()
 
-                await show_tool_result(
-                    presentation,
-                    name,
-                    arguments,
-                    tool_run,
-                    use_coding_trace=use_coding_trace,
-                    call_id=event.call_id,
-                )
+                if tool_run.status not in {"declined", "cancelled"}:
+                    await show_tool_result(
+                        presentation,
+                        name,
+                        arguments,
+                        tool_run,
+                        use_coding_trace=use_coding_trace,
+                        call_id=event.call_id,
+                    )
 
                 await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue

@@ -1,0 +1,210 @@
+# -*- coding: utf-8 -*-
+
+import httpx
+import pytest
+
+from mind_nova.requests import tools
+from mind_nova.tool_approval import ToolApprovalAck
+
+
+def _install_client(monkeypatch, response, captured) -> None:
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return response
+
+    monkeypatch.setattr(tools.httpx, "AsyncClient", ClientStub)
+    monkeypatch.setattr(
+        tools.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.test{path}",
+    )
+    monkeypatch.setattr(
+        tools.Channel,
+        "make_headers",
+        lambda: {"authorization": "test"},
+    )
+
+
+def _response(status_code, body):
+    return httpx.Response(
+        status_code,
+        json=body,
+        request=httpx.Request("POST", "https://example.test/tool-approval"),
+    )
+
+
+@pytest.mark.anyio
+async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "turn_id": "turn_001",
+        "approval_id": "approval_1",
+        "call_id": "call_1",
+        "decision": "acceptWithExecpolicyAmendment",
+        "tool_status": "completed",
+        "turn_status": "active",
+    }), captured)
+
+    ack = await tools.post_tool_approval(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "approval_1",
+        "acceptWithExecpolicyAmendment",
+        turn_id="turn_001",
+        execpolicy_amendment_id="amendment_1",
+        timeout=4.0,
+    )
+
+    assert ack == ToolApprovalAck(
+        turn_id="turn_001",
+        approval_id="approval_1",
+        call_id="call_1",
+        decision="acceptWithExecpolicyAmendment",
+        tool_status="completed",
+        turn_status="active",
+    )
+    assert captured["url"] == "https://example.test/tool-approval"
+    assert captured["headers"] == {"authorization": "test"}
+    assert captured["timeout"] == 4.0
+    assert captured["json"] == {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "turn_id": "turn_001",
+        "call_id": "call_1",
+        "approval_id": "approval_1",
+        "decision": "acceptWithExecpolicyAmendment",
+        "execpolicy_amendment_id": "amendment_1",
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"decision": "acceptWithExecpolicyAmendment"},
+        {"decision": "accept", "execpolicy_amendment_id": "amendment_1"},
+        {"decision": "accept", "reason": "not allowed"},
+        {"decision": "unknown"},
+    ),
+)
+async def test_approval_request_rejects_invalid_decision_fields(kwargs) -> None:
+    with pytest.raises(ValueError):
+        await tools.post_tool_approval(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "approval_1",
+            turn_id="turn_001",
+            **kwargs,
+        )
+
+
+@pytest.mark.anyio
+async def test_decline_request_allows_reason(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "turn_id": "turn_001",
+        "approval_id": "approval_1",
+        "call_id": "call_1",
+        "decision": "decline",
+        "tool_status": "declined",
+        "turn_status": "active",
+    }), captured)
+
+    await tools.post_tool_approval(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "approval_1",
+        "decline",
+        turn_id="turn_001",
+        reason="user denied",
+    )
+
+    assert captured["json"]["reason"] == "user denied"
+    assert "execpolicy_amendment_id" not in captured["json"]
+
+
+@pytest.mark.anyio
+async def test_not_pending_response_raises_expired(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(404, {
+        "detail": {
+            "code": "approval_not_pending",
+            "message": "approval expired",
+        },
+    }), captured)
+
+    with pytest.raises(tools.ToolApprovalExpired, match="^approval expired$"):
+        await tools.post_tool_approval(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "approval_1",
+            "decline",
+            turn_id="turn_001",
+        )
+
+
+@pytest.mark.anyio
+async def test_conflict_response_preserves_stable_error_code(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(409, {
+        "detail": {
+            "code": "approval_decision_conflict",
+            "message": "decision conflicts with prior response",
+        },
+    }), captured)
+
+    with pytest.raises(tools.ToolApprovalRequestError) as caught:
+        await tools.post_tool_approval(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "approval_1",
+            "decline",
+            turn_id="turn_001",
+        )
+
+    assert caught.value.code == "approval_decision_conflict"
+    assert caught.value.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_approval_ack_rejects_mismatched_coordinates(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "turn_id": "turn_other",
+        "approval_id": "approval_1",
+        "call_id": "call_1",
+        "decision": "decline",
+        "tool_status": "declined",
+        "turn_status": "active",
+    }), captured)
+
+    with pytest.raises(tools.ToolApprovalRequestError) as caught:
+        await tools.post_tool_approval(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "approval_1",
+            "decline",
+            turn_id="turn_001",
+        )
+
+    assert caught.value.code == "approval_ack_mismatch"

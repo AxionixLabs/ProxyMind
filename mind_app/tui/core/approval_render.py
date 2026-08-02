@@ -107,6 +107,7 @@ def tui_approval_content_lines(
 
     option_groups = _approval_option_groups(
         decisions,
+        approval=approval,
         selected_index=selected_index,
         max_width=content_width,
     )
@@ -171,6 +172,7 @@ def _approval_agent_source_line(
 def _approval_option_groups(
     decisions: list[ApprovalDecisionValue],
     *,
+    approval: dict[str, typing.Any],
     selected_index: int,
     max_width: int,
 ) -> list[list[list[tuple[str, str]]]]:
@@ -194,6 +196,7 @@ def _approval_option_groups(
 
         body = _decision_parts(
             decision,
+            approval=approval,
             label_style=label_style,
             shortcut_style=shortcut_style,
         )
@@ -782,11 +785,12 @@ def _trim_trailing_space(
 def _decision_parts(
     decision: str,
     *,
+    approval: dict[str, typing.Any],
     label_style: str,
     shortcut_style: str,
 ) -> list[tuple[str, str]]:
     """生成审批选项标签和快捷键片段。"""
-    label    = approval_decision_label(decision)
+    label    = approval_decision_label(decision, approval)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
     parts    = [(label_style, label)]
 

@@ -81,7 +81,7 @@ class TuiApproval(object):
 
         self.state = ApprovalState(
             approval=dict(approval),
-            decisions=approval_decisions(),
+            decisions=approval_decisions(approval),
             future=future,
         )
         self.selected_index = 0
@@ -185,7 +185,10 @@ class TuiApproval(object):
         state = self.state
         if state is None or state.future.done():
             return None
-        if decision not in state.decisions and decision != "expired":
+        if decision not in state.decisions and decision not in {
+            "cancel",
+            "expired",
+        }:
             return None
         state.future.set_result(decision)
 
@@ -238,9 +241,13 @@ class TuiApproval(object):
         def _(event) -> None:
             self.finish("acceptForSession")
 
+        @bindings.add("p")
+        def _(event) -> None:
+            self.finish("acceptWithExecpolicyAmendment")
+
         @bindings.add("c-c")
         def _(event) -> None:
-            self.finish("decline")
+            self.finish("cancel")
 
         for number in range(1, 10):
             @bindings.add(str(number))

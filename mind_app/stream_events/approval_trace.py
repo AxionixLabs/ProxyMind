@@ -88,7 +88,12 @@ def render_approval_approved_trace(
     if source == "policy":
         return f"✔ Approval policy approved {summary}".rstrip()
 
-    scope = "for this session" if decision == "acceptForSession" else "this time"
+    if decision == "acceptForSession":
+        scope = "for this session"
+    elif decision == "acceptWithExecpolicyAmendment":
+        scope = "with the proposed command policy"
+    else:
+        scope = "this time"
     return f"✔ You approved {const.APP_NAME} to run {summary} {scope}".rstrip()
 
 
@@ -111,6 +116,12 @@ def render_approval_expired_trace(approval: dict[str, typing.Any]) -> str:
     """生成审批过期后的轨迹标题。"""
     summary = approval_summary(approval)
     return f"• Approval expired for {summary} · command was not run".rstrip()
+
+
+def render_approval_cancelled_trace(approval: dict[str, typing.Any]) -> str:
+    """生成审批取消后的轨迹标题。"""
+    summary = approval_summary(approval)
+    return f"• You cancelled {summary} · turn was interrupted".rstrip()
 
 
 def render_approval_trace_parts(

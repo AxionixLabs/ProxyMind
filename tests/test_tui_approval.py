@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
@@ -497,6 +498,85 @@ async def test_approval_selection_resets_between_requests() -> None:
     )
     approval.finish("decline")
     await approval.dismiss()
+
+
+@pytest.mark.anyio
+async def test_approval_amendment_replaces_session_choice() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    request = {
+        "tool": "shell_command",
+        "command": "git clone https://example.test/repo.git",
+        "show_timer": False,
+        "proposed_execpolicy_amendment": {
+            "id": "amendment_1",
+            "command_prefix": ["git", "clone"],
+            "display": "git clone",
+        },
+    }
+
+    assert approval.begin(request)
+    assert approval.state is not None
+    assert approval.state.decisions == [
+        "accept", "acceptWithExecpolicyAmendment", "decline"
+    ]
+    assert "commands that start with `git clone`" in "".join(
+        text for _style, text in approval.fragments()
+    )
+
+    approval.finish("acceptForSession")
+    assert not approval.state.future.done()
+    _invoke_approval_binding(approval, ("p",))
+    assert await approval.wait() == "acceptWithExecpolicyAmendment"
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+async def test_approval_ctrl_c_returns_hidden_cancel() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "show_timer": False,
+    })
+    assert approval.state is not None
+    assert approval.state.decisions == [
+        "accept", "acceptForSession", "decline"
+    ]
+
+    _invoke_approval_binding(approval, (Keys.ControlC,))
+
+    assert await approval.wait() == "cancel"
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("keys", ((Keys.Escape,), ("n",)))
+async def test_approval_decline_shortcuts_do_not_cancel_turn(keys) -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "show_timer": False,
+    })
+
+    _invoke_approval_binding(approval, keys)
+
+    assert await approval.wait() == "decline"
+    await approval.dismiss()
+
+
+def _invoke_approval_binding(approval, keys) -> None:
+    binding = next(
+        item
+        for item in approval.key_bindings.bindings
+        if item.keys == keys
+    )
+    binding.handler(None)
 
 
 def _line_texts(lines) -> list[str]:

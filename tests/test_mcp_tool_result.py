@@ -8,7 +8,10 @@ from mind_app.mcp.tool_result import (
     normalize_tool_fields,
 )
 from mind_app.runtime.execution import AgentContext, ToolInvocation, TurnContext
-from mind_app.runtime.tools.run import run_tool_step
+from mind_app.runtime.tools.run import (
+    run_tool_step,
+    server_tool_output_result,
+)
 from mind_core.permissions import preset_permissions
 
 
@@ -126,6 +129,28 @@ def test_normalize_empty_error_result_remains_visible() -> None:
     assert not normalized.ok
     assert normalized.fields["text"] == ""
     assert normalized.display_text == "Tool failed with no textual error details."
+
+
+@pytest.mark.parametrize("status", ("failed", "declined", "cancelled"))
+def test_noncompleted_server_tool_status_is_not_successful(status) -> None:
+    tool_run = server_tool_output_result(
+        "shell_command",
+        {
+            "status": status,
+            "result": {"text": status},
+        },
+    )
+
+    assert tool_run.status == status
+    assert tool_run.ok is False
+
+
+def test_server_tool_output_requires_protocol_status() -> None:
+    with pytest.raises(ValueError, match="requires a supported status"):
+        server_tool_output_result(
+            "shell_command",
+            {"result": {"text": "missing status"}},
+        )
 
 
 @pytest.mark.anyio

@@ -8,6 +8,10 @@ import functools
 from dataclasses import dataclass
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import ToolInvocation
+from mind_nova.tool_approval import (
+    TOOL_LIFECYCLE_STATUSES,
+    ToolLifecycleStatus,
+)
 from mind_app.mcp.tool_result import (
     normalize_call_tool_result,
     normalize_tool_fields
@@ -77,7 +81,6 @@ _OUTPUT_PROMOTED_RESULT_KEYS = (
     "output_lines"
 )
 
-
 @dataclass(slots=True)
 class ToolRunResult:
     """统一描述单次工具执行的收束结果。"""
@@ -87,6 +90,7 @@ class ToolRunResult:
     text: str
     data: typing.Any
     cost_ms: int
+    status: ToolLifecycleStatus
 
 
 def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> typing.Any:
@@ -151,7 +155,9 @@ def server_tool_output_result(
 ) -> ToolRunResult:
     """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
     raw_fields = _server_output_fields(event)
-    ok         = _server_output_ok(event, raw_fields)
+    reported_ok = _server_output_ok(event, raw_fields)
+    status      = _server_output_status(event)
+    ok          = reported_ok if status == "completed" else False
     normalized = normalize_tool_fields(raw_fields, ok=ok)
     fields     = normalize_tool_result_fields(name, normalized.fields)
     cost_ms = _server_output_cost_ms(event)
@@ -162,7 +168,8 @@ def server_tool_output_result(
         fields=fields,
         text=normalized.display_text,
         data=_tool_result_data(fields),
-        cost_ms=cost_ms
+        cost_ms=cost_ms,
+        status=status,
     )
 
 
@@ -236,6 +243,16 @@ def _server_output_ok(
             return bool(fields["ok"])
 
     return True
+
+
+def _server_output_status(
+    event: dict[str, typing.Any],
+) -> ToolLifecycleStatus:
+    """读取服务端工具输出的稳定生命周期状态。"""
+    status = str(event.get("status") or "").strip().lower()
+    if status in TOOL_LIFECYCLE_STATUSES:
+        return typing.cast(ToolLifecycleStatus, status)
+    raise ValueError("tool.output requires a supported status")
 
 
 def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
@@ -362,7 +379,8 @@ async def run_tool_step(
         fields=fields,
         text=normalized.display_text,
         data=_tool_result_data(fields),
-        cost_ms=cost_ms
+        cost_ms=cost_ms,
+        status="completed" if ok else "failed",
     )
 
 

@@ -104,12 +104,14 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
         "type": "tool.output",
         "name": "remote_tool",
         "call_id": "call-2",
+        "status": "completed",
         "result": {"ok": True, "text": "done"},
     })
 
     assert isinstance(approval, ToolApprovalRequiredEvent)
     assert approval.approval == {"id": "approval-1"}
     assert isinstance(output, ToolOutputEvent)
+    assert output.payload["status"] == "completed"
     assert output.payload["result"] == {"ok": True, "text": "done"}
 
 

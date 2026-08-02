@@ -12,12 +12,13 @@ from mind_nova.stream_events import (
     ToolApprovalRequiredEvent,
     ToolCallEvent
 )
-from mind_app.stream_events.approval_trace import approval_summary
 from mind_nova import const
+from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from .models import (
     ApprovalDecision,
     ApprovalDecisionValue,
-    ApprovalRecord
+    ApprovalRecord,
+    ExecPolicyAmendmentProposal,
 )
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
@@ -27,15 +28,17 @@ DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
 )
 
 DECISION_LABELS: dict[str, str] = {
-    "accept"           : f"Yes, proceed",
-    "acceptForSession" : f"Yes, for this session",
-    "decline"          : f"No, and tell {const.APP_DESC} what to do differently"
+    "accept"                        : "Yes, proceed",
+    "acceptForSession"              : "Yes, for this session",
+    "acceptWithExecpolicyAmendment" : "Yes, and don't ask again for this command prefix",
+    "decline"                       : f"No, and tell {const.APP_DESC} what to do differently",
 }
 
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
-    "accept"           : "y",
-    "acceptForSession" : "s",
-    "decline"          : "n/esc"
+    "accept"                        : "y",
+    "acceptForSession"              : "s",
+    "acceptWithExecpolicyAmendment" : "p",
+    "decline"                       : "n/esc",
 }
 
 SHELL_TOOL_NAMES = {
@@ -85,7 +88,7 @@ class ApprovalStore(object):
 
         approval_id = str(approval.get("id") or "").strip()
 
-        if decision in {"accept", "acceptForSession"} and approval_id:
+        if decision in TOOL_APPROVAL_ACCEPT_DECISIONS and approval_id:
             self.approved_by_call_id[call_id] = approval_id
             return None
         self.approved_by_call_id.pop(call_id, None)
@@ -409,31 +412,42 @@ def _approval_reject_result(
     }
 
 
-def approval_prompt_text(
-    approval: dict[str, typing.Any]
-) -> str:
-    """构造审批提示的纯文本内容。"""
-    summary = approval_summary(approval)
-    prompt  = approval_prompt(approval)
+def approval_decisions(
+    approval: dict[str, typing.Any] | None = None,
+) -> list[ApprovalDecisionValue]:
+    """按修订提案返回三个可见审批选项。"""
+    decisions = list(DEFAULT_APPROVAL_DECISIONS)
+    if approval_execpolicy_amendment(approval) is not None:
+        decisions[1] = "acceptWithExecpolicyAmendment"
+    return decisions
 
-    return (
-        f"\n{prompt}\n\n"
-        f"$ {summary}\n"
+
+def approval_execpolicy_amendment(
+    approval: dict[str, typing.Any] | None,
+) -> ExecPolicyAmendmentProposal | None:
+    """读取可安全展示和回传的执行策略修订提案。"""
+    if not isinstance(approval, dict):
+        return None
+    raw = approval.get("proposed_execpolicy_amendment")
+    if not isinstance(raw, dict):
+        return None
+
+    amendment_id = str(raw.get("id") or "").strip()
+    display = str(raw.get("display") or "").strip()
+    command_prefix = raw.get("command_prefix")
+    if (
+        not amendment_id
+        or not display
+        or not isinstance(command_prefix, list)
+        or not command_prefix
+        or any(not isinstance(value, str) or not value for value in command_prefix)
+    ):
+        return None
+    return ExecPolicyAmendmentProposal(
+        id=amendment_id,
+        command_prefix=tuple(command_prefix),
+        display=display,
     )
-
-
-def approval_decisions() -> list[ApprovalDecisionValue]:
-    """返回客户端固定配置的审批选项。"""
-    return list(DEFAULT_APPROVAL_DECISIONS)
-
-
-def approval_choice_text() -> str:
-    """构造审批选项纯文本。"""
-    lines = []
-    for index, decision in enumerate(approval_decisions(), start=1):
-        prefix = "›" if index == 1 else " "
-        lines.append(f"{prefix} {index}. {_decision_display_label(decision)}")
-    return "\n".join(lines) + "\n"
 
 
 def _approval_prompt_noun(
@@ -450,40 +464,18 @@ def _approval_prompt_noun(
     return "tool action"
 
 
-def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
-    """将输入的审批选项值转换为内部枚举。"""
-    text = str(value or "").strip()
-
-    aliases: dict[str, ApprovalDecisionValue] = {
-        "accept"             : "accept",
-        "approve"            : "accept",
-        "approved"           : "accept",
-        "yes"                : "accept",
-        "accept_for_session" : "acceptForSession",
-        "accept-for-session" : "acceptForSession",
-        "acceptforsession"   : "acceptForSession",
-        "decline"            : "decline",
-        "deny"               : "decline",
-        "denied"             : "decline",
-        "no"                 : "decline"
-    }
-
-    return aliases.get(text.lower())
-
-
-def _decision_display_label(
-    decision: str
-) -> str:
-    """返回审批选项的展示文案，包含可用快捷键提示。"""
-    label    = approval_decision_label(decision)
-    shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
-    return f"{label} ({shortcut})" if shortcut else label
-
-
 def approval_decision_label(
-    decision: str
+    decision: str,
+    approval: dict[str, typing.Any] | None = None,
 ) -> str:
     """返回客户端定义的审批选项展示文案。"""
+    if decision == "acceptWithExecpolicyAmendment":
+        amendment = approval_execpolicy_amendment(approval)
+        if amendment is not None:
+            return (
+                "Yes, and don't ask again for commands that start with "
+                f"`{amendment.display}`"
+            )
     return DECISION_LABELS.get(decision, decision)
 
 
