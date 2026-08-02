@@ -109,7 +109,9 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
 
     agent_names = {
         "spawn_agent",
+        "list_agents",
         "send_input",
+        "interrupt_agent",
         "resume_agent",
         "wait_agent",
         "close_agent",
@@ -118,7 +120,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     assert "spawn_agent" not in disabled_names
 
     agent_tools = [tool for tool in enabled_tools if tool.name in agent_names]
-    assert len(agent_tools) == 5
+    assert len(agent_tools) == 7
     assert all(
         tool.meta["domain"] == "client" and tool.meta["class"] == "agent"
         for tool in agent_tools
@@ -161,7 +163,7 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
         session,
         turn,
         "wait_agent",
-        {"targets": [agent_id]},
+        {"targets": ["/root/review"]},
         pref_config,
     )
     snapshot = await runtime.get(turn.sid, agent_id)
@@ -180,28 +182,28 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
         session,
         turn,
         "close_agent",
-        {"target": agent_id},
+        {"target": "review"},
         pref_config,
     )
     rejected = await _call(
         session,
         turn,
         "send_input",
-        {"target": agent_id, "message": "blocked"},
+        {"target": "/root/review", "message": "blocked"},
         pref_config,
     )
     resumed = await _call(
         session,
         turn,
         "resume_agent",
-        {"id": agent_id},
+        {"id": "review"},
         pref_config,
     )
     submitted = await _call(
         session,
         turn,
         "send_input",
-        {"target": agent_id, "message": "second"},
+        {"target": "/root/review", "message": "second"},
         pref_config,
     )
     second = await _call(
@@ -313,6 +315,109 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
 
 
 @pytest.mark.anyio
+async def test_list_agents_discovers_and_filters_task_paths() -> None:
+    runtime = SubagentRuntime(_Controller())
+    session = _session(runtime)
+    turn = _root_turn()
+
+    empty = await _call(session, turn, "list_agents", {}, {})
+    first = await _call(
+        session,
+        turn,
+        "spawn_agent",
+        {"message": "first", "task_name": "foo", "agent_type": "worker"},
+        {},
+    )
+    second = await _call(
+        session,
+        turn,
+        "spawn_agent",
+        {
+            "message": "second",
+            "task_name": "foobar",
+            "agent_type": "reviewer",
+        },
+        {},
+    )
+    listed = await _call(session, turn, "list_agents", {}, {})
+    filtered = await _call(
+        session,
+        turn,
+        "list_agents",
+        {"path_prefix": "/root/foo"},
+        {},
+    )
+
+    assert _data(empty) == {"agents": []}
+    assert [item["agent_id"] for item in _data(listed)["agents"]] == [
+        _data(first)["agent_id"],
+        _data(second)["agent_id"],
+    ]
+    assert len(_data(filtered)["agents"]) == 1
+    filtered_agent = _data(filtered)["agents"][0]
+    assert filtered_agent["agent_id"] == _data(first)["agent_id"]
+    assert filtered_agent["agent_type"] == "worker"
+    assert filtered_agent["task_name"] == "foo"
+    assert filtered_agent["task_path"] == "/root/foo"
+    assert filtered_agent["parent_agent_id"] == "root"
+    assert filtered_agent["status"] in {"pending", "running", "completed"}
+    assert filtered_agent["turn_count"] == 1
+    assert filtered_agent["queued_count"] == 0
+
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_interrupt_agent_cancels_without_submitting_followup() -> None:
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    session = _session(runtime)
+    turn = _root_turn()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def stream_handler(**kwargs):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    controller.stream_handler = stream_handler
+    spawned = await _call(
+        session,
+        turn,
+        "spawn_agent",
+        {"message": "first", "task_name": "interruptible"},
+        {},
+    )
+    await started.wait()
+
+    interrupted = await _call(
+        session,
+        turn,
+        "interrupt_agent",
+        {"target": "/root/interruptible"},
+        {},
+    )
+    snapshot = await runtime.get(turn.sid, _data(spawned)["agent_id"])
+
+    assert not interrupted.isError
+    assert _data(interrupted) == {
+        "agent_id": _data(spawned)["agent_id"],
+        "task_path": "/root/interruptible",
+        "status": "interrupted",
+    }
+    assert cancelled.is_set()
+    assert snapshot.status == "interrupted"
+    assert snapshot.turn_count == 1
+    assert snapshot.queued_count == 0
+    assert controller.messages == ["first"]
+
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
 async def test_agent_tools_reject_cross_root_and_self_blocking_calls() -> None:
     runtime = SubagentRuntime(_Controller())
     session = _session(runtime)
@@ -349,14 +454,21 @@ async def test_agent_tools_reject_cross_root_and_self_blocking_calls() -> None:
         session,
         child_turn,
         "wait_agent",
-        {"targets": [agent_id]},
+        {"targets": [snapshot.context.task_path]},
+        {},
+    )
+    self_interrupt = await _call(
+        session,
+        child_turn,
+        "interrupt_agent",
+        {"target": snapshot.context.task_path},
         {},
     )
     self_close = await _call(
         session,
         child_turn,
         "close_agent",
-        {"target": agent_id},
+        {"target": snapshot.context.task_path},
         {},
     )
 
@@ -364,6 +476,8 @@ async def test_agent_tools_reject_cross_root_and_self_blocking_calls() -> None:
     assert "root session not found" in _data(cross_root)["error"]
     assert self_wait.isError
     assert "cannot wait for its own" in _data(self_wait)["error"]
+    assert self_interrupt.isError
+    assert "cannot interrupt its own" in _data(self_interrupt)["error"]
     assert self_close.isError
     assert "cannot close itself" in _data(self_close)["error"]
 

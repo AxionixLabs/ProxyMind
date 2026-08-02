@@ -11,6 +11,7 @@ from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentDepthError,
     AgentLimitError,
+    AgentNotFoundError,
     AgentSubmission,
     AgentStateError,
 )
@@ -51,12 +52,15 @@ def _thread(
     agent_type: str,
     *,
     agent_id: str | None = None,
+    task_name: str | None = None,
 ) -> AgentThreadContext:
     cid = new_cid()
     return AgentThreadContext(
         agent=parent.child(
             agent_type,
-            str(agent_id or agent_type).removeprefix("agent_") or agent_type,
+            task_name
+            or str(agent_id or agent_type).removeprefix("agent_")
+            or agent_type,
             agent_id=agent_id,
         ),
         cid=cid,
@@ -76,9 +80,15 @@ async def _spawn(
     operation,
     *,
     agent_id: str | None = None,
+    task_name: str | None = None,
 ):
     return await control.spawn(
-        _thread(parent, agent_type, agent_id=agent_id),
+        _thread(
+            parent,
+            agent_type,
+            agent_id=agent_id,
+            task_name=task_name,
+        ),
         control.submission(operation, kind="initial"),
     )
 
@@ -587,6 +597,145 @@ async def test_agent_control_enforces_depth_and_root_session() -> None:
             "worker",
             lambda context: _return_value(None),
         )
+
+
+@pytest.mark.anyio
+async def test_agent_control_resolves_ids_and_task_paths_from_caller() -> None:
+    control = _control(max_open_agents=3, max_depth=2)
+    parent = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value("parent"),
+        agent_id="agent_parent",
+        task_name="parent",
+    )
+    child = await _spawn(
+        control,
+        parent.context,
+        "explorer",
+        lambda context: _return_value("child"),
+        agent_id="agent_child",
+        task_name="child",
+    )
+    sibling = await _spawn(
+        control,
+        control.root,
+        "reviewer",
+        lambda context: _return_value("sibling"),
+        agent_id="agent_sibling",
+        task_name="sibling",
+    )
+
+    assert (await control.get(parent.agent_id)).agent_id == parent.agent_id
+    assert (await control.get("parent")).agent_id == parent.agent_id
+    assert (await control.get("/root/parent")).agent_id == parent.agent_id
+    assert (
+        await control.get("child", caller=parent.context)
+    ).agent_id == child.agent_id
+    assert (
+        await control.get("/root/sibling", caller=parent.context)
+    ).agent_id == sibling.agent_id
+
+    with pytest.raises(ValueError, match="task name"):
+        await control.get("../sibling", caller=parent.context)
+    with pytest.raises(AgentNotFoundError, match="agent not found"):
+        await control.get("missing")
+
+    await control.close_all()
+
+
+@pytest.mark.anyio
+async def test_agent_control_indexes_unique_task_paths() -> None:
+    control = _control(max_open_agents=2)
+    await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value(None),
+        agent_id="agent_first",
+        task_name="shared",
+    )
+
+    with pytest.raises(AgentStateError, match="task path already exists"):
+        await _spawn(
+            control,
+            control.root,
+            "worker",
+            lambda context: _return_value(None),
+            agent_id="agent_second",
+            task_name="shared",
+        )
+
+    await control.close_all()
+
+
+@pytest.mark.anyio
+async def test_wait_deduplicates_ids_and_paths_after_resolution() -> None:
+    control = _control()
+    spawned = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value("done"),
+        agent_id="agent_waited",
+        task_name="waited",
+    )
+
+    waited = await control.wait(
+        [spawned.agent_id, spawned.context.task_path, "waited"],
+        timeout_sec=1,
+    )
+
+    assert [snapshot.agent_id for snapshot in waited.snapshots] == [
+        spawned.agent_id,
+    ]
+    await control.close_all()
+
+
+@pytest.mark.anyio
+async def test_list_prefix_uses_path_segment_boundaries() -> None:
+    control = _control(max_open_agents=3, max_depth=2)
+    parent = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value(None),
+        agent_id="agent_parent",
+        task_name="foo",
+    )
+    child = await _spawn(
+        control,
+        parent.context,
+        "worker",
+        lambda context: _return_value(None),
+        agent_id="agent_child",
+        task_name="child",
+    )
+    other = await _spawn(
+        control,
+        control.root,
+        "worker",
+        lambda context: _return_value(None),
+        agent_id="agent_other",
+        task_name="foobar",
+    )
+
+    listed = await control.list_snapshots(path_prefix="/root/foo")
+    relative = await control.list_snapshots(
+        caller=parent.context,
+        path_prefix="child",
+    )
+
+    assert [snapshot.agent_id for snapshot in listed] == [
+        parent.agent_id,
+        child.agent_id,
+    ]
+    assert [snapshot.agent_id for snapshot in relative] == [child.agent_id]
+    assert other.agent_id not in {snapshot.agent_id for snapshot in listed}
+    await control.close("/root/foo")
+    assert (await control.get(child.agent_id)).status == "closed"
+    await control.close_all()
 
 
 async def _return_value(value):

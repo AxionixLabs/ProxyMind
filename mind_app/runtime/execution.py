@@ -121,6 +121,29 @@ class AgentContext:
             depth=self.depth + 1,
         )
 
+    def resolve_task_reference(self, reference: str) -> str:
+        """把绝对或相对任务引用解析为规范路径。"""
+        if not isinstance(reference, str):
+            raise TypeError("agent target must be a string")
+        normalized = reference.strip()
+        if not normalized:
+            raise ValueError("agent target is required")
+
+        candidate = (
+            normalized
+            if normalized.startswith("/")
+            else f"{self.task_path}/{normalized}"
+        )
+        parts = candidate.split("/")
+        if candidate == "/root":
+            _validate_task_path(candidate, ROOT_AGENT_ID, 0)
+            return candidate
+
+        task_name = parts[-1] if parts else ""
+        depth = len(parts) - 2
+        _validate_task_path(candidate, task_name, depth)
+        return candidate
+
 
 @dataclass(frozen=True, slots=True)
 class TurnContext:

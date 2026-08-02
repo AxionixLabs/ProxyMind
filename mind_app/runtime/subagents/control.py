@@ -228,6 +228,8 @@ class AgentControl:
 
         self._records: dict[str, _AgentRecord] = {}
 
+        self._records_by_path: dict[str, _AgentRecord] = {}
+
         self._shutdown: bool = False
 
     @property
@@ -274,26 +276,26 @@ class AgentControl:
                 raise AgentStateError(
                     f"agent id already exists: {thread.agent.agent_id}"
                 )
-            if any(
-                record.context.task_path == thread.agent.task_path
-                for record in self._records.values()
-            ):
+            if thread.agent.task_path in self._records_by_path:
                 raise AgentStateError(
                     f"task path already exists: {thread.agent.task_path}"
                 )
 
             record = _AgentRecord(thread=thread)
             self._records[thread.agent.agent_id] = record
+            self._records_by_path[thread.agent.task_path] = record
             self._start(record, submission)
             self._condition.notify_all()
+
             return self._snapshot(record)
 
     async def submit(
         self,
-        agent_id: str,
+        target: str,
         submission: AgentSubmission,
         *,
-        interrupt: bool = False
+        interrupt: bool = False,
+        caller: AgentContext | None = None,
     ) -> str:
         """向已开放的执行主体提交或排队新一轮任务。"""
         if not isinstance(submission, AgentSubmission):
@@ -303,7 +305,15 @@ class AgentControl:
 
         async with self._condition:
             self._require_active()
-            record = self._require_record(agent_id)
+            record = self._require_record(target, caller=caller)
+            if (
+                interrupt
+                and caller is not None
+                and record.context.agent_id == caller.agent_id
+            ):
+                raise AgentStateError(
+                    "an agent cannot interrupt its own active turn"
+                )
             if record.status == "closed":
                 raise AgentStateError(f"agent is closed: {record.context.agent_id}")
 
@@ -320,11 +330,16 @@ class AgentControl:
             self._condition.notify_all()
             return submission.submission_id
 
-    async def resume(self, agent_id: str) -> AgentSnapshot:
+    async def resume(
+        self,
+        target: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentSnapshot:
         """重新开放已经关闭的执行主体。"""
         async with self._condition:
             self._require_active()
-            record = self._require_record(agent_id)
+            record = self._require_record(target, caller=caller)
             if record.status != "closed":
                 return self._snapshot(record)
             if record.task is not None:
@@ -344,17 +359,41 @@ class AgentControl:
             self._condition.notify_all()
             return self._snapshot(record)
 
-    async def get(self, agent_id: str) -> AgentSnapshot:
+    async def get(
+        self,
+        target: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentSnapshot:
         """返回指定执行主体的当前快照。"""
         async with self._condition:
-            return self._snapshot(self._require_record(agent_id))
+            return self._snapshot(self._require_record(target, caller=caller))
 
     async def snapshots(self) -> tuple[AgentSnapshot, ...]:
         """按创建顺序返回全部执行主体快照。"""
+        return await self.list_snapshots()
+
+    async def list_snapshots(
+        self,
+        *,
+        caller: AgentContext | None = None,
+        path_prefix: str | None = None,
+    ) -> tuple[AgentSnapshot, ...]:
+        """按创建顺序返回指定任务路径下的执行主体快照。"""
         async with self._condition:
+            caller_context = self._require_caller(caller)
+            canonical_prefix = (
+                caller_context.resolve_task_reference(path_prefix)
+                if path_prefix is not None
+                else None
+            )
             return tuple(
                 self._snapshot(record)
                 for record in self._records.values()
+                if canonical_prefix is None
+                or canonical_prefix == self._root.task_path
+                or record.context.task_path == canonical_prefix
+                or record.context.task_path.startswith(f"{canonical_prefix}/")
             )
 
     async def count_open(self) -> int:
@@ -366,10 +405,11 @@ class AgentControl:
         self,
         targets: typing.Iterable[str],
         *,
-        timeout_sec: float | None = None
+        timeout_sec: float | None = None,
+        caller: AgentContext | None = None,
     ) -> AgentWaitResult:
         """等待任一目标进入终态并返回当前终态快照。"""
-        target_ids = _normalize_targets(targets)
+        normalized_targets = _normalize_targets(targets)
         if (
             timeout_sec is not None
             and (
@@ -389,8 +429,14 @@ class AgentControl:
         )
 
         async with self._condition:
-            for agent_id in target_ids:
-                self._require_record(agent_id)
+            target_ids = tuple(dict.fromkeys(
+                self._require_record(target, caller=caller).context.agent_id
+                for target in normalized_targets
+            ))
+            if caller is not None and caller.agent_id in target_ids:
+                raise AgentStateError(
+                    "an agent cannot wait for its own active turn"
+                )
 
             while True:
                 snapshots = tuple(
@@ -420,14 +466,26 @@ class AgentControl:
                 except asyncio.TimeoutError:
                     return AgentWaitResult(timed_out=True)
 
-    async def interrupt(self, agent_id: str) -> AgentSnapshot:
+    async def interrupt(
+        self,
+        target: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentSnapshot:
         """中断指定执行主体的当前轮次任务。"""
         task: asyncio.Task[None] | None = None
 
         submission_id: str = ""
 
+        agent_id: str
+
         async with self._condition:
-            record = self._require_record(agent_id)
+            record = self._require_record(target, caller=caller)
+            agent_id = record.context.agent_id
+            if caller is not None and agent_id == caller.agent_id:
+                raise AgentStateError(
+                    "an agent cannot interrupt its own active turn"
+                )
             if record.status in {"pending", "running"}:
                 task = record.task
                 submission_id = record.submission_id
@@ -452,8 +510,17 @@ class AgentControl:
 
         return await self.get(agent_id)
 
-    async def close(self, agent_id: str) -> AgentSnapshot:
+    async def close(
+        self,
+        target: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentSnapshot:
         """关闭指定执行主体及其全部后代并返回关闭前快照。"""
+        async with self._condition:
+            record = self._require_record(target, caller=caller)
+            agent_id = record.context.agent_id
+            self._reject_closing_caller_tree(agent_id, caller)
         previous = await self._close_records(agent_id)
         return previous[agent_id]
 
@@ -691,15 +758,63 @@ class AgentControl:
         if self._shutdown:
             raise AgentStateError("agent control is shut down")
 
-    def _require_record(self, agent_id: str) -> _AgentRecord:
-        """返回规范标识对应的内部记录。"""
-        normalized = str(agent_id or "").strip()
+    def _require_caller(self, caller: AgentContext | None) -> AgentContext:
+        """返回属于当前控制树的调用主体身份。"""
+        if caller is None:
+            return self._root
+        if caller.root_session_id != self._root.root_session_id:
+            raise AgentStateError("caller belongs to another root session")
+        if caller.depth == 0:
+            if caller != self._root:
+                raise AgentStateError("caller does not match the root agent")
+            return caller
+
+        record = self._records.get(caller.agent_id)
+        if record is None or record.context != caller:
+            raise AgentStateError("caller is not part of the agent tree")
+        return caller
+
+    def _require_record(
+        self,
+        target: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> _AgentRecord:
+        """按标识或任务路径返回内部记录。"""
+        caller_context = self._require_caller(caller)
+        normalized = str(target or "").strip()
 
         record = self._records.get(normalized)
+        if record is None and normalized:
+            task_path = caller_context.resolve_task_reference(normalized)
+            record = self._records_by_path.get(task_path)
         if record is None:
             raise AgentNotFoundError(f"agent not found: {normalized or '<empty>'}")
 
         return record
+
+    def _reject_closing_caller_tree(
+        self,
+        target_id: str,
+        caller: AgentContext | None,
+    ) -> None:
+        """拒绝关闭调用主体自身或祖先。"""
+        context = self._require_caller(caller)
+        if context.depth == 0:
+            return None
+
+        current_id: str | None = context.agent_id
+        while current_id and current_id != self._root.agent_id:
+            if current_id == target_id:
+                raise AgentStateError(
+                    "an agent cannot close itself or an ancestor"
+                )
+            record = self._records.get(current_id)
+            current_id = (
+                record.context.parent_agent_id
+                if record is not None
+                else None
+            )
 
     def _subtree_ids(self, agent_id: str) -> tuple[str, ...]:
         """返回指定执行主体及其全部后代标识。"""

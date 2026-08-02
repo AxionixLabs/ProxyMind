@@ -135,43 +135,49 @@ class SubagentRuntime:
     async def submit(
         self,
         root_session_id: str,
-        agent_id: str,
+        target: str,
         message: str,
         *,
         interrupt: bool = False,
         parent_turn_id: str = "",
+        caller: AgentContext | None = None,
     ) -> str:
         """向根会话中的已有执行线程提交或排队下一轮任务。"""
         task    = _normalize_task(message)
         control = await self._existing_control(root_session_id)
 
         return await control.submit(
-            agent_id,
+            target,
             AgentSubmission.create(
                 task,
                 kind="followup",
                 parent_turn_id=parent_turn_id,
             ),
             interrupt=interrupt,
+            caller=caller,
         )
 
     async def resume(
         self,
         root_session_id: str,
-        agent_id: str
+        target: str,
+        *,
+        caller: AgentContext | None = None,
     ) -> AgentSnapshot:
         """重新开放根会话中已经关闭的执行线程。"""
         control = await self._existing_control(root_session_id)
-        return await control.resume(agent_id)
+        return await control.resume(target, caller=caller)
 
     async def get(
         self,
         root_session_id: str,
-        agent_id: str
+        target: str,
+        *,
+        caller: AgentContext | None = None,
     ) -> AgentSnapshot:
         """返回根会话中指定执行线程的快照。"""
         control = await self._existing_control(root_session_id)
-        return await control.get(agent_id)
+        return await control.get(target, caller=caller)
 
     async def snapshots(
         self,
@@ -181,34 +187,57 @@ class SubagentRuntime:
         control = await self._existing_control(root_session_id)
         return await control.snapshots()
 
+    async def list_snapshots(
+        self,
+        root_session_id: str,
+        *,
+        caller: AgentContext | None = None,
+        path_prefix: str | None = None,
+    ) -> tuple[AgentSnapshot, ...]:
+        """返回根会话中指定任务路径下的执行线程快照。"""
+        control = await self._control(root_session_id)
+        return await control.list_snapshots(
+            caller=caller,
+            path_prefix=path_prefix,
+        )
+
     async def wait(
         self,
         root_session_id: str,
         targets: typing.Iterable[str],
         *,
-        timeout_sec: float | None = None
+        timeout_sec: float | None = None,
+        caller: AgentContext | None = None,
     ) -> AgentWaitResult:
         """等待根会话中的目标执行线程进入终态。"""
         control = await self._existing_control(root_session_id)
-        return await control.wait(targets, timeout_sec=timeout_sec)
+        return await control.wait(
+            targets,
+            timeout_sec=timeout_sec,
+            caller=caller,
+        )
 
     async def interrupt(
         self,
         root_session_id: str,
-        agent_id: str
+        target: str,
+        *,
+        caller: AgentContext | None = None,
     ) -> AgentSnapshot:
         """中断根会话中指定执行线程的当前轮次。"""
         control = await self._existing_control(root_session_id)
-        return await control.interrupt(agent_id)
+        return await control.interrupt(target, caller=caller)
 
     async def close(
         self,
         root_session_id: str,
-        agent_id: str
+        target: str,
+        *,
+        caller: AgentContext | None = None,
     ) -> AgentSnapshot:
         """关闭根会话中指定执行线程及其后代并返回关闭前快照。"""
         control = await self._existing_control(root_session_id)
-        return await control.close(agent_id)
+        return await control.close(target, caller=caller)
 
     async def shutdown_root(
         self,

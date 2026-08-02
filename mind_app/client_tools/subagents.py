@@ -9,19 +9,17 @@ from mind_app.client_tools.types import (
     ClientTool,
     ClientToolRuntime
 )
-from mind_app.runtime.subagents.control import (
-    AgentSnapshot,
-    AgentStateError
-)
+from mind_app.runtime.subagents.control import AgentSnapshot
 from mind_app.runtime.subagents.context import normalize_fork_turns
 from mind_app.runtime.subagents.runtime import SubagentRuntime
-from mind_app.runtime.execution import AgentContext
 
-SPAWN_AGENT_TOOL  = "spawn_agent"
-SEND_INPUT_TOOL   = "send_input"
-RESUME_AGENT_TOOL = "resume_agent"
-WAIT_AGENT_TOOL   = "wait_agent"
-CLOSE_AGENT_TOOL  = "close_agent"
+SPAWN_AGENT_TOOL     = "spawn_agent"
+LIST_AGENTS_TOOL     = "list_agents"
+SEND_INPUT_TOOL      = "send_input"
+INTERRUPT_AGENT_TOOL = "interrupt_agent"
+RESUME_AGENT_TOOL    = "resume_agent"
+WAIT_AGENT_TOOL      = "wait_agent"
+CLOSE_AGENT_TOOL     = "close_agent"
 
 DEFAULT_WAIT_TIMEOUT_MS = 30_000
 MIN_WAIT_TIMEOUT_MS     = 10_000
@@ -42,6 +40,15 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
             meta=_agent_tool_meta(),
         ),
         ClientTool(
+            name=LIST_AGENTS_TOOL,
+            description=(
+                "列出当前根会话中的子 Agent，可按绝对或相对任务路径筛选。"
+            ),
+            input_schema=_list_schema(),
+            handler=_list_handler(agents),
+            meta=_agent_tool_meta(),
+        ),
+        ClientTool(
             name=SEND_INPUT_TOOL,
             description=(
                 "向已有 Agent 发送消息。interrupt=true 时先中断其当前轮次并"
@@ -49,6 +56,15 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
             ),
             input_schema=_send_schema(),
             handler=_send_handler(agents),
+            meta=_agent_tool_meta(),
+        ),
+        ClientTool(
+            name=INTERRUPT_AGENT_TOOL,
+            description=(
+                "中断目标 Agent 的当前轮次，不附加消息或创建后续任务。"
+            ),
+            input_schema=_target_schema("待中断的 Agent 标识或任务路径。"),
+            handler=_interrupt_handler(agents),
             meta=_agent_tool_meta(),
         ),
         ClientTool(
@@ -142,6 +158,38 @@ def _spawn_handler(agents: SubagentRuntime):
     return handle
 
 
+def _list_handler(agents: SubagentRuntime):
+    """创建执行主体发现工具处理函数。"""
+    async def handle(
+        arguments: dict[str, typing.Any],
+        tool_runtime: ClientToolRuntime
+    ) -> mcp_types.CallToolResult:
+        try:
+            caller      = tool_runtime.turn_context.agent
+            path_prefix = _optional_text(arguments, "path_prefix")
+
+            snapshots = await agents.list_snapshots(
+                caller.root_session_id,
+                caller=caller,
+                path_prefix=path_prefix,
+            )
+            items = [_agent_summary(snapshot) for snapshot in snapshots]
+
+            return client_tool_result(
+                tool=LIST_AGENTS_TOOL,
+                ok=True,
+                text=f"listed agents count={len(items)}",
+                args=arguments,
+                data={"agents": items},
+            )
+        except asyncio.CancelledError:
+            raise
+        except (TypeError, ValueError, RuntimeError) as error:
+            return _error_result(LIST_AGENTS_TOOL, arguments, error)
+
+    return handle
+
+
 def _send_handler(agents: SubagentRuntime):
     """创建已有执行主体输入工具处理函数。"""
     async def handle(
@@ -154,15 +202,13 @@ def _send_handler(agents: SubagentRuntime):
             interrupt = _optional_bool(arguments, "interrupt", default=False)
             caller    = tool_runtime.turn_context.agent
 
-            if interrupt and target == caller.agent_id:
-                raise AgentStateError("an agent cannot interrupt its own active turn")
-
             submission_id = await agents.submit(
                 caller.root_session_id,
                 target,
                 message,
                 interrupt=interrupt,
                 parent_turn_id=tool_runtime.turn_context.turn_id,
+                caller=caller,
             )
 
             return client_tool_result(
@@ -180,6 +226,43 @@ def _send_handler(agents: SubagentRuntime):
     return handle
 
 
+def _interrupt_handler(agents: SubagentRuntime):
+    """创建执行主体中断工具处理函数。"""
+    async def handle(
+        arguments: dict[str, typing.Any],
+        tool_runtime: ClientToolRuntime
+    ) -> mcp_types.CallToolResult:
+        try:
+            target = _required_text(arguments, "target")
+            caller = tool_runtime.turn_context.agent
+
+            snapshot = await agents.interrupt(
+                caller.root_session_id,
+                target,
+                caller=caller,
+            )
+            return client_tool_result(
+                tool=INTERRUPT_AGENT_TOOL,
+                ok=True,
+                text=(
+                    f"agent {snapshot.context.task_path} "
+                    f"status={snapshot.status}"
+                ),
+                args=arguments,
+                data={
+                    "agent_id": snapshot.agent_id,
+                    "task_path": snapshot.context.task_path,
+                    "status": _agent_status(snapshot),
+                },
+            )
+        except asyncio.CancelledError:
+            raise
+        except (TypeError, ValueError, RuntimeError) as error:
+            return _error_result(INTERRUPT_AGENT_TOOL, arguments, error)
+
+    return handle
+
+
 def _resume_handler(agents: SubagentRuntime):
     """创建执行主体恢复工具处理函数。"""
     async def handle(
@@ -187,14 +270,19 @@ def _resume_handler(agents: SubagentRuntime):
         tool_runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         try:
-            agent_id        = _required_text(arguments, "id")
-            root_session_id = tool_runtime.turn_context.agent.root_session_id
-            snapshot        = await agents.resume(root_session_id, agent_id)
+            target = _required_text(arguments, "id")
+            caller = tool_runtime.turn_context.agent
+
+            snapshot = await agents.resume(
+                caller.root_session_id,
+                target,
+                caller=caller,
+            )
 
             return client_tool_result(
                 tool=RESUME_AGENT_TOOL,
                 ok=True,
-                text=f"agent {agent_id} status={snapshot.status}",
+                text=f"agent {snapshot.context.task_path} status={snapshot.status}",
                 args=arguments,
                 data={"status": _agent_status(snapshot)},
             )
@@ -213,18 +301,15 @@ def _wait_handler(agents: SubagentRuntime):
         tool_runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         try:
-            targets = _targets(arguments.get("targets"))
-            caller  = tool_runtime.turn_context.agent
-
-            if caller.agent_id in targets:
-                raise AgentStateError("an agent cannot wait for its own active turn")
-
+            targets    = _targets(arguments.get("targets"))
+            caller     = tool_runtime.turn_context.agent
             timeout_ms = _wait_timeout_ms(arguments.get("timeout_ms"))
 
             waited = await agents.wait(
                 caller.root_session_id,
                 targets,
                 timeout_sec=timeout_ms / 1000,
+                caller=caller,
             )
 
             statuses = {
@@ -261,14 +346,16 @@ def _close_handler(agents: SubagentRuntime):
             target = _required_text(arguments, "target")
             caller = tool_runtime.turn_context.agent
 
-            await _reject_closing_caller_tree(agents, caller, target)
-
-            previous = await agents.close(caller.root_session_id, target)
+            previous = await agents.close(
+                caller.root_session_id,
+                target,
+                caller=caller,
+            )
 
             return client_tool_result(
                 tool=CLOSE_AGENT_TOOL,
                 ok=True,
-                text=f"closed agent {target}",
+                text=f"closed agent {previous.context.task_path}",
                 args=arguments,
                 data={"previous_status": _agent_status(previous)},
             )
@@ -278,29 +365,6 @@ def _close_handler(agents: SubagentRuntime):
             return _error_result(CLOSE_AGENT_TOOL, arguments, error)
 
     return handle
-
-
-async def _reject_closing_caller_tree(
-    agents: SubagentRuntime,
-    caller: AgentContext,
-    target: str
-) -> None:
-    """拒绝会把当前调用轮次一并关闭的目标。"""
-    if caller.depth == 0:
-        return None
-
-    snapshots = await agents.snapshots(caller.root_session_id)
-
-    parents = {
-        snapshot.agent_id: snapshot.context.parent_agent_id
-        for snapshot in snapshots
-    }
-
-    current: str | None = caller.agent_id
-    while current and current != "root":
-        if current == target:
-            raise AgentStateError("an agent cannot close itself or an ancestor")
-        current = parents.get(current)
 
 
 def _agent_status(snapshot: AgentSnapshot) -> typing.Any:
@@ -316,6 +380,21 @@ def _agent_status(snapshot: AgentSnapshot) -> typing.Any:
         return "shutdown"
 
     return snapshot.status
+
+
+def _agent_summary(snapshot: AgentSnapshot) -> dict[str, typing.Any]:
+    """转换执行主体快照为发现接口摘要。"""
+    context = snapshot.context
+    return {
+        "agent_id": snapshot.agent_id,
+        "agent_type": context.agent_type,
+        "task_name": context.task_name,
+        "task_path": context.task_path,
+        "parent_agent_id": context.parent_agent_id,
+        "status": snapshot.status,
+        "turn_count": snapshot.turn_count,
+        "queued_count": snapshot.queued_count,
+    }
 
 
 def _spawn_agent_type(
@@ -354,6 +433,19 @@ def _optional_bool(
     if not isinstance(value, bool):
         raise TypeError(f"{field} must be a boolean")
     return value
+
+
+def _optional_text(
+    arguments: dict[str, typing.Any],
+    field: str,
+) -> str | None:
+    """读取可选的非空文本参数。"""
+    value = arguments.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value.strip()
 
 
 def _targets(value: typing.Any) -> tuple[str, ...]:
@@ -436,6 +528,20 @@ def _spawn_schema(default_fork_turns: int) -> dict[str, typing.Any]:
     }
 
 
+def _list_schema() -> dict[str, typing.Any]:
+    """返回执行主体发现工具结构。"""
+    return {
+        "type": "object",
+        "properties": {
+            "path_prefix": {
+                "type": "string",
+                "description": "可选的绝对或相对任务路径前缀。",
+            },
+        },
+        "additionalProperties": False,
+    }
+
+
 def _send_schema() -> dict[str, typing.Any]:
     """返回输入投递工具结构。"""
     return {
@@ -443,7 +549,7 @@ def _send_schema() -> dict[str, typing.Any]:
         "properties": {
             "target": {
                 "type": "string",
-                "description": "目标 Agent 标识。",
+                "description": "目标 Agent 标识或任务路径。",
             },
             "message": {
                 "type": "string",
@@ -466,7 +572,7 @@ def _resume_schema() -> dict[str, typing.Any]:
         "properties": {
             "id": {
                 "type": "string",
-                "description": "待恢复的 Agent 标识。",
+                "description": "待恢复的 Agent 标识或任务路径。",
             }
         },
         "required": ["id"],
@@ -483,7 +589,9 @@ def _wait_schema() -> dict[str, typing.Any]:
                 "type": "array",
                 "items": {"type": "string"},
                 "minItems": 1,
-                "description": "Agent 标识列表；任一目标进入终态时返回。",
+                "description": (
+                    "Agent 标识或任务路径列表；任一目标进入终态时返回。"
+                ),
             },
             "timeout_ms": {
                 "type": "number",
@@ -505,8 +613,23 @@ def _close_schema() -> dict[str, typing.Any]:
         "properties": {
             "target": {
                 "type": "string",
-                "description": "待关闭的 Agent 标识。",
+                "description": "待关闭的 Agent 标识或任务路径。",
             }
+        },
+        "required": ["target"],
+        "additionalProperties": False,
+    }
+
+
+def _target_schema(description: str) -> dict[str, typing.Any]:
+    """返回单目标工具输入结构。"""
+    return {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": description,
+            },
         },
         "required": ["target"],
         "additionalProperties": False,

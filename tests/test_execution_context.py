@@ -113,6 +113,21 @@ def test_agent_context_normalizes_identity_fields() -> None:
     assert child.parent_agent_id == ROOT_AGENT_ID
 
 
+def test_agent_context_resolves_relative_and_canonical_task_references() -> None:
+    root = AgentContext.root("sid_root")
+    child = root.child("explore", "inspect", agent_id="agent_child")
+
+    assert root.resolve_task_reference("inspect") == "/root/inspect"
+    assert child.resolve_task_reference("review/models") == (
+        "/root/inspect/review/models"
+    )
+    assert child.resolve_task_reference("/root/other") == "/root/other"
+    assert child.resolve_task_reference("/root") == "/root"
+
+    with pytest.raises(ValueError, match="task name"):
+        child.resolve_task_reference("../other")
+
+
 def test_child_turn_can_use_an_independent_session() -> None:
     child = AgentContext.root("sid_root").child(
         "explore",
