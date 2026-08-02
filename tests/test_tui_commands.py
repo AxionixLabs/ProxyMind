@@ -31,7 +31,6 @@ from mind_app.tui.prompting.commands import (
 )
 from mind_app.tui.session.dispatch import (
     DispatchAction,
-    MODE_BY_COMMAND,
     TuiCommandDispatcher,
 )
 
@@ -40,9 +39,6 @@ def test_root_command_completion_order_is_stable() -> None:
     completions = _completions("/")
 
     assert [item.display_text for item in completions] == [
-        "/chat",
-        "/fast",
-        "/xtra",
         "/new",
         "/resume",
         "/fork",
@@ -142,10 +138,7 @@ def test_complete_command_remains_available_to_the_menu() -> None:
     ] == ["/mcp"]
 
 
-def test_command_matching_is_case_insensitive_and_prioritizes_exact_alias() -> None:
-    assert [
-        item.display_text for item in _slash_completions("/FAST")
-    ] == ["/fast"]
+def test_command_matching_prioritizes_exact_alias() -> None:
     assert [
         item.display_text for item in _slash_completions("/q")
     ] == ["/q", "/quit"]
@@ -195,11 +188,6 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_policy("hello") is None
     assert stream_command_policy("$review") is None
     assert stream_command_label("/mcp restart now") == "/mcp restart"
-    assert MODE_BY_COMMAND == {
-        "/chat": "chat",
-        "/fast": "fast",
-        "/xtra": "xtra",
-    }
 
 
 @pytest.mark.parametrize(

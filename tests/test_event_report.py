@@ -13,7 +13,7 @@ from mind_nova.stream_events import parse_stream_event
 
 
 def test_report_binds_typed_stream_metadata() -> None:
-    report = EventReport("fast", "cid", "sid")
+    report = EventReport("cid", "sid")
     event = parse_stream_event({
         "type": "turn.start",
         "proto": "stream.v2",
@@ -26,14 +26,13 @@ def test_report_binds_typed_stream_metadata() -> None:
     assert report.round == 3
 
 
-def test_report_resets_turn_round_and_updates_default_proto_with_mode() -> None:
-    report = EventReport("fast", "cid", "sid")
+def test_report_resets_turn_round_and_keeps_default_proto() -> None:
+    report = EventReport("cid", "sid")
     report.set_round(3)
 
-    report.set_mode("xtra")
     report.begin_turn("next")
 
-    assert report.proto == report.default_proto("xtra")
+    assert report.proto == report.default_proto()
     assert report.round == 1
 
 
@@ -49,7 +48,7 @@ async def test_worker_preserves_transport_converted_cancellation(monkeypatch) ->
             raise OSError("transport converted cancellation")
 
     monkeypatch.setattr(events, "post_stream_event", post_event)
-    report = EventReport("fast", "cid", "sid")
+    report = EventReport("cid", "sid")
     report.emit({"type": "probe"})
     await report.open()
     await started.wait()
@@ -68,7 +67,7 @@ async def test_worker_preserves_transport_converted_cancellation(monkeypatch) ->
 @pytest.mark.anyio
 @pytest.mark.parametrize("drain", (True, False))
 async def test_close_exposes_worker_failure(drain: bool) -> None:
-    report = EventReport("fast", "cid", "sid")
+    report = EventReport("cid", "sid")
     report.emit({"type": "probe"})
 
     async def fail() -> None:
@@ -88,12 +87,12 @@ async def test_close_exposes_worker_failure(drain: bool) -> None:
 async def test_close_drains_events_in_order(monkeypatch) -> None:
     posted: list[int] = []
 
-    async def post_event(_mode, _cid, _sid, event, *, timeout) -> None:
+    async def post_event(_cid, _sid, event, *, timeout) -> None:
         _ = timeout
         posted.append(event["index"])
 
     monkeypatch.setattr(events, "post_stream_event", post_event)
-    report = EventReport("fast", "cid", "sid")
+    report = EventReport("cid", "sid")
     report.emit({"type": "probe", "index": 1})
     report.emit({"type": "probe", "index": 2})
     await report.open()
@@ -113,7 +112,7 @@ async def test_interrupted_close_discards_pending_events(monkeypatch) -> None:
         await asyncio.Event().wait()
 
     monkeypatch.setattr(events, "post_stream_event", post_event)
-    report = EventReport("fast", "cid", "sid")
+    report = EventReport("cid", "sid")
     report.emit({"type": "probe"})
     await report.open()
     await started.wait()
@@ -124,28 +123,28 @@ async def test_interrupted_close_discards_pending_events(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_report_pool_reuses_session_worker_and_preserves_event_modes(
+async def test_report_pool_reuses_session_worker(
     monkeypatch,
 ) -> None:
-    posted: list[tuple[str, int]] = []
+    posted: list[int] = []
 
-    async def post_event(mode, _cid, _sid, event, *, timeout) -> None:
+    async def post_event(_cid, _sid, event, *, timeout) -> None:
         _ = timeout
-        posted.append((mode, event["index"]))
+        posted.append(event["index"])
 
     monkeypatch.setattr(events, "post_stream_event", post_event)
     pool = EventReportPool()
 
-    first = await pool.acquire("fast", "cid", "sid")
+    first = await pool.acquire("cid", "sid")
     first.emit({"type": "probe", "index": 1})
 
-    second = await pool.acquire("xtra", "cid", "sid")
+    second = await pool.acquire("cid", "sid")
     second.emit({"type": "probe", "index": 2})
 
     await pool.close_session("cid", "sid")
 
     assert second is first
-    assert posted == [("fast", 1), ("xtra", 2)]
+    assert posted == [1, 2]
     assert first.worker is None
 
 
@@ -155,4 +154,4 @@ async def test_closed_report_pool_rejects_new_sessions() -> None:
     await pool.close()
 
     with pytest.raises(RuntimeError, match="pool is closed"):
-        await pool.acquire("fast", "cid", "sid")
+        await pool.acquire("cid", "sid")

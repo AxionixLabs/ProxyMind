@@ -14,7 +14,7 @@ from engine.observability import (
     observe,
     observe_exception
 )
-from ...runtime.agent.client import AgentClient
+from ..runtime.agent.client import AgentClient
 from .models import AgentConfig
 from mind_nova import const
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.support.conversation import ConversationTurn
@@ -52,7 +52,7 @@ class _TuiController:
         self.transcripts = SimpleNamespace(
             path_for_session=lambda _sid: "D:/sessions/session.jsonl",
         )
-        self.stream_looper = object()
+        self.stream_turn = object()
         self.sessions = []
         self.lifecycle_calls = []
         self.conversation_calls = []
@@ -87,7 +87,7 @@ class _TuiController:
             [{"name": "tool", "meta": {"domain": "coding"}}],
         )
 
-    async def run_mode_lifecycle(self, runner, **kwargs):
+    async def run_turn_lifecycle(self, runner, **kwargs):
         self.events.append("operation")
         self.lifecycle_calls.append((runner, kwargs))
         if self.failure is not None:
@@ -116,7 +116,6 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     result = await run_tui_model_turn(
         controller,
         message_text="",
-        run_mode="xtra",
         pref_config=pref_config,
         permissions=permissions,
         turn_id="turn_tui",
@@ -146,7 +145,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     assert report.closed == [True]
 
     runner, call = controller.lifecycle_calls[0]
-    assert runner is controller.stream_looper
+    assert runner is controller.stream_turn
     assert call["turn_execution"].additional_context == ("queued context",)
     assert call["turn_execution"].system_message == "queued system"
     assert call["attachments"] == [{
@@ -182,7 +181,6 @@ async def test_tui_turn_closes_report_after_failure(monkeypatch) -> None:
         await run_tui_model_turn(
             controller,
             message_text="hello",
-            run_mode="xtra",
             pref_config={},
             permissions=preset_permissions("auto"),
         )
@@ -203,7 +201,6 @@ async def test_tui_turn_closes_report_without_drain_after_cancellation(
         await run_tui_model_turn(
             controller,
             message_text="hello",
-            run_mode="xtra",
             pref_config={},
             permissions=preset_permissions("auto"),
         )

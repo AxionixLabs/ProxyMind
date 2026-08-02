@@ -49,7 +49,6 @@ async def test_query_is_consumed_while_runtime_download_is_active() -> None:
     await started.wait()
 
     read_task = asyncio.create_task(runtime.read_message(PromptContext(
-        mode="chat",
         model="test-model",
     )))
     runtime.screen.input.buffer.text = "what project is this?"

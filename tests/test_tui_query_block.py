@@ -121,7 +121,7 @@ async def test_empty_message_with_attachments_skips_empty_query_block() -> None:
     runtime.bind_pending_attachment_check(lambda: True)
 
     runtime.submissions.accept_input(runtime.screen.input.buffer)
-    value = await runtime.read_message(PromptContext(mode="chat", model="test"))
+    value = await runtime.read_message(PromptContext(model="test"))
 
     assert value == ""
     assert not runtime.document.blocks
@@ -132,7 +132,7 @@ async def test_surface_command_is_staged_without_showing_default_footer() -> Non
     runtime = TuiRuntime()
     runtime.submissions.message_queue.put_nowait("/ps")
 
-    value = await runtime.read_message(PromptContext(mode="chat", model="test"))
+    value = await runtime.read_message(PromptContext(model="test"))
 
     assert value == "/ps"
     assert runtime.document.has_pending_submission
@@ -146,7 +146,7 @@ async def test_surface_command_is_staged_without_showing_default_footer() -> Non
 async def test_menu_discards_staged_command_before_activating() -> None:
     runtime = TuiRuntime()
     runtime.submissions.message_queue.put_nowait("/mcp")
-    await runtime.read_message(PromptContext(mode="chat", model="test"))
+    await runtime.read_message(PromptContext(model="test"))
 
     task = asyncio.create_task(runtime.select_menu(
         MenuRequest(
@@ -168,7 +168,7 @@ async def test_menu_discards_staged_command_before_activating() -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "command",
-    ["/fast", "/model gpt-test", "/mcp status", "/q", "quit"],
+    ["/new", "/model gpt-test", "/mcp status", "/q", "quit"],
 )
 async def test_registered_command_stays_pending_until_dispatch_finishes(
     command,
@@ -176,7 +176,7 @@ async def test_registered_command_stays_pending_until_dispatch_finishes(
     runtime = TuiRuntime()
     runtime.submissions.message_queue.put_nowait(command)
 
-    await runtime.read_message(PromptContext(mode="chat", model="test"))
+    await runtime.read_message(PromptContext(model="test"))
 
     assert runtime.document.has_pending_submission
     assert not runtime.document.blocks

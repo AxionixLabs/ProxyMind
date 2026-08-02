@@ -3,10 +3,6 @@
 
 import time
 import typing
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    RunMode
-)
 from ..execution import (
     AgentContext,
     TurnContext
@@ -16,7 +12,7 @@ from ..turns.executor import (
     execute_turn,
     resolve_turn_hook_scope
 )
-from ...modes.result import RunResult
+from ..turns.result import RunResult
 from ...stream_events.worked import emit_worked_footer
 
 if typing.TYPE_CHECKING:
@@ -25,24 +21,12 @@ if typing.TYPE_CHECKING:
     from mind_nova.events import EventReport
 
 
-def resolve_mode_runner(
-    mind: "Mind",
-    mode: RunMode
-) -> typing.Callable[..., typing.Awaitable[RunResult]]:
-    """根据单次调用模式选择底层执行器。"""
-    if mode in {"chat", "fast", "xtra"}:
-        return mind.stream_looper
-    raise ValueError(f"Unsupported mode: {mode}")
-
-
-async def run_mode_lifecycle(
+async def run_turn_lifecycle(
     mind: "Mind",
     runner: typing.Callable[..., typing.Awaitable[RunResult]],
-    *,
-    mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
 ) -> RunResult:
-    """为模式执行增加动画生命周期和耗时输出。"""
+    """为单轮执行增加动画生命周期和耗时输出。"""
     started_at = time.perf_counter()
 
     frontend_runtime = mind.frontend.runtime
@@ -51,9 +35,9 @@ async def run_mode_lifecycle(
     completed: bool = False
 
     try:
-        await mind.start_anim(mode)
+        await mind.start_anim()
         try:
-            result = await runner(mode=mode, **kwargs)
+            result = await runner(**kwargs)
         finally:
             await mind.await_cleanup(mind.stop_anim("wait"))
 
@@ -74,17 +58,16 @@ async def calling(
     pref_config: typing.Optional[dict[str, typing.Any]] = None,
     *,
     message: str,
-    mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
 ) -> RunResult:
-    """统一包装一次用户调用，并由 mode 决定底层执行器。"""
+    """统一包装一次用户调用。"""
     if not str(message or "").strip():
         return RunResult(status="failed", error="message is empty")
 
     if pref_config is None:
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
 
-    runner       = resolve_mode_runner(mind, mode)
+    runner       = mind.stream_turn
     permissions  = kwargs.pop("permissions", None) or mind.permissions
     raw_metadata = kwargs.pop("metadata", None)
     meta_in      = raw_metadata if isinstance(raw_metadata, dict) else {}
@@ -106,7 +89,6 @@ async def calling(
         agent=AgentContext.root(meta["sid"]),
         cid=meta["cid"],
         sid=meta["sid"],
-        mode=mode,
         source="calling",
         pref_config=pref_config,
         cwd=mind.history_workspace,
@@ -134,11 +116,10 @@ async def calling(
         report: "EventReport"
     ) -> RunResult:
         """使用主前端生命周期执行根模型轮次。"""
-        return await run_mode_lifecycle(
+        return await run_turn_lifecycle(
             mind,
             runner,
             session=session,
-            mode=prepared.context.mode,
             pref_config=pref_config,
             tools=tools,
             turn_execution=prepared,

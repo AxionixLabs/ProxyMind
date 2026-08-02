@@ -17,7 +17,10 @@ from engine.observability import (
 from mind_nova.events import EventReport
 from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import TurnContext
-from mind_app.runtime.tools.mode_policy import filter_mode_tools
+from mind_app.runtime.tools.mode_policy import (
+    ToolFilterMode,
+    filter_mode_tools
+)
 from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
@@ -190,7 +193,8 @@ async def execute_turn(
     execution: TurnExecution,
     operation: TurnOperation[TurnResultValue],
     *,
-    event_report: EventReport | None = None
+    event_report: EventReport | None = None,
+    tool_filter_mode: ToolFilterMode | None = None,
 ) -> TurnResultValue:
     """在独立工具和报告生命周期中执行显式模型轮次。"""
     context    = execution.context
@@ -198,7 +202,6 @@ async def execute_turn(
 
     observe(
         "call.start",
-        mode=context.mode,
         cid=context.cid,
         sid=context.sid,
         turn_id=context.turn_id,
@@ -218,13 +221,11 @@ async def execute_turn(
             report_pool = getattr(mind, "event_reports", None)
         if report_pool is not None:
             report = await report_pool.acquire(
-                context.mode,
                 context.cid,
                 context.sid,
             )
         else:
             report = EventReport(
-                context.mode,
                 context.cid,
                 context.sid,
             )
@@ -237,7 +238,11 @@ async def execute_turn(
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
-        visible_tools = filter_mode_tools(context.mode, tools)
+        visible_tools = (
+            filter_mode_tools(tool_filter_mode, tools)
+            if tool_filter_mode is not None
+            else tools
+        )
         return await operation(execution, session, visible_tools, report)
 
     interrupted: bool = False
@@ -249,7 +254,6 @@ async def execute_turn(
         observe(
             "call.interrupted",
             level="WARNING",
-            mode=context.mode,
             cid=context.cid,
             sid=context.sid,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -260,7 +264,6 @@ async def execute_turn(
         observe_exception(
             "call.failed",
             error,
-            mode=context.mode,
             cid=context.cid,
             sid=context.sid,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -269,7 +272,6 @@ async def execute_turn(
     else:
         observe(
             "call.complete",
-            mode=context.mode,
             cid=context.cid,
             sid=context.sid,
             outcome=result.status,

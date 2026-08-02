@@ -36,13 +36,11 @@ class ForkMindStub(object):
 
     def prepare_conversation_fork(
         self,
-        mode,
         cid,
         sid,
         before_turn_id="",
     ):
-        assert (mode, cid, sid) == (
-            "chat",
+        assert (cid, sid) == (
             "cid_source_12345678",
             "sid_source_1_abcdef",
         )
@@ -55,14 +53,12 @@ class ForkMindStub(object):
 
     def clear_conversation_fork(
         self,
-        mode,
         cid,
         sid,
         request_id,
         before_turn_id="",
     ):
         self.cleared.append((
-            mode,
             cid,
             sid,
             request_id,
@@ -85,7 +81,6 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
         assert mind.bound == []
         return {
             "request_id": "fork_request_0001",
-            "mode": "chat",
             "source_cid": "cid_source_12345678",
             "source_sid": "sid_source_1_abcdef",
             "cid": "cid_target_87654321",
@@ -95,7 +90,7 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
 
     monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
 
-    status = await conversation.fork_current_conversation(mind, run_mode="chat")
+    status = await conversation.fork_current_conversation(mind)
     await conversation.finish_fork_activity(mind)
     conversation.render_fork_result(mind, status)
 
@@ -104,7 +99,6 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
     ]
     assert mind.cleared == [
         (
-            "chat",
             "cid_source_12345678",
             "sid_source_1_abcdef",
             "fork_request_0001",
@@ -134,7 +128,7 @@ async def test_retryable_fork_failure_keeps_pending_request(monkeypatch) -> None
 
     monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
 
-    status = await conversation.fork_current_conversation(mind, run_mode="chat")
+    status = await conversation.fork_current_conversation(mind)
     conversation.render_fork_result(mind, status)
 
     assert mind.bound == []
@@ -176,7 +170,6 @@ async def test_fork_request_parses_source_busy_error(monkeypatch) -> None:
 
     with pytest.raises(ConversationForkRequestError) as raised:
         await fork_request.request_conversation_fork(
-            mode="chat",
             cid="cid_source_12345678",
             sid="sid_source_1_abcdef",
             request_id="fork_request_0001",
@@ -194,7 +187,6 @@ async def test_fork_request_validates_bounded_zero_item_response(monkeypatch) ->
             "ok": True,
             "data": {
                 "request_id": "fork_request_0001",
-                "mode": "chat",
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
@@ -233,7 +225,6 @@ async def test_fork_request_validates_bounded_zero_item_response(monkeypatch) ->
     monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
 
     result = await fork_request.request_conversation_fork(
-        mode="chat",
         cid="cid_source_12345678",
         sid="sid_source_1_abcdef",
         request_id="fork_request_0001",
@@ -260,7 +251,6 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
             "ok": True,
             "data": {
                 "request_id": "fork_request_0001",
-                "mode": "chat",
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
@@ -289,7 +279,6 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
     monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
 
     result = await fork_request.request_conversation_fork(
-        mode="chat",
         cid="cid_source_12345678",
         sid="sid_source_1_abcdef",
         request_id="fork_request_0001",
@@ -312,7 +301,6 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
         assert kwargs["before_turn_id"] == "turn_selected"
         return {
             "request_id": "fork_request_0001",
-            "mode": "chat",
             "source_cid": "cid_source_12345678",
             "source_sid": "sid_source_1_abcdef",
             "before_turn_id": "turn_selected",
@@ -331,7 +319,6 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
 
     status = await conversation.fork_current_conversation(
         mind,
-        run_mode="chat",
         before_turn_id="turn_selected",
     )
 
@@ -345,7 +332,6 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
         ("cid_target_87654321", "sid_target_2_fedcba", "tui")
     ]
     assert mind.cleared == [(
-        "chat",
         "cid_source_12345678",
         "sid_source_1_abcdef",
         "fork_request_0001",
@@ -374,7 +360,6 @@ async def test_bounded_fork_can_defer_target_binding(monkeypatch) -> None:
 
     status = await conversation.fork_current_conversation(
         mind,
-        run_mode="chat",
         before_turn_id="turn_selected",
         bind_target=False,
     )
@@ -417,7 +402,6 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
 
     status = await conversation.fork_current_conversation(
         mind,
-        run_mode="chat",
         before_turn_id="turn_selected",
         bind_target=False,
         fallback_prompt=fallback,
@@ -442,7 +426,6 @@ async def test_fork_request_allows_missing_prompt_when_not_required(
             "ok": True,
             "data": {
                 "request_id": "fork_request_0001",
-                "mode": "chat",
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
@@ -470,7 +453,6 @@ async def test_fork_request_allows_missing_prompt_when_not_required(
     monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
 
     result = await fork_request.request_conversation_fork(
-        mode="chat",
         cid="cid_source_12345678",
         sid="sid_source_1_abcdef",
         request_id="fork_request_0001",
@@ -489,7 +471,6 @@ async def test_bounded_fork_rejects_missing_prompt(monkeypatch) -> None:
             "ok": True,
             "data": {
                 "request_id": "fork_request_0001",
-                "mode": "chat",
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
@@ -522,7 +503,6 @@ async def test_bounded_fork_rejects_missing_prompt(monkeypatch) -> None:
         match="invalid prompt",
     ):
         await fork_request.request_conversation_fork(
-            mode="chat",
             cid="cid_source_12345678",
             sid="sid_source_1_abcdef",
             request_id="fork_request_0001",

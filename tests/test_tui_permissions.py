@@ -31,7 +31,6 @@ def test_elevated_permissions_status_renders_on_one_line() -> None:
 def test_elevated_permissions_use_prominent_footer_style() -> None:
     runtime = TuiRuntime()
     runtime.context = PromptContext(
-        mode="chat",
         model="test-model",
         permissions_label="Full Access",
     )

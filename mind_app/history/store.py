@@ -43,14 +43,13 @@ CREATE INDEX IF NOT EXISTS idx_conversation_session_cursors_updated
 ON {TABLE_SESSION_CURSORS} (updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS {TABLE_PENDING_FORKS} (
-    mode        TEXT NOT NULL,
     cid         TEXT NOT NULL,
     sid         TEXT NOT NULL,
     before_turn_id TEXT NOT NULL DEFAULT '',
     request_id  TEXT NOT NULL,
     created_at  INTEGER NOT NULL,
     expires_at  INTEGER NOT NULL,
-    PRIMARY KEY (mode, cid, sid)
+    PRIMARY KEY (cid, sid)
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_pending_forks_expires
@@ -188,7 +187,6 @@ class ConversationHistoryStore(object):
     def get_or_create_fork_request(
         self,
         *,
-        mode: str,
         cid: str,
         sid: str,
         request_id: str,
@@ -196,14 +194,13 @@ class ConversationHistoryStore(object):
         now_ms: typing.Optional[int] = None
     ) -> str:
         """返回源会话尚未完成的稳定分支请求标识。"""
-        mode_text = _clean(mode)
         cid_text  = _clean(cid)
         sid_text  = _clean(sid)
         candidate = _clean(request_id)
         boundary  = _clean(before_turn_id)
 
-        if not mode_text or not candidate or not valid_session_ids(cid_text, sid_text):
-            raise ValueError("mode, valid cid/sid, and request_id are required")
+        if not candidate or not valid_session_ids(cid_text, sid_text):
+            raise ValueError("valid cid/sid and request_id are required")
 
         now = _now_ms() if now_ms is None else int(now_ms)
 
@@ -218,22 +215,21 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     DELETE FROM {TABLE_PENDING_FORKS}
-                    WHERE mode = ? AND cid = ? AND sid = ?
+                    WHERE cid = ? AND sid = ?
                       AND before_turn_id <> ?
                     """,
-                    (mode_text, cid_text, sid_text, boundary),
+                    (cid_text, sid_text, boundary),
                 )
                 conn.execute(
                     f"""
                     INSERT INTO {TABLE_PENDING_FORKS} (
-                        mode, cid, sid, before_turn_id,
+                        cid, sid, before_turn_id,
                         request_id, created_at, expires_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(mode, cid, sid) DO NOTHING
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(cid, sid) DO NOTHING
                     """,
                     (
-                        mode_text,
                         cid_text,
                         sid_text,
                         boundary,
@@ -246,10 +242,10 @@ class ConversationHistoryStore(object):
                     f"""
                     SELECT request_id
                     FROM {TABLE_PENDING_FORKS}
-                    WHERE mode = ? AND cid = ? AND sid = ?
+                    WHERE cid = ? AND sid = ?
                       AND before_turn_id = ?
                     """,
-                    (mode_text, cid_text, sid_text, boundary),
+                    (cid_text, sid_text, boundary),
                 ).fetchone()
         finally:
             conn.close()
@@ -261,7 +257,6 @@ class ConversationHistoryStore(object):
     def clear_fork_request(
         self,
         *,
-        mode: str,
         cid: str,
         sid: str,
         request_id: str,
@@ -275,11 +270,10 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     DELETE FROM {TABLE_PENDING_FORKS}
-                    WHERE mode = ? AND cid = ? AND sid = ?
+                    WHERE cid = ? AND sid = ?
                       AND before_turn_id = ? AND request_id = ?
                     """,
                     (
-                        _clean(mode),
                         _clean(cid),
                         _clean(sid),
                         _clean(before_turn_id),
@@ -367,6 +361,15 @@ class ConversationHistoryStore(object):
                 f"PRAGMA table_info({TABLE_PENDING_FORKS})"
             )
         }
+        if "mode" in columns:
+            conn.execute(f"DROP TABLE {TABLE_PENDING_FORKS}")
+            conn.executescript(SCHEMA_SQL)
+            columns = {
+                str(row[1])
+                for row in conn.execute(
+                    f"PRAGMA table_info({TABLE_PENDING_FORKS})"
+                )
+            }
         if "before_turn_id" not in columns:
             conn.execute(
                 f"""

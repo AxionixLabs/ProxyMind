@@ -61,7 +61,7 @@ from .commands import (
     RuntimeCommand,
     command_uses_helix
 )
-from .dispatch import run_selected_mode
+from .dispatch import run_selected_command
 from .frontend import (
     resolve_cli_design,
     resolve_cli_frontend
@@ -375,7 +375,7 @@ async def _run_controller(
                     name="tui service runtime startup",
                 )
 
-        await run_selected_mode(controller, command)
+        await run_selected_command(controller, command)
         completed = True
         observe("app.complete", exit_code=controller.exit_code)
 

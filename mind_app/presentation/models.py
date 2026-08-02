@@ -68,7 +68,6 @@ class RunStartedView(object):
     turn_id: str
     session_id: str
     message: str
-    mode: str
     model: str
     provider: str
     approval: str

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.output.silent import create_silent_output_session
 from mind_app.runtime.execution import AgentContext, TurnContext
@@ -39,7 +39,7 @@ class _Controller:
             [{"name": "tool", "meta": {"domain": "coding"}}],
         )
 
-    async def stream_looper(self, **kwargs):
+    async def stream_turn(self, **kwargs):
         self.stream_calls.append(kwargs)
         if self.stream_handler is not None:
             return await self.stream_handler(**kwargs)
@@ -57,7 +57,6 @@ def _parent_turn(*, transcript_path: str = "") -> TurnContext:
         agent=AgentContext.root(sid),
         cid=cid,
         sid=sid,
-        mode="xtra",
         source="test",
         pref_config={"primary": {"model": "parent-model"}},
         cwd="D:/workspace",

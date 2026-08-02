@@ -39,71 +39,70 @@ from mind_nova.requests.tools import (
     post_tool_approval,
     post_tool_result
 )
-from ..output import (
+from ...output import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     OutputControlPort,
     SourcesOutput
 )
-from ..output.session import OutputSession
+from ...output.session import OutputSession
 from .result import (
     RunResult,
     RunStatus
 )
-from ..presentation.approval_views import build_approval_view
-from ..presentation.models import ApprovalSource
-from ..presentation.run_views import (
+from ...presentation.approval_views import build_approval_view
+from ...presentation.models import ApprovalSource
+from ...presentation.run_views import (
     build_run_completed_view,
     build_run_started_view
 )
-from ..runtime.support.loop_support import finish_failure
-from ..runtime.execution import (
+from ..support.loop_support import finish_failure
+from ..execution import (
     ToolInvocation,
     TurnContext
 )
-from ..runtime.hooks.tool import ToolCallCoordinator
-from ..runtime.hooks.models import StopHookDecision
-from ..runtime.hooks.models import (
+from ..hooks.tool import ToolCallCoordinator
+from ..hooks.models import StopHookDecision
+from ..hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
-from ..runtime.hooks.turn import (
+from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
 )
-from ..runtime.environment.exec_env import build_runtime_exec_env
-from ..runtime.support.session_policy import friendly_exception_text
-from ..runtime.tools.run import server_tool_output_result
-from ..runtime.tools.display import show_tool_result
-from ..runtime.tools.execution_policy import (
+from ..environment.exec_env import build_runtime_exec_env
+from ..support.session_policy import friendly_exception_text
+from ..tools.run import server_tool_output_result
+from ..tools.display import show_tool_result
+from ..tools.execution_policy import (
     is_execution_ignored,
     validate_execution_policy
 )
-from ..runtime.tools.client_call import (
+from ..tools.client_call import (
     ClientToolCallRunner,
     build_client_tool_post_kwargs
 )
-from ..runtime.tools.plan_call import PlanToolCallRunner
-from ..runtime.tools.plan_steps import PlanExecutionReport
-from ..runtime.turns.executor import (
+from ..tools.plan_call import PlanToolCallRunner
+from ..tools.plan_steps import PlanExecutionReport
+from .executor import (
     TurnExecution,
     create_continuation_execution,
     turn_continuation_count
 )
-from ..runtime.support.idle_status import IdleStatusTimer
-from ..stream_events.tool_trace import coding_trace_tool
-from ..stream_events.lifecycle import handle_lifecycle_event
-from ..stream_events.assistant_boundary import is_assistant_output_boundary
-from ..stream_state.segment import SegmentTracker
+from ..support.idle_status import IdleStatusTimer
+from ...stream_events.tool_trace import coding_trace_tool
+from ...stream_events.lifecycle import handle_lifecycle_event
+from ...stream_events.assistant_boundary import is_assistant_output_boundary
+from ...stream_state.segment import SegmentTracker
 from engine.observability import (
     observe,
     observe_exception
 )
 
 if typing.TYPE_CHECKING:
-    from ..controller import Mind
-
+    from ...controller import Mind
 
 MAX_STOP_CONTINUATIONS = 3
 
@@ -256,20 +255,16 @@ async def _discard_stop_hook_decision(
     await awaitable
 
 
-async def stream_looper(
+async def stream_turn(
     mind: "Mind",
     session: McpSessionLike,
-    mode: typing.Literal["chat", "fast", "xtra"],
     pref_config: dict[str, typing.Any],
     tools: list[dict[str, typing.Any]],
     *_,
     turn_execution: TurnExecution,
     **kwargs
 ) -> RunResult:
-    """流式模式执行器：处理流式事件、工具调用和输出上报。"""
-    if mode not in {"chat", "fast", "xtra"}:
-        raise ValueError(f"Invalid mode: {mode}")
-
+    """处理流式事件、工具调用和输出上报。"""
     on_turn_input_context = kwargs.pop("on_turn_input_context", None)
     on_turn_input_event   = kwargs.pop("on_turn_input_event", None)
 
@@ -291,9 +286,6 @@ async def stream_looper(
     turn_context = turn_execution.context
     hook_scope   = turn_execution.hook_scope
     message      = turn_execution.message
-
-    if turn_context.mode != mode:
-        raise ValueError("turn context mode does not match stream mode")
 
     if on_turn_input_context is not None:
         on_turn_input_context(turn_context)
@@ -419,7 +411,6 @@ async def stream_looper(
         transcript.append(
             "turn.started",
             actor="system",
-            payload={"mode": mode},
         )
 
         attachments = kwargs.get("attachments")
@@ -445,7 +436,6 @@ async def stream_looper(
 
         observe(
             "stream.start",
-            mode=mode,
             cid=metadata.get("cid"),
             sid=metadata.get("sid"),
             turn_id=turn_context.turn_id,
@@ -457,7 +447,6 @@ async def stream_looper(
         await presentation.emit(build_run_started_view(
             metadata=metadata,
             message=message,
-            mode=mode,
             pref_config=pref_config,
             workdir=str(getattr(mind, "history_workspace", "") or ""),
             permissions=kwargs["permissions"],
@@ -506,7 +495,7 @@ async def stream_looper(
             tool_call_coordinator=tool_call_coordinator,
         )
 
-        async for event in stream_chat(mode, pref_config, message, tools, **kwargs):
+        async for event in stream_chat(pref_config, message, tools, **kwargs):
             event_count += 1
             await idle_wait.cancel()
 
@@ -516,7 +505,6 @@ async def stream_looper(
             if first_frame:
                 observe(
                     "stream.first_event",
-                    mode=mode,
                     event_type=event.type,
                     latency_ms=int((time.perf_counter() - started_at) * 1000),
                 )
@@ -549,7 +537,6 @@ async def stream_looper(
                 observe(
                     "stream.turn_failed",
                     level="ERROR",
-                    mode=mode,
                     error=failure_error,
                 )
                 await finish_failure(
@@ -1071,7 +1058,6 @@ async def stream_looper(
         observe(
             "stream.prompt_blocked",
             level="WARNING",
-            mode=mode,
             turn_id=turn_context.turn_id,
         )
 
@@ -1088,7 +1074,6 @@ async def stream_looper(
         observe(
             "stream.interrupted",
             level="WARNING",
-            mode=mode,
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
@@ -1099,7 +1084,6 @@ async def stream_looper(
         observe_exception(
             "stream.failed",
             e,
-            mode=mode,
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
@@ -1145,7 +1129,6 @@ async def stream_looper(
 
         observe(
             "stream.complete",
-            mode=mode,
             outcome=(
                 "interrupted"
                 if interrupted
@@ -1242,10 +1225,9 @@ async def stream_looper(
                 hook_keys=list(stop_decision.hook_keys),
             )
             return result
-        return await stream_looper(
+        return await stream_turn(
             mind,
             session,
-            mode,
             pref_config,
             tools,
             turn_execution=create_continuation_execution(

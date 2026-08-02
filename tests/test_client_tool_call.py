@@ -33,7 +33,6 @@ def _invocation() -> ToolInvocation:
         agent=AgentContext.root("sid-test"),
         cid="cid-test",
         sid="sid-test",
-        mode="xtra",
         source="test",
         pref_config={},
         cwd=".",

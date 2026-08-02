@@ -84,7 +84,6 @@ def _executor(
         agent=AgentContext.root("sid"),
         cid="cid",
         sid="sid",
-        mode="xtra",
         source="test",
         pref_config={},
         cwd=".",

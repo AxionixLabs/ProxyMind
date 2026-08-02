@@ -21,31 +21,31 @@ from ..history import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES
 )
-from ..modes.result import RunResult
+from ..runtime.turns.result import RunResult
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
 
 
-async def run_selected_mode(
+async def run_selected_command(
     mind: "Mind",
     command: RuntimeCommand
 ) -> RunResult | None:
-    """按命令行参数分派到直接执行或交互模式。"""
+    """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
-        selected_mode = "agent"
+        command_name = "agent"
     elif isinstance(command, ExecCommand):
-        selected_mode = command.mode
+        command_name = "exec"
     elif isinstance(command, (InteractiveCommand, ResumeCommand)):
-        selected_mode = "tui"
+        command_name = "tui"
     else:
         raise TypeError(f"unsupported runtime command: {type(command).__name__}")
 
     started_at = time.perf_counter()
 
     observe(
-        "mode.start",
-        mode=selected_mode,
+        "command.start",
+        command=command_name,
         sandbox_mode=mind.permissions.sandbox_mode,
         approval_policy=mind.permissions.approval_policy,
     )
@@ -71,7 +71,6 @@ async def run_selected_mode(
 
             run_result = await mind.calling(
                 message=command.prompt,
-                mode=command.mode,
                 attachments=attachments,
                 **calling_kwargs,
             )
@@ -102,24 +101,24 @@ async def run_selected_mode(
                 )
     except asyncio.CancelledError:
         observe(
-            "mode.interrupted",
+            "command.interrupted",
             level="WARNING",
-            mode=selected_mode,
+            command=command_name,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
     except BaseException as error:
         observe_exception(
-            "mode.failed",
+            "command.failed",
             error,
-            mode=selected_mode,
+            command=command_name,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
     else:
         observe(
-            "mode.complete",
-            mode=selected_mode,
+            "command.complete",
+            command=command_name,
             outcome=run_result.status if run_result is not None else None,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )

@@ -77,13 +77,8 @@ class TuiAutoSuggest(AutoSuggest):
     }
 
     def __init__(self) -> None:
-        self.mode: str        = "chat"
         self.shell_mode: bool = False
         self.ghost_templates  = iter_ghost_templates()
-
-    def set_mode(self, mode: str) -> None:
-        """更新自动建议使用的运行模式。"""
-        self.mode = mode
 
     def get_suggestion(self, buffer, document):
         """根据光标前文本返回一项行内建议。"""
@@ -204,14 +199,9 @@ class TuiInputModel(object):
         })
 
     @staticmethod
-    def theme(mode: str) -> dict[str, str]:
-        """返回运行模式对应的 TUI 颜色和标签。"""
-        themes = {
-            "chat": {"brand": "#4F8FC8", "soft": "#2F6FAD", "label": "Chat"},
-            "fast": {"brand": "#4FA37D", "soft": "#2E7D5B", "label": "Fast"},
-            "xtra": {"brand": "#2DAA9E", "soft": "#1E7F78", "label": "Xtra"},
-        }
-        return dict(themes[mode])
+    def theme() -> dict[str, str]:
+        """返回 TUI 主题颜色。"""
+        return {"brand": "#2DAA9E", "soft": "#1E7F78"}
 
     @staticmethod
     def apply_completion(buffer, completion: Completion) -> None:
@@ -289,17 +279,12 @@ class TuiInputModel(object):
             )
             buffer.on_suggestion_set.fire()
 
-    def new_placeholder(self, mode: str) -> str:
+    def new_placeholder(self) -> str:
         """为新的输入轮次生成一次占位文案。"""
-        theme   = self.theme(mode)
         prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
         command = random.choice(self.PLACEHOLDER_COMMANDS)
 
-        return f"{theme['label']}, {prompt}, {command}"
-
-    def set_mode(self, mode: str) -> None:
-        """更新输入建议使用的运行模式。"""
-        self.auto_suggest.set_mode(mode)
+        return f"{prompt}, {command}"
 
     def set_skills(self, skills: typing.Iterable[SkillSpec]) -> None:
         """更新输入补全和高亮使用的 skill 快照。"""

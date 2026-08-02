@@ -47,8 +47,8 @@
 mind.py
     -> mind_app.cli                     参数选择、进程启动和前端装配
         -> mind_app.controller.Mind     主程序状态与生命周期
-            -> mind_app.modes           chat、batch、agent 用例编排
-            -> mind_app.runtime         MCP、工具和本地运行时
+            -> mind_app.runtime         模型轮次、MCP、工具和本地运行时
+            -> mind_app.subscription    远程代理订阅编排
         -> mind_app.tui                 持久交互前端
         -> mind_app.output              text、jsonl、rich 输出实现
 
@@ -62,7 +62,7 @@ mind_app -------------> mind_nova
 - `mind_nova` 只持有请求协议、远程传输、服务认证、事件和标识，不得导入
   `mind_core` 或 `mind_app`，不得读取本地 skills/config。
 - `engine.ports` 负责本地端口探测和占用进程清理，这类进程能力不放入 `mind_nova`。
-- CLI 是具体前端的组合根。`Mind`、`modes`、`runtime` 不判断
+- CLI 是具体前端的组合根。`Mind`、`runtime`、`subscription` 不判断
   `tui/rich/text/json`，只依赖前端和输出能力边界。
 
 ### mind_app 目录
@@ -76,8 +76,8 @@ mind_app -------------> mind_nova
 - `frontend`、`interaction`：跨前端的应用展示与交互契约。
 - `output`、`presentation`：单轮输出控制、内容事件和展示模型。
 - `tui`：prompt_toolkit 应用、TUI 状态和交互功能。
-- `modes`：面向用户的运行模式，不持有具体终端实现。
 - `runtime`：工具执行、MCP 生命周期和运行环境。
+- `subscription`：远程代理订阅、消息转发和重连生命周期。
 - `client_tools`、`native_coding`、`mcp`：可执行能力及其协议适配。
 - `approval`、`history`：独立领域状态与持久化。
 - `stream_events`、`stream_state`、`stream_render`、`stream_io`：分别持有流式事件、

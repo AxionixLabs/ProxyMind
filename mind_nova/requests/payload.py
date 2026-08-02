@@ -9,11 +9,6 @@ from mind_nova.identifiers import (
 from .permissions import permission_payload
 
 
-def resolve_transport_mode(mode: str) -> str:
-    """规范化传输模式，保持本地模式与服务端链路一一对应。"""
-    return str(mode or "").strip().lower()
-
-
 def empty_primary_request_slot() -> dict[str, str]:
     """返回请求协议要求的空 primary 配置。"""
     return {
@@ -90,14 +85,13 @@ def request_hosted_tools(pref_config: typing.Any) -> dict[str, typing.Any]:
 
 
 async def build_chat_payload(
-    mode: str,
     pref_config: dict[str, typing.Any],
     message: str,
     tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     **kwargs: typing.Any
 ) -> dict[str, typing.Any]:
-    """构建 chat/fast/xtra 请求载荷。"""
+    """构建对话请求载荷。"""
     if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
         runtime_exec_env = {}
 
@@ -128,7 +122,6 @@ async def build_chat_payload(
 
     payload: dict[str, typing.Any] = {
         "turn_id"      : turn_id,
-        "mode"         : resolve_transport_mode(mode),
         "llm_conf"     : request_llm_conf(pref_config),
         "message"      : message,
         "tools"        : tools,

@@ -24,7 +24,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.status_frames import SPINNER_FRAMES
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.helix import TuiUpgradeProgress
-from mind_app.runtime.support.calling import run_mode_lifecycle
+from mind_app.runtime.support.calling import run_turn_lifecycle
 from mind_core.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
@@ -64,8 +64,7 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
     class MindStub(object):
         animate = False
 
-        async def start_anim(self, mode: str) -> None:
-            _ = mode
+        async def start_anim(self) -> None:
             await runtime.begin_wait_status()
 
         async def stop_anim(self, kind: str | None = None) -> None:
@@ -74,8 +73,7 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
         async def await_cleanup(self, awaitable):
             return await awaitable
 
-    async def runner(*, mode: str) -> None:
-        _ = mode
+    async def runner() -> None:
         assert runtime.activity.active
 
         await status.begin_reply_wait_status(delay_sec=0.0)
@@ -92,7 +90,7 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
     mind = MindStub()
     mind.frontend = SimpleNamespace(runtime=runtime)
 
-    await run_mode_lifecycle(mind, runner)
+    await run_turn_lifecycle(mind, runner)
 
     assert not runtime.activity.active
     assert runtime.screen._status_fragments() == []

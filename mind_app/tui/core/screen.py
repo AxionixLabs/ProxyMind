@@ -1099,7 +1099,7 @@ class TuiScreen(object):
             return []
 
         context = self._get_context()
-        theme   = self.input_model.theme(context.mode)
+        theme   = self.input_model.theme()
 
         parts: FormattedText = [(f"fg:{theme['brand']}", const.APP_DESC)]
 

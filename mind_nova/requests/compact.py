@@ -5,10 +5,7 @@ import json
 import httpx
 import typing
 from engine.channel import Channel
-from mind_nova.requests.payload import (
-    request_llm_conf,
-    resolve_transport_mode
-)
+from mind_nova.requests.payload import request_llm_conf
 from mind_nova.services import service_endpoints
 
 COMPACT_DEFAULT_STRATEGY = "memento"
@@ -19,7 +16,6 @@ def build_compact_payload(raw: typing.Any) -> dict[str, typing.Any]:
     data = raw if isinstance(raw, dict) else {}
 
     return {
-        "mode"     : resolve_transport_mode(data.get("mode") or "chat"),
         "cid"      : str(data.get("cid") or "").strip(),
         "sid"      : str(data.get("sid") or "").strip(),
         "llm_conf" : request_llm_conf(data.get("llm_conf")),

@@ -20,10 +20,6 @@ from mind_core.hooks import (
     HookDefinitionConfig,
     SessionEndReason
 )
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    RunMode
-)
 from mind_nova.identifiers import short_uid
 from mind_nova.events import EventReportPool
 from .reporting import RunReport
@@ -34,7 +30,7 @@ from engine.observability import (
 from .attach import Attach
 from .runtime.support.calling import (
     calling as run_calling,
-    run_mode_lifecycle as run_mode_lifecycle_wrapper
+    run_turn_lifecycle as run_turn_lifecycle_wrapper
 )
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
@@ -85,7 +81,7 @@ SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")
 
 if typing.TYPE_CHECKING:
-    from .modes.result import RunResult
+    from .runtime.turns.result import RunResult
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
     from .runtime.turns.executor import TurnExecution
     from server import ConfigServiceRuntime
@@ -494,7 +490,6 @@ class Mind(object):
             turn_id="",
             cwd=self.history_workspace,
             model=model,
-            mode=DEFAULT_RUN_MODE,
             source="session",
             sandbox_mode=self.permissions.sandbox_mode,
             permission_mode=self.permissions.approval_policy,
@@ -505,7 +500,6 @@ class Mind(object):
 
     def prepare_conversation_fork(
         self,
-        mode: RunMode,
         cid: str,
         sid: str,
         before_turn_id: str = ""
@@ -514,7 +508,6 @@ class Mind(object):
         candidate = f"fork_{short_uid(20)}"
         try:
             return self.history_store.get_or_create_fork_request(
-                mode=mode,
                 cid=cid,
                 sid=sid,
                 request_id=candidate,
@@ -526,7 +519,6 @@ class Mind(object):
 
     def clear_conversation_fork(
         self,
-        mode: RunMode,
         cid: str,
         sid: str,
         request_id: str,
@@ -535,7 +527,6 @@ class Mind(object):
         """清除已完成或不可重试的本地分支请求。"""
         try:
             self.history_store.clear_fork_request(
-                mode=mode,
                 cid=cid,
                 sid=sid,
                 request_id=request_id,
@@ -1060,10 +1051,9 @@ class Mind(object):
         return self.design
 
     async def start_anim(
-        self,
-        mode: RunMode = DEFAULT_RUN_MODE
+        self
     ) -> None:
-        """启动指定模式的等待动画。"""
+        """启动模型响应等待动画。"""
         if not self.animate:
             return None
         if self.frontend.runtime.active:
@@ -1073,7 +1063,7 @@ class Mind(object):
         design = self.require_design()
 
         await self.anim_manager.start(
-            lambda stop_event: design.stream_mode_live(stop_event, mode)
+            lambda stop_event: design.stream_wait_live(stop_event)
         )
 
     async def start_upload_anim(
@@ -1163,50 +1153,44 @@ class Mind(object):
             before_user_flow=before_user_flow
         )
 
-    async def run_mode_lifecycle(
+    async def run_turn_lifecycle(
         self,
         runner: typing.Callable[..., typing.Awaitable["RunResult"]],
-        *,
-        mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs
     ) -> "RunResult":
-        """模式执行生命周期入口：统一委托运行时模块处理动画和耗时输出。"""
-        return await run_mode_lifecycle_wrapper(self, runner, mode=mode, **kwargs)
+        """单轮执行生命周期入口。"""
+        return await run_turn_lifecycle_wrapper(self, runner, **kwargs)
 
     async def calling(
         self,
         pref_config: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
-        mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs
     ) -> "RunResult":
-        """调用入口：统一委托运行时模块按 mode 执行单次请求。"""
+        """调用入口：统一委托运行时模块执行单次请求。"""
         return await run_calling(
             self,
             pref_config=pref_config,
             message=message,
-            mode=mode,
             **kwargs
         )
 
-    async def stream_looper(
+    async def stream_turn(
         self,
         session: McpSessionLike,
-        mode: typing.Literal["chat", "fast", "xtra"],
         pref_config: dict[str, typing.Any],
         tools: list[dict[str, typing.Any]],
         *_,
         turn_execution: "TurnExecution",
         **kwargs
     ) -> "RunResult":
-        """流式执行入口：委托给流式模式模块。"""
-        from .modes.stream import stream_looper as run_stream_looper
+        """流式执行入口。"""
+        from .runtime.turns.stream import stream_turn as run_stream_turn
 
-        return await run_stream_looper(
+        return await run_stream_turn(
             self,
             session,
-            mode,
             pref_config,
             tools,
             turn_execution=turn_execution,
@@ -1214,8 +1198,8 @@ class Mind(object):
         )
 
     async def agent_loop(self) -> None:
-        """订阅模式入口：委托给订阅模式模块。"""
-        from .modes.agent import run_agent_loop
+        """启动远程代理订阅循环。"""
+        from .subscription import run_agent_loop
 
         return await run_agent_loop(self)
 

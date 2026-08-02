@@ -11,7 +11,6 @@ from mind_nova.identifiers import (
     normalize_turn_id,
     short_uid
 )
-from mind_nova.modes import RunMode
 
 ROOT_AGENT_ID   = "root"
 ROOT_AGENT_TYPE = "root"
@@ -130,7 +129,6 @@ class TurnContext:
     turn_id: str
     cid: str
     sid: str
-    mode: RunMode
     source: str
     model: str
     cwd: str
@@ -147,7 +145,6 @@ class TurnContext:
         agent: AgentContext,
         cid: str,
         sid: str,
-        mode: RunMode,
         source: str,
         pref_config: dict[str, typing.Any],
         cwd: str,
@@ -180,7 +177,6 @@ class TurnContext:
             turn_id=normalized_turn_id,
             cid=normalized_cid,
             sid=normalized_sid,
-            mode=mode,
             source=str(source or "").strip(),
             model=model,
             cwd=str(cwd or "").strip(),

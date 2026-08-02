@@ -23,22 +23,6 @@ TOOL_STATUS_SPEC = SweepStatusSpec(
     exit_pad=8.2
 )
 
-MODE_STATUS_SPEC = SweepStatusSpec(
-    refresh_per_second=30,
-    phase_rate=13.6,
-    text_limit=56,
-    shell_freq=0.44,
-    lead_span=2.8,
-    tail_span=4.6,
-    peak_radius=0.52,
-    near_ratio=0.50,
-    mid_ratio=0.84,
-    scan_speed=0.22,
-    scan_pad=2.0,
-    entry_pad=1.0,
-    exit_pad=3.0
-)
-
 WAIT_STATUS_SPEC = ProgressiveStatusSpec(
     refresh_per_second=30,
     phase_rate=15.6,
@@ -54,19 +38,16 @@ WAIT_STATUS_SPEC = ProgressiveStatusSpec(
 
 STATUS_SPECS: dict[str, SweepStatusSpec | ProgressiveStatusSpec] = {
     "tool"    : TOOL_STATUS_SPEC,
-    "mode"    : MODE_STATUS_SPEC,
     "wait"    : WAIT_STATUS_SPEC
 }
 
 STATUS_TEXT_CHROME_WIDTH: dict[str, int] = {
     "tool"    : 18,
-    "mode"    : 18,
     "wait"    : 18
 }
 
 STATUS_TEXT_FLOOR: dict[str, int] = {
     "tool"    : 16,
-    "mode"    : 16,
     "wait"    : 16
 }
 

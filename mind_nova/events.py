@@ -10,7 +10,6 @@ from engine.observability import (
     observe_exception
 )
 from mind_nova.identifiers import short_uid
-from mind_nova.modes import RunMode
 from mind_nova.requests.reports import post_stream_event
 from mind_nova.stream_events import StreamEvent
 from mind_nova import const
@@ -20,34 +19,29 @@ class EventReport(object):
     """事件上报器，保证队列内事件按顺序发送。"""
 
     @staticmethod
-    def default_proto(mode: str) -> str:
-        """按运行模式生成事件协议名。"""
-        mode_name = str(mode or "").strip().lower()
-        return f"{const.APP_NAME}.{mode_name or 'unknown'}"
+    def default_proto() -> str:
+        """返回默认事件协议名。"""
+        return f"{const.APP_NAME}.stream"
 
     def __init__(
         self,
-        mode: RunMode,
         cid: str,
         sid: str,
         proto: typing.Optional[str] = None
     ):
-        self.mode = mode
-        self.cid  = cid
-        self.sid  = sid
+        self.cid = cid
+        self.sid = sid
 
         self.proto = proto.strip() if isinstance(
             proto, str
-        ) and proto.strip() else self.default_proto(mode)
+        ) and proto.strip() else self.default_proto()
 
         self.turn_id: str   = short_uid(12)
         self.round: int     = 1
         self.timeout: float = 30.0
         self.seq: int       = 0
 
-        self.q: asyncio.Queue[
-            tuple[RunMode, dict[str, typing.Any]]
-        ] = asyncio.Queue(maxsize=2000)
+        self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=2000)
 
         self.stop = asyncio.Event()
 
@@ -68,12 +62,6 @@ class EventReport(object):
         )
 
         return self.turn_id
-
-    def set_mode(self, mode: RunMode) -> None:
-        """设置后续事件使用的运行模式。"""
-        if self.proto == self.default_proto(self.mode):
-            self.proto = self.default_proto(mode)
-        self.mode = mode
 
     def set_round(self, round_no: typing.Any) -> None:
         if isinstance(round_no, int) and round_no > 0:
@@ -102,7 +90,7 @@ class EventReport(object):
             ev.setdefault("round", self.round)
             ev.setdefault("seq", self.seq)
 
-            self.q.put_nowait((self.mode, ev))
+            self.q.put_nowait(ev)
 
         except asyncio.QueueFull:
             observe(
@@ -146,12 +134,17 @@ class EventReport(object):
                 return None
 
             try:
-                mode, ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
+                ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
 
             try:
-                await post_stream_event(mode, self.cid, self.sid, ev, timeout=self.timeout)
+                await post_stream_event(
+                    self.cid,
+                    self.sid,
+                    ev,
+                    timeout=self.timeout,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -233,7 +226,6 @@ class EventReportPool(object):
 
     async def acquire(
         self,
-        mode: RunMode,
         cid: str,
         sid: str,
     ) -> EventReport:
@@ -246,10 +238,8 @@ class EventReportPool(object):
 
             report = self._reports.get(key)
             if report is None:
-                report = EventReport(mode, cid, sid)
+                report = EventReport(cid, sid)
                 self._reports[key] = report
-            else:
-                report.set_mode(mode)
 
             await report.open()
 

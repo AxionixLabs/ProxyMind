@@ -46,7 +46,6 @@ async def test_transcript_selects_previous_prompt_and_emits_backtrack() -> None:
 
         await runtime.open()
         prompt_task = asyncio.create_task(runtime.read_message(PromptContext(
-            mode="chat",
             model="",
         )))
         try:

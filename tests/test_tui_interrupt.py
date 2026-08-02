@@ -52,7 +52,7 @@ async def test_double_ctrl_c_exits_and_precedes_queued_message() -> None:
 
     runtime.submissions.interrupt_input()
     with pytest.raises(TuiInterruptRequested):
-        await runtime.read_message(PromptContext(mode="chat", model="test"))
+        await runtime.read_message(PromptContext(model="test"))
 
     assert runtime.submissions.queued_messages.active
 
@@ -63,7 +63,7 @@ async def test_double_ctrl_c_wakes_pending_message_reader() -> None:
 
     async def read_until_interrupted() -> str:
         try:
-            await runtime.read_message(PromptContext(mode="chat", model="test"))
+            await runtime.read_message(PromptContext(model="test"))
         except TuiInterruptRequested:
             return "interrupted"
         return "message"
@@ -146,7 +146,7 @@ async def test_ctrl_d_requests_clean_exit_before_queued_message() -> None:
     runtime.submissions.exit_input()
 
     with pytest.raises(EOFError):
-        await runtime.read_message(PromptContext(mode="chat", model="test"))
+        await runtime.read_message(PromptContext(model="test"))
     assert runtime.submissions.queued_messages.active
 
 

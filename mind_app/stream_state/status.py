@@ -17,7 +17,6 @@ from mind_core.design.status.elapsed import (
 
 StatusFamily = typing.Literal[
     "tool",
-    "mode",
     "wait",
 ]
 
@@ -26,7 +25,6 @@ class StatusState(object):
     """管理状态行的渲染族与动画配置。"""
 
     FAMILY_TOOL: typing.Final[StatusFamily] = "tool"
-    FAMILY_MODE: typing.Final[StatusFamily] = "mode"
     FAMILY_WAIT: typing.Final[StatusFamily] = "wait"
 
     ELAPSED_VISIBLE_AFTER_SEC: typing.Final[float] = 0.65
@@ -218,8 +216,6 @@ class StatusState(object):
         """按状态族生成一致布局的状态行主体。"""
         if family == cls.FAMILY_TOOL:
             return Design.tool_status_renderable(phase, text)
-        if family == cls.FAMILY_MODE:
-            return Design.mode_status_renderable(phase, text)
         if family == cls.FAMILY_WAIT:
             return Design.thinking_status_renderable(phase, text)
 

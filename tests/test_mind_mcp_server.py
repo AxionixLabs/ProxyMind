@@ -18,7 +18,7 @@ from mind_app.mcp.server import (
     MindMcpRuntime,
     create_mind_mcp_server,
 )
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_core.application_paths import ApplicationLayout
 from mind_core.permissions import PermissionSettings
 
@@ -41,7 +41,7 @@ def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
     assert [tool.name for tool in tools] == ["mind_exec"]
     assert tools[0].parameters["required"] == ["prompt"]
     properties = tools[0].parameters["properties"]
-    assert properties["mode"]["enum"] == ["chat", "fast", "xtra"]
+    assert "mode" not in properties
     assert properties["sandbox_mode"]["anyOf"][0]["enum"] == [
         "read-only",
         "workspace-write",
@@ -75,7 +75,6 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
 
     actual = await runtime.execute(
         prompt="inspect",
-        mode="xtra",
         sandbox_mode="read-only",
         approval_policy="on-request",
         working_directory=str(tmp_path),
@@ -90,7 +89,6 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     )
     mind.calling.assert_awaited_once_with(
         message="inspect",
-        mode="xtra",
         permissions=PermissionSettings("read-only", "on-request"),
     )
 
@@ -114,7 +112,6 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
 
     await runtime.execute(
         prompt="inspect",
-        mode="xtra",
         sandbox_mode=None,
         approval_policy=None,
         working_directory=str(tmp_path),
@@ -122,7 +119,6 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
 
     mind.calling.assert_awaited_once_with(
         message="inspect",
-        mode="xtra",
         permissions=PermissionSettings("workspace-write", "on-request"),
     )
 
@@ -150,7 +146,6 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
 
     actual = await runtime.execute(
         prompt="continue",
-        mode="chat",
         sandbox_mode="danger-full-access",
         approval_policy="never",
         working_directory=str(tmp_path),
@@ -184,7 +179,6 @@ async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
 
     actual = await runtime.execute(
         prompt="continue",
-        mode="chat",
         sandbox_mode="read-only",
         approval_policy="on-request",
         working_directory=str(tmp_path),
@@ -225,7 +219,6 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
 
     timed_out = await runtime.execute(
         prompt="wait",
-        mode="xtra",
         sandbox_mode="read-only",
         approval_policy="on-request",
         working_directory=str(tmp_path),
@@ -243,7 +236,6 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
     )
     following = await runtime.execute(
         prompt="next",
-        mode="xtra",
         sandbox_mode="read-only",
         approval_policy="on-request",
         working_directory=str(tmp_path),
@@ -279,7 +271,6 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
 
     task = asyncio.create_task(runtime.execute(
         prompt="wait",
-        mode="xtra",
         sandbox_mode="read-only",
         approval_policy="on-request",
         working_directory=str(tmp_path),

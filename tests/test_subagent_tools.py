@@ -11,7 +11,7 @@ from mind_app.client_tools.registry import (
 )
 from mind_app.client_tools.subagents import subagent_tools
 from mind_app.mcp.session_adapter import CompositeToolSession
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
@@ -32,7 +32,7 @@ class _Controller:
     async def with_mcp_session(self, pref_config, function):
         return await function("session", [])
 
-    async def stream_looper(self, **kwargs):
+    async def stream_turn(self, **kwargs):
         execution = kwargs["turn_execution"]
         self.messages.append(execution.message)
         if self.stream_handler is not None:
@@ -54,7 +54,6 @@ def _root_turn() -> TurnContext:
         agent=AgentContext.root(sid),
         cid=cid,
         sid=sid,
-        mode="xtra",
         source="test",
         pref_config={},
         cwd="D:/workspace",
@@ -321,7 +320,6 @@ async def test_agent_tools_reject_cross_root_and_self_blocking_calls() -> None:
         agent=snapshot.context,
         cid=snapshot.thread.cid,
         sid=snapshot.thread.sid,
-        mode=snapshot.thread.mode,
         source="subagent",
         pref_config={},
         cwd=snapshot.thread.cwd,

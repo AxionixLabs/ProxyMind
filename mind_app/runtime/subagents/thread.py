@@ -10,7 +10,6 @@ from mind_nova.identifiers import (
     new_cid,
     new_sid
 )
-from mind_nova.modes import RunMode
 from mind_app.history.ids import valid_session_ids
 from mind_app.runtime.execution import (
     AgentContext,
@@ -28,7 +27,6 @@ class AgentThreadContext:
     agent: AgentContext
     cid: str
     sid: str
-    mode: RunMode
     source: str
     cwd: str
     permissions: PermissionSettings
@@ -123,7 +121,6 @@ class AgentThreadContext:
             agent=agent,
             cid=cid,
             sid=sid,
-            mode=parent.mode,
             source="subagent",
             cwd=parent.cwd,
             permissions=parent.permissions,

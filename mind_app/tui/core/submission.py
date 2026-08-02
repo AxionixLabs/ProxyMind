@@ -118,7 +118,6 @@ class TuiSubmissionFlow(object):
         self,
         *,
         input_model: TuiInputModel,
-        mode: str,
         is_submission_deferred: typing.Callable[[], bool],
         get_input_buffer: typing.Callable[[], Buffer],
         append_notice: typing.Callable[[FragmentBlock], None],
@@ -139,13 +138,11 @@ class TuiSubmissionFlow(object):
             timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC
         )
 
-        self.placeholder_text = self.input_model.new_placeholder(mode)
+        self.placeholder_text = self.input_model.new_placeholder()
 
         self.queued_submission_text: str | None = None
         self.surface_submission_pending: bool   = False
         self._queue_submission_requested: bool  = False
-
-        self._mode = mode
 
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer       = get_input_buffer
@@ -494,17 +491,6 @@ class TuiSubmissionFlow(object):
         self._cancel_exit_expiry()
         self._invalidate()
 
-    def set_mode(self, mode: str) -> None:
-        """更新输入建议模式并在模式变化时刷新占位文案。"""
-        mode_changed = mode != self._mode
-
-        self._mode = mode
-
-        self.input_model.set_mode(mode)
-        if mode_changed:
-            self.placeholder_text = self.input_model.new_placeholder(mode)
-        self._invalidate()
-
     def accept_input(self, buffer: Buffer) -> bool:
         """恢复折叠粘贴内容并按当前运行状态提交输入。"""
         self.clear_exit_confirmation()
@@ -575,7 +561,7 @@ class TuiSubmissionFlow(object):
             )
             self.message_queue.put_nowait(submission)
 
-        self.placeholder_text = self.input_model.new_placeholder(self._mode)
+        self.placeholder_text = self.input_model.new_placeholder()
 
         buffer.text = submission.visible_text
         buffer.cursor_position = len(buffer.text)

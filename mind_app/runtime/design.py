@@ -3,7 +3,6 @@
 
 import typing
 import asyncio
-from mind_nova.modes import RunMode
 
 
 class TerminalDesign(typing.Protocol):
@@ -17,12 +16,11 @@ class TerminalDesign(typing.Protocol):
         """展示下载进度。"""
         ...
 
-    async def stream_mode_live(
+    async def stream_wait_live(
         self,
         stop_event: asyncio.Event,
-        mode: RunMode,
     ) -> None:
-        """展示模式等待状态。"""
+        """展示流式响应等待状态。"""
         ...
 
     async def upload_progress_live(

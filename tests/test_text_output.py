@@ -37,7 +37,7 @@ from mind_app.presentation.models import (
     TracePreview,
 )
 from mind_app.presentation.run_views import build_run_started_view
-from mind_app.runtime.support.calling import run_mode_lifecycle
+from mind_app.runtime.support.calling import run_turn_lifecycle
 from mind_app.stream_events.worked import worked_footer_text
 from mind_core.permissions import preset_permissions
 
@@ -81,7 +81,6 @@ def _run_view():
     return build_run_started_view(
         metadata={"cid": "cid-test", "sid": "sid-test"},
         message="What project is this?",
-        mode="chat",
         pref_config={
             "primary": {
                 "model": "gpt-5.6-sol",
@@ -99,7 +98,6 @@ def test_run_view_uppercases_windows_drive_letter_for_display() -> None:
     view = build_run_started_view(
         metadata={},
         message="inspect",
-        mode="chat",
         pref_config={},
         workdir="d:/PycharmProjects/ProxyMind",
         permissions=preset_permissions("read-only"),
@@ -319,6 +317,6 @@ async def test_non_animated_mode_does_not_emit_worked_footer() -> None:
     )
     runner = AsyncMock()
 
-    await run_mode_lifecycle(mind, runner, mode="chat")
+    await run_turn_lifecycle(mind, runner)
 
     assert application.views == []

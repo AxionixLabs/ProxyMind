@@ -3,10 +3,6 @@
 
 import argparse
 from mind_nova import const
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    MODES
-)
 from .commands import COMPLETION_SHELLS
 from .help import CliArgumentParser
 from .invocation import (
@@ -101,13 +97,6 @@ def create_cli_parser() -> CliArgumentParser:
         help="Task instructions; use '-' or a pipe to read from standard input",
     )
     exec_options = exec_parser.add_argument_group("Options")
-    exec_options.add_argument(
-        "--mode",
-        choices=MODES,
-        default=DEFAULT_RUN_MODE,
-        metavar="MODE",
-        help=f"Run mode [default: {DEFAULT_RUN_MODE}]",
-    )
     exec_options.add_argument(
         "--json",
         action="store_true",

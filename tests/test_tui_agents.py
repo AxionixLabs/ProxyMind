@@ -48,7 +48,6 @@ def _snapshot(
         ),
         cid=cid,
         sid=new_sid(cid),
-        mode="xtra",
         source="subagent",
         cwd="D:/workspace",
         permissions=preset_permissions("auto"),

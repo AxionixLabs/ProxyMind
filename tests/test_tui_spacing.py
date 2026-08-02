@@ -246,7 +246,6 @@ def test_queued_messages_filter_controls_before_clipping() -> None:
 def test_footer_filters_context_controls_before_clipping() -> None:
     runtime = TuiRuntime()
     runtime.set_prompt_context(PromptContext(
-        mode="chat",
         model="model\x1b]52;c;payload\x1b\\",
         workspace_label="workspace\x1bPprivate\x1b\\",
         permissions_label="Auto",
@@ -2407,7 +2406,6 @@ async def test_submission_commit_and_rollback_notify_open_transcript() -> None:
         wraps=overlay.content_changed,
     ) as content_changed:
         value = await runtime.read_message(PromptContext(
-            mode="chat",
             model="test",
         ))
 

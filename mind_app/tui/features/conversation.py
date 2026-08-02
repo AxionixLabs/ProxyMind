@@ -19,13 +19,12 @@ from mind_app.runtime.support.clipboard import (
 )
 from mind_app.history.ids import valid_session_ids
 from mind_core.mcp_status import external_mcp_status_view
-from mind_nova.modes import RunMode
 from mind_nova.requests.fork import (
     ConversationForkRequestError,
     ResubmittablePrompt,
     request_conversation_fork
 )
-from ...modes.compact import (
+from ...runtime.conversation import (
     CompactResult,
     compact_conversation
 )
@@ -193,7 +192,6 @@ def compact_animation_enabled(mind: "Mind") -> bool:
 async def compact_current_conversation(
     mind: "Mind",
     *,
-    run_mode: RunMode,
     pref_config: dict[str, typing.Any],
 ) -> CompactLiveStatus:
     """压缩当前会话上下文。"""
@@ -205,7 +203,6 @@ async def compact_current_conversation(
 
     result = await compact_conversation(
         mind,
-        run_mode=run_mode,
         pref_config=pref_config,
         source="tui",
         on_progress=status.running,
@@ -222,7 +219,6 @@ async def compact_current_conversation(
 async def fork_current_conversation(
     mind: "Mind",
     *,
-    run_mode: RunMode,
     before_turn_id: str = "",
     bind_target: bool = True,
     fallback_prompt: ResubmittablePrompt | None = None
@@ -232,7 +228,6 @@ async def fork_current_conversation(
     boundary = str(before_turn_id or "").strip()
 
     request_id = mind.prepare_conversation_fork(
-        run_mode,
         source["cid"],
         source["sid"],
         boundary,
@@ -241,7 +236,6 @@ async def fork_current_conversation(
 
     observe(
         "conversation.fork.start",
-        mode=run_mode,
         cid=source["cid"],
         sid=source["sid"],
         request_id=request_id,
@@ -254,7 +248,6 @@ async def fork_current_conversation(
             await mind.start_compact_anim(status.snapshot)
 
         result = await request_conversation_fork(
-            mode=run_mode,
             cid=source["cid"],
             sid=source["sid"],
             request_id=request_id,
@@ -272,7 +265,6 @@ async def fork_current_conversation(
 
         if boundary and not isinstance(prompt, ResubmittablePrompt):
             mind.clear_conversation_fork(
-                run_mode,
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -289,7 +281,6 @@ async def fork_current_conversation(
 
         if not valid_session_ids(target_cid, target_sid):
             mind.clear_conversation_fork(
-                run_mode,
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -317,7 +308,6 @@ async def fork_current_conversation(
             )
             if bound is None:
                 mind.clear_conversation_fork(
-                    run_mode,
                     source["cid"],
                     source["sid"],
                     request_id,
@@ -338,7 +328,6 @@ async def fork_current_conversation(
             bound_sid = bound["sid"]
 
         mind.clear_conversation_fork(
-            run_mode,
             source["cid"],
             source["sid"],
             request_id,
@@ -354,7 +343,6 @@ async def fork_current_conversation(
 
         observe(
             "conversation.fork.complete",
-            mode=run_mode,
             source_cid=source["cid"],
             source_sid=source["sid"],
             cid=bound_cid,
@@ -375,7 +363,6 @@ async def fork_current_conversation(
     except ConversationForkRequestError as error:
         if not error.retryable:
             mind.clear_conversation_fork(
-                run_mode,
                 source["cid"],
                 source["sid"],
                 request_id,

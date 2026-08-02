@@ -12,7 +12,6 @@ from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
 )
-from mind_nova.modes import RunMode
 from server import config_service_base_url
 from ..core.models import FragmentBlock
 from ..core.runtime import TuiRuntime
@@ -63,7 +62,6 @@ from ..features.mcp import (
     parse_mcp_command,
     render_mcp_status
 )
-from ..features.mode import render_mode_status
 from ..features.model import (
     choose_model_effort,
     exchange_pref_value,
@@ -92,18 +90,6 @@ from .state import TuiSessionState
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-
-_MODE_BY_KEY: typing.Final[dict[str, RunMode]] = {
-    "chat": "chat",
-    "fast": "fast",
-    "xtra": "xtra",
-}
-
-MODE_BY_COMMAND: dict[str, RunMode] = {
-    name: mode
-    for key, mode in _MODE_BY_KEY.items()
-    for name in command_spec(key).names
-}
 
 MODEL_COMMAND_PATTERN = re.compile(
     rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
@@ -213,7 +199,6 @@ class TuiCommandDispatcher(object):
             await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
             await print_available_tools(
                 self.mind,
-                run_mode=self.state.mode,
                 pref_config=self.state.pref_config,
             )
             return DispatchAction.HANDLED
@@ -267,7 +252,6 @@ class TuiCommandDispatcher(object):
                 "Context compaction",
                 lambda: compact_current_conversation(
                     self.mind,
-                    run_mode=self.state.mode,
                     pref_config=self.state.pref_config,
                 ),
                 finish_activity=lambda: finish_compact_activity(self.mind),
@@ -289,7 +273,6 @@ class TuiCommandDispatcher(object):
                 "Conversation fork",
                 lambda: fork_current_conversation(
                     self.mind,
-                    run_mode=self.state.mode,
                 ),
                 finish_activity=lambda: finish_fork_activity(self.mind),
                 on_succeeded=self._finish_conversation_fork,
@@ -369,12 +352,6 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "resume"):
             await self._resume_conversation()
-            return DispatchAction.HANDLED
-
-        if command in MODE_BY_COMMAND:
-            self.state.mode = MODE_BY_COMMAND[command]
-            self.state.apply_prompt_context(self.runtime)
-            render_mode_status(self.application, self.state.mode)
             return DispatchAction.HANDLED
 
         return DispatchAction.MODEL_TURN

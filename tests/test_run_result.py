@@ -13,8 +13,8 @@ import pytest
 
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.approval.coordinator import ApprovalCoordinator
-from mind_app.modes import stream
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns import stream
+from mind_app.runtime.turns.result import RunResult
 from mind_app.output.content import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
@@ -202,7 +202,6 @@ async def _run_stream(
         ),
         cid="cid_test",
         sid="sid_test",
-        mode="xtra",
         source="test",
         pref_config={},
         cwd=".",
@@ -242,10 +241,9 @@ async def _run_stream(
     if on_turn_input_event is not None:
         stream_options["on_turn_input_event"] = on_turn_input_event
 
-    result = await stream.stream_looper(
+    result = await stream.stream_turn(
         mind,
         SimpleNamespace(),
-        "xtra",
         {},
         [],
         **stream_options,
@@ -948,7 +946,7 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
     messages = []
     request_kwargs = []
 
-    async def stream_with_continuation(_mode, _pref, message, _tools, **kwargs):
+    async def stream_with_continuation(_pref, message, _tools, **kwargs):
         messages.append(message)
         request_kwargs.append(kwargs)
         yield parse_stream_event({

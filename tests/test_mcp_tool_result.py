@@ -176,7 +176,6 @@ async def test_external_structured_result_is_visible_after_tool_run() -> None:
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
         sid="sid_test",
-        mode="xtra",
         source="test",
         pref_config={},
         cwd=".",

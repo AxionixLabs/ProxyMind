@@ -244,7 +244,6 @@ def test_queue_reserves_last_row_for_hidden_count() -> None:
 def test_running_input_replaces_information_footer_with_queue_hint() -> None:
     runtime = TuiRuntime()
     runtime.context = PromptContext(
-        mode="chat",
         model="gpt-test high",
         permissions_label="Full Access",
         workspace_label="ProxyMind",
@@ -290,7 +289,6 @@ def test_pending_steer_and_follow_up_have_separate_sections() -> None:
 def test_queued_submission_restores_information_footer() -> None:
     runtime = TuiRuntime()
     runtime.context = PromptContext(
-        mode="chat",
         model="gpt-test high",
         permissions_label="Full Access",
         workspace_label="ProxyMind",
@@ -380,7 +378,7 @@ async def test_queued_paste_restores_editable_state_and_reuses_number() -> None:
     runtime.screen.input.buffer.text = f"{second}\n{replacement}"
     runtime.screen.input.buffer.validate_and_handle()
 
-    value = await runtime.read_message(PromptContext(mode="chat", model="test"))
+    value = await runtime.read_message(PromptContext(model="test"))
 
     assert value == f"{second_text}\n{replacement_text}"
     assert runtime.input_model.submission_state() == {}
@@ -398,8 +396,8 @@ async def test_queued_pastes_keep_independent_placeholder_snapshots() -> None:
         runtime.screen.input.buffer.text = placeholder
         runtime.screen.input.buffer.validate_and_handle()
 
-    first = await runtime.read_message(PromptContext(mode="chat", model="test"))
-    second = await runtime.read_message(PromptContext(mode="chat", model="test"))
+    first = await runtime.read_message(PromptContext(model="test"))
+    second = await runtime.read_message(PromptContext(model="test"))
 
     assert (first, second) == contents
 

@@ -26,7 +26,6 @@ class HookExecutionContext:
     conversation_id: str
     cwd: str
     model: str
-    mode: str
     source: str
     sandbox_mode: str
     permission_mode: str
@@ -50,7 +49,6 @@ class HookExecutionContext:
             turn_id=turn.turn_id,
             cwd=turn.cwd,
             model=turn.model,
-            mode=turn.mode,
             source=turn.source,
             sandbox_mode=turn.permissions.sandbox_mode,
             permission_mode=turn.permissions.approval_policy,

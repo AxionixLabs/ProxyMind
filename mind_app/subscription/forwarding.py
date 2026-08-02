@@ -9,11 +9,7 @@ from engine.observability import (
     observe,
     observe_exception
 )
-from mind_nova.modes import (
-    RUN_MODE_SET,
-    RunMode
-)
-from ...runtime.agent.client import AgentClient
+from ..runtime.agent.client import AgentClient
 from .models import (
     AgentInboxItem,
     AgentForwardRequest,
@@ -23,7 +19,7 @@ from .models import (
 from .ui import start_status_animation
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..controller import Mind
 
 
 class AgentForwardHandler(typing.Protocol):
@@ -60,19 +56,10 @@ def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
     return summary or None
 
 
-def normalize_forward_target(
+def normalize_forward_request(
     payload: dict[str, typing.Any]
-) -> tuple[RunMode, str, str | None]:
-    """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
-    mode_raw = payload.get("mode")
-    if not isinstance(mode_raw, str):
-        raise ValueError("mind.forward payload.mode must be a string")
-    mode = mode_raw.strip().lower()
-    if mode not in RUN_MODE_SET:
-        raise ValueError("mind.forward payload.mode must be chat, fast, or xtra")
-
-    mode = typing.cast(RunMode, mode)
-
+) -> tuple[str, str | None]:
+    """解析 `mind.forward` 载荷中的执行参数。"""
     message = payload.get("message")
     if not isinstance(message, str):
         raise ValueError("mind.forward payload.message must be a string")
@@ -83,7 +70,7 @@ def normalize_forward_target(
     if metadata_raw is not None and not isinstance(metadata_raw, dict):
         raise ValueError("mind.forward payload.metadata must be an object")
 
-    return mode, message, resolve_intent_summary(payload)
+    return message, resolve_intent_summary(payload)
 
 
 def resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
@@ -122,7 +109,7 @@ class AgentExecutor(object):
         live_status: AgentLiveStatus | None = None
     ) -> None:
         """执行一条服务端下发的本地任务。"""
-        mode, message, intent_summary = normalize_forward_target(request.payload)
+        message, intent_summary = normalize_forward_request(request.payload)
 
         timeout_sec      = resolve_forward_timeout_sec(request.payload)
         metadata_raw     = request.payload.get("metadata")
@@ -140,14 +127,13 @@ class AgentExecutor(object):
             "agent.forward.start",
             call_id=request.call_id,
             message_id=request.message_id,
-            mode=mode,
             message_chars=len(message),
             timeout_sec=timeout_sec or 0,
             metadata_fields=len(forward_metadata),
         )
         if live_status is not None:
             live_status.update(
-                "Server Task Received", f"{mode} · {request.call_id}"
+                "Server Task Received", request.call_id
             )
 
         await client.send_mind_started(
@@ -158,7 +144,7 @@ class AgentExecutor(object):
             call_id=request.call_id
         )
 
-        runner = mind.calling(message=message, mode=mode, metadata=metadata)
+        runner = mind.calling(message=message, metadata=metadata)
 
         if timeout_sec is not None:
             result = await asyncio.wait_for(runner, timeout=timeout_sec)
@@ -179,7 +165,6 @@ class AgentExecutor(object):
         observe(
             "agent.forward.complete",
             call_id=request.call_id,
-            mode=mode,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
 

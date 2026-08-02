@@ -9,8 +9,6 @@ from mind_app.frontend import (
 )
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
-from mind_nova.modes import RunMode
-from mind_app.runtime.tools.mode_policy import filter_mode_tools
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
@@ -72,13 +70,11 @@ def summarize_tool_groups(
 def render_tools_summary(
     *,
     application: ApplicationSink,
-    mode: RunMode,
     tools: list[dict[str, typing.Any]],
     limit: int = GROUP_DISPLAY_LIMIT
 ) -> None:
     """打印当前会话可见工具摘要。"""
-    visible_tools = filter_mode_tools(mode, tools)
-    groups = summarize_tool_groups(visible_tools)
+    groups = summarize_tool_groups(tools)
     total  = sum(len(item["tools"]) for item in groups)
 
     external_total = sum(
@@ -88,7 +84,7 @@ def render_tools_summary(
 
     parts = [
         TextSpan(
-            f"{total} available · mode={mode} external={external_total}",
+            f"{total} available · external={external_total}",
             MUTED_STYLE,
         ),
     ]
@@ -133,7 +129,6 @@ def render_tools_summary(
 async def print_available_tools(
     mind: "Mind",
     *,
-    run_mode: RunMode,
     pref_config: dict[str, typing.Any]
 ) -> None:
     """建立一次 MCP 会话并打印当前模式可见工具。"""
@@ -144,7 +139,6 @@ async def print_available_tools(
         _ = session
         render_tools_summary(
             application=mind.frontend.application,
-            mode=run_mode,
             tools=tools,
         )
 

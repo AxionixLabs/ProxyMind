@@ -48,15 +48,6 @@ class TuiCommandSpec(object):
 
 TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
-        "chat", "/chat", "切换到 Chat 模式",
-    ),
-    TuiCommandSpec(
-        "fast", "/fast", "切换到 Fast 模式",
-    ),
-    TuiCommandSpec(
-        "xtra", "/xtra", "切换到 Xtra 模式",
-    ),
-    TuiCommandSpec(
         "new", "/new", "开始新对话",
     ),
     TuiCommandSpec(

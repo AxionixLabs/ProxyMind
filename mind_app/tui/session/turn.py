@@ -10,14 +10,12 @@ from mind_app.frontend import (
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
 from mind_nova.events import EventReport
-from mind_nova.modes import RunMode
 from mind_nova import const
 from mind_core.permissions import PermissionSettings
 from ...runtime.execution import (
     AgentContext,
     TurnContext
 )
-from ...runtime.support.calling import resolve_mode_runner
 from ...runtime.turns.executor import (
     TurnExecution,
     execute_turn,
@@ -34,7 +32,7 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ...modes.result import RunResult
+    from ...runtime.turns.result import RunResult
 
 
 async def execute_tui_model_turn(
@@ -121,7 +119,6 @@ async def run_tui_model_turn(
     mind: "Mind",
     *,
     message_text: str,
-    run_mode: RunMode,
     pref_config: dict[str, typing.Any],
     permissions: PermissionSettings,
     turn_id: str | None = None,
@@ -152,7 +149,7 @@ async def run_tui_model_turn(
         or "Image"
     )
 
-    runner = resolve_mode_runner(mind, run_mode)
+    runner = mind.stream_turn
     extras = dict(prompt_extras or {})
 
     conversation_turn = await mind.begin_conversation_turn(
@@ -165,7 +162,6 @@ async def run_tui_model_turn(
         agent=AgentContext.root(turn_metadata["sid"]),
         cid=turn_metadata["cid"],
         sid=turn_metadata["sid"],
-        mode=run_mode,
         source="tui",
         pref_config=pref_config,
         cwd=mind.history_workspace,
@@ -199,9 +195,8 @@ async def run_tui_model_turn(
             prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
             prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
 
-        return await mind.run_mode_lifecycle(
+        return await mind.run_turn_lifecycle(
             runner,
-            mode=prepared.context.mode,
             session=session,
             pref_config=pref_config,
             tools=tools,

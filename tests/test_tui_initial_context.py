@@ -70,4 +70,4 @@ def test_successful_submission_prepares_next_placeholder() -> None:
         runtime.submissions.accept_input(runtime.screen.input.buffer)
 
     assert runtime.submissions.placeholder_text == "next placeholder"
-    new_placeholder.assert_called_once_with("chat")
+    new_placeholder.assert_called_once_with()

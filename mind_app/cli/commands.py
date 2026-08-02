@@ -4,10 +4,6 @@
 import typing
 from dataclasses import dataclass
 from mind_core.config import ConfigOverride
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    RunMode
-)
 
 OutputFormat = typing.Literal[
     "text",
@@ -57,7 +53,6 @@ class ExecCommand(object):
     prompt: str
     images: tuple[str, ...] = ()
     model: str | None = None
-    mode: RunMode = DEFAULT_RUN_MODE
     output_format: OutputFormat = "text"
     helix: bool = False
 

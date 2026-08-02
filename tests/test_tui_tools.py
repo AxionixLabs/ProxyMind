@@ -27,7 +27,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
         },
     ]
 
-    render_tools_summary(application=application, mode="chat", tools=tools)
+    render_tools_summary(application=application, tools=tools)
 
     summary, gap = (
         call.args[0]
@@ -37,7 +37,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
 
     assert summary.type == "tui.tools.summary"
     assert text == (
-        "/tools · 3 available · mode=chat external=1\n"
+        "/tools · 3 available · external=1\n"
         "search (external · stdio · 1)\n"
         "  • external_search\n"
         "coding (local · builtin · 2)\n"
@@ -48,7 +48,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
     assert gap.type == "tui.gap"
 
 
-def test_tools_summary_uses_current_mode_policy() -> None:
+def test_tools_summary_uses_supplied_catalog_without_implicit_filtering() -> None:
     application = SimpleNamespace(emit=Mock())
     tools = [
         {"name": "apply_patch", "meta": {"domain": "coding"}},
@@ -56,12 +56,12 @@ def test_tools_summary_uses_current_mode_policy() -> None:
         {"name": "update_plan", "meta": {"domain": "client", "class": "plan"}},
     ]
 
-    render_tools_summary(application=application, mode="xtra", tools=tools)
+    render_tools_summary(application=application, tools=tools)
 
     summary = application.emit.call_args_list[0].args[0]
     text = "".join(value for _style, value in summary.renderable.fragments)
 
-    assert "2 available" in text
+    assert "3 available" in text
     assert "apply_patch" in text
     assert "update_plan" in text
-    assert "plan_steps" not in text
+    assert "plan_steps" in text

@@ -6,8 +6,6 @@ import typing
 from copy import deepcopy
 from dataclasses import dataclass
 from engine.channel import Channel
-from mind_nova.modes import RunMode
-from mind_nova.requests.payload import resolve_transport_mode
 from mind_nova.services import service_endpoints
 
 
@@ -40,7 +38,6 @@ class ResubmittablePrompt(object):
 
 def build_fork_payload(
     *,
-    mode: RunMode,
     cid: str,
     sid: str,
     request_id: str,
@@ -49,7 +46,6 @@ def build_fork_payload(
     """构建远端会话分支请求载荷。"""
     payload = {
         "request_id" : str(request_id or "").strip(),
-        "mode"       : resolve_transport_mode(mode),
         "cid"        : str(cid or "").strip(),
         "sid"        : str(sid or "").strip(),
     }
@@ -61,7 +57,6 @@ def build_fork_payload(
 
 async def request_conversation_fork(
     *,
-    mode: RunMode,
     cid: str,
     sid: str,
     request_id: str,
@@ -71,7 +66,6 @@ async def request_conversation_fork(
 ) -> dict[str, typing.Any]:
     """请求服务端复制当前会话上下文。"""
     payload = build_fork_payload(
-        mode=mode,
         cid=cid,
         sid=sid,
         request_id=request_id,
@@ -116,7 +110,6 @@ async def request_conversation_fork(
 
     expected = {
         "request_id" : payload["request_id"],
-        "mode"       : payload["mode"],
         "source_cid" : payload["cid"],
         "source_sid" : payload["sid"],
     }

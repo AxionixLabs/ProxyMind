@@ -13,10 +13,6 @@ from mind_core.permissions import (
     PermissionSettings,
     permission_label
 )
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    RunMode
-)
 from ..core.runtime import (
     TuiRuntime,
     require_tui_runtime
@@ -34,7 +30,7 @@ if typing.TYPE_CHECKING:
 
 
 class TuiSessionState(object):
-    """持有长期 TUI 会话中的模型、模式、权限和工作区状态。"""
+    """持有长期 TUI 会话中的模型、权限和工作区状态。"""
 
     def __init__(
         self,
@@ -43,14 +39,12 @@ class TuiSessionState(object):
         model: str,
         workspace_label: str,
         model_override: str | None = None,
-        mode: RunMode = DEFAULT_RUN_MODE,
         permissions: PermissionSettings
     ) -> None:
         self.pref_config     = pref_config
         self.model           = model
         self.model_override  = model_override
         self.workspace_label = workspace_label
-        self.mode            = mode
         self.permissions     = permissions
 
         self._pending_prompt_extras: dict[str, typing.Any] | None = None
@@ -82,7 +76,6 @@ class TuiSessionState(object):
     def prompt_context(self) -> PromptContext:
         """生成当前输入区和 footer 使用的上下文。"""
         return PromptContext(
-            mode=self.mode,
             model=primary_model_prompt_label(self.pref_config, self.model),
             workspace_label=self.workspace_label,
             permissions_label=permission_label(self.permissions),
@@ -203,7 +196,6 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
         mind.set_history_workspace(runtime_workspace_root)
 
     runtime.set_prompt_context(PromptContext(
-        mode=DEFAULT_RUN_MODE,
         model=primary_model_prompt_label(pref_config),
         workspace_label=workspace_display_label(runtime_workspace_root),
         permissions_label=permission_label(mind.permissions),

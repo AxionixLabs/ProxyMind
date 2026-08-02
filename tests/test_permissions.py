@@ -47,7 +47,6 @@ def _client_runtime(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
         sid="sid_test",
-        mode="xtra",
         source="test",
         pref_config={},
         cwd=".",
@@ -101,7 +100,6 @@ def test_permission_defaults_follow_entry_type() -> None:
 @pytest.mark.anyio
 async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
     payload = await build_chat_payload(
-        "chat",
         {},
         "inspect",
         [],
@@ -111,13 +109,13 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
     assert payload["sandbox_mode"] == "workspace-write"
     assert payload["approval_policy"] == "on-request"
     assert "access_mode" not in payload
+    assert "mode" not in payload
 
 
 @pytest.mark.anyio
 async def test_request_payload_rejects_invalid_explicit_turn_id() -> None:
     with pytest.raises(ValueError, match="8-128 ASCII"):
         await build_chat_payload(
-            "chat",
             {},
             "inspect",
             [],
@@ -128,7 +126,6 @@ async def test_request_payload_rejects_invalid_explicit_turn_id() -> None:
 @pytest.mark.anyio
 async def test_request_payload_normalizes_additional_context() -> None:
     payload = await build_chat_payload(
-        "xtra",
         {},
         "inspect",
         [],
@@ -142,7 +139,6 @@ async def test_request_payload_normalizes_additional_context() -> None:
 @pytest.mark.anyio
 async def test_request_payload_normalizes_system_message() -> None:
     payload = await build_chat_payload(
-        "xtra",
         {},
         "inspect",
         [],

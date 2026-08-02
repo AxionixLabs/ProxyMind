@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.execution import (
     AgentContext,
     TurnContext,
@@ -94,7 +94,6 @@ def _execution(
         agent=agent,
         cid="cid_child",
         sid="sid_child",
-        mode="xtra",
         source="subagent",
         pref_config={"primary": {"model": "test-model"}},
         cwd="D:/workspace",
@@ -119,7 +118,6 @@ def _root_execution() -> TurnExecution:
         agent=AgentContext.root("sid_root"),
         cid="cid_root",
         sid="sid_root",
-        mode="xtra",
         source="test",
         pref_config={},
         cwd=".",

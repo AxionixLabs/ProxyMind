@@ -43,7 +43,6 @@ def _thread(
         ),
         cid=cid,
         sid=new_sid(cid),
-        mode="xtra",
         source="subagent",
         cwd="D:/workspace",
         permissions=PermissionSettings("workspace-write", "on-request"),

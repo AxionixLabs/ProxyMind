@@ -5,7 +5,6 @@ import sys
 import typing
 import argparse
 from mind_nova import const
-from mind_nova.modes import RunMode
 from .arguments import (
     PROMPT_SHORT_VALUE_PREFIXES,
     PROMPT_VALUE_OPTIONS,
@@ -163,22 +162,6 @@ def _required_string(
         return normalized
     parser.error(f"invalid {key}: expected non-empty string")
 
-def _run_mode(
-    parser: argparse.ArgumentParser,
-    values: dict[str, object],
-) -> RunMode:
-    """读取并验证运行模式参数。"""
-    value = values.get("mode")
-    if value == "chat":
-        return "chat"
-    if value == "fast":
-        return "fast"
-    if value == "xtra":
-        return "xtra"
-
-    parser.error(f"invalid mode: {value}")
-
-
 def _help_topics(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
@@ -297,7 +280,6 @@ def _parse_cli_command(
             prompt=prompt,
             images=_merged_image_paths(parser, values),
             model=_selected_model(parser, values),
-            mode=_run_mode(parser, values),
             output_format=output_format,
             helix=bool(values["helix"]),
         )

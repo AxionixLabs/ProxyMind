@@ -16,7 +16,7 @@ from mind_app.controller import Mind
 from mind_app.frontend.contracts import Frontend
 from mind_app.frontend.sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.output.silent import create_silent_output_session
 from mind_app.paths import (
     ensure_mind_home,
@@ -40,10 +40,6 @@ from mind_core.permissions import (
 )
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_core.service_config import ServiceConfig
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    RunMode
-)
 from mind_nova.requests.permissions import (
     ApprovalPolicy,
     SandboxMode
@@ -159,7 +155,6 @@ class MindMcpRuntime(object):
         self,
         *,
         prompt: str,
-        mode: RunMode,
         sandbox_mode: SandboxMode | None,
         approval_policy: ApprovalPolicy | None,
         working_directory: str | None,
@@ -209,7 +204,6 @@ class MindMcpRuntime(object):
                 async with self._call_lock:
                     return await self._execute_locked(
                         message=message,
-                        mode=mode,
                         permissions=permissions,
                         workspace=workspace,
                         requested_session_id=(session_id or "").strip() or None,
@@ -226,7 +220,6 @@ class MindMcpRuntime(object):
         self,
         *,
         message: str,
-        mode: RunMode,
         permissions: PermissionSettings,
         workspace: Path,
         requested_session_id: str | None,
@@ -260,7 +253,6 @@ class MindMcpRuntime(object):
 
         run = await self.mind.calling(
             message=message,
-            mode=mode,
             permissions=permissions,
         )
 
@@ -326,7 +318,6 @@ def create_mind_mcp_server(
     async def mind_exec(
         prompt: str,
         context: Context[typing.Any, MindMcpRuntime, typing.Any],
-        mode: RunMode = DEFAULT_RUN_MODE,
         sandbox_mode: SandboxMode | None = None,
         approval_policy: ApprovalPolicy | None = None,
         working_directory: str | None = None,
@@ -338,7 +329,6 @@ def create_mind_mcp_server(
 
         result = await runtime.execute(
             prompt=prompt,
-            mode=mode,
             sandbox_mode=sandbox_mode,
             approval_policy=approval_policy,
             working_directory=working_directory,

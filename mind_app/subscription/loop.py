@@ -13,7 +13,7 @@ from websockets.exceptions import (
     InvalidStatus,
     WebSocketException
 )
-from ...runtime.agent.client import AgentClient
+from ..runtime.agent.client import AgentClient
 from .models import (
     AgentConfig,
     AgentSessionRuntime,
@@ -40,7 +40,7 @@ from .ws import (
 from .forwarding import AgentForwardHandler
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..controller import Mind
 
 
 def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:

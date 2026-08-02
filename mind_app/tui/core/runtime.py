@@ -87,7 +87,7 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         ] | None = None,
     ) -> None:
         self.input_model = input_model or TuiInputModel()
-        self.context     = PromptContext(mode="chat", model="")
+        self.context     = PromptContext(model="")
         self.keymap      = keymap or TuiRuntimeKeymap.defaults()
 
         self.terminal_capabilities = terminal_capabilities
@@ -119,7 +119,6 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
 
         self.submissions = TuiSubmissionFlow(
             input_model=self.input_model,
-            mode=self.context.mode,
             is_submission_deferred=lambda: self.submission_deferred,
             get_input_buffer=lambda: self.screen.input.buffer,
             append_notice=lambda block: self.append_block(
@@ -295,7 +294,6 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
     def set_prompt_context(self, context: PromptContext) -> None:
         """在首帧或输入轮次前更新输入区展示上下文。"""
         self.context = context
-        self.submissions.set_mode(context.mode)
 
     def set_process_status_label(self, label: str) -> None:
         """更新动画区域下方的后台进程摘要。"""

@@ -2,14 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_nova.modes import RunMode
 
 Rule = dict[str, typing.Any]
-
+ToolFilterMode = typing.Literal["chat", "fast", "xtra"]
 ModeToolPolicy = dict[str, tuple[Rule, ...] | None]
 
 
-MODE_TOOL_POLICIES: dict[RunMode, ModeToolPolicy] = {
+MODE_TOOL_POLICIES: dict[ToolFilterMode, ModeToolPolicy] = {
     "chat": {
         "deny": (
             {"hidden": True},
@@ -50,10 +49,10 @@ MODE_TOOL_POLICIES: dict[RunMode, ModeToolPolicy] = {
 
 
 def filter_mode_tools(
-    mode: RunMode,
+    mode: ToolFilterMode,
     tools: list[dict[str, typing.Any]],
 ) -> list[dict[str, typing.Any]]:
-    """按运行模式过滤工具，并保留用于后续处理的内联元数据。"""
+    """按工具过滤模式处理目录，并保留内联元数据。"""
     policy = _policy_for_mode(mode)
     output: list[dict[str, typing.Any]] = []
 
@@ -85,11 +84,11 @@ def filter_mode_tools(
     return output
 
 
-def _policy_for_mode(mode: RunMode) -> ModeToolPolicy:
-    """返回指定运行模式的工具策略。"""
+def _policy_for_mode(mode: ToolFilterMode) -> ModeToolPolicy:
+    """返回指定工具过滤模式的策略。"""
     policy = MODE_TOOL_POLICIES.get(mode)
     if policy is None:
-        raise ValueError(f"Invalid mode: {mode}")
+        raise ValueError(f"Invalid tool filter mode: {mode}")
     return policy
 
 

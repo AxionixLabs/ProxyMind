@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.modes import compact as compact_mode
+from mind_app.runtime import conversation as compact_mode
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.tui.features import conversation
@@ -125,7 +125,6 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     mind = MindStub()
     status = await conversation.compact_current_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
     )
     await conversation.finish_compact_activity(mind)
@@ -178,7 +177,6 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
     mind = MindStub()
     result = await conversation.compact_current_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
     )
     conversation.render_compact_result(mind, result)
@@ -234,7 +232,6 @@ async def test_compact_cancellation_clears_animation_without_failure(
     mind = MindStub()
     task = asyncio.create_task(conversation.compact_current_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
     ))
     await started.wait()
@@ -298,7 +295,6 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
 
     result = await compact_mode.compact_conversation(
         MindStub(),
-        run_mode="chat",
         pref_config={},
         source="test",
     )
@@ -337,7 +333,6 @@ async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) ->
 
     result = await compact_mode.compact_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
         source="test",
     )
@@ -395,7 +390,6 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
 
     result = await compact_mode.compact_conversation(
         MindStub(),
-        run_mode="xtra",
         pref_config={"primary": {"model": "test-model"}},
         source="test",
     )
@@ -442,7 +436,6 @@ async def test_compact_failure_reports_failed_post_hook(
 
     result = await compact_mode.compact_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
         source="test",
     )
@@ -478,7 +471,6 @@ async def test_compact_cancellation_reports_interrupted_post_hook(
     monkeypatch.setattr(compact_mode, "stream_compact_events", pending_stream)
     task = asyncio.create_task(compact_mode.compact_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
         source="test",
     ))
@@ -528,7 +520,6 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
 
     result = await compact_mode.compact_conversation(
         mind,
-        run_mode="chat",
         pref_config={},
         source="test",
         trigger_source="server",

@@ -5,7 +5,7 @@ import typing
 import asyncio
 import platform
 from dataclasses import dataclass
-from ...runtime.agent.client import AgentClient
+from ..runtime.agent.client import AgentClient
 from .forwarding import (
     AgentExecutor,
     AgentInbox,
@@ -27,7 +27,7 @@ from mind_nova import const
 from mind_nova.services import service_endpoints
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..controller import Mind
 
 
 @dataclass(slots=True)

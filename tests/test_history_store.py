@@ -70,7 +70,6 @@ def test_history_keeps_the_original_session_source(tmp_path) -> None:
 def test_history_reuses_pending_fork_request_until_cleared(tmp_path) -> None:
     store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
     source = {
-        "mode": "chat",
         "cid": "cid_alpha_12345678",
         "sid": "sid_alpha_1_abcdef",
     }
@@ -102,7 +101,6 @@ def test_history_reuses_pending_fork_request_until_cleared(tmp_path) -> None:
 def test_history_scopes_pending_fork_request_to_turn_boundary(tmp_path) -> None:
     store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
     source = {
-        "mode": "chat",
         "cid": "cid_alpha_12345678",
         "sid": "sid_alpha_1_abcdef",
     }
@@ -147,7 +145,6 @@ def test_history_migrates_pending_fork_turn_boundary(tmp_path) -> None:
 
     store = ConversationHistoryStore(db_path, ttl_ms=10_000)
     request_id = store.get_or_create_fork_request(
-        mode="chat",
         cid="cid_alpha_12345678",
         sid="sid_alpha_1_abcdef",
         request_id="fork_request_one",
@@ -164,3 +161,4 @@ def test_history_migrates_pending_fork_turn_boundary(tmp_path) -> None:
             )
         }
     assert "before_turn_id" in columns
+    assert "mode" not in columns

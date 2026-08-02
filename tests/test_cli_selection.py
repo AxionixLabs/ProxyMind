@@ -44,8 +44,8 @@ from mind_app.cli.parser import (
     parse_cli_invocation
 )
 from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
-from mind_app.cli.dispatch import run_selected_mode
-from mind_app.modes.result import RunResult
+from mind_app.cli.dispatch import run_selected_command
+from mind_app.runtime.turns.result import RunResult
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.frontend.sinks import ConsoleApplicationSink
 from mind_app.frontend.sinks import JsonApplicationSink
@@ -111,8 +111,6 @@ def test_cli_parser_returns_typed_commands() -> None:
     assert parse_cli_command([
         "exec",
         "hello",
-        "--mode",
-        "fast",
         "--json",
         "--helix",
         "--image",
@@ -123,7 +121,6 @@ def test_cli_parser_returns_typed_commands() -> None:
         prompt="hello",
         images=("screen.png",),
         model="exec-model",
-        mode="fast",
         output_format="json",
         helix=True,
     )
@@ -250,7 +247,7 @@ def test_cli_help_separates_argument_and_option_blocks(
         "          Task instructions; use '-' or a pipe to read from standard input\n\n"
         "Options:"
     ) in exec_help
-    assert "  --mode <MODE>\n          Run mode [default: xtra]" in exec_help
+    assert "\n  --mode " not in exec_help
     root_help = create_cli_parser().format_help()
     normalized_root_help = " ".join(root_help.split())
     assert (
@@ -441,7 +438,7 @@ def test_exec_appends_piped_stdin_to_prompt_argument() -> None:
 
 
 @pytest.mark.anyio
-async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
+async def test_direct_cli_command_forwards_images_to_initial_request() -> None:
     run_result = RunResult(status="completed", assistant_text="done")
     attachments = [{"kind": "image", "data_url": "data:image/png;base64,AA=="}]
     attach = SimpleNamespace(
@@ -457,10 +454,9 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
     command = ExecCommand(
         prompt="hello",
         images=("screen.png",),
-        mode="chat",
     )
 
-    result = await run_selected_mode(mind, command)
+    result = await run_selected_command(mind, command)
 
     assert result is run_result
     assert mind.exit_code == 0
@@ -468,13 +464,12 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
     attach.consume_pending_attachments.assert_called_once_with()
     mind.calling.assert_awaited_once_with(
         message="hello",
-        mode="chat",
         attachments=attachments,
     )
 
 
 @pytest.mark.anyio
-async def test_direct_cli_mode_applies_temporary_model_override() -> None:
+async def test_direct_cli_command_applies_temporary_model_override() -> None:
     run_result = RunResult(status="completed", assistant_text="done")
     fresh_pref_config = AsyncMock(return_value={
         "primary": {
@@ -489,9 +484,9 @@ async def test_direct_cli_mode_applies_temporary_model_override() -> None:
         permissions=preset_permissions("auto"),
     )
 
-    result = await run_selected_mode(
+    result = await run_selected_command(
         mind,
-        ExecCommand(prompt="hello", model="exec-model", mode="chat"),
+        ExecCommand(prompt="hello", model="exec-model"),
     )
 
     assert result is run_result
@@ -504,7 +499,6 @@ async def test_direct_cli_mode_applies_temporary_model_override() -> None:
             },
         },
         message="hello",
-        mode="chat",
         attachments=[],
     )
 
@@ -531,7 +525,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         run_tui_loop,
     )
 
-    result = await run_selected_mode(
+    result = await run_selected_command(
         mind,
         ResumeCommand(
             prompt="continue",
@@ -569,7 +563,7 @@ async def test_failed_exec_sets_nonzero_exit_code() -> None:
         permissions=preset_permissions("auto"),
     )
 
-    result = await run_selected_mode(mind, ExecCommand(prompt="hello"))
+    result = await run_selected_command(mind, ExecCommand(prompt="hello"))
 
     assert result is run_result
     assert mind.exit_code == 1
@@ -647,7 +641,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         ),
     )
     monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
-    monkeypatch.setattr(bootstrap, "run_selected_mode", AsyncMock())
+    monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
     monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
 
     await bootstrap._run_controller(

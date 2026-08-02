@@ -5,7 +5,6 @@ import math
 import typing
 from rich.text import Text
 from rich.cells import cell_len
-from mind_nova import const
 from .elapsed import (
     elapsed_format_key,
     format_elapsed,
@@ -369,18 +368,6 @@ class StatusRenderer(StatusSpec):
         out.append(label, style="bold #5D696F")
         return out
 
-    @staticmethod
-    def mode_status_text(mode: typing.Any) -> str:
-        normalized = str(mode or "").strip().lower()
-
-        labels = {
-            "chat" : "Chat Stream",
-            "fast" : "Fast Stream",
-            "xtra" : "Xtra Stream",
-        }
-
-        return labels.get(normalized, f"{const.APP_DESC} Stream")
-
     @classmethod
     def _breathing_status_dot(
         cls,
@@ -419,16 +406,6 @@ class StatusRenderer(StatusSpec):
         )
 
     @classmethod
-    def _mode_status_indicator(cls, phase: float) -> Text:
-        """生成模式状态的前缀指示。"""
-        return cls._breathing_status_dot(
-            phase,
-            dim_color="#2F4C5A",
-            peak_color="#91D7ED",
-            breathe_freq=0.44
-        )
-
-    @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
         """生成工具状态的动态文本。"""
         spec = cls.status_spec("tool")
@@ -463,53 +440,6 @@ class StatusRenderer(StatusSpec):
             frame_rate=0.12
         )
         out.append(" ", style=colors["edge"])
-
-        cls._append_forward_sweep_text(
-            out,
-            text,
-            focus=focus,
-            peak_style=colors["text_peak"],
-            soft_style=colors["text_soft"],
-            near_style=colors["text_near"],
-            mid_style=colors["text_mid"],
-            fade_style=colors["text_fade"],
-            dim_style=colors["text_dim"],
-            tail_span=spec.tail_span,
-            peak_radius=spec.peak_radius
-        )
-        return out
-
-    @classmethod
-    def mode_status_renderable(cls, phase: float, text: str) -> Text:
-        """生成模式状态的动态文本。"""
-        spec = cls.status_spec("mode")
-
-        colors = {
-            "edge"      : "bold #3F505C",
-            "text_peak" : "bold #EAF9FF",
-            "text_soft" : "bold #C7EEF9",
-            "text_near" : "bold #91D7ED",
-            "text_mid"  : "bold #4B8FA8",
-            "text_fade" : "bold #335F72",
-            "text_dim"  : "bold #2F4C5A"
-        }
-
-        out = cls._mode_status_indicator(phase)
-        out.append(" ", style=colors["edge"])
-
-        text = cls.fit_status_text(
-            text,
-            kind="mode",
-            fallback=f"{const.APP_DESC} Stream",
-        )
-        span = max(1, len(text))
-
-        focus = cls._drift_focus(
-            phase,
-            span,
-            entry_pad=spec.entry_pad,
-            exit_pad=spec.exit_pad
-        )
 
         cls._append_forward_sweep_text(
             out,

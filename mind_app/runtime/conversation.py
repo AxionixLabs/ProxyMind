@@ -13,17 +13,16 @@ from mind_core.hooks import (
     CompactTriggerReason,
     CompactTriggerSource
 )
-from mind_nova.modes import RunMode
 from mind_nova.requests.compact import (
     build_compact_payload,
     stream_compact_events
 )
-from ..runtime.execution import AgentContext
-from ..runtime.hooks.compact import (
+from .execution import AgentContext
+from .hooks.compact import (
     CompactHookBlockedError,
     CompactHookEvents
 )
-from ..runtime.hooks.scope import (
+from .hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
@@ -34,7 +33,7 @@ from engine.observability import (
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
-    from ..runtime.hooks.models import HookDecision
+    from .hooks.models import HookDecision
 
 CompactProgress = typing.Callable[[str], None]
 
@@ -64,7 +63,6 @@ class CompactResult:
 async def compact_conversation(
     mind: "Mind",
     *,
-    run_mode: RunMode,
     pref_config: dict[str, typing.Any],
     source: str,
     trigger: CompactTriggerReason = "manual",
@@ -78,7 +76,6 @@ async def compact_conversation(
     context = _hook_context(
         mind,
         metadata=metadata,
-        run_mode=run_mode,
         pref_config=pref_config,
         source=source,
         transcript_path=transcript_path,
@@ -115,7 +112,6 @@ async def compact_conversation(
 
     observe(
         "compact.start",
-        mode=run_mode,
         cid=metadata["cid"],
         sid=metadata["sid"],
         trigger=trigger,
@@ -129,7 +125,6 @@ async def compact_conversation(
         attempted = True
 
         payload = build_compact_payload({
-            "mode": run_mode,
             "cid": metadata["cid"],
             "sid": metadata["sid"],
             "llm_conf": pref_config,
@@ -305,7 +300,6 @@ def _hook_context(
     mind: "Mind",
     *,
     metadata: dict[str, str],
-    run_mode: RunMode,
     pref_config: dict[str, typing.Any],
     source: str,
     transcript_path: str
@@ -325,7 +319,6 @@ def _hook_context(
         conversation_id=metadata["cid"],
         cwd=str(mind.history_workspace),
         model=model,
-        mode=run_mode,
         source=str(source or "").strip(),
         sandbox_mode=permissions.sandbox_mode,
         permission_mode=permissions.approval_policy,

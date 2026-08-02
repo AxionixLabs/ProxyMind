@@ -9,7 +9,7 @@ from unittest.mock import (
 
 import pytest
 
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.execution import (
     AgentContext,
     TurnContext
@@ -64,8 +64,8 @@ class _ReportPool(object):
         self.acquired = []
         self.closed = []
 
-    async def acquire(self, mode, cid, sid):
-        self.acquired.append((mode, cid, sid))
+    async def acquire(self, cid, sid):
+        self.acquired.append((cid, sid))
         return self.report
 
     async def close_session(self, cid, sid, *, drain=True) -> None:
@@ -89,7 +89,6 @@ def _child_execution() -> TurnExecution:
         agent=agent,
         cid="cid_child",
         sid="sid_child",
-        mode="xtra",
         source="subagent",
         pref_config={"primary": {"model": "test-model"}},
         cwd=".",
@@ -110,7 +109,6 @@ def _root_execution() -> TurnExecution:
         agent=AgentContext.root(child.context.sid),
         cid=child.context.cid,
         sid=child.context.sid,
-        mode=child.context.mode,
         source="tui",
         pref_config={},
         cwd=child.context.cwd,
@@ -189,7 +187,6 @@ def test_turn_execution_rejects_hook_scope_from_another_turn() -> None:
         agent=prepared.context.agent,
         cid=prepared.context.cid,
         sid=prepared.context.sid,
-        mode=prepared.context.mode,
         source=prepared.context.source,
         pref_config={},
         cwd=prepared.context.cwd,
@@ -239,7 +236,7 @@ async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> 
 
 
 @pytest.mark.anyio
-async def test_execute_turn_applies_mode_tool_policy() -> None:
+async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
     mind = _ExecutionController()
     received = []
 
@@ -261,6 +258,7 @@ async def test_execute_turn_applies_mode_tool_policy() -> None:
         _root_execution(),
         operation,
         event_report=_Report(),
+        tool_filter_mode="xtra",
     )
 
     assert received == [
@@ -280,7 +278,6 @@ async def test_concurrent_turn_executions_keep_contexts_isolated() -> None:
         ),
         cid="cid_review",
         sid="sid_review",
-        mode="xtra",
         source="subagent",
         pref_config={},
         cwd=".",
@@ -359,8 +356,8 @@ async def test_execute_turn_reuses_controller_report_without_turn_close() -> Non
     await execute_turn(mind, {}, execution, operation)
 
     assert pool.acquired == [
-        ("xtra", "cid_child", "sid_child"),
-        ("xtra", "cid_child", "sid_child"),
+        ("cid_child", "sid_child"),
+        ("cid_child", "sid_child"),
     ]
     assert pool.closed == []
     assert report.opened == 0
@@ -444,7 +441,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     captured = []
     resolved_scopes = []
 
-    async def stream_looper(*_args, **kwargs):
+    async def stream_turn(*_args, **kwargs):
         captured.append(kwargs)
         return RunResult(status="completed", assistant_text="done")
 
@@ -478,7 +475,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
             additional_context=("queued context",),
             system_message="queued system",
         )),
-        stream_looper=stream_looper,
+        stream_turn=stream_turn,
         with_mcp_session=with_mcp_session,
         await_cleanup=await_cleanup,
         start_anim=AsyncMock(),
@@ -492,7 +489,6 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
         mind,
         {"primary": {"model": "test-model"}},
         message="hello",
-        mode="xtra",
         metadata={"origin": "test"},
         ev_report=report,
     )
@@ -530,7 +526,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     assert report.closed == []
     runtime.begin_terminal_progress.assert_called_once_with()
     runtime.end_terminal_progress.assert_called_once_with()
-    mind.start_anim.assert_awaited_once_with("xtra")
+    mind.start_anim.assert_awaited_once_with()
     mind.stop_anim.assert_awaited_once_with("wait")
 
 

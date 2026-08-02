@@ -315,7 +315,7 @@ async def test_slash_prefix_selects_first_match_without_rewriting_input() -> Non
             assert buffer.text == "/f"
             assert buffer.complete_state is not None
             assert buffer.complete_state.complete_index == 0
-            assert buffer.complete_state.current_completion.display_text == "/fast"
+            assert buffer.complete_state.current_completion.display_text == "/fork"
         finally:
             await runtime.close()
 
@@ -330,14 +330,14 @@ async def test_tab_completes_selected_slash_command_without_submitting() -> None
             pipe_input.send_text("/f")
             await wait_for_completion(runtime)
             pipe_input.send_text("\t")
-            await wait_for_input_text(runtime, "/fast")
+            await wait_for_input_text(runtime, "/fork")
 
             assert runtime.submissions.message_queue.empty()
             assert runtime.screen._completion_fallback_visible()
             assert "".join(
                 text
                 for _style, text in runtime.screen._completion_fallback_fragments()
-            ).lstrip().startswith("/fast")
+            ).lstrip().startswith("/fork")
         finally:
             await runtime.close()
 
@@ -352,7 +352,7 @@ async def test_enter_executes_the_default_root_command() -> None:
             pipe_input.send_text("/\r")
             submission = await wait_for_submission(runtime)
 
-            assert submission.value == "/chat"
+            assert submission.value == "/new"
             assert runtime.screen.input.buffer.text == ""
         finally:
             await runtime.close()

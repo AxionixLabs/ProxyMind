@@ -31,7 +31,6 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
 
     events = [
         event async for event in chat.stream_chat(
-            "chat",
             {},
             "hello",
             [],

@@ -222,7 +222,6 @@ async def run_tui_loop(
             run_tui_model_turn(
                 mind,
                 message_text=prompt_text,
-                run_mode=state.mode,
                 pref_config=state.pref_config,
                 permissions=state.permissions,
                 turn_id=turn_id,
@@ -258,7 +257,6 @@ async def _handle_transcript_backtrack(
         "Conversation backtrack",
         lambda: fork_current_conversation(
             mind,
-            run_mode=state.mode,
             before_turn_id=request.turn_id,
             bind_target=False,
             fallback_prompt=ResubmittablePrompt(

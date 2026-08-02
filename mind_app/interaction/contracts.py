@@ -4,13 +4,11 @@
 import typing
 from dataclasses import dataclass
 from mind_app.approval.models import ApprovalDecisionValue
-from mind_nova.modes import RunMode
 
 
 @dataclass(frozen=True, slots=True)
 class PromptContext(object):
     """描述主交互输入框需要展示的上下文。"""
-    mode: RunMode
     model: str
     workspace_label: str = ""
     permissions_label: str = ""

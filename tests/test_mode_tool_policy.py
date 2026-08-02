@@ -54,5 +54,5 @@ def test_filter_mode_tools_supports_function_and_non_tool_items() -> None:
 
 
 def test_filter_mode_tools_rejects_unknown_mode_for_empty_catalog() -> None:
-    with pytest.raises(ValueError, match="Invalid mode"):
+    with pytest.raises(ValueError, match="Invalid tool filter mode"):
         filter_mode_tools("unknown", [])

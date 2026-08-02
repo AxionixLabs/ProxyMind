@@ -173,7 +173,6 @@ def _invocation(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
         sid="sid_test",
-        mode="xtra",
         source="test",
         pref_config={"primary": {"model": "test-model"}},
         cwd=".",

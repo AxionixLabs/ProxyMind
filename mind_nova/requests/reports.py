@@ -4,13 +4,10 @@
 import httpx
 import typing
 from engine.channel import Channel
-from mind_nova.modes import RunMode
-from mind_nova.requests.payload import resolve_transport_mode
 from mind_nova.services import service_endpoints
 
 
 async def post_stream_event(
-    mode: RunMode,
     cid: str,
     sid: str,
     event: dict[str, typing.Any],
@@ -20,7 +17,6 @@ async def post_stream_event(
     """事件上报：把一条事件写入服务端缓存并广播给 SSE 订阅者。"""
     headers = Channel.make_headers()
     payload = {
-        "mode"  : resolve_transport_mode(mode),
         "cid"   : cid,
         "sid"   : sid,
         "event" : event
@@ -31,7 +27,6 @@ async def post_stream_event(
 
 
 async def open_report_session(
-    mode: RunMode,
     cid: str,
     sid: str,
     *,
@@ -41,7 +36,6 @@ async def open_report_session(
     """打开服务端报告会话，返回 report_url / report_id / stream_url / replay_url。"""
     headers = Channel.make_headers()
     payload: dict[str, typing.Any] = {
-        "mode" : resolve_transport_mode(mode),
         "cid"  : cid,
         "sid"  : sid
     }

@@ -17,7 +17,6 @@ from mind_nova import const
 
 
 async def stream_chat(
-    mode: str,
     pref_config: dict[str, typing.Any],
     message: str,
     tools: list[dict],
@@ -26,10 +25,9 @@ async def stream_chat(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[ChatStreamEvent, None]:
-    """流式获取 chat/fast/xtra 模式事件。"""
+    """流式获取对话事件。"""
     headers = Channel.make_headers()
     payload = await build_chat_payload(
-        mode,
         pref_config,
         message,
         tools,

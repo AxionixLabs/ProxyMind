@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-CHAT_TEMPLATES: tuple[tuple[str, str], ...] = (
+CONVERSATION_TEMPLATES: tuple[tuple[str, str], ...] = (
     ("你", "好"),
     ("你好", "，请介绍一下你自己"),
     ("你好呀", "，请介绍一下你自己"),
@@ -78,7 +78,7 @@ CODING_AGENT_TEMPLATES: tuple[tuple[str, str], ...] = (
 )
 
 GHOST_TEMPLATES: dict[str, tuple[tuple[str, str], ...]] = {
-    "chat"    : CHAT_TEMPLATES,
+    "conversation": CONVERSATION_TEMPLATES,
     "general" : GENERAL_TASK_TEMPLATES,
     "coding"  : CODING_AGENT_TEMPLATES
 }
@@ -135,7 +135,9 @@ def should_apply_ghost_prompt(text: str) -> bool:
 def iter_ghost_templates() -> tuple[tuple[str, str], ...]:
     """按场景优先级返回所有显式 ghost 模板。"""
     return (
-        GHOST_TEMPLATES["chat"] + GHOST_TEMPLATES["general"] + GHOST_TEMPLATES["coding"]
+        GHOST_TEMPLATES["conversation"]
+        + GHOST_TEMPLATES["general"]
+        + GHOST_TEMPLATES["coding"]
     )
 
 

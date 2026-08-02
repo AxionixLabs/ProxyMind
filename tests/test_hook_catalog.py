@@ -249,7 +249,6 @@ def test_controller_builds_isolated_hook_scopes_for_config_snapshots(tmp_path) -
         turn_id="turn",
         cwd=str(tmp_path),
         model="model",
-        mode="chat",
         source="test",
         sandbox_mode="workspace-write",
         permission_mode="on-request",

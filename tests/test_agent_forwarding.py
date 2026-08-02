@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mind_app.modes.agent.forwarding import (
+from mind_app.subscription.forwarding import (
     AgentExecutor,
-    normalize_forward_target,
+    normalize_forward_request,
 )
-from mind_app.modes.agent.models import AgentForwardRequest
-from mind_app.modes.agent.models import AgentLiveStatus
-from mind_app.modes.agent.ws import handle_server_message
-from mind_app.modes.result import RunResult
+from mind_app.subscription.models import AgentForwardRequest
+from mind_app.subscription.models import AgentLiveStatus
+from mind_app.subscription.ws import handle_server_message
+from mind_app.runtime.turns.result import RunResult
 
 
 def _forward_message() -> dict[str, object]:
@@ -26,7 +26,6 @@ def _forward_message() -> dict[str, object]:
         "sid": "sid-1",
         "payload": {
             "call_id": "call-1",
-            "mode": "fast",
             "message": "inspect workspace",
         },
     }
@@ -40,20 +39,19 @@ def _recording_mock(events: list[str], name: str, result=None) -> AsyncMock:
     return AsyncMock(side_effect=record)
 
 
-def test_normalize_forward_target_requires_message() -> None:
+def test_normalize_forward_request_requires_message() -> None:
     with pytest.raises(ValueError, match="payload.message must be a string"):
-        normalize_forward_target({"mode": "chat"})
+        normalize_forward_request({})
 
     with pytest.raises(ValueError, match="payload.message must be non-empty"):
-        normalize_forward_target({"mode": "chat", "message": "  "})
+        normalize_forward_request({"message": "  "})
 
 
-def test_normalize_forward_target_preserves_message_and_intent() -> None:
-    assert normalize_forward_target({
-        "mode": "XTRA",
+def test_normalize_forward_request_preserves_message_and_intent() -> None:
+    assert normalize_forward_request({
         "message": " inspect ",
         "intent": {"summary": "diagnose"},
-    }) == ("xtra", " inspect ", "diagnose")
+    }) == (" inspect ", "diagnose")
 
 
 @pytest.mark.anyio
@@ -71,7 +69,6 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         cid="cid-1",
         sid="sid-1",
         payload={
-            "mode": "fast",
             "message": "inspect workspace",
             "metadata": {"origin": "server"},
             "intent": {"summary": "inspect"},
@@ -88,7 +85,6 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
 
     mind.calling.assert_awaited_once_with(
         message="inspect workspace",
-        mode="fast",
         metadata={
             "origin": "server",
             "cid": "cid-1",
@@ -116,7 +112,7 @@ async def test_agent_executor_reports_invalid_message_failure() -> None:
         call_id="call-1",
         cid="cid-1",
         sid="sid-1",
-        payload={"mode": "chat"},
+        payload={},
     )
 
     AgentExecutor().spawn(

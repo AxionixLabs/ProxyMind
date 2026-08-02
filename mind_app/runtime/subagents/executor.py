@@ -4,9 +4,8 @@
 import typing
 from mind_nova.events import EventReport
 from mind_app.mcp.contracts import McpSessionLike
-from mind_app.modes.result import RunResult
+from mind_app.runtime.turns.result import RunResult
 from mind_app.output.silent import create_silent_output_session
-from mind_app.runtime.support.calling import resolve_mode_runner
 from mind_app.runtime.turns.executor import TurnExecution
 
 if typing.TYPE_CHECKING:
@@ -48,13 +47,8 @@ class StreamSubagentExecutor:
         if execution.context.agent.depth == 0:
             raise ValueError("subagent execution requires a child agent context")
 
-        runner = resolve_mode_runner(
-            self._controller,
-            execution.context.mode,
-        )
-        return await runner(
+        return await self._controller.stream_turn(
             session=session,
-            mode=execution.context.mode,
             pref_config=pref_config,
             tools=tools,
             turn_execution=execution,

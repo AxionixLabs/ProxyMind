@@ -32,7 +32,6 @@ def _child_turn() -> TurnContext:
         agent=agent,
         cid="cid_child",
         sid="sid_child",
-        mode="xtra",
         source="subagent",
         pref_config={},
         cwd="D:/workspace",

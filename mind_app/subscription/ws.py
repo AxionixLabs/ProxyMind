@@ -5,7 +5,7 @@ import typing
 import asyncio
 import contextlib
 from engine.observability import observe
-from ...runtime.agent.client import AgentClient
+from ..runtime.agent.client import AgentClient
 from mind_nova.requests.payload import empty_primary_request_slot
 from .models import (
     AgentForwardRequest,
@@ -18,7 +18,7 @@ from .forwarding import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..controller import Mind
 
 
 _REOPEN_ERROR_CODES: typing.Final[set[str]] = {

@@ -18,10 +18,6 @@ from mind_core.mcp_status import (
 )
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
-from mind_nova.modes import (
-    DEFAULT_RUN_MODE,
-    RunMode
-)
 
 
 class DesignStatusLiveDriver(StatusRenderer):
@@ -386,15 +382,14 @@ class DesignStatusLiveDriver(StatusRenderer):
                 live.update(render_agent_connect_frame(tick, snapshot(), width, theme))
                 await asyncio.sleep(1 / theme.refresh_per_second)
 
-    async def stream_mode_live(
+    async def stream_wait_live(
         self,
         stop_event: asyncio.Event,
-        mode: RunMode = DEFAULT_RUN_MODE
     ) -> None:
-        """主请求模式等待动画。"""
+        """主请求等待动画。"""
         kind = "wait"
 
-        label    = self.mode_status_text(mode)
+        label    = "Thinking"
         fps      = self.status_refresh_per_second(kind)
         interval = self.status_interval(kind)
         phase    = 0.0
