@@ -42,6 +42,7 @@ from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,
     ToolRuntime
 )
+from .runtime.tools.mode_policy import ToolFilterMode
 from .client_tools import (
     ClientToolRegistry,
     default_registry as default_client_tool_registry
@@ -79,6 +80,14 @@ from .mcp.contracts import McpSessionLike
 
 SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")
+
+
+def _normalize_tool_profile(value: str) -> ToolFilterMode:
+    """校验并返回服务工具配置。"""
+    if value not in {"app", "api"}:
+        raise ValueError(f"Invalid Helix tool profile: {value}")
+    return typing.cast(ToolFilterMode, value)
+
 
 if typing.TYPE_CHECKING:
     from .runtime.turns.result import RunResult
@@ -170,19 +179,24 @@ class Mind(object):
 
         self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
-        self._service_start_task: asyncio.Task[bool] | None                    = None
 
-        self._service_start_lock: asyncio.Lock = asyncio.Lock()
+        self._service_start_task: asyncio.Task[bool] | None = None
+        self._service_start_lock: asyncio.Lock              = asyncio.Lock()
 
         self.config_service: ConfigServiceRuntime | None = None
 
         self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
 
         self.client_tools: ClientToolRegistry = self._build_client_tools()
-        self.tool_runtime: ToolRuntime        = CompositeToolRuntime(self)
+
+        self.tool_runtime: ToolRuntime = CompositeToolRuntime(self)
 
         self.exit_code: int = 0
-        self.service_mcp_linked: bool   = False
+
+        self.service_mcp_linked: bool = False
+
+        self.service_tool_profile: ToolFilterMode | None = None
+
         self.stop_runtime_on_exit: bool = False
 
         self.last_assistant_reply: str = ""
@@ -404,6 +418,7 @@ class Mind(object):
             return None
 
         if self.conversation.cid == cid and self.conversation.sid == sid:
+            self.conversation.fork_source_available = True
             metadata = self.conversation.snapshot()
             self._touch_history_session(metadata, source=source)
             observe("conversation.reused", cid=cid, sid=sid, source=source)
@@ -414,6 +429,7 @@ class Mind(object):
             cid=cid,
             sid=sid,
             start_reason=source,
+            fork_source_available=True,
         )
         self._conversation_lifecycle_id += 1
         self.last_assistant_reply = ""
@@ -622,10 +638,15 @@ class Mind(object):
 
     def link_service_mcp(
         self,
-        exec_env: typing.Optional[dict[str, typing.Any]] = None
+        exec_env: typing.Optional[dict[str, typing.Any]] = None,
+        *,
+        tool_profile: ToolFilterMode = "app"
     ) -> None:
         """把本地服务 MCP 挂入当前工具会话。"""
-        self.service_mcp_linked = True
+        normalized = _normalize_tool_profile(tool_profile)
+
+        self.service_mcp_linked   = True
+        self.service_tool_profile = normalized
 
         self.service_exec_env = (
             copy.deepcopy(exec_env)
@@ -634,15 +655,26 @@ class Mind(object):
         )
         observe(
             "helix.linked",
+            tool_profile=normalized,
             exec_env=bool(self.service_exec_env),
         )
+
+    def set_service_tool_profile(self, tool_profile: ToolFilterMode) -> None:
+        """切换已经挂载的服务工具配置。"""
+        if not self.service_mcp_linked:
+            raise AppError("Helix MCP is not linked")
+
+        normalized = _normalize_tool_profile(tool_profile)
+        self.service_tool_profile = normalized
+        observe("helix.tool_profile.changed", tool_profile=normalized)
 
     def unlink_service_mcp(self) -> None:
         """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
         was_linked = self.service_mcp_linked
 
-        self.service_mcp_linked = False
-        self.service_exec_env   = None
+        self.service_mcp_linked   = False
+        self.service_tool_profile = None
+        self.service_exec_env     = None
 
         if was_linked:
             observe("helix.unlinked")
@@ -650,6 +682,14 @@ class Mind(object):
     def is_service_mcp_linked(self) -> bool:
         """判断当前工具会话是否挂载本地服务 MCP。"""
         return bool(self.service_mcp_linked)
+
+    def tool_profile_for_turn(self) -> ToolFilterMode | None:
+        """返回当前模型请求使用的服务工具配置。"""
+        if not self.service_mcp_linked:
+            return None
+        if self.service_tool_profile is None:
+            raise AppError("Helix tool profile is not selected")
+        return self.service_tool_profile
 
     async def run_service_runtime_startup(
         self,

@@ -54,11 +54,13 @@ from ..runtime.mcp.service_runtime import (
 )
 from ..runtime.design import TerminalDesign
 from ..runtime.hooks.registry import HookRegistry
+from ..runtime.tools.mode_policy import ToolFilterMode
 from .commands import (
     AgentListenCommand,
     ApplicationCommand,
     HelixUpgradeCommand,
     RuntimeCommand,
+    command_helix_profile,
     command_uses_helix
 )
 from .dispatch import run_selected_command
@@ -313,8 +315,13 @@ async def _run_controller(
         await controller.frontend.runtime.open()
         observe("frontend.opened", output_mode=output_mode)
 
-        if command_uses_helix(command) and output_mode != "tui":
-            helix_linked = await prepare_and_start_service_runtime(controller)
+        helix_profile = command_helix_profile(command)
+
+        if helix_profile is not None and output_mode != "tui":
+            helix_linked = await prepare_and_start_service_runtime(
+                controller,
+                tool_profile=helix_profile,
+            )
             if not helix_linked:
                 _emit_helix_skipped(controller)
 
@@ -364,14 +371,17 @@ async def _run_controller(
 
             start_helix: bool = False
 
-            if command_uses_helix(command):
+            if helix_profile is not None:
                 start_helix = await confirm_tui_service_runtime_startup(controller)
                 if not start_helix:
                     _emit_helix_skipped(controller)
 
-            if start_helix:
+            if start_helix and helix_profile is not None:
                 runtime.start_background_task(
-                    start_tui_service_runtime(controller),
+                    start_tui_service_runtime(
+                        controller,
+                        tool_profile=helix_profile,
+                    ),
                     name="tui service runtime startup",
                 )
 
@@ -418,7 +428,11 @@ async def start_tui_external_mcp(controller: Mind) -> None:
     render_external_mcp_start_status(controller)
 
 
-async def start_tui_service_runtime(controller: Mind) -> None:
+async def start_tui_service_runtime(
+    controller: Mind,
+    *,
+    tool_profile: ToolFilterMode = "app",
+) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
     from ..tui.features.helix import (
         finish_helix_activity,
@@ -428,7 +442,11 @@ async def start_tui_service_runtime(controller: Mind) -> None:
     )
 
     try:
-        linked = await link_helix_runtime(controller, download_confirmed=True)
+        linked = await link_helix_runtime(
+            controller,
+            tool_profile,
+            download_confirmed=True,
+        )
     except asyncio.CancelledError:
         await controller.await_cleanup(finish_helix_activity(controller))
         raise

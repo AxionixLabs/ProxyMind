@@ -13,7 +13,7 @@ ACCENT    = TextStyle(foreground="#AFC7D8")
 BRIGHT    = TextStyle(foreground="#F4F7FA")
 INDICATOR = TextStyle(foreground="#5FD7AF")
 SUCCESS   = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE   = TextStyle(foreground="#FF6B6B", bold=True)
+FAILURE   = TextStyle(foreground="#FF6B6B")
 
 
 def format_bytes(value: float) -> str:
@@ -125,7 +125,11 @@ def upload_failure_block(
     event: dict[str, typing.Any] | None = None,
 ) -> StyledBlock:
     """生成上传失败后的两行摘要。"""
-    spans = [TextSpan("Attach ", MUTED), TextSpan("fail", FAILURE)]
+    spans = [
+        TextSpan("■ ", FAILURE),
+        TextSpan("Attach ", MUTED),
+        TextSpan("fail", FAILURE),
+    ]
 
     if event is not None:
         spans.extend([

@@ -64,7 +64,10 @@ from mind_app.tui.core.screen import (
     FrameGeometry,
     _erase_terminal_scrollback,
 )
-from mind_app.tui.core.styles import ASSISTANT_PREFIX_CLASS
+from mind_app.tui.core.styles import (
+    ASSISTANT_PREFIX_CLASS,
+    failure_parts,
+)
 
 
 def _block(text: str) -> FragmentBlock:
@@ -79,6 +82,15 @@ def _transcript_text(document: TuiDocument) -> str:
     return "".join(
         text for _style, text in document.transcript_fragments(width=80)
     )
+
+
+def test_failure_parts_adds_non_bold_marker_and_text() -> None:
+    marker, body = failure_parts("failed")
+
+    assert marker.text == "■"
+    assert body.text == " failed"
+    assert not marker.style.bold
+    assert not body.style.bold
 
 
 class _AlternateScreenOutput(DummyOutput):

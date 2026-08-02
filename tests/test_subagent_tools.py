@@ -94,13 +94,11 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         settings=AgentSettings(enabled=False),
     )
 
-    enabled_names = {
-        tool.name
-        for tool in default_registry(
-            execution_root=tmp_path,
-            subagent_runtime=enabled,
-        ).list_tools().tools
-    }
+    enabled_tools = default_registry(
+        execution_root=tmp_path,
+        subagent_runtime=enabled,
+    ).list_tools().tools
+    enabled_names = {tool.name for tool in enabled_tools}
     disabled_names = {
         tool.name
         for tool in default_registry(
@@ -109,14 +107,26 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         ).list_tools().tools
     }
 
-    assert {
+    agent_names = {
         "spawn_agent",
         "send_input",
         "resume_agent",
         "wait_agent",
         "close_agent",
-    } <= enabled_names
+    }
+    assert agent_names <= enabled_names
     assert "spawn_agent" not in disabled_names
+
+    agent_tools = [tool for tool in enabled_tools if tool.name in agent_names]
+    assert len(agent_tools) == 5
+    assert all(
+        tool.meta["domain"] == "client" and tool.meta["class"] == "agent"
+        for tool in agent_tools
+    )
+    assert all(
+        any("\u4e00" <= char <= "\u9fff" for char in tool.description)
+        for tool in agent_tools
+    )
 
 
 @pytest.mark.anyio

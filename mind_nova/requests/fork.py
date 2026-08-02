@@ -88,6 +88,12 @@ async def request_conversation_fork(
     body = _response_object(response)
     if response.status_code >= 400:
         code, message = _error_detail(body)
+        if (
+            response.status_code == 404
+            and not code
+            and message.lower() == "conversation history is empty"
+        ):
+            code = "source_missing"
         if response.status_code == 409 and code == "source_busy":
             raise ConversationForkRequestError(
                 "Conversation is busy. Try /fork again after the current turn finishes.",
@@ -219,7 +225,22 @@ def _error_detail(body: dict[str, typing.Any]) -> tuple[str, str]:
             str(details.get("message") or "").strip(),
         )
 
-    return "", str(details or "").strip()
+    detail = body.get("detail")
+    if isinstance(detail, dict):
+        return (
+            str(detail.get("code") or "").strip(),
+            str(detail.get("message") or "").strip(),
+        )
+
+    return (
+        str(body.get("code") or "").strip(),
+        str(
+            detail
+            or details
+            or body.get("message")
+            or ""
+        ).strip(),
+    )
 
 
 if __name__ == '__main__':

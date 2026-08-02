@@ -116,7 +116,7 @@ class TuiQueuedMessages(object):
         ))
         if binding and len(lines) < row_limit:
             lines.append([(
-                "class:queue.marker",
+                "class:queue.edit-hint",
                 f"    {binding} edit last queued message",
             )])
 
@@ -148,10 +148,7 @@ class TuiPendingSteers(object):
             return []
 
         row_limit = max(1, int(max_rows))
-        lines: list[FormattedText] = [[(
-            "class:queue.label",
-            _pending_steer_title(width),
-        )]]
+        lines: list[FormattedText] = [_pending_steer_title(width)]
         lines.extend(_submission_lines(
             self._items.values(),
             available=max(0, row_limit - 1),
@@ -175,19 +172,25 @@ def _queue_title(width: int) -> str:
     return titles[-1]
 
 
-def _pending_steer_title(width: int) -> str:
+def _pending_steer_title(width: int) -> FormattedText:
     """返回适合当前终端宽度的即时输入标题。"""
     titles = (
-        "• Messages to be submitted after next tool call "
-        "(press ctrl + c to interrupt and send immediately)",
-        "• Messages to be submitted after next tool call",
-        "• Submit after next tool call",
+        (
+            "• Messages to be submitted after next tool call",
+            " (press ctrl + c to interrupt and send immediately)",
+        ),
+        ("• Messages to be submitted after next tool call", ""),
+        ("• Submit after next tool call", ""),
     )
     limit = max(1, int(width))
-    for title in titles:
-        if get_cwidth(title) <= limit:
-            return title
-    return titles[-1]
+    for label, hint in titles:
+        if get_cwidth(f"{label}{hint}") <= limit:
+            fragments = [("class:queue.label", label)]
+            if hint:
+                fragments.append(("class:queue.hint", hint))
+            return fragments
+
+    return [("class:queue.label", titles[-1][0])]
 
 
 def _submission_lines(

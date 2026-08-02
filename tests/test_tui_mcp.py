@@ -56,6 +56,27 @@ async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch
     assert "stdio" in runtime.request.options[2].detail
 
 
+@pytest.mark.anyio
+async def test_mcp_menu_does_not_duplicate_invalid_config_marker(monkeypatch) -> None:
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        mcp,
+        "summarize_external_runtime",
+        lambda _mind: {
+            "started": False,
+            "configured": [],
+            "config_error": "invalid config",
+            "tool_groups": [],
+            "tool_count": 0,
+        },
+    )
+
+    await mcp.choose_mcp_action(runtime, object())
+
+    assert runtime.request.status == "config=invalid"
+    assert runtime.request.body == ("invalid config",)
+
+
 def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
     tool_meta = {"server": "zentao", "transport": "stdio"}
     group = SimpleNamespace(

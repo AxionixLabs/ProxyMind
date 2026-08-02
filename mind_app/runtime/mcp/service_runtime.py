@@ -20,6 +20,7 @@ from engine.observability import (
     observe,
     observe_exception
 )
+from ..tools.mode_policy import ToolFilterMode
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
@@ -271,6 +272,7 @@ async def start_service_runtime(
 async def prepare_and_start_service_runtime(
     mind: "Mind",
     *,
+    tool_profile: ToolFilterMode = "app",
     label: str = "Helix MCP",
     confirm_download: typing.Callable[
         [ServiceRuntimeContext],
@@ -311,7 +313,10 @@ async def prepare_and_start_service_runtime(
             label=label,
             defer_activity_stop=defer_activity_stop,
         )
-        mind.link_service_mcp(await fetch_service_exec_env())
+        mind.link_service_mcp(
+            await fetch_service_exec_env(),
+            tool_profile=tool_profile,
+        )
         return True
 
     try:

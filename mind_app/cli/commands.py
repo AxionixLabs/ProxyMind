@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+from mind_app.runtime.tools.mode_policy import ToolFilterMode
 from mind_core.config import ConfigOverride
 
 OutputFormat = typing.Literal[
@@ -26,6 +27,8 @@ COMPLETION_SHELLS: tuple[CompletionShell, ...] = (
     "zsh",
 )
 
+HELIX_PROFILES: tuple[ToolFilterMode, ...] = ("app", "api")
+
 
 @dataclass(frozen=True, slots=True)
 class InteractiveCommand(object):
@@ -33,6 +36,7 @@ class InteractiveCommand(object):
     prompt: str | None = None
     images: tuple[str, ...] = ()
     model: str | None = None
+    helix_profile: ToolFilterMode | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +49,7 @@ class ResumeCommand(object):
     last: bool = False
     all_workspaces: bool = False
     include_non_interactive: bool = False
+    helix_profile: ToolFilterMode | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,13 +59,13 @@ class ExecCommand(object):
     images: tuple[str, ...] = ()
     model: str | None = None
     output_format: OutputFormat = "text"
-    helix: bool = False
+    helix_profile: ToolFilterMode | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class AgentListenCommand(object):
     """描述远端任务订阅入口。"""
-    helix: bool = False
+    helix_profile: ToolFilterMode | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,9 +175,14 @@ class CliInvocation(object):
 
 def command_uses_helix(command: RuntimeCommand) -> bool:
     """返回命令是否要求启动并接入 Helix。"""
-    if isinstance(command, (ExecCommand, AgentListenCommand)):
-        return command.helix
-    return False
+    return command.helix_profile is not None
+
+
+def command_helix_profile(
+    command: RuntimeCommand
+) -> ToolFilterMode | None:
+    """返回命令请求使用的 Helix 工具过滤配置。"""
+    return command.helix_profile
 
 
 if __name__ == '__main__':

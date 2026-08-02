@@ -13,9 +13,11 @@ from mind_app.presentation.models import (
 )
 from mind_app.runtime.mcp.service_runtime import (
     ServiceRuntimeContext,
+    ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
     service_runtime_asset_missing
 )
+from mind_app.runtime.tools.mode_policy import ToolFilterMode
 from mind_core.mcp_status import (
     McpStatusDetail,
     McpStatusView,
@@ -33,13 +35,13 @@ from ..core.runtime import (
 )
 from ..core.styles import (
     ACCENT_STYLE,
+    BODY_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     WARNING_STYLE,
     BRIGHT_STYLE,
     command_result_block,
-    fragment_block,
-    text_block
+    fragment_block
 )
 
 if typing.TYPE_CHECKING:
@@ -48,6 +50,11 @@ if typing.TYPE_CHECKING:
 DOWNLOAD_OPTIONS: tuple[tuple[bool, str, str], ...] = (
     (True, "Download MCP", "fetch and install Helix now"),
     (False, "Skip for now", "continue without Helix tools"),
+)
+
+TOOL_PROFILE_OPTIONS: tuple[tuple[ToolFilterMode, str, str], ...] = (
+    ("app", "app", "应用自动化、设备、媒体与性能工具"),
+    ("api", "api", "API 自动化、安全与接口性能工具"),
 )
 
 
@@ -154,17 +161,124 @@ async def confirm_runtime_download(
     return bool(result)
 
 
+async def download_service_runtime(
+    mind: "Mind",
+    context: ServiceRuntimeContext
+) -> bool:
+    """下载缺失的服务运行时，不启动服务或挂载工具。"""
+    runtime = require_tui_runtime(mind.frontend.runtime)
+    return await ensure_service_runtime_asset(
+        context,
+        explicit_upgrade=False,
+        anim_manager=mind.anim_manager,
+        design=mind.design,
+        progress=TuiUpgradeProgress(runtime),
+    )
+
+
+async def finish_helix_download(mind: "Mind") -> None:
+    """结束服务运行时下载状态。"""
+    runtime = require_tui_runtime(mind.frontend.runtime)
+    await runtime.end_activity_status("download", settle=False)
+
+
+async def choose_helix_tool_profile(
+    runtime: TuiRuntime,
+    current: ToolFilterMode,
+) -> ToolFilterMode | None:
+    """选择当前服务连接使用的工具过滤模式。"""
+    selected = await runtime.select_menu(MenuRequest(
+        title="Helix Tool Mode",
+        status=f"current={current}",
+        options=tuple(
+            MenuOption(value=value, label=label, detail=detail)
+            for value, label, detail in TOOL_PROFILE_OPTIONS
+        ),
+        selected=next(
+            index
+            for index, (value, _label, _detail) in enumerate(
+                TOOL_PROFILE_OPTIONS
+            )
+            if value == current
+        ),
+    ))
+    if selected not in {"app", "api"}:
+        return None
+    return typing.cast(ToolFilterMode, selected)
+
+
+def render_helix_mode_result(mind: "Mind", mode: ToolFilterMode) -> None:
+    """展示工具过滤模式切换结果。"""
+    _present(mind, command_result_block(
+        "/helix-mode",
+        TextSpan(mode, BRIGHT_STYLE),
+    ))
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_download_result(mind: "Mind", command: str) -> None:
+    """展示运行时下载完成后的重新打开提示。"""
+    _present(mind, command_result_block(
+        command,
+        TextSpan("Downloaded", BRIGHT_STYLE),
+        TextSpan(" · Reopen the app to continue", MUTED_STYLE),
+    ))
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_command_failure(
+    mind: "Mind",
+    command: str,
+    error: BaseException | str,
+) -> None:
+    """展示 Helix 命令失败结果。"""
+    detail = (
+        _helix_error_detail(error)
+        if isinstance(error, BaseException)
+        else str(error).strip()
+    )
+    _present(
+        mind,
+        command_result_block(
+            command,
+            TextSpan("Failed", FAILURE_STYLE),
+            TextSpan(f" · {detail}", BODY_STYLE),
+        ),
+        view_type="tui.helix.status",
+    )
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_command_hint(
+    mind: "Mind",
+    command: str,
+    message: str,
+) -> None:
+    """展示 Helix 命令的普通状态提示。"""
+    _present(
+        mind,
+        command_result_block(
+            command,
+            TextSpan(str(message).strip(), BODY_STYLE),
+        ),
+        view_type="tui.helix.status",
+    )
+    _present(mind, view_type="tui.gap")
+
+
 async def prepare_tui_service_runtime(
     mind: "Mind",
+    tool_profile: ToolFilterMode = "app",
     *,
     label: str = "Helix MCP",
-    download_confirmed: bool = False,
+    download_confirmed: bool = False
 ) -> bool:
     """通过当前 TUI 完成下载确认并启动 Helix 运行时。"""
     runtime = require_tui_runtime(mind.frontend.runtime)
 
     return await prepare_and_start_service_runtime(
         mind,
+        tool_profile=tool_profile,
         label=label,
         confirm_download=functools.partial(confirm_runtime_download, runtime),
         progress=TuiUpgradeProgress(runtime),
@@ -184,12 +298,19 @@ async def confirm_tui_service_runtime_startup(mind: "Mind") -> bool:
 
 async def link_helix_runtime(
     mind: "Mind",
+    tool_profile: ToolFilterMode = "app",
     *,
-    download_confirmed: bool = False,
+    download_confirmed: bool = False
 ) -> bool:
     """确认本地服务已经启动，并挂载到当前工具会话。"""
+    is_linked = getattr(mind, "is_service_mcp_linked", None)
+    if callable(is_linked) and is_linked():
+        mind.set_service_tool_profile(tool_profile)
+        return True
+
     return await prepare_tui_service_runtime(
         mind,
+        tool_profile,
         download_confirmed=download_confirmed,
     )
 
@@ -254,11 +375,9 @@ def render_helix_interrupted(
 
 
 async def open_helix_home(mind: "Mind") -> str | None:
-    """启动或复用本地 Helix 服务，挂载 MCP 后打开首页。"""
-    helix_ready = await prepare_tui_service_runtime(mind)
-
-    if not helix_ready:
-        return None
+    """打开已经连接的服务管理首页。"""
+    if not mind.is_service_mcp_linked():
+        raise AppError("Helix MCP is not connected")
 
     url = helix_runtime_home_url(mind)
     await FileAssist.open_url(url)
@@ -277,12 +396,15 @@ def render_helix_home_result(mind: "Mind", url: str | None) -> None:
 
 def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
     """展示 Helix 首页操作的失败结果。"""
+    detail = _helix_error_detail(error)
     _present(
         mind,
-        text_block(
-            f"Helix home failed: {_helix_error_detail(error)}",
-            FAILURE_STYLE,
+        command_result_block(
+            "/helix-home",
+            TextSpan("Failed", FAILURE_STYLE),
+            TextSpan(f" · {detail}", BODY_STYLE),
         ),
+        view_type="tui.helix.status",
     )
     _present(mind, view_type="tui.gap")
 

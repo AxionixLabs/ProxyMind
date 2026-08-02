@@ -183,6 +183,49 @@ class ForkLiveStatus(object):
         self._state   = "failed"
         self._done    = True
 
+    def created_empty(
+        self,
+        *,
+        source_session: tuple[str, str],
+        target_session: tuple[str, str],
+    ) -> None:
+        """记录空来源直接切换到新会话的结果。"""
+        self._message = "New conversation started."
+        self._state   = "ready"
+        self._done    = True
+
+        self._source_session = source_session
+        self._target_session = target_session
+
+
+async def _replace_empty_fork_source(
+    mind: "Mind",
+    status: ForkLiveStatus,
+    source: dict[str, str],
+    *,
+    event: str,
+    request_id: str = "",
+) -> ForkLiveStatus:
+    """把没有远端历史的分支请求转换为新会话。"""
+    target = await mind.reset_conversation(
+        reason="command:/fork-empty",
+        source="tui:fork-empty",
+    )
+    status.created_empty(
+        source_session=(source["cid"], source["sid"]),
+        target_session=(target["cid"], target["sid"]),
+    )
+    observe(
+        event,
+        reason="empty_source" if not request_id else "source_missing",
+        source_cid=source["cid"],
+        source_sid=source["sid"],
+        cid=target["cid"],
+        sid=target["sid"],
+        request_id=request_id,
+    )
+    return status
+
 
 def compact_animation_enabled(mind: "Mind") -> bool:
     """返回当前运行是否启用压缩动画。"""
@@ -226,13 +269,25 @@ async def fork_current_conversation(
     """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
     source   = mind.conversation.snapshot()
     boundary = str(before_turn_id or "").strip()
+    status   = ForkLiveStatus()
+
+    if (
+        bind_target
+        and not boundary
+        and not mind.conversation.fork_source_available
+    ):
+        return await _replace_empty_fork_source(
+            mind,
+            status,
+            source,
+            event="conversation.fork.skipped",
+        )
 
     request_id = mind.prepare_conversation_fork(
         source["cid"],
         source["sid"],
         boundary,
     )
-    status = ForkLiveStatus()
 
     observe(
         "conversation.fork.start",
@@ -361,6 +416,21 @@ async def fork_current_conversation(
         raise
 
     except ConversationForkRequestError as error:
+        if bind_target and not boundary and error.code == "source_missing":
+            mind.clear_conversation_fork(
+                source["cid"],
+                source["sid"],
+                request_id,
+                boundary,
+            )
+            return await _replace_empty_fork_source(
+                mind,
+                status,
+                source,
+                event="conversation.fork.recovered",
+                request_id=request_id,
+            )
+
         if not error.retryable:
             mind.clear_conversation_fork(
                 source["cid"],

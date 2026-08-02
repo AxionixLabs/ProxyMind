@@ -3,7 +3,10 @@
 
 import argparse
 from mind_nova import const
-from .commands import COMPLETION_SHELLS
+from .commands import (
+    COMPLETION_SHELLS,
+    HELIX_PROFILES
+)
 from .help import CliArgumentParser
 from .invocation import (
     ArgumentContainer,
@@ -55,6 +58,28 @@ def _add_prompt_context_options(
     )
 
 
+def _add_helix_option(
+    container: ArgumentContainer,
+    *,
+    dest: str = "helix_profile",
+) -> None:
+    """登记可选工具过滤配置的 Helix 接入参数。"""
+    container.add_argument(
+        "--helix",
+        nargs="?",
+        const="app",
+        default=None,
+        choices=HELIX_PROFILES,
+        dest=dest,
+        metavar="PROFILE",
+        help=(
+            "Start or reuse the local Helix runtime and attach its MCP tools. "
+            "When PROFILE is omitted, app is used "
+            "[possible values: app, api]"
+        ),
+    )
+
+
 def create_cli_parser() -> CliArgumentParser:
     """创建应用命令行解析器。"""
     parser = CliArgumentParser(
@@ -102,11 +127,7 @@ def create_cli_parser() -> CliArgumentParser:
         action="store_true",
         help="Print newline-delimited JSON events",
     )
-    exec_options.add_argument(
-        "--helix",
-        action="store_true",
-        help="Start or reuse the local Helix runtime and attach its MCP tools",
-    )
+    _add_helix_option(exec_options)
     _add_prompt_context_options(exec_options)
     exec_options.add_argument(
         "-h",
@@ -157,6 +178,7 @@ def create_cli_parser() -> CliArgumentParser:
         action="store_true",
         help="Include sessions created by non-interactive commands",
     )
+    _add_helix_option(resume_options)
     _add_prompt_context_options(resume_options)
     resume_options.add_argument(
         "-h",
@@ -193,11 +215,7 @@ def create_cli_parser() -> CliArgumentParser:
         add_help=False,
     )
     listen_options = listen_parser.add_argument_group("Options")
-    listen_options.add_argument(
-        "--helix",
-        action="store_true",
-        help="Start or reuse the local Helix runtime and attach its MCP tools",
-    )
+    _add_helix_option(listen_options)
     listen_options.add_argument(
         "-h",
         "--help",
@@ -640,6 +658,7 @@ def create_cli_parser() -> CliArgumentParser:
         image_dest="root_images",
         model_dest="root_model",
     )
+    _add_helix_option(root_options, dest="root_helix_profile")
     root_options.add_argument(
         "-h",
         "--help",
@@ -691,6 +710,7 @@ def create_interactive_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
     _add_prompt_context_options(parser)
+    _add_helix_option(parser)
     parser.add_argument("prompt", nargs="?")
     return parser
 

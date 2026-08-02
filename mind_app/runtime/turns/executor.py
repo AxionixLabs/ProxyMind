@@ -238,11 +238,13 @@ async def execute_turn(
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
-        visible_tools = (
-            filter_mode_tools(tool_filter_mode, tools)
-            if tool_filter_mode is not None
-            else tools
-        )
+        selected_mode = tool_filter_mode
+        if selected_mode is None:
+            profile_for_turn = getattr(mind, "tool_profile_for_turn", None)
+            if callable(profile_for_turn):
+                selected_mode = profile_for_turn()
+
+        visible_tools = filter_mode_tools(selected_mode, tools)
         return await operation(execution, session, visible_tools, report)
 
     interrupted: bool = False

@@ -14,7 +14,7 @@ ACCENT    = TextStyle(foreground="#AFC7D8")
 BRIGHT    = TextStyle(foreground="#F4F7FA")
 INDICATOR = TextStyle(foreground="#5FD7AF")
 SUCCESS   = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE   = TextStyle(foreground="#FF6B6B", bold=True)
+FAILURE   = TextStyle(foreground="#FF6B6B")
 WARNING   = TextStyle(foreground="#FFD166", bold=True)
 
 
@@ -61,6 +61,7 @@ def download_summary_block(
         return None
 
     spans = [
+        *([TextSpan("■ ", FAILURE)] if stage == "failed" else []),
         TextSpan("Download ", MUTED),
         TextSpan(status, status_style),
     ]

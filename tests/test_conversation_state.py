@@ -7,12 +7,15 @@ from mind_nova.identifiers import new_cid, new_sid
 def test_conversation_turn_marks_only_initial_boundary() -> None:
     state = ConversationState()
 
+    assert state.fork_source_available is False
+
     first = state.begin_turn(start_reason="calling")
     second = state.begin_turn(start_reason="calling")
 
     assert first.turn_index == 1
     assert first.session_started is True
     assert first.start_reason == "initial"
+    assert state.fork_source_available is True
     assert first.metadata() == {"cid": first.cid, "sid": first.sid}
     assert second.turn_index == 2
     assert second.session_started is False
@@ -25,11 +28,13 @@ def test_conversation_reset_defers_boundary_until_next_turn() -> None:
     previous = state.begin_turn()
 
     state.reset(reason="command:/new")
+    assert state.fork_source_available is False
     started = state.begin_turn()
 
     assert started.turn_index == 1
     assert started.session_started is True
     assert started.start_reason == "command:/new"
+    assert state.fork_source_available is True
     assert started.metadata() != previous.metadata()
 
 

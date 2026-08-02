@@ -547,6 +547,13 @@ async def test_runtime_download_holds_final_status_for_inbuild_handoff(
     expected = "complete" if final_stage == "done" else final_stage
     final_text = _block_text(runtime.screen.activity_block)
     assert expected in final_text
+    if final_stage == "failed":
+        assert final_text.startswith("■ Download failed")
+        assert all(
+            "bold" not in style
+            for style, text in runtime.screen.activity_block.fragments
+            if text.strip()
+        )
     assert "helix.dist" not in final_text
     assert not runtime.document.blocks
 
@@ -701,6 +708,7 @@ def test_tui_application_body_styles_do_not_use_bold() -> None:
     style = TuiRuntime().screen.application.style
 
     for name in (
+        "class:queue.label",
         "class:queue.marker",
         "class:input.notice",
         "class:shell.title.command",
@@ -708,7 +716,7 @@ def test_tui_application_body_styles_do_not_use_bold() -> None:
     ):
         assert not style.get_attrs_for_style_str(name).bold
 
-    assert style.get_attrs_for_style_str("class:queue.label").bold
+    assert style.get_attrs_for_style_str("class:queue.marker").dim
     assert style.get_attrs_for_style_str("class:ps.title").bold
     assert style.get_attrs_for_style_str("class:shell.title.action").bold
     assert style.get_attrs_for_style_str("class:ps.output").dim

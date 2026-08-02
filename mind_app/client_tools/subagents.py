@@ -34,53 +34,52 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
         ClientTool(
             name=SPAWN_AGENT_TOOL,
             description=(
-                "Spawn a sub-agent for a well-scoped task. The new agent inherits "
-                "the current turn's runtime configuration and permissions. Use only "
-                "when the user or project instructions authorize delegation."
+                "为边界清晰的独立任务创建子 Agent。子 Agent 继承当前轮次的"
+                "运行配置和权限。仅在用户或项目指令允许委派时使用。"
             ),
             input_schema=_spawn_schema(),
             handler=_spawn_handler(agents),
-            meta=_tool_meta("spawn"),
+            meta=_agent_tool_meta(),
         ),
         ClientTool(
             name=SEND_INPUT_TOOL,
             description=(
-                "Send a message to an existing agent. Set interrupt=true to stop "
-                "the current turn and handle this input next; otherwise it is queued."
+                "向已有 Agent 发送消息。interrupt=true 时先中断其当前轮次并"
+                "处理本次输入，否则将消息加入队列。"
             ),
             input_schema=_send_schema(),
             handler=_send_handler(agents),
-            meta=_tool_meta("send"),
+            meta=_agent_tool_meta(),
         ),
         ClientTool(
             name=RESUME_AGENT_TOOL,
             description=(
-                "Resume a previously closed agent so it can receive send_input and "
-                "wait_agent calls."
+                "恢复已经关闭的 Agent，使其可以继续接收 send_input 和 "
+                "wait_agent 调用。"
             ),
             input_schema=_resume_schema(),
             handler=_resume_handler(agents),
-            meta=_tool_meta("resume"),
+            meta=_agent_tool_meta(),
         ),
         ClientTool(
             name=WAIT_AGENT_TOOL,
             description=(
-                "Wait for any target agent to reach a final status. Completed "
-                "statuses may include the agent's final message."
+                "等待任一目标 Agent 进入终态。已完成状态可能包含该 Agent 的"
+                "最终消息。"
             ),
             input_schema=_wait_schema(),
             handler=_wait_handler(agents),
-            meta=_tool_meta("wait"),
+            meta=_agent_tool_meta(),
         ),
         ClientTool(
             name=CLOSE_AGENT_TOOL,
             description=(
-                "Close an agent and its open descendants when no longer needed. "
-                "Completed agents keep a concurrency slot until closed."
+                "关闭不再需要的 Agent 及其未关闭后代。已完成的 Agent 在关闭前"
+                "仍会占用并发槽位。"
             ),
             input_schema=_close_schema(),
             handler=_close_handler(agents),
-            meta=_tool_meta("close"),
+            meta=_agent_tool_meta(),
         ),
     ]
 
@@ -378,12 +377,12 @@ def _error_result(
     )
 
 
-def _tool_meta(tool_class: str) -> dict[str, typing.Any]:
+def _agent_tool_meta() -> dict[str, typing.Any]:
     """返回多执行主体工具的通用元数据。"""
     return {
         "hidden" : False,
         "domain" : "client",
-        "class"  : tool_class
+        "class"  : "agent"
     }
 
 
@@ -392,19 +391,24 @@ def _spawn_schema() -> dict[str, typing.Any]:
     return {
         "type": "object",
         "properties": {
-            "message": {"type": "string", "description": "Initial task."},
+            "message": {
+                "type": "string",
+                "description": "交给子 Agent 的初始任务。",
+            },
             "task_name": {
                 "type": "string",
-                "description": "Stable lowercase task name.",
+                "description": "稳定的小写任务名称，仅使用字母、数字和下划线。",
                 "pattern": "^[a-z0-9_]+$",
             },
             "agent_type": {
                 "type": "string",
-                "description": "Optional agent type override.",
+                "description": "可选的 Agent 类型覆盖值。",
             },
             "fork_turns": {
                 "type": "string",
-                "description": "Parent context: none, all, or a positive turn count.",
+                "description": (
+                    "继承的父会话上下文范围：none、all 或正整数轮次数。"
+                ),
                 "pattern": "^(none|all|[1-9][0-9]*)$",
                 "default": "all",
             },
@@ -419,11 +423,17 @@ def _send_schema() -> dict[str, typing.Any]:
     return {
         "type": "object",
         "properties": {
-            "target": {"type": "string", "description": "Agent id."},
-            "message": {"type": "string", "description": "Message text."},
+            "target": {
+                "type": "string",
+                "description": "目标 Agent 标识。",
+            },
+            "message": {
+                "type": "string",
+                "description": "发送给目标 Agent 的消息。",
+            },
             "interrupt": {
                 "type": "boolean",
-                "description": "Interrupt the active turn before this input.",
+                "description": "是否先中断目标 Agent 的当前轮次。",
             },
         },
         "required": ["target", "message"],
@@ -435,7 +445,12 @@ def _resume_schema() -> dict[str, typing.Any]:
     """返回恢复工具输入结构。"""
     return {
         "type": "object",
-        "properties": {"id": {"type": "string", "description": "Agent id."}},
+        "properties": {
+            "id": {
+                "type": "string",
+                "description": "待恢复的 Agent 标识。",
+            }
+        },
         "required": ["id"],
         "additionalProperties": False,
     }
@@ -450,13 +465,13 @@ def _wait_schema() -> dict[str, typing.Any]:
                 "type": "array",
                 "items": {"type": "string"},
                 "minItems": 1,
-                "description": "Agent ids; returns when any reaches a final status.",
+                "description": "Agent 标识列表；任一目标进入终态时返回。",
             },
             "timeout_ms": {
                 "type": "number",
                 "description": (
-                    f"Timeout in milliseconds. Defaults to {DEFAULT_WAIT_TIMEOUT_MS}, "
-                    f"min {MIN_WAIT_TIMEOUT_MS}, max {MAX_WAIT_TIMEOUT_MS}."
+                    f"等待超时（毫秒）。默认 {DEFAULT_WAIT_TIMEOUT_MS}，"
+                    f"最小 {MIN_WAIT_TIMEOUT_MS}，最大 {MAX_WAIT_TIMEOUT_MS}。"
                 ),
             },
         },
@@ -469,7 +484,12 @@ def _close_schema() -> dict[str, typing.Any]:
     """返回关闭工具输入结构。"""
     return {
         "type": "object",
-        "properties": {"target": {"type": "string", "description": "Agent id."}},
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "待关闭的 Agent 标识。",
+            }
+        },
         "required": ["target"],
         "additionalProperties": False,
     }

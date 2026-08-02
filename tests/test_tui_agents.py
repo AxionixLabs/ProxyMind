@@ -90,6 +90,22 @@ def test_agent_list_menu_displays_status_and_queue_counts() -> None:
     assert request.body == ()
 
 
+def test_failed_agent_uses_existing_list_dot_and_square_in_bare_details() -> None:
+    failed = _snapshot("failed", error="boom")
+
+    listing = agent_list_menu((failed,), root_session_id="sid_root")
+    detail = agent_detail_menu(failed)
+    snapshot = agent_snapshot_block(failed)
+
+    assert listing.options[1].label == "• /root/review"
+    assert listing.options[1].detail == "agent_review · failed"
+    assert "■" not in listing.options[1].detail
+    assert detail.status == "/root/review · failed"
+    assert "\n■ failed · turns=1 queued=0" in "".join(
+        text for _style, text in snapshot.fragments
+    )
+
+
 def test_agent_list_menu_orders_nested_threads_under_parent() -> None:
     parent = _snapshot("running", agent_id="agent_parent")
     sibling = _snapshot(

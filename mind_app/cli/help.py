@@ -119,6 +119,8 @@ class CliHelpFormatter(argparse.HelpFormatter):
         options = ", ".join(action.option_strings)
         if action.nargs == 0:
             return options
+        if action.nargs == "?":
+            return f"{options} [<{metavar}>]"
 
         suffix = "..." if action.nargs in {"*", "+"} else ""
         return f"{options} <{metavar}>{suffix}"

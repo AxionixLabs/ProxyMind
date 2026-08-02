@@ -6,6 +6,7 @@ import enum
 import typing
 import asyncio
 from engine.file_assist import FileAssist
+from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from mind_app.frontend import ApplicationView
 from mind_app.history import INTERACTIVE_HISTORY_SOURCES
 from mind_app.presentation.models import (
@@ -41,11 +42,18 @@ from ..features.conversation import (
 )
 from ..features.diff import print_current_apply_patch_diff
 from ..features.helix import (
-    finish_helix_activity,
+    choose_helix_tool_profile,
+    confirm_runtime_download,
+    download_service_runtime,
+    finish_helix_download,
     open_helix_home,
+    render_helix_command_failure,
+    render_helix_command_hint,
+    render_helix_download_result,
     render_helix_home_failure,
     render_helix_home_result,
     render_helix_interrupted,
+    render_helix_mode_result,
     render_helix_stop_failure,
     render_helix_stop_result,
     stop_helix_runtime,
@@ -291,17 +299,55 @@ class TuiCommandDispatcher(object):
             self.state.invalidate_workspace()
             return DispatchAction.HANDLED
 
+        if matches_command(command, "helix_mode"):
+            if await self._download_missing_helix_runtime("/helix-mode"):
+                return DispatchAction.HANDLED
+            if not self.mind.is_service_mcp_linked():
+                render_helix_command_hint(
+                    self.mind,
+                    "/helix-mode",
+                    "Helix MCP is not connected",
+                )
+                return DispatchAction.HANDLED
+
+            current = self.mind.tool_profile_for_turn()
+            if current is None:
+                render_helix_command_hint(
+                    self.mind,
+                    "/helix-mode",
+                    "Helix tool mode is unavailable",
+                )
+                return DispatchAction.HANDLED
+
+            selected = await choose_helix_tool_profile(self.runtime, current)
+            if selected is None:
+                self._present()
+                return DispatchAction.HANDLED
+
+            self.mind.set_service_tool_profile(selected)
+            render_helix_mode_result(self.mind, selected)
+            self.state.invalidate_workspace()
+            return DispatchAction.HANDLED
+
         if matches_command(command, "helix_unlink"):
             unlink_helix_runtime(self.mind)
             self.state.invalidate_workspace()
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_home"):
+            if await self._download_missing_helix_runtime("/helix-home"):
+                return DispatchAction.HANDLED
+            if not self.mind.is_service_mcp_linked():
+                render_helix_command_hint(
+                    self.mind,
+                    "/helix-home",
+                    "Helix MCP is not connected",
+                )
+                return DispatchAction.HANDLED
+
             self.foreground_tasks.start(
                 "Helix Home",
                 lambda: open_helix_home(self.mind),
-                cancel_cleanup=self.mind.cancel_service_runtime_startup,
-                finish_activity=lambda: finish_helix_activity(self.mind),
                 on_succeeded=lambda home_url: render_helix_home_result(
                     self.mind,
                     home_url,
@@ -355,6 +401,37 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         return DispatchAction.MODEL_TURN
+
+    async def _download_missing_helix_runtime(self, command: str) -> bool:
+        """发现缺失运行时时完成下载并结束当前命令。"""
+        context = self.mind.require_service_runtime_context()
+        if not service_runtime_asset_missing(context):
+            return False
+
+        if not await confirm_runtime_download(self.runtime, context):
+            self._present()
+            return True
+
+        self.foreground_tasks.start(
+            "Helix runtime download",
+            lambda: download_service_runtime(self.mind, context),
+            finish_activity=lambda: finish_helix_download(self.mind),
+            on_succeeded=lambda _downloaded: render_helix_download_result(
+                self.mind,
+                command,
+            ),
+            on_failed=lambda error: render_helix_command_failure(
+                self.mind,
+                command,
+                error,
+            ),
+            on_cancelled=lambda: render_helix_interrupted(
+                self.mind,
+                label="Helix download",
+            ),
+        )
+        await self.foreground_tasks.wait()
+        return True
 
     def handle_stream_command(
         self,

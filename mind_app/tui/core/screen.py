@@ -1542,7 +1542,8 @@ class TuiScreen(object):
                 if self.transcript_overlay.export_failed
                 else "class:transcript.overlay.export-success"
             )
-            return [(style, f" {self.transcript_overlay.export_status}")]
+            marker = "■ " if self.transcript_overlay.export_failed else ""
+            return [(style, f" {marker}{self.transcript_overlay.export_status}")]
 
         pager         = self.keymap.pager
         raw_label     = primary_binding_label(pager.toggle_raw)

@@ -122,8 +122,59 @@ def test_cli_parser_returns_typed_commands() -> None:
         images=("screen.png",),
         model="exec-model",
         output_format="json",
-        helix=True,
+        helix_profile="app",
     )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    (
+        (["--helix"], InteractiveCommand(helix_profile="app")),
+        (["--helix", "api"], InteractiveCommand(helix_profile="api")),
+        (
+            ["--helix", "initial task"],
+            InteractiveCommand(prompt="initial task", helix_profile="app"),
+        ),
+        (
+            ["exec", "inspect", "--helix"],
+            ExecCommand(prompt="inspect", helix_profile="app"),
+        ),
+        (
+            ["exec", "inspect", "--helix", "app"],
+            ExecCommand(prompt="inspect", helix_profile="app"),
+        ),
+        (
+            ["exec", "inspect", "--helix", "api"],
+            ExecCommand(prompt="inspect", helix_profile="api"),
+        ),
+        (
+            ["exec", "--helix", "inspect"],
+            ExecCommand(prompt="inspect", helix_profile="app"),
+        ),
+        (
+            ["exec", "--helix", "api", "inspect"],
+            ExecCommand(prompt="inspect", helix_profile="api"),
+        ),
+        (
+            ["resume", "--helix=api"],
+            ResumeCommand(helix_profile="api"),
+        ),
+        (
+            ["agent", "listen", "--helix", "api"],
+            AgentListenCommand(helix_profile="api"),
+        ),
+    ),
+)
+def test_helix_profile_is_parsed_across_runtime_commands(
+    arguments,
+    expected,
+) -> None:
+    assert parse_cli_command(arguments) == expected
+
+
+def test_helix_profile_rejects_unknown_explicit_value() -> None:
+    with pytest.raises(SystemExit):
+        parse_cli_command(["exec", "inspect", "--helix=other"])
 
 
 def test_permission_options_are_process_level_config_overrides() -> None:
@@ -266,6 +317,8 @@ def test_cli_help_separates_argument_and_option_blocks(
         "immediately returned to the model"
     ) in normalized_root_help
     assert "Possible values:\n          - untrusted:" in root_help
+    assert "--helix [<PROFILE>]" in root_help
+    assert "When PROFILE is omitted, app is used" in root_help
 
 
 def test_cli_help_uses_accent_and_muted_terminal_colors(monkeypatch) -> None:
@@ -643,9 +696,15 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
     monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
     monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
+    start_helix = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        bootstrap,
+        "prepare_and_start_service_runtime",
+        start_helix,
+    )
 
     await bootstrap._run_controller(
-        AgentListenCommand(),
+        AgentListenCommand(helix_profile="api"),
         frontend=frontend,
         design=None,
         animation=SimpleNamespace(),
@@ -662,6 +721,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     )
 
     controller.start_config_service.assert_awaited_once_with()
+    start_helix.assert_awaited_once_with(controller, tool_profile="api")
 
 
 def test_doctor_json_uses_application_json_sink(monkeypatch) -> None:

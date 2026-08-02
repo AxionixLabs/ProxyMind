@@ -121,14 +121,28 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("startup_options", "expected_profile"),
+    (
+        ({}, "app"),
+        ({"tool_profile": "api"}, "api"),
+    ),
+)
 async def test_tui_starts_external_mcp_before_helix_background(
     monkeypatch,
+    startup_options,
+    expected_profile,
 ) -> None:
     calls = []
     views = []
 
-    async def prepare_helix(_mind, *, download_confirmed=False):
-        calls.append(("helix", download_confirmed))
+    async def prepare_helix(
+        _mind,
+        tool_profile="app",
+        *,
+        download_confirmed=False,
+    ):
+        calls.append(("helix", tool_profile, download_confirmed))
         return True
 
     class MindStub(object):
@@ -160,9 +174,12 @@ async def test_tui_starts_external_mcp_before_helix_background(
 
     mind = MindStub()
     await bootstrap.start_tui_external_mcp(mind)
-    await bootstrap.start_tui_service_runtime(mind)
+    await bootstrap.start_tui_service_runtime(mind, **startup_options)
 
-    assert calls == [("external", True), ("helix", True)]
+    assert calls == [
+        ("external", True),
+        ("helix", expected_profile, True),
+    ]
     status = next(
         view for view in views
         if view.type == "tui.external_mcp.status"

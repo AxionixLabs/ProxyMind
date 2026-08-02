@@ -55,6 +55,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/ps",
         "/mcp",
         "/helix-link",
+        "/helix-mode",
         "/helix-unlink",
         "/helix-home",
         "/helix-stop",
@@ -124,6 +125,7 @@ def test_helix_prefix_keeps_command_order() -> None:
     assert [item.display_text for item in completions] == [
         "/hooks",
         "/helix-link",
+        "/helix-mode",
         "/helix-unlink",
         "/helix-home",
         "/helix-stop",
@@ -160,6 +162,7 @@ def test_command_matching_distinguishes_empty_and_argument_states() -> None:
         "/ps",
         "/mcp",
         "/helix-link",
+        "/helix-mode",
     ],
 )
 def test_bare_surface_commands_stage_their_submission(value) -> None:
@@ -175,6 +178,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert command_names("quit") == frozenset({"/quit", "/q", "quit", "exit"})
     assert parameterized_command_texts() == ("/model ",)
     assert stream_command_policy("/helix-link") == "background_barrier"
+    assert stream_command_policy("/helix-mode") == "reject"
     assert stream_command_policy("/mcp start") == "background_barrier"
     assert stream_command_policy("/mcp force") == "background_barrier"
     assert stream_command_policy("/ps") == "local_snapshot"
@@ -201,7 +205,7 @@ def test_registered_slash_command_inputs_are_resolved(value) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["/今天天气", "/compact later", "/mcp unknown"],
+    ["/今天天气", "/compact later", "/mcp unknown", "/helix-mode app"],
 )
 def test_unknown_or_invalid_slash_command_inputs_are_rejected(value) -> None:
     assert resolve_slash_command(value) is None
@@ -237,6 +241,170 @@ async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
         "Unrecognized command '/今天天气'. "
         'Type "/" for a list of supported commands.'
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("command", ["/helix-mode", "/helix-home"])
+async def test_missing_helix_runtime_download_ends_current_command(
+    monkeypatch,
+    command,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    context = object()
+    linked = Mock(side_effect=AssertionError("must not inspect connection"))
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+        require_service_runtime_context=lambda: context,
+        is_service_mcp_linked=linked,
+    )
+    foreground = SimpleNamespace(
+        start=Mock(),
+        wait=AsyncMock(),
+    )
+    confirm = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        dispatch_module,
+        "service_runtime_asset_missing",
+        lambda received: received is context,
+    )
+    monkeypatch.setattr(dispatch_module, "confirm_runtime_download", confirm)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch(command)
+
+    assert action is DispatchAction.HANDLED
+    confirm.assert_awaited_once_with(dispatcher.runtime, context)
+    foreground.start.assert_called_once()
+    foreground.wait.assert_awaited_once_with()
+    linked.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_helix_link_remains_the_explicit_connection_command() -> None:
+    state = SimpleNamespace(invalidate_workspace=Mock())
+    foreground = SimpleNamespace(
+        start_helix_link=Mock(),
+        wait=AsyncMock(),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        state,
+        foreground,
+    )
+
+    action = await dispatcher.dispatch("/helix-link")
+
+    assert action is DispatchAction.HANDLED
+    foreground.start_helix_link.assert_called_once_with()
+    foreground.wait.assert_awaited_once_with()
+    state.invalidate_workspace.assert_called_once_with()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("command", ["/helix-mode", "/helix-home"])
+async def test_downloaded_but_unlinked_helix_command_does_not_start_runtime(
+    monkeypatch,
+    command,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    foreground = SimpleNamespace(start=Mock(), wait=AsyncMock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        require_service_runtime_context=lambda: object(),
+        is_service_mcp_linked=lambda: False,
+    )
+    choose = AsyncMock()
+    monkeypatch.setattr(
+        dispatch_module,
+        "service_runtime_asset_missing",
+        lambda _context: False,
+    )
+    monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch(command)
+
+    assert action is DispatchAction.HANDLED
+    foreground.start.assert_not_called()
+    choose.assert_not_awaited()
+    status = next(view for view in views if view.type == "tui.helix.status")
+    assert "".join(
+        text for _style, text in status.renderable.fragments
+    ) == f"{command} · Helix MCP is not connected"
+    hint_style = next(
+        style
+        for style, text in status.renderable.fragments
+        if text == "Helix MCP is not connected"
+    )
+    assert "bold" not in hint_style
+
+
+@pytest.mark.anyio
+async def test_helix_mode_changes_filter_only_for_linked_runtime(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    context = object()
+    state = SimpleNamespace(invalidate_workspace=Mock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        require_service_runtime_context=lambda: context,
+        is_service_mcp_linked=lambda: True,
+        tool_profile_for_turn=lambda: "app",
+        set_service_tool_profile=Mock(),
+    )
+    choose = AsyncMock(return_value="api")
+    monkeypatch.setattr(
+        dispatch_module,
+        "service_runtime_asset_missing",
+        lambda _context: False,
+    )
+    monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
+    runtime = SimpleNamespace()
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        state,
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/helix-mode")
+
+    assert action is DispatchAction.HANDLED
+    choose.assert_awaited_once_with(runtime, "app")
+    mind.set_service_tool_profile.assert_called_once_with("api")
+    state.invalidate_workspace.assert_called_once_with()
+    result = next(view for view in views if view.type == "tui.command")
+    assert "".join(
+        text for _style, text in result.renderable.fragments
+    ) == "/helix-mode · api"
 
 
 @pytest.mark.anyio
@@ -537,9 +705,106 @@ async def test_helix_link_result_is_committed_to_tui(
     else:
         helix.render_helix_link_result(mind, linked)
 
-    prepare.assert_awaited_once_with(mind, download_confirmed=False)
+    prepare.assert_awaited_once_with(
+        mind,
+        "app",
+        download_confirmed=False,
+    )
     status = next(view for view in views if view.type == "tui.helix.status")
     assert status.renderable.plain_text == expected
+
+
+@pytest.mark.anyio
+async def test_helix_link_switches_profile_without_restarting(
+    monkeypatch,
+) -> None:
+    mind = SimpleNamespace(
+        is_service_mcp_linked=lambda: True,
+        set_service_tool_profile=Mock(),
+    )
+    prepare = AsyncMock()
+    monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare)
+
+    linked = await helix.link_helix_runtime(mind, "api")
+
+    assert linked is True
+    mind.set_service_tool_profile.assert_called_once_with("api")
+    prepare.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
+    mind = SimpleNamespace(
+        is_service_mcp_linked=lambda: True,
+        server_manager=SimpleNamespace(url="http://127.0.0.1:9000"),
+    )
+    open_url = AsyncMock()
+    monkeypatch.setattr(helix.FileAssist, "open_url", open_url)
+
+    url = await helix.open_helix_home(mind)
+
+    assert url == "http://127.0.0.1:9000"
+    open_url.assert_awaited_once_with(url)
+
+
+@pytest.mark.anyio
+async def test_helix_home_does_not_start_an_unlinked_runtime() -> None:
+    mind = SimpleNamespace(is_service_mcp_linked=lambda: False)
+
+    with pytest.raises(AppError, match="Helix MCP is not connected"):
+        await helix.open_helix_home(mind)
+
+
+@pytest.mark.anyio
+async def test_helix_mode_menu_uses_current_profile() -> None:
+    runtime = TuiRuntime()
+    runtime.select_menu = AsyncMock(return_value="api")
+
+    selected = await helix.choose_helix_tool_profile(runtime, "app")
+
+    assert selected == "api"
+    request = runtime.select_menu.await_args.args[0]
+    assert request.title == "Helix Tool Mode"
+    assert request.status == "current=app"
+    assert [option.value for option in request.options] == ["app", "api"]
+    assert request.selected == 0
+
+
+@pytest.mark.anyio
+async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> None:
+    runtime = TuiRuntime()
+    context = object()
+    ensure = AsyncMock(return_value=True)
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        anim_manager=object(),
+        design=object(),
+        link_service_mcp=Mock(),
+    )
+    monkeypatch.setattr(helix, "ensure_service_runtime_asset", ensure)
+
+    downloaded = await helix.download_service_runtime(mind, context)
+
+    assert downloaded is True
+    ensure.assert_awaited_once()
+    assert ensure.await_args.args == (context,)
+    assert ensure.await_args.kwargs["explicit_upgrade"] is False
+    mind.link_service_mcp.assert_not_called()
+
+
+def test_helix_home_failure_uses_command_result_block() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    helix.render_helix_home_failure(mind, AppError("open failed"))
+
+    status = next(view for view in views if view.type == "tui.helix.status")
+    text = "".join(text for _style, text in status.renderable.fragments)
+    assert text == "/helix-home · Failed · open failed"
 
 
 @pytest.mark.anyio

@@ -204,6 +204,39 @@ def test_history_transcript_uses_placeholder_when_content_is_unavailable() -> No
     )
 
 
+@pytest.mark.parametrize(
+    ("event", "payload", "expected"),
+    [
+        ("turn.failed", {"error": "request failed"}, "■ request failed"),
+        ("turn.interrupted", {}, "Turn interrupted"),
+    ],
+)
+def test_history_transcript_marks_only_failures(event, payload, expected) -> None:
+    entry = TranscriptEntry(
+        timestamp="2026-08-02T00:00:00.000Z",
+        event=event,
+        session_id="session_notice",
+        turn_id="turn_notice",
+        actor="system",
+        payload=payload,
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return (entry,)
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_notice",
+        terminal_width=60,
+    )
+
+    assert "".join(
+        text for _style, text in blocks[0].display_block.fragments
+    ) == expected
+
+
 def test_history_transcript_restores_markdown_hyperlink_metadata() -> None:
     entry = TranscriptEntry(
         timestamp="2026-08-02T00:00:00.000Z",

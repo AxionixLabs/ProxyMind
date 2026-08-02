@@ -13,6 +13,25 @@ from mind_app.runtime.support.conversation import ConversationState
 from mind_core.permissions import preset_permissions
 
 
+def test_controller_tracks_helix_tool_profile_with_link_state() -> None:
+    controller = Mind.__new__(Mind)
+    controller.service_mcp_linked = False
+    controller.service_tool_profile = None
+    controller.service_exec_env = None
+
+    Mind.link_service_mcp(controller, {"paths": ["helix"]})
+
+    assert Mind.tool_profile_for_turn(controller) == "app"
+    assert controller.service_exec_env == {"paths": ["helix"]}
+
+    Mind.set_service_tool_profile(controller, "api")
+    assert Mind.tool_profile_for_turn(controller) == "api"
+
+    Mind.unlink_service_mcp(controller)
+    assert Mind.tool_profile_for_turn(controller) is None
+    assert controller.service_tool_profile is None
+
+
 @pytest.mark.anyio
 async def test_controller_stops_subagents_before_shared_resources() -> None:
     timeline = []
@@ -149,3 +168,27 @@ async def test_controller_reuses_binding_for_same_session() -> None:
     assert controller.conversation.turn_count == 2
     assert controller._conversation_lifecycle_id == 4
     controller.end_conversation.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_controller_marks_new_binding_as_forkable_history() -> None:
+    controller = Mind.__new__(Mind)
+    controller.conversation = ConversationState()
+    controller._conversation_lifecycle_id = 0
+    controller.last_assistant_reply = ""
+    controller.end_conversation = AsyncMock()
+    controller._touch_history_session = Mock()
+
+    metadata = await Mind.bind_conversation(
+        controller,
+        "cid_test_12345678",
+        "sid_test_1_abcdef",
+        source="tui:resume",
+    )
+
+    assert metadata == {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+    assert controller.conversation.turn_count == 0
+    assert controller.conversation.fork_source_available is True

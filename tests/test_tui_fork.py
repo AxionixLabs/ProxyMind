@@ -23,8 +23,10 @@ class ForkMindStub(object):
         self.started = []
         self.cleared = []
         self.bound = []
+        self.resets = []
         self.stopped = None
         self.conversation = SimpleNamespace(
+            fork_source_available=True,
             snapshot=lambda: {
                 "cid": "cid_source_12345678",
                 "sid": "sid_source_1_abcdef",
@@ -50,6 +52,13 @@ class ForkMindStub(object):
     async def bind_conversation(self, cid, sid, *, source):
         self.bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
+
+    async def reset_conversation(self, *, reason, source):
+        self.resets.append((reason, source))
+        return {
+            "cid": "cid_target_87654321",
+            "sid": "sid_target_2_fedcba",
+        }
 
     def clear_conversation_fork(
         self,
@@ -111,6 +120,69 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
     assert result.renderable.plain_text == (
         "■ Conversation forked. · 24 items"
     )
+
+
+@pytest.mark.anyio
+async def test_empty_conversation_starts_new_session_without_remote_fork(
+    monkeypatch,
+) -> None:
+    mind = ForkMindStub()
+    mind.animate = False
+    mind.conversation.fork_source_available = False
+    requested = False
+
+    async def request_fork(**_kwargs):
+        nonlocal requested
+        requested = True
+        raise AssertionError("empty conversation must not call /fork")
+
+    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+
+    status = await conversation.fork_current_conversation(mind)
+
+    assert status.succeeded
+    assert status.source_session == (
+        "cid_source_12345678",
+        "sid_source_1_abcdef",
+    )
+    assert status.target_session == (
+        "cid_target_87654321",
+        "sid_target_2_fedcba",
+    )
+    assert status.snapshot()["summary"] == "New conversation started."
+    assert mind.resets == [("command:/fork-empty", "tui:fork-empty")]
+    assert mind.cleared == []
+    assert mind.started == []
+    assert requested is False
+
+
+@pytest.mark.anyio
+async def test_source_missing_response_recovers_as_new_empty_session(
+    monkeypatch,
+) -> None:
+    mind = ForkMindStub()
+    mind.animate = False
+
+    async def request_fork(**_kwargs):
+        raise ConversationForkRequestError(
+            "conversation history is empty",
+            status_code=404,
+            code="source_missing",
+        )
+
+    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+
+    status = await conversation.fork_current_conversation(mind)
+
+    assert status.succeeded
+    assert status.snapshot()["summary"] == "New conversation started."
+    assert mind.cleared == [(
+        "cid_source_12345678",
+        "sid_source_1_abcdef",
+        "fork_request_0001",
+        "",
+    )]
+    assert mind.resets == [("command:/fork-empty", "tui:fork-empty")]
 
 
 @pytest.mark.anyio
@@ -177,6 +249,41 @@ async def test_fork_request_parses_source_busy_error(monkeypatch) -> None:
 
     assert raised.value.code == "source_busy"
     assert raised.value.retryable is True
+
+
+@pytest.mark.anyio
+async def test_fork_request_parses_empty_history_error(monkeypatch) -> None:
+    response = httpx.Response(
+        404,
+        json={"detail": "conversation history is empty"},
+    )
+
+    class ClientStub(object):
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
+
+    with pytest.raises(ConversationForkRequestError) as raised:
+        await fork_request.request_conversation_fork(
+            cid="cid_source_12345678",
+            sid="sid_source_1_abcdef",
+            request_id="fork_request_0001",
+        )
+
+    assert raised.value.status_code == 404
+    assert raised.value.code == "source_missing"
+    assert raised.value.message == "conversation history is empty"
+    assert raised.value.retryable is False
 
 
 @pytest.mark.anyio

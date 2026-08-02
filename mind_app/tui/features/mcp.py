@@ -24,6 +24,7 @@ from ..core.styles import (
     MUTED_STYLE,
     WARNING_STYLE,
     command_result_block,
+    failure_text_block,
     fragment_block,
     text_block
 )
@@ -417,7 +418,7 @@ def render_mcp_status(
                 TextSpan(summary["config_error"], FAILURE_STYLE),
             )
             if command is not None
-            else text_block(summary["config_error"], FAILURE_STYLE)
+            else failure_text_block(summary["config_error"])
         )
         _present(mind, block)
         _present(mind, view_type="tui.gap")

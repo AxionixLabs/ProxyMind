@@ -55,6 +55,18 @@ def test_pending_steer_uses_current_turn_title() -> None:
     assert "  ↳ adjust current task" in text
     assert "Queued follow-up inputs" not in text
 
+    title_fragments = pending.fragments(width=100)[:2]
+    assert title_fragments == [
+        (
+            "class:queue.label",
+            "• Messages to be submitted after next tool call",
+        ),
+        (
+            "class:queue.hint",
+            " (press ctrl + c to interrupt and send immediately)",
+        ),
+    ]
+
 
 def test_pending_steer_lists_each_enter_submission() -> None:
     pending = TuiPendingSteers()
@@ -209,10 +221,29 @@ def test_queue_edit_hint_uses_terminal_fallback(identity) -> None:
     assert "shift + ← edit last queued message" in text
 
 
-def test_queued_input_candidate_uses_dim_style() -> None:
+def test_queue_styles_distinguish_labels_and_hints() -> None:
     style = TuiRuntime().screen.application.style
 
     assert style.get_attrs_for_style_str("class:queue.text").dim
+    assert not style.get_attrs_for_style_str("class:queue.label").bold
+    assert style.get_attrs_for_style_str("class:queue.marker").dim
+    assert not style.get_attrs_for_style_str("class:queue.marker").bold
+    assert style.get_attrs_for_style_str("class:queue.hint").dim
+    assert not style.get_attrs_for_style_str("class:queue.hint").bold
+    assert style.get_attrs_for_style_str("class:queue.edit-hint").dim
+    assert not style.get_attrs_for_style_str("class:queue.edit-hint").bold
+    assert style.get_attrs_for_style_str("class:footer.queue-hint").dim
+    assert not style.get_attrs_for_style_str("class:footer.queue-hint").bold
+
+
+def test_enter_and_tab_queue_messages_share_dim_text_style() -> None:
+    pending = TuiPendingSteers()
+    pending.add(_submission("enter message"))
+    queued = TuiQueuedMessages()
+    queued.append(_submission("tab message"))
+
+    assert ("class:queue.text", "enter message") in pending.fragments(width=100)
+    assert ("class:queue.text", "tab message") in queued.fragments(width=100)
 
 
 def test_multiline_message_is_flattened_and_ellipsized() -> None:
@@ -402,7 +433,10 @@ async def test_queued_pastes_keep_independent_placeholder_snapshots() -> None:
     assert (first, second) == contents
 
 
-@pytest.mark.parametrize("command", ["/compact", "/fork"])
+@pytest.mark.parametrize(
+    "command",
+    ["/compact", "/fork", "/helix-mode", "/helix-home"],
+)
 def test_streaming_rejected_command_never_enters_message_queue(command) -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
@@ -428,17 +462,17 @@ def test_streaming_background_command_is_not_echoed_to_transcript() -> None:
     handler = Mock(return_value=True)
     runtime.bind_stream_command_handler(handler)
     runtime.set_execution_active(True)
-    runtime.screen.input.buffer.text = "/helix-link"
+    runtime.screen.input.buffer.text = "/mcp start"
 
     runtime.submissions.accept_input(runtime.screen.input.buffer)
 
-    handler.assert_called_once_with("/helix-link")
+    handler.assert_called_once_with("/mcp start")
     assert not runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
 
     runtime.set_execution_active(False)
 
-    assert "/helix-link" not in _fragments_text(
+    assert "/mcp start" not in _fragments_text(
         runtime.document.fragments(width=100)
     )
 

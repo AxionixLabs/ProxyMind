@@ -28,9 +28,9 @@ from ..core.models import (
     MenuRequest
 )
 from ..core.styles import (
-    FAILURE_STYLE,
     MUTED_STYLE,
     assistant_block,
+    failure_text_block,
     query_block,
     styled_block_fragments,
     text_block
@@ -189,12 +189,11 @@ def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
         )
         text = str(entry.payload.get("error") or fallback).strip()
 
-    style = (
-        MUTED_STYLE
-        if entry.event == "context.compacted"
-        else FAILURE_STYLE
+    block = (
+        text_block(text, MUTED_STYLE)
+        if entry.event in {"context.compacted", "turn.interrupted"}
+        else failure_text_block(text)
     )
-    block = text_block(text, style)
     return TranscriptBlock(
         display_block=block,
         transcript_block=block,

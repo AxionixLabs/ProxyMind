@@ -182,7 +182,9 @@ class TuiForegroundTasks(object):
 
         is_mcp, mcp_action = parse_mcp_command(command)
 
-        if not is_mcp or mcp_action not in {"start", "force"}:
+        if not is_mcp or mcp_action is None:
+            return False
+        if mcp_action not in {"start", "force"}:
             return False
 
         external_mcp = getattr(self.mind, "external_mcp", None)

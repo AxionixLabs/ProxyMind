@@ -39,7 +39,8 @@ class ConversationState(object):
         turn_count: int = 0,
         reset_count: int = 0,
         reset_reason: str = "",
-        start_reason: str = ""
+        start_reason: str = "",
+        fork_source_available: bool = False
     ) -> None:
         self.cid = self._clean(cid)
         self.sid = self._clean(sid)
@@ -53,6 +54,10 @@ class ConversationState(object):
         self.reset_count  = int(reset_count or 0)
         self.reset_reason = str(reset_reason or "")
         self.start_reason = str(start_reason or "").strip()
+
+        self.fork_source_available = bool(
+            fork_source_available or self.turn_count > 0
+        )
 
         self._pending_context: list[str]         = []
         self._pending_system_messages: list[str] = []
@@ -86,6 +91,7 @@ class ConversationState(object):
             boundary_reason = self.start_reason.strip() or "bound"
 
         self.turn_count += 1
+        self.fork_source_available = True
         metadata = self.snapshot()
 
         additional_context, system_message = self.consume_turn_context()
@@ -110,6 +116,8 @@ class ConversationState(object):
 
         self.created_at = time.time()
         self.turn_count = 0
+
+        self.fork_source_available = False
 
         self.reset_count += 1
 

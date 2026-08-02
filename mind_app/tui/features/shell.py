@@ -10,7 +10,7 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView,
 )
-from ..core.styles import FAILURE_STYLE, text_block
+from ..core.styles import failure_text_block
 from .processes import watch_exec_session
 from .summary import (
     CommandSummary,
@@ -78,7 +78,7 @@ async def run_shell_escape(
     if not executable:
         application.emit(ApplicationView(
             type="tui.shell.unavailable",
-            renderable=text_block("Shell unavailable", FAILURE_STYLE),
+            renderable=failure_text_block("Shell unavailable"),
         ))
         return True
 

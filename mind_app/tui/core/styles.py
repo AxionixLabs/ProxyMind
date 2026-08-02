@@ -31,7 +31,7 @@ BRIGHT_STYLE  = TextStyle(foreground="#F4F7FA", bold=True)
 BODY_STYLE    = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
-FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
+FAILURE_STYLE = TextStyle(foreground="#FF6B6B")
 COMMAND_STYLE = TextStyle(foreground="#C4A7E7", bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
@@ -45,11 +45,13 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "completion-menu.meta.completion": "bg:default #707A84",
     "completion-menu.meta.completion.current": "bg:default #8FC7EA",
     "completion-menu.empty": "bg:default #59616A",
-    "queue.label": "bg:default #8A929C bold",
-    "queue.marker": "bg:default #7B838E",
+    "queue.label": "bg:default #8A929C",
+    "queue.hint": "bg:default #7B838E dim",
+    "queue.marker": "bg:default #7B838E dim",
+    "queue.edit-hint": "bg:default #7B838E dim",
     "queue.text": "bg:default #DDE7EF dim",
     "queue.more": "bg:default #7B838E",
-    "input.notice.marker": "bg:default #FF5F5F bold",
+    "input.notice.marker": "bg:default #FF5F5F",
     "input.notice": "bg:default #FF8A8A",
     "input.notice.hint": "bg:default #DDE7EF",
     "input.notice.example": "bg:default #7F8C9A dim",
@@ -353,6 +355,25 @@ def fragment_block(*parts: str | TextSpan) -> FragmentBlock:
 def text_block(text: str, style: TextStyle = TextStyle()) -> FragmentBlock:
     """生成单样式 TUI 文本块。"""
     return fragment_block(TextSpan(str(text), style))
+
+
+def failure_parts(
+    text: str,
+    style: TextStyle = FAILURE_STYLE,
+) -> tuple[TextSpan, TextSpan]:
+    """生成带非粗体方块标记的错误片段。"""
+    return (
+        TextSpan("■", FAILURE_STYLE),
+        TextSpan(f" {text}", style),
+    )
+
+
+def failure_text_block(
+    text: str,
+    style: TextStyle = FAILURE_STYLE,
+) -> FragmentBlock:
+    """生成带非粗体方块标记的独立错误块。"""
+    return fragment_block(*failure_parts(text, style))
 
 
 def query_block(text: str) -> FragmentBlock:

@@ -110,6 +110,10 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
+        "helix_mode", "/helix-mode", "选择 Helix 工具过滤模式",
+        surface_on_bare=True,
+    ),
+    TuiCommandSpec(
         "helix_unlink", "/helix-unlink", "移除 Helix MCP",
     ),
     TuiCommandSpec(

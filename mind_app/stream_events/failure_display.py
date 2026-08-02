@@ -10,8 +10,8 @@ from mind_app.presentation.models import (
 from mind_app.presentation.text_layout import wrap_styled_line
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 
-FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F", bold=True)
-FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A", bold=True)
+FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F")
+FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A")
 FAILURE_BRANCH_STYLE  = TextStyle(foreground="#8FA4B8", dim=True)
 FAILURE_MESSAGE_STYLE = TextStyle(foreground="#D98A8A")
 

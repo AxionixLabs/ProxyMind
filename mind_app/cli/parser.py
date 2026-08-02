@@ -21,6 +21,7 @@ from .commands import (
     CompletionShell,
     DoctorCommand,
     ExecCommand,
+    HELIX_PROFILES,
     HelixUpgradeCommand,
     InteractiveCommand,
     McpServerCommand,
@@ -138,6 +139,49 @@ def _selected_model(
     return str(model or "").strip() or None
 
 
+def _selected_helix_profile(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+) -> typing.Literal["app", "api"] | None:
+    """优先返回子命令的 Helix 配置，否则返回根命令配置。"""
+    profile = _optional_string(parser, values, "helix_profile")
+    if profile is None:
+        profile = _optional_string(parser, values, "root_helix_profile")
+    if profile is None:
+        return None
+    if profile in HELIX_PROFILES:
+        return typing.cast(typing.Literal["app", "api"], profile)
+    parser.error(f"invalid Helix profile: {profile}")
+
+
+def _normalize_helix_arguments(
+    arguments: tuple[str, ...],
+) -> tuple[str, ...]:
+    """消除可选 Helix 配置与位置参数之间的解析歧义。"""
+    normalized: list[str] = []
+    index = 0
+
+    while index < len(arguments):
+        token = arguments[index]
+        if token == "--":
+            normalized.extend(arguments[index:])
+            break
+        if token != "--helix":
+            normalized.append(token)
+            index += 1
+            continue
+
+        profile = "app"
+        if index + 1 < len(arguments) and arguments[index + 1] in HELIX_PROFILES:
+            profile = arguments[index + 1]
+            index += 1
+
+        normalized.append(f"--helix={profile}")
+        index += 1
+
+    return tuple(normalized)
+
+
 def _completion_shell(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
@@ -203,6 +247,7 @@ def _interactive_command(
         prompt=(prompt.strip() or None) if prompt is not None else None,
         images=_image_paths(parser, values),
         model=(model.strip() or None) if model is not None else None,
+        helix_profile=_selected_helix_profile(parser, values),
     )
 
 
@@ -241,7 +286,7 @@ def _parse_cli_command(
     input_stream: typing.TextIO | None = None,
 ) -> ParsedCommand:
     """解析参数并返回强类型命令。"""
-    raw_arguments       = tuple(arguments)
+    raw_arguments       = _normalize_helix_arguments(tuple(arguments))
     interactive_command = _interactive_command(parser, raw_arguments)
 
     if interactive_command is not None:
@@ -265,6 +310,7 @@ def _parse_cli_command(
             prompt=_optional_string(parser, values, "root_prompt"),
             images=_image_paths(parser, values, "root_images"),
             model=_selected_model(parser, values),
+            helix_profile=_selected_helix_profile(parser, values),
         )
 
     if command in {"exec", "e"}:
@@ -281,7 +327,7 @@ def _parse_cli_command(
             images=_merged_image_paths(parser, values),
             model=_selected_model(parser, values),
             output_format=output_format,
-            helix=bool(values["helix"]),
+            helix_profile=_selected_helix_profile(parser, values),
         )
 
     if command == "resume":
@@ -307,10 +353,13 @@ def _parse_cli_command(
             last=last,
             all_workspaces=bool(values["all_workspaces"]),
             include_non_interactive=bool(values["include_non_interactive"]),
+            helix_profile=_selected_helix_profile(parser, values),
         )
 
     if command == "agent" and values.get("agent_command") == "listen":
-        return AgentListenCommand(helix=bool(values["helix"]))
+        return AgentListenCommand(
+            helix_profile=_selected_helix_profile(parser, values),
+        )
 
     if command == "helix" and values.get("helix_command") == "upgrade":
         return HelixUpgradeCommand()

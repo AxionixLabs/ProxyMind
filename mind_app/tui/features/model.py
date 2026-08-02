@@ -22,6 +22,7 @@ from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
     command_result_block,
+    failure_text_block,
     text_block
 )
 
@@ -64,9 +65,8 @@ async def exchange_pref_value(
     ))
     application.emit(ApplicationView(
         type="tui.preference.invalid",
-        renderable=text_block(
+        renderable=failure_text_block(
             f"{pref_command} invalid: /{pref_command}",
-            FAILURE_STYLE,
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

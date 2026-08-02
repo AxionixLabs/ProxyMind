@@ -24,7 +24,7 @@ from ...runtime.turns.executor import (
 from ..core.runtime import TuiRuntime
 from .turn_input import TuiTurnInputControl
 from ..core.styles import (
-    BRIGHT_STYLE,
+    BODY_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block
@@ -104,7 +104,7 @@ async def execute_tui_model_turn(
             type="tui.interrupted",
             renderable=fragment_block(
                 TextSpan("■", FAILURE_STYLE),
-                TextSpan(" Response interrupted", BRIGHT_STYLE),
+                TextSpan(" Response interrupted", BODY_STYLE),
                 TextSpan(
                     f" · Tell {const.APP_DESC} what to do differently.",
                     MUTED_STYLE,

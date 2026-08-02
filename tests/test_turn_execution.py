@@ -242,8 +242,32 @@ async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
 
     async def with_mcp_session(_pref_config, function):
         return await function("session", [
-            {"name": "shell_command", "meta": {"domain": "coding"}},
+            {
+                "name": "shell_command",
+                "meta": {"client_builtin": True, "domain": "coding"},
+            },
             {"name": "device_info", "meta": {"domain": "device"}},
+            {
+                "name": "nexus_http_request",
+                "meta": {"domain": "bench", "class": "nexus"},
+            },
+            {
+                "name": "plan_steps",
+                "meta": {
+                    "client_builtin": True,
+                    "domain": "client",
+                    "class": "loop",
+                },
+            },
+            {
+                "name": "spawn_agent",
+                "meta": {
+                    "client_builtin": True,
+                    "domain": "client",
+                    "class": "agent",
+                },
+            },
+            {"name": "external_tool", "meta": {"external": True}},
         ])
 
     async def operation(_prepared, _session, tools, _event_report):
@@ -258,12 +282,72 @@ async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
         _root_execution(),
         operation,
         event_report=_Report(),
-        tool_filter_mode="xtra",
+        tool_filter_mode="api",
     )
 
     assert received == [
-        {"name": "shell_command", "meta": {"domain": "coding"}},
+        {
+            "name": "shell_command",
+            "meta": {"client_builtin": True, "domain": "coding"},
+        },
+        {
+            "name": "nexus_http_request",
+            "meta": {"domain": "bench", "class": "nexus"},
+        },
+        {
+            "name": "spawn_agent",
+            "meta": {
+                "client_builtin": True,
+                "domain": "client",
+                "class": "agent",
+            },
+        },
+        {"name": "external_tool", "meta": {"external": True}},
     ]
+
+
+@pytest.mark.anyio
+async def test_execute_turn_uses_linked_helix_tool_profile() -> None:
+    mind = _ExecutionController()
+    mind.tool_profile_for_turn = Mock(return_value="app")
+    received = []
+
+    async def with_mcp_session(_pref_config, function):
+        return await function("session", [
+            {"name": "device_info", "meta": {"domain": "device"}},
+            {
+                "name": "nexus_http_request",
+                "meta": {"domain": "bench", "class": "nexus"},
+            },
+            {
+                "name": "plan_steps",
+                "meta": {
+                    "client_builtin": True,
+                    "domain": "client",
+                    "class": "loop",
+                },
+            },
+        ])
+
+    async def operation(_prepared, _session, tools, _event_report):
+        received.extend(tools)
+        return RunResult(status="completed")
+
+    mind.with_mcp_session = with_mcp_session
+
+    await execute_turn(
+        mind,
+        {},
+        _root_execution(),
+        operation,
+        event_report=_Report(),
+    )
+
+    assert [tool["name"] for tool in received] == [
+        "device_info",
+        "plan_steps",
+    ]
+    mind.tool_profile_for_turn.assert_called_once_with()
 
 
 @pytest.mark.anyio

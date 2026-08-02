@@ -22,6 +22,7 @@ from ..core.models import (
 from ..core.styles import (
     BRIGHT_STYLE,
     COMMAND_STYLE,
+    FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block
 )
@@ -148,16 +149,21 @@ def agent_list_menu(
 
 def agent_snapshot_block(snapshot: AgentSnapshot) -> FragmentBlock:
     """生成单个执行线程写入正文的当前状态快照。"""
+    status_parts: list[str | TextSpan] = []
+    if snapshot.status == "failed":
+        status_parts.append(TextSpan("■ ", FAILURE_STYLE))
+    status_parts.append(TextSpan(
+        f"{snapshot.status} · turns={snapshot.turn_count} "
+        f"queued={snapshot.queued_count}",
+        MUTED_STYLE,
+    ))
+
     parts: list[str | TextSpan] = [
         TextSpan("/agent ", COMMAND_STYLE),
         TextSpan("· ", MUTED_STYLE),
         TextSpan(snapshot.context.task_path, BRIGHT_STYLE),
         "\n",
-        TextSpan(
-            f"{snapshot.status} · turns={snapshot.turn_count} "
-            f"queued={snapshot.queued_count}",
-            MUTED_STYLE,
-        ),
+        *status_parts,
     ]
 
     for line in _agent_activity(snapshot):
@@ -202,7 +208,10 @@ def agent_detail_menu(snapshot: AgentSnapshot) -> MenuRequest:
 
     return MenuRequest(
         title="Agent actions",
-        status=f"{snapshot.context.task_path} · {snapshot.status}",
+        status=(
+            f"{snapshot.context.task_path} · "
+            f"{snapshot.status}"
+        ),
         help_text="Up/Down select · Enter apply · Esc/q back",
         options=tuple(actions),
     )
@@ -215,9 +224,9 @@ def agent_failure_panel(
     """生成子执行线程管理失败面板。"""
     message = str(error).strip() or type(error).__name__
     return MenuRequest(
-        title="Agent operation failed",
+        title="Agent operation",
         status=snapshot.context.task_path,
-        body=(_inline_text(message),),
+        body=(f"■ Failed: {_inline_text(message)}",),
         help_text="Enter/Esc/q close",
     )
 

@@ -30,6 +30,7 @@ def test_failure_display_without_width_keeps_existing_text() -> None:
 
     assert block.plain_text == render_failure_text("turn.failed", error)
     assert _display_text(list(block.spans)) == block.plain_text
+    assert all(not part.style.bold for part in block.spans)
 
 
 def test_failure_display_wraps_continuation_after_branch() -> None:

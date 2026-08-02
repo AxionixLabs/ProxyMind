@@ -602,7 +602,7 @@ def render_exec_session_panel(
     ]
 
     if snapshot.get("ok") is False:
-        error = f"  {snapshot.get('reason') or 'snapshot_failed'}"
+        error = f"  ■ {snapshot.get('reason') or 'snapshot_failed'}"
         lines.append(("class:ps.error", _clip_inline(error, width)))
         lines.append(("", "\n"))
         return lines
