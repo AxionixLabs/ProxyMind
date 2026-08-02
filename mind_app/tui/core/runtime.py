@@ -21,11 +21,16 @@ from mind_app.frontend.contracts import (
     ActivityStatusKind,
     FrontendRuntime
 )
-from mind_app.interaction.contracts import PromptContext
+from mind_app.interaction.contracts import (
+    InteractionPort,
+    PromptContext
+)
 from .models import (
     FragmentBlock,
     MenuRequest,
-    TranscriptBacktrackRequest
+    TranscriptBacktrackRequest,
+    TranscriptExportFormat,
+    TranscriptExportResult
 )
 from .terminal_input import clear_pending_input
 from .activity import TuiActivity
@@ -62,7 +67,7 @@ StartupAnimation: typing.TypeAlias = typing.Callable[
 ]
 
 
-class TuiRuntime(object):
+class TuiRuntime(FrontendRuntime, InteractionPort):
     """协调 TUI Application 生命周期、正文输出和前端交互能力。"""
 
     def __init__(
@@ -75,7 +80,11 @@ class TuiRuntime(object):
         terminal_capabilities: TerminalCapabilities = (
             DEGRADED_TERMINAL_CAPABILITIES
         ),
-        keymap: TuiRuntimeKeymap | None = None
+        keymap: TuiRuntimeKeymap | None = None,
+        export_transcript: typing.Callable[
+            [tuple[TranscriptBlock, ...], TranscriptExportFormat],
+            TranscriptExportResult,
+        ] | None = None,
     ) -> None:
         self.input_model = input_model or TuiInputModel()
         self.context     = PromptContext(mode="chat", model="")
@@ -172,6 +181,7 @@ class TuiRuntime(object):
             report_missing_transcript_backtrack=(
                 self._report_missing_backtrack
             ),
+            export_transcript=export_transcript,
             observe_terminal_width=self.viewport.observe_terminal_width,
             keymap=self.keymap,
             input_obj=input_obj,

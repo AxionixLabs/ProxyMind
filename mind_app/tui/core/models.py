@@ -6,8 +6,18 @@ from dataclasses import (
     dataclass,
     field
 )
+from pathlib import Path
 
 FormattedText: typing.TypeAlias = list[tuple[str, str]]
+
+TranscriptExportFormat: typing.TypeAlias = typing.Literal["markdown", "raw"]
+
+
+class TranscriptExportResult(typing.Protocol):
+    """描述记录导出回调返回的结构化结果。"""
+    path: Path
+    format: TranscriptExportFormat
+    cell_count: int
 
 
 @dataclass(frozen=True, slots=True)

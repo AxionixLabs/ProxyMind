@@ -44,15 +44,18 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         from mind_app.tui.adapters.application import TuiApplicationSink
         from mind_app.tui.adapters.session import create_tui_output_session
         from mind_app.tui.core.runtime import TuiRuntime
+        from mind_app.tui.features.transcript_export import TranscriptExporter
         from mind_core.design.terminal_capabilities import detect_terminal_capabilities
         from mind_core.design.terminal_progress import create_terminal_progress
 
+        transcript_exporter = TranscriptExporter()
         runtime = TuiRuntime(
             terminal_progress=create_terminal_progress(sys.stdout),
             terminal_capabilities=detect_terminal_capabilities(
                 input_stream=sys.stdin,
                 output_stream=sys.stdout,
             ),
+            export_transcript=transcript_exporter.export,
         )
         return Frontend(
             application=TuiApplicationSink(runtime),

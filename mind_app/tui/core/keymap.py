@@ -31,6 +31,7 @@ class TuiPagerKeymap(object):
     search: tuple[TuiKeyBinding, ...]
     search_next: tuple[TuiKeyBinding, ...]
     search_previous: tuple[TuiKeyBinding, ...]
+    export: tuple[TuiKeyBinding, ...]
     close: tuple[TuiKeyBinding, ...]
     close_transcript: tuple[TuiKeyBinding, ...]
 
@@ -160,6 +161,7 @@ def _resolve_pager_keymap(config: dict[str, typing.Any]) -> TuiPagerKeymap:
         ("search", ("/",)),
         ("search_next", ("n",)),
         ("search_previous", ("shift-n",)),
+        ("export", ("e",)),
         ("close", ("q", "ctrl-c")),
         ("close_transcript", ("ctrl-t",)),
     )

@@ -4,6 +4,7 @@
 import sys
 import shutil
 import typing
+import asyncio
 import contextlib
 from dataclasses import dataclass
 from prompt_toolkit.application import Application
@@ -92,7 +93,9 @@ from .menu import (
 from .models import (
     FormattedText,
     FragmentBlock,
-    TranscriptBacktrackRequest
+    TranscriptBacktrackRequest,
+    TranscriptExportFormat,
+    TranscriptExportResult
 )
 from .process_status import TuiProcessStatus
 from .process_viewer import TuiProcessViewer
@@ -188,6 +191,10 @@ class TuiScreen(object):
             None,
         ],
         report_missing_transcript_backtrack: typing.Callable[[], None],
+        export_transcript: typing.Callable[
+            [tuple[TranscriptBlock, ...], TranscriptExportFormat],
+            TranscriptExportResult,
+        ] | None,
         observe_terminal_width: typing.Callable[[int], None],
         keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
@@ -225,6 +232,8 @@ class TuiScreen(object):
         self._report_missing_transcript_backtrack = (
             report_missing_transcript_backtrack
         )
+
+        self._export_transcript      = export_transcript
         self._observe_terminal_width = observe_terminal_width
 
         self.keymap = keymap
@@ -1257,6 +1266,55 @@ class TuiScreen(object):
             binding_filter=browsing,
         )
 
+        def export_transcript(event) -> None:
+            handler = self._export_transcript
+            if handler is None:
+                self.transcript_overlay.set_export_status(
+                    "Export unavailable.",
+                    failed=True,
+                )
+                return None
+
+            output_format: TranscriptExportFormat = (
+                "raw" if self.transcript_overlay.raw_mode else "markdown"
+            )
+            if not self.transcript_overlay.begin_export(output_format):
+                return None
+
+            cells = self.document.transcript_snapshot().committed_cells
+
+            async def run_export() -> None:
+                """在线程中写入记录文件并把结果返回当前覆盖层。"""
+                try:
+                    result = await asyncio.to_thread(
+                        handler,
+                        cells,
+                        output_format,
+                    )
+                except Exception as error:
+                    detail = sanitize_terminal_text(str(error)).strip()
+                    self.transcript_overlay.set_export_status(
+                        f"Export failed: {detail or type(error).__name__}",
+                        failed=True,
+                    )
+                    return None
+
+                self.transcript_overlay.set_export_status(
+                    f"Exported {result.format}: {result.path}",
+                    failed=False,
+                )
+
+            event.app.create_background_task(
+                run_export(),
+            )
+
+        self._add_configured_bindings(
+            bindings,
+            pager.export,
+            export_transcript,
+            binding_filter=browsing,
+        )
+
         def close(event) -> None:
             _ = event
             self._toggle_transcript_overlay()
@@ -1478,11 +1536,18 @@ class TuiScreen(object):
                 "class:transcript.overlay.help",
                 " Esc/Left previous   Right next   Enter edit",
             )]
+        if self.transcript_overlay.export_status:
+            style = (
+                "class:transcript.overlay.export-error"
+                if self.transcript_overlay.export_failed
+                else "class:transcript.overlay.export-success"
+            )
+            return [(style, f" {self.transcript_overlay.export_status}")]
 
-        pager     = self.keymap.pager
-        raw_label = primary_binding_label(pager.toggle_raw)
-
+        pager         = self.keymap.pager
+        raw_label     = primary_binding_label(pager.toggle_raw)
         search_label  = primary_binding_label(pager.search)
+        export_label  = primary_binding_label(pager.export)
         search_status = ""
 
         if self.transcript_overlay.search_query:
@@ -1519,6 +1584,7 @@ class TuiScreen(object):
                 ),
                 raw_hint,
                 f"{search_label} search" if search_label else "",
+                f"{export_label} export" if export_label else "",
             )
         )
 

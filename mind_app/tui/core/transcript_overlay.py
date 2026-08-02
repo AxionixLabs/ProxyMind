@@ -78,8 +78,12 @@ class TuiTranscriptOverlay(object):
         self.scroll_offset: int     = 0
         self.follow_bottom: bool    = True
         self.backtrack_active: bool = False
-        self.search_editing: bool   = False
-        self.search_query: str      = ""
+
+        self.search_editing: bool     = False
+        self.search_query: str        = ""
+        self.export_status: str       = ""
+        self.export_failed: bool      = False
+        self.export_in_progress: bool = False
 
         self._selected_cell: TranscriptBlock | None = None
 
@@ -171,6 +175,9 @@ class TuiTranscriptOverlay(object):
         self._selected_cell   = None
 
         self._reset_search()
+        self.export_status = ""
+        self.export_failed = False
+        self.export_in_progress = False
         self._invalidate()
 
     def fragments(self) -> FormattedText:
@@ -194,6 +201,8 @@ class TuiTranscriptOverlay(object):
     def toggle_raw_mode(self) -> None:
         """切换完整记录的富文本与无装饰文本表示。"""
         self.raw_mode = not self.raw_mode
+        self.export_status = ""
+        self.export_failed = False
         self._clear_render_cache()
         self._sync_scroll_offset()
         self._invalidate()
@@ -245,7 +254,26 @@ class TuiTranscriptOverlay(object):
         self._search_matches = ()
         self._search_match_index = -1
         self._search_revision = -1
+        self.export_status = ""
+        self.export_failed = False
         self._invalidate()
+
+    def set_export_status(self, message: str, *, failed: bool) -> None:
+        """更新最近一次记录导出的用户反馈。"""
+        self.export_status = str(message or "").strip()
+        self.export_failed = bool(failed)
+        self.export_in_progress = False
+        self._invalidate()
+
+    def begin_export(self, output_format: str) -> bool:
+        """开始一次记录导出并拒绝并发重复请求。"""
+        if self.export_in_progress:
+            return False
+        self.export_in_progress = True
+        self.export_failed = False
+        self.export_status = f"Exporting {output_format}..."
+        self._invalidate()
+        return True
 
     def append_search_text(self, text: str) -> None:
         """向当前记录搜索词追加可显示字符。"""

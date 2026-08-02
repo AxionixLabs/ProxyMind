@@ -291,6 +291,7 @@ TUI_PAGER_KEYMAP_FIELDS = frozenset({
     "search",
     "search_next",
     "search_previous",
+    "export",
     "close",
     "close_transcript",
 })
