@@ -11,11 +11,13 @@ from mind_app.client_tools.types import (
 )
 from mind_app.runtime.subagents.control import AgentSnapshot
 from mind_app.runtime.subagents.context import normalize_fork_turns
+from mind_app.runtime.subagents.mailbox import MAX_AGENT_MESSAGE_CHARS
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 
 SPAWN_AGENT_TOOL     = "spawn_agent"
 LIST_AGENTS_TOOL     = "list_agents"
-SEND_INPUT_TOOL      = "send_input"
+SEND_MESSAGE_TOOL    = "send_message"
+FOLLOWUP_TASK_TOOL   = "followup_task"
 INTERRUPT_AGENT_TOOL = "interrupt_agent"
 RESUME_AGENT_TOOL    = "resume_agent"
 WAIT_AGENT_TOOL      = "wait_agent"
@@ -49,13 +51,22 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
             meta=_agent_tool_meta(),
         ),
         ClientTool(
-            name=SEND_INPUT_TOOL,
+            name=SEND_MESSAGE_TOOL,
             description=(
-                "向已有 Agent 发送消息。interrupt=true 时先中断其当前轮次并"
-                "处理本次输入，否则将消息加入队列。"
+                "向目标 Agent 的 mailbox 投递轻量消息，不创建新轮次。"
             ),
-            input_schema=_send_schema(),
-            handler=_send_handler(agents),
+            input_schema=_message_schema("发送给目标 Agent 的消息。"),
+            handler=_send_message_handler(agents),
+            meta=_agent_tool_meta(),
+        ),
+        ClientTool(
+            name=FOLLOWUP_TASK_TOOL,
+            description=(
+                "向目标 Agent 追加完整后续任务；空闲时立即启动，"
+                "执行中则按顺序排队。"
+            ),
+            input_schema=_message_schema("追加给目标 Agent 的任务。"),
+            handler=_followup_handler(agents),
             meta=_agent_tool_meta(),
         ),
         ClientTool(
@@ -70,8 +81,7 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
         ClientTool(
             name=RESUME_AGENT_TOOL,
             description=(
-                "恢复已经关闭的 Agent，使其可以继续接收 send_input 和 "
-                "wait_agent 调用。"
+                "恢复已经关闭的 Agent，使其可以继续接收后续任务。"
             ),
             input_schema=_resume_schema(),
             handler=_resume_handler(agents),
@@ -80,8 +90,7 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
         ClientTool(
             name=WAIT_AGENT_TOOL,
             description=(
-                "等待任一目标 Agent 进入终态。已完成状态可能包含该 Agent 的"
-                "最终消息。"
+                "等待任一目标 Agent 的 mailbox、队列或终态更新。"
             ),
             input_schema=_wait_schema(),
             handler=_wait_handler(agents),
@@ -190,38 +199,73 @@ def _list_handler(agents: SubagentRuntime):
     return handle
 
 
-def _send_handler(agents: SubagentRuntime):
-    """创建已有执行主体输入工具处理函数。"""
+def _send_message_handler(agents: SubagentRuntime):
+    """创建邮箱消息投递工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         try:
-            target    = _required_text(arguments, "target")
-            message   = _required_text(arguments, "message")
-            interrupt = _optional_bool(arguments, "interrupt", default=False)
-            caller    = tool_runtime.turn_context.agent
+            target  = _required_text(arguments, "target")
+            message = _required_text(arguments, "message")
+            caller  = tool_runtime.turn_context.agent
 
-            submission_id = await agents.submit(
+            event = await agents.send_message(
                 caller.root_session_id,
                 target,
                 message,
-                interrupt=interrupt,
+                caller=caller,
+            )
+
+            return client_tool_result(
+                tool=SEND_MESSAGE_TOOL,
+                ok=True,
+                text=f"delivered mailbox message {event.event_id}",
+                args=arguments,
+                data={
+                    "event_id": event.event_id,
+                    "target_agent_id": event.recipient_agent_id,
+                    "target_task_path": event.recipient_task_path,
+                },
+            )
+        except asyncio.CancelledError:
+            raise
+        except (TypeError, ValueError, RuntimeError) as error:
+            return _error_result(SEND_MESSAGE_TOOL, arguments, error)
+
+    return handle
+
+
+def _followup_handler(agents: SubagentRuntime):
+    """创建后续任务工具处理函数。"""
+    async def handle(
+        arguments: dict[str, typing.Any],
+        tool_runtime: ClientToolRuntime
+    ) -> mcp_types.CallToolResult:
+        try:
+            target  = _required_text(arguments, "target")
+            message = _required_text(arguments, "message")
+            caller  = tool_runtime.turn_context.agent
+
+            submission_id = await agents.followup_task(
+                caller.root_session_id,
+                target,
+                message,
                 parent_turn_id=tool_runtime.turn_context.turn_id,
                 caller=caller,
             )
 
             return client_tool_result(
-                tool=SEND_INPUT_TOOL,
+                tool=FOLLOWUP_TASK_TOOL,
                 ok=True,
-                text=f"submitted input {submission_id}",
+                text=f"submitted followup task {submission_id}",
                 args=arguments,
                 data={"submission_id": submission_id},
             )
         except asyncio.CancelledError:
             raise
         except (TypeError, ValueError, RuntimeError) as error:
-            return _error_result(SEND_INPUT_TOOL, arguments, error)
+            return _error_result(FOLLOWUP_TASK_TOOL, arguments, error)
 
     return handle
 
@@ -305,7 +349,7 @@ def _wait_handler(agents: SubagentRuntime):
             caller     = tool_runtime.turn_context.agent
             timeout_ms = _wait_timeout_ms(arguments.get("timeout_ms"))
 
-            waited = await agents.wait(
+            waited = await agents.wait_updates(
                 caller.root_session_id,
                 targets,
                 timeout_sec=timeout_ms / 1000,
@@ -326,7 +370,11 @@ def _wait_handler(agents: SubagentRuntime):
                     else f"agent wait completed count={len(statuses)}"
                 ),
                 args=arguments,
-                data={"status": statuses, "timed_out": waited.timed_out},
+                data={
+                    "updates": [event.to_dict() for event in waited.events],
+                    "status": statuses,
+                    "timed_out": waited.timed_out,
+                },
             )
         except asyncio.CancelledError:
             raise
@@ -420,19 +468,6 @@ def _required_text(arguments: dict[str, typing.Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} must be a non-empty string")
     return value.strip()
-
-
-def _optional_bool(
-    arguments: dict[str, typing.Any],
-    field: str,
-    *,
-    default: bool
-) -> bool:
-    """读取可选布尔参数。"""
-    value = arguments.get(field, default)
-    if not isinstance(value, bool):
-        raise TypeError(f"{field} must be a boolean")
-    return value
 
 
 def _optional_text(
@@ -542,8 +577,8 @@ def _list_schema() -> dict[str, typing.Any]:
     }
 
 
-def _send_schema() -> dict[str, typing.Any]:
-    """返回输入投递工具结构。"""
+def _message_schema(description: str) -> dict[str, typing.Any]:
+    """返回消息或后续任务工具结构。"""
     return {
         "type": "object",
         "properties": {
@@ -553,11 +588,8 @@ def _send_schema() -> dict[str, typing.Any]:
             },
             "message": {
                 "type": "string",
-                "description": "发送给目标 Agent 的消息。",
-            },
-            "interrupt": {
-                "type": "boolean",
-                "description": "是否先中断目标 Agent 的当前轮次。",
+                "description": description,
+                "maxLength": MAX_AGENT_MESSAGE_CHARS,
             },
         },
         "required": ["target", "message"],
@@ -590,7 +622,7 @@ def _wait_schema() -> dict[str, typing.Any]:
                 "items": {"type": "string"},
                 "minItems": 1,
                 "description": (
-                    "Agent 标识或任务路径列表；任一目标进入终态时返回。"
+                    "Agent 标识或任务路径列表；任一目标产生更新时返回。"
                 ),
             },
             "timeout_ms": {

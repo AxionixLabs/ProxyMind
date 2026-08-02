@@ -94,7 +94,7 @@ async def test_runtime_keeps_thread_context_across_submissions() -> None:
         spawned.thread.pref_config["primary"]["model"] = "forbidden"
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
 
-    await runtime.submit(
+    await runtime.followup_task(
         parent.sid,
         spawned.agent_id,
         "second task",
@@ -162,7 +162,7 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
     first = controller.stream_calls[0]["turn_execution"]
 
-    await runtime.submit(parent.sid, spawned.agent_id, "inspect again")
+    await runtime.followup_task(parent.sid, spawned.agent_id, "inspect again")
     await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
     second = controller.stream_calls[1]["turn_execution"]
 
@@ -171,6 +171,43 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
     child_path = Path(first.context.transcript_path)
     assert child_path.is_relative_to(tmp_path / "sessions")
     assert child_path.name == f"session-{first.context.sid}.jsonl"
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_injects_unread_mailbox_messages_into_followup() -> None:
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    spawned = await runtime.spawn(
+        parent,
+        "first task",
+        {},
+        agent_type="worker",
+        task_name="worker",
+        agent_id="agent_worker",
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+
+    event = await runtime.send_message(
+        parent.sid,
+        "/root/worker",
+        "do not change the database layer",
+        caller=parent.agent,
+    )
+    await runtime.followup_task(
+        parent.sid,
+        spawned.agent_id,
+        "continue",
+        caller=parent.agent,
+    )
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+
+    execution = controller.stream_calls[-1]["turn_execution"]
+    assert execution.metadata["mailbox_event_ids"] == [event.event_id]
+    assert len(execution.additional_context) == 1
+    assert "do not change the database layer" in execution.additional_context[0]
+    assert "/root" in execution.additional_context[0]
     await runtime.shutdown()
 
 
@@ -381,7 +418,7 @@ async def test_runtime_reuses_thread_after_executor_exception() -> None:
     assert failed.snapshots[0].error == "RuntimeError: stream crashed"
 
     controller.stream_handler = None
-    await runtime.submit(parent.sid, spawned.agent_id, "retry task")
+    await runtime.followup_task(parent.sid, spawned.agent_id, "retry task")
     retried = await runtime.wait(
         parent.sid,
         [spawned.agent_id],
@@ -460,7 +497,7 @@ async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit(
     await runtime.close(parent.sid, first.agent_id)
     resumed = await runtime.resume(parent.sid, first.agent_id)
     assert resumed.status == "interrupted"
-    await runtime.submit(parent.sid, first.agent_id, "retry task")
+    await runtime.followup_task(parent.sid, first.agent_id, "retry task")
     retried = await runtime.wait(
         parent.sid,
         [first.agent_id],
@@ -468,7 +505,7 @@ async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit(
     )
     assert retried.snapshots[0].result.assistant_text == "retried"
 
-    await runtime.submit(parent.sid, second.agent_id, "wait for exit")
+    await runtime.followup_task(parent.sid, second.agent_id, "wait for exit")
     await exit_turn_started.wait()
     await runtime.shutdown()
 

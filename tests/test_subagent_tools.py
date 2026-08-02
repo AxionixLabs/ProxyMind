@@ -110,17 +110,19 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     agent_names = {
         "spawn_agent",
         "list_agents",
-        "send_input",
+        "send_message",
+        "followup_task",
         "interrupt_agent",
         "resume_agent",
         "wait_agent",
         "close_agent",
     }
     assert agent_names <= enabled_names
+    assert "send_input" not in enabled_names
     assert "spawn_agent" not in disabled_names
 
     agent_tools = [tool for tool in enabled_tools if tool.name in agent_names]
-    assert len(agent_tools) == 7
+    assert len(agent_tools) == 8
     assert all(
         tool.meta["domain"] == "client" and tool.meta["class"] == "agent"
         for tool in agent_tools
@@ -131,6 +133,10 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     )
     spawn_tool = next(tool for tool in agent_tools if tool.name == "spawn_agent")
     assert spawn_tool.inputSchema["properties"]["fork_turns"]["default"] == "5"
+    message_tool = next(
+        tool for tool in agent_tools if tool.name == "send_message"
+    )
+    assert message_tool.inputSchema["properties"]["message"]["maxLength"] > 0
 
 
 @pytest.mark.anyio
@@ -169,10 +175,12 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
     snapshot = await runtime.get(turn.sid, agent_id)
 
     assert not spawned.isError
-    assert _data(waited) == {
-        "status": {agent_id: {"completed": "done: first"}},
-        "timed_out": False,
+    assert _data(waited)["status"] == {
+        agent_id: {"completed": "done: first"},
     }
+    assert _data(waited)["updates"][0]["kind"] == "status"
+    assert _data(waited)["updates"][0]["status"] == "completed"
+    assert not _data(waited)["timed_out"]
     assert snapshot.thread.config_snapshot() == {
         "primary": {"model": "child-model"},
         "routing": {"tags": ["review"]},
@@ -188,7 +196,7 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
     rejected = await _call(
         session,
         turn,
-        "send_input",
+        "followup_task",
         {"target": "/root/review", "message": "blocked"},
         pref_config,
     )
@@ -202,10 +210,18 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
     submitted = await _call(
         session,
         turn,
-        "send_input",
+        "followup_task",
         {"target": "/root/review", "message": "second"},
         pref_config,
     )
+    updates = await _call(
+        session,
+        turn,
+        "wait_agent",
+        {"targets": [agent_id]},
+        pref_config,
+    )
+    await runtime.wait(turn.sid, [agent_id], timeout_sec=1)
     second = await _call(
         session,
         turn,
@@ -223,6 +239,10 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
         "status": {"completed": None},
     }
     assert _data(submitted)["submission_id"]
+    assert {event["kind"] for event in _data(updates)["updates"]} == {
+        "queue",
+        "status",
+    }
     assert _data(second)["status"] == {
         agent_id: {"completed": "done: second"},
     }
@@ -232,7 +252,7 @@ async def test_agent_tools_preserve_config_across_close_resume_and_send() -> Non
 
 
 @pytest.mark.anyio
-async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> None:
+async def test_followup_and_interrupt_tools_do_not_overlap_turns() -> None:
     controller = _Controller()
     runtime = SubagentRuntime(controller)
     session = _session(runtime)
@@ -240,7 +260,6 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
     first_started = asyncio.Event()
     first_release = asyncio.Event()
     second_started = asyncio.Event()
-    second_release = asyncio.Event()
     cancelled = asyncio.Event()
     timeline = []
 
@@ -253,7 +272,7 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
         elif message == "second":
             second_started.set()
             try:
-                await second_release.wait()
+                await asyncio.Event().wait()
             finally:
                 cancelled.set()
         timeline.append(f"{message}-stop")
@@ -273,7 +292,7 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
     queued = await _call(
         session,
         turn,
-        "send_input",
+        "followup_task",
         {"target": agent_id, "message": "second"},
         {},
     )
@@ -282,13 +301,28 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
 
     first_release.set()
     await second_started.wait()
+    interrupted = await _call(
+        session,
+        turn,
+        "interrupt_agent",
+        {"target": agent_id},
+        {},
+    )
     redirected = await _call(
         session,
         turn,
-        "send_input",
-        {"target": agent_id, "message": "third", "interrupt": True},
+        "followup_task",
+        {"target": agent_id, "message": "third"},
         {},
     )
+    updates = await _call(
+        session,
+        turn,
+        "wait_agent",
+        {"targets": [agent_id]},
+        {},
+    )
+    await runtime.wait(turn.sid, [agent_id], timeout_sec=1)
     waited = await _call(
         session,
         turn,
@@ -299,7 +333,12 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
 
     assert _data(queued)["submission_id"]
     assert _data(redirected)["submission_id"]
+    assert _data(interrupted)["status"] == "interrupted"
     assert cancelled.is_set()
+    assert {event["kind"] for event in _data(updates)["updates"]} == {
+        "queue",
+        "status",
+    }
     assert _data(waited)["status"] == {
         agent_id: {"completed": "third"},
     }
@@ -310,6 +349,61 @@ async def test_send_input_queues_and_interrupts_without_overlapping_turns() -> N
         "third-start",
         "third-stop",
     ]
+
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_send_message_reaches_target_mailbox_without_new_turn() -> None:
+    runtime = SubagentRuntime(_Controller())
+    session = _session(runtime)
+    turn = _root_turn()
+    spawned = await _call(
+        session,
+        turn,
+        "spawn_agent",
+        {"message": "task", "task_name": "worker"},
+        {},
+    )
+    agent_id = _data(spawned)["agent_id"]
+    await runtime.wait(turn.sid, [agent_id], timeout_sec=1)
+    snapshot = await runtime.get(turn.sid, agent_id)
+    child_turn = TurnContext.create(
+        agent=snapshot.context,
+        cid=snapshot.thread.cid,
+        sid=snapshot.thread.sid,
+        source="subagent",
+        pref_config={},
+        cwd=snapshot.thread.cwd,
+        permissions=snapshot.thread.permissions,
+    )
+
+    sent = await _call(
+        session,
+        turn,
+        "send_message",
+        {"target": "/root/worker", "message": "avoid the database layer"},
+        {},
+    )
+    received = await _call(
+        session,
+        child_turn,
+        "wait_agent",
+        {"targets": ["root"]},
+        {},
+    )
+    after = await runtime.get(turn.sid, agent_id)
+
+    assert not sent.isError
+    assert _data(sent)["target_agent_id"] == agent_id
+    assert _data(sent)["target_task_path"] == "/root/worker"
+    assert len(_data(received)["updates"]) == 1
+    update = _data(received)["updates"][0]
+    assert update["kind"] == "message"
+    assert update["source_agent_id"] == "root"
+    assert update["recipient_agent_id"] == agent_id
+    assert update["message"] == "avoid the database layer"
+    assert after.turn_count == 1
 
     await runtime.shutdown()
 
@@ -446,7 +540,7 @@ async def test_agent_tools_reject_cross_root_and_self_blocking_calls() -> None:
     cross_root = await _call(
         session,
         second,
-        "send_input",
+        "send_message",
         {"target": agent_id, "message": "wrong root"},
         {},
     )

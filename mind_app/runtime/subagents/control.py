@@ -8,6 +8,10 @@ from collections import deque
 from dataclasses import dataclass
 from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import AgentContext
+from mind_app.runtime.subagents.mailbox import (
+    AgentMailboxEvent,
+    AgentMailboxStore
+)
 from mind_app.runtime.subagents.thread import (
     AgentThreadContext,
     AgentTurnContext
@@ -146,6 +150,14 @@ class AgentWaitResult:
     timed_out: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class AgentMailboxWaitResult:
+    """保存动态等待得到的事件和目标快照。"""
+    events: tuple[AgentMailboxEvent, ...] = ()
+    snapshots: tuple[AgentSnapshot, ...] = ()
+    timed_out: bool = False
+
+
 class _AgentRecord:
     """保存根会话树内部的可变执行状态。"""
 
@@ -230,6 +242,8 @@ class AgentControl:
 
         self._records_by_path: dict[str, _AgentRecord] = {}
 
+        self._mailbox = AgentMailboxStore()
+
         self._shutdown: bool = False
 
     @property
@@ -289,46 +303,77 @@ class AgentControl:
 
             return self._snapshot(record)
 
-    async def submit(
+    async def followup(
         self,
         target: str,
         submission: AgentSubmission,
         *,
-        interrupt: bool = False,
         caller: AgentContext | None = None,
     ) -> str:
         """向已开放的执行主体提交或排队新一轮任务。"""
         if not isinstance(submission, AgentSubmission):
             raise TypeError("agent submission is required")
         if submission.kind != "followup":
-            raise AgentStateError("submit requires a followup submission")
+            raise AgentStateError("followup requires a followup submission")
 
         async with self._condition:
             self._require_active()
             record = self._require_record(target, caller=caller)
-            if (
-                interrupt
-                and caller is not None
-                and record.context.agent_id == caller.agent_id
-            ):
-                raise AgentStateError(
-                    "an agent cannot interrupt its own active turn"
-                )
             if record.status == "closed":
                 raise AgentStateError(f"agent is closed: {record.context.agent_id}")
 
             if record.status in {"pending", "running"}:
-                if interrupt:
-                    record.queue.appendleft(submission)
-                    if record.task is not None:
-                        _request_cancel(record.task)
-                else:
-                    record.queue.append(submission)
+                record.queue.append(submission)
             else:
                 self._start(record, submission)
 
+            self._mailbox.publish(
+                "queue",
+                record.context,
+                submission_id=submission.submission_id,
+                queued_count=len(record.queue),
+            )
             self._condition.notify_all()
             return submission.submission_id
+
+    async def send_message(
+        self,
+        target: str,
+        message: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentMailboxEvent:
+        """向目标邮箱投递不创建新轮次的消息。"""
+        async with self._condition:
+            self._require_active()
+            source = self._require_caller(caller)
+            recipient = self._require_target_context(target, caller=source)
+            if source.agent_id == recipient.agent_id:
+                raise AgentStateError("an agent cannot message itself")
+
+            record = self._records.get(recipient.agent_id)
+            if record is not None and record.status == "closed":
+                raise AgentStateError(
+                    f"agent is closed: {recipient.agent_id}"
+                )
+
+            event = self._mailbox.publish(
+                "message",
+                source,
+                recipient=recipient,
+                message=message,
+            )
+            self._condition.notify_all()
+            return event
+
+    async def take_messages(
+        self,
+        target: str,
+    ) -> tuple[AgentMailboxEvent, ...]:
+        """取出目标执行主体尚未消费的消息。"""
+        async with self._condition:
+            record = self._require_record(target)
+            return self._mailbox.take_messages(record.context.agent_id)
 
     async def resume(
         self,
@@ -410,15 +455,7 @@ class AgentControl:
     ) -> AgentWaitResult:
         """等待任一目标进入终态并返回当前终态快照。"""
         normalized_targets = _normalize_targets(targets)
-        if (
-            timeout_sec is not None
-            and (
-                isinstance(timeout_sec, bool)
-                or not isinstance(timeout_sec, (int, float))
-                or timeout_sec < 0
-            )
-        ):
-            raise ValueError("agent wait timeout must be non-negative")
+        _validate_wait_timeout(timeout_sec)
 
         loop = asyncio.get_running_loop()
 
@@ -466,6 +503,84 @@ class AgentControl:
                 except asyncio.TimeoutError:
                     return AgentWaitResult(timed_out=True)
 
+    async def wait_updates(
+        self,
+        targets: typing.Iterable[str],
+        *,
+        timeout_sec: float | None = None,
+        caller: AgentContext | None = None,
+    ) -> AgentMailboxWaitResult:
+        """等待目标的邮箱、队列或终态更新。"""
+        normalized_targets = _normalize_targets(targets)
+        _validate_wait_timeout(timeout_sec)
+
+        loop = asyncio.get_running_loop()
+        deadline = (
+            loop.time() + float(timeout_sec)
+            if timeout_sec is not None
+            else None
+        )
+
+        async with self._condition:
+            reader = self._require_caller(caller)
+            target_contexts = tuple(dict.fromkeys(
+                self._require_target_context(target, caller=reader)
+                for target in normalized_targets
+            ))
+            target_ids = tuple(
+                context.agent_id
+                for context in target_contexts
+            )
+            if reader.agent_id in target_ids:
+                raise AgentStateError(
+                    "an agent cannot wait for its own active turn"
+                )
+
+            while True:
+                events = self._mailbox.take_updates(
+                    reader.agent_id,
+                    target_ids,
+                )
+                snapshots = tuple(
+                    self._snapshot(self._records[agent_id])
+                    for agent_id in target_ids
+                    if agent_id in self._records
+                )
+                if events:
+                    return AgentMailboxWaitResult(
+                        events=events,
+                        snapshots=snapshots,
+                    )
+
+                final_snapshots = tuple(
+                    snapshot
+                    for snapshot in snapshots
+                    if snapshot.status in FINAL_AGENT_STATUSES
+                )
+                if final_snapshots:
+                    return AgentMailboxWaitResult(
+                        snapshots=final_snapshots,
+                    )
+
+                remaining = (
+                    max(0.0, deadline - loop.time())
+                    if deadline is not None
+                    else None
+                )
+                if remaining == 0.0:
+                    return AgentMailboxWaitResult(timed_out=True)
+
+                try:
+                    if remaining is None:
+                        await self._condition.wait()
+                    else:
+                        await asyncio.wait_for(
+                            self._condition.wait(),
+                            timeout=remaining,
+                        )
+                except asyncio.TimeoutError:
+                    return AgentMailboxWaitResult(timed_out=True)
+
     async def interrupt(
         self,
         target: str,
@@ -503,7 +618,14 @@ class AgentControl:
                 ):
                     record.status = "interrupted"
                     record.result = None
-                    record.error = ""
+                    record.error  = ""
+
+                    self._mailbox.publish(
+                        "status",
+                        record.context,
+                        status="interrupted",
+                        submission_id=submission_id,
+                    )
                 if record is not None and record.task is task:
                     record.task = None
                 self._condition.notify_all()
@@ -658,6 +780,15 @@ class AgentControl:
             record.error  = error
             record.task   = None
 
+            self._mailbox.publish(
+                "status",
+                record.context,
+                status=status,
+                submission_id=submission_id,
+                queued_count=len(record.queue),
+                detail=_result_detail(result, error),
+            )
+
             if record.queue:
                 self._start(record, record.queue.popleft())
 
@@ -703,7 +834,9 @@ class AgentControl:
             for agent_record in records:
                 agent_id = agent_record.context.agent_id
                 previous[agent_id] = self._snapshot(agent_record)
-                if agent_record.status != "closed":
+
+                was_closed = agent_record.status == "closed"
+                if not was_closed:
                     agent_record.status_before_close = _status_for_resume(
                         agent_record.status
                     )
@@ -712,6 +845,14 @@ class AgentControl:
                 agent_record.queue.clear()
                 agent_record.result = None
                 agent_record.error  = ""
+
+                if not was_closed:
+                    self._mailbox.publish(
+                        "status",
+                        agent_record.context,
+                        status="closed",
+                        submission_id=agent_record.submission_id,
+                    )
 
                 if agent_record.task is not None:
                     _request_cancel(agent_record.task)
@@ -781,17 +922,41 @@ class AgentControl:
         caller: AgentContext | None = None,
     ) -> _AgentRecord:
         """按标识或任务路径返回内部记录。"""
-        caller_context = self._require_caller(caller)
-        normalized = str(target or "").strip()
+        context = self._require_target_context(target, caller=caller)
+        record  = self._records.get(context.agent_id)
 
-        record = self._records.get(normalized)
-        if record is None and normalized:
-            task_path = caller_context.resolve_task_reference(normalized)
-            record = self._records_by_path.get(task_path)
         if record is None:
+            normalized = str(target or "").strip()
             raise AgentNotFoundError(f"agent not found: {normalized or '<empty>'}")
 
         return record
+
+    def _require_target_context(
+        self,
+        target: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentContext:
+        """按标识或任务路径返回目标身份。"""
+        caller_context = self._require_caller(caller)
+
+        normalized = str(target or "").strip()
+        if normalized == self._root.agent_id:
+            return self._root
+
+        record = self._records.get(normalized)
+        if record is not None:
+            return record.context
+
+        if normalized:
+            task_path = caller_context.resolve_task_reference(normalized)
+            if task_path == self._root.task_path:
+                return self._root
+            record = self._records_by_path.get(task_path)
+            if record is not None:
+                return record.context
+
+        raise AgentNotFoundError(f"agent not found: {normalized or '<empty>'}")
 
     def _reject_closing_caller_tree(
         self,
@@ -869,6 +1034,26 @@ def _normalize_targets(targets: typing.Iterable[str]) -> tuple[str, ...]:
     if not normalized or any(not value for value in normalized):
         raise ValueError("at least one non-empty agent target is required")
     return normalized
+
+
+def _validate_wait_timeout(timeout_sec: float | None) -> None:
+    """校验等待超时值。"""
+    if (
+        timeout_sec is not None
+        and (
+            isinstance(timeout_sec, bool)
+            or not isinstance(timeout_sec, (int, float))
+            or timeout_sec < 0
+        )
+    ):
+        raise ValueError("agent wait timeout must be non-negative")
+
+
+def _result_detail(result: typing.Any, error: str) -> str:
+    """返回适合邮箱事件的有界结果摘要。"""
+    value = error or getattr(result, "assistant_text", "")
+    text = str(value or "").strip()
+    return text if len(text) <= 2000 else f"{text[:2000]}..."
 
 
 def _status_for_resume(status: AgentStatus) -> AgentResumeStatus:

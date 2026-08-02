@@ -19,11 +19,16 @@ from mind_app.runtime.turns.executor import (
 )
 from mind_app.runtime.subagents.control import (
     AgentControl,
+    AgentMailboxWaitResult,
     AgentNotFoundError,
     AgentSnapshot,
     AgentStateError,
     AgentSubmission,
     AgentWaitResult
+)
+from mind_app.runtime.subagents.mailbox import (
+    AgentMailboxEvent,
+    format_mailbox_context
 )
 from mind_app.runtime.subagents.context import (
     ForkTurns,
@@ -132,13 +137,12 @@ class SubagentRuntime:
             ),
         )
 
-    async def submit(
+    async def followup_task(
         self,
         root_session_id: str,
         target: str,
         message: str,
         *,
-        interrupt: bool = False,
         parent_turn_id: str = "",
         caller: AgentContext | None = None,
     ) -> str:
@@ -146,16 +150,28 @@ class SubagentRuntime:
         task    = _normalize_task(message)
         control = await self._existing_control(root_session_id)
 
-        return await control.submit(
+        return await control.followup(
             target,
             AgentSubmission.create(
                 task,
                 kind="followup",
                 parent_turn_id=parent_turn_id,
             ),
-            interrupt=interrupt,
             caller=caller,
         )
+
+    async def send_message(
+        self,
+        root_session_id: str,
+        target: str,
+        message: str,
+        *,
+        caller: AgentContext | None = None,
+    ) -> AgentMailboxEvent:
+        """向根会话中的目标邮箱投递消息。"""
+        task = _normalize_task(message)
+        control = await self._existing_control(root_session_id)
+        return await control.send_message(target, task, caller=caller)
 
     async def resume(
         self,
@@ -212,6 +228,22 @@ class SubagentRuntime:
         """等待根会话中的目标执行线程进入终态。"""
         control = await self._existing_control(root_session_id)
         return await control.wait(
+            targets,
+            timeout_sec=timeout_sec,
+            caller=caller,
+        )
+
+    async def wait_updates(
+        self,
+        root_session_id: str,
+        targets: typing.Iterable[str],
+        *,
+        timeout_sec: float | None = None,
+        caller: AgentContext | None = None,
+    ) -> AgentMailboxWaitResult:
+        """等待根会话中目标执行线程的动态更新。"""
+        control = await self._existing_control(root_session_id)
+        return await control.wait_updates(
             targets,
             timeout_sec=timeout_sec,
             caller=caller,
@@ -277,6 +309,13 @@ class SubagentRuntime:
         thread      = turn.thread
         pref_config = thread.config_snapshot()
 
+        control = await self._existing_control(
+            thread.agent.root_session_id
+        )
+
+        mailbox_events  = await control.take_messages(thread.agent.agent_id)
+        mailbox_context = format_mailbox_context(mailbox_events)
+
         context = TurnContext.create(
             agent=thread.agent,
             cid=thread.cid,
@@ -301,6 +340,10 @@ class SubagentRuntime:
                 ),
                 "submission_id": turn.submission_id,
                 "submission_kind": submission.kind,
+                "mailbox_event_ids": [
+                    event.event_id
+                    for event in mailbox_events
+                ],
                 "turn_index": turn.turn_index,
                 "task_name": thread.agent.task_name,
                 "task_path": thread.agent.task_path,
@@ -314,9 +357,12 @@ class SubagentRuntime:
                 },
             },
             additional_context=(
-                thread.fork_context.parts
-                if turn.turn_index == 1
-                else ()
+                *(
+                    thread.fork_context.parts
+                    if turn.turn_index == 1
+                    else ()
+                ),
+                *((mailbox_context,) if mailbox_context else ()),
             ),
         )
 
