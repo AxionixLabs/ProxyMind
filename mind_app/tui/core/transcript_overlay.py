@@ -501,7 +501,12 @@ class TuiTranscriptOverlay(object):
 
         return [
             [
-                (f"{style} {highlight_class}".strip(), text)
+                (
+                    style
+                    if "class:prompt.kicker" in style.split()
+                    else f"{style} {highlight_class}".strip(),
+                    text,
+                )
                 for style, text in line
             ]
             if selected_start <= start + index < selected_stop

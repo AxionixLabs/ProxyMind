@@ -21,6 +21,7 @@ from mind_app.history.ids import valid_session_ids
 from mind_core.mcp_status import external_mcp_status_view
 from mind_nova.requests.fork import (
     ConversationForkRequestError,
+    PromptSource,
     ResubmittablePrompt,
     request_conversation_fork
 )
@@ -288,6 +289,9 @@ async def fork_current_conversation(
         source["sid"],
         boundary,
     )
+    prompt_source: PromptSource = "none"
+    if boundary:
+        prompt_source = "server" if fallback_prompt is None else "client"
 
     observe(
         "conversation.fork.start",
@@ -306,8 +310,8 @@ async def fork_current_conversation(
             cid=source["cid"],
             sid=source["sid"],
             request_id=request_id,
+            prompt_source=prompt_source,
             before_turn_id=boundary or None,
-            require_prompt=fallback_prompt is None,
         )
 
         target_cid   = str(result.get("cid") or "").strip()

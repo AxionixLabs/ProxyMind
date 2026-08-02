@@ -81,12 +81,30 @@ class ForkMindStub(object):
         self.stopped = (kind, settle)
 
 
+def test_fork_payload_requires_prompt_source_matching_boundary() -> None:
+    common = {
+        "cid": "cid_source_12345678",
+        "sid": "sid_source_1_abcdef",
+        "request_id": "fork_request_0001",
+    }
+
+    with pytest.raises(ValueError, match="unbounded fork"):
+        fork_request.build_fork_payload(**common, prompt_source="server")
+    with pytest.raises(ValueError, match="bounded fork"):
+        fork_request.build_fork_payload(
+            **common,
+            prompt_source="none",
+            before_turn_id="turn_selected",
+        )
+
+
 @pytest.mark.anyio
 async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> None:
     mind = ForkMindStub()
 
     async def request_fork(**kwargs):
         assert kwargs["request_id"] == "fork_request_0001"
+        assert kwargs["prompt_source"] == "none"
         assert mind.bound == []
         return {
             "request_id": "fork_request_0001",
@@ -245,6 +263,7 @@ async def test_fork_request_parses_source_busy_error(monkeypatch) -> None:
             cid="cid_source_12345678",
             sid="sid_source_1_abcdef",
             request_id="fork_request_0001",
+            prompt_source="none",
         )
 
     assert raised.value.code == "source_busy"
@@ -278,6 +297,7 @@ async def test_fork_request_parses_empty_history_error(monkeypatch) -> None:
             cid="cid_source_12345678",
             sid="sid_source_1_abcdef",
             request_id="fork_request_0001",
+            prompt_source="none",
         )
 
     assert raised.value.status_code == 404
@@ -297,6 +317,7 @@ async def test_fork_request_validates_bounded_zero_item_response(monkeypatch) ->
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
+                "prompt_source": "server",
                 "cid": "cid_target_87654321",
                 "sid": "sid_target_2_fedcba",
                 "copied_turns": 0,
@@ -335,6 +356,7 @@ async def test_fork_request_validates_bounded_zero_item_response(monkeypatch) ->
         cid="cid_source_12345678",
         sid="sid_source_1_abcdef",
         request_id="fork_request_0001",
+        prompt_source="server",
         before_turn_id="turn_selected",
     )
 
@@ -361,6 +383,7 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
+                "prompt_source": "server",
                 "cid": "cid_target_87654321",
                 "sid": "sid_target_2_fedcba",
                 "copied_turns": 0,
@@ -389,6 +412,7 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
         cid="cid_source_12345678",
         sid="sid_source_1_abcdef",
         request_id="fork_request_0001",
+        prompt_source="server",
         before_turn_id="turn_selected",
     )
 
@@ -406,6 +430,7 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
 
     async def request_fork(**kwargs):
         assert kwargs["before_turn_id"] == "turn_selected"
+        assert kwargs["prompt_source"] == "server"
         return {
             "request_id": "fork_request_0001",
             "source_cid": "cid_source_12345678",
@@ -497,7 +522,7 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
 
     async def request_fork(**kwargs):
         assert kwargs["before_turn_id"] == "turn_selected"
-        assert kwargs["require_prompt"] is False
+        assert kwargs["prompt_source"] == "client"
         return {
             "cid": "cid_target_87654321",
             "sid": "sid_target_2_fedcba",
@@ -524,7 +549,7 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
 
 
 @pytest.mark.anyio
-async def test_fork_request_allows_missing_prompt_when_not_required(
+async def test_fork_request_allows_client_owned_prompt(
     monkeypatch,
 ) -> None:
     response = httpx.Response(
@@ -536,6 +561,7 @@ async def test_fork_request_allows_missing_prompt_when_not_required(
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
+                "prompt_source": "client",
                 "cid": "cid_target_87654321",
                 "sid": "sid_target_2_fedcba",
                 "copied_turns": 0,
@@ -554,7 +580,8 @@ async def test_fork_request_allows_missing_prompt_when_not_required(
         async def __aexit__(self, *_args):
             return None
 
-        async def post(self, *_args, **_kwargs):
+        async def post(self, *_args, **kwargs):
+            assert kwargs["json"]["prompt_source"] == "client"
             return response
 
     monkeypatch.setattr(fork_request.httpx, "AsyncClient", ClientStub)
@@ -563,8 +590,8 @@ async def test_fork_request_allows_missing_prompt_when_not_required(
         cid="cid_source_12345678",
         sid="sid_source_1_abcdef",
         request_id="fork_request_0001",
+        prompt_source="client",
         before_turn_id="turn_selected",
-        require_prompt=False,
     )
 
     assert result["prompt"] is None
@@ -581,6 +608,7 @@ async def test_bounded_fork_rejects_missing_prompt(monkeypatch) -> None:
                 "source_cid": "cid_source_12345678",
                 "source_sid": "sid_source_1_abcdef",
                 "before_turn_id": "turn_selected",
+                "prompt_source": "server",
                 "cid": "cid_target_87654321",
                 "sid": "sid_target_2_fedcba",
                 "copied_turns": 0,
@@ -613,6 +641,7 @@ async def test_bounded_fork_rejects_missing_prompt(monkeypatch) -> None:
             cid="cid_source_12345678",
             sid="sid_source_1_abcdef",
             request_id="fork_request_0001",
+            prompt_source="server",
             before_turn_id="turn_selected",
         )
 

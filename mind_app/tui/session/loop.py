@@ -348,6 +348,9 @@ async def _finish_transcript_backtrack(
                     f"{error}; rollback failed: {rollback_error}"
                 )
             render_fork_failure(mind, error)
+            return None
+
+        render_fork_result(mind, status)
         return None
 
     render_fork_result(mind, status)

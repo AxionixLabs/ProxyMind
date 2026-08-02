@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from engine.channel import Channel
 from mind_nova.services import service_endpoints
 
+PromptSource = typing.Literal[
+    "none",
+    "server",
+    "client"
+]
+
 
 class ConversationForkRequestError(Exception):
     """描述远端会话分支请求的可展示失败。"""
@@ -41,15 +47,24 @@ def build_fork_payload(
     cid: str,
     sid: str,
     request_id: str,
+    prompt_source: PromptSource,
     before_turn_id: str | None = None
 ) -> dict[str, str]:
     """构建远端会话分支请求载荷。"""
-    payload = {
-        "request_id" : str(request_id or "").strip(),
-        "cid"        : str(cid or "").strip(),
-        "sid"        : str(sid or "").strip(),
-    }
     boundary = str(before_turn_id or "").strip()
+    if prompt_source not in {"none", "server", "client"}:
+        raise ValueError("invalid prompt source")
+    if boundary and prompt_source == "none":
+        raise ValueError("bounded fork requires a prompt source")
+    if not boundary and prompt_source != "none":
+        raise ValueError("unbounded fork requires prompt_source=none")
+
+    payload = {
+        "request_id"    : str(request_id or "").strip(),
+        "cid"           : str(cid or "").strip(),
+        "sid"           : str(sid or "").strip(),
+        "prompt_source" : prompt_source,
+    }
     if boundary:
         payload["before_turn_id"] = boundary
     return payload
@@ -60,8 +75,8 @@ async def request_conversation_fork(
     cid: str,
     sid: str,
     request_id: str,
+    prompt_source: PromptSource,
     before_turn_id: str | None = None,
-    require_prompt: bool = True,
     timeout: float = 30.0
 ) -> dict[str, typing.Any]:
     """请求服务端复制当前会话上下文。"""
@@ -69,6 +84,7 @@ async def request_conversation_fork(
         cid=cid,
         sid=sid,
         request_id=request_id,
+        prompt_source=prompt_source,
         before_turn_id=before_turn_id,
     )
 
@@ -115,9 +131,10 @@ async def request_conversation_fork(
         )
 
     expected = {
-        "request_id" : payload["request_id"],
-        "source_cid" : payload["cid"],
-        "source_sid" : payload["sid"],
+        "request_id"    : payload["request_id"],
+        "source_cid"    : payload["cid"],
+        "source_sid"    : payload["sid"],
+        "prompt_source" : payload["prompt_source"],
     }
 
     if "before_turn_id" in payload:
@@ -155,16 +172,13 @@ async def request_conversation_fork(
 
     prompt = data.get("prompt")
 
-    if bounded:
+    if payload["prompt_source"] == "server":
         try:
             prompt = _parse_resubmittable_prompt(prompt)
         except (TypeError, ValueError) as error:
-            if not require_prompt:
-                prompt = None
-            else:
-                raise ConversationForkRequestError(
-                    "Conversation fork returned an invalid prompt.",
-                ) from error
+            raise ConversationForkRequestError(
+                "Conversation fork returned an invalid prompt.",
+            ) from error
     elif prompt is not None:
         raise ConversationForkRequestError(
             "Conversation fork returned an unexpected prompt.",

@@ -18,6 +18,10 @@ from mind_app.tui.core.models import (
     TranscriptBacktrackRequest
 )
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import (
+    TUI_APPLICATION_OVERRIDES,
+    query_block,
+)
 from mind_app.tui.core.submission import TuiTranscriptBacktrackRequested
 from mind_app.tui.features.conversation import ForkLiveStatus
 from mind_app.tui.session import loop
@@ -36,13 +40,28 @@ def _append_turn(runtime: TuiRuntime, turn_id: str, prompt: str) -> None:
     runtime.append_block(_block(f"answer for {prompt}"), kind="assistant")
 
 
+def _append_query_turn(runtime: TuiRuntime, turn_id: str, prompt: str) -> None:
+    runtime.append_block(query_block(prompt), kind="user")
+    assert runtime.bind_submitted_turn(turn_id, prompt)
+    runtime.append_block(_block(f"answer for {prompt}"), kind="assistant")
+
+
+def test_transcript_selection_uses_explicit_background() -> None:
+    selected = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
+        "class:transcript.overlay.selection"
+    )
+
+    assert selected.bgcolor == "375A64"
+    assert selected.reverse is False
+
+
 @pytest.mark.anyio
 async def test_transcript_selects_previous_prompt_and_emits_backtrack() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         runtime.screen._output_size = lambda: (60, 14)
-        _append_turn(runtime, "turn_one", "first prompt")
-        _append_turn(runtime, "turn_two", "second prompt")
+        _append_query_turn(runtime, "turn_one", "first prompt")
+        _append_query_turn(runtime, "turn_two", "second prompt")
 
         await runtime.open()
         prompt_task = asyncio.create_task(runtime.read_message(PromptContext(
@@ -63,11 +82,18 @@ async def test_transcript_selects_previous_prompt_and_emits_backtrack() -> None:
 
             assert runtime.screen.transcript_overlay.active
             assert runtime.screen.transcript_overlay.backtrack_active
-            assert any(
-                "transcript.overlay.selection" in style
-                for style, _text in (
-                    runtime.screen.transcript_overlay.visible_fragments()
-                )
+            fragments = runtime.screen.transcript_overlay.visible_fragments()
+            selected_query = next(
+                style for style, text in fragments if text == "second prompt"
+            )
+            marker_styles = [
+                style for style, text in fragments if text == "› "
+            ]
+            assert "transcript.overlay.selection" in selected_query
+            assert marker_styles
+            assert all(
+                "transcript.overlay.selection" not in style
+                for style in marker_styles
             )
 
             pipe_input.send_text("\x1b[D")
@@ -382,6 +408,7 @@ async def test_successful_backtrack_installs_canonical_prompt() -> None:
         target_session=("cid_target_87654321", "sid_target_2_fedcba"),
     )
     bound = []
+    views = []
 
     async def bind_conversation(cid, sid, *, source):
         bound.append((cid, sid, source))
@@ -391,6 +418,9 @@ async def test_successful_backtrack_installs_canonical_prompt() -> None:
         SimpleNamespace(
             attach=attach,
             bind_conversation=bind_conversation,
+            frontend=SimpleNamespace(
+                application=SimpleNamespace(emit=views.append),
+            ),
         ),
         runtime,
         state,
@@ -415,6 +445,8 @@ async def test_successful_backtrack_installs_canonical_prompt() -> None:
         "sid_target_2_fedcba",
         "tui",
     )]
+    result = next(view for view in views if view.type == "tui.fork.status")
+    assert result.renderable.plain_text == "■ Conversation forked."
     text = "".join(
         value
         for _style, value in runtime.document.all_fragments(width=80)
