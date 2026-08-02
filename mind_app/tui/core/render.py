@@ -4,9 +4,17 @@
 import typing
 import unicodedata
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.terminal_text import TerminalTextFilter
+from mind_app.presentation.terminal_text import (
+    TerminalTextFilter,
+    sanitize_terminal_hyperlink
+)
 from .models import FormattedText
 from .models import FragmentBlock
+
+ZERO_WIDTH_ESCAPE_STYLE = "[ZeroWidthEscape]"
+
+OSC8_PREFIX = "\x1b]8;;"
+OSC8_SUFFIX = "\x1b\\"
 
 
 def sanitize_formatted_text(
@@ -18,10 +26,15 @@ def sanitize_formatted_text(
     last_style: str    = ""
 
     for style, text in parts:
-        last_style = style
         if not text:
             out.append((style, text))
             continue
+        if ZERO_WIDTH_ESCAPE_STYLE in style:
+            escape = _sanitize_zero_width_escape(text)
+            if escape:
+                out.append((ZERO_WIDTH_ESCAPE_STYLE, escape))
+            continue
+        last_style = style
         _append_fragment(out, style, text_filter.feed(text))
 
     _append_fragment(out, last_style, text_filter.finish())
@@ -44,9 +57,26 @@ def _append_fragment(parts: FormattedText, style: str, text: str) -> None:
     parts.append((style, text))
 
 
+def _sanitize_zero_width_escape(text: str) -> str:
+    """只保留内部支持的 OSC 8 开始和结束序列。"""
+    value = str(text or "")
+    if value == f"{OSC8_PREFIX}{OSC8_SUFFIX}":
+        return value
+    if not value.startswith(OSC8_PREFIX) or not value.endswith(OSC8_SUFFIX):
+        return ""
+
+    url = value[len(OSC8_PREFIX):-len(OSC8_SUFFIX)]
+    safe_url = sanitize_terminal_hyperlink(url)
+    return f"{OSC8_PREFIX}{safe_url}{OSC8_SUFFIX}" if safe_url else ""
+
+
 def fragments_text(parts: typing.Iterable[tuple[str, str]]) -> str:
     """返回格式化片段对应的纯文本。"""
-    return "".join(text for _style, text in parts)
+    return "".join(
+        text
+        for style, text in parts
+        if ZERO_WIDTH_ESCAPE_STYLE not in style
+    )
 
 
 def next_text_unit_end(text: str, start: int) -> int:
@@ -103,11 +133,25 @@ def iter_formatted_text_units(
     parts: FormattedText
 ) -> typing.Iterator[FormattedText]:
     """迭代保留原始样式边界的组合文本单元。"""
-    fragments = [
-        (style, text)
-        for style, text in parts
-        if text
-    ]
+    fragments: FormattedText = []
+
+    for style, text in parts:
+        if not text:
+            continue
+        if ZERO_WIDTH_ESCAPE_STYLE in style:
+            yield from _iter_visible_formatted_text_units(fragments)
+            fragments = []
+            yield [(style, text)]
+            continue
+        fragments.append((style, text))
+
+    yield from _iter_visible_formatted_text_units(fragments)
+
+
+def _iter_visible_formatted_text_units(
+    fragments: FormattedText,
+) -> typing.Iterator[FormattedText]:
+    """迭代一段不含零宽转义的组合文本单元。"""
     if not fragments:
         return
 
@@ -155,7 +199,11 @@ def split_formatted_lines(parts: FormattedText) -> list[FormattedText]:
         if not text:
             continue
 
-        found  = True
+        found = True
+
+        if ZERO_WIDTH_ESCAPE_STYLE in style:
+            current.append((style, text))
+            continue
         chunks = text.split("\n")
 
         for index, chunk in enumerate(chunks):

@@ -22,6 +22,7 @@ from mind_app.presentation.models import (
     ToolStartView
 )
 from mind_app.presentation.renderers.dispatch import (
+    render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view
 )
@@ -75,18 +76,27 @@ class TuiPresentationSink(PresentationSink):
             terminal_width=self.output.terminal_width,
             measure_width=get_cwidth,
         )
+        raw_blocks = render_presentation_raw_view(view)
 
         if not blocks:
             return None
-        if len(blocks) != len(transcript_blocks):
-            raise ValueError("presentation display and transcript block counts differ")
+        if len(blocks) != len(transcript_blocks) or len(blocks) != len(raw_blocks):
+            raise ValueError("presentation block projections differ in count")
 
         transcript_key = self.output.runtime.keymap.open_transcript_label
-        for block, transcript_block in zip(blocks, transcript_blocks):
+
+        for block, transcript_block, raw_text in zip(
+            blocks,
+            transcript_blocks,
+            raw_blocks,
+            strict=True,
+        ):
             await self.output.append_presentation_block(
                 _with_transcript_hint(block, transcript_key),
                 block_kind=block_kind,
                 transcript_block=transcript_block,
+                source=view,
+                raw_text=raw_text,
             )
 
 
@@ -108,7 +118,7 @@ def _with_transcript_hint(block: StyledBlock, key_label: str) -> StyledBlock:
             and block.spans[index - 2].text.endswith("… +")
         ):
             text = f"{text}{hint}"
-        spans.append(TextSpan(text, span.style))
+        spans.append(TextSpan(text, span.style, span.hyperlink))
 
     rendered_spans = tuple(spans)
     if rendered_spans == block.spans:

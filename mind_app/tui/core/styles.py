@@ -12,6 +12,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
+from mind_app.presentation.terminal_text import sanitize_terminal_hyperlink
 from mind_nova import const
 from prompt_toolkit.styles import (
     BaseStyle,
@@ -236,7 +237,8 @@ def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:
 def styled_block_fragments(
     block: StyledBlock,
     *,
-    fallback_style: TextStyle | None = None
+    fallback_style: TextStyle | None = None,
+    hyperlinks: bool = False
 ) -> tuple[tuple[str, str], ...]:
     """把中立展示块转换为 prompt_toolkit 文本片段。"""
     spans = block.spans
@@ -244,18 +246,31 @@ def styled_block_fragments(
         style = prompt_style(fallback_style or TextStyle())
         return ((style, block.plain_text),) if block.plain_text else ()
 
-    return tuple(
-        (
-            prompt_style(
-                span.style
-                if span.style != TextStyle() or fallback_style is None
-                else fallback_style
-            ),
-            span.text,
+    fragments: list[tuple[str, str]] = []
+    for span in spans:
+        if not span.text:
+            continue
+
+        style = prompt_style(
+            span.style
+            if span.style != TextStyle() or fallback_style is None
+            else fallback_style
         )
-        for span in spans
-        if span.text
-    )
+        hyperlink = (
+            sanitize_terminal_hyperlink(span.hyperlink)
+            if hyperlinks
+            else None
+        )
+        if hyperlink:
+            fragments.append((
+                "[ZeroWidthEscape]",
+                f"\x1b]8;;{hyperlink}\x1b\\",
+            ))
+        fragments.append((style, span.text))
+        if hyperlink:
+            fragments.append(("[ZeroWidthEscape]", "\x1b]8;;\x1b\\"))
+
+    return tuple(fragments)
 
 
 def assistant_block(block: FragmentBlock) -> FragmentBlock:

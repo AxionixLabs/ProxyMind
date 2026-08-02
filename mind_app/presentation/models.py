@@ -49,6 +49,7 @@ class TextSpan(object):
     """保存一段文本及其中立样式。"""
     text: str
     style: TextStyle = TextStyle()
+    hyperlink: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

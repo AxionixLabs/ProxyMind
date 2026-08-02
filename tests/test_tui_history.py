@@ -143,6 +143,15 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     assert blocks[0].prompt == "show the workspace"
     assert blocks[0].attachments == ({"filename": "screen.png"},)
     assert blocks[0].extras == {"selection": "src/app.py"}
+    assert blocks[0].source is entries[0]
+    assert blocks[0].raw_text == "show the workspace"
+    assert isinstance(blocks[1].source, TranscriptEntry)
+    assert blocks[1].source.event == "tool.completed"
+    assert blocks[1].raw_text == "pwd\nD:/workspace"
+    assert blocks[2].source is entries[3]
+    assert blocks[2].raw_text == "**Done**"
+    assert blocks[3].source is entries[4]
+    assert blocks[3].raw_text == "Context compacted · 20 -> 4 items"
     assert "pwd" in "".join(
         text for _style, text in blocks[1].transcript_block.fragments
     )
@@ -154,4 +163,81 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     )
     assert "20 -> 4" in "".join(
         text for _style, text in blocks[3].display_block.fragments
+    )
+
+
+def test_history_transcript_falls_back_to_legacy_cursor_title() -> None:
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return ()
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_legacy",
+        terminal_width=60,
+        record={"title": "legacy question"},
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].kind == "user"
+    assert blocks[0].prompt == "legacy question"
+    assert blocks[0].raw_text == "legacy question"
+
+
+def test_history_transcript_uses_placeholder_when_content_is_unavailable() -> None:
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return ()
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_missing",
+        terminal_width=60,
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].kind == "notice"
+    assert blocks[0].raw_text == (
+        "Earlier transcript content is unavailable (session_missing)."
+    )
+
+
+def test_history_transcript_restores_markdown_hyperlink_metadata() -> None:
+    entry = TranscriptEntry(
+        timestamp="2026-08-02T00:00:00.000Z",
+        event="message.created",
+        session_id="session_link",
+        turn_id="turn_link",
+        actor="assistant",
+        payload={"content": "[docs](https://example.com/docs)"},
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return (entry,)
+
+    linked = history.load_history_transcript(
+        Controller(),
+        "session_link",
+        terminal_width=60,
+        hyperlinks=True,
+    )
+    plain = history.load_history_transcript(
+        Controller(),
+        "session_link",
+        terminal_width=60,
+        hyperlinks=False,
+    )
+
+    assert linked[0].raw_text == "[docs](https://example.com/docs)"
+    assert any(
+        style == "[ZeroWidthEscape]"
+        for style, _text in linked[0].transcript_block.fragments
+    )
+    assert all(
+        style != "[ZeroWidthEscape]"
+        for style, _text in plain[0].transcript_block.fragments
     )

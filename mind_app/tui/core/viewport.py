@@ -25,6 +25,9 @@ from .styles import ASSISTANT_PREFIX_CLASS
 class TuiTranscriptViewport(object):
     """管理正文视口、分页位置和原生终端滚屏提交。"""
 
+    SCROLLBACK_REFLOW_DEBOUNCE_SEC: typing.Final[float] = 0.08
+    SCROLLBACK_REFLOW_LINE_LIMIT: typing.Final[int] = 10_000
+
     def __init__(
         self,
         *,
@@ -62,6 +65,10 @@ class TuiTranscriptViewport(object):
 
         self._scrollback_task: asyncio.Task[None] | None  = None
         self._submitted_query_block: FragmentBlock | None = None
+
+        self._observed_terminal_width: int | None = None
+        self._reflowed_terminal_width: int | None = None
+        self._scrollback_reflow_handle: asyncio.TimerHandle | None = None
 
     @property
     def scrollback_task(self) -> asyncio.Task[None] | None:
@@ -104,8 +111,30 @@ class TuiTranscriptViewport(object):
         self._invalidate()
         self.schedule_scrollback_flush()
 
+    def observe_terminal_width(self, width: int) -> None:
+        """记录终端宽度并在稳定后安排原生滚屏重排。"""
+        current_width = max(1, int(width))
+        if current_width == self._observed_terminal_width:
+            return None
+
+        self._observed_terminal_width = current_width
+        if self._reflowed_terminal_width is None:
+            self._reflowed_terminal_width = current_width
+            return None
+
+        if current_width == self._reflowed_terminal_width:
+            self._cancel_scrollback_reflow()
+            return None
+
+        self._schedule_scrollback_reflow()
+
     def schedule_scrollback_flush(self) -> None:
         """在稳定正文超出实时视口时安排原生滚屏提交。"""
+        if self._scrollback_reflow_pending():
+            if self._scrollback_reflow_handle is None:
+                self._schedule_scrollback_reflow(delay=0)
+            return None
+
         task = self._scrollback_task
         if (
             self._is_closing()
@@ -131,6 +160,78 @@ class TuiTranscriptViewport(object):
         task = self._scrollback_task
         if task is not None and not task.done():
             task.cancel()
+
+    def _scrollback_reflow_pending(self) -> bool:
+        """判断观测宽度是否尚未应用到原生滚屏。"""
+        return bool(
+            self._observed_terminal_width is not None
+            and self._reflowed_terminal_width is not None
+            and self._observed_terminal_width != self._reflowed_terminal_width
+        )
+
+    def _schedule_scrollback_reflow(
+        self,
+        *,
+        delay: float | None = None
+    ) -> None:
+        """合并连续宽度变化并延迟执行原生滚屏重排。"""
+        self._cancel_scrollback_reflow()
+        if not self._is_application_active() or self._is_closing():
+            self._reflowed_terminal_width = self._observed_terminal_width
+            return None
+
+        target_width = self._observed_terminal_width
+        if target_width is None:
+            return None
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        wait = (
+            self.SCROLLBACK_REFLOW_DEBOUNCE_SEC
+            if delay is None
+            else max(0.0, float(delay))
+        )
+        self._scrollback_reflow_handle = loop.call_later(
+            wait,
+            self._reflow_scrollback,
+            target_width,
+        )
+
+    def _cancel_scrollback_reflow(self) -> None:
+        """取消尚未执行的原生滚屏重排计时器。"""
+        handle = self._scrollback_reflow_handle
+        self._scrollback_reflow_handle = None
+        if handle is not None:
+            handle.cancel()
+
+    def _reflow_scrollback(self, target_width: int) -> None:
+        """清理旧宽度滚屏并从有界稳定内容重新提交。"""
+        self._scrollback_reflow_handle = None
+        if (
+            target_width != self._observed_terminal_width
+            or target_width == self._reflowed_terminal_width
+        ):
+            return None
+        if self._should_defer_scrollback():
+            return None
+
+        self.pause_scrollback()
+        self._reflowed_terminal_width = target_width
+
+        if self.document.scrollback_line_count <= self.document.cleared_line_count:
+            self.schedule_scrollback_flush()
+            return None
+
+        self.document.rewind_scrollback(
+            max_line_count=self.SCROLLBACK_REFLOW_LINE_LIMIT,
+        )
+        self.view_row = None
+        self._clear_terminal_scrollback()
+        self._invalidate()
+        self.schedule_scrollback_flush()
 
     async def _flush_scrollback(self) -> None:
         """原子提交溢出的稳定正文并推进文档提交游标。"""
@@ -300,6 +401,7 @@ class TuiTranscriptViewport(object):
 
     async def close(self) -> None:
         """等待当前原生滚屏任务结束。"""
+        self._cancel_scrollback_reflow()
         task = self._scrollback_task
         if task is not None:
             with contextlib.suppress(asyncio.CancelledError):

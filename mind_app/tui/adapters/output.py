@@ -21,7 +21,10 @@ from mind_app.presentation.terminal_text import (
 from mind_app.stream_io.output_record import StreamRecordWriter
 from mind_app.stream_sanitize import sanitize_value
 from ..core.assistant import TuiAssistantStream
-from ..core.document import TuiBlockKind
+from ..core.document import (
+    TranscriptCellSource,
+    TuiBlockKind
+)
 from ..core.runtime import TuiRuntime
 from ..core.models import FragmentBlock
 from ..core.render import (
@@ -142,6 +145,7 @@ class TuiOutputControl(OutputControlPort):
             self.runtime.set_active_renderable(
                 self._final_block,
                 kind="assistant",
+                raw_text=self.assistant.text,
             )
 
     async def record_hidden_output(self, text: str) -> None:
@@ -196,7 +200,9 @@ class TuiOutputControl(OutputControlPort):
         block: StyledBlock,
         *,
         block_kind: TuiBlockKind = "operation",
-        transcript_block: StyledBlock | None = None
+        transcript_block: StyledBlock | None = None,
+        source: TranscriptCellSource | None = None,
+        raw_text: str | None = None
     ) -> None:
         """提交正文后追加一个结构化展示块。"""
         block            = sanitize_styled_block(block)
@@ -212,11 +218,15 @@ class TuiOutputControl(OutputControlPort):
         self.runtime.append_block(
             FragmentBlock(styled_block_fragments(
                 block,
+                hyperlinks=self.runtime.hyperlinks_enabled,
             )),
             kind=block_kind,
             transcript_block=FragmentBlock(styled_block_fragments(
                 transcript_block,
+                hyperlinks=self.runtime.hyperlinks_enabled,
             )),
+            source=source,
+            raw_text=raw_text,
         )
 
     def flush(self) -> None:
@@ -235,7 +245,10 @@ class TuiOutputControl(OutputControlPort):
 
         block = self._final_block or self._render_final_block()
 
-        self.runtime.commit_active_renderable(block)
+        self.runtime.commit_active_renderable(
+            block,
+            raw_text=self.assistant.text,
+        )
         self.assistant.clear()
         self._assistant_filter.reset()
         self._final_block = None
@@ -247,7 +260,10 @@ class TuiOutputControl(OutputControlPort):
         text = self.assistant.text
 
         try:
-            rendered = render_tui_markdown(text)
+            rendered = render_tui_markdown(
+                text,
+                hyperlinks=self.runtime.hyperlinks_enabled,
+            )
         except (AttributeError, IndexError, KeyError, TypeError, ValueError):
             rendered = FragmentBlock(styled_block_fragments(
                 StyledBlock(plain_text=text),
@@ -452,6 +468,7 @@ class TuiOutputControl(OutputControlPort):
         self.runtime.set_active_renderable(
             FragmentBlock(tuple(fragments)),
             kind="assistant",
+            raw_text=self.assistant.visible_text,
         )
 
         return cursor_visible

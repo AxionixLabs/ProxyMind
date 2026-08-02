@@ -3,6 +3,7 @@
 
 import typing
 import unicodedata
+from urllib.parse import urlsplit
 from .models import (
     StyledBlock,
     TextSpan,
@@ -208,23 +209,49 @@ def sanitize_text_spans(
         measure_width=measure_width,
     )
 
-    out: list[TextSpan] = []
-
-    last_style = TextStyle()
+    out: list[TextSpan]        = []
+    last_style: TextStyle      = TextStyle()
+    last_hyperlink: str | None = None
 
     for span in spans:
-        last_style = span.style
-        _append_span(out, text_filter.feed(span.text), span.style)
+        last_style     = span.style
+        last_hyperlink = sanitize_terminal_hyperlink(span.hyperlink)
 
-    _append_span(out, text_filter.finish(), last_style)
+        _append_span(
+            out,
+            text_filter.feed(span.text),
+            span.style,
+            last_hyperlink,
+        )
+
+    _append_span(out, text_filter.finish(), last_style, last_hyperlink)
     return tuple(out)
+
+
+def sanitize_terminal_hyperlink(value: typing.Any) -> str | None:
+    """返回可安全写入 OSC 8 的绝对链接。"""
+    if not isinstance(value, str):
+        return None
+
+    url = value.strip()
+    if not url or len(url) > 4096:
+        return None
+    if any(ord(char) < 32 or ord(char) == 127 for char in url):
+        return None
+
+    try:
+        scheme = urlsplit(url).scheme.casefold()
+    except ValueError:
+        return None
+
+    return url if scheme in {"file", "http", "https", "mailto"} else None
 
 
 def sanitize_styled_block(
     block: StyledBlock,
     *,
     tab_size: int = 8,
-    measure_width: TextWidth | None = None,
+    measure_width: TextWidth | None = None
 ) -> StyledBlock:
     """返回保持展示属性不变的安全文本块。"""
     plain_text = sanitize_terminal_text(
@@ -249,15 +276,26 @@ def sanitize_styled_block(
     )
 
 
-def _append_span(out: list[TextSpan], text: str, style: TextStyle) -> None:
+def _append_span(
+    out: list[TextSpan],
+    text: str,
+    style: TextStyle,
+    hyperlink: str | None
+) -> None:
     """追加非空片段并合并相邻的相同样式。"""
     if not text:
         return None
-    if out and out[-1].style == style:
+
+    if (
+        out
+        and out[-1].style == style
+        and out[-1].hyperlink == hyperlink
+    ):
         previous = out[-1]
-        out[-1] = TextSpan(f"{previous.text}{text}", style)
+        out[-1] = TextSpan(f"{previous.text}{text}", style, hyperlink)
         return None
-    out.append(TextSpan(text, style))
+
+    out.append(TextSpan(text, style, hyperlink))
 
 
 if __name__ == '__main__':

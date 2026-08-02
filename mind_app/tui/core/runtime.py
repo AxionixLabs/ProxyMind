@@ -30,6 +30,7 @@ from .models import (
 from .terminal_input import clear_pending_input
 from .activity import TuiActivity
 from .document import (
+    TranscriptCellSource,
     TranscriptBlock,
     TuiBlockKind,
     TuiDocument,
@@ -79,6 +80,8 @@ class TuiRuntime(object):
         self.input_model = input_model or TuiInputModel()
         self.context     = PromptContext(mode="chat", model="")
         self.keymap      = keymap or TuiRuntimeKeymap.defaults()
+
+        self.terminal_capabilities = terminal_capabilities
 
         self.task_state = TuiTaskState(
             activity_running=lambda: self.activity.active,
@@ -169,6 +172,7 @@ class TuiRuntime(object):
             report_missing_transcript_backtrack=(
                 self._report_missing_backtrack
             ),
+            observe_terminal_width=self.viewport.observe_terminal_width,
             keymap=self.keymap,
             input_obj=input_obj,
             output_obj=output_obj,
@@ -227,6 +231,11 @@ class TuiRuntime(object):
     def terminal_width(self) -> int:
         """返回当前渲染输出的终端列数。"""
         return self.screen.terminal_width
+
+    @property
+    def hyperlinks_enabled(self) -> bool:
+        """返回当前终端是否启用可点击文本链接。"""
+        return self.terminal_capabilities.hyperlinks
 
     @property
     def terminal_height(self) -> int:
@@ -482,6 +491,8 @@ class TuiRuntime(object):
         *,
         kind: TuiBlockKind = "system",
         transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
+        raw_text: str | None = None,
         stream_continuation: bool = False
     ) -> None:
         """向会话内容追加一个稳定展示块。"""
@@ -489,6 +500,8 @@ class TuiRuntime(object):
             block,
             kind=kind,
             transcript_block=transcript_block,
+            source=source,
+            raw_text=raw_text,
             stream_continuation=stream_continuation,
         ):
             self.screen.transcript_overlay.content_changed()
@@ -506,7 +519,7 @@ class TuiRuntime(object):
 
         self.viewport.clear_submitted_query()
         self.viewport.reset_view()
-        self.screen.transcript_overlay.content_changed()
+        self.screen.transcript_overlay.content_replaced()
         self.screen.clear_terminal_scrollback()
         self.viewport.stable_content_changed()
 
@@ -666,6 +679,7 @@ class TuiRuntime(object):
         *,
         kind: TuiBlockKind = "assistant",
         transcript_block: FragmentBlock | None = None,
+        raw_text: str | None = None,
         stream_continuation: bool = False
     ) -> None:
         """替换当前流式展示块。"""
@@ -673,6 +687,7 @@ class TuiRuntime(object):
             block,
             kind=kind,
             transcript_block=transcript_block,
+            raw_text=raw_text,
             stream_continuation=stream_continuation,
         )
 
@@ -747,10 +762,15 @@ class TuiRuntime(object):
         self,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        raw_text: str | None = None
     ) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
-        self.document.commit_active(block, transcript_block=transcript_block)
+        self.document.commit_active(
+            block,
+            transcript_block=transcript_block,
+            raw_text=raw_text,
+        )
         self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
@@ -1014,7 +1034,7 @@ class TuiRuntime(object):
 
         if visible:
             block = query_block(visible)
-            self.document.stage_submission(block)
+            self.document.stage_submission(block, raw_text=visible)
             if resolve_tui_command(value) is not None:
                 self.invalidate()
             else:

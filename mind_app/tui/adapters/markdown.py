@@ -14,6 +14,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
+from mind_app.presentation.terminal_text import sanitize_styled_block
 from mind_app.presentation.styles import (
     PREVIEW_CODE_COMMENT_STYLE,
     PREVIEW_CODE_KEYWORD_STYLE,
@@ -36,13 +37,24 @@ MARKDOWN_RULE_STYLE    = TextStyle(foreground="#6F7A86", dim=True)
 _MARKDOWN = MarkdownIt("commonmark")
 
 
-def render_tui_markdown(text: str) -> FragmentBlock:
+def render_tui_markdown(
+    text: str,
+    *,
+    hyperlinks: bool = False
+) -> FragmentBlock:
     """把完整 assistant Markdown 原文转换为 TUI 文本片段。"""
     spans      = _markdown_spans(text)
     plain_text = "".join(span.text for span in spans)
-    block      = StyledBlock(plain_text=plain_text, spans=tuple(spans))
 
-    return FragmentBlock(styled_block_fragments(block))
+    block = sanitize_styled_block(StyledBlock(
+        plain_text=plain_text,
+        spans=tuple(spans),
+    ))
+
+    return FragmentBlock(styled_block_fragments(
+        block,
+        hyperlinks=hyperlinks,
+    ))
 
 
 def _markdown_spans(text: str) -> list[TextSpan]:
@@ -193,38 +205,56 @@ def _inline_lines(
 def _inline_spans(
     nodes: list[SyntaxTreeNode],
     style: TextStyle,
+    hyperlink: str | None = None
 ) -> list[TextSpan]:
     """递归渲染内联 Markdown 节点。"""
     spans: list[TextSpan] = []
     for node in nodes:
         if node.type == "text":
-            _append_span(spans, node.content, style)
+            _append_span(spans, node.content, style, hyperlink)
         elif node.type in {"softbreak", "hardbreak"}:
-            _append_span(spans, "\n", style)
+            _append_span(spans, "\n", style, hyperlink)
         elif node.type == "code_inline":
-            _append_span(spans, node.content, _merge_style(style, MARKDOWN_CODE_STYLE))
+            _append_span(
+                spans,
+                node.content,
+                _merge_style(style, MARKDOWN_CODE_STYLE),
+                hyperlink,
+            )
         elif node.type == "strong":
             _extend_spans(spans, _inline_spans(
                 node.children,
                 replace(style, bold=True),
+                hyperlink,
             ))
         elif node.type == "em":
             _extend_spans(spans, _inline_spans(
                 node.children,
                 replace(style, italic=True),
+                hyperlink,
             ))
         elif node.type == "link":
             _extend_spans(spans, _inline_spans(
                 node.children,
                 _merge_style(style, MARKDOWN_LINK_STYLE),
+                str(node.attrs.get("href") or "") or None,
             ))
         elif node.type == "image":
             alt = node.attrs.get("alt") or node.content
-            _append_span(spans, str(alt or ""), _merge_style(style, MARKDOWN_LINK_STYLE))
+            _append_span(
+                spans,
+                str(alt or ""),
+                _merge_style(style, MARKDOWN_LINK_STYLE),
+                str(node.attrs.get("src") or "") or None,
+            )
         elif node.children:
-            _extend_spans(spans, _inline_spans(node.children, style))
+            _extend_spans(spans, _inline_spans(
+                node.children,
+                style,
+                hyperlink,
+            ))
         elif node.content:
-            _append_span(spans, node.content, style)
+            _append_span(spans, node.content, style, hyperlink)
 
     return spans
 
@@ -289,7 +319,12 @@ def _split_lines(spans: list[TextSpan]) -> list[list[TextSpan]]:
         chunks = span.text.split("\n")
         for index, chunk in enumerate(chunks):
             if chunk:
-                _append_span(lines[-1], chunk, span.style)
+                _append_span(
+                    lines[-1],
+                    chunk,
+                    span.style,
+                    span.hyperlink,
+                )
             if index < len(chunks) - 1:
                 lines.append([])
 
@@ -301,7 +336,14 @@ def _split_lines(spans: list[TextSpan]) -> list[list[TextSpan]]:
 
 def _apply_style(spans: list[TextSpan], style: TextStyle) -> list[TextSpan]:
     """把基础样式合并到一行片段。"""
-    return [TextSpan(span.text, _merge_style(span.style, style)) for span in spans]
+    return [
+        TextSpan(
+            span.text,
+            _merge_style(span.style, style),
+            span.hyperlink,
+        )
+        for span in spans
+    ]
 
 
 def _merge_style(base: TextStyle, overlay: TextStyle) -> TextStyle:
@@ -320,18 +362,27 @@ def _merge_style(base: TextStyle, overlay: TextStyle) -> TextStyle:
 def _extend_spans(target: list[TextSpan], source: list[TextSpan]) -> None:
     """追加并合并一组相邻样式片段。"""
     for span in source:
-        _append_span(target, span.text, span.style)
+        _append_span(target, span.text, span.style, span.hyperlink)
 
 
-def _append_span(spans: list[TextSpan], text: str, style: TextStyle) -> None:
+def _append_span(
+    spans: list[TextSpan],
+    text: str,
+    style: TextStyle,
+    hyperlink: str | None = None
+) -> None:
     """追加片段并合并相邻同样式内容。"""
     if not text:
         return None
-    if spans and spans[-1].style == style:
+    if (
+        spans
+        and spans[-1].style == style
+        and spans[-1].hyperlink == hyperlink
+    ):
         previous = spans[-1]
-        spans[-1] = TextSpan(f"{previous.text}{text}", style)
+        spans[-1] = TextSpan(f"{previous.text}{text}", style, hyperlink)
         return None
-    spans.append(TextSpan(text, style))
+    spans.append(TextSpan(text, style, hyperlink))
 
 
 if __name__ == '__main__':

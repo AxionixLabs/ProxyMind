@@ -112,6 +112,46 @@ def render_native_tool_result_transcript_view(
     return (_transcript_block(title, _json_text(payload or view.data)),)
 
 
+def render_tool_start_raw_text(view: ToolStartView) -> str:
+    """把工具启动信息转换为无装饰文本。"""
+    if view.name in {"shell_command", "exec_command"}:
+        return _command_text(view.arguments.get("command"))
+    if view.name == "apply_patch":
+        return str(view.arguments.get("patch") or "")
+
+    return _json_text(view.arguments)
+
+
+def render_generic_tool_result_raw_text(
+    view: GenericToolResultView,
+) -> str:
+    """把普通工具结果转换为无装饰文本。"""
+    return str(view.text or "")
+
+
+def render_native_tool_result_raw_text(
+    view: NativeToolResultView
+) -> tuple[str, ...]:
+    """把原生工具结果转换为无装饰文本块。"""
+    payload = _native_payload(view.data)
+
+    if view.name in {"shell_command", "exec_command"}:
+        command = _command_text(
+            payload.get("command") or view.arguments.get("command")
+        )
+        output = _native_output_text(payload)
+        return ("\n".join(item for item in (command, output) if item),)
+
+    if view.name == "write_stdin":
+        return (_native_output_text(payload) or _json_text(view.arguments),)
+
+    if view.name == "apply_patch":
+        patch = str(view.arguments.get("patch") or "")
+        return (patch or _json_text(payload),)
+
+    return (_json_text(payload or view.data),)
+
+
 def _transcript_block(title: str, body: str) -> StyledBlock:
     """生成不截断正文内容的记录块。"""
     heading = str(title or "").rstrip()

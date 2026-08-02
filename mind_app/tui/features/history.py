@@ -10,6 +10,7 @@ from mind_app.history.transcript import (
     TranscriptReplay
 )
 from mind_app.presentation.renderers.dispatch import (
+    render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view
 )
@@ -72,9 +73,11 @@ def load_history_transcript(
     controller: "Mind",
     session_id: str,
     *,
-    terminal_width: int
+    terminal_width: int,
+    hyperlinks: bool = False,
+    record: typing.Mapping[str, typing.Any] | None = None
 ) -> tuple[TranscriptBlock, ...]:
-    """读取会话事件并生成可一次性提交的恢复块。"""
+    """读取会话事件并在内容缺失时生成最小恢复块。"""
     entries = (
         entry
         for entry in controller.read_conversation_transcript(session_id)
@@ -82,20 +85,70 @@ def load_history_transcript(
     )
 
     replay = TranscriptReplay(entries).build()
-    return _render_replay_blocks(replay, terminal_width=terminal_width)
+
+    blocks = _render_replay_blocks(
+        replay,
+        terminal_width=terminal_width,
+        hyperlinks=hyperlinks,
+    )
+
+    if blocks:
+        return blocks
+
+    legacy = _legacy_record_blocks(record)
+    if legacy:
+        return legacy
+
+    return (_missing_transcript_block(session_id),)
+
+
+def _legacy_record_blocks(
+    record: typing.Mapping[str, typing.Any] | None,
+) -> tuple[TranscriptBlock, ...]:
+    """从旧会话游标保留的标题恢复最小用户上下文。"""
+    if record is None:
+        return ()
+
+    title = str(record.get("title") or "").strip()
+    if not title:
+        return ()
+
+    block = query_block(title)
+    return (TranscriptBlock(
+        display_block=block,
+        transcript_block=block,
+        kind="user",
+        raw_text=title,
+        prompt=title,
+    ),)
+
+
+def _missing_transcript_block(session_id: str) -> TranscriptBlock:
+    """生成会话内容不可用时的显式占位块。"""
+    identifier = str(session_id or "").strip()
+    suffix = f" ({identifier})" if identifier else ""
+    text = f"Earlier transcript content is unavailable{suffix}."
+    block = text_block(text, MUTED_STYLE)
+    return TranscriptBlock(
+        display_block=block,
+        transcript_block=block,
+        kind="notice",
+        raw_text=text,
+    )
 
 
 def _render_replay_blocks(
     entries: typing.Iterable[TranscriptEntry],
     *,
-    terminal_width: int
+    terminal_width: int,
+    hyperlinks: bool = False
 ) -> tuple[TranscriptBlock, ...]:
     """把归并后的会话事件转换为 TUI 正文块。"""
     blocks: list[TranscriptBlock] = []
 
     for entry in entries:
         if entry.event == "message.created":
-            block = _message_block(entry)
+            block = _message_block(entry, hyperlinks=hyperlinks)
             if block is not None:
                 blocks.append(block)
             continue
@@ -104,6 +157,7 @@ def _render_replay_blocks(
             blocks.extend(_tool_blocks(
                 entry,
                 terminal_width=terminal_width,
+                hyperlinks=hyperlinks,
             ))
             continue
 
@@ -145,10 +199,16 @@ def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
         display_block=block,
         transcript_block=block,
         kind="notice",
+        source=entry,
+        raw_text=text,
     )
 
 
-def _message_block(entry: TranscriptEntry) -> TranscriptBlock | None:
+def _message_block(
+    entry: TranscriptEntry,
+    *,
+    hyperlinks: bool = False
+) -> TranscriptBlock | None:
     """把用户或助手消息转换为正文块。"""
     content = entry.payload.get("content")
     if not isinstance(content, str) or not content.strip():
@@ -163,6 +223,8 @@ def _message_block(entry: TranscriptEntry) -> TranscriptBlock | None:
             display_block=block,
             transcript_block=block,
             kind="user",
+            source=entry,
+            raw_text=content,
             turn_id=str(entry.turn_id or ""),
             prompt=content,
             attachments=tuple(
@@ -177,7 +239,10 @@ def _message_block(entry: TranscriptEntry) -> TranscriptBlock | None:
         return None
 
     try:
-        block = assistant_block(render_tui_markdown(content))
+        block = assistant_block(render_tui_markdown(
+            content,
+            hyperlinks=hyperlinks,
+        ))
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         block = assistant_block(text_block(content))
 
@@ -185,13 +250,16 @@ def _message_block(entry: TranscriptEntry) -> TranscriptBlock | None:
         display_block=block,
         transcript_block=block,
         kind="assistant",
+        source=entry,
+        raw_text=content,
     )
 
 
 def _tool_blocks(
     entry: TranscriptEntry,
     *,
-    terminal_width: int
+    terminal_width: int,
+    hyperlinks: bool = False
 ) -> tuple[TranscriptBlock, ...]:
     """把工具事件转换为共享展示和完整记录块。"""
     payload = entry.payload
@@ -241,18 +309,33 @@ def _tool_blocks(
         terminal_width=terminal_width,
         measure_width=get_cwidth,
     )
-    if len(display) != len(transcript):
-        raise ValueError("replay display and transcript block counts differ")
+
+    raw = render_presentation_raw_view(view)
+
+    if len(display) != len(transcript) or len(display) != len(raw):
+        raise ValueError("replay block projections differ in count")
 
     return tuple(
         TranscriptBlock(
-            display_block=FragmentBlock(styled_block_fragments(display_block)),
+            display_block=FragmentBlock(styled_block_fragments(
+                display_block,
+                hyperlinks=hyperlinks,
+            )),
             transcript_block=FragmentBlock(styled_block_fragments(
-                transcript_block
+                transcript_block,
+                hyperlinks=hyperlinks,
             )),
             kind="operation",
+            source=entry,
+            raw_text=raw_text,
         )
-        for display_block, transcript_block in zip(display, transcript)
+
+        for display_block, transcript_block, raw_text in zip(
+            display,
+            transcript,
+            raw,
+            strict=True,
+        )
     )
 
 

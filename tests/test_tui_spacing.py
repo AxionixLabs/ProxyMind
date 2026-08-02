@@ -16,6 +16,12 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 
+from mind_core.design.terminal_capabilities import (
+    TerminalCapabilities,
+    TerminalColorLevel,
+    TerminalIdentity,
+    TerminalKind,
+)
 from mind_app.interaction.contracts import PromptContext
 from mind_app.output.content import (
     AssistantTextDelta,
@@ -48,7 +54,9 @@ from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
     display_line_count,
     fragment_continuation_widths,
+    fragments_text,
     join_formatted_lines,
+    sanitize_formatted_text,
     split_formatted_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
@@ -682,6 +690,125 @@ async def test_line_scrollback_resize_never_reprints_retired_content() -> None:
 
 
 @pytest.mark.anyio
+async def test_width_resize_reflows_native_scrollback_from_document() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=10, columns=40)
+        source = "\n".join(f"entry {index:02d}" for index in range(60))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block(source), kind="assistant")
+                await asyncio.sleep(0.02)
+                assert runtime.document.scrollback_line_count > 0
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_scrollback",
+                ) as clear, patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    terminal_size = Size(rows=10, columns=24)
+                    runtime.viewport.observe_terminal_width(24)
+                    await asyncio.sleep(0.12)
+
+                chunks = [
+                    "".join(text for _style, text in call.args[0])
+                    for call in print_text.call_args_list
+                ]
+                visible = _document_text(runtime.document)
+
+                clear.assert_called_once_with()
+                assert chunks
+                assert "\n".join([*chunks, visible]) == source
+                assert runtime.viewport._reflowed_terminal_width == 24
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("defer_mode", ["overlay", "stream"])
+async def test_width_resize_reflow_waits_for_transient_surface(
+    defer_mode: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(40))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+                assert runtime.document.scrollback_line_count > 0
+
+                if defer_mode == "overlay":
+                    runtime.toggle_transcript_overlay()
+                else:
+                    runtime.set_active_renderable(
+                        _block("streaming"),
+                        kind="assistant",
+                    )
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_scrollback",
+                ) as clear:
+                    terminal_size = Size(rows=8, columns=24)
+                    runtime.viewport.observe_terminal_width(24)
+                    await asyncio.sleep(0.12)
+                    clear.assert_not_called()
+
+                    if defer_mode == "overlay":
+                        runtime.toggle_transcript_overlay()
+                    else:
+                        runtime.clear_active_renderable()
+                    await asyncio.sleep(0.02)
+
+                clear.assert_called_once_with()
+                assert runtime.viewport._reflowed_terminal_width == 24
+            finally:
+                await runtime.close()
+
+
+def test_scrollback_reflow_keeps_clear_boundary_and_caps_replay() -> None:
+    document = TuiDocument()
+    document.append_block(
+        _block("\n".join(f"old {index}" for index in range(20))),
+        kind="assistant",
+    )
+    document.commit_scrollback_prefix(20)
+    document.clear_visible_prefix()
+    document.append_block(
+        _block("\n".join(f"new {index}" for index in range(20))),
+        kind="assistant",
+    )
+    document.commit_scrollback_prefix(21)
+
+    document.rewind_scrollback(max_line_count=5)
+
+    assert document.scrollback_line_count == len(document._stable_lines) - 5
+    assert document.scrollback_line_count >= document.cleared_line_count
+    assert "old 19" not in "".join(
+        text for line in document.visible_stable_lines() for _style, text in line
+    )
+
+
+@pytest.mark.anyio
 async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -975,6 +1102,14 @@ async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
             assert runtime.screen.application.layout.current_control == (
                 runtime.screen.transcript_overlay_control
             )
+
+            pipe_input.send_text("r")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.raw_mode:
+                    break
+
+            assert runtime.screen.transcript_overlay.raw_mode
 
             pipe_input.send_text("\x1b")
             for _ in range(100):
@@ -1485,6 +1620,139 @@ def test_transcript_overlay_reuses_stable_cache_during_active_updates() -> None:
     assert second == "stable\n\n$ command\nfirst\nsecond"
 
 
+def test_transcript_overlay_switches_between_rich_and_raw_cells() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(
+        _block("compact"),
+        kind="operation",
+        transcript_block=_block("Ran shell_command\n$ npm install"),
+        raw_text="npm install",
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    assert "".join(text for _style, text in overlay.fragments()) == (
+        "Ran shell_command\n$ npm install"
+    )
+
+    overlay.toggle_raw_mode()
+
+    assert overlay.raw_mode
+    assert "".join(text for _style, text in overlay.fragments()) == "npm install"
+    assert all(not style for style, _text in overlay.fragments())
+
+    overlay.toggle_raw_mode()
+
+    assert not overlay.raw_mode
+    assert "Ran shell_command" in "".join(
+        text for _style, text in overlay.fragments()
+    )
+
+
+@pytest.mark.anyio
+async def test_transcript_overlay_keeps_stream_source_text_for_raw_mode() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("**bold** and `code`")
+    await output.prepare_external_output()
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    rich = "".join(text for _style, text in overlay.fragments())
+    overlay.toggle_raw_mode()
+    raw = "".join(text for _style, text in overlay.fragments())
+
+    assert "**" not in rich
+    assert "`" not in rich
+    assert raw == "**bold** and `code`"
+
+
+@pytest.mark.anyio
+async def test_markdown_hyperlink_survives_overlay_wrap_and_raw_mode() -> None:
+    capabilities = TerminalCapabilities(
+        TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+        TerminalColorLevel.TRUECOLOR,
+    )
+    runtime = TuiRuntime(terminal_capabilities=capabilities)
+    runtime.screen._output_size = lambda: (20, 10)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta(
+        "[documentation-link-that-wraps](https://example.com/docs)"
+    )
+    await output.prepare_external_output()
+
+    cell_fragments = runtime.document.blocks[-1].display_block.fragments
+    assert fragments_text(cell_fragments) == "• documentation-link-that-wraps"
+    assert any(
+        style == "[ZeroWidthEscape]"
+        and "https://example.com/docs" in text
+        for style, text in cell_fragments
+    )
+    assert any(
+        style == "[ZeroWidthEscape]"
+        for style, _text in runtime.document.scrollback_prefix_fragments(1)
+    )
+
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+    rich = overlay.fragments()
+
+    assert len(split_formatted_lines(rich)) > 1
+    assert fragments_text(rich).replace("\n  ", "") == (
+        "• documentation-link-that-wraps"
+    )
+    assert sum(
+        style == "[ZeroWidthEscape]"
+        for style, _text in rich
+    ) == 2
+
+    overlay.toggle_raw_mode()
+    raw = overlay.fragments()
+
+    assert fragments_text(raw).replace("\n", "") == (
+        "[documentation-link-that-wraps](https://example.com/docs)"
+    )
+    assert all(style != "[ZeroWidthEscape]" for style, _text in raw)
+
+
+@pytest.mark.anyio
+async def test_unknown_terminal_degrades_hyperlink_to_styled_text() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("[docs](https://example.com/docs)")
+    await output.prepare_external_output()
+
+    fragments = runtime.document.blocks[-1].display_block.fragments
+    assert fragments_text(fragments) == "• docs"
+    assert all(style != "[ZeroWidthEscape]" for style, _text in fragments)
+
+
+def test_fragment_sanitizer_only_allows_safe_osc8_sequences() -> None:
+    fragments = sanitize_formatted_text((
+        ("[ZeroWidthEscape]", "\x1b]52;c;payload\x1b\\"),
+        ("[ZeroWidthEscape]", "\x1b]8;;relative/path\x1b\\"),
+        (
+            "[ZeroWidthEscape]",
+            "\x1b]8;;https://example.com/docs\x1b\\",
+        ),
+        ("class:link", "docs"),
+        ("[ZeroWidthEscape]", "\x1b]8;;\x1b\\"),
+    ))
+
+    assert fragments_text(fragments) == "docs"
+    assert fragments == [
+        (
+            "[ZeroWidthEscape]",
+            "\x1b]8;;https://example.com/docs\x1b\\",
+        ),
+        ("class:link", "docs"),
+        ("[ZeroWidthEscape]", "\x1b]8;;\x1b\\"),
+    ]
+
+
 def test_transcript_overlay_live_tail_tracks_animation_tick() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("stable"), kind="assistant")
@@ -1596,6 +1864,40 @@ def test_transcript_overlay_reuses_existing_cells_when_stable_content_grows() ->
     assert (first_cell, second_cell) not in rendered_cell_sets
 
 
+@pytest.mark.parametrize("restored_count", [3, 2, 1])
+def test_transcript_overlay_discards_cache_when_transcript_is_replaced(
+    restored_count: int,
+) -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("old one"), kind="assistant")
+    runtime.append_block(_block("old two"), kind="assistant")
+    overlay = runtime.screen.transcript_overlay
+
+    runtime.toggle_transcript_overlay()
+    assert "".join(text for _style, text in overlay.fragments()) == (
+        "old one\n\nold two"
+    )
+    old_cells = tuple(runtime.document.blocks)
+    runtime.toggle_transcript_overlay()
+
+    restored = tuple(
+        TranscriptBlock(
+            display_block=_block(f"restored {index}"),
+            transcript_block=_block(f"restored {index}"),
+            kind="assistant",
+        )
+        for index in range(restored_count)
+    )
+    runtime.replace_transcript(restored)
+    runtime.toggle_transcript_overlay()
+
+    transcript = "".join(text for _style, text in overlay.fragments())
+    assert transcript == "\n\n".join(
+        f"restored {index}" for index in range(restored_count)
+    )
+    assert all(id(cell) not in overlay._stable_cell_cache for cell in old_cells)
+
+
 def test_transcript_overlay_renders_each_cell_once_during_long_session_growth() -> None:
     runtime = TuiRuntime()
     runtime.screen._output_size = lambda: (72, 18)
@@ -1622,6 +1924,44 @@ def test_transcript_overlay_renders_each_cell_once_during_long_session_growth() 
     assert len(overlay._stable_cell_cache) == 301
     assert transcript.startswith("cell 0\n\ncell 1")
     assert transcript.endswith("cell 300")
+
+
+def test_transcript_overlay_bounds_cell_renders_without_losing_backtrack() -> None:
+    runtime = TuiRuntime()
+    output_size = [72, 18]
+    runtime.screen._output_size = lambda: tuple(output_size)
+    runtime.append_block(_block("first prompt"), kind="user")
+    assert runtime.document.bind_latest_user_turn(
+        "turn_first",
+        "first prompt",
+    )
+    first_cell = runtime.document.blocks[0]
+    overlay = runtime.screen.transcript_overlay
+
+    with patch.object(
+        runtime.document,
+        "transcript_cell_fragments",
+        wraps=runtime.document.transcript_cell_fragments,
+    ) as render_cell:
+        runtime.toggle_transcript_overlay()
+        for index in range(1100):
+            runtime.append_block(
+                _block(f"cell {index}"),
+                kind="assistant",
+            )
+
+    assert render_cell.call_count == 1101
+    assert len(overlay._stable_cell_cache) == overlay.STABLE_CELL_CACHE_LIMIT
+    assert id(first_cell) not in overlay._stable_cell_cache
+    assert overlay._stable_cell_line_counts[id(first_cell)] == 1
+
+    output_size[0] = 48
+    overlay.fragments()
+
+    assert len(overlay._stable_cell_cache) == overlay.STABLE_CELL_CACHE_LIMIT
+    assert len(overlay._stable_cell_line_counts) == 1101
+    assert overlay.begin_or_step_backtrack()
+    assert overlay.scroll_offset == 0
 
 
 def test_transcript_overlay_survives_resize_and_continuous_active_output() -> None:
@@ -1978,11 +2318,12 @@ async def test_presentation_separates_consecutive_tool_groups() -> None:
 
     await output.append_assistant_delta("model output")
     await output.prepare_external_output()
-    await presentation.emit(build_tool_start_view(
+    first_view = build_tool_start_view(
         "shell_command",
         {"command": "echo one"},
         call_id="one",
-    ))
+    )
+    await presentation.emit(first_view)
     await presentation.emit(build_tool_start_view(
         "shell_command",
         {"command": "echo two"},
@@ -1999,6 +2340,8 @@ async def test_presentation_separates_consecutive_tool_groups() -> None:
         True,
         True,
     ]
+    assert runtime.document.blocks[1].source is first_view
+    assert runtime.document.blocks[1].raw_text == "echo one"
     assert runtime.document.active_block is None
 
 

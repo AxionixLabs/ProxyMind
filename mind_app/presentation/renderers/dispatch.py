@@ -35,14 +35,20 @@ from .plan import (
 )
 from .progress import render_progress_view
 from .tool import (
+    render_generic_tool_result_raw_text,
     render_generic_tool_result_transcript_view,
     render_generic_tool_result_view,
+    render_native_tool_result_raw_text,
     render_native_tool_result_transcript_view,
     render_native_tool_result_view,
+    render_tool_start_raw_text,
     render_tool_start_transcript_view,
     render_tool_start_view
 )
-from ..terminal_text import sanitize_styled_block
+from ..terminal_text import (
+    sanitize_styled_block,
+    sanitize_terminal_text
+)
 
 
 def render_presentation_view(
@@ -91,6 +97,28 @@ def render_presentation_transcript_view(
     return tuple(
         sanitize_styled_block(block, measure_width=measure_width)
         for block in blocks
+    )
+
+
+def render_presentation_raw_view(
+    view: PresentationView
+) -> tuple[str, ...]:
+    """把结构化展示数据转换为不含视觉装饰的文本块。"""
+    if isinstance(view, ToolStartView):
+        values = (render_tool_start_raw_text(view),)
+    elif isinstance(view, GenericToolResultView):
+        values = (render_generic_tool_result_raw_text(view),)
+    elif isinstance(view, NativeToolResultView):
+        values = render_native_tool_result_raw_text(view)
+    else:
+        values = tuple(
+            block.plain_text
+            for block in render_presentation_transcript_view(view)
+        )
+
+    return tuple(
+        sanitize_terminal_text(value).strip("\n")
+        for value in values
     )
 
 

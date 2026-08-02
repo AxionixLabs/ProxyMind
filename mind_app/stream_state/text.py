@@ -393,10 +393,11 @@ class TextState(object):
     ) -> list[TextSpan]:
         """按显示模式归一化带样式的文本片段。"""
         clean = [
-            TextSpan(str(part.text or ""), part.style)
+            TextSpan(str(part.text or ""), part.style, part.hyperlink)
             for part in parts
             if str(part.text or "")
         ]
+
         raw_text = self._spans_text(clean)
         if not raw_text:
             return []
@@ -517,14 +518,24 @@ class TextState(object):
                 if ch == "\n":
                     cls._extend_spans(out, line_spans)
                     line_spans = []
-                    cls._append_span(out, "\n", span.style)
+                    cls._append_span(
+                        out,
+                        "\n",
+                        span.style,
+                        span.hyperlink,
+                    )
                     line_len = 0
                     line_cut = False
                     continue
                 if line_cut:
                     continue
                 if line_len < limit:
-                    cls._append_span(line_spans, ch, span.style)
+                    cls._append_span(
+                        line_spans,
+                        ch,
+                        span.style,
+                        span.hyperlink,
+                    )
                     line_len += 1
                     continue
                 keep = max(0, limit - len(cls.ELLIPSIS))
@@ -553,7 +564,7 @@ class TextState(object):
                     if visible >= limit:
                         return out
                     visible += 1
-                cls._append_span(out, ch, span.style)
+                cls._append_span(out, ch, span.style, span.hyperlink)
 
         return out
 
@@ -578,7 +589,7 @@ class TextState(object):
                 break
             chunk = text[max(0, start - pos):max(0, end - pos)]
             if chunk:
-                cls._append_span(out, chunk, span.style)
+                cls._append_span(out, chunk, span.style, span.hyperlink)
             pos = next_pos
 
         return out
@@ -591,7 +602,12 @@ class TextState(object):
     ) -> None:
         """把源片段追加到目标片段列表。"""
         for span in source:
-            cls._append_span(target, span.text, span.style)
+            cls._append_span(
+                target,
+                span.text,
+                span.style,
+                span.hyperlink,
+            )
 
     def _should_gap_before_final_unit(
         self,
@@ -676,15 +692,27 @@ class TextState(object):
         spans: list[TextSpan],
         text: str,
         style: TextStyle,
+        hyperlink: str | None = None
     ) -> None:
         """追加片段并合并相邻同样式内容。"""
         if not text:
             return None
-        if spans and spans[-1].style == style:
+
+        if (
+            spans
+            and spans[-1].style == style
+            and spans[-1].hyperlink == hyperlink
+        ):
             previous = spans[-1]
-            spans[-1] = TextSpan(f"{previous.text}{text}", style)
+
+            spans[-1] = TextSpan(
+                f"{previous.text}{text}",
+                style,
+                hyperlink,
+            )
             return None
-        spans.append(TextSpan(text, style))
+        spans.append(TextSpan(text, style, hyperlink))
+
 
 if __name__ == '__main__':
     pass

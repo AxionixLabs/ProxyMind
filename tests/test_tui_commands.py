@@ -309,6 +309,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
     )
     runtime = SimpleNamespace(
         terminal_width=80,
+        hyperlinks_enabled=False,
         replace_transcript=Mock(),
     )
     dispatcher = TuiCommandDispatcher(
@@ -323,7 +324,9 @@ async def test_resume_conversation_clears_structured_prompt_draft(
     state.clear_pending_prompt_extras.assert_called_once_with()
     attach.clear_pending_attachments.assert_called_once_with()
     mind.read_conversation_transcript.assert_called_once_with(record["sid"])
-    runtime.replace_transcript.assert_called_once_with(())
+    restored = runtime.replace_transcript.call_args.args[0]
+    assert len(restored) == 1
+    assert restored[0].kind == "notice"
 
 
 @pytest.mark.anyio
@@ -336,6 +339,7 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
     }
     runtime = SimpleNamespace(
         terminal_width=80,
+        hyperlinks_enabled=False,
         replace_transcript=Mock(),
     )
     mind = SimpleNamespace(

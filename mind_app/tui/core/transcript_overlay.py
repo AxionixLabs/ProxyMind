@@ -44,6 +44,8 @@ class TranscriptRenderKey(object):
 class TuiTranscriptOverlay(object):
     """管理完整会话记录的缓存、可见行和滚动位置。"""
 
+    STABLE_CELL_CACHE_LIMIT: typing.Final[int] = 1024
+
     def __init__(
         self,
         *,
@@ -60,6 +62,7 @@ class TuiTranscriptOverlay(object):
         self._invalidate = invalidate
 
         self.active: bool           = False
+        self.raw_mode: bool         = False
         self.scroll_offset: int     = 0
         self.follow_bottom: bool    = True
         self.backtrack_active: bool = False
@@ -74,6 +77,7 @@ class TuiTranscriptOverlay(object):
         self._cached_stable_lines: list[FormattedText]         = []
         self._cached_live_tail_lines: list[FormattedText]      = []
         self._stable_cell_cache: dict[int, _CellRender]        = {}
+        self._stable_cell_line_counts: dict[int, int]          = {}
 
     @property
     def has_backtrack_target(self) -> bool:
@@ -107,8 +111,10 @@ class TuiTranscriptOverlay(object):
             unit_width = max(0, get_cwidth(fragments_text(unit)))
             if current and used_width + unit_width > width:
                 rows.append(current)
-                current = list(continuation)
+
+                current    = list(continuation)
                 used_width = sum(get_cwidth(value) for _style, value in current)
+
             for style, text in unit:
                 if current and current[-1][0] == style:
                     previous_style, previous_text = current[-1]
@@ -148,6 +154,29 @@ class TuiTranscriptOverlay(object):
             return None
         self._sync_scroll_offset()
         self._invalidate()
+
+    def content_replaced(self) -> None:
+        """在完整记录被替换后丢弃依赖旧 cell 身份的缓存。"""
+        self._clear_render_cache()
+        self.content_changed()
+
+    def toggle_raw_mode(self) -> None:
+        """切换完整记录的富文本与无装饰文本表示。"""
+        self.raw_mode = not self.raw_mode
+        self._clear_render_cache()
+        self._sync_scroll_offset()
+        self._invalidate()
+
+    def _clear_render_cache(self) -> None:
+        """清除依赖 cell 身份、宽度或渲染模式的视觉缓存。"""
+        self._cached_stable_revision = -1
+        self._cached_width = -1
+        self._cached_live_tail_key = None
+        self._cached_stable_cells = ()
+        self._cached_stable_lines.clear()
+        self._cached_live_tail_lines.clear()
+        self._stable_cell_cache.clear()
+        self._stable_cell_line_counts.clear()
 
     def scroll_line(self, direction: int) -> None:
         """按视觉行滚动完整会话记录。"""
@@ -289,14 +318,14 @@ class TuiTranscriptOverlay(object):
         has_content: bool = False
 
         for cell in self._cached_stable_cells:
-            rendered = self._stable_cell_cache.get(id(cell))
-            if rendered is None or not rendered.lines:
+            line_count = self._stable_cell_line_counts.get(id(cell), 0)
+            if line_count <= 0:
                 continue
-            if has_content and cell.gap_before:
+            if has_content and not cell.stream_continuation:
                 line += 1
 
             start = line
-            line += len(rendered.lines)
+            line += line_count
 
             if cell is selected:
                 return start, line
@@ -429,21 +458,28 @@ class TuiTranscriptOverlay(object):
                 width=width,
             ):
                 appended_cache: dict[int, _CellRender] = {}
+                appended_line_counts: dict[int, int] = {}
                 appended_lines = self._render_cells(
                     snapshot.committed_cells[len(self._cached_stable_cells):],
                     width=width,
                     leading_content=bool(self._cached_stable_lines),
                     cache=appended_cache,
+                    line_counts=appended_line_counts,
                 )
                 self._stable_cell_cache.update(appended_cache)
+                self._trim_stable_cell_cache()
+                self._stable_cell_line_counts.update(appended_line_counts)
                 self._cached_stable_lines.extend(appended_lines)
             else:
+                stable_line_counts: dict[int, int] = {}
                 self._cached_stable_lines = list(self._render_cells(
                     snapshot.committed_cells,
                     width=width,
                     leading_content=False,
                     cache=self._stable_cell_cache,
+                    line_counts=stable_line_counts,
                 ))
+                self._stable_cell_line_counts = stable_line_counts
             self._cached_stable_cells = snapshot.committed_cells
             self._cached_stable_revision = snapshot.committed_revision
         if live_tail_changed:
@@ -470,6 +506,14 @@ class TuiTranscriptOverlay(object):
             width == self._cached_width
             and stable_revision == self._cached_stable_revision + 1
             and len(cells) > len(self._cached_stable_cells)
+            and all(
+                cell is cached_cell
+                for cell, cached_cell in zip(
+                    cells,
+                    self._cached_stable_cells,
+                    strict=False,
+                )
+            )
             and all(cell.transcript_stable for cell in cells)
         )
 
@@ -506,7 +550,8 @@ class TuiTranscriptOverlay(object):
         *,
         width: int,
         leading_content: bool,
-        cache: dict[int, _CellRender]
+        cache: dict[int, _CellRender],
+        line_counts: dict[int, int] | None = None,
     ) -> tuple[FormattedText, ...]:
         """复用单 cell 视觉行并组合块间距。"""
         out: list[FormattedText]              = []
@@ -529,6 +574,10 @@ class TuiTranscriptOverlay(object):
                 )
             if cell.transcript_stable:
                 current_cache[key] = rendered
+                if len(current_cache) > self.STABLE_CELL_CACHE_LIMIT:
+                    current_cache.pop(next(iter(current_cache)))
+                if line_counts is not None:
+                    line_counts[key] = len(rendered.lines)
             if not rendered.lines:
                 continue
             if has_content and not cell.stream_continuation:
@@ -540,6 +589,12 @@ class TuiTranscriptOverlay(object):
         cache.update(current_cache)
         return tuple(out)
 
+    def _trim_stable_cell_cache(self) -> None:
+        """只保留最近一段稳定 cell 的昂贵视觉行缓存。"""
+        excess = len(self._stable_cell_cache) - self.STABLE_CELL_CACHE_LIMIT
+        for key in tuple(self._stable_cell_cache)[:max(0, excess)]:
+            self._stable_cell_cache.pop(key, None)
+
     def _render_cell(
         self,
         cell: TranscriptBlock,
@@ -547,7 +602,13 @@ class TuiTranscriptOverlay(object):
         width: int
     ) -> tuple[FormattedText, ...]:
         """把单个记录 cell 转换为终端视觉行。"""
-        parts = self.document.transcript_cell_fragments(cell)
+        parts = (
+            [("", cell.raw_text)]
+            if self.raw_mode and cell.raw_text is not None
+            else self.document.transcript_cell_fragments(cell)
+        )
+        if self.raw_mode and cell.raw_text is None:
+            parts = [("", fragments_text(parts))]
 
         out: list[FormattedText] = []
 

@@ -5,6 +5,7 @@ from mind_app.presentation.terminal_text import (
     TerminalTextFilter,
     sanitize_terminal_line,
     sanitize_styled_block,
+    sanitize_terminal_hyperlink,
     sanitize_terminal_text,
 )
 
@@ -81,6 +82,17 @@ def test_terminal_text_sanitizing_is_idempotent() -> None:
 def test_terminal_text_preserves_non_string_scalar_values() -> None:
     assert sanitize_terminal_text(0) == "0"
     assert sanitize_terminal_text(False) == "False"
+
+
+def test_terminal_hyperlink_accepts_absolute_urls_and_rejects_controls() -> None:
+    assert sanitize_terminal_hyperlink("https://example.com/docs") == (
+        "https://example.com/docs"
+    )
+    assert sanitize_terminal_hyperlink("file:///tmp/example.py") == (
+        "file:///tmp/example.py"
+    )
+    assert sanitize_terminal_hyperlink("relative/path") is None
+    assert sanitize_terminal_hyperlink("https://example.com/\x1b\\") is None
 
 
 def test_terminal_line_filters_controls_and_flattens_whitespace() -> None:

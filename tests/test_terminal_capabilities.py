@@ -7,7 +7,9 @@ import pytest
 
 from mind_core.design import terminal_capabilities
 from mind_core.design.terminal_capabilities import (
+    TerminalCapabilities,
     TerminalColorLevel,
+    TerminalIdentity,
     TerminalKind,
     TerminalTheme,
     detect_terminal_capabilities,
@@ -53,6 +55,29 @@ def test_term_program_prevents_inherited_windows_terminal_false_positive() -> No
 
     assert identity.kind == TerminalKind.VSCODE
     assert not identity.high_capability
+
+
+@pytest.mark.parametrize(
+    ("kind", "supported"),
+    (
+        (TerminalKind.ITERM2, True),
+        (TerminalKind.VSCODE, True),
+        (TerminalKind.VTE, True),
+        (TerminalKind.APPLE_TERMINAL, False),
+        (TerminalKind.UNKNOWN, False),
+        (TerminalKind.TMUX, False),
+    ),
+)
+def test_terminal_hyperlinks_use_known_osc8_capabilities(
+    kind: TerminalKind,
+    supported: bool,
+) -> None:
+    capabilities = TerminalCapabilities(
+        TerminalIdentity(kind, kind.value),
+        TerminalColorLevel.UNKNOWN,
+    )
+
+    assert capabilities.hyperlinks is supported
 
 
 def test_tmux_uses_outer_client_terminal_identity() -> None:

@@ -77,7 +77,7 @@ def _wrap_styled_cells(
 def _styled_cells(parts: list[TextSpan]) -> list[TextSpan]:
     """把样式片段展开为逐字符显示单元。"""
     return [
-        TextSpan(char, part.style)
+        TextSpan(char, part.style, part.hyperlink)
         for part in parts
         for char in part.text
     ]
@@ -87,7 +87,7 @@ def _take_wrapped_line(
     cells: list[TextSpan],
     *,
     max_width: int,
-    measure_width: typing.Callable[[str], int],
+    measure_width: typing.Callable[[str], int]
 ) -> tuple[list[TextSpan], list[TextSpan]]:
     """取一行样式单元并优先在空白处断行。"""
     limit = max(1, int(max_width or 1))
@@ -100,6 +100,7 @@ def _take_wrapped_line(
     while cursor < len(cells):
         cell       = cells[cursor]
         char_width = max(0, measure_width(cell.text))
+
         if line and width + char_width > limit:
             break
 
@@ -122,20 +123,33 @@ def _take_wrapped_line(
         line.pop()
     while rest and rest[0].text.isspace():
         rest = rest[1:]
+
     return line, rest
 
 
 def _coalesce_cells(cells: list[TextSpan]) -> list[TextSpan]:
     """把逐字符显示单元合并为连续样式片段。"""
     parts: list[TextSpan] = []
+
     for cell in cells:
         if not cell.text:
             continue
-        if parts and parts[-1].style == cell.style:
+
+        if (
+            parts
+            and parts[-1].style == cell.style
+            and parts[-1].hyperlink == cell.hyperlink
+        ):
             previous = parts[-1]
-            parts[-1] = TextSpan(f"{previous.text}{cell.text}", previous.style)
+
+            parts[-1] = TextSpan(
+                f"{previous.text}{cell.text}",
+                previous.style,
+                previous.hyperlink,
+            )
         else:
-            parts.append(TextSpan(cell.text, cell.style))
+            parts.append(TextSpan(cell.text, cell.style, cell.hyperlink))
+
     return parts
 
 

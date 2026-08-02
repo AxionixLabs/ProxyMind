@@ -187,6 +187,7 @@ class TuiScreen(object):
             None,
         ],
         report_missing_transcript_backtrack: typing.Callable[[], None],
+        observe_terminal_width: typing.Callable[[int], None],
         keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
@@ -223,6 +224,7 @@ class TuiScreen(object):
         self._report_missing_transcript_backtrack = (
             report_missing_transcript_backtrack
         )
+        self._observe_terminal_width = observe_terminal_width
 
         self.keymap = keymap
 
@@ -685,6 +687,7 @@ class TuiScreen(object):
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
+        self._observe_terminal_width(self._frame_geometry.width)
 
     def _release_frame_geometry(self, application: Application[None]) -> None:
         """在渲染结束后恢复终端尺寸的实时读取。"""
@@ -1206,6 +1209,16 @@ class TuiScreen(object):
             self._toggle_transcript_overlay()
             self._request_transcript_backtrack(request)
 
+        def toggle_raw(event) -> None:
+            _ = event
+            self.transcript_overlay.toggle_raw_mode()
+
+        self._add_configured_bindings(
+            bindings,
+            pager.toggle_raw,
+            toggle_raw,
+        )
+
         def close(event) -> None:
             _ = event
             self._toggle_transcript_overlay()
@@ -1326,11 +1339,18 @@ class TuiScreen(object):
 
     def _transcript_overlay_header_fragments(self) -> FormattedText:
         """生成标题覆盖在装饰图案上的单行页眉。"""
-        width = self.terminal_width
+        width   = self.terminal_width
         pattern = ("/ " * ((width + 1) // 2))[:width]
-        title = "/ T R A N S C R I P T"
+
+        title = (
+            "/ R A W   T R A N S C R I P T"
+            if self.transcript_overlay.raw_mode
+            else "/ T R A N S C R I P T"
+        )
+
         if len(title) >= width:
             return [("class:transcript.overlay.title", title[:width])]
+
         return [
             ("class:transcript.overlay.title", title),
             ("class:transcript.overlay.rule", pattern[len(title):]),
@@ -1359,7 +1379,8 @@ class TuiScreen(object):
                 " Esc/Left previous   Right next   Enter edit",
             )]
 
-        pager = self.keymap.pager
+        pager     = self.keymap.pager
+        raw_label = primary_binding_label(pager.toggle_raw)
 
         hints = (
             self._paired_key_hint(
@@ -1372,6 +1393,12 @@ class TuiScreen(object):
                 pager.jump_top,
                 pager.jump_bottom,
                 "to jump",
+            ),
+            (
+                f"{raw_label} "
+                f"{'rich' if self.transcript_overlay.raw_mode else 'raw'}"
+                if raw_label
+                else ""
             ),
         )
 

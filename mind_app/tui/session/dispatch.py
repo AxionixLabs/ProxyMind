@@ -127,7 +127,7 @@ class TuiCommandDispatcher(object):
         mind: "Mind",
         runtime: TuiRuntime,
         state: TuiSessionState,
-        foreground_tasks: TuiForegroundTasks,
+        foreground_tasks: TuiForegroundTasks
     ) -> None:
         self.mind    = mind
         self.runtime = runtime
@@ -496,15 +496,16 @@ class TuiCommandDispatcher(object):
         if action is None:
             action = await choose_mcp_action(self.runtime, self.mind)
 
-        if action in {"start", "force", "restart", "stop"}:
-            self.foreground_tasks.start_external_mcp(action)
-            await self.foreground_tasks.wait()
+        if action is None:
+            self._present()
             return None
 
         if action == "status":
             render_mcp_status(self.mind)
-        else:
-            self._present()
+            return None
+
+        self.foreground_tasks.start_external_mcp(action)
+        await self.foreground_tasks.wait()
 
     async def _resume_conversation(self) -> None:
         """选择并恢复最近的会话。"""
@@ -535,6 +536,8 @@ class TuiCommandDispatcher(object):
             self.mind,
             session_id,
             terminal_width=self.runtime.terminal_width,
+            hyperlinks=self.runtime.hyperlinks_enabled,
+            record=selected,
         )
 
         resumed = await self.mind.resume_conversation(

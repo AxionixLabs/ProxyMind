@@ -27,6 +27,7 @@ class TuiPagerKeymap(object):
     half_page_down: tuple[TuiKeyBinding, ...]
     jump_top: tuple[TuiKeyBinding, ...]
     jump_bottom: tuple[TuiKeyBinding, ...]
+    toggle_raw: tuple[TuiKeyBinding, ...]
     close: tuple[TuiKeyBinding, ...]
     close_transcript: tuple[TuiKeyBinding, ...]
 
@@ -121,6 +122,12 @@ class TuiRuntimeKeymap(object):
                 "jump_bottom",
                 defaults=("end",),
                 path="tui.keymap.pager.jump_bottom",
+            ),
+            toggle_raw=_resolve_bindings(
+                pager_config,
+                "toggle_raw",
+                defaults=("r",),
+                path="tui.keymap.pager.toggle_raw",
             ),
             close=_resolve_bindings(
                 pager_config,

@@ -58,6 +58,13 @@ HIGH_CAPABILITY_TERMINALS = frozenset({
     TerminalKind.APPLE_TERMINAL,
 })
 
+HYPERLINK_TERMINALS = frozenset({
+    *(HIGH_CAPABILITY_TERMINALS - {TerminalKind.APPLE_TERMINAL}),
+    TerminalKind.VSCODE,
+    TerminalKind.VTE,
+    TerminalKind.ZELLIJ,
+})
+
 
 @dataclass(frozen=True)
 class TerminalIdentity:
@@ -94,6 +101,11 @@ class TerminalCapabilities:
             and self.color_level == TerminalColorLevel.TRUECOLOR
             and self.theme.background is not None
         )
+
+    @property
+    def hyperlinks(self) -> bool:
+        """判断终端是否可以安全处理 OSC 8 链接。"""
+        return self.identity.kind in HYPERLINK_TERMINALS
 
 
 DEGRADED_TERMINAL_CAPABILITIES = TerminalCapabilities(

@@ -27,6 +27,7 @@ def test_tui_keymap_resolves_defaults_remaps_and_explicit_unbinding() -> None:
         "Up",
         "K",
     ]
+    assert [binding.label for binding in defaults.pager.toggle_raw] == ["R"]
 
     config = normalize_config({
         "tui": {
