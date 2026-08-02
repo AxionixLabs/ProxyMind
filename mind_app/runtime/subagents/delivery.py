@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from engine.observability import observe_exception
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
+    TurnControlStatus,
     steer_turn
 )
 from mind_nova.stream_events import (
@@ -80,8 +81,8 @@ class AgentMessageDeliveryPort(typing.Protocol):
 class SteeringMessageDelivery:
     """通过远程轮次引导接口投递活动轮次输入。"""
 
+    @staticmethod
     async def deliver(
-        self,
         context: TurnContext,
         turn_input: TurnInput,
     ) -> AgentMessageReceipt | None:
@@ -107,10 +108,13 @@ class SteeringMessageDelivery:
                     turn_id=context.turn_id,
                 )
 
-        if response is None or response.status not in {"accepted", "duplicate"}:
+        if response is None:
+            return None
+        receipt_status = _receipt_status(response.status)
+        if receipt_status is None:
             return None
         return AgentMessageReceipt(
-            status=response.status,
+            status=receipt_status,
             turn_id=response.turn_id,
             client_message_id=response.client_message_id,
         )
@@ -172,7 +176,7 @@ class AgentActiveTurn:
 
         async with self._delivery_lock:
             if not await self._wait_until_ready():
-                return False
+                return None
 
             turn_input = _turn_input_from_event(event)
             self._pending[event.event_id] = turn_input
@@ -217,6 +221,17 @@ class AgentActiveTurn:
             await asyncio.gather(*waits, return_exceptions=True)
 
         return self._ready.is_set() and not self._unavailable.is_set()
+
+
+def _receipt_status(
+    value: TurnControlStatus,
+) -> AgentMessageReceiptStatus | None:
+    """把远端控制状态收窄为可确认的消息回执状态。"""
+    if value == "accepted":
+        return "accepted"
+    if value == "duplicate":
+        return "duplicate"
+    return None
 
 
 def _turn_input_from_event(event: AgentMailboxEvent) -> TurnInput:

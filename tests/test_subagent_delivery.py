@@ -9,6 +9,7 @@ from mind_app.runtime.subagents import delivery as delivery_module
 from mind_app.runtime.subagents.delivery import (
     AgentActiveTurn,
     AgentMessageReceipt,
+    AgentMessageReceiptStatus,
     SteeringMessageDelivery,
 )
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
@@ -26,11 +27,18 @@ from mind_nova.turn_inputs import TurnInput
 
 
 class _Delivery:
-    def __init__(self, status="accepted") -> None:
+    def __init__(
+        self,
+        status: AgentMessageReceiptStatus | None = "accepted",
+    ) -> None:
         self.status = status
         self.calls = []
 
-    async def deliver(self, context, turn_input):
+    async def deliver(
+        self,
+        context: TurnContext,
+        turn_input: TurnInput,
+    ) -> AgentMessageReceipt | None:
         self.calls.append((context, turn_input))
         if self.status is None:
             return None
@@ -140,7 +148,11 @@ async def test_active_turn_settles_duplicate_receipt_without_stream_event() -> N
 @pytest.mark.anyio
 async def test_active_turn_rejects_mismatched_delivery_receipt() -> None:
     class MismatchedDelivery:
-        async def deliver(self, context, _turn_input):
+        @staticmethod
+        async def deliver(
+            context: TurnContext,
+            _turn_input: TurnInput,
+        ) -> AgentMessageReceipt:
             return AgentMessageReceipt(
                 status="accepted",
                 turn_id=context.turn_id,
@@ -172,7 +184,7 @@ async def test_active_turn_refuses_unready_settled_and_closed_delivery() -> None
     event = _message()
     unready = AgentActiveTurn(context, port, ready_timeout_sec=0.01)
 
-    assert not await unready.deliver(event)
+    assert await unready.deliver(event) is None
 
     settled = AgentActiveTurn(context, port)
     settled.handle_event(MarkerEvent(
@@ -183,13 +195,13 @@ async def test_active_turn_refuses_unready_settled_and_closed_delivery() -> None
         type="turn.logical_settled",
         turn_id=context.turn_id,
     ))
-    assert not await settled.deliver(event)
+    assert await settled.deliver(event) is None
 
     waiting = AgentActiveTurn(context, port)
     task = asyncio.create_task(waiting.deliver(event))
     await asyncio.sleep(0)
     waiting.close()
-    assert not await task
+    assert await task is None
     assert port.calls == []
 
 
@@ -243,10 +255,10 @@ async def test_steering_delivery_retries_request_errors(monkeypatch) -> None:
     monkeypatch.setattr(delivery_module, "steer_turn", fail)
     event = _message()
 
-    assert not await SteeringMessageDelivery().deliver(
+    assert await SteeringMessageDelivery().deliver(
         _context(),
         _turn_input(event),
-    )
+    ) is None
     assert len(calls) == 2
 
 

@@ -36,15 +36,15 @@ class AgentMailboxEvent:
 
     def __post_init__(self) -> None:
         """校验事件的稳定字段和类型特定载荷。"""
-        event_id = str(self.event_id or "").strip()
-        source_agent_id = str(self.source_agent_id or "").strip()
-        source_task_path = str(self.source_task_path or "").strip()
-        recipient_agent_id = str(self.recipient_agent_id or "").strip()
+        event_id            = str(self.event_id or "").strip()
+        source_agent_id     = str(self.source_agent_id or "").strip()
+        source_task_path    = str(self.source_task_path or "").strip()
+        recipient_agent_id  = str(self.recipient_agent_id or "").strip()
         recipient_task_path = str(self.recipient_task_path or "").strip()
-        message = str(self.message or "").strip()
-        status = str(self.status or "").strip()
-        submission_id = str(self.submission_id or "").strip()
-        detail = str(self.detail or "").strip()
+        message             = str(self.message or "").strip()
+        status              = str(self.status or "").strip()
+        submission_id       = str(self.submission_id or "").strip()
+        detail              = str(self.detail or "").strip()
 
         if not event_id:
             raise ValueError("mailbox event id is required")
@@ -225,6 +225,7 @@ class AgentMailboxStore:
     ) -> AgentMailboxEvent:
         """追加一项通信或状态事件。"""
         normalized_message = str(message or "").strip()
+
         encoded_message_chars = len(json.dumps(
             normalized_message,
             ensure_ascii=False,
@@ -263,12 +264,15 @@ class AgentMailboxStore:
     ) -> tuple[AgentMailboxEvent, ...]:
         """返回指定来源的未读事件并标记已消费。"""
         _require_positive_limit(limit, "mailbox update limit")
-        reader = str(reader_agent_id or "").strip()
+
+        reader  = str(reader_agent_id or "").strip()
         sources = {str(item or "").strip() for item in source_agent_ids}
+
         if not reader or not sources or "" in sources:
             raise ValueError("mailbox reader and sources are required")
 
         consumed = self._consumed.setdefault(reader, set())
+
         selected: list[AgentMailboxEvent] = []
         for event in self._events:
             if (
@@ -296,13 +300,16 @@ class AgentMailboxStore:
         """返回发给指定主体的未读消息。"""
         _require_positive_limit(limit, "mailbox message limit")
         _require_positive_limit(max_chars, "mailbox context character limit")
+
         reader = str(reader_agent_id or "").strip()
         if not reader:
             raise ValueError("mailbox reader is required")
 
         consumed = self._consumed.setdefault(reader, set())
         selected = self._select_messages(reader, limit=limit, max_chars=max_chars)
+
         consumed.update(event.event_id for event in selected)
+
         return selected
 
     def claim_message(
@@ -312,9 +319,10 @@ class AgentMailboxStore:
         owner_id: str,
     ) -> bool:
         """为指定投递者临时锁定一项未读消息。"""
-        reader = str(reader_agent_id or "").strip()
+        reader          = str(reader_agent_id or "").strip()
         target_event_id = str(event_id or "").strip()
-        owner = str(owner_id or "").strip()
+        owner           = str(owner_id or "").strip()
+
         if not reader or not target_event_id or not owner:
             raise ValueError("mailbox reader, event id, and owner are required")
 
@@ -345,8 +353,10 @@ class AgentMailboxStore:
         """为一次轮次临时锁定指定主体的未读消息。"""
         _require_positive_limit(limit, "mailbox message limit")
         _require_positive_limit(max_chars, "mailbox context character limit")
+
         reader = str(reader_agent_id or "").strip()
-        owner = str(owner_id or "").strip()
+        owner  = str(owner_id or "").strip()
+
         if not reader or not owner:
             raise ValueError("mailbox reader and owner are required")
 

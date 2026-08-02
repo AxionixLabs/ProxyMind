@@ -32,6 +32,7 @@ from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
 from mind_nova.stream_events import MarkerEvent
+from mind_nova.turn_inputs import TurnInput
 
 
 class _Controller:
@@ -68,7 +69,11 @@ class _Delivery:
     def __init__(self) -> None:
         self.calls = []
 
-    async def deliver(self, context, turn_input):
+    async def deliver(
+        self,
+        context: TurnContext,
+        turn_input: TurnInput,
+    ) -> AgentMessageReceipt:
         self.calls.append((context, turn_input))
         return AgentMessageReceipt(
             status="accepted",
