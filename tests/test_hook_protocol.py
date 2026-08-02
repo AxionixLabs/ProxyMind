@@ -206,6 +206,40 @@ def test_post_tool_use_rejects_reserved_result_rewrite() -> None:
         })
 
 
+def test_post_tool_use_stop_is_distinct_from_block() -> None:
+    normalized = normalize_hook_output("PostToolUse", {
+        "continue": False,
+        "stopReason": "stop processing hook output",
+        "reason": "review the tool result",
+    })
+
+    assert normalized.effect.stop_requested
+    assert normalized.effect.decision == ""
+    assert normalized.effect.reason == "review the tool result"
+    assert not normalized.effect.continue_execution
+
+
+def test_post_tool_use_stop_reason_becomes_feedback_fallback() -> None:
+    normalized = normalize_hook_output("PostToolUse", {
+        "continue": False,
+        "stopReason": "review before continuing",
+    })
+
+    assert normalized.effect.stop_requested
+    assert normalized.effect.reason == "review before continuing"
+
+
+def test_post_tool_use_block_is_not_a_stop_request() -> None:
+    normalized = normalize_hook_output("PostToolUse", {
+        "decision": "block",
+        "reason": "reject this result",
+    })
+
+    assert not normalized.effect.stop_requested
+    assert normalized.effect.decision == "block"
+    assert not normalized.effect.continue_execution
+
+
 def test_output_schema_accepts_transport_spill_metadata() -> None:
     validate_hook_output("SessionStart", {
         "stdout": "output spilled",

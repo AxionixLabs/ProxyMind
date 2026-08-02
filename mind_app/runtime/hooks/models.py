@@ -58,6 +58,7 @@ class HookEventRequest:
 class HookOutputEffect:
     """描述 Hook 输出对后续执行的统一影响。"""
     continue_execution: bool = True
+    stop_requested: bool = False
     decision: str = ""
     reason: str = ""
     updated_input: dict[str, typing.Any] | None = None
@@ -66,7 +67,6 @@ class HookOutputEffect:
     replacement_result: typing.Any = None
     replacement_result_set: bool = False
     continuation_prompt: str = ""
-    suppress_original_output: bool = False
 
     def __post_init__(self) -> None:
         """复制可变输入并规范化文本集合。"""

@@ -12,8 +12,8 @@ def apply_tool_result_effect(
     fields: dict[str, typing.Any],
     replacement_result: typing.Any = None,
     replacement_result_set: bool = False,
-    suppress_original_output: bool = False,
-    reason: str = "",
+    blocked: bool = False,
+    feedback_message: str = "",
     additional_context: typing.Iterable[str] = (),
     system_message: str = ""
 ) -> HookVisibleToolResult:
@@ -21,22 +21,31 @@ def apply_tool_result_effect(
     result_ok     = bool(ok)
     result_text   = str(text or "")
     result_fields = dict(fields)
+    feedback      = str(feedback_message or "").strip()
 
-    if replacement_result_set:
-        result_ok, result_text, result_fields = _coerce_hook_result_fields(
-            replacement_result,
-            default_ok=result_ok,
-        )
-    elif suppress_original_output:
-        result_text = str(reason or "tool result suppressed by hook")
+    if blocked:
+        result_text = feedback or "PostToolUse hook blocked the tool result"
         result_ok   = False
-
         result_fields = {
             "ok": False,
             "text": result_text,
             "data": {
-                "hook_suppressed": True,
+                "hook_blocked": True,
                 "error": result_text,
+            },
+        }
+    elif replacement_result_set:
+        result_ok, result_text, result_fields = _coerce_hook_result_fields(
+            replacement_result,
+            default_ok=result_ok,
+        )
+    elif feedback:
+        result_text = feedback
+        result_fields = {
+            "ok": result_ok,
+            "text": result_text,
+            "data": {
+                "hook_feedback": True,
             },
         }
 

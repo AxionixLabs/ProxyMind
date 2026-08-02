@@ -283,7 +283,6 @@ _COMMAND_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
 
 _REPLACEMENT_PROPERTIES: dict[str, JsonSchema] = {
     "replacementResult": _ANY,
-    "suppressOriginalOutput": _BOOLEAN,
 }
 
 

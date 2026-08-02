@@ -34,11 +34,12 @@ class _PreparedDecision:
 @dataclass(frozen=True, slots=True)
 class _PostToolUseResult:
     """保存工具后置 Hook 对模型可见结果的影响。"""
+    stopped: bool = False
+    blocked: bool = False
+    feedback_message: str = ""
     replacement_result: typing.Any = None
     replacement_result_set: bool = False
-    suppress_original_output: bool = False
     additional_context: tuple[str, ...] = ()
-    reason: str = ""
 
     def __post_init__(self) -> None:
         """规范化反馈文本集合。"""
@@ -52,7 +53,11 @@ class _PostToolUseResult:
                 if text
             ),
         )
-        object.__setattr__(self, "reason", str(self.reason or "").strip())
+        object.__setattr__(
+            self,
+            "feedback_message",
+            str(self.feedback_message or "").strip(),
+        )
 
 
 class ToolHookEvents:
@@ -138,11 +143,13 @@ class ToolHookEvents:
         )
 
         contexts: list[str] = []
-        reasons: list[str]  = []
+        feedback: list[str] = []
 
         replacement_result: typing.Any = None
         replacement_result_set         = False
-        suppress_original_output       = False
+
+        stopped: bool = False
+        blocked: bool = False
 
         for record in dispatched.records:
             if not record.ok:
@@ -151,20 +158,28 @@ class ToolHookEvents:
             effect = record.effect
 
             contexts.extend(effect.additional_context)
-            if effect.reason:
-                reasons.append(_bounded_reason(effect.reason))
             if effect.replacement_result_set:
                 replacement_result = effect.replacement_result
                 replacement_result_set = True
-            if effect.suppress_original_output or not effect.continue_execution:
-                suppress_original_output = True
+
+            if effect.stop_requested:
+                stopped = True
+                feedback.append(_bounded_reason(
+                    effect.reason or "PostToolUse hook stopped execution"
+                ))
+            elif effect.decision == "block":
+                blocked = True
+                feedback.append(_bounded_reason(effect.reason))
 
         return _PostToolUseResult(
+            stopped=stopped,
+            blocked=blocked,
+            feedback_message="\n\n".join(
+                message for message in feedback if message
+            ),
             replacement_result=replacement_result,
             replacement_result_set=replacement_result_set,
-            suppress_original_output=suppress_original_output,
             additional_context=tuple(contexts),
-            reason="; ".join(reason for reason in reasons if reason),
         )
 
     async def permission_request(
@@ -353,8 +368,8 @@ class ToolCallCoordinator:
             fields=operation_result.snapshot.fields,
             replacement_result=post_result.replacement_result,
             replacement_result_set=post_result.replacement_result_set,
-            suppress_original_output=post_result.suppress_original_output,
-            reason=post_result.reason,
+            blocked=post_result.blocked,
+            feedback_message=post_result.feedback_message,
             additional_context=additional_context,
             system_message=operation_result.system_message,
         )
@@ -363,7 +378,6 @@ class ToolCallCoordinator:
             allowed=True,
             value=operation_result.value,
             visible_result=visible_result,
-            reason=post_result.reason,
         )
 
     def record_rejected(

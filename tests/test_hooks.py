@@ -1492,6 +1492,86 @@ async def test_post_tool_use_exposes_replacement_result_effect() -> None:
 
 
 @pytest.mark.anyio
+async def test_post_tool_use_stop_returns_feedback_without_blocking() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "continue": False,
+            "stopReason": "stop processing hook output",
+            "reason": "review the tool result",
+        },
+    })
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+
+    original = SimpleNamespace(
+        ok=True,
+        text="original",
+        fields={"ok": True, "data": {"answer": 42}},
+    )
+    result = await coordinator.run_invocation(
+        _invocation(),
+        lambda _prepared: _return_value(original),
+    )
+
+    assert result.allowed
+    assert result.value is original
+    assert result.visible_result.ok is True
+    assert result.visible_result.text == "review the tool result"
+    assert result.visible_result.fields == {
+        "ok": True,
+        "text": "review the tool result",
+        "data": {"hook_feedback": True},
+    }
+
+
+@pytest.mark.anyio
+async def test_post_tool_use_block_rejects_result_before_replacement() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "decision": "block",
+            "reason": "reject this result",
+            "replacementResult": {
+                "ok": True,
+                "text": "replacement",
+            },
+        },
+    })
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+
+    original = SimpleNamespace(
+        ok=True,
+        text="original",
+        fields={"ok": True, "data": {"answer": 42}},
+    )
+    result = await coordinator.run_invocation(
+        _invocation(),
+        lambda _prepared: _return_value(original),
+    )
+
+    assert result.allowed
+    assert result.value is original
+    assert result.visible_result.ok is False
+    assert result.visible_result.text == "reject this result"
+    assert result.visible_result.fields == {
+        "ok": False,
+        "text": "reject this result",
+        "data": {
+            "hook_blocked": True,
+            "error": "reject this result",
+        },
+    }
+
+
+@pytest.mark.anyio
 async def test_post_tool_use_failure_does_not_replace_tool_result() -> None:
     definitions = _definitions({
         "PostToolUse": [_hook("broken-post")],

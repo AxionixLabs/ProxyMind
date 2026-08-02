@@ -86,24 +86,11 @@ def normalize_hook_output(
 
     replacement_set, replacement_result = _replacement_result(merged)
 
-    suppress_original_output = _normalize_bool(
-        merged,
-        "suppressOriginalOutput",
-        error="hook suppressOriginalOutput must be a boolean",
-    )
-
     continue_execution = _continue_execution(
         event,
         decision=decision,
         continuation=continuation,
     )
-
-    if (
-        event == "PostToolUse"
-        and not continue_execution
-        and not replacement_set
-    ):
-        suppress_original_output = True
 
     output = _normalized_output(
         data,
@@ -115,13 +102,13 @@ def normalize_hook_output(
         replacement_set=replacement_set,
         replacement_result=replacement_result,
         continuation_prompt=continuation_prompt,
-        suppress_original_output=suppress_original_output,
     )
 
     return HookNormalizedOutput(
         output=output,
         effect=HookOutputEffect(
             continue_execution=continue_execution,
+            stop_requested=not continuation,
             decision=decision,
             reason=reason,
             updated_input=updated_input,
@@ -130,7 +117,6 @@ def normalize_hook_output(
             replacement_result=replacement_result,
             replacement_result_set=replacement_set,
             continuation_prompt=continuation_prompt,
-            suppress_original_output=suppress_original_output,
         ),
     )
 
@@ -338,7 +324,7 @@ def _reject_unsupported_universal(
     data: dict[str, typing.Any],
 ) -> None:
     """拒绝工具前置与授权事件尚未实现的通用控制字段。"""
-    if data.get("continue", True) is False:
+    if not data.get("continue", True):
         raise ValueError(f"{event} hook returned unsupported continue false")
     if data.get("stopReason") is not None:
         raise ValueError(f"{event} hook returned unsupported stopReason")
@@ -403,7 +389,11 @@ def _normalize_continue(data: dict[str, typing.Any]) -> bool:
 
 def _normalize_reason(data: dict[str, typing.Any]) -> str:
     """读取通用原因文本。"""
-    raw_reason = data.get("reason", data.get("stopReason", ""))
+    raw_reason = data.get("reason")
+    if raw_reason is None or (
+        isinstance(raw_reason, str) and not raw_reason.strip()
+    ):
+        raw_reason = data.get("stopReason", "")
     if not isinstance(raw_reason, str):
         raise ValueError("hook reason must be a string")
     return raw_reason.strip()
@@ -464,23 +454,6 @@ def _normalize_optional_text(
     return value.strip()
 
 
-def _normalize_bool(
-    data: dict[str, typing.Any],
-    camel_key: str,
-    *,
-    error: str
-) -> bool:
-    """读取可选的布尔字段。"""
-    found, value = _first_present(data, camel_key)
-
-    if not found:
-        return False
-    if not isinstance(value, bool):
-        raise ValueError(error)
-
-    return value
-
-
 def _replacement_result(
     data: dict[str, typing.Any]
 ) -> tuple[bool, typing.Any]:
@@ -519,7 +492,6 @@ def _normalized_output(
     replacement_set: bool,
     replacement_result: typing.Any,
     continuation_prompt: str,
-    suppress_original_output: bool
 ) -> dict[str, typing.Any]:
     """构建兼容既有调用点的规范化输出字典。"""
     output = dict(data)
@@ -535,8 +507,6 @@ def _normalized_output(
         output["replacement_result"] = replacement_result
     if continuation_prompt:
         output["continuation_prompt"] = continuation_prompt
-
-    output["suppress_original_output"] = suppress_original_output
 
     return output
 
