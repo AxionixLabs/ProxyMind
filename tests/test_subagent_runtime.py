@@ -52,7 +52,10 @@ class _Controller:
 
     async def with_mcp_session(self, pref_config, function):
         self.sessions.append(pref_config)
-        return await function("session", [{"name": "tool"}])
+        return await function(
+            "session",
+            [{"name": "tool", "meta": {"domain": "coding"}}],
+        )
 
     @staticmethod
     async def await_cleanup(awaitable) -> None:
@@ -156,7 +159,7 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
         assert prepared is execution
         assert prepared.hook_scope.dispatcher is runtime
         assert session == "session"
-        assert tools == [{"name": "tool"}]
+        assert tools == [{"name": "tool", "meta": {"domain": "coding"}}]
         assert isinstance(report, _Report)
         return RunResult(
             status="completed",

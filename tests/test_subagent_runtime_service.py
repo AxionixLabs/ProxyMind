@@ -34,7 +34,10 @@ class _Controller:
 
     async def with_mcp_session(self, pref_config, function):
         self.configs.append(pref_config)
-        return await function("session", [{"name": "tool"}])
+        return await function(
+            "session",
+            [{"name": "tool", "meta": {"domain": "coding"}}],
+        )
 
     async def stream_looper(self, **kwargs):
         self.stream_calls.append(kwargs)
@@ -104,7 +107,9 @@ async def test_runtime_keeps_thread_context_across_submissions() -> None:
     first = first_call["turn_execution"]
     second = second_call["turn_execution"]
     assert first_call["session"] == "session"
-    assert first_call["tools"] == [{"name": "tool"}]
+    assert first_call["tools"] == [
+        {"name": "tool", "meta": {"domain": "coding"}},
+    ]
     assert first_call["session_factory"] is create_silent_output_session
     assert first_call["skills"] == [{
         "name": "review",

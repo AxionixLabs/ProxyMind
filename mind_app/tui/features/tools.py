@@ -10,6 +10,7 @@ from mind_app.frontend import (
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
 from mind_nova.modes import RunMode
+from mind_app.runtime.tools.mode_policy import filter_mode_tools
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
@@ -76,7 +77,8 @@ def render_tools_summary(
     limit: int = GROUP_DISPLAY_LIMIT
 ) -> None:
     """打印当前会话可见工具摘要。"""
-    groups = summarize_tool_groups(tools)
+    visible_tools = filter_mode_tools(mode, tools)
+    groups = summarize_tool_groups(visible_tools)
     total  = sum(len(item["tools"]) for item in groups)
 
     external_total = sum(

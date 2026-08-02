@@ -46,3 +46,22 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
     )
     assert "\n\n" not in text
     assert gap.type == "tui.gap"
+
+
+def test_tools_summary_uses_current_mode_policy() -> None:
+    application = SimpleNamespace(emit=Mock())
+    tools = [
+        {"name": "apply_patch", "meta": {"domain": "coding"}},
+        {"name": "plan_steps", "meta": {"domain": "client", "class": "loop"}},
+        {"name": "update_plan", "meta": {"domain": "client", "class": "plan"}},
+    ]
+
+    render_tools_summary(application=application, mode="xtra", tools=tools)
+
+    summary = application.emit.call_args_list[0].args[0]
+    text = "".join(value for _style, value in summary.renderable.fragments)
+
+    assert "2 available" in text
+    assert "apply_patch" in text
+    assert "update_plan" in text
+    assert "plan_steps" not in text

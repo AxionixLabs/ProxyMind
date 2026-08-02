@@ -17,6 +17,7 @@ from engine.observability import (
 from mind_nova.events import EventReport
 from mind_nova.identifiers import short_uid
 from mind_app.runtime.execution import TurnContext
+from mind_app.runtime.tools.mode_policy import filter_mode_tools
 from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
@@ -236,7 +237,8 @@ async def execute_turn(
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
-        return await operation(execution, session, tools, report)
+        visible_tools = filter_mode_tools(context.mode, tools)
+        return await operation(execution, session, visible_tools, report)
 
     interrupted: bool = False
 

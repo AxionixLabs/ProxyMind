@@ -48,7 +48,10 @@ class _ExecutionController(object):
 
     async def with_mcp_session(self, pref_config, function):
         self.sessions.append(pref_config)
-        return await function("session", [{"name": "tool"}])
+        return await function(
+            "session",
+            [{"name": "tool", "meta": {"domain": "coding"}}],
+        )
 
     @staticmethod
     async def await_cleanup(awaitable) -> None:
@@ -226,13 +229,43 @@ async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> 
     assert received == [(
         execution,
         "session",
-        [{"name": "tool"}],
+        [{"name": "tool", "meta": {"domain": "coding"}}],
         report,
     )]
     assert report.opened == 0
     assert report.closed == []
     assert not hasattr(mind, "conversation")
     assert not hasattr(mind, "frontend")
+
+
+@pytest.mark.anyio
+async def test_execute_turn_applies_mode_tool_policy() -> None:
+    mind = _ExecutionController()
+    received = []
+
+    async def with_mcp_session(_pref_config, function):
+        return await function("session", [
+            {"name": "shell_command", "meta": {"domain": "coding"}},
+            {"name": "device_info", "meta": {"domain": "device"}},
+        ])
+
+    async def operation(_prepared, _session, tools, _event_report):
+        received.extend(tools)
+        return RunResult(status="completed")
+
+    mind.with_mcp_session = with_mcp_session
+
+    await execute_turn(
+        mind,
+        {},
+        _root_execution(),
+        operation,
+        event_report=_Report(),
+    )
+
+    assert received == [
+        {"name": "shell_command", "meta": {"domain": "coding"}},
+    ]
 
 
 @pytest.mark.anyio

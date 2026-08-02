@@ -82,7 +82,10 @@ class _TuiController:
     async def with_mcp_session(self, pref_config, function):
         self.events.append("session")
         self.sessions.append(pref_config)
-        return await function("session", [{"name": "tool"}])
+        return await function(
+            "session",
+            [{"name": "tool", "meta": {"domain": "coding"}}],
+        )
 
     async def run_mode_lifecycle(self, runner, **kwargs):
         self.events.append("operation")
