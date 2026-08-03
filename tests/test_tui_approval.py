@@ -42,7 +42,9 @@ def test_approval_content_keeps_question_without_card_title() -> None:
     assert text_lines[command_index - 1] == ""
     assert text_lines[command_index + 1] == ""
     assert text_lines[-2] == ""
-    assert text_lines[-1] == "Press enter to confirm or esc to cancel"
+    assert text_lines[-1] == (
+        "Press enter to confirm or ctrl + c to cancel"
+    )
     assert "Review command" not in "\n".join(text_lines)
 
 
@@ -124,7 +126,9 @@ def test_approval_displays_environment_and_justification_only() -> None:
     assert "Reason: 需要下载官方仓库以检查源码" in text_lines
     assert "legacy request reason" not in "\n".join(text_lines)
     assert text_lines[-2] == ""
-    assert text_lines[-1] == "Press enter to confirm or esc to cancel"
+    assert text_lines[-1] == (
+        "Press enter to confirm or ctrl + c to cancel"
+    )
 
 
 def test_approval_does_not_render_legacy_reason_without_justification() -> None:
@@ -450,7 +454,9 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
     footer_text = "".join(
         text for _, text in runtime.screen.approval.footer_fragments()
     )
-    assert footer_text == "  Press enter to confirm or esc to cancel"
+    assert footer_text == (
+        "  Press enter to confirm or ctrl + c to cancel"
+    )
     assert runtime.screen.approval_footer_window.style == ""
     assert runtime.screen.approval_window.width is None
     assert not runtime.screen.approval_window.dont_extend_width()

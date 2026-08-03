@@ -113,7 +113,10 @@ def tui_approval_content_lines(
     )
 
     footer_lines = _wrap_fragment_line(
-        [("class:approval-footer", "Press enter to confirm or esc to cancel")],
+        [(
+            "class:approval-footer",
+            "Press enter to confirm or ctrl + c to cancel",
+        )],
         max_width=content_width,
     )
 

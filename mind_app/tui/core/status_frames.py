@@ -437,12 +437,13 @@ def _sweep_style(
     color: str,
     *,
     intensity: float,
-    color_level: TerminalColorLevel,
+    color_level: TerminalColorLevel
 ) -> str:
     """根据终端色深生成扫光字符的颜色和字重。"""
-    if color_level == TerminalColorLevel.TRUECOLOR:
-        return f"bold {_style(color)}"
-    if intensity < 0.2:
+    if (
+        color_level != TerminalColorLevel.TRUECOLOR
+        and intensity < 0.2
+    ):
         return f"dim {_style(color)}"
     if intensity > 0.6:
         return f"bold {_style(color)}"

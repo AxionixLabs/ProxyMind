@@ -60,10 +60,25 @@ def test_status_sweep_changes_text_colors_through_active_pass(
     } == {"◦", "•"}
     assert all("bg:" not in style for frame in frames for style, _value in frame)
     assert all(
-        "bold" in style and "dim" not in style
+        "dim" not in style
         for frame in frames
         for style, value in frame[2:]
         if value.strip()
+    )
+    bold_positions = {
+        tuple(
+            index
+            for index, (style, value) in enumerate(frame[2:])
+            if value.strip() and "bold" in style
+        )
+        for frame in frames
+    }
+    assert len(bold_positions) >= 4
+    assert any(bold_positions)
+    visible_count = sum(not char.isspace() for char in text)
+    assert any(
+        len(positions) < visible_count
+        for positions in bold_positions
     )
 
 
