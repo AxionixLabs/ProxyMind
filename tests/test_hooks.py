@@ -171,14 +171,16 @@ def _invocation(
     execution=None,
     turn_id: str = "turn_test",
     session_started: bool = False,
+    model: str = "test-model",
+    cwd: str = ".",
 ) -> ToolInvocation:
     turn = TurnContext.create(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
         sid="sid_test",
         source="test",
-        pref_config={"primary": {"model": "test-model"}},
-        cwd=".",
+        pref_config={"primary": {"model": model}},
+        cwd=cwd,
         permissions=preset_permissions("auto"),
         turn_id=turn_id,
         session_started=session_started,
@@ -1354,19 +1356,33 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
 
 @pytest.mark.anyio
 async def test_exec_command_post_waits_for_terminal_write_stdin_poll() -> None:
-    definitions = _definitions({
+    start_definitions = _definitions({
         "PreToolUse": [_hook("pre", matcher="Bash")],
+    })
+    finish_definitions = _definitions({
         "PostToolUse": [_hook("post", matcher="Bash")],
     })
-    runner = _CommandRunner(outputs={
-        definitions[1].key: {
+    start_runner = _CommandRunner()
+    finish_runner = _CommandRunner(outputs={
+        finish_definitions[0].key: {
             "additionalContext": "review final output",
         },
     })
-    runtime = HookRuntime(definitions, command_runner=runner)
+    start_runtime = HookRuntime(
+        start_definitions,
+        command_runner=start_runner,
+    )
+    finish_runtime = HookRuntime(
+        finish_definitions,
+        command_runner=finish_runner,
+    )
     sessions = CommandHookSessionStore()
 
-    original = _invocation(turn_id="turn_original")
+    original = _invocation(
+        turn_id="turn_original",
+        model="start-model",
+        cwd="/start",
+    )
     exec_invocation = ToolInvocation(
         turn=original.turn,
         call_id="exec_call",
@@ -1375,11 +1391,15 @@ async def test_exec_command_post_waits_for_terminal_write_stdin_poll() -> None:
         meta=original.meta,
     )
     exec_coordinator = ToolCallCoordinator(
-        _scope(runtime, exec_invocation),
+        _scope(start_runtime, exec_invocation),
         command_sessions=sessions,
     )
 
-    poll_base = _invocation(turn_id="turn_poll")
+    poll_base = _invocation(
+        turn_id="turn_poll",
+        model="finish-model",
+        cwd="/finish",
+    )
 
     def write_invocation(call_id: str) -> ToolInvocation:
         return ToolInvocation(
@@ -1391,25 +1411,32 @@ async def test_exec_command_post_waits_for_terminal_write_stdin_poll() -> None:
         )
 
     poll_coordinator = ToolCallCoordinator(
-        _scope(runtime, poll_base),
+        _scope(finish_runtime, poll_base),
         command_sessions=sessions,
     )
 
-    async def command_result(status: str, response: str):
+    async def command_result(
+        status: str,
+        response: str,
+        *,
+        ok: bool = True,
+        exit_code: int | None = None,
+    ):
         fields = {
-            "ok": True,
+            "ok": ok,
             "status": status,
             "session_id": "exec_session",
             "data": {
                 "status": status,
                 "session_id": "exec_session",
+                "exit_code": exit_code,
             },
         }
-        value = SimpleNamespace(ok=True, text=response, fields=fields)
+        value = SimpleNamespace(ok=ok, text=response, fields=fields)
         return ToolOperationResult(
             value=value,
             snapshot=ToolResultSnapshot(
-                ok=True,
+                ok=ok,
                 text=response,
                 fields=fields,
             ),
@@ -1426,7 +1453,12 @@ async def test_exec_command_post_waits_for_terminal_write_stdin_poll() -> None:
     )
     completed = await poll_coordinator.run_invocation(
         write_invocation("final_call"),
-        lambda _prepared: command_result("exited", "final output"),
+        lambda _prepared: command_result(
+            "exited",
+            "failed command output",
+            ok=False,
+            exit_code=2,
+        ),
     )
     await poll_coordinator.run_invocation(
         write_invocation("duplicate_call"),
@@ -1438,17 +1470,18 @@ async def test_exec_command_post_waits_for_terminal_write_stdin_poll() -> None:
     assert completed.visible_result.additional_context == (
         "review final output",
     )
-    assert [call[0].event for call in runner.calls] == [
-        "PreToolUse",
-        "PostToolUse",
-    ]
-    post_payload = runner.calls[1][1]
+    assert [call[0].event for call in start_runner.calls] == ["PreToolUse"]
+    assert [call[0].event for call in finish_runner.calls] == ["PostToolUse"]
+    post_payload = finish_runner.calls[0][1]
     assert post_payload["tool_name"] == "Bash"
     assert post_payload["tool_use_id"] == "exec_call"
     assert post_payload["tool_input"] == {
         "command": "long-running-command",
     }
-    assert post_payload["tool_response"] == "final output"
+    assert post_payload["tool_response"] == "failed command output"
+    assert post_payload["turn_id"] == "turn_poll"
+    assert post_payload["model"] == "finish-model"
+    assert post_payload["cwd"] == "/finish"
 
 
 @pytest.mark.anyio
@@ -1538,6 +1571,47 @@ async def test_tool_coordinator_skips_post_for_failed_result() -> None:
     assert result.allowed
     assert result.visible_result.ok is False
     assert runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_shell_nonzero_exit_runs_post_tool_use() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post", matcher="Bash")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "additionalContext": "inspect failed test output",
+        },
+    })
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(definitions, command_runner=runner))
+    )
+    fields = {
+        "ok": False,
+        "text": "shell_command failed exit_code=1",
+        "data": {
+            "exit_code": 1,
+            "stdout": "FAILED tests/test_sample.py",
+            "stderr": "assert 1 == 2",
+        },
+    }
+
+    result = await coordinator.run_invocation(
+        _invocation(),
+        lambda _prepared: _return_value(SimpleNamespace(
+            ok=False,
+            text=fields["text"],
+            fields=fields,
+        )),
+    )
+
+    assert result.allowed
+    assert result.visible_result.ok is False
+    assert result.visible_result.additional_context == (
+        "inspect failed test output",
+    )
+    assert [call[0].event for call in runner.calls] == ["PostToolUse"]
+    assert runner.calls[0][1]["tool_response"] == fields
 
 
 @pytest.mark.anyio

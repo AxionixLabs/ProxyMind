@@ -12,6 +12,7 @@ from dataclasses import (
 )
 from mind_app.runtime.execution import ToolInvocation
 from mind_app.history.contracts import TranscriptSink
+from mind_nova import const
 from .matching import hook_tool_name
 from .results import apply_tool_result_effect
 from .models import (
@@ -238,9 +239,8 @@ class ToolHookEvents:
 
 @dataclass(frozen=True, slots=True)
 class _PendingCommandHook:
-    """保存持续命令最终完成时需要使用的原始 Hook 上下文。"""
+    """保存持续命令最终完成时需要使用的原始调用身份。"""
     invocation: ToolInvocation
-    events: ToolHookEvents
 
 
 class CommandHookSessionStore:
@@ -254,15 +254,11 @@ class CommandHookSessionStore:
         session_id: str,
         *,
         invocation: ToolInvocation,
-        events: ToolHookEvents,
     ) -> None:
-        """按进程会话保存原始命令调用和 Hook 作用域。"""
+        """按进程会话保存原始命令调用。"""
         key = str(session_id or "").strip()
         if key:
-            self._pending[key] = _PendingCommandHook(
-                invocation=invocation,
-                events=events,
-            )
+            self._pending[key] = _PendingCommandHook(invocation=invocation)
 
     def take(self, session_id: str) -> _PendingCommandHook | None:
         """取出并移除指定进程会话的待完成 Hook。"""
@@ -449,12 +445,10 @@ class ToolCallCoordinator:
         status, session_id = _command_result_state(outcome)
 
         if invocation.name == "exec_command" and status == "running":
-            if self.events.scope.has_matching("PostToolUse", invocation.name):
-                self.command_sessions.defer(
-                    session_id,
-                    invocation=invocation,
-                    events=self.events,
-                )
+            self.command_sessions.defer(
+                session_id,
+                invocation=invocation,
+            )
             return _PostToolUseResult()
 
         if invocation.name == "write_stdin":
@@ -462,15 +456,24 @@ class ToolCallCoordinator:
                 return _PostToolUseResult()
 
             pending = self.command_sessions.take(session_id)
-            if pending is None or not outcome.ok:
+            if pending is None or not _post_tool_result_eligible(
+                invocation,
+                outcome,
+            ):
                 return _PostToolUseResult()
 
-            return await pending.events.post_tool_use(
-                pending.invocation,
+            post_invocation = replace(
+                invocation,
+                call_id=pending.invocation.call_id,
+                name=pending.invocation.name,
+                arguments=dict(pending.invocation.arguments),
+            )
+            return await self.events.post_tool_use(
+                post_invocation,
                 outcome,
             )
 
-        if not outcome.ok:
+        if not _post_tool_result_eligible(invocation, outcome):
             return _PostToolUseResult()
 
         return await self.events.post_tool_use(invocation, outcome)
@@ -707,7 +710,7 @@ def _invocation_fingerprint(invocation: ToolInvocation) -> str:
         sort_keys=True,
         separators=(",", ":"),
         default=str,
-    ).encode("utf-8")
+    ).encode(const.CHARSET)
 
     return hashlib.sha256(encoded).hexdigest()
 
@@ -758,6 +761,32 @@ def _command_result_state(outcome: ToolOutcome) -> tuple[str, str]:
     ).strip()
 
     return status, session_id
+
+
+def _post_tool_result_eligible(
+    invocation: ToolInvocation,
+    outcome: ToolOutcome
+) -> bool:
+    """判断工具结果是否到达可执行后置 Hook 的完成边界。"""
+    if outcome.ok:
+        return True
+    if invocation.name not in {
+        "shell_command",
+        "exec_command",
+        "write_stdin",
+    }:
+        return False
+
+    fields    = outcome.result if isinstance(outcome.result, dict) else {}
+    data      = fields.get("data")
+    payload   = data if isinstance(data, dict) else {}
+    exit_code = fields.get("exit_code", payload.get("exit_code"))
+
+    return (
+        isinstance(exit_code, int)
+        and not isinstance(exit_code, bool)
+        and exit_code != 0
+    )
 
 
 def _bounded_reason(value: str, limit: int = 2000) -> str:
