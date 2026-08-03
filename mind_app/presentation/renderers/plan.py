@@ -47,12 +47,11 @@ def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
             TextSpan(explanation, PLAN_SUMMARY_STYLE),
         ))
 
-    indent = "    " if explanation else "  "
-
-    for item in view.items:
-        step  = sanitize_terminal_text(item.step)
-        icon  = "✔" if item.status == "completed" else "□"
-        style = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PLAN_INACTIVE_BODY_STYLE
+    for index, item in enumerate(view.items):
+        step   = sanitize_terminal_text(item.step)
+        icon   = "✔" if item.status == "completed" else "□"
+        style  = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PLAN_INACTIVE_BODY_STYLE
+        indent = "    " if explanation or index else "  └ "
 
         text_lines.append(f"{indent}{icon} {step}")
 
