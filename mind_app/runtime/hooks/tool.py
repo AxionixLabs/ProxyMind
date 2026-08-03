@@ -570,7 +570,7 @@ class ToolCallCoordinator:
     @staticmethod
     def effective_invocation(
         invocation: ToolInvocation,
-        decision: HookDecision
+        decision: HookDecision | HookPermissionDecision,
     ) -> ToolInvocation:
         """返回应用前置 Hook 参数改写后的调用快照。"""
         if decision.updated_input is None:

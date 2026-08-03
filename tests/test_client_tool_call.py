@@ -287,6 +287,89 @@ def test_hook_tool_response_uses_text_for_builtin_shell() -> None:
     assert response == "command output"
 
 
+@pytest.mark.parametrize(
+    ("name", "data", "expected"),
+    [
+        (
+            "shell_command",
+            {
+                "output_lines": ["tests failed", "assert 1 == 2"],
+                "stdout": "tests failed\n",
+                "stderr": "assert 1 == 2\n",
+                "output_limit": 24000,
+            },
+            "tests failed\nassert 1 == 2",
+        ),
+        (
+            "exec_command",
+            {
+                "output": "compiler error: missing symbol",
+                "stdout": "",
+                "stderr": "compiler error: missing symbol",
+            },
+            "compiler error: missing symbol",
+        ),
+        (
+            "write_stdin",
+            {
+                "output": "lint warning: unsafe call",
+                "stdout": "lint warning: unsafe call",
+                "stderr": "",
+            },
+            "lint warning: unsafe call",
+        ),
+        (
+            "shell_command",
+            {
+                "output_lines": [],
+                "stdout": "",
+                "stderr": "",
+                "output_limit": 24000,
+            },
+            "",
+        ),
+    ],
+)
+def test_hook_tool_response_uses_builtin_shell_output(
+    name,
+    data,
+    expected,
+) -> None:
+    response = hook_tool_response(
+        name,
+        mcp_types.CallToolResult(content=[]),
+        fields={"ok": True, "data": data},
+        text=f"{name} lifecycle summary",
+        tools=[{
+            "name": name,
+            "meta": {"client_builtin": True, "domain": "client"},
+        }],
+    )
+
+    assert response == expected
+
+
+def test_hook_tool_response_limits_combined_shell_output() -> None:
+    response = hook_tool_response(
+        "shell_command",
+        mcp_types.CallToolResult(content=[]),
+        fields={
+            "ok": False,
+            "data": {
+                "output_lines": ["compiler error", "unsafe"],
+                "output_limit": 14,
+            },
+        },
+        text="shell_command failed exit_code=1",
+        tools=[{
+            "name": "shell_command",
+            "meta": {"client_builtin": True, "domain": "client"},
+        }],
+    )
+
+    assert response == "compiler error\n...[truncated 7 chars]"
+
+
 def test_hook_tool_response_preserves_mcp_result_shape() -> None:
     result = mcp_types.CallToolResult(
         content=[mcp_types.TextContent(type="text", text="notes")],

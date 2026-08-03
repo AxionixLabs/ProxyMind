@@ -416,14 +416,66 @@ def hook_tool_response(
         "shell_command",
         "exec_command",
         "write_stdin",
-        "apply_patch",
     }:
+        return _shell_hook_response(fields, fallback=text)
+
+    if client_builtin and name == "apply_patch":
         return str(text or "")
 
     if not client_builtin and isinstance(result, mcp_types.CallToolResult):
         return serialize_call_tool_result(result)
 
     return dict(fields)
+
+
+def _shell_hook_response(
+    fields: dict[str, typing.Any],
+    *,
+    fallback: str,
+) -> str:
+    """从原生 Shell 结果中提取受输出上限约束的实际输出。"""
+    data = _tool_result_data_map(fields)
+    has_output_fields = any(
+        key in data
+        for key in ("output", "output_lines", "stdout", "stderr")
+    )
+
+    output = data.get("output")
+    if isinstance(output, str) and output:
+        return output
+
+    output_lines = data.get("output_lines")
+    if isinstance(output_lines, list):
+        combined = "\n".join(
+            str(value)
+            for value in output_lines
+            if str(value)
+        )
+        if combined:
+            return _clip_hook_response(combined, data.get("output_limit"))
+
+    streams = tuple(
+        value
+        for key in ("stdout", "stderr")
+        for value in [data.get(key)]
+        if isinstance(value, str) and value
+    )
+    if streams:
+        return _clip_hook_response("\n".join(streams), data.get("output_limit"))
+
+    if has_output_fields:
+        return ""
+    return str(fallback or "")
+
+
+def _clip_hook_response(text: str, raw_limit: typing.Any) -> str:
+    """按原生执行结果声明的字符上限截断 Hook 输出。"""
+    if isinstance(raw_limit, bool) or not isinstance(raw_limit, int):
+        return text
+    limit = max(1, raw_limit)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n...[truncated {len(text) - limit} chars]"
 
 
 if __name__ == '__main__':

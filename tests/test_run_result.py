@@ -899,7 +899,7 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
+async def test_prompt_hook_denial_skips_stop_and_continuation(monkeypatch) -> None:
     class CommandRunner(object):
         def __init__(self) -> None:
             self.calls = []
@@ -911,7 +911,10 @@ async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
                     "continue": False,
                     "stopReason": "prompt blocked",
                 })
-            return SimpleNamespace(data={})
+            return SimpleNamespace(data={
+                "decision": "block",
+                "reason": "retry blocked prompt",
+            })
 
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
@@ -931,11 +934,7 @@ async def test_stream_stops_after_prompt_hook_denial(monkeypatch) -> None:
 
     assert result.status == "failed"
     assert result.error == "prompt blocked"
-    assert [event for event, _payload in runner.calls] == [
-        "UserPromptSubmit",
-        "Stop",
-    ]
-    assert runner.calls[1][1]["stop_hook_active"] is False
+    assert [event for event, _payload in runner.calls] == ["UserPromptSubmit"]
 
 
 @pytest.mark.anyio
@@ -1747,8 +1746,63 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    (
+        "tool_name",
+        "original_arguments",
+        "updated_input",
+        "expected_arguments",
+        "expected_hook_input",
+    ),
+    [
+        (
+            "test_tool",
+            {"value": 1},
+            {"value": 2},
+            {"value": 2},
+            {"value": 1},
+        ),
+        (
+            "shell_command",
+            {
+                "command": "echo original",
+                "cwd": "/tmp/project",
+                "timeout_sec": 120,
+                "yield_time_ms": 250,
+            },
+            {"command": "echo rewritten"},
+            {
+                "command": "echo rewritten",
+                "cwd": "/tmp/project",
+                "timeout_sec": 120,
+                "yield_time_ms": 250,
+            },
+            {"command": "echo original"},
+        ),
+        (
+            "apply_patch",
+            {
+                "patch": "*** Begin Patch\n*** End Patch",
+                "force": True,
+                "expected_sha256": "sha256:original",
+            },
+            {"command": "*** Begin Patch\n*** Add File: safe\n+ok\n*** End Patch"},
+            {
+                "patch": "*** Begin Patch\n*** Add File: safe\n+ok\n*** End Patch",
+                "force": True,
+                "expected_sha256": "sha256:original",
+            },
+            {"command": "*** Begin Patch\n*** End Patch"},
+        ),
+    ],
+)
 async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     monkeypatch,
+    tool_name,
+    original_arguments,
+    updated_input,
+    expected_arguments,
+    expected_hook_input,
 ) -> None:
     class CommandRunner(object):
         def __init__(self) -> None:
@@ -1760,7 +1814,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "allow",
-                    "updatedInput": {"value": 2},
+                    "updatedInput": updated_input,
                 },
             })
 
@@ -1768,7 +1822,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
         {
             "PreToolUse": [{
                 "hooks": [{"type": "command", "command": "rewrite"}],
-                "matcher": "test_tool",
+                "matcher": tool_name,
             }],
         },
         source_scope="user",
@@ -1803,28 +1857,40 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
+    approval_event = {
+        "type": "tool.approval_required",
+        "call_id": "call-rewrite",
+        "name": tool_name,
+        "arguments": original_arguments,
+        "approval": {
+            "id": "approval-rewrite",
+            "tool": tool_name,
+            "arguments": original_arguments,
+        },
+    }
+    call_event = {
+        "type": "tool.call",
+        "call_id": "call-rewrite",
+        "name": tool_name,
+        "arguments": original_arguments,
+        "approval_id": "approval-rewrite",
+        "approved": True,
+    }
+    if tool_name == "shell_command":
+        execution = {
+            "target": "local",
+            "state": "approved",
+            "grantId": "grant-rewrite",
+            "canonicalArguments": original_arguments,
+        }
+        approval_event["execution"] = execution
+        call_event["execution"] = execution
+
     result, mind = await _run_stream(
         monkeypatch,
         [
-            {
-                "type": "tool.approval_required",
-                "call_id": "call-rewrite",
-                "name": "test_tool",
-                "arguments": {"value": 1},
-                "approval": {
-                    "id": "approval-rewrite",
-                    "tool": "test_tool",
-                    "arguments": {"value": 1},
-                },
-            },
-            {
-                "type": "tool.call",
-                "call_id": "call-rewrite",
-                "name": "test_tool",
-                "arguments": {"value": 1},
-                "approval_id": "approval-rewrite",
-                "approved": True,
-            },
+            approval_event,
+            call_event,
             {"type": "turn.done"},
         ],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -1832,7 +1898,10 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
 
     assert result.status == "completed"
     approval = mind.frontend.interaction.request_approval.await_args.args[0]
-    assert approval["arguments"] == {"value": 2}
-    assert executed == [{"value": 2}]
-    assert runner.calls[0]["tool_input"] == {"value": 1}
+    assert approval["arguments"] == expected_arguments
+    if tool_name in {"shell_command", "apply_patch"}:
+        command_field = "patch" if tool_name == "apply_patch" else "command"
+        assert approval["command"] == expected_arguments[command_field]
+    assert executed == [expected_arguments]
+    assert runner.calls[0]["tool_input"] == expected_hook_input
     assert posted[0][0][5] == {"ok": True, "text": "done"}

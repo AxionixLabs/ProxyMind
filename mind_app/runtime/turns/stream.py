@@ -147,15 +147,21 @@ def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
 def _approval_with_updated_input(
     approval: dict[str, typing.Any],
     tool: str,
-    updated_input: dict[str, typing.Any] | None,
+    effective_arguments: dict[str, typing.Any] | None,
 ) -> dict[str, typing.Any]:
     """返回应用 Hook 参数改写后的审批数据。"""
-    if updated_input is None:
+    if effective_arguments is None:
         return approval
 
     updated = dict(approval)
     updated["tool"] = tool or updated.get("tool") or ""
-    updated["arguments"] = dict(updated_input)
+    updated["arguments"] = dict(effective_arguments)
+
+    if tool in {"shell_command", "exec_command", "apply_patch"}:
+        command_field = "patch" if tool == "apply_patch" else "command"
+        command = effective_arguments.get(command_field)
+        if isinstance(command, str):
+            updated["command"] = command
     return updated
 
 
@@ -343,8 +349,12 @@ async def stream_turn(
 
     failure_error: str | None = None
     result_status: RunStatus  = "incomplete"
+
     result_additional_context: tuple[str, ...] = ()
+
     failed_tool_context: list[str] = []
+
+    prompt_blocked: bool = False
 
     turn_hook_events: TurnHookEvents | None = None
 
@@ -604,10 +614,18 @@ async def stream_turn(
                             approval_invocation
                         )
                     )
+                    effective_approval_arguments = None
+                    if permission_decision.updated_input is not None:
+                        effective_approval_arguments = dict(
+                            tool_call_coordinator.effective_invocation(
+                                approval_invocation,
+                                permission_decision,
+                            ).arguments
+                        )
                     approval = _approval_with_updated_input(
                         approval,
                         approval_tool,
-                        permission_decision.updated_input,
+                        effective_approval_arguments,
                     )
 
                 observe(
@@ -999,6 +1017,7 @@ async def stream_turn(
         result_status = "failed"
         failure_error = str(error)
         result_additional_context = error.additional_context
+        prompt_blocked = True
 
         if result_additional_context and turn_context.agent.depth == 0:
             mind.conversation.queue_turn_context(result_additional_context)
@@ -1106,7 +1125,7 @@ async def stream_turn(
             error=failure_error,
         )
 
-        if turn_hook_events is not None:
+        if turn_hook_events is not None and not prompt_blocked:
             stop_outcome = "interrupted" if interrupted else result_status
             try:
                 if interrupted:
