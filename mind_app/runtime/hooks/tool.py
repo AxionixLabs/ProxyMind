@@ -34,7 +34,6 @@ class _PreparedDecision:
 @dataclass(frozen=True, slots=True)
 class _PostToolUseResult:
     """保存工具后置 Hook 对模型可见结果的影响。"""
-    stopped: bool = False
     blocked: bool = False
     feedback_message: str = ""
     replacement_result: typing.Any = None
@@ -146,9 +145,8 @@ class ToolHookEvents:
         feedback: list[str] = []
 
         replacement_result: typing.Any = None
-        replacement_result_set         = False
+        replacement_result_set: bool   = False
 
-        stopped: bool = False
         blocked: bool = False
 
         for record in dispatched.records:
@@ -163,7 +161,6 @@ class ToolHookEvents:
                 replacement_result_set = True
 
             if effect.stop_requested:
-                stopped = True
                 feedback.append(_bounded_reason(
                     effect.reason or "PostToolUse hook stopped execution"
                 ))
@@ -172,7 +169,6 @@ class ToolHookEvents:
                 feedback.append(_bounded_reason(effect.reason))
 
         return _PostToolUseResult(
-            stopped=stopped,
             blocked=blocked,
             feedback_message="\n\n".join(
                 message for message in feedback if message
