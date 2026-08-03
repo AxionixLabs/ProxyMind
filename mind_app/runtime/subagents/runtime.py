@@ -70,7 +70,8 @@ class SubagentTurnFailedError(RuntimeError):
     def __init__(self, result: RunResult) -> None:
         self.result = result
         detail = str(result.error or "").strip()
-        super().__init__(detail or f"subagent turn ended as {result.status}")
+        reason = detail or f"subagent turn ended as {result.status}"
+        super().__init__("\n\n".join((reason, *result.additional_context)))
 
 
 class SubagentRuntime:

@@ -714,6 +714,43 @@ async def test_prompt_stop_queues_context_for_next_turn(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_child_prompt_stop_returns_context_without_queuing_root(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "continue": False,
+                "stopReason": "Select a project first.",
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": (
+                        "Available projects: web, app, service."
+                    ),
+                },
+            })
+
+    definitions = resolve_hook_definitions(
+        {"UserPromptSubmit": [_hook("prompt")]},
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    result, mind_state = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        child_agent=True,
+    )
+
+    assert result.status == "failed"
+    assert result.additional_context == (
+        "Available projects: web, app, service.",
+    )
+    assert mind_state.queued_context == []
+
+
+@pytest.mark.anyio
 async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     class CommandRunner(object):
         def __init__(self) -> None:
@@ -1169,6 +1206,51 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
     assert posted[0][0][5]["data"] == {"steps": 1}
     assert posted[0][1]["additional_context"] == ("nested tool context",)
     assert posted[0][1]["system_message"] == "Nested tool system message."
+
+
+@pytest.mark.anyio
+async def test_stream_queues_pre_tool_context_after_operation_error(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "additionalContext": "inspect protected paths",
+                },
+            })
+
+    definitions = resolve_hook_definitions(
+        {
+            "PreToolUse": [
+                _hook("pre", matcher=PLAN_STEPS_TOOL),
+            ],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    async def fail(_runner, *, invocation):
+        _ = invocation
+        raise RuntimeError("plan operation failed")
+
+    monkeypatch.setattr(stream.PlanToolCallRunner, "handle", fail)
+
+    result, mind_state = await _run_stream(
+        monkeypatch,
+        [{
+            "type": "tool.call",
+            "call_id": "call-plan",
+            "name": PLAN_STEPS_TOOL,
+            "arguments": {"steps": []},
+        }],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+    )
+
+    assert result.status == "failed"
+    assert result.additional_context == ("inspect protected paths",)
+    assert mind_state.queued_context == [("inspect protected paths",)]
 
 
 @pytest.mark.anyio

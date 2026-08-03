@@ -343,6 +343,8 @@ async def stream_turn(
 
     failure_error: str | None = None
     result_status: RunStatus  = "incomplete"
+    result_additional_context: tuple[str, ...] = ()
+    failed_tool_context: list[str] = []
 
     turn_hook_events: TurnHookEvents | None = None
 
@@ -400,6 +402,7 @@ async def stream_turn(
             hook_scope,
             transcript=transcript,
             command_sessions=getattr(mind, "command_hook_sessions", None),
+            failure_context_sink=failed_tool_context.extend,
         )
 
         turn_hook_events = TurnHookEvents(hook_scope)
@@ -995,9 +998,10 @@ async def stream_turn(
     except PromptHookBlockedError as error:
         result_status = "failed"
         failure_error = str(error)
+        result_additional_context = error.additional_context
 
-        if error.additional_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(error.additional_context)
+        if result_additional_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(result_additional_context)
 
         observe(
             "stream.prompt_blocked",
@@ -1015,6 +1019,8 @@ async def stream_turn(
 
     except asyncio.CancelledError:
         interrupted = True
+        if failed_tool_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(failed_tool_context)
         observe(
             "stream.interrupted",
             level="WARNING",
@@ -1025,6 +1031,9 @@ async def stream_turn(
 
     except Exception as e:
         result_status = "failed"
+        result_additional_context = tuple(failed_tool_context)
+        if result_additional_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(result_additional_context)
         observe_exception(
             "stream.failed",
             e,
@@ -1144,6 +1153,7 @@ async def stream_turn(
         assistant_text=tracker.latest_assistant_output_text(),
         usage=dict(turn_usage),
         error=failure_error,
+        additional_context=result_additional_context,
     )
 
     if stop_decision.should_continue and not interrupted:

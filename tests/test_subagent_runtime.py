@@ -362,8 +362,13 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
     async def operation(prepared, *_args):
         prepared_turns.append(prepared)
         return RunResult(
-            status="completed",
+            status="failed" if len(prepared_turns) == 1 else "completed",
             assistant_text=f"reply {len(prepared_turns)}",
+            additional_context=(
+                ("prompt policy context",)
+                if len(prepared_turns) == 1
+                else ()
+            ),
         )
 
     result = await SubagentRunner(_Controller()).run(
@@ -386,7 +391,11 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
     assert [
         turn.additional_context
         for turn in prepared_turns[1:]
-    ] == [(), (), ()]
+    ] == [
+        ("prompt policy context",),
+        (),
+        (),
+    ]
     assert [turn.system_message for turn in prepared_turns[1:]] == ["", "", ""]
     assert [turn.context.session_started for turn in prepared_turns] == [
         True,

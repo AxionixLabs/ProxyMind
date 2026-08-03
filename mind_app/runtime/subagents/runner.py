@@ -158,7 +158,10 @@ class SubagentRunner:
                 current_execution,
                 decision.continuation_prompt,
                 continuation_count=continuation_count,
-                additional_context=decision.additional_context,
+                additional_context=(
+                    *_result_additional_context(result),
+                    *decision.additional_context,
+                ),
             )
 
     async def _dispatch_stop(
@@ -228,6 +231,19 @@ def _result_assistant_text(result: typing.Any) -> str:
     """返回模型结果中的有界最后回复。"""
     value = getattr(result, "assistant_text", "")
     return _bounded_text(str(value or ""))
+
+
+def _result_additional_context(result: typing.Any) -> tuple[str, ...]:
+    """返回失败轮次为后续执行保留的附加上下文。"""
+    value = getattr(result, "additional_context", ())
+    if not isinstance(value, (tuple, list)):
+        return ()
+    return tuple(
+        text
+        for item in value
+        for text in [str(item or "").strip()]
+        if text
+    )
 
 
 def _bounded_error(error: BaseException) -> str:

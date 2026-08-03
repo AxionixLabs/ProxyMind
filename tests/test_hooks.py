@@ -1543,10 +1543,16 @@ async def test_tool_coordinator_skips_post_for_failed_result() -> None:
 @pytest.mark.anyio
 async def test_tool_coordinator_skips_post_after_operation_error() -> None:
     definitions = _definitions({
+        "PreToolUse": [_hook("pre")],
         "PostToolUse": [_hook("post")],
     })
-    runner = _CommandRunner()
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "additionalContext": "inspect protected paths",
+        },
+    })
     transcript_entries = []
+    failure_context = []
 
     def record_transcript(event, *, actor=None, payload=None) -> None:
         transcript_entries.append((event, actor, dict(payload or {})))
@@ -1554,6 +1560,7 @@ async def test_tool_coordinator_skips_post_after_operation_error() -> None:
     coordinator = ToolCallCoordinator(
         _scope(HookRuntime(definitions, command_runner=runner)),
         transcript=SimpleNamespace(append=record_transcript),
+        failure_context_sink=failure_context.extend,
     )
 
     async def fail(_prepared):
@@ -1562,7 +1569,8 @@ async def test_tool_coordinator_skips_post_after_operation_error() -> None:
     with pytest.raises(RuntimeError, match="tool failed"):
         await coordinator.run_invocation(_invocation(), fail)
 
-    assert runner.calls == []
+    assert [call[0].event for call in runner.calls] == ["PreToolUse"]
+    assert failure_context == ["inspect protected paths"]
     assert [entry[0] for entry in transcript_entries] == [
         "tool.started",
         "tool.failed",
@@ -1573,10 +1581,16 @@ async def test_tool_coordinator_skips_post_after_operation_error() -> None:
 @pytest.mark.anyio
 async def test_tool_coordinator_skips_post_after_operation_cancellation() -> None:
     definitions = _definitions({
+        "PreToolUse": [_hook("pre")],
         "PostToolUse": [_hook("post")],
     })
-    runner = _CommandRunner()
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "additionalContext": "preserve cancellation policy",
+        },
+    })
     transcript_entries = []
+    failure_context = []
 
     def record_transcript(event, *, actor=None, payload=None) -> None:
         transcript_entries.append((event, actor, dict(payload or {})))
@@ -1584,6 +1598,7 @@ async def test_tool_coordinator_skips_post_after_operation_cancellation() -> Non
     coordinator = ToolCallCoordinator(
         _scope(HookRuntime(definitions, command_runner=runner)),
         transcript=SimpleNamespace(append=record_transcript),
+        failure_context_sink=failure_context.extend,
     )
 
     async def cancel(_prepared):
@@ -1592,7 +1607,8 @@ async def test_tool_coordinator_skips_post_after_operation_cancellation() -> Non
     with pytest.raises(asyncio.CancelledError):
         await coordinator.run_invocation(_invocation(), cancel)
 
-    assert runner.calls == []
+    assert [call[0].event for call in runner.calls] == ["PreToolUse"]
+    assert failure_context == ["preserve cancellation policy"]
     assert [entry[0] for entry in transcript_entries] == [
         "tool.started",
         "tool.failed",

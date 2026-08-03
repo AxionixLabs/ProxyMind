@@ -26,6 +26,8 @@ from .scope import HookExecutionScope
 
 ToolValue = typing.TypeVar("ToolValue")
 
+FailureContextSink = typing.Callable[[tuple[str, ...]], None]
+
 
 @dataclass(frozen=True, slots=True)
 class _PreparedDecision:
@@ -288,10 +290,12 @@ class ToolCallCoordinator:
         scope: HookExecutionScope,
         transcript: TranscriptSink | None = None,
         command_sessions: CommandHookSessionStore | None = None,
+        failure_context_sink: FailureContextSink | None = None,
     ) -> None:
         self.events           = ToolHookEvents(scope)
         self.transcript       = transcript
         self.command_sessions = command_sessions or CommandHookSessionStore()
+        self.failure_context_sink = failure_context_sink
 
         self._prepared: dict[str, _PreparedDecision] = {}
 
@@ -374,6 +378,7 @@ class ToolCallCoordinator:
             )
 
             self._record_outcome(effective_invocation, outcome)
+            self._preserve_failure_context(decision.additional_context)
             raise
 
         except BaseException as error:
@@ -385,6 +390,7 @@ class ToolCallCoordinator:
             )
 
             self._record_outcome(effective_invocation, outcome)
+            self._preserve_failure_context(decision.additional_context)
             raise
 
         outcome = ToolOutcome(
@@ -425,6 +431,14 @@ class ToolCallCoordinator:
             value=operation_result.value,
             visible_result=visible_result,
         )
+
+    def _preserve_failure_context(
+        self,
+        additional_context: tuple[str, ...],
+    ) -> None:
+        """把异常执行前已经生成的上下文交还调用轮次。"""
+        if additional_context and self.failure_context_sink is not None:
+            self.failure_context_sink(additional_context)
 
     async def _post_tool_use(
         self,

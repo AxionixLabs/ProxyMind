@@ -730,7 +730,11 @@ async def test_runtime_marks_failed_model_result_as_failed() -> None:
     controller = _Controller()
 
     async def fail(**_kwargs):
-        return RunResult(status="failed", error="model request failed")
+        return RunResult(
+            status="failed",
+            error="model request failed",
+            additional_context=("project selection is required",),
+        )
 
     controller.stream_handler = fail
     runtime = SubagentRuntime(controller)
@@ -751,6 +755,7 @@ async def test_runtime_marks_failed_model_result_as_failed() -> None:
 
     assert waited.snapshots[0].status == "failed"
     assert "model request failed" in waited.snapshots[0].error
+    assert "project selection is required" in waited.snapshots[0].error
     await runtime.shutdown()
 
 
