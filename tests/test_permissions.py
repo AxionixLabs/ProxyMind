@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -21,8 +23,11 @@ from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.native_coding.execution_authorization import ExecutionAuthorizationError
 from mind_app.runtime.execution import (
     AgentContext,
+    ToolInvocation,
     TurnContext,
 )
+from mind_app.runtime.hooks.models import HookDecision
+from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_core.permissions import (
     PermissionSettings,
     permission_label,
@@ -57,6 +62,34 @@ def _client_runtime(
         turn_context=turn_context,
         pref_config={},
         execution=execution,
+        call_id="call_test",
+    )
+
+
+def _local_execution(arguments: dict) -> dict:
+    return {
+        "state": "approved",
+        "target": "local",
+        "policyVersion": "test-v1",
+        "expiresAt": time.time() + 60,
+        "grantId": "grant_test",
+        "canonicalArguments": dict(arguments),
+    }
+
+
+def _coding_stub() -> SimpleNamespace:
+    result = {
+        "ok": True,
+        "text": "done",
+        "attachments": [],
+        "data": {},
+        "logs": [],
+    }
+    return SimpleNamespace(
+        agent_id="root",
+        shell_command=AsyncMock(return_value=result),
+        exec_command=AsyncMock(return_value=result),
+        write_stdin=AsyncMock(return_value=result),
     )
 
 
@@ -181,6 +214,174 @@ async def test_read_only_sandbox_rejects_local_mutating_capabilities(
 
     assert result.isError is True
     assert result.structuredContent["data"]["reason"] == "sandbox_read_only"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "original", "updated_input", "expected"),
+    [
+        (
+            "shell_command",
+            {
+                "command": "echo original",
+                "cwd": ".",
+                "timeout_sec": 60,
+                "output_encoding": "auto",
+            },
+            {"command": "echo rewritten"},
+            {
+                "command": "echo rewritten",
+                "cwd": ".",
+                "timeout_sec": 60,
+                "output_encoding": "auto",
+            },
+        ),
+        (
+            "exec_command",
+            {
+                "command": "echo original",
+                "cwd": ".",
+                "yield_time_ms": 1000,
+                "max_output_chars": 24000,
+                "timeout_sec": 1800,
+                "idle_timeout_sec": 300,
+            },
+            {"command": "echo rewritten"},
+            {
+                "command": "echo rewritten",
+                "cwd": ".",
+                "yield_time_ms": 1000,
+                "max_output_chars": 24000,
+                "timeout_sec": 1800,
+                "idle_timeout_sec": 300,
+            },
+        ),
+        (
+            "write_stdin",
+            {
+                "session_id": "exec_test",
+                "stdin": "original\n",
+                "wait_ms": 1000,
+                "max_output_chars": 12000,
+                "control": "none",
+            },
+            {
+                "session_id": "exec_test",
+                "stdin": "rewritten\n",
+                "wait_ms": 1000,
+                "max_output_chars": 12000,
+                "control": "none",
+            },
+            {
+                "session_id": "exec_test",
+                "stdin": "rewritten\n",
+                "wait_ms": 1000,
+                "max_output_chars": 12000,
+                "control": "none",
+            },
+        ),
+    ],
+)
+async def test_hook_updated_input_reaches_native_shell_handler(
+    tool_name,
+    original,
+    updated_input,
+    expected,
+) -> None:
+    coding = _coding_stub()
+    tool = next(item for item in coding_tools(coding) if item.name == tool_name)
+    runtime = _client_runtime(
+        preset_permissions("full-access"),
+        execution=_local_execution(original),
+    )
+    invocation = ToolInvocation(
+        turn=runtime.turn_context,
+        call_id="call_test",
+        name=tool_name,
+        arguments=dict(original),
+        execution=runtime.execution,
+    )
+
+    effective = ToolCallCoordinator.effective_invocation(
+        invocation,
+        HookDecision(allowed=True, updated_input=updated_input),
+    )
+    runtime.execution = effective.execution
+    result = await tool.handler(effective.arguments, runtime)
+
+    assert result.isError is False
+    assert result.structuredContent["args"] == expected
+    assert effective.execution["canonicalArguments"] == expected
+    call = getattr(coding, tool_name).await_args
+    for key, value in expected.items():
+        assert call.kwargs[key] == value
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "canonical", "arguments"),
+    [
+        (
+            "shell_command",
+            {
+                "command": "echo canonical",
+                "cwd": ".",
+                "timeout_sec": 60,
+                "output_encoding": "auto",
+            },
+            {"command": "echo untrusted"},
+        ),
+        (
+            "exec_command",
+            {
+                "command": "echo canonical",
+                "cwd": ".",
+                "yield_time_ms": 1000,
+                "max_output_chars": 24000,
+                "timeout_sec": 1800,
+                "idle_timeout_sec": 300,
+            },
+            {"command": "echo untrusted"},
+        ),
+        (
+            "write_stdin",
+            {
+                "session_id": "exec_test",
+                "stdin": "canonical\n",
+                "wait_ms": 1000,
+                "max_output_chars": 12000,
+                "control": "none",
+            },
+            {"session_id": "exec_test", "stdin": "untrusted\n"},
+        ),
+    ],
+)
+async def test_native_shell_handler_rejects_noncanonical_invocation_arguments(
+    tool_name,
+    canonical,
+    arguments,
+) -> None:
+    coding = _coding_stub()
+    coding.fail_result = lambda reason, **data: {
+        "ok": False,
+        "text": reason,
+        "attachments": [],
+        "data": {"reason": reason, **data},
+        "logs": [],
+    }
+    tool = next(item for item in coding_tools(coding) if item.name == tool_name)
+    runtime = _client_runtime(
+        preset_permissions("full-access"),
+        execution=_local_execution(canonical),
+    )
+
+    result = await tool.handler(arguments, runtime)
+
+    assert result.isError is True
+    assert result.structuredContent["data"]["reason"] == (
+        "execution_canonical_arguments_mismatch"
+    )
+    getattr(coding, tool_name).assert_not_awaited()
 
 
 @pytest.mark.parametrize(

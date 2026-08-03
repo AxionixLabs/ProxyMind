@@ -6,7 +6,7 @@ from mcp import types as mcp_types
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
-    canonical_arguments,
+    authorized_arguments,
     validate_execution_authorization,
     validate_runtime_identity
 )
@@ -163,17 +163,18 @@ def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
         )
 
 
-def trusted_canonical(
+def trusted_arguments(
     runtime: ClientToolRuntime,
+    arguments: dict[str, typing.Any],
     *,
     tool: str,
     require_grant: bool = True,
 ) -> dict[str, typing.Any]:
-    """从可信运行上下文读取并校验 canonical 参数。"""
+    """校验调用参数、运行身份和可信执行授权。"""
     turn = runtime.turn_context
     validate_runtime_identity(cid=turn.cid, sid=turn.sid, call_id=runtime.call_id)
     validate_execution_authorization(runtime.execution, require_grant=require_grant)
-    return canonical_arguments(runtime.execution, tool=tool)
+    return authorized_arguments(runtime.execution, arguments, tool=tool)
 
 
 def reject_model_execution(arguments: dict[str, typing.Any]) -> None:
@@ -201,7 +202,11 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             )
         try:
             reject_model_execution(arguments)
-            args = trusted_canonical(runtime, tool="shell_command")
+            args = trusted_arguments(
+                runtime,
+                arguments,
+                tool="shell_command",
+            )
             validate_unsandboxed_process_authorization(runtime)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
@@ -269,7 +274,11 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             )
         try:
             reject_model_execution(arguments)
-            args = trusted_canonical(runtime, tool="exec_command")
+            args = trusted_arguments(
+                runtime,
+                arguments,
+                tool="exec_command",
+            )
             validate_unsandboxed_process_authorization(runtime)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
@@ -298,13 +307,11 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         try:
             reject_model_execution(arguments)
 
-            turn = runtime.turn_context
-
-            validate_runtime_identity(
-                cid=turn.cid, sid=turn.sid, call_id=runtime.call_id
+            args = trusted_arguments(
+                runtime,
+                arguments,
+                tool="write_stdin",
             )
-
-            args = canonical_arguments(runtime.execution, tool="write_stdin")
 
             mutates_process = bool(args["stdin"]) or args.get("control") != "none"
 
@@ -314,7 +321,6 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
                     tool="write_stdin",
                     arguments=arguments,
                 )
-            validate_execution_authorization(runtime.execution, require_grant=True)
             if mutates_process:
                 validate_unsandboxed_process_authorization(runtime)
 

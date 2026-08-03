@@ -58,21 +58,52 @@ def canonical_arguments(
             "canonical_contract_invalid", "canonicalArguments must be an object"
         )
 
+    _validate_tool_arguments(canonical, tool=tool, path="canonicalArguments")
+
+    return canonical
+
+
+def authorized_arguments(
+    execution: dict[str, typing.Any] | None,
+    arguments: dict[str, typing.Any],
+    *,
+    tool: str,
+) -> dict[str, typing.Any]:
+    """校验调用参数与可信 canonical 契约一致，并补齐省略字段。"""
+    canonical = canonical_arguments(execution, tool=tool)
+    effective = {**canonical, **arguments}
+
+    _validate_tool_arguments(effective, tool=tool, path="arguments")
+
+    if effective != canonical:
+        raise ExecutionAuthorizationError(
+            "execution_canonical_arguments_mismatch",
+            f"{tool} arguments do not match canonicalArguments",
+        )
+
+    return effective
+
+
+def _validate_tool_arguments(
+    arguments: dict[str, typing.Any],
+    *,
+    tool: str,
+    path: str,
+) -> None:
+    """按工具契约校验完整参数对象。"""
     expected_fields = _TOOL_FIELDS.get(tool)
     if expected_fields is None:
         raise ExecutionAuthorizationError(
             "canonical_contract_invalid", f"unsupported canonical tool: {tool}"
         )
-    _require_exact_fields(canonical, expected_fields, path="canonicalArguments")
+    _require_exact_fields(arguments, expected_fields, path=path)
 
     if tool == "shell_command":
-        _validate_shell_item(canonical, path="canonicalArguments", timeout_max=600)
+        _validate_shell_item(arguments, path=path, timeout_max=600)
     elif tool == "exec_command":
-        _validate_exec_command(canonical)
+        _validate_exec_command(arguments, path=path)
     elif tool == "write_stdin":
-        _validate_write_stdin(canonical)
-
-    return canonical
+        _validate_write_stdin(arguments, path=path)
 
 
 def validate_execution_authorization(
@@ -160,67 +191,75 @@ def _validate_shell_item(
     _require_nonempty_string(value["output_encoding"], path=f"{path}.output_encoding")
 
 
-def _validate_exec_command(canonical: dict[str, typing.Any]) -> None:
+def _validate_exec_command(
+    arguments: dict[str, typing.Any],
+    *,
+    path: str,
+) -> None:
     """校验持续命令 canonical 参数。"""
-    _require_nonempty_string(canonical["command"], path="canonicalArguments.command")
-    _require_nonempty_string(canonical["cwd"], path="canonicalArguments.cwd")
+    _require_nonempty_string(arguments["command"], path=f"{path}.command")
+    _require_nonempty_string(arguments["cwd"], path=f"{path}.cwd")
     _require_int(
-        canonical["yield_time_ms"],
-        path="canonicalArguments.yield_time_ms",
+        arguments["yield_time_ms"],
+        path=f"{path}.yield_time_ms",
         minimum=0,
         maximum=30000,
     )
     _require_int(
-        canonical["max_output_chars"],
-        path="canonicalArguments.max_output_chars",
+        arguments["max_output_chars"],
+        path=f"{path}.max_output_chars",
         minimum=1024,
         maximum=120000,
     )
     _require_int(
-        canonical["timeout_sec"],
-        path="canonicalArguments.timeout_sec",
+        arguments["timeout_sec"],
+        path=f"{path}.timeout_sec",
         minimum=1,
         maximum=7200,
     )
     _require_int(
-        canonical["idle_timeout_sec"],
-        path="canonicalArguments.idle_timeout_sec",
+        arguments["idle_timeout_sec"],
+        path=f"{path}.idle_timeout_sec",
         minimum=1,
         maximum=1800,
     )
 
 
-def _validate_write_stdin(canonical: dict[str, typing.Any]) -> None:
+def _validate_write_stdin(
+    arguments: dict[str, typing.Any],
+    *,
+    path: str,
+) -> None:
     """校验会话写入 canonical 参数。"""
     session_id = _require_nonempty_string(
-        canonical["session_id"], path="canonicalArguments.session_id"
+        arguments["session_id"], path=f"{path}.session_id"
     )
     if session_id != session_id.strip():
-        _invalid("canonicalArguments.session_id must not contain surrounding whitespace")
+        _invalid(f"{path}.session_id must not contain surrounding whitespace")
 
-    _require_string(canonical["stdin"], path="canonicalArguments.stdin")
+    _require_string(arguments["stdin"], path=f"{path}.stdin")
 
     _require_int(
-        canonical["wait_ms"],
-        path="canonicalArguments.wait_ms",
+        arguments["wait_ms"],
+        path=f"{path}.wait_ms",
         minimum=0,
         maximum=30000,
     )
     _require_int(
-        canonical["max_output_chars"],
-        path="canonicalArguments.max_output_chars",
+        arguments["max_output_chars"],
+        path=f"{path}.max_output_chars",
         minimum=1024,
         maximum=120000,
     )
 
     control = _require_nonempty_string(
-        canonical["control"], path="canonicalArguments.control"
+        arguments["control"], path=f"{path}.control"
     )
 
     if control not in _WRITE_CONTROLS:
-        _invalid("canonicalArguments.control is invalid")
-    if canonical["stdin"] and control != "none":
-        _invalid("canonicalArguments cannot combine non-empty stdin with control")
+        _invalid(f"{path}.control is invalid")
+    if arguments["stdin"] and control != "none":
+        _invalid(f"{path} cannot combine non-empty stdin with control")
 
 
 def _expiration_timestamp(value: typing.Any) -> float:

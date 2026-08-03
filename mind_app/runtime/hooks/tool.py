@@ -6,7 +6,10 @@ import time
 import typing
 import asyncio
 import hashlib
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    replace,
+)
 from mind_app.runtime.execution import ToolInvocation
 from mind_app.history.contracts import TranscriptSink
 from .matching import hook_tool_name
@@ -475,10 +478,20 @@ class ToolCallCoordinator:
         if decision.updated_input is None:
             return invocation
 
-        return invocation.with_arguments(_updated_tool_arguments(
+        arguments = _updated_tool_arguments(
             invocation,
             decision.updated_input,
-        ))
+        )
+        execution = _updated_execution(
+            invocation,
+            arguments=arguments,
+            updated_input=decision.updated_input,
+        )
+        return replace(
+            invocation,
+            arguments=arguments,
+            execution=execution,
+        )
 
 
 async def _dispatch_tool_event(
@@ -548,6 +561,40 @@ def _updated_tool_arguments(
         return {**invocation.arguments, "patch": command}
 
     return dict(updated_input)
+
+
+def _updated_execution(
+    invocation: ToolInvocation,
+    *,
+    arguments: dict[str, typing.Any],
+    updated_input: dict[str, typing.Any],
+) -> dict[str, typing.Any] | None:
+    """同步更新本地执行授权中的 canonical 参数快照。"""
+    execution = invocation.execution
+    if (
+        invocation.name not in {"shell_command", "exec_command", "write_stdin"}
+        or not isinstance(execution, dict)
+    ):
+        return execution
+
+    canonical = execution.get("canonicalArguments")
+    if not isinstance(canonical, dict):
+        return execution
+
+    updated_fields = (
+        {"command"}
+        if invocation.name in {"shell_command", "exec_command"}
+        else set(updated_input)
+    )
+    effective_canonical = dict(canonical)
+    for field in updated_fields:
+        if field in effective_canonical and field in arguments:
+            effective_canonical[field] = arguments[field]
+
+    return {
+        **execution,
+        "canonicalArguments": effective_canonical,
+    }
 
 
 def _invocation_fingerprint(invocation: ToolInvocation) -> str:
