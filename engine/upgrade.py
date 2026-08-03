@@ -29,6 +29,26 @@ UpgradeProgressStarter = typing.Callable[
     [], typing.Coroutine[typing.Any, typing.Any, None]
 ]
 
+ThreadResult = typing.TypeVar("ThreadResult")
+
+
+async def run_threaded_phase(
+    function: typing.Callable[..., ThreadResult],
+    /,
+    *args: typing.Any,
+    **kwargs: typing.Any
+) -> ThreadResult:
+    """在线程阶段结束后再传播外层取消。"""
+    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        result = (await asyncio.gather(task, return_exceptions=True))[0]
+        if isinstance(result, BaseException):
+            raise result
+        raise
+
 
 class UpgradeProgress(typing.Protocol):
 
@@ -464,7 +484,7 @@ class Upgrade(object):
             )
             await asyncio.sleep(0)
 
-            runtime_root = await asyncio.to_thread(
+            runtime_root = await run_threaded_phase(
                 self.extract_runtime,
                 archive_path=archive_path,
                 extract_dir=tmp_path / "extract",
@@ -472,7 +492,7 @@ class Upgrade(object):
             )
             await asyncio.sleep(0)
 
-            await asyncio.to_thread(
+            await run_threaded_phase(
                 self.install_runtime,
                 runtime_root=runtime_root,
                 target_dir=target_dir,
@@ -482,7 +502,11 @@ class Upgrade(object):
             if tmp_path.exists():
                 self.set_stage(state, "cleaning")
                 await asyncio.sleep(0)
-                await asyncio.to_thread(shutil.rmtree, tmp_path, ignore_errors=True)
+                await run_threaded_phase(
+                    shutil.rmtree,
+                    tmp_path,
+                    ignore_errors=True,
+                )
                 tmp_path = None
 
             elapsed = max(0.001, time.perf_counter() - started)
@@ -561,7 +585,11 @@ class Upgrade(object):
 
         finally:
             if tmp_path is not None and tmp_path.exists():
-                await asyncio.to_thread(shutil.rmtree, tmp_path, ignore_errors=True)
+                await run_threaded_phase(
+                    shutil.rmtree,
+                    tmp_path,
+                    ignore_errors=True,
+                )
             await progress_controller.stop()
 
     async def upgrade_app(
