@@ -6,6 +6,7 @@ import typing
 import asyncio
 import functools
 from dataclasses import dataclass
+from mcp import types as mcp_types
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import ToolInvocation
 from mind_nova.tool_approval import (
@@ -14,8 +15,10 @@ from mind_nova.tool_approval import (
 )
 from mind_app.mcp.tool_result import (
     normalize_call_tool_result,
-    normalize_tool_fields
+    normalize_tool_fields,
+    serialize_call_tool_result
 )
+from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
 from ...output import OutputStatusPort
@@ -89,6 +92,7 @@ class ToolRunResult:
     fields: dict[str, typing.Any]
     text: str
     data: typing.Any
+    hook_response: typing.Any
     cost_ms: int
     status: ToolLifecycleStatus
 
@@ -168,6 +172,7 @@ def server_tool_output_result(
         fields=fields,
         text=normalized.display_text,
         data=_tool_result_data(fields),
+        hook_response=fields,
         cost_ms=cost_ms,
         status=status,
     )
@@ -379,9 +384,46 @@ async def run_tool_step(
         fields=fields,
         text=normalized.display_text,
         data=_tool_result_data(fields),
+        hook_response=hook_tool_response(
+            name,
+            result,
+            fields=fields,
+            text=normalized.display_text,
+            tools=tools,
+        ),
         cost_ms=cost_ms,
         status="completed" if ok else "failed",
     )
+
+
+def hook_tool_response(
+    name: str,
+    result: typing.Any,
+    *,
+    fields: dict[str, typing.Any],
+    text: str,
+    tools: list[dict[str, typing.Any]]
+) -> typing.Any:
+    """按工具来源构建后置 Hook 使用的稳定响应。"""
+    meta = meta_for_tool(tools, name)
+
+    client_builtin = (
+        bool(meta.get("client_builtin", False))
+        and not bool(meta.get("external", False))
+    )
+
+    if client_builtin and name in {
+        "shell_command",
+        "exec_command",
+        "write_stdin",
+        "apply_patch",
+    }:
+        return str(text or "")
+
+    if not client_builtin and isinstance(result, mcp_types.CallToolResult):
+        return serialize_call_tool_result(result)
+
+    return dict(fields)
 
 
 if __name__ == '__main__':

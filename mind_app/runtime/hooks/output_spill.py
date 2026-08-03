@@ -60,6 +60,19 @@ class CapturedHookOutput:
             return self.spill.summary()
         return self.data.decode(const.CHARSET, errors="replace").strip()
 
+    def full_text(self, *, max_bytes: int) -> str:
+        """在大小限制内返回包括 spill 文件在内的完整文本。"""
+        if self.spill is None:
+            return self.text()
+        if self.spill.size_bytes > max_bytes:
+            raise ValueError(
+                f"Hook {self.spill.channel} output exceeds {max_bytes} bytes"
+            )
+        return Path(self.spill.path).read_bytes().decode(
+            const.CHARSET,
+            errors="replace",
+        ).strip()
+
 
 class HookOutputSpillStore:
     """按会话管理 Hook 大输出临时文件。"""

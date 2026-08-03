@@ -36,6 +36,7 @@ class HookExecutionContext:
     root_session_id: str = ""
     turn_id: str = ""
     transcript_path: str | None = None
+    parent_transcript_path: str | None = None
     session_started: bool = False
     session_start_reason: str = ""
 
@@ -57,6 +58,7 @@ class HookExecutionContext:
             agent_depth=turn.agent.depth,
             parent_agent_id=turn.agent.parent_agent_id,
             transcript_path=turn.transcript_path or None,
+            parent_transcript_path=turn.parent_transcript_path or None,
             session_started=turn.session_started,
             session_start_reason=turn.session_start_reason,
         )
@@ -67,16 +69,18 @@ class HookExecutionContext:
         event_payload: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
         """返回符合事件输入协议的 stdin 对象。"""
+        transcript_path = (
+            self.parent_transcript_path
+            if event == "SubagentStop" and self.agent_depth > 0
+            else self.transcript_path
+        )
         return build_hook_input(
             event,
-            session_id=self.root_session_id or self.session_id,
-            transcript_path=self.transcript_path,
+            session_id=self.session_id,
+            transcript_path=transcript_path,
             cwd=self.cwd,
             model=self.model,
-            permission_mode=_permission_mode(
-                self.sandbox_mode,
-                self.permission_mode,
-            ),
+            permission_mode=_permission_mode(self.permission_mode),
             turn_id=self.turn_id,
             agent_id=self.agent_id,
             agent_type=self.agent_type,
@@ -129,7 +133,7 @@ class HookExecutionScope:
             raise ValueError("turn does not belong to hook scope")
 
 
-def _permission_mode(sandbox_mode: str, approval_policy: str) -> str:
+def _permission_mode(approval_policy: str) -> str:
     """把本地执行权限转换为 Hook 协议的权限模式。"""
     value = str(approval_policy or "").strip()
     if value in {
@@ -141,10 +145,8 @@ def _permission_mode(sandbox_mode: str, approval_policy: str) -> str:
     }:
         return value
 
-    if value == "never" and sandbox_mode == "danger-full-access":
-        return "bypassPermissions"
     if value == "never":
-        return "dontAsk"
+        return "bypassPermissions"
 
     return "default"
 

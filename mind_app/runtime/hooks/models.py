@@ -311,6 +311,7 @@ class ToolOutcome:
     ok: bool
     duration_ms: int
     result: typing.Any = None
+    hook_response: typing.Any = None
     error: str = ""
     cancelled: bool = False
 
@@ -334,6 +335,7 @@ class ToolOperationResult(typing.Generic[ToolValue]):
     """保存工具操作原始值、结果快照和内部反馈。"""
     value: ToolValue
     snapshot: ToolResultSnapshot
+    hook_response: typing.Any = None
     additional_context: tuple[str, ...] = ()
     system_message: str = ""
 

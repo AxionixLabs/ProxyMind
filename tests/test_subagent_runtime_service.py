@@ -200,6 +200,8 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
 
     assert first.context.transcript_path == second.context.transcript_path
     assert first.context.transcript_path != parent.transcript_path
+    assert first.context.parent_transcript_path == parent.transcript_path
+    assert second.context.parent_transcript_path == parent.transcript_path
     child_path = Path(first.context.transcript_path)
     assert child_path.is_relative_to(tmp_path / "sessions")
     assert child_path.name == f"session-{first.context.sid}.jsonl"

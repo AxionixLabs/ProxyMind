@@ -341,6 +341,7 @@ class ToolCallCoordinator:
             ok=operation_result.snapshot.ok,
             duration_ms=_duration_ms(started_at),
             result=dict(operation_result.snapshot.fields),
+            hook_response=operation_result.hook_response,
         )
 
         self._record_outcome(effective_invocation, outcome)
@@ -601,6 +602,8 @@ def _bounded_result(value: typing.Any, limit: int = 32768) -> typing.Any:
 
 def _tool_response(outcome: ToolOutcome) -> typing.Any:
     """返回工具后置事件使用的模型可见结果。"""
+    if outcome.hook_response is not None:
+        return _bounded_result(outcome.hook_response)
     if outcome.result is not None:
         return _bounded_result(outcome.result)
     if outcome.error:

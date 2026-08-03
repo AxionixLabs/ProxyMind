@@ -39,6 +39,7 @@ class AgentThreadContext:
         str(DEFAULT_FORK_TURNS)
     )
     transcript_path: str = ""
+    parent_transcript_path: str = ""
     skills: tuple[typing.Mapping[str, str], ...] = ()
 
     def __post_init__(self) -> None:
@@ -54,11 +55,13 @@ class AgentThreadContext:
         if not isinstance(self.permissions, PermissionSettings):
             raise TypeError("agent thread permissions are required")
 
-        source          = str(self.source or "").strip()
-        cwd             = str(self.cwd or "").strip()
-        spawn_turn_id   = str(self.spawn_turn_id or "").strip()
-        fork_turns      = normalize_fork_turns(self.fork_turns)
-        transcript_path = str(self.transcript_path or "").strip()
+        source        = str(self.source or "").strip()
+        cwd           = str(self.cwd or "").strip()
+        spawn_turn_id = str(self.spawn_turn_id or "").strip()
+        fork_turns    = normalize_fork_turns(self.fork_turns)
+
+        transcript_path        = str(self.transcript_path or "").strip()
+        parent_transcript_path = str(self.parent_transcript_path or "").strip()
 
         if not source or not cwd or not spawn_turn_id:
             raise ValueError("agent thread source, cwd, and spawn turn are required")
@@ -86,6 +89,7 @@ class AgentThreadContext:
         object.__setattr__(self, "spawn_turn_id", spawn_turn_id)
         object.__setattr__(self, "fork_turns", fork_turns)
         object.__setattr__(self, "transcript_path", transcript_path)
+        object.__setattr__(self, "parent_transcript_path", parent_transcript_path)
         object.__setattr__(self, "pref_config", pref_config)
         object.__setattr__(self, "skills", skills)
 
@@ -130,6 +134,7 @@ class AgentThreadContext:
                 else ForkContextSnapshot.empty(normalize_fork_turns(fork_turns))
             ),
             transcript_path=path_for(sid),
+            parent_transcript_path=parent.transcript_path,
             skills=tuple(skills),
         )
 

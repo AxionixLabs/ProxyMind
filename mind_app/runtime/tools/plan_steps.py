@@ -23,6 +23,7 @@ from .execution_policy import (
     validate_execution_policy
 )
 from .router import execute_tool
+from .run import hook_tool_response
 
 ERROR_PREVIEW_LIMIT = 8
 FAILURE_GROUP_LIMIT = 8
@@ -215,6 +216,13 @@ class StepPlanExecutor:
                         ok=normalized.ok,
                         text=normalized.display_text,
                         fields=normalized.fields,
+                    ),
+                    hook_response=hook_tool_response(
+                        name,
+                        result,
+                        fields=normalized.fields,
+                        text=normalized.display_text,
+                        tools=self.tools,
                     ),
                 )
 

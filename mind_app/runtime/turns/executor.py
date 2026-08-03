@@ -330,15 +330,13 @@ async def execute_turn(
             await report.open()
     assert report is not None
 
-    operation_started: bool = False
+    operation_started = asyncio.Event()
 
     async def run_with_session(
         session: "McpSessionLike",
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
-        nonlocal operation_started
-
         selected_mode = tool_filter_mode
         if selected_mode is None:
             profile_for_turn = getattr(mind, "tool_profile_for_turn", None)
@@ -352,7 +350,7 @@ async def execute_turn(
 
         visible_tools = filter_mode_tools(selected_mode, tools)
 
-        operation_started = True
+        operation_started.set()
 
         return await operation(execution, session, visible_tools, report)
 
@@ -362,7 +360,7 @@ async def execute_turn(
         result = await mind.with_mcp_session(pref_config, run_with_session)
     except asyncio.CancelledError:
         interrupted = True
-        if not operation_started:
+        if not operation_started.is_set():
             _record_session_setup_failure(
                 mind,
                 execution,
@@ -378,7 +376,7 @@ async def execute_turn(
         raise
     except BaseException as error:
         interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
-        if not operation_started:
+        if not operation_started.is_set():
             _record_session_setup_failure(
                 mind,
                 execution,

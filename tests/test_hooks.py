@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import mind_app.runtime.hooks.command as hook_command_module
 import mind_app.runtime.hooks.runtime as hook_runtime_module
 
 from mind_app.runtime.execution import (
@@ -1264,6 +1266,34 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
 
 
 @pytest.mark.anyio
+async def test_tool_coordinator_uses_explicit_hook_response() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner()
+    coordinator = ToolCallCoordinator(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )))
+
+    async def operation(_invocation):
+        return ToolOperationResult(
+            value="done",
+            snapshot=ToolResultSnapshot(
+                ok=True,
+                text="model output",
+                fields={"ok": True, "data": {"normalized": True}},
+            ),
+            hook_response="hook output",
+        )
+
+    result = await coordinator.run_invocation(_invocation(), operation)
+
+    assert result.allowed
+    assert runner.calls[0][1]["tool_response"] == "hook output"
+
+
+@pytest.mark.anyio
 async def test_tool_coordinator_skips_post_for_failed_result() -> None:
     definitions = _definitions({
         "PostToolUse": [_hook("post")],
@@ -1622,6 +1652,33 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(os.name != "nt", reason="Windows command quoting")
+async def test_command_executor_runs_windows_command_from_spaced_path(
+    tmp_path,
+) -> None:
+    script_dir = tmp_path / "hook scripts"
+    script_dir.mkdir()
+    script = script_dir / "echo hook.py"
+    script.write_text(
+        "import json, sys\n"
+        "payload = json.load(sys.stdin)\n"
+        "print(json.dumps({'value': payload['value']}))\n",
+        encoding="utf-8",
+    )
+    command = subprocess.list2cmdline([sys.executable, str(script)])
+    definition = _definitions({
+        "PreToolUse": [_hook("unused", command_windows=command)],
+    })[0]
+
+    output = await HookCommandExecutor().execute(
+        definition,
+        {"cwd": str(tmp_path), "value": "ok"},
+    )
+
+    assert output.data == {"value": "ok"}
+
+
+@pytest.mark.anyio
 async def test_command_executor_keeps_output_when_hook_closes_stdin(
     tmp_path,
 ) -> None:
@@ -1805,11 +1862,73 @@ async def test_command_executor_spills_large_stdout_by_session(tmp_path) -> None
     assert spill["size_bytes"] > 64
     assert spill["head"].startswith("HEAD-")
     assert spill["tail"].endswith("-TAIL")
-    assert str(spill_path) in output.data["stdout"]
+    assert output.data["stdout"].startswith("HEAD-")
+    assert output.data["stdout"].endswith("-TAIL")
 
     await executor.cleanup_session("sid")
 
     assert not spill_path.exists()
+
+
+@pytest.mark.anyio
+async def test_command_executor_parses_large_structured_stdout(tmp_path) -> None:
+    script = tmp_path / "large_json_hook.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'hookSpecificOutput': {'hookEventName': "
+        "'PreToolUse', 'permissionDecision': 'deny', "
+        "'permissionDecisionReason': 'x' * 256}}))\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "PreToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+    executor = HookCommandExecutor(spill_store=HookOutputSpillStore(
+        threshold_bytes=64,
+        root=tmp_path / "spill",
+    ))
+
+    output = await executor.execute(
+        definition,
+        {"cwd": str(tmp_path), "session_id": "sid"},
+    )
+
+    assert output.data["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert output.data["hookSpecificOutput"][
+        "permissionDecisionReason"
+    ] == "x" * 256
+    assert output.data["outputSpill"]["stdout"]["size_bytes"] > 64
+
+
+@pytest.mark.anyio
+async def test_command_executor_rejects_stdout_above_parse_limit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    script = tmp_path / "oversized_hook.py"
+    script.write_text("print('x' * 256)\n", encoding="utf-8")
+    definition = _definitions({
+        "PreToolUse": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+    executor = HookCommandExecutor(spill_store=HookOutputSpillStore(
+        threshold_bytes=32,
+        root=tmp_path / "spill",
+    ))
+    monkeypatch.setattr(
+        hook_command_module,
+        "MAX_STRUCTURED_OUTPUT_BYTES",
+        64,
+    )
+
+    with pytest.raises(HookCommandError, match="exceeds 64 bytes"):
+        await executor.execute(
+            definition,
+            {"cwd": str(tmp_path), "session_id": "sid"},
+        )
 
 
 @pytest.mark.anyio

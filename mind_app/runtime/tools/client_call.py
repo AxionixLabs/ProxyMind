@@ -35,6 +35,7 @@ class ClientToolCallResult:
     cost_ms: int = 0
     call_id: str = ""
     fields: dict[str, typing.Any] = field(default_factory=dict)
+    hook_response: typing.Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +161,8 @@ class ClientToolCallRunner:
             text    = tool_run.text
             cost_ms = tool_run.cost_ms
 
+            hook_response = getattr(tool_run, "hook_response", fields)
+
             if display:
                 if use_coding_trace:
                     await self.status_control.end_status()
@@ -184,6 +187,8 @@ class ClientToolCallRunner:
                 "data": {"error": text},
             }
 
+            hook_response = None
+
         return ClientToolCallResult(
             name=name,
             arguments=arguments,
@@ -192,6 +197,7 @@ class ClientToolCallRunner:
             cost_ms=cost_ms,
             call_id=call_id,
             fields=fields,
+            hook_response=hook_response,
         )
 
     async def execute(
@@ -219,6 +225,7 @@ class ClientToolCallRunner:
                     text=result.text,
                     fields=result.fields,
                 ),
+                hook_response=result.hook_response,
             )
 
         hook_run = await self.tool_call_coordinator.run_invocation(
@@ -247,6 +254,7 @@ class ClientToolCallRunner:
                 cost_ms=hook_run.value.cost_ms,
                 call_id=hook_run.value.call_id,
                 fields=visible.fields,
+                hook_response=hook_run.value.hook_response,
             ),
             additional_context=visible.additional_context,
             system_message=visible.system_message,

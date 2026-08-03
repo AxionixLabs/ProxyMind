@@ -22,6 +22,7 @@ from .output_spill import (
 
 HOOK_BUSINESS_BLOCK_EXIT_CODE = 2
 MAX_HOOK_DIAGNOSTIC_CHARS     = 8 * 1024
+MAX_STRUCTURED_OUTPUT_BYTES   = 4 * 1024 * 1024
 
 _PLAIN_STDOUT_CONTEXT_EVENTS = frozenset({
     "SessionStart",
@@ -240,19 +241,17 @@ class HookCommandExecutor:
         output: CapturedHookOutput
     ) -> dict[str, typing.Any]:
         """按事件语义解析命令 Hook 的 stdout。"""
-        stdout_text = output.text()
-        if not stdout_text:
-            return {}
-
         if event == "SessionEnd":
             return {}
 
-        if output.spill is not None:
-            if event in _PLAIN_STDOUT_CONTEXT_EVENTS:
-                return {"stdout": stdout_text}
-            if event in _JSON_STDOUT_EVENTS:
-                raise HookCommandError(f"{event} hook output must be JSON")
+        try:
+            stdout_text = output.full_text(
+                max_bytes=MAX_STRUCTURED_OUTPUT_BYTES,
+            )
+        except (OSError, ValueError) as error:
+            raise HookCommandError(str(error)) from error
 
+        if not stdout_text:
             return {}
 
         try:

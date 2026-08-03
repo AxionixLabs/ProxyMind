@@ -158,6 +158,7 @@ class TurnContext:
     permissions: PermissionSettings
     output_record_path: str = ""
     transcript_path: str = ""
+    parent_transcript_path: str = ""
     session_started: bool = False
     session_start_reason: str = ""
 
@@ -174,6 +175,7 @@ class TurnContext:
         permissions: PermissionSettings,
         output_record_path: str = "",
         transcript_path: str = "",
+        parent_transcript_path: str = "",
         turn_id: str | None = None,
         session_started: bool = False,
         session_start_reason: str = ""
@@ -206,6 +208,7 @@ class TurnContext:
             permissions=permissions,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
+            parent_transcript_path=str(parent_transcript_path or "").strip(),
             session_started=bool(session_started),
             session_start_reason=(
                 str(session_start_reason or "").strip()

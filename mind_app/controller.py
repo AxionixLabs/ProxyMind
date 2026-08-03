@@ -87,7 +87,7 @@ def _normalize_tool_profile(value: str) -> ToolFilterMode:
     """校验并返回服务工具配置。"""
     if value not in {"app", "api"}:
         raise ValueError(f"Invalid Helix tool profile: {value}")
-    return typing.cast(ToolFilterMode, value)
+    return value
 
 
 if typing.TYPE_CHECKING:
@@ -479,7 +479,9 @@ class Mind(object):
             finally:
                 transcript.close()
 
-        await self.subagents.shutdown_root(sid)
+        subagent_snapshots = await self.subagents.shutdown_root(sid)
+        for snapshot in subagent_snapshots:
+            await self.hook_registry.cleanup_session(snapshot.thread.sid)
         await self.session_lifecycle.end(
             self._conversation_lifecycle_id,
             self._session_hook_context(cid=cid, sid=sid),

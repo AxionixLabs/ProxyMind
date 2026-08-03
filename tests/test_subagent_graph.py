@@ -36,6 +36,7 @@ def _thread() -> AgentThreadContext:
         pref_config={"primary": {"model": "parent"}},
         cwd="/workspace",
         permissions=preset_permissions("auto"),
+        transcript_path="/sessions/root.jsonl",
         turn_id="turn_parent",
     )
     return AgentThreadContext.child(
@@ -115,6 +116,9 @@ def test_graph_store_round_trips_latest_checkpoint(tmp_path) -> None:
         "routing": {"tags": ["code", "test"]},
     }
     assert restored.records[0].queue[0].message == "run tests"
+    assert restored.records[0].thread.parent_transcript_path == (
+        "/sessions/root.jsonl"
+    )
     restored_mailbox = AgentMailboxStore.from_snapshot(restored.mailbox)
     assert restored_mailbox.take_messages("agent_worker") == (message,)
 

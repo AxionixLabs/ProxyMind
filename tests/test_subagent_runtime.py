@@ -99,6 +99,7 @@ def _execution(
         cwd="D:/workspace",
         permissions=preset_permissions("auto"),
         transcript_path="D:/logs/subagent.log",
+        parent_transcript_path="D:/logs/root.log",
         turn_id="turn_child",
         session_started=session_started,
         session_start_reason="subagent" if session_started else "",
@@ -179,7 +180,7 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
     start_payload = command_runner.calls[0][1]
     assert command_runner.calls[0][0] == definitions[0]
     assert start_payload == {
-        "session_id": "sid_root",
+        "session_id": "sid_child",
         "transcript_path": "D:/logs/subagent.log",
         "cwd": "D:/workspace",
         "hook_event_name": "SubagentStart",
@@ -196,8 +197,8 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
         "agent_transcript_path": "D:/logs/subagent.log",
         "stop_hook_active": False,
         "last_assistant_message": "done",
-        "session_id": "sid_root",
-        "transcript_path": "D:/logs/subagent.log",
+        "session_id": "sid_child",
+        "transcript_path": "D:/logs/root.log",
         "cwd": "D:/workspace",
         "hook_event_name": "SubagentStop",
         "model": "test-model",

@@ -8,6 +8,7 @@ from unittest.mock import (
 )
 
 import pytest
+from mcp import types as mcp_types
 
 from mind_app.runtime.execution import (
     AgentContext,
@@ -25,6 +26,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallRunner,
     build_client_tool_post_kwargs,
 )
+from mind_app.runtime.tools.run import hook_tool_response
 from mind_core.permissions import preset_permissions
 
 
@@ -268,3 +270,41 @@ def test_client_tool_result_has_no_hook_feedback_fields() -> None:
     )
 
     assert "additional_context" not in client_call.ClientToolCallResult.__slots__
+
+
+def test_hook_tool_response_uses_text_for_builtin_shell() -> None:
+    response = hook_tool_response(
+        "shell_command",
+        mcp_types.CallToolResult(content=[]),
+        fields={"ok": True, "data": {"exit_code": 0}},
+        text="command output",
+        tools=[{
+            "name": "shell_command",
+            "meta": {"client_builtin": True, "domain": "client"},
+        }],
+    )
+
+    assert response == "command output"
+
+
+def test_hook_tool_response_preserves_mcp_result_shape() -> None:
+    result = mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text="notes")],
+        structuredContent={"bytes": 5},
+        isError=False,
+    )
+
+    response = hook_tool_response(
+        "mcp__filesystem__read_file",
+        result,
+        fields={"ok": True, "text": "notes"},
+        text="notes",
+        tools=[{
+            "name": "mcp__filesystem__read_file",
+            "meta": {"external": True, "server": "filesystem"},
+        }],
+    )
+
+    assert response["content"] == [{"type": "text", "text": "notes"}]
+    assert response["structuredContent"] == {"bytes": 5}
+    assert response["isError"] is False

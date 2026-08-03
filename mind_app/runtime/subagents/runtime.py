@@ -405,6 +405,7 @@ class SubagentRuntime:
                 cwd=thread.cwd,
                 permissions=thread.permissions,
                 transcript_path=thread.transcript_path,
+                parent_transcript_path=thread.parent_transcript_path,
                 session_started=turn.turn_index == 1,
                 session_start_reason="subagent",
             )

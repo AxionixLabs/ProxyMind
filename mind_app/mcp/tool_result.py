@@ -29,6 +29,13 @@ class NormalizedToolResult(object):
         return self.fields.get("data")
 
 
+def serialize_call_tool_result(
+    result: mcp_types.CallToolResult,
+) -> dict[str, typing.Any]:
+    """将 MCP 工具结果转换为 Hook 输入使用的协议对象。"""
+    return dict(result.model_dump(by_alias=True, exclude_none=True))
+
+
 def normalize_call_tool_result(
     result: mcp_types.CallToolResult
 ) -> NormalizedToolResult:

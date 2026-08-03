@@ -304,10 +304,10 @@ class AgentGraphPersistence:
         while True:
             await self._wake.wait()
             self._wake.clear()
-            batch = tuple(self._pending.values())
-            self._pending.clear()
+            batch = self._pending
+            self._pending = {}
 
-            for checkpoint in batch:
+            for checkpoint in batch.values():
                 error   = await self._save(checkpoint)
                 current = self._pending.get(checkpoint.root_session_id)
 
@@ -412,6 +412,7 @@ def _record_payload(record: AgentGraphRecord) -> dict[str, typing.Any]:
                 "truncated": fork.truncated,
             },
             "transcript_path": thread.transcript_path,
+            "parent_transcript_path": thread.parent_transcript_path,
             "skills": thread.skills_snapshot(),
         },
         "status": record.status,
@@ -500,7 +501,7 @@ def _record_from_payload(payload: typing.Any) -> AgentGraphRecord:
         status=typing.cast(typing.Any, status),
         submission=_submission_from_payload(data.get("submission")),
         queue=tuple(
-            typing.cast(AgentSubmission, _submission_from_payload(item))
+            _submission_from_payload(item)
             for item in queue
         ),
         turn_count=_nonnegative_int(data.get("turn_count"), "turn count"),
@@ -584,6 +585,7 @@ def _thread_from_payload(payload: typing.Any) -> AgentThreadContext:
         fork_turns=_required_text(data.get("fork_turns"), "fork turns"),
         fork_context=fork_context,
         transcript_path=str(data.get("transcript_path") or ""),
+        parent_transcript_path=str(data.get("parent_transcript_path") or ""),
         skills=tuple(skills),
     )
 

@@ -110,7 +110,12 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
         close_session=AsyncMock(),
     )
     controller.subagents = SimpleNamespace(
-        shutdown_root=AsyncMock(return_value=()),
+        shutdown_root=AsyncMock(return_value=(SimpleNamespace(
+            thread=SimpleNamespace(sid="sid_child"),
+        ),)),
+    )
+    controller.hook_registry = SimpleNamespace(
+        cleanup_session=AsyncMock(),
     )
 
     ended = await Mind.end_conversation(controller, reason="exit")
@@ -128,6 +133,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     assert call.kwargs["last_assistant_message"] == "final answer"
     controller.subagents.shutdown_root.assert_awaited_once_with(
         "sid_test_1_abcdef"
+    )
+    controller.hook_registry.cleanup_session.assert_awaited_once_with(
+        "sid_child"
     )
 
     call.kwargs["before_dispatch"]()

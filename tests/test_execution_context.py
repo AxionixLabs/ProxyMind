@@ -10,7 +10,7 @@ from mind_app.runtime.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.scope import HookExecutionContext
-from mind_core.permissions import preset_permissions
+from mind_core.permissions import PermissionSettings, preset_permissions
 
 
 def test_root_agent_and_turn_context_share_session_identity() -> None:
@@ -144,6 +144,7 @@ def test_child_turn_can_use_an_independent_session() -> None:
         cwd=".",
         permissions=preset_permissions("auto"),
         transcript_path="D:/logs/subagent.log",
+        parent_transcript_path="D:/logs/root.log",
     )
 
     assert turn.sid == "sid_child"
@@ -195,6 +196,7 @@ def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
         cwd=".",
         permissions=preset_permissions("auto"),
         transcript_path="D:/logs/subagent.log",
+        parent_transcript_path="D:/logs/root.log",
     )
 
     context = HookExecutionContext.from_turn(turn)
@@ -206,11 +208,38 @@ def test_child_hook_context_distinguishes_current_and_root_sessions() -> None:
         "tool_use_id": "call_test",
         "tool_input": {"command": "rg TODO"},
     })
-    assert payload["session_id"] == "sid_root"
+    assert payload["session_id"] == "sid_child"
     assert payload["agent_id"] == "agent_child"
     assert payload["agent_type"] == "explore"
     assert payload["transcript_path"] == "D:/logs/subagent.log"
     assert "root_session_id" not in payload
+
+    stop_payload = context.payload("SubagentStop", {
+        "agent_transcript_path": "D:/logs/subagent.log",
+        "stop_hook_active": False,
+        "last_assistant_message": None,
+    })
+    assert stop_payload["transcript_path"] == "D:/logs/root.log"
+    assert stop_payload["agent_transcript_path"] == "D:/logs/subagent.log"
+
+
+def test_never_approval_uses_bypass_permission_mode_in_sandbox() -> None:
+    turn = TurnContext.create(
+        agent=AgentContext.root("sid_test"),
+        cid="cid_test",
+        sid="sid_test",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=PermissionSettings("workspace-write", "never"),
+    )
+
+    payload = HookExecutionContext.from_turn(turn).payload(
+        "UserPromptSubmit",
+        {"prompt": "inspect"},
+    )
+
+    assert payload["permission_mode"] == "bypassPermissions"
 
 
 def test_tool_invocation_replaces_arguments_without_losing_context() -> None:
