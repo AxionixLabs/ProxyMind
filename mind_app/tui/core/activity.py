@@ -234,6 +234,9 @@ class TuiActivity(object):
         """停止指定活动动画，并按需短暂保留完成状态。"""
         target_key = _SLOT_KEYS.get(kind) if kind is not None else None
 
+        if kind is None or kind == "wait":
+            self._reset_wait()
+
         targets = tuple(
             (key, slot)
             for key, slot in self._slots.items()
@@ -243,9 +246,6 @@ class TuiActivity(object):
         expires_at = asyncio.get_running_loop().time() + ACTIVITY_SETTLE_SEC
 
         for key, slot in targets:
-            if slot.kind == "wait":
-                self._reset_wait()
-
             final = slot.finalize() if settle else None
             if final is None:
                 self._slots.pop(key, None)

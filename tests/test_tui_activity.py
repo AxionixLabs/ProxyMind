@@ -9,6 +9,7 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.layout.mouse_handlers import MouseHandlers
 from prompt_toolkit.layout.screen import Screen, WritePosition
 
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.session import create_tui_output_session
 from mind_app.tui.adapters.status import TuiStreamStatusControl
@@ -244,6 +245,58 @@ async def test_pause_wait_excludes_approval_time_from_elapsed() -> None:
 
 
 @pytest.mark.anyio
+async def test_stopping_paused_wait_prevents_later_resume() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    await activity.begin_wait()
+    assert await activity.pause_wait()
+
+    await activity.stop("wait", settle=False)
+    await activity.resume_wait()
+
+    assert not activity.active
+    assert not rendered
+
+
+@pytest.mark.anyio
+async def test_consecutive_approvals_do_not_restore_finished_turn_wait() -> None:
+    runtime = TuiRuntime()
+    coordinator = ApprovalCoordinator(runtime)
+
+    await runtime.begin_wait_status()
+    runtime.begin_terminal_progress()
+
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+
+    await _wait_for_approval(runtime, "first")
+    await runtime.end_activity_status("wait", settle=False)
+    runtime.end_terminal_progress()
+    runtime.screen.approval.finish("accept")
+
+    await _wait_for_approval(runtime, "second")
+    runtime.screen.approval.finish("accept")
+
+    assert await asyncio.gather(first, second) == ["accept", "accept"]
+    assert not runtime.activity.active
+    assert runtime.screen._status_fragments() == []
+
+
+@pytest.mark.anyio
 async def test_request_approval_resumes_wait_after_failure() -> None:
     calls = []
 
@@ -270,9 +323,11 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
     runtime.screen = SimpleNamespace(approval=ApprovalStub())
+    runtime._turn_progress_active = True
     runtime.terminal_progress = SimpleNamespace(
         warning=lambda: calls.append("warning"),
         begin=lambda: calls.append("progress"),
+        clear=lambda: calls.append("clear"),
     )
 
     with pytest.raises(RuntimeError, match="approval failed"):
@@ -316,9 +371,11 @@ async def test_request_approval_dismisses_card_when_pause_fails() -> None:
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
     runtime.screen = SimpleNamespace(approval=ApprovalStub())
+    runtime._turn_progress_active = True
     runtime.terminal_progress = SimpleNamespace(
         warning=lambda: calls.append("warning"),
         begin=lambda: calls.append("progress"),
+        clear=lambda: calls.append("clear"),
     )
 
     with pytest.raises(RuntimeError, match="pause failed"):
@@ -777,6 +834,15 @@ def test_tiny_window_uses_neutral_fallback_without_warning() -> None:
     ]
     assert "Window too small" not in "".join(cell.char for cell in cells)
     assert all("window-too-small" not in cell.style for cell in cells)
+
+
+async def _wait_for_approval(runtime: TuiRuntime, approval_id: str) -> None:
+    for _ in range(100):
+        state = runtime.screen.approval.state
+        if state is not None and state.approval.get("id") == approval_id:
+            return None
+        await asyncio.sleep(0)
+    raise AssertionError(f"approval was not shown: {approval_id}")
 
 
 def _block_text(block) -> str:

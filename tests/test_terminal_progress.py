@@ -120,6 +120,8 @@ async def test_tui_approval_switches_terminal_progress_to_warning() -> None:
         clear=Mock(),
     )
     runtime = TuiRuntime(terminal_progress=progress)
+    runtime.begin_terminal_progress()
+    progress.begin.reset_mock()
     runtime.screen.approval.begin = Mock(return_value=True)
     runtime.screen.approval.wait = AsyncMock(return_value="accept")
     runtime.screen.approval.dismiss = AsyncMock()
@@ -130,6 +132,42 @@ async def test_tui_approval_switches_terminal_progress_to_warning() -> None:
     progress.warning.assert_called_once_with()
     progress.begin.assert_called_once_with()
     runtime.screen.approval.dismiss.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+async def test_tui_approval_does_not_restart_finished_terminal_progress() -> None:
+    calls = []
+    decision_ready = asyncio.Event()
+
+    class Progress(object):
+        def begin(self) -> None:
+            calls.append("begin")
+
+        def warning(self) -> None:
+            calls.append("warning")
+
+        def clear(self) -> None:
+            calls.append("clear")
+
+    runtime = TuiRuntime(terminal_progress=Progress())
+
+    async def wait_for_decision() -> str:
+        await decision_ready.wait()
+        return "accept"
+
+    runtime.screen.approval.begin = Mock(return_value=True)
+    runtime.screen.approval.wait = wait_for_decision
+    runtime.screen.approval.dismiss = AsyncMock()
+
+    runtime.begin_terminal_progress()
+    approval_task = asyncio.create_task(runtime.request_approval({}))
+    await asyncio.sleep(0)
+
+    runtime.end_terminal_progress()
+    decision_ready.set()
+
+    assert await approval_task == "accept"
+    assert calls == ["begin", "warning", "clear", "clear"]
 
 
 @pytest.mark.anyio

@@ -114,6 +114,8 @@ class TuiRuntime(object):
         self._closing: bool    = False
         self._modal_depth: int = 0
 
+        self._turn_progress_active: bool = False
+
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
         )
@@ -397,10 +399,12 @@ class TuiRuntime(object):
 
     def begin_terminal_progress(self) -> None:
         """启动终端窗口的不确定进度。"""
+        self._turn_progress_active = True
         self.terminal_progress.begin()
 
     def end_terminal_progress(self) -> None:
         """清除终端窗口进度。"""
+        self._turn_progress_active = False
         self.terminal_progress.clear()
 
     def update_menu(self, request: MenuRequest) -> None:
@@ -952,7 +956,10 @@ class TuiRuntime(object):
 
     async def _finish_approval_session(self, wait_paused: bool) -> None:
         """恢复等待状态并关闭当前审批卡。"""
-        self.terminal_progress.begin()
+        if self._turn_progress_active:
+            self.terminal_progress.begin()
+        else:
+            self.terminal_progress.clear()
         try:
             if wait_paused:
                 await self.activity.resume_wait()
@@ -1002,6 +1009,8 @@ class TuiRuntime(object):
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+
+        self._turn_progress_active = False
 
         preserve_transcript = self.document.has_conversation
 
