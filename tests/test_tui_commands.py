@@ -14,8 +14,11 @@ from prompt_toolkit.document import Document
 
 from engine.errors import AppError
 from mind_core.skills import SkillSpec
+from mind_app.history.transcript import TranscriptEntry
+from mind_app.tui.core.models import TranscriptBacktrackRequest
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
+from mind_app.tui.features.transcript_export import TranscriptExporter
 from mind_app.tui.features.skills import choose_skill
 from mind_app.tui.features.conversation import ForkLiveStatus
 from mind_app.tui.prompting.commands import (
@@ -523,6 +526,128 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
     await dispatcher._resume_conversation()
 
     runtime.replace_transcript.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_resumed_transcript_supports_search_export_and_backtrack(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    record = {
+        "cid": "cid_old_12345678",
+        "sid": "sid_old_1_abcdef",
+    }
+
+    def entry(event, actor, payload):
+        return TranscriptEntry(
+            timestamp="2026-08-03T00:00:00.000Z",
+            event=event,
+            session_id=record["sid"],
+            turn_id="turn_one",
+            actor=actor,
+            payload=payload,
+        )
+
+    entries = (
+        entry(
+            "message.created",
+            "user",
+            {
+                "content": "inspect the workspace",
+                "attachments": [{"filename": "notes.txt"}],
+                "extras": {"selection": "src/app.py"},
+            },
+        ),
+        entry(
+            "tool.started",
+            "tool",
+            {
+                "call_id": "call_1",
+                "name": "shell_command",
+                "arguments": {"command": "pwd"},
+            },
+        ),
+        entry(
+            "tool.completed",
+            "tool",
+            {
+                "call_id": "call_1",
+                "result": {"output": "needle workspace"},
+            },
+        ),
+        entry(
+            "message.created",
+            "assistant",
+            {"content": "**Needle found**"},
+        ),
+    )
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        attach=SimpleNamespace(clear_pending_attachments=Mock()),
+        history_workspace="D:/workspace",
+        recent_conversation_sessions=Mock(return_value=[record]),
+        read_conversation_transcript=Mock(return_value=entries),
+        resume_conversation=AsyncMock(return_value=record),
+    )
+    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    runtime = TuiRuntime()
+    monkeypatch.setattr(
+        dispatch_module,
+        "choose_history_session",
+        AsyncMock(return_value=record),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        state,
+        SimpleNamespace(),
+    )
+
+    await dispatcher._resume_conversation()
+
+    assert [block.kind for block in runtime.document.blocks] == [
+        "user",
+        "operation",
+        "assistant",
+    ]
+    assert sum(
+        block.kind == "operation" for block in runtime.document.blocks
+    ) == 1
+
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+    overlay.begin_search()
+    overlay.append_search_text("needle")
+    assert overlay.confirm_search()
+    assert overlay.search_result_position == (1, 2)
+    overlay.toggle_raw_mode()
+    assert overlay.raw_mode
+    assert "**Needle found**" in "".join(
+        text for _style, text in overlay.fragments()
+    )
+
+    exported = TranscriptExporter(tmp_path).export(
+        runtime.document.transcript_snapshot().committed_cells,
+        "raw",
+    )
+    exported_text = exported.path.read_text(encoding="utf-8")
+    assert exported_text.count("pwd") == 1
+    assert exported_text.count("needle workspace") == 1
+    assert "**Needle found**" in exported_text
+
+    assert runtime.apply_transcript_backtrack(
+        TranscriptBacktrackRequest(
+            turn_id="turn_one",
+            prompt="inspect the workspace revised",
+        )
+    )
+    assert runtime.document.blocks == []
+    assert runtime.screen.input.buffer.text == "inspect the workspace revised"
 
 
 def test_successful_plain_fork_clears_structured_prompt_draft() -> None:

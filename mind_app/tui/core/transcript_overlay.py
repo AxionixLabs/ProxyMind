@@ -84,6 +84,7 @@ class TuiTranscriptOverlay(object):
         self.export_status: str       = ""
         self.export_failed: bool      = False
         self.export_in_progress: bool = False
+        self._export_request_id: int  = 0
 
         self._selected_cell: TranscriptBlock | None = None
 
@@ -160,24 +161,23 @@ class TuiTranscriptOverlay(object):
 
     def open(self) -> None:
         """打开完整会话记录并定位到最新内容。"""
-        self.active        = True
+        self.active = True
         self.follow_bottom = True
-
         self._sync_scroll_offset()
         self._invalidate()
 
     def close(self) -> None:
         """关闭完整会话记录并清理局部视口。"""
-        self.active           = False
-        self.scroll_offset    = 0
-        self.follow_bottom    = True
+        self.active = False
+        self.scroll_offset = 0
+        self.follow_bottom = True
         self.backtrack_active = False
-        self._selected_cell   = None
-
+        self._selected_cell = None
         self._reset_search()
         self.export_status = ""
         self.export_failed = False
         self.export_in_progress = False
+        self._export_request_id += 1
         self._invalidate()
 
     def fragments(self) -> FormattedText:
@@ -258,22 +258,35 @@ class TuiTranscriptOverlay(object):
         self.export_failed = False
         self._invalidate()
 
-    def set_export_status(self, message: str, *, failed: bool) -> None:
+    def set_export_status(
+        self,
+        message: str,
+        *,
+        failed: bool,
+        request_id: int | None = None
+    ) -> None:
         """更新最近一次记录导出的用户反馈。"""
+        if request_id is not None and (
+            not self.active
+            or request_id != self._export_request_id
+            or not self.export_in_progress
+        ):
+            return None
         self.export_status = str(message or "").strip()
         self.export_failed = bool(failed)
         self.export_in_progress = False
         self._invalidate()
 
-    def begin_export(self, output_format: str) -> bool:
+    def begin_export(self, output_format: str) -> int | None:
         """开始一次记录导出并拒绝并发重复请求。"""
         if self.export_in_progress:
-            return False
+            return None
+        self._export_request_id += 1
         self.export_in_progress = True
         self.export_failed = False
         self.export_status = f"Exporting {output_format}..."
         self._invalidate()
-        return True
+        return self._export_request_id
 
     def append_search_text(self, text: str) -> None:
         """向当前记录搜索词追加可显示字符。"""

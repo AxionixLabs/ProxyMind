@@ -1325,7 +1325,9 @@ class TuiScreen(object):
             output_format: TranscriptExportFormat = (
                 "raw" if self.transcript_overlay.raw_mode else "markdown"
             )
-            if not self.transcript_overlay.begin_export(output_format):
+
+            request_id = self.transcript_overlay.begin_export(output_format)
+            if request_id is None:
                 return None
 
             cells = self.document.transcript_snapshot().committed_cells
@@ -1343,12 +1345,14 @@ class TuiScreen(object):
                     self.transcript_overlay.set_export_status(
                         f"Export failed: {detail or type(error).__name__}",
                         failed=True,
+                        request_id=request_id,
                     )
                     return None
 
                 self.transcript_overlay.set_export_status(
                     f"Exported {result.format}: {result.path}",
                     failed=False,
+                    request_id=request_id,
                 )
 
             event.app.create_background_task(

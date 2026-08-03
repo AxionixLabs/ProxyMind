@@ -47,7 +47,7 @@ from mind_app.tui.core.document import (
     TuiBlockKind,
     TuiDocument,
 )
-from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.models import FragmentBlock, TranscriptBacktrackRequest
 from mind_app.tui.core.keymap import TuiRuntimeKeymap
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
@@ -882,6 +882,61 @@ async def test_resize_rechecks_settled_geometry_before_reflow() -> None:
                 clear.assert_called_once_with()
                 assert runtime.viewport._observed_geometry == (30, 12)
                 assert runtime.viewport._reflowed_geometry == (30, 12)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_stream_commit_during_resize_reflows_only_final_geometry() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+        stable_source = "\n".join(
+            f"stable entry {index:02d}" for index in range(60)
+        )
+        stream_source = "$ command\n" + "stream output " * 12
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block(stable_source), kind="assistant")
+                await asyncio.sleep(0.02)
+                assert runtime.document.scrollback_line_count > 0
+
+                runtime.toggle_transcript_overlay()
+                runtime.set_active_renderable(
+                    _block("running"),
+                    kind="operation",
+                    transcript_block=_block(stream_source),
+                )
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_scrollback",
+                ) as clear:
+                    for width, height in ((30, 9), (22, 11), (36, 12)):
+                        terminal_size = Size(rows=height, columns=width)
+                        runtime.viewport.observe_terminal_geometry(width, height)
+
+                    runtime.commit_active_renderable(
+                        _block("completed"),
+                        transcript_block=_block(stream_source),
+                    )
+                    await asyncio.sleep(0.12)
+                    clear.assert_not_called()
+
+                    runtime.toggle_transcript_overlay()
+                    await asyncio.sleep(0.12)
+
+                clear.assert_called_once_with()
+                assert runtime.viewport._reflowed_geometry == (36, 12)
+                transcript = _transcript_text(runtime.document)
+                assert transcript.count("$ command") == 1
+                assert transcript.count("stream output") == 12
             finally:
                 await runtime.close()
 
@@ -2248,6 +2303,44 @@ def test_transcript_overlay_search_uses_raw_text_and_survives_reflow() -> None:
     assert overlay.search_result_position == (2, 3)
     assert overlay.step_search(-1)
     assert overlay.search_result_position == (1, 3)
+
+    runtime.commit_active_renderable(_block("committed live needle"))
+    assert overlay.search_result_position == (1, 4)
+
+
+def test_transcript_search_recovers_when_backtrack_removes_current_match() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("first prompt"), kind="user")
+    assert runtime.bind_submitted_turn("turn_one", "first prompt")
+    runtime.append_block(
+        _block("first needle result"),
+        kind="assistant",
+    )
+    runtime.append_block(_block("second prompt"), kind="user")
+    assert runtime.bind_submitted_turn("turn_two", "second prompt")
+    runtime.append_block(
+        _block("second needle result"),
+        kind="assistant",
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    overlay.begin_search()
+    overlay.append_search_text("needle")
+    assert overlay.confirm_search()
+    assert overlay.step_search(1)
+    assert overlay.search_result_position == (2, 2)
+
+    assert runtime.apply_transcript_backtrack(
+        TranscriptBacktrackRequest(
+            turn_id="turn_two",
+            prompt="second prompt revised",
+        )
+    )
+
+    assert overlay.search_query == "needle"
+    assert overlay.search_result_position == (1, 1)
+    assert runtime.screen.input.buffer.text == "second prompt revised"
 
 
 def test_transcript_overlay_search_cancel_and_empty_result_state() -> None:

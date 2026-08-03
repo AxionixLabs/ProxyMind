@@ -103,3 +103,49 @@ def test_transcript_exporter_rejects_empty_transcript(
 ) -> None:
     with pytest.raises(ValueError, match="transcript is empty"):
         TranscriptExporter(tmp_path).export((), output_format)
+
+
+def test_transcript_exporter_uses_unique_name_for_same_timestamp(
+    tmp_path: Path,
+) -> None:
+    exporter = TranscriptExporter(tmp_path)
+    cells = (_cell("content", kind="assistant"),)
+
+    with patch(
+        "mind_app.tui.features.transcript_export.datetime",
+    ) as current_datetime:
+        current_datetime.now.return_value.astimezone.return_value.strftime\
+            .return_value = "20260803-120000-000000"
+        first = exporter.export(cells, "raw")
+        second = exporter.export(cells, "raw")
+
+    assert first.path.name == "transcript-20260803-120000-000000.txt"
+    assert second.path.name == "transcript-20260803-120000-000000-2.txt"
+    assert first.path.read_text(encoding="utf-8") == "content\n"
+    assert second.path.read_text(encoding="utf-8") == "content\n"
+
+
+def test_transcript_exporter_reports_unwritable_directory(
+    tmp_path: Path,
+) -> None:
+    exporter = TranscriptExporter(tmp_path / "blocked")
+
+    with patch.object(
+        Path,
+        "mkdir",
+        side_effect=PermissionError("read only"),
+    ), pytest.raises(PermissionError, match="read only"):
+        exporter.export((_cell("content", kind="assistant"),), "raw")
+
+
+def test_transcript_exporter_writes_large_raw_content(tmp_path: Path) -> None:
+    exporter = TranscriptExporter(tmp_path)
+    content = "0123456789abcdef" * 65_536
+
+    result = exporter.export(
+        (_cell(content, kind="operation"),),
+        "raw",
+    )
+
+    assert result.path.stat().st_size == len(content) + 1
+    assert result.path.read_text(encoding="utf-8") == f"{content}\n"

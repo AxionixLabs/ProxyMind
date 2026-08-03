@@ -645,5 +645,121 @@ async def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None
     assert any(view.type == "tui.fork.status" for view in views)
 
 
+@pytest.mark.anyio
+async def test_backtrack_local_failure_restores_full_transaction_state() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("header"), kind="system")
+    _append_turn(runtime, "turn_one", "local prompt")
+    _append_turn(runtime, "turn_two", "later prompt")
+    assert runtime.bind_turn_payload(
+        "turn_one",
+        attachments=({"kind": "file", "file_key": "file_123"},),
+        extras={"selection": {"x": 10, "y": 20}},
+    )
+    runtime.replace_input_text("local prompt")
+    runtime.document.scrollback_line_count = 2
+    runtime.document.cleared_line_count = 1
+    runtime.viewport.view_row = 4
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+    overlay.begin_search()
+    overlay.append_search_text("answer")
+    assert overlay.confirm_search()
+    assert overlay.step_search(1)
+    before_text = "".join(
+        value
+        for _style, value in runtime.document.all_fragments(width=80)
+    )
+    runtime.screen.clear_terminal_scrollback = Mock(
+        side_effect=RuntimeError("terminal unavailable")
+    )
+
+    attach = Attach()
+    attach.replace_pending_attachments(({
+        "kind": "file",
+        "file_key": "file_123",
+    },))
+    state = TuiSessionState(
+        pref_config={},
+        model="",
+        workspace_label="",
+        permissions=preset_permissions("auto"),
+    )
+    state.replace_pending_prompt_extras({
+        "selection": {"x": 10, "y": 20},
+    })
+    bound = []
+    views = []
+
+    async def bind_conversation(cid, sid, *, source):
+        bound.append((cid, sid, source))
+        return {"cid": cid, "sid": sid}
+
+    status = ForkLiveStatus()
+    status.completed(
+        0,
+        prompt=ResubmittablePrompt(
+            message="canonical prompt",
+            attachments=({
+                "kind": "file",
+                "file_key": "file_456",
+            },),
+            extras={"selection": {"x": 30, "y": 40}},
+        ),
+        source_session=("cid_source_12345678", "sid_source_1_abcdef"),
+        target_session=("cid_target_87654321", "sid_target_2_fedcba"),
+    )
+
+    await loop._finish_transcript_backtrack(
+        SimpleNamespace(
+            attach=attach,
+            bind_conversation=bind_conversation,
+            frontend=SimpleNamespace(
+                application=SimpleNamespace(emit=views.append),
+            ),
+        ),
+        runtime,
+        state,
+        TranscriptBacktrackRequest(
+            turn_id="turn_one",
+            prompt="local prompt",
+            attachments=({
+                "kind": "file",
+                "file_key": "file_123",
+            },),
+            extras={"selection": {"x": 10, "y": 20}},
+        ),
+        status,
+    )
+
+    after_text = "".join(
+        value
+        for _style, value in runtime.document.all_fragments(width=80)
+    )
+    assert after_text == before_text
+    assert runtime.screen.input.buffer.text == "local prompt"
+    assert runtime.document.scrollback_line_count == 2
+    assert runtime.document.cleared_line_count == 1
+    assert runtime.viewport.view_row == 4
+    assert overlay.search_query == "answer"
+    assert overlay.search_result_position == (1, 2)
+    assert attach.consume_pending_attachments() == [{
+        "kind": "file",
+        "file_key": "file_123",
+    }]
+    assert state.consume_pending_prompt_extras() == {
+        "selection": {"x": 10, "y": 20},
+    }
+    assert bound == [
+        ("cid_target_87654321", "sid_target_2_fedcba", "tui"),
+        (
+            "cid_source_12345678",
+            "sid_source_1_abcdef",
+            "tui:backtrack-rollback",
+        ),
+    ]
+    assert any(view.type == "tui.fork.status" for view in views)
+
+
 if __name__ == '__main__':
     pass

@@ -403,5 +403,142 @@ async def test_transcript_export_runs_off_loop_and_rejects_duplicate_request(
             await runtime.close()
 
 
+@pytest.mark.anyio
+async def test_transcript_export_uses_trigger_format_after_mode_switch(
+    tmp_path,
+) -> None:
+    exporter = TranscriptExporter(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def delayed_export(cells, output_format):
+        calls.append(output_format)
+        started.set()
+        release.wait(timeout=2)
+        return exporter.export(cells, output_format)
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+            export_transcript=delayed_export,
+        )
+        runtime.append_block(
+            _block("rendered"),
+            kind="assistant",
+            raw_text="**source**",
+        )
+
+        await runtime.open()
+        try:
+            runtime.toggle_transcript_overlay()
+            pipe_input.send_text("e")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if started.is_set():
+                    break
+
+            overlay = runtime.screen.transcript_overlay
+            assert started.is_set()
+            overlay.toggle_raw_mode()
+            release.set()
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if not overlay.export_in_progress:
+                    break
+
+            assert calls == ["markdown"]
+            assert overlay.raw_mode
+            assert "Exported markdown:" in overlay.export_status
+            assert tuple(tmp_path.glob("*.md"))
+            assert not tuple(tmp_path.glob("*.txt"))
+        finally:
+            release.set()
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_closing_transcript_ignores_pending_export_completion(
+    tmp_path,
+) -> None:
+    exporter = TranscriptExporter(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def delayed_export(cells, output_format):
+        started.set()
+        release.wait(timeout=2)
+        return exporter.export(cells, output_format)
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+            export_transcript=delayed_export,
+        )
+        runtime.append_block(_block("content"), kind="assistant")
+
+        await runtime.open()
+        try:
+            runtime.toggle_transcript_overlay()
+            pipe_input.send_text("e")
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if started.is_set():
+                    break
+
+            overlay = runtime.screen.transcript_overlay
+            assert started.is_set()
+            runtime.toggle_transcript_overlay()
+            release.set()
+            await asyncio.sleep(0.05)
+
+            assert not overlay.active
+            assert not overlay.export_in_progress
+            assert overlay.export_status == ""
+            assert not overlay.export_failed
+        finally:
+            release.set()
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_runtime_close_cancels_pending_export_ui_update(tmp_path) -> None:
+    exporter = TranscriptExporter(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def delayed_export(cells, output_format):
+        started.set()
+        release.wait(timeout=2)
+        return exporter.export(cells, output_format)
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+            export_transcript=delayed_export,
+        )
+        runtime.append_block(_block("content"), kind="assistant")
+        await runtime.open()
+        runtime.toggle_transcript_overlay()
+        pipe_input.send_text("e")
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if started.is_set():
+                break
+
+        assert started.is_set()
+        close_task = asyncio.create_task(runtime.close())
+        await asyncio.sleep(0.02)
+        release.set()
+        await close_task
+
+        overlay = runtime.screen.transcript_overlay
+        assert not overlay.export_in_progress
+        assert overlay.export_status == ""
+
+
 if __name__ == '__main__':
     pass
