@@ -34,16 +34,30 @@ class HookOutputSpill:
             "tail": self.tail,
         }
 
-    def summary(self) -> str:
+    def summary(self, *, preview_chars: int | None = None) -> str:
         """返回适合作为上下文或诊断信息的有界摘要。"""
+        head = self.head
+        tail = self.tail
+
+        if preview_chars is not None:
+            budget = max(0, int(preview_chars))
+            if tail == head:
+                head = head[:budget]
+                tail = ""
+            else:
+                head_budget = (budget + 1) // 2
+                tail_budget = budget // 2
+                head = head[:head_budget]
+                tail = tail[-tail_budget:] if tail_budget else ""
+
         parts = [
             f"Hook {self.channel} output spilled to {self.path}",
             f"size_bytes: {self.size_bytes}",
         ]
-        if self.head:
-            parts.extend(("head:", self.head))
-        if self.tail and self.tail != self.head:
-            parts.extend(("tail:", self.tail))
+        if head:
+            parts.extend(("head:", head))
+        if tail and tail != head:
+            parts.extend(("tail:", tail))
 
         return "\n".join(parts)
 
