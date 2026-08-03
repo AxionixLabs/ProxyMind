@@ -764,6 +764,51 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_child_stream_skips_root_session_and_stop_lifecycle_hooks(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.events = []
+
+        async def execute(self, definition, _payload):
+            self.events.append(definition.event)
+            if definition.event == "SessionStart":
+                return SimpleNamespace(data={
+                    "continue": False,
+                    "stopReason": "root startup policy",
+                })
+            if definition.event == "Stop":
+                return SimpleNamespace(data={
+                    "decision": "block",
+                    "reason": "root continuation",
+                })
+            return SimpleNamespace(data={})
+
+    runner = CommandRunner()
+    definitions = resolve_hook_definitions(
+        {
+            "SessionStart": [_hook("start", matcher="startup")],
+            "UserPromptSubmit": [_hook("prompt")],
+            "Stop": [_hook("stop")],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done"}],
+        hooks=HookRuntime(definitions, command_runner=runner),
+        session_started=True,
+        child_agent=True,
+    )
+
+    assert result.status == "completed"
+    assert runner.events == ["UserPromptSubmit"]
+
+
+@pytest.mark.anyio
 async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
     class CommandRunner(object):
         def __init__(self) -> None:

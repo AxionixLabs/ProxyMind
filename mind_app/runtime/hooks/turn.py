@@ -49,6 +49,8 @@ class TurnHookEvents:
     ) -> HookDecision:
         """在会话启动或压缩边界分发启动事件。"""
         context = self.scope.context
+        if source is None and context.agent_depth > 0:
+            return HookDecision.allow()
         if source is None and not context.session_started:
             return HookDecision.allow()
 
@@ -176,6 +178,8 @@ class TurnHookEvents:
         continuation_count: int = 0
     ) -> StopHookDecision:
         """在模型轮次结束前分发停止事件并聚合续跑决定。"""
+        if self.scope.context.agent_depth > 0:
+            return StopHookDecision.stop()
         if not self.scope.has_matching("Stop"):
             return StopHookDecision.stop()
 
@@ -247,7 +251,7 @@ def _session_start_source(reason: str) -> str:
         return "compact"
     if "resume" in normalized or normalized in {"bound", "external"}:
         return "resume"
-    if normalized in {"", "initial", "startup", "calling", "subagent"}:
+    if normalized in {"", "initial", "startup", "calling"}:
         return "startup"
 
     return "clear"
