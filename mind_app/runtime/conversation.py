@@ -247,33 +247,39 @@ async def compact_conversation(
                     "summary": result.summary,
                 },
             )
-            try:
-                post_decision = await mind.await_cleanup(hook_events.post_compact(
-                    trigger=trigger,
-                    trigger_source=trigger_source,
-                    result_source=result.result_source,
-                    outcome=result.outcome,
-                    message=result.message,
-                    summary=result.summary,
-                    transcript_path=result.transcript_path,
-                    before_items=result.before_items,
-                    after_items=result.after_items,
-                ))
-            except Exception as error:
-                observe_exception(
-                    "hooks.post_compact.failed",
-                    error,
-                    level="WARNING",
-                )
-            else:
-                result = _apply_post_compact_decision(result, post_decision)
-
             if result.outcome == "completed":
-                result = await _run_compact_session_start(
-                    mind,
-                    scope,
-                    result,
-                )
+                try:
+                    post_decision = await mind.await_cleanup(
+                        hook_events.post_compact(
+                            trigger=trigger,
+                            trigger_source=trigger_source,
+                            result_source=result.result_source,
+                            outcome=result.outcome,
+                            message=result.message,
+                            summary=result.summary,
+                            transcript_path=result.transcript_path,
+                            before_items=result.before_items,
+                            after_items=result.after_items,
+                        )
+                    )
+                except Exception as error:
+                    observe_exception(
+                        "hooks.post_compact.failed",
+                        error,
+                        level="WARNING",
+                    )
+                else:
+                    result = _apply_post_compact_decision(
+                        result,
+                        post_decision,
+                    )
+
+                if result.ok:
+                    result = await _run_compact_session_start(
+                        mind,
+                        scope,
+                        result,
+                    )
 
         transcript.close()
 

@@ -417,7 +417,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
 
 
 @pytest.mark.anyio
-async def test_compact_failure_reports_failed_post_hook(
+async def test_compact_failure_skips_post_hook(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -442,16 +442,11 @@ async def test_compact_failure_reports_failed_post_hook(
 
     assert result.outcome == "failed"
     assert result.message == "remote compact failed"
-    assert [event for event, _payload in runner.calls] == [
-        "PreCompact",
-        "PostCompact",
-    ]
-    assert runner.calls[1][1]["trigger"] == "manual"
-    assert runner.calls[1][1]["hook_event_name"] == "PostCompact"
+    assert [event for event, _payload in runner.calls] == ["PreCompact"]
 
 
 @pytest.mark.anyio
-async def test_compact_cancellation_reports_interrupted_post_hook(
+async def test_compact_cancellation_skips_post_hook(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -480,12 +475,7 @@ async def test_compact_cancellation_reports_interrupted_post_hook(
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert [event for event, _payload in runner.calls] == [
-        "PreCompact",
-        "PostCompact",
-    ]
-    assert runner.calls[1][1]["trigger"] == "manual"
-    assert runner.calls[1][1]["hook_event_name"] == "PostCompact"
+    assert [event for event, _payload in runner.calls] == ["PreCompact"]
 
 
 @pytest.mark.anyio
@@ -507,9 +497,16 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
             "systemMessage": "Check the compacted summary before proceeding.",
         },
     })
+    hooks = {
+        **_compact_hooks(),
+        "SessionStart": [{
+            "matcher": "compact",
+            "hooks": [{"type": "command", "command": "refresh"}],
+        }],
+    }
     mind = _HookedCompactMind(
         tmp_path,
-        _compact_hook_runtime(tmp_path, runner),
+        _compact_hook_runtime(tmp_path, runner, hooks),
     )
     mind.conversation.queue_turn_context = (
         lambda contexts, *, system_message="": queued.append(
@@ -534,6 +531,10 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
         "review compacted state"
     )
     assert queued == []
+    assert [event for event, _payload in runner.calls] == [
+        "PreCompact",
+        "PostCompact",
+    ]
     assert runner.calls[1][1]["trigger"] == "manual"
 
 
