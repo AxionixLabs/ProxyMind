@@ -336,6 +336,26 @@ def test_spawn_agent_matches_agent_alias() -> None:
     assert HookRuntime(definitions).has_matching("PreToolUse", "spawn_agent")
 
 
+@pytest.mark.parametrize(
+    ("matcher", "tool_name"),
+    [
+        ("shell_command", "Bash"),
+        ("apply_patch", "Write"),
+        ("apply_patch", "Edit"),
+        ("spawn_agent", "Agent"),
+    ],
+)
+def test_tool_aliases_do_not_reverse_match_external_names(
+    matcher: str,
+    tool_name: str,
+) -> None:
+    definitions = _definitions({
+        "PreToolUse": [_hook("builtin", matcher=matcher)],
+    })
+
+    assert not HookRuntime(definitions).has_matching("PreToolUse", tool_name)
+
+
 @pytest.mark.anyio
 async def test_tool_aliases_match_one_hook_once() -> None:
     definitions = _definitions({

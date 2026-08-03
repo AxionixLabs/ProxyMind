@@ -65,10 +65,9 @@ def hook_match_candidates(
     if HOOK_EVENT_CONFIG_SPECS[event].matcher_subject != "tool_name":
         return (normalized,)
 
-    canonical = _canonical_tool_name(normalized)
-    aliases   = TOOL_MATCH_ALIASES.get(canonical, ())
+    aliases = TOOL_MATCH_ALIASES.get(normalized, ())
 
-    return tuple(dict.fromkeys((canonical, *aliases, normalized)))
+    return tuple(dict.fromkeys((normalized, *aliases)))
 
 
 def hook_tool_name(value: str) -> str:
@@ -77,14 +76,6 @@ def hook_tool_name(value: str) -> str:
     if normalized in {"shell_command", "exec_command", "write_stdin"}:
         return "Bash"
     return normalized
-
-
-def _canonical_tool_name(value: str) -> str:
-    """把工具兼容别名解析为稳定的本地名称。"""
-    for canonical, aliases in TOOL_MATCH_ALIASES.items():
-        if value == canonical or value in aliases:
-            return canonical
-    return value
 
 
 def _is_literal(value: str) -> bool:
