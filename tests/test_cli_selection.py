@@ -679,7 +679,12 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     preference = SimpleNamespace(load_pref=AsyncMock())
 
     monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
-    monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
+    server_calls = []
+    monkeypatch.setattr(
+        bootstrap,
+        "ServerManage",
+        lambda *args, **kwargs: server_calls.append((args, kwargs)) or object(),
+    )
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
     monkeypatch.setattr(
         bootstrap,
@@ -713,7 +718,10 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         preference=preference,
         config_session=SimpleNamespace(),
         report=SimpleNamespace(close=Mock()),
-        runtime_spec=SimpleNamespace(launch_command=[]),
+        runtime_spec=SimpleNamespace(
+            launch_command=[],
+            working_directory=str(tmp_path),
+        ),
         service_context=SimpleNamespace(),
         power=1,
         output_mode="rich",
@@ -722,6 +730,9 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
 
     controller.start_config_service.assert_awaited_once_with()
     start_helix.assert_awaited_once_with(controller, tool_profile="api")
+    assert server_calls == [
+        (([],), {"env": {}, "cwd": str(tmp_path)}),
+    ]
 
 
 def test_doctor_json_uses_application_json_sink(monkeypatch) -> None:

@@ -142,6 +142,7 @@ async def _run_application(
             supports=supports,
             level=const.SHOW_LEVEL,
             packaged=packaged,
+            application_root=str(app_layout.root),
         )
     if runtime_spec is None:
         raise AppError(f"This platform is not supported: {platform}.")
@@ -285,7 +286,11 @@ async def _run_controller(
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     try:
-        server = ServerManage(runtime_spec.launch_command, env=process_env())
+        server = ServerManage(
+            runtime_spec.launch_command,
+            env=process_env(),
+            cwd=runtime_spec.working_directory,
+        )
 
         controller = Mind(
             const.SHOW_LEVEL,

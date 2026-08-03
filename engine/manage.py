@@ -30,11 +30,13 @@ class ServerManage(object):
         cmd: list[str],
         timeout: float = 0.6,
         env: typing.Optional[dict[str, str]] = None,
+        cwd: str | os.PathLike[str] | None = None
     ):
         """保存启动命令并初始化本地服务 HTTP 客户端。"""
-        self.cmd       = cmd
-        self.env       = dict(env or {})
-        self.url       = const.BASE_URL.rstrip("/")
+        self.cmd = cmd
+        self.env = dict(env or {})
+        self.cwd = os.fspath(cwd) if cwd is not None else None
+        self.url = const.BASE_URL.rstrip("/")
 
         parsed    = urlparse(self.url)
         self.port = int(parsed.port or 80)
@@ -281,6 +283,8 @@ class ServerManage(object):
 
         if self.env:
             kwargs["env"] = {**os.environ, **self.env}
+        if self.cwd is not None:
+            kwargs["cwd"] = self.cwd
 
         if sys.platform.startswith("win"):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW

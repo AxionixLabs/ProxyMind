@@ -503,6 +503,7 @@ def run_doctor_command(
             supports=str(layout.supports),
             level=const.SHOW_LEVEL,
             packaged=layout.packaged,
+            application_root=str(layout.root),
         )
 
     report = diagnose(DoctorContext(

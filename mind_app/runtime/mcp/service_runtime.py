@@ -34,6 +34,7 @@ class ServiceRuntimeSpec:
     executable: str
     launch_command: list[str]
     path_entries: tuple[str, ...]
+    working_directory: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +59,8 @@ def resolve_service_runtime(
     platform: str,
     supports: str,
     level: str,
-    packaged: bool
+    packaged: bool,
+    application_root: str | None = None
 ) -> ServiceRuntimeSpec:
     """根据平台和运行形态解析本地服务运行时。"""
     if platform == "win32":
@@ -76,7 +78,8 @@ def resolve_service_runtime(
         supports=supports,
         executable=executable,
         launch_command=launch_command,
-        path_entries=(os.path.dirname(executable),)
+        path_entries=(os.path.dirname(executable),),
+        working_directory=(None if packaged else application_root),
     )
 
 
