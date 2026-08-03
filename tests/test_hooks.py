@@ -437,8 +437,15 @@ async def test_additional_context_limit_spills_before_aggregation() -> None:
         def __init__(self) -> None:
             self.calls = []
 
-        async def spill_context(self, text, *, session_id):
-            self.calls.append((text, session_id))
+        async def spill_context(
+            self,
+            text,
+            *,
+            session_id,
+            channel="additional-context",
+            preview_chars=None,
+        ):
+            self.calls.append((text, session_id, channel, preview_chars))
             return "context spilled to D:/tmp/context.log"
 
     definitions = _definitions({
@@ -462,7 +469,66 @@ async def test_additional_context_limit_spills_before_aggregation() -> None:
     assert decision.additional_context == (
         "context spilled to D:/tmp/context.log",
     )
-    assert spiller.calls == [("0123456789", "sid_test")]
+    assert spiller.calls == [(
+        "0123456789",
+        "sid_test",
+        "additional-context",
+        4,
+    )]
+
+
+@pytest.mark.anyio
+async def test_stop_continuation_limit_spills_before_aggregation() -> None:
+    class Spiller(object):
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def spill_context(
+            self,
+            text,
+            *,
+            session_id,
+            channel="additional-context",
+            preview_chars=None,
+        ):
+            self.calls.append((text, session_id, channel, preview_chars))
+            return "continuation spilled to D:/tmp/continuation.log"
+
+    definitions = _definitions({
+        "Stop": [_hook(
+            "continue",
+            additional_context_limit=1,
+        )],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {
+            "decision": "block",
+            "reason": "0123456789",
+        },
+    })
+    spiller = Spiller()
+    runtime = HookRuntime(
+        definitions,
+        command_runner=runner,
+        context_spiller=spiller,
+    )
+
+    result = await runtime.dispatch(HookEventRequest(
+        event="Stop",
+        payload={"session_id": "sid_test"},
+    ))
+
+    record = result.records[0]
+    summary = "continuation spilled to D:/tmp/continuation.log"
+    assert record.output["reason"] == summary
+    assert record.effect.reason == summary
+    assert record.effect.continuation_prompt == summary
+    assert spiller.calls == [(
+        "0123456789",
+        "sid_test",
+        "continuation-prompt",
+        4,
+    )]
 
 
 @pytest.mark.anyio
@@ -1294,6 +1360,43 @@ async def test_tool_coordinator_uses_explicit_hook_response() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("hook_response", [
+    "x" * 40000,
+    {
+        "content": [{"type": "text", "text": "x" * 40000}],
+        "structuredContent": {"answer": 42},
+        "isError": False,
+    },
+], ids=("text", "mcp"))
+async def test_tool_coordinator_preserves_large_hook_response_shape(
+    hook_response,
+) -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("post")],
+    })
+    runner = _CommandRunner()
+    coordinator = ToolCallCoordinator(_scope(HookRuntime(
+        definitions,
+        command_runner=runner,
+    )))
+
+    async def operation(_invocation):
+        return ToolOperationResult(
+            value="done",
+            snapshot=ToolResultSnapshot(
+                ok=True,
+                text="model output",
+                fields={"ok": True},
+            ),
+            hook_response=hook_response,
+        )
+
+    await coordinator.run_invocation(_invocation(), operation)
+
+    assert runner.calls[0][1]["tool_response"] == hook_response
+
+
+@pytest.mark.anyio
 async def test_tool_coordinator_skips_post_for_failed_result() -> None:
     definitions = _definitions({
         "PostToolUse": [_hook("post")],
@@ -1679,6 +1782,39 @@ async def test_command_executor_runs_windows_command_from_spaced_path(
 
 
 @pytest.mark.anyio
+async def test_command_executor_uses_login_shell_on_posix(
+    monkeypatch,
+) -> None:
+    calls = []
+    process = object()
+
+    async def create_process(*args, **kwargs):
+        calls.append((args, kwargs))
+        return process
+
+    monkeypatch.setattr(hook_command_module.os, "name", "posix")
+    monkeypatch.setenv("SHELL", "/bin/example-shell")
+    monkeypatch.setattr(
+        hook_command_module.asyncio,
+        "create_subprocess_exec",
+        create_process,
+    )
+
+    started = await HookCommandExecutor._start_process(
+        "source env.sh && check-hook",
+        cwd="/tmp/workspace",
+    )
+
+    assert started is process
+    assert calls[0][0] == (
+        "/bin/example-shell",
+        "-lc",
+        "source env.sh && check-hook",
+    )
+    assert calls[0][1]["cwd"] == "/tmp/workspace"
+
+
+@pytest.mark.anyio
 async def test_command_executor_keeps_output_when_hook_closes_stdin(
     tmp_path,
 ) -> None:
@@ -1793,6 +1929,47 @@ async def test_command_executor_exit_two_requires_stderr_reason(tmp_path) -> Non
 
 
 @pytest.mark.anyio
+async def test_stop_exit_two_spills_full_stderr_continuation(tmp_path) -> None:
+    script = tmp_path / "large_stop_hook.py"
+    script.write_text(
+        "import sys\n"
+        "print('x' * 10000, file=sys.stderr)\n"
+        "raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    definition = _definitions({
+        "Stop": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+            additional_context_limit=1,
+        )],
+    })[0]
+    executor = HookCommandExecutor(spill_store=HookOutputSpillStore(
+        root=tmp_path / "spill",
+    ))
+    runtime = HookRuntime(
+        (definition,),
+        command_runner=executor,
+    )
+
+    result = await runtime.dispatch(HookEventRequest(
+        event="Stop",
+        payload={
+            "cwd": str(tmp_path),
+            "session_id": "sid",
+        },
+    ))
+
+    record = result.records[0]
+    assert record.ok
+    assert record.effect.continuation_prompt.startswith(
+        "Hook continuation-prompt output spilled to "
+    )
+    assert record.output["reason"] == record.effect.continuation_prompt
+    assert "x" * 5 not in record.effect.continuation_prompt
+    assert "size_bytes: 10000" in record.effect.continuation_prompt
+
+
+@pytest.mark.anyio
 async def test_session_start_exit_two_is_a_failure(tmp_path) -> None:
     script = tmp_path / "failed_start_hook.py"
     script.write_text(
@@ -1899,6 +2076,37 @@ async def test_command_executor_parses_large_structured_stdout(tmp_path) -> None
     assert output.data["hookSpecificOutput"][
         "permissionDecisionReason"
     ] == "x" * 256
+    assert output.data["outputSpill"]["stdout"]["size_bytes"] > 64
+
+
+@pytest.mark.anyio
+async def test_command_executor_uses_spill_summary_for_large_plain_context(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    script = tmp_path / "large_context_hook.py"
+    script.write_text("print('x' * 256)\n", encoding="utf-8")
+    definition = _definitions({
+        "SessionStart": [_hook(
+            subprocess.list2cmdline([sys.executable, str(script)]),
+        )],
+    })[0]
+    executor = HookCommandExecutor(spill_store=HookOutputSpillStore(
+        threshold_bytes=32,
+        root=tmp_path / "spill",
+    ))
+    monkeypatch.setattr(
+        hook_command_module,
+        "MAX_STRUCTURED_OUTPUT_BYTES",
+        64,
+    )
+
+    output = await executor.execute(
+        definition,
+        {"cwd": str(tmp_path), "session_id": "sid"},
+    )
+
+    assert output.data["stdout"].startswith("Hook stdout output spilled to ")
     assert output.data["outputSpill"]["stdout"]["size_bytes"] > 64
 
 

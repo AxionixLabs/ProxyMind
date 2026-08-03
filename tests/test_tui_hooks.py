@@ -112,10 +112,13 @@ def test_hook_event_menu_localizes_descriptions_and_aligns_large_counts(
     menu = hook_event_menu(catalog)
 
     assert menu.options[0].detail == (
-        "installed=9999 active=9999 | gate | match=tool_name | 工具执行前"
+        "installed=9999 active=9999 | gate | "
+        "coverage=client-full/server-approval-only | "
+        "match=tool_name | 工具执行前"
     )
     assert menu.options[1].detail == (
-        "installed=   0 active=   0 | notify | match=tool_name | 工具执行后"
+        "installed=   0 active=   0 | notify | "
+        "coverage=client-only | match=tool_name | 工具执行后"
     )
 
 
@@ -162,13 +165,19 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     )
     assert runtime.requests[0].title == "Hooks"
     assert runtime.requests[0].status == "installed=1 active=0"
-    assert "gate | match=tool_name" in runtime.requests[0].options[0].detail
+    assert (
+        "gate | coverage=client-full/server-approval-only | match=tool_name"
+        in runtime.requests[0].options[0].detail
+    )
     assert runtime.requests[1].title == "PreToolUse"
     assert runtime.requests[2].body[0] == "Command: python check_hook.py"
     assert runtime.requests[1].options[0].detail.endswith(
         "matcher[tool_name]=shell_command"
     )
     assert runtime.requests[2].body[3] == "Matcher (tool_name): shell_command"
+    assert runtime.requests[2].body[4] == (
+        "Coverage: client-full/server-approval-only"
+    )
     assert [view.type for view in views] == ["tui.hooks.status", "tui.gap"]
 
 

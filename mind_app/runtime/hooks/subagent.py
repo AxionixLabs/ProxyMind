@@ -9,7 +9,6 @@ from .models import (
 from .scope import HookExecutionScope
 
 _MAX_CONTEXT_CHARS = 12000
-_MAX_REASON_CHARS  = 6000
 
 
 class SubagentHookEvents:
@@ -106,13 +105,11 @@ class SubagentHookEvents:
         if not continuations:
             return SubagentStopDecision.stop()
 
-        prompts = _bounded_parts(
-            tuple(
-                record.effect.continuation_prompt
-                for record in continuations
-            ),
-            limit=_MAX_REASON_CHARS,
+        prompts = tuple(
+            record.effect.continuation_prompt
+            for record in continuations
         )
+
         contexts = _bounded_parts(
             tuple(
                 context
@@ -121,18 +118,14 @@ class SubagentHookEvents:
             ),
             limit=_MAX_CONTEXT_CHARS,
         )
+
         return SubagentStopDecision(
             should_continue=True,
             continuation_prompt="\n\n".join(prompts),
             reason="; ".join(
-                _bounded_parts(
-                    tuple(
-                        record.effect.reason
-                        for record in continuations
-                        if record.effect.reason
-                    ),
-                    limit=_MAX_REASON_CHARS,
-                )
+                record.effect.reason
+                for record in continuations
+                if record.effect.reason
             ),
             hook_keys=tuple(record.hook_key for record in continuations),
             additional_context=contexts,

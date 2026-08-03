@@ -53,6 +53,8 @@ class HookContextSpiller(typing.Protocol):
         text: str,
         *,
         session_id: str,
+        channel: str = "additional-context",
+        preview_chars: int | None = None
     ) -> str:
         """写入完整上下文并返回模型可见的恢复摘要。"""
         ...
@@ -310,7 +312,7 @@ class HookRuntime:
             else:
                 normalized = normalize_output(raw_output)
 
-            normalized = await self._limit_additional_context(
+            normalized = await self._limit_model_output(
                 definition,
                 payload,
                 normalized,
@@ -384,6 +386,25 @@ class HookRuntime:
                 hook_event=definition.event,
             )
 
+    async def _limit_model_output(
+        self,
+        definition: HookDefinitionConfig,
+        payload: dict[str, typing.Any],
+        normalized: HookNormalizedOutput
+    ) -> HookNormalizedOutput:
+        """按处理器阈值把过大的模型输入写入临时文件。"""
+        normalized = await self._limit_additional_context(
+            definition,
+            payload,
+            normalized,
+        )
+
+        return await self._limit_continuation_prompt(
+            definition,
+            payload,
+            normalized,
+        )
+
     async def _limit_additional_context(
         self,
         definition: HookDefinitionConfig,
@@ -407,6 +428,7 @@ class HookRuntime:
         summary = await spiller.spill_context(
             full_text,
             session_id=str(payload.get("session_id") or ""),
+            preview_chars=limit * 4,
         )
 
         output = _replace_additional_context_output(
@@ -419,6 +441,55 @@ class HookRuntime:
             effect=replace(
                 normalized.effect,
                 additional_context=(summary,),
+            ),
+        )
+
+    async def _limit_continuation_prompt(
+        self,
+        definition: HookDefinitionConfig,
+        payload: dict[str, typing.Any],
+        normalized: HookNormalizedOutput
+    ) -> HookNormalizedOutput:
+        """按处理器阈值把过大的续跑提示写入临时文件。"""
+        prompt  = normalized.effect.continuation_prompt
+        limit   = definition.handler.additional_context_limit
+        spiller = self.context_spiller
+
+        if (
+            definition.event not in {"Stop", "SubagentStop"}
+            or not prompt
+            or limit == 0
+            or spiller is None
+        ):
+            return normalized
+
+        approximate_tokens = (len(prompt) + 3) // 4
+        if approximate_tokens <= limit:
+            return normalized
+
+        summary = await spiller.spill_context(
+            prompt,
+            session_id=str(payload.get("session_id") or ""),
+            channel="continuation-prompt",
+            preview_chars=limit * 4,
+        )
+
+        output = dict(normalized.output)
+        if output.get("reason") == prompt:
+            output["reason"] = summary
+        if output.get("continuation_prompt") == prompt:
+            output["continuation_prompt"] = summary
+
+        return HookNormalizedOutput(
+            output=output,
+            effect=replace(
+                normalized.effect,
+                reason=(
+                    summary
+                    if normalized.effect.reason == prompt
+                    else normalized.effect.reason
+                ),
+                continuation_prompt=summary,
             ),
         )
 

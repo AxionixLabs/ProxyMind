@@ -262,6 +262,7 @@ def _normalize_matcher_group(
             f"skipping {dotted} in {source}: matcher must be a string",
         )
         return None
+
     matcher = matcher.strip()
 
     if HOOK_EVENT_CONFIG_SPECS[event].matcher_subject is None:
@@ -297,6 +298,7 @@ def _normalize_matcher_group(
             )
         ) is not None
     )
+
     return _NormalizedMatcherGroup(index, matcher, handlers)
 
 
@@ -536,7 +538,7 @@ def _normalize_additional_context_limit(
     warnings: list[str] | None,
     source: str,
 ) -> int | None:
-    """规范化附加上下文阈值并忽略不支持事件的配置。"""
+    """规范化模型输入阈值并忽略不支持事件的配置。"""
     if isinstance(value, bool) or not isinstance(value, int):
         _append_warning(
             warnings,
@@ -552,7 +554,10 @@ def _normalize_additional_context_limit(
         )
         return None
 
-    if not HOOK_EVENT_CONFIG_SPECS[event].supports_additional_context:
+    if (
+        not HOOK_EVENT_CONFIG_SPECS[event].supports_additional_context
+        and event not in {"Stop", "SubagentStop"}
+    ):
         if explicitly_configured:
             _append_warning(
                 warnings,
@@ -560,13 +565,11 @@ def _normalize_additional_context_limit(
                 "this event cannot emit additionalContext",
             )
         return _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT
+
     return value
 
 
-def _append_warning(
-    warnings: list[str] | None,
-    message: str,
-) -> None:
+def _append_warning(warnings: list[str] | None, message: str) -> None:
     """按需追加非重复 Hook discovery warning。"""
     if warnings is not None and message not in warnings:
         warnings.append(message)

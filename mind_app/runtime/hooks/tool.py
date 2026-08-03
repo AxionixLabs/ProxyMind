@@ -585,27 +585,12 @@ def _prepared_decision(
     )
 
 
-def _bounded_result(value: typing.Any, limit: int = 32768) -> typing.Any:
-    """返回适合 Hook 输入的有界结果。"""
-    try:
-        encoded = json.dumps(value, ensure_ascii=True, default=str)
-    except (TypeError, ValueError):
-        encoded = str(value)
-    if len(encoded) <= limit:
-        return value
-
-    return {
-        "summary"   : encoded[:limit],
-        "truncated" : True
-    }
-
-
 def _tool_response(outcome: ToolOutcome) -> typing.Any:
     """返回工具后置事件使用的模型可见结果。"""
     if outcome.hook_response is not None:
-        return _bounded_result(outcome.hook_response)
+        return outcome.hook_response
     if outcome.result is not None:
-        return _bounded_result(outcome.result)
+        return outcome.result
     if outcome.error:
         return {
             "error": outcome.error,

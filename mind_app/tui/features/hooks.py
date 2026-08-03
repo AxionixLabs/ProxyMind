@@ -48,6 +48,12 @@ _EVENT_DESCRIPTIONS = {
     "SessionEnd"        : "根会话结束时",
 }
 
+_TOOL_EVENT_COVERAGE = {
+    "PreToolUse"        : "client-full/server-approval-only",
+    "PermissionRequest" : "approval-events",
+    "PostToolUse"       : "client-only",
+}
+
 
 async def manage_hooks(
     runtime: "TuiRuntime",
@@ -104,6 +110,7 @@ def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
                     f"installed={item.installed_count:>{installed_width}} "
                     f"active={item.active_count:>{active_width}} | "
                     f"{item.control_policy} | "
+                    f"{_coverage_summary(item.event)}"
                     f"match={item.matcher_subject or '-'} | "
                     f"{_EVENT_DESCRIPTIONS.get(item.event, item.description)}"
                 ),
@@ -229,6 +236,7 @@ def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
         f"Windows command: {entry.command_windows or '-'}",
         f"Status message: {entry.status_message or '-'}",
         _matcher_detail(entry),
+        f"Coverage: {_TOOL_EVENT_COVERAGE.get(entry.event, 'lifecycle')}",
         f"Source: {entry.source_scope}",
         f"Path: {entry.source_path or '-'}",
         f"Trust: {entry.trust_state}",
@@ -304,6 +312,12 @@ def _hook_state(entry: HookCatalogEntry) -> str:
     if not entry.enabled:
         return "disabled"
     return entry.trust_state
+
+
+def _coverage_summary(event: str) -> str:
+    """返回工具事件的执行位置覆盖摘要。"""
+    coverage = _TOOL_EVENT_COVERAGE.get(event)
+    return f"coverage={coverage} | " if coverage else ""
 
 
 def _matcher_summary(entry: HookCatalogEntry) -> str:

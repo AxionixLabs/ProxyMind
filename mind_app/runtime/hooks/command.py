@@ -83,15 +83,12 @@ class HookCommandExecutor:
 
         handler    = definition.handler
         session_id = str(payload.get("session_id") or "")
+        command    = handler.command_for_platform(os.name)
 
         try:
-            process = await asyncio.create_subprocess_shell(
-                handler.command_for_platform(os.name),
+            process = await self._start_process(
+                command,
                 cwd=str(payload.get("cwd") or "") or None,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                **subprocess_process_group_kwargs(),
             )
         except (OSError, ValueError) as error:
             raise HookCommandError(f"hook command could not start: {error}") from error
@@ -179,7 +176,11 @@ class HookCommandExecutor:
                 data=spill_data,
                 stderr=stderr_text,
                 business_block=True,
-                block_reason=self._bounded_diagnostic(stderr_text),
+                block_reason=(
+                    stderr_text
+                    if definition.event in {"Stop", "SubagentStop"}
+                    else self._bounded_diagnostic(stderr_text)
+                ),
             )
 
         if return_code != 0:
@@ -204,14 +205,16 @@ class HookCommandExecutor:
         text: str,
         *,
         session_id: str,
+        channel: str = "additional-context",
+        preview_chars: int | None = None
     ) -> str:
         """将超出限制的 Hook 上下文写入会话临时文件。"""
         spill = await self._spill_store.spill_text(
             text,
             session_id=session_id,
-            channel="additional-context",
+            channel=channel,
         )
-        return spill.summary()
+        return spill.summary(preview_chars=preview_chars)
 
     async def cleanup_session(self, session_id: str) -> None:
         """清理指定会话产生的大输出临时文件。"""
@@ -236,6 +239,37 @@ class HookCommandExecutor:
         return int(return_code), stdout, stderr
 
     @staticmethod
+    async def _start_process(
+        command: str,
+        *,
+        cwd: str | None
+    ) -> asyncio.subprocess.Process:
+        """使用当前平台约定的命令 Shell 启动 Hook。"""
+        kwargs = {
+            "cwd": cwd,
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+            **subprocess_process_group_kwargs(),
+        }
+
+        if os.name == "nt":
+            comspec = str(os.environ.get("COMSPEC") or "").strip()
+            return await asyncio.create_subprocess_shell(
+                command,
+                executable=comspec or None,
+                **kwargs,
+            )
+
+        shell = str(os.environ.get("SHELL") or "").strip() or "/bin/sh"
+        return await asyncio.create_subprocess_exec(
+            shell,
+            "-lc",
+            command,
+            **kwargs,
+        )
+
+    @staticmethod
     def _parse_stdout(
         event: HookEventName,
         output: CapturedHookOutput
@@ -243,6 +277,14 @@ class HookCommandExecutor:
         """按事件语义解析命令 Hook 的 stdout。"""
         if event == "SessionEnd":
             return {}
+
+        if (
+            event in _PLAIN_STDOUT_CONTEXT_EVENTS
+            and output.spill is not None
+            and output.spill.size_bytes > MAX_STRUCTURED_OUTPUT_BYTES
+            and not output.spill.head.lstrip().startswith(("{", "["))
+        ):
+            return {"stdout": output.text()}
 
         try:
             stdout_text = output.full_text(

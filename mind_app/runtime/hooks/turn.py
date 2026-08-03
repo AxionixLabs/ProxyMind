@@ -222,7 +222,7 @@ class TurnHookEvents:
             contexts.extend(record.effect.additional_context)
 
         prompt = "\n\n".join(
-            _bounded_reason(record.effect.continuation_prompt, limit=6000)
+            record.effect.continuation_prompt
             for record in continuations
             if record.effect.continuation_prompt
         )
@@ -231,7 +231,7 @@ class TurnHookEvents:
             should_continue=True,
             continuation_prompt=prompt,
             reason="; ".join(
-                _bounded_reason(record.effect.reason)
+                record.effect.reason
                 for record in continuations
                 if record.effect.reason
             ),
