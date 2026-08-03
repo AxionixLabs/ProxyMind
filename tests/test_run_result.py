@@ -30,7 +30,10 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
-from mind_app.runtime.turns.executor import TurnExecution
+from mind_app.runtime.turns.executor import (
+    TurnExecution,
+    build_turn_input_payload,
+)
 from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
@@ -223,6 +226,11 @@ async def _run_stream(
         message="hello",
         hook_scope=hook_scope,
         additional_context=additional_context,
+        input_payload=build_turn_input_payload(
+            "hello",
+            attachments=attachments,
+            extras=extras,
+        ),
     )
     stream_options = {
         "exec_env": {},

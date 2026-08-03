@@ -88,7 +88,10 @@ from ..tools.plan_call import PlanToolCallRunner
 from ..tools.plan_steps import PlanExecutionReport
 from .executor import (
     TurnExecution,
+    build_turn_input_payload,
     create_continuation_execution,
+    record_turn_finished,
+    record_turn_started,
     turn_continuation_count
 )
 from ..support.idle_status import IdleStatusTimer
@@ -228,24 +231,6 @@ def _join_text(*values: str) -> str:
         for text in [str(value or "").strip()]
         if text
     )
-
-
-def _user_message_payload(
-    text: str,
-    *,
-    attachments: typing.Iterable[typing.Mapping[str, typing.Any]] = (),
-    extras: typing.Mapping[str, typing.Any] | None = None
-) -> dict[str, typing.Any]:
-    """构建本地会话记录使用的用户消息载荷。"""
-    payload: dict[str, typing.Any] = {"content": str(text)}
-
-    attachment_items = [dict(item) for item in attachments]
-    if attachment_items:
-        payload["attachments"] = attachment_items
-    if extras:
-        payload["extras"] = dict(extras)
-
-    return payload
 
 
 async def _discard_stop_hook_decision(
@@ -388,49 +373,7 @@ async def stream_turn(
 
     try:
         transcript.open()
-        if turn_context.session_started:
-            session_payload: dict[str, typing.Any] = {
-                "cwd": turn_context.cwd,
-                "source": turn_context.source,
-                "reason": turn_context.session_start_reason,
-                "model": turn_context.model,
-            }
-            if turn_context.agent.depth > 0:
-                session_payload.update({
-                    "parent_session_id": turn_context.agent.root_session_id,
-                    "agent_id": turn_context.agent.agent_id,
-                    "agent_type": turn_context.agent.agent_type,
-                    "task_name": turn_context.agent.task_name,
-                    "task_path": turn_context.agent.task_path,
-                })
-            transcript.append(
-                "session.started",
-                actor="system",
-                payload=session_payload,
-            )
-        transcript.append(
-            "turn.started",
-            actor="system",
-        )
-
-        attachments = kwargs.get("attachments")
-        extras      = kwargs.get("extras")
-
-        user_payload = _user_message_payload(
-            message,
-            attachments=(
-                item
-                for item in attachments
-                if isinstance(item, dict)
-            ) if isinstance(attachments, (list, tuple)) else (),
-            extras=extras if isinstance(extras, dict) else None,
-        )
-
-        transcript.append(
-            "message.created",
-            actor="user",
-            payload=user_payload,
-        )
+        record_turn_started(transcript, turn_execution)
 
         await output_control.open()
 
@@ -588,7 +531,7 @@ async def stream_turn(
                         transcript.append(
                             "message.created",
                             actor="user",
-                            payload=_user_message_payload(
+                            payload=build_turn_input_payload(
                                 accepted_input.text,
                                 attachments=accepted_input.attachments,
                                 extras=accepted_input.extras,
@@ -1146,23 +1089,11 @@ async def stream_turn(
     finally:
         record_pending_assistant_output()
 
-        turn_event = (
-            "turn.interrupted"
-            if interrupted
-            else "turn.completed"
-            if result_status == "completed"
-            else "turn.failed"
-        )
-        turn_payload: dict[str, typing.Any] = {
-            "status": "interrupted" if interrupted else result_status,
-            "usage": turn_usage,
-        }
-        if failure_error:
-            turn_payload["error"] = failure_error
-        transcript.append(
-            turn_event,
-            actor="system",
-            payload=turn_payload,
+        record_turn_finished(
+            transcript,
+            status="interrupted" if interrupted else result_status,
+            usage=turn_usage,
+            error=failure_error,
         )
 
         if turn_hook_events is not None:

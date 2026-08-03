@@ -120,9 +120,13 @@ class HookCommandExecutor:
 
         try:
             if process.stdin is not None:
-                process.stdin.write(input_bytes)
-                await process.stdin.drain()
-                process.stdin.close()
+                try:
+                    process.stdin.write(input_bytes)
+                    await process.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    process.stdin.close()
 
             completed, _ = await asyncio.wait(
                 (wait_task,),
@@ -200,7 +204,7 @@ class HookCommandExecutor:
         *,
         session_id: str,
     ) -> str:
-        """把过大的 Hook 上下文写入会话临时文件。"""
+        """将超出限制的 Hook 上下文写入会话临时文件。"""
         spill = await self._spill_store.spill_text(
             text,
             session_id=session_id,

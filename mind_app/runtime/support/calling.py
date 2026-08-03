@@ -9,6 +9,7 @@ from ..execution import (
 )
 from ..turns.executor import (
     TurnExecution,
+    build_turn_input_payload,
     execute_turn,
     resolve_turn_hook_scope
 )
@@ -99,6 +100,10 @@ async def calling(
         session_started=conversation_turn.session_started,
         session_start_reason=conversation_turn.start_reason,
     )
+
+    raw_attachments = kwargs.get("attachments")
+    raw_extras      = kwargs.get("extras")
+
     execution = TurnExecution(
         context=turn_context,
         message=message,
@@ -106,6 +111,15 @@ async def calling(
         metadata=meta,
         additional_context=conversation_turn.additional_context,
         system_message=conversation_turn.system_message,
+        input_payload=build_turn_input_payload(
+            message,
+            attachments=(
+                item
+                for item in raw_attachments
+                if isinstance(item, dict)
+            ) if isinstance(raw_attachments, (list, tuple)) else (),
+            extras=raw_extras if isinstance(raw_extras, dict) else None,
+        ),
     )
     event_report = kwargs.pop("ev_report", None)
 

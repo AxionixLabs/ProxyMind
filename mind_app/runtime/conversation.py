@@ -26,6 +26,7 @@ from .hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
 )
+from .hooks.turn import TurnHookEvents
 from engine.observability import (
     observe,
     observe_exception
@@ -51,8 +52,6 @@ class CompactResult:
     trigger_source: CompactTriggerSource = "client"
     result_source: CompactResultSource = "fallback"
     continue_execution: bool = True
-    additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     @property
     def ok(self) -> bool:
@@ -268,10 +267,14 @@ async def compact_conversation(
                 )
             else:
                 result = _apply_post_compact_decision(result, post_decision)
-                if post_decision.additional_context:
-                    mind.conversation.queue_turn_context(
-                        post_decision.additional_context,
-                    )
+
+            if result.outcome == "completed":
+                result = await _run_compact_session_start(
+                    mind,
+                    scope,
+                    result,
+                )
+
         transcript.close()
 
     return result
@@ -291,8 +294,39 @@ def _apply_post_compact_decision(
     return replace(
         result,
         message=message,
-        continue_execution=decision.allowed,
-        additional_context=decision.additional_context,
+        continue_execution=result.continue_execution and decision.allowed,
+    )
+
+
+async def _run_compact_session_start(
+    mind: "Mind",
+    scope: HookExecutionScope,
+    result: CompactResult
+) -> CompactResult:
+    """在成功压缩后分发压缩来源的会话启动事件。"""
+    try:
+        decision = await mind.await_cleanup(
+            TurnHookEvents(scope).session_start(source="compact")
+        )
+    except Exception as error:
+        observe_exception(
+            "hooks.compact_session_start.failed",
+            error,
+            level="WARNING",
+        )
+        return result
+
+    if decision.additional_context:
+        mind.conversation.queue_turn_context(decision.additional_context)
+
+    if decision.allowed:
+        return result
+
+    reason = decision.reason or "continuation denied by hook"
+    return replace(
+        result,
+        message=f"{result.message} Compact session start blocked: {reason}",
+        continue_execution=False,
     )
 
 
@@ -332,7 +366,7 @@ def _hook_context(
 
 
 def _optional_int(value: typing.Any) -> int | None:
-    """把整数统计值规范化为可选整数。"""
+    """将整数统计值规范化为可选值。"""
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value

@@ -17,7 +17,10 @@ from pathlib import Path
 from engine.observability import observe_exception
 from mind_app.paths import sessions_dir
 from mind_nova import const
-from .contracts import TranscriptActor
+from .contracts import (
+    TranscriptActor,
+    TranscriptSink
+)
 from .ids import SID_RE
 
 
@@ -268,7 +271,7 @@ class TranscriptReplay(object):
         return tuple(replay)
 
 
-class TranscriptWriter(object):
+class TranscriptWriter(TranscriptSink):
     """向单个会话文件追加结构化事件。"""
 
     def __init__(

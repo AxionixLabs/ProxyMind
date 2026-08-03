@@ -9,6 +9,13 @@ from .models import (
 )
 from .scope import HookExecutionScope
 
+SessionStartSource = typing.Literal[
+    "startup",
+    "resume",
+    "clear",
+    "compact",
+]
+
 
 class PromptHookBlockedError(RuntimeError):
     """表示用户输入被前置生命周期 Hook 阻止。"""
@@ -35,22 +42,27 @@ class TurnHookEvents:
     def __init__(self, scope: HookExecutionScope) -> None:
         self.scope = scope
 
-    async def session_start(self) -> HookDecision:
-        """在新会话的首个模型轮次分发启动事件。"""
+    async def session_start(
+        self,
+        *,
+        source: SessionStartSource | None = None
+    ) -> HookDecision:
+        """在会话启动或压缩边界分发启动事件。"""
         context = self.scope.context
-        if not context.session_started:
+        if source is None and not context.session_started:
             return HookDecision.allow()
 
-        reason = context.session_start_reason
-        source = _session_start_source(reason)
+        reason = context.session_start_reason if source is None else source
 
-        if not self.scope.has_matching("SessionStart", source):
+        hook_source = source or _session_start_source(reason)
+
+        if not self.scope.has_matching("SessionStart", hook_source):
             return HookDecision.allow()
 
         dispatched = await self.scope.dispatch(
             "SessionStart",
-            payload={"source": source},
-            match_value=source,
+            payload={"source": hook_source},
+            match_value=hook_source,
             diagnostics={"session_start_reason": reason},
         )
 
@@ -95,8 +107,6 @@ class TurnHookEvents:
             payload={"prompt": str(prompt)},
         )
 
-        updated_input: dict[str, typing.Any] | None = None
-
         blocked_keys: list[str] = []
         reasons: list[str]      = []
         contexts: list[str]     = []
@@ -115,11 +125,6 @@ class TurnHookEvents:
                 ))
                 continue
 
-            if effect.updated_input is not None:
-                if updated_input is None:
-                    updated_input = {}
-                updated_input.update(effect.updated_input)
-
         if blocked_keys:
             return HookDecision(
                 allowed=False,
@@ -130,7 +135,6 @@ class TurnHookEvents:
 
         return HookDecision(
             allowed=True,
-            updated_input=updated_input,
             additional_context=tuple(contexts),
         )
 
@@ -154,10 +158,8 @@ class TurnHookEvents:
                 ),
             )
 
-        message = _updated_prompt(prompt, decision.updated_input)
-
         return TurnStartResult(
-            message=message,
+            message=prompt,
             additional_context=(
                 *session_decision.additional_context,
                 *decision.additional_context,
@@ -249,18 +251,6 @@ def _session_start_source(reason: str) -> str:
         return "startup"
 
     return "clear"
-
-
-def _updated_prompt(
-    prompt: str,
-    updated_input: dict[str, typing.Any] | None
-) -> str:
-    """返回 Hook 改写后的用户提示词。"""
-    if not isinstance(updated_input, dict) or "prompt" not in updated_input:
-        return str(prompt)
-
-    value = updated_input.get("prompt")
-    return value if isinstance(value, str) else str(prompt)
 
 
 def _bounded_reason(value: str, limit: int = 2000) -> str:

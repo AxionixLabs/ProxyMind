@@ -141,6 +141,19 @@ def test_post_compact_output_rejects_hook_specific_context() -> None:
         })
 
 
+def test_user_prompt_output_rejects_updated_input() -> None:
+    with pytest.raises(
+        ValueError,
+        match="unknown UserPromptSubmit output.hookSpecificOutput field",
+    ):
+        validate_hook_output("UserPromptSubmit", {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "updatedInput": {"prompt": "rewritten"},
+            },
+        })
+
+
 @pytest.mark.parametrize("field,value", [
     ("continue", False),
     ("stopReason", "stop"),

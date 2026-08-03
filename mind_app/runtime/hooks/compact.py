@@ -115,15 +115,12 @@ class CompactHookEvents:
 
         blocked_keys: list[str] = []
         reasons: list[str]      = []
-        contexts: list[str]     = []
 
         for record in dispatched.records:
             if not record.ok:
                 continue
 
             effect = record.effect
-
-            contexts.extend(effect.additional_context)
 
             if not effect.continue_execution:
                 blocked_keys.append(record.hook_key)
@@ -136,7 +133,6 @@ class CompactHookEvents:
             allowed=not blocked_keys,
             reason="; ".join(reason for reason in reasons if reason),
             hook_keys=tuple(blocked_keys),
-            additional_context=tuple(contexts),
         )
 
 

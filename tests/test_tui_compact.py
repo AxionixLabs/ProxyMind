@@ -73,9 +73,9 @@ class _HookedCompactMind(object):
         return HookExecutionScope(context=context, dispatcher=self._runtime)
 
 
-def _compact_hook_runtime(tmp_path, runner) -> HookRuntime:
+def _compact_hook_runtime(tmp_path, runner, hooks=None) -> HookRuntime:
     definitions = resolve_hook_definitions(
-        _compact_hooks(),
+        hooks if hooks is not None else _compact_hooks(),
         source_scope="user",
         source_path=tmp_path / "config.toml",
     )
@@ -529,14 +529,109 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     assert not result.ok
     assert not result.continue_execution
     assert result.summary == "Earlier work was summarized."
-    assert result.additional_context == ()
-    assert result.system_message == ""
     assert result.message == (
         "Context compacted. Post-compact continuation blocked: "
         "review compacted state"
     )
     assert queued == []
     assert runner.calls[1][1]["trigger"] == "manual"
+
+
+@pytest.mark.anyio
+async def test_compact_session_start_queues_next_turn_context(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    async def completed_stream(_payload):
+        yield {
+            "type": "conversation.compact",
+            "message": "Context compacted.",
+        }
+
+    hooks = {
+        **_compact_hooks(),
+        "SessionStart": [{
+            "matcher": "compact",
+            "hooks": [{"type": "command", "command": "refresh"}],
+        }],
+    }
+    runner = _RecordingHookRunner({
+        "SessionStart": {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": "Use the compacted project summary.",
+            },
+        },
+    })
+    mind = _HookedCompactMind(
+        tmp_path,
+        _compact_hook_runtime(tmp_path, runner, hooks),
+    )
+    queued = []
+    mind.conversation.queue_turn_context = (
+        lambda contexts: queued.append(tuple(contexts))
+    )
+    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+
+    result = await compact_mode.compact_conversation(
+        mind,
+        pref_config={},
+        source="test",
+    )
+
+    assert result.ok
+    assert [event for event, _payload in runner.calls] == [
+        "PreCompact",
+        "PostCompact",
+        "SessionStart",
+    ]
+    assert runner.calls[2][1]["source"] == "compact"
+    assert queued == [("Use the compacted project summary.",)]
+
+
+@pytest.mark.anyio
+async def test_compact_session_start_can_block_continuation(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    async def completed_stream(_payload):
+        yield {
+            "type": "conversation.compact",
+            "message": "Context compacted.",
+        }
+
+    hooks = {
+        **_compact_hooks(),
+        "SessionStart": [{
+            "matcher": "compact",
+            "hooks": [{"type": "command", "command": "guard"}],
+        }],
+    }
+    runner = _RecordingHookRunner({
+        "SessionStart": {
+            "continue": False,
+            "stopReason": "review compacted state",
+        },
+    })
+    mind = _HookedCompactMind(
+        tmp_path,
+        _compact_hook_runtime(tmp_path, runner, hooks),
+    )
+    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+
+    result = await compact_mode.compact_conversation(
+        mind,
+        pref_config={},
+        source="test",
+    )
+
+    assert result.outcome == "completed"
+    assert not result.ok
+    assert not result.continue_execution
+    assert result.message == (
+        "Context compacted. Compact session start blocked: "
+        "review compacted state"
+    )
 
 
 if __name__ == '__main__':

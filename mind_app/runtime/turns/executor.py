@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field,
@@ -16,6 +17,7 @@ from engine.observability import (
 )
 from mind_nova.events import EventReport
 from mind_nova.identifiers import short_uid
+from mind_app.history.contracts import TranscriptSink
 from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.tools.mode_policy import (
     ToolFilterMode,
@@ -40,6 +42,7 @@ class TurnExecution:
     metadata: typing.Mapping[str, typing.Any] = field(default_factory=dict)
     additional_context: tuple[str, ...] = ()
     system_message: str = ""
+    input_payload: typing.Mapping[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """固定执行元数据并校验会话标识一致。"""
@@ -53,6 +56,8 @@ class TurnExecution:
             raise TypeError("turn additional context must be a sequence")
         if not isinstance(self.system_message, str):
             raise TypeError("turn system message must be a string")
+        if not isinstance(self.input_payload, Mapping):
+            raise TypeError("turn input payload must be a mapping")
 
         additional_context: list[str] = []
         for value in self.additional_context:
@@ -80,6 +85,98 @@ class TurnExecution:
         object.__setattr__(self, "metadata", MappingProxyType(metadata))
         object.__setattr__(self, "additional_context", tuple(additional_context))
         object.__setattr__(self, "system_message", self.system_message.strip())
+        object.__setattr__(
+            self,
+            "input_payload",
+            MappingProxyType({
+                **dict(self.input_payload),
+                "content": self.message,
+            }),
+        )
+
+
+def build_turn_input_payload(
+    message: str,
+    *,
+    attachments: typing.Iterable[typing.Mapping[str, typing.Any]] = (),
+    extras: typing.Mapping[str, typing.Any] | None = None
+) -> dict[str, typing.Any]:
+    """构建轮次记录使用的用户输入载荷。"""
+    payload: dict[str, typing.Any] = {"content": str(message)}
+
+    attachment_items = [
+        dict(item)
+        for item in attachments
+        if isinstance(item, Mapping)
+    ]
+    if attachment_items:
+        payload["attachments"] = attachment_items
+    if isinstance(extras, Mapping) and extras:
+        payload["extras"] = dict(extras)
+
+    return payload
+
+
+def record_turn_started(
+    transcript: TranscriptSink,
+    execution: "TurnExecution",
+) -> None:
+    """写入会话边界、轮次边界和用户输入。"""
+    context = execution.context
+
+    if context.session_started:
+        session_payload: dict[str, typing.Any] = {
+            "cwd": context.cwd,
+            "source": context.source,
+            "reason": context.session_start_reason,
+            "model": context.model,
+        }
+        if context.agent.depth > 0:
+            session_payload.update({
+                "parent_session_id": context.agent.root_session_id,
+                "agent_id": context.agent.agent_id,
+                "agent_type": context.agent.agent_type,
+                "task_name": context.agent.task_name,
+                "task_path": context.agent.task_path,
+            })
+        transcript.append(
+            "session.started",
+            actor="system",
+            payload=session_payload,
+        )
+
+    transcript.append("turn.started", actor="system")
+    transcript.append(
+        "message.created",
+        actor="user",
+        payload=dict(execution.input_payload),
+    )
+
+
+def record_turn_finished(
+    transcript: TranscriptSink,
+    *,
+    status: str,
+    usage: typing.Mapping[str, typing.Any] | None = None,
+    error: str | None = None,
+) -> None:
+    """写入轮次的稳定终态。"""
+    normalized_status = str(status or "failed").strip() or "failed"
+    event = (
+        "turn.interrupted"
+        if normalized_status == "interrupted"
+        else "turn.completed"
+        if normalized_status == "completed"
+        else "turn.failed"
+    )
+    payload: dict[str, typing.Any] = {
+        "status": normalized_status,
+        "usage": dict(usage or {}),
+    }
+    if error:
+        payload["error"] = str(error)
+
+    transcript.append(event, actor="system", payload=payload)
 
 
 def resolve_turn_hook_scope(
@@ -118,7 +215,7 @@ def create_continuation_execution(
     additional_context: typing.Iterable[str] = (),
     system_message: str = ""
 ) -> TurnExecution:
-    """创建同一会话中的续跑模型执行。"""
+    """在当前会话中创建一次续跑模型执行。"""
     if continuation_count is None:
         next_count = turn_continuation_count(execution) + 1
     else:
@@ -233,18 +330,30 @@ async def execute_turn(
             await report.open()
     assert report is not None
 
+    operation_started: bool = False
+
     async def run_with_session(
         session: "McpSessionLike",
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
+        nonlocal operation_started
+
         selected_mode = tool_filter_mode
         if selected_mode is None:
             profile_for_turn = getattr(mind, "tool_profile_for_turn", None)
             if callable(profile_for_turn):
-                selected_mode = profile_for_turn()
+                profile_mode = profile_for_turn()
+                if profile_mode not in {None, "app", "api"}:
+                    raise ValueError(
+                        f"Invalid tool filter mode: {profile_mode}"
+                    )
+                selected_mode = profile_mode
 
         visible_tools = filter_mode_tools(selected_mode, tools)
+
+        operation_started = True
+
         return await operation(execution, session, visible_tools, report)
 
     interrupted: bool = False
@@ -253,6 +362,12 @@ async def execute_turn(
         result = await mind.with_mcp_session(pref_config, run_with_session)
     except asyncio.CancelledError:
         interrupted = True
+        if not operation_started:
+            _record_session_setup_failure(
+                mind,
+                execution,
+                status="interrupted",
+            )
         observe(
             "call.interrupted",
             level="WARNING",
@@ -263,6 +378,13 @@ async def execute_turn(
         raise
     except BaseException as error:
         interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
+        if not operation_started:
+            _record_session_setup_failure(
+                mind,
+                execution,
+                status="interrupted" if interrupted else "failed",
+                error=None if interrupted else _bounded_error(error),
+            )
         observe_exception(
             "call.failed",
             error,
@@ -289,6 +411,52 @@ async def execute_turn(
                 context.sid,
                 drain=False,
             ))
+
+
+def _record_session_setup_failure(
+    controller: "Mind",
+    execution: TurnExecution,
+    *,
+    status: str,
+    error: str | None = None
+) -> None:
+    """记录工具会话建立完成前结束的模型轮次。"""
+    context = execution.context
+
+    try:
+        transcript = controller.transcripts.writer(
+            context.transcript_path,
+            session_id=context.sid,
+            turn_id=context.turn_id,
+        )
+        transcript.open()
+        try:
+            record_turn_started(transcript, execution)
+            record_turn_finished(
+                transcript,
+                status=status,
+                error=error,
+            )
+        finally:
+            transcript.close()
+    except Exception as transcript_error:
+        observe_exception(
+            "transcript.session_setup_failure.failed",
+            transcript_error,
+            level="WARNING",
+            turn_id=context.turn_id,
+        )
+
+
+def _bounded_error(error: BaseException, limit: int = 2000) -> str:
+    """返回适合会话记录的有界异常摘要。"""
+    message = str(error).strip()
+    text = (
+        f"{type(error).__name__}: {message}"
+        if message
+        else type(error).__name__
+    )
+    return text if len(text) <= limit else f"{text[:limit]}..."
 
 
 if __name__ == '__main__':

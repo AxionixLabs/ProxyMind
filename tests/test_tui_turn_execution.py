@@ -163,6 +163,14 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     assert execution.context.session_started is True
     assert execution.context.permissions is permissions
     assert execution.hook_scope is controller.hook_scopes[0]
+    assert dict(execution.input_payload) == {
+        "content": "",
+        "attachments": [{
+            "filename": "screen.png",
+            "kind": "image",
+        }],
+        "extras": {"selection": {"x": 10, "y": 20}},
+    }
     assert len(controller.hook_scopes) == 1
     assert "message" not in call
     assert "metadata" not in call

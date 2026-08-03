@@ -1622,6 +1622,37 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_command_executor_keeps_output_when_hook_closes_stdin(
+    tmp_path,
+) -> None:
+    script = tmp_path / "fast_hook.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'hookSpecificOutput': {'hookEventName': "
+        "'PreToolUse', 'permissionDecision': 'deny', "
+        "'permissionDecisionReason': 'fast'}}))\n",
+        encoding="utf-8",
+    )
+    command = subprocess.list2cmdline([sys.executable, str(script)])
+    definition = _definitions({
+        "PreToolUse": [_hook(command)],
+    })[0]
+
+    output = await HookCommandExecutor().execute(
+        definition,
+        {
+            "cwd": str(tmp_path),
+            "session_id": "sid",
+            "payload": "x" * (1024 * 1024),
+        },
+    )
+
+    assert output.data["hookSpecificOutput"][
+        "permissionDecisionReason"
+    ] == "fast"
+
+
+@pytest.mark.anyio
 async def test_command_executor_uses_non_json_stdout_as_context(tmp_path) -> None:
     script = tmp_path / "invalid_hook.py"
     script.write_text("print('not-json')\n", encoding="utf-8")

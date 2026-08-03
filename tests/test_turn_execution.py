@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
@@ -24,8 +25,13 @@ from mind_app.runtime.support.conversation import ConversationTurn
 from mind_app.runtime.turns import executor as turn_executor
 from mind_app.runtime.turns.executor import (
     TurnExecution,
+    build_turn_input_payload,
     execute_turn,
     resolve_turn_hook_scope,
+)
+from mind_app.history.transcript import (
+    ConversationTranscriptStore,
+    TranscriptReader,
 )
 from mind_core.permissions import preset_permissions
 
@@ -512,6 +518,76 @@ async def test_execute_turn_closes_owned_report_for_failure_and_cancellation(
 
     assert report.opened == 1
     assert report.closed == [expected_drain]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("failure", "terminal_event", "terminal_status"),
+    [
+        (RuntimeError("session failed"), "turn.failed", "failed"),
+        (asyncio.CancelledError(), "turn.interrupted", "interrupted"),
+    ],
+)
+async def test_execute_turn_records_input_when_session_setup_stops(
+    tmp_path,
+    failure,
+    terminal_event,
+    terminal_status,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    prepared = _root_execution()
+    context = replace(
+        prepared.context,
+        transcript_path=str(path),
+        session_started=True,
+        session_start_reason="initial",
+    )
+    execution = TurnExecution(
+        context=context,
+        message="inspect workspace",
+        hook_scope=_empty_hook_scope(context),
+        input_payload=build_turn_input_payload(
+            "inspect workspace",
+            attachments=[{"filename": "screen.png", "kind": "image"}],
+            extras={"selection": {"x": 10, "y": 20}},
+        ),
+    )
+    operation_calls = []
+
+    class Controller(_ExecutionController):
+        transcripts = ConversationTranscriptStore
+
+        async def with_mcp_session(self, _pref_config, _function):
+            raise failure
+
+    async def operation(*args):
+        operation_calls.append(args)
+        return RunResult(status="completed")
+
+    with pytest.raises(type(failure)):
+        await execute_turn(
+            Controller(),
+            {},
+            execution,
+            operation,
+            event_report=_Report(),
+        )
+
+    entries = TranscriptReader(path).read()
+
+    assert not operation_calls
+    assert [entry.event for entry in entries] == [
+        "session.started",
+        "turn.started",
+        "message.created",
+        terminal_event,
+    ]
+    assert entries[2].payload == {
+        "content": "inspect workspace",
+        "attachments": [{"filename": "screen.png", "kind": "image"}],
+        "extras": {"selection": {"x": 10, "y": 20}},
+    }
+    assert entries[3].payload["status"] == terminal_status
 
 
 @pytest.mark.anyio

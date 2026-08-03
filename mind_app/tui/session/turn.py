@@ -18,6 +18,7 @@ from ...runtime.execution import (
 )
 from ...runtime.turns.executor import (
     TurnExecution,
+    build_turn_input_payload,
     execute_turn,
     resolve_turn_hook_scope
 )
@@ -179,6 +180,11 @@ async def run_tui_model_turn(
         metadata=turn_metadata,
         additional_context=conversation_turn.additional_context,
         system_message=conversation_turn.system_message,
+        input_payload=build_turn_input_payload(
+            message_text,
+            attachments=attachments,
+            extras=extras,
+        ),
     )
 
     async def run_tui_turn(
