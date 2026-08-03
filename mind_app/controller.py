@@ -63,6 +63,7 @@ from .runtime.hooks.scope import (
 )
 from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.status import HookStatusCoordinator
+from .runtime.hooks.tool import CommandHookSessionStore
 from .runtime.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
@@ -124,6 +125,7 @@ class Mind(object):
             kwargs.get("hook_registry") or HookRegistry()
         )
         self.hook_status = HookStatusCoordinator(self.frontend.runtime)
+        self.command_hook_sessions = CommandHookSessionStore()
 
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
@@ -482,6 +484,7 @@ class Mind(object):
         subagent_snapshots = await self.subagents.shutdown_root(sid)
         for snapshot in subagent_snapshots:
             await self.hook_registry.cleanup_session(snapshot.thread.sid)
+        self.command_hook_sessions.clear_root(sid)
         await self.session_lifecycle.end(
             self._conversation_lifecycle_id,
             self._session_hook_context(cid=cid, sid=sid),
@@ -598,6 +601,7 @@ class Mind(object):
 
             previous_native_coding = self.native_coding
             self.history_workspace = normalized
+            self.command_hook_sessions.clear()
 
             self.native_coding = NativeCoding(root=self.history_workspace)
             self.client_tools  = self._build_client_tools()
@@ -1015,6 +1019,7 @@ class Mind(object):
             await self.cancel_service_runtime_startup()
 
             await self.subagents.shutdown()
+            self.command_hook_sessions.clear()
             await self.hook_registry.close()
             await self.event_reports.close()
 

@@ -234,16 +234,64 @@ class ToolHookEvents:
         return HookPermissionDecision.abstain()
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingCommandHook:
+    """保存持续命令最终完成时需要使用的原始 Hook 上下文。"""
+    invocation: ToolInvocation
+    events: ToolHookEvents
+
+
+class CommandHookSessionStore:
+    """保存尚未完成的持续命令 Hook 生命周期。"""
+
+    def __init__(self) -> None:
+        self._pending: dict[str, _PendingCommandHook] = {}
+
+    def defer(
+        self,
+        session_id: str,
+        *,
+        invocation: ToolInvocation,
+        events: ToolHookEvents,
+    ) -> None:
+        """按进程会话保存原始命令调用和 Hook 作用域。"""
+        key = str(session_id or "").strip()
+        if key:
+            self._pending[key] = _PendingCommandHook(
+                invocation=invocation,
+                events=events,
+            )
+
+    def take(self, session_id: str) -> _PendingCommandHook | None:
+        """取出并移除指定进程会话的待完成 Hook。"""
+        return self._pending.pop(str(session_id or "").strip(), None)
+
+    def clear_root(self, root_session_id: str) -> None:
+        """清除属于指定根会话的待完成 Hook。"""
+        root_id = str(root_session_id or "").strip()
+        self._pending = {
+            session_id: pending
+            for session_id, pending in self._pending.items()
+            if pending.invocation.turn.agent.root_session_id != root_id
+        }
+
+    def clear(self) -> None:
+        """清除全部待完成 Hook。"""
+        self._pending.clear()
+
+
 class ToolCallCoordinator:
     """协调工具调用的前置、执行和后置 Hook。"""
 
     def __init__(
         self,
         scope: HookExecutionScope,
-        transcript: TranscriptSink | None = None
+        transcript: TranscriptSink | None = None,
+        command_sessions: CommandHookSessionStore | None = None,
     ) -> None:
-        self.events     = ToolHookEvents(scope)
-        self.transcript = transcript
+        self.events           = ToolHookEvents(scope)
+        self.transcript       = transcript
+        self.command_sessions = command_sessions or CommandHookSessionStore()
 
         self._prepared: dict[str, _PreparedDecision] = {}
 
@@ -349,12 +397,10 @@ class ToolCallCoordinator:
 
         self._record_outcome(effective_invocation, outcome)
 
-        post_result = _PostToolUseResult()
-        if outcome.ok:
-            post_result = await self.events.post_tool_use(
-                effective_invocation,
-                outcome,
-            )
+        post_result = await self._post_tool_use(
+            effective_invocation,
+            outcome,
+        )
 
         additional_context = (
             *decision.additional_context,
@@ -379,6 +425,41 @@ class ToolCallCoordinator:
             value=operation_result.value,
             visible_result=visible_result,
         )
+
+    async def _post_tool_use(
+        self,
+        invocation: ToolInvocation,
+        outcome: ToolOutcome,
+    ) -> _PostToolUseResult:
+        """按普通工具或持续命令状态分发工具后事件。"""
+        status, session_id = _command_result_state(outcome)
+
+        if invocation.name == "exec_command" and status == "running":
+            if self.events.scope.has_matching("PostToolUse", invocation.name):
+                self.command_sessions.defer(
+                    session_id,
+                    invocation=invocation,
+                    events=self.events,
+                )
+            return _PostToolUseResult()
+
+        if invocation.name == "write_stdin":
+            if status != "exited":
+                return _PostToolUseResult()
+
+            pending = self.command_sessions.take(session_id)
+            if pending is None or not outcome.ok:
+                return _PostToolUseResult()
+
+            return await pending.events.post_tool_use(
+                pending.invocation,
+                outcome,
+            )
+
+        if not outcome.ok:
+            return _PostToolUseResult()
+
+        return await self.events.post_tool_use(invocation, outcome)
 
     def record_rejected(
         self,
@@ -412,6 +493,9 @@ class ToolCallCoordinator:
             return prepared.decision
 
         self._record_start(invocation)
+
+        if invocation.name == "write_stdin":
+            return HookDecision.allow()
 
         return await self.events.pre_tool_use(invocation)
 
@@ -645,6 +729,21 @@ def _tool_response(outcome: ToolOutcome) -> typing.Any:
         }
 
     return None
+
+
+def _command_result_state(outcome: ToolOutcome) -> tuple[str, str]:
+    """读取持续命令结果中的状态和进程会话标识。"""
+    fields  = outcome.result if isinstance(outcome.result, dict) else {}
+    data    = fields.get("data")
+    payload = data if isinstance(data, dict) else {}
+
+    status = str(fields.get("status") or payload.get("status") or "").strip()
+
+    session_id = str(
+        fields.get("session_id") or payload.get("session_id") or ""
+    ).strip()
+
+    return status, session_id
 
 
 def _bounded_reason(value: str, limit: int = 2000) -> str:

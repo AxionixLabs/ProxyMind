@@ -46,6 +46,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.subagents = SimpleNamespace(
         shutdown=lambda: step("subagents"),
     )
+    controller.command_hook_sessions = SimpleNamespace(
+        clear=lambda: timeline.append("command_hooks"),
+    )
     controller.hook_registry = SimpleNamespace(
         close=lambda: step("hooks"),
     )
@@ -68,6 +71,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     assert timeline == [
         "service_startup",
         "subagents",
+        "command_hooks",
         "hooks",
         "event_reports",
         "native_coding",
@@ -117,6 +121,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     controller.hook_registry = SimpleNamespace(
         cleanup_session=AsyncMock(),
     )
+    controller.command_hook_sessions = SimpleNamespace(
+        clear_root=Mock(),
+    )
 
     ended = await Mind.end_conversation(controller, reason="exit")
 
@@ -136,6 +143,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     )
     controller.hook_registry.cleanup_session.assert_awaited_once_with(
         "sid_child"
+    )
+    controller.command_hook_sessions.clear_root.assert_called_once_with(
+        "sid_test_1_abcdef"
     )
 
     call.kwargs["before_dispatch"]()

@@ -36,6 +36,7 @@ from mind_app.runtime.hooks.scope import (
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
 from mind_app.runtime.hooks.status import HookStatusCoordinator
 from mind_app.runtime.hooks.tool import (
+    CommandHookSessionStore,
     ToolCallCoordinator,
     ToolHookEvents
 )
@@ -1329,6 +1330,105 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
         "tool.started",
         "tool.completed",
     ]
+
+
+@pytest.mark.anyio
+async def test_exec_command_post_waits_for_terminal_write_stdin_poll() -> None:
+    definitions = _definitions({
+        "PreToolUse": [_hook("pre", matcher="Bash")],
+        "PostToolUse": [_hook("post", matcher="Bash")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[1].key: {
+            "additionalContext": "review final output",
+        },
+    })
+    runtime = HookRuntime(definitions, command_runner=runner)
+    sessions = CommandHookSessionStore()
+
+    original = _invocation(turn_id="turn_original")
+    exec_invocation = ToolInvocation(
+        turn=original.turn,
+        call_id="exec_call",
+        name="exec_command",
+        arguments={"command": "long-running-command"},
+        meta=original.meta,
+    )
+    exec_coordinator = ToolCallCoordinator(
+        _scope(runtime, exec_invocation),
+        command_sessions=sessions,
+    )
+
+    poll_base = _invocation(turn_id="turn_poll")
+
+    def write_invocation(call_id: str) -> ToolInvocation:
+        return ToolInvocation(
+            turn=poll_base.turn,
+            call_id=call_id,
+            name="write_stdin",
+            arguments={"session_id": "exec_session", "stdin": ""},
+            meta=poll_base.meta,
+        )
+
+    poll_coordinator = ToolCallCoordinator(
+        _scope(runtime, poll_base),
+        command_sessions=sessions,
+    )
+
+    async def command_result(status: str, response: str):
+        fields = {
+            "ok": True,
+            "status": status,
+            "session_id": "exec_session",
+            "data": {
+                "status": status,
+                "session_id": "exec_session",
+            },
+        }
+        value = SimpleNamespace(ok=True, text=response, fields=fields)
+        return ToolOperationResult(
+            value=value,
+            snapshot=ToolResultSnapshot(
+                ok=True,
+                text=response,
+                fields=fields,
+            ),
+            hook_response=response,
+        )
+
+    started = await exec_coordinator.run_invocation(
+        exec_invocation,
+        lambda _prepared: command_result("running", "partial output"),
+    )
+    polled = await poll_coordinator.run_invocation(
+        write_invocation("poll_call"),
+        lambda _prepared: command_result("running", "more partial output"),
+    )
+    completed = await poll_coordinator.run_invocation(
+        write_invocation("final_call"),
+        lambda _prepared: command_result("exited", "final output"),
+    )
+    await poll_coordinator.run_invocation(
+        write_invocation("duplicate_call"),
+        lambda _prepared: command_result("exited", "duplicate output"),
+    )
+
+    assert started.visible_result.additional_context == ()
+    assert polled.visible_result.additional_context == ()
+    assert completed.visible_result.additional_context == (
+        "review final output",
+    )
+    assert [call[0].event for call in runner.calls] == [
+        "PreToolUse",
+        "PostToolUse",
+    ]
+    post_payload = runner.calls[1][1]
+    assert post_payload["tool_name"] == "Bash"
+    assert post_payload["tool_use_id"] == "exec_call"
+    assert post_payload["tool_input"] == {
+        "command": "long-running-command",
+    }
+    assert post_payload["tool_response"] == "final output"
 
 
 @pytest.mark.anyio

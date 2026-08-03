@@ -399,6 +399,7 @@ async def stream_turn(
         tool_call_coordinator = ToolCallCoordinator(
             hook_scope,
             transcript=transcript,
+            command_sessions=getattr(mind, "command_hook_sessions", None),
         )
 
         turn_hook_events = TurnHookEvents(hook_scope)
