@@ -5,6 +5,7 @@ import typing
 import asyncio
 import contextlib
 from prompt_toolkit.application.current import create_app_session
+from prompt_toolkit.application import in_terminal
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -21,10 +22,7 @@ from mind_app.frontend.contracts import (
     ActivityStatusKind,
     FrontendRuntime
 )
-from mind_app.interaction.contracts import (
-    InteractionPort,
-    PromptContext
-)
+from mind_app.interaction.contracts import PromptContext
 from .models import (
     FragmentBlock,
     MenuRequest,
@@ -66,8 +64,10 @@ StartupAnimation: typing.TypeAlias = typing.Callable[
     [], typing.Awaitable[None]
 ]
 
+ModalResult = typing.TypeVar("ModalResult")
 
-class TuiRuntime(FrontendRuntime, InteractionPort):
+
+class TuiRuntime(object):
     """协调 TUI Application 生命周期、正文输出和前端交互能力。"""
 
     def __init__(
@@ -84,7 +84,7 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         export_transcript: typing.Callable[
             [tuple[TranscriptBlock, ...], TranscriptExportFormat],
             TranscriptExportResult,
-        ] | None = None,
+        ] | None = None
     ) -> None:
         self.input_model = input_model or TuiInputModel()
         self.context     = PromptContext(model="")
@@ -111,7 +111,8 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         self._open_callbacks: list[typing.Callable[[], None]] = []
         self._startup_animations: list[StartupAnimation]      = []
 
-        self._closing: bool = False
+        self._closing: bool    = False
+        self._modal_depth: int = 0
 
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
@@ -131,12 +132,15 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         self.viewport = TuiTranscriptViewport(
             document=self.document,
             is_application_active=lambda: self.active,
-            is_scrollback_deferred=lambda: self.submission_deferred,
+            is_scrollback_deferred=(
+                lambda: self.submission_deferred or self._modal_depth > 0
+            ),
             is_transcript_overlay_active=(
                 lambda: self.screen.transcript_overlay.active
             ),
             is_closing=lambda: self._closing,
             get_application=lambda: self.screen.application,
+            get_terminal_geometry=self._terminal_geometry,
             get_terminal_width=lambda: self.terminal_width,
             get_available_height=(
                 lambda: self.screen.transcript_available_height()
@@ -181,7 +185,9 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
                 self._report_missing_backtrack
             ),
             export_transcript=export_transcript,
-            observe_terminal_width=self.viewport.observe_terminal_width,
+            observe_terminal_geometry=(
+                self.viewport.observe_terminal_geometry
+            ),
             keymap=self.keymap,
             input_obj=input_obj,
             output_obj=output_obj,
@@ -203,13 +209,6 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
             get_width=lambda: self.terminal_width,
             color_level=terminal_capabilities.color_level,
         )
-
-    def configure_keymap(self, keymap: TuiRuntimeKeymap) -> None:
-        """在 Application 启动前替换运行时按键映射。"""
-        if self.active:
-            raise RuntimeError("cannot configure TUI keymap while running")
-        self.screen.set_keymap(keymap)
-        self.keymap = keymap
 
     @property
     def active(self) -> bool:
@@ -252,6 +251,11 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         """返回当前渲染输出的终端行数。"""
         return self.screen.terminal_height
 
+    def _terminal_geometry(self) -> tuple[int, int]:
+        """通过单次尺寸快照返回当前终端宽高。"""
+        geometry = self.screen.frame_geometry
+        return geometry.width, geometry.height
+
     @property
     def has_pending_attachments(self) -> bool:
         """返回当前是否存在可随空消息发送的附件。"""
@@ -261,43 +265,6 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
     def execution_active(self, active: bool) -> None:
         """更新模型轮次运行状态。"""
         self.task_state.set_turn_running(active)
-
-    def set_startup_animation(
-        self,
-        animation: StartupAnimation
-    ) -> None:
-        """注册在 Application 首帧后播放的一次性启动动画。"""
-        if self.active:
-            raise RuntimeError("TUI startup animation requires an inactive runtime")
-        if not self._startup_animations:
-            self._startup_animations.append(animation)
-
-    def bind_pending_attachment_check(
-        self,
-        check: typing.Callable[[], bool] | None
-    ) -> None:
-        """绑定或清除待发送附件状态判断。"""
-        self.submissions.bind_pending_attachment_check(check)
-
-    def print_exit_summary(self, session_id: str) -> None:
-        """在 TUI 释放终端后打印会话恢复提示。"""
-        if self.active:
-            raise RuntimeError("TUI exit summary requires a closed Application")
-        self.screen.print_exit_summary(session_id)
-
-    def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
-        """注册主应用首帧完成后的同步回调。"""
-        self._open_callbacks.append(callback)
-        if self.active:
-            callback()
-
-    def set_prompt_context(self, context: PromptContext) -> None:
-        """在首帧或输入轮次前更新输入区展示上下文。"""
-        self.context = context
-
-    def set_process_status_label(self, label: str) -> None:
-        """更新动画区域下方的后台进程摘要。"""
-        self.screen.process_status.set_label(label)
 
     def _discard_submitted_query(self) -> None:
         """在二级菜单接管交互时撤下刚提交的输入块。"""
@@ -341,6 +308,92 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
                 self._background_session_tasks.pop(session_id, None)
         if not task.cancelled():
             task.exception()
+
+    def _can_backtrack_history(self) -> bool:
+        """返回主输入区是否可以开始历史编辑选择。"""
+        return bool(
+            self.active
+            and not self.submission_deferred
+            and not self.screen.transcript_overlay.active
+            and not self.input_model.shell_mode
+            and not self.screen.input.buffer.text
+            and not self.has_pending_attachments
+            and self.screen.transcript_overlay.has_backtrack_target
+        )
+
+    def _can_transcript_backtrack(self) -> bool:
+        """返回完整记录是否可以确认历史编辑。"""
+        return not self.submission_deferred and not self.has_pending_attachments
+
+    def _can_report_missing_backtrack(self) -> bool:
+        """返回主输入区是否可以报告缺少历史编辑目标。"""
+        return bool(
+            self.active
+            and not self.submission_deferred
+            and not self.screen.transcript_overlay.active
+            and not self.input_model.shell_mode
+            and not self.screen.input.buffer.text
+            and not self.has_pending_attachments
+            and not self.screen.transcript_overlay.has_backtrack_target
+        )
+
+    def _report_missing_backtrack(self) -> None:
+        """追加没有可编辑历史消息的提示。"""
+        self.queue_background_block(text_block(
+            "No previous message to edit."
+        ))
+
+    def configure_keymap(self, keymap: TuiRuntimeKeymap) -> None:
+        """在 Application 启动前替换运行时按键映射。"""
+        if self.active:
+            raise RuntimeError("cannot configure TUI keymap while running")
+        self.screen.set_keymap(keymap)
+        self.keymap = keymap
+
+    def configure_scrollback_reflow_line_limit(self, value: int) -> None:
+        """配置终端尺寸变化时允许回放的最大逻辑行数。"""
+        if self.active:
+            raise RuntimeError(
+                "cannot configure scrollback reflow while TUI is running"
+            )
+        self.viewport.configure_scrollback_reflow_line_limit(value)
+
+    def set_startup_animation(
+        self,
+        animation: StartupAnimation
+    ) -> None:
+        """注册在 Application 首帧后播放的一次性启动动画。"""
+        if self.active:
+            raise RuntimeError("TUI startup animation requires an inactive runtime")
+        if not self._startup_animations:
+            self._startup_animations.append(animation)
+
+    def bind_pending_attachment_check(
+        self,
+        check: typing.Callable[[], bool] | None
+    ) -> None:
+        """绑定或清除待发送附件状态判断。"""
+        self.submissions.bind_pending_attachment_check(check)
+
+    def print_exit_summary(self, session_id: str) -> None:
+        """在 TUI 释放终端后打印会话恢复提示。"""
+        if self.active:
+            raise RuntimeError("TUI exit summary requires a closed Application")
+        self.screen.print_exit_summary(session_id)
+
+    def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
+        """注册主应用首帧完成后的同步回调。"""
+        self._open_callbacks.append(callback)
+        if self.active:
+            callback()
+
+    def set_prompt_context(self, context: PromptContext) -> None:
+        """在首帧或输入轮次前更新输入区展示上下文。"""
+        self.context = context
+
+    def set_process_status_label(self, label: str) -> None:
+        """更新动画区域下方的后台进程摘要。"""
+        self.screen.process_status.set_label(label)
 
     def begin_terminal_progress(self) -> None:
         """启动终端窗口的不确定进度。"""
@@ -720,40 +773,6 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         else:
             self.viewport.schedule_scrollback_flush()
 
-    def _can_backtrack_history(self) -> bool:
-        """返回主输入区是否可以开始历史编辑选择。"""
-        return bool(
-            self.active
-            and not self.submission_deferred
-            and not self.screen.transcript_overlay.active
-            and not self.input_model.shell_mode
-            and not self.screen.input.buffer.text
-            and not self.has_pending_attachments
-            and self.screen.transcript_overlay.has_backtrack_target
-        )
-
-    def _can_transcript_backtrack(self) -> bool:
-        """返回完整记录是否可以确认历史编辑。"""
-        return not self.submission_deferred and not self.has_pending_attachments
-
-    def _can_report_missing_backtrack(self) -> bool:
-        """返回主输入区是否可以报告缺少历史编辑目标。"""
-        return bool(
-            self.active
-            and not self.submission_deferred
-            and not self.screen.transcript_overlay.active
-            and not self.input_model.shell_mode
-            and not self.screen.input.buffer.text
-            and not self.has_pending_attachments
-            and not self.screen.transcript_overlay.has_backtrack_target
-        )
-
-    def _report_missing_backtrack(self) -> None:
-        """追加没有可编辑历史消息的提示。"""
-        self.queue_background_block(text_block(
-            "No previous message to edit."
-        ))
-
     def open_transcript_backtrack(self) -> None:
         """从主输入区打开完整记录并选择最近用户轮次。"""
         if not self.screen.set_transcript_overlay(True):
@@ -931,6 +950,15 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         for animation in animations:
             await animation()
 
+    async def _finish_approval_session(self, wait_paused: bool) -> None:
+        """恢复等待状态并关闭当前审批卡。"""
+        self.terminal_progress.begin()
+        try:
+            if wait_paused:
+                await self.activity.resume_wait()
+        finally:
+            await self.screen.approval.dismiss()
+
     async def open(self) -> None:
         """启动持久 inline 输入应用并等待首帧完成。"""
         if self.active:
@@ -965,6 +993,8 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
             raise application_error
 
         await self._play_startup_animation()
+
+        self.viewport.refresh_geometry()
 
         for callback in tuple(self._open_callbacks):
             callback()
@@ -1062,15 +1092,6 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         self._discard_submitted_query()
         return await self.screen.menu.request(request)
 
-    async def _finish_approval_session(self, wait_paused: bool) -> None:
-        """恢复等待状态并关闭当前审批卡。"""
-        self.terminal_progress.begin()
-        try:
-            if wait_paused:
-                await self.activity.resume_wait()
-        finally:
-            await self.screen.approval.dismiss()
-
     async def request_approval(
         self,
         approval: dict[str, typing.Any]
@@ -1160,7 +1181,10 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
         """启动通用前台操作动画。"""
         await self.activity.begin_operation(snapshot)
 
-    async def hold_activity_status(self, kind: ActivityStatusKind) -> None:
+    async def hold_activity_status(
+        self,
+        kind: ActivityStatusKind
+    ) -> None:
         """保持指定活动的最终状态直至后续替换或清除。"""
         await self.activity.hold(kind)
 
@@ -1172,6 +1196,20 @@ class TuiRuntime(FrontendRuntime, InteractionPort):
     ) -> None:
         """结束运行期活动动画。"""
         await self.activity.stop(kind, settle=settle)
+
+    async def run_modal(
+        self,
+        operation: typing.Callable[[], typing.Awaitable[ModalResult]]
+    ) -> ModalResult:
+        """暂时让出真实终端，并在外部交互结束后刷新几何状态。"""
+        self._modal_depth += 1
+        self.viewport.pause_scrollback()
+        try:
+            async with in_terminal(render_cli_done=False):
+                return await operation()
+        finally:
+            self._modal_depth = max(0, self._modal_depth - 1)
+            self.viewport.refresh_geometry()
 
 
 def require_tui_runtime(runtime: FrontendRuntime) -> TuiRuntime:

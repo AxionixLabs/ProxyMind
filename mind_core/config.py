@@ -22,6 +22,8 @@ from mind_core.agent_config import (
     normalize_agent_table
 )
 
+DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT: typing.Final[int] = 10_000
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigOverride(object):
@@ -150,6 +152,9 @@ def _default_effective_config() -> dict[str, typing.Any]:
         "agents": normalize_agent_table(None),
         "mcp_servers": {},
         "tui": {
+            "scrollback_reflow_line_limit": (
+                DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
+            ),
             "keymap": {
                 "global": {},
                 "pager": {},
@@ -276,7 +281,12 @@ SKILL_FIELDS             = frozenset({"enabled", "disabled"})
 HOSTED_TOOL_FIELDS       = frozenset({"groups"})
 HOSTED_TOOL_GROUP_FIELDS = frozenset({"perf_engine", "sandbox_cloud"})
 PROJECT_FIELDS           = frozenset({"trust_level"})
-TUI_FIELDS               = frozenset({"keymap"})
+
+TUI_FIELDS = frozenset({
+    "keymap",
+    "scrollback_reflow_line_limit",
+})
+
 TUI_KEYMAP_FIELDS        = frozenset({"global", "pager"})
 TUI_GLOBAL_KEYMAP_FIELDS = frozenset({"open_transcript"})
 
@@ -598,6 +608,10 @@ def _normalize_tui_config(value: typing.Any) -> dict[str, typing.Any]:
     keymap = _as_dict(tui.get("keymap"))
 
     return {
+        "scrollback_reflow_line_limit": int(tui.get(
+            "scrollback_reflow_line_limit",
+            DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT,
+        )),
         "keymap": {
             "global": copy.deepcopy(_as_dict(keymap.get("global"))),
             "pager": copy.deepcopy(_as_dict(keymap.get("pager"))),
@@ -612,6 +626,16 @@ def _validate_tui_config(value: typing.Any) -> None:
     if not isinstance(value, dict):
         raise ConfigValidationError("tui must be a table")
     _validate_known_fields(value, TUI_FIELDS, "tui")
+
+    line_limit = value.get("scrollback_reflow_line_limit")
+    if line_limit is not None and (
+        isinstance(line_limit, bool)
+        or not isinstance(line_limit, int)
+        or line_limit <= 0
+    ):
+        raise ConfigValidationError(
+            "tui.scrollback_reflow_line_limit must be a positive integer"
+        )
 
     keymap = value.get("keymap")
     if keymap is None:
@@ -650,6 +674,10 @@ def _validate_tui_config_value(
 ) -> None:
     """校验一个终端交互配置覆盖值。"""
     dotted = ".".join(path)
+
+    if path == ("tui", "scrollback_reflow_line_limit"):
+        _validate_tui_config({"scrollback_reflow_line_limit": value})
+        return None
 
     if path in TUI_KEYMAP_TABLE_FIELDS:
         if not isinstance(value, dict):

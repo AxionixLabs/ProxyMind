@@ -83,6 +83,24 @@ def test_tui_keymap_schema_rejects_unknown_actions_and_invalid_values(
         normalize_config(config)
 
 
+def test_tui_scrollback_reflow_line_limit_is_normalized_and_validated() -> None:
+    assert normalize_config({})["tui"][
+        "scrollback_reflow_line_limit"
+    ] == 10_000
+    assert normalize_config({
+        "tui": {"scrollback_reflow_line_limit": 320},
+    })["tui"]["scrollback_reflow_line_limit"] == 320
+
+    for invalid in (True, 0, -1, 1.5, "320"):
+        with pytest.raises(
+            ConfigValidationError,
+            match="scrollback_reflow_line_limit",
+        ):
+            normalize_config({
+                "tui": {"scrollback_reflow_line_limit": invalid},
+            })
+
+
 def test_tui_keymap_rejects_context_and_main_input_conflicts() -> None:
     with pytest.raises(ValueError, match="invalid key binding"):
         TuiRuntimeKeymap.from_config({

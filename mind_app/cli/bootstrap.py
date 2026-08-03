@@ -163,8 +163,16 @@ async def _run_application(
             from ..tui.core.keymap import TuiRuntimeKeymap
             from ..tui.core.runtime import require_tui_runtime
 
-            require_tui_runtime(frontend.runtime).configure_keymap(
+            tui_runtime = require_tui_runtime(frontend.runtime)
+
+            tui_runtime.configure_keymap(
                 TuiRuntimeKeymap.from_config(config_resolution.config)
+            )
+
+            tui_runtime.configure_scrollback_reflow_line_limit(
+                config_resolution.config["tui"][
+                    "scrollback_reflow_line_limit"
+                ]
             )
     except (OSError, TypeError, ValueError) as error:
         raise AppError(f"Configuration is invalid: {error}") from error

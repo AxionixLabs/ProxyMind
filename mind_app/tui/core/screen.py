@@ -134,6 +134,17 @@ def _queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
     return "alt + ↑"
 
 
+def _erase_terminal_scrollback(output: Output) -> None:
+    """清除支持 VT 擦除指令的终端滚屏缓冲区。"""
+    if isinstance(output, (DummyOutput, PlainTextOutput)):
+        return None
+    if sys.platform == "win32" and not hasattr(output, "vt100_output"):
+        return None
+
+    output.write_raw("\x1b[3J")
+    output.flush()
+
+
 @dataclass(frozen=True, slots=True)
 class _InlineRendererState(object):
     """保存进入完整终端画面前的 renderer diff 状态。"""
@@ -195,7 +206,7 @@ class TuiScreen(object):
             [tuple[TranscriptBlock, ...], TranscriptExportFormat],
             TranscriptExportResult,
         ] | None,
-        observe_terminal_width: typing.Callable[[int], None],
+        observe_terminal_geometry: typing.Callable[[int, int], None],
         keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
@@ -220,11 +231,9 @@ class TuiScreen(object):
         self._get_surface_submission_pending = get_surface_submission_pending
         self._get_transcript_view_row        = get_transcript_view_row
 
-        self._can_transcript_backtrack = can_transcript_backtrack
-
-        self._clear_exit_confirmation  = clear_exit_confirmation
-        self._clear_visible_transcript = clear_visible_transcript
-
+        self._can_transcript_backtrack     = can_transcript_backtrack
+        self._clear_exit_confirmation      = clear_exit_confirmation
+        self._clear_visible_transcript     = clear_visible_transcript
         self._scroll_transcript_page       = scroll_transcript_page
         self._toggle_transcript_overlay    = toggle_transcript_overlay
         self._request_transcript_backtrack = request_transcript_backtrack
@@ -233,8 +242,8 @@ class TuiScreen(object):
             report_missing_transcript_backtrack
         )
 
-        self._export_transcript      = export_transcript
-        self._observe_terminal_width = observe_terminal_width
+        self._export_transcript         = export_transcript
+        self._observe_terminal_geometry = observe_terminal_geometry
 
         self.keymap = keymap
 
@@ -692,30 +701,9 @@ class TuiScreen(object):
             return geometry
         return self._read_frame_geometry(revision=0)
 
-    def _capture_frame_geometry(self, application: Application[None]) -> None:
-        """在布局计算前固定当前帧使用的终端尺寸。"""
-        self._frame_geometry = self._read_frame_geometry(
-            revision=application.render_counter,
-        )
-        self._observe_terminal_width(self._frame_geometry.width)
-
-    def _release_frame_geometry(self, application: Application[None]) -> None:
-        """在渲染结束后恢复终端尺寸的实时读取。"""
-        _ = application
-        self._frame_geometry = None
-
-    def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
-        """读取并规范化一个终端尺寸快照。"""
-        width, height = self._output_size()
-        return FrameGeometry(
-            width=max(20, width),
-            height=max(1, height),
-            revision=max(0, int(revision)),
-        )
-
     @staticmethod
     def _transcript_continuation_widths(
-        fragments: FormattedText,
+        fragments: FormattedText
     ) -> tuple[int, ...]:
         """返回正文每个逻辑行的自动折行前缀宽度。"""
         return fragment_continuation_widths(
@@ -723,6 +711,66 @@ class TuiScreen(object):
             prefix_style=ASSISTANT_PREFIX_CLASS,
             prefix_width=2,
         )
+
+    @staticmethod
+    def _assistant_line(
+        fragments: FormattedText,
+        target_line: int
+    ) -> bool:
+        """判断指定正文逻辑行是否属于助手正文块。"""
+        line_number   = 0
+        at_line_start = True
+
+        for style, text in fragments:
+            parts = text.split("\n")
+            last_index = len(parts) - 1
+            for index, part in enumerate(parts):
+                if line_number == target_line and at_line_start and part:
+                    return style == ASSISTANT_PREFIX_CLASS
+                if part:
+                    at_line_start = False
+                if index < last_index:
+                    if line_number == target_line:
+                        return False
+                    line_number += 1
+                    at_line_start = True
+
+        return False
+
+    @staticmethod
+    def _paired_key_hint(
+        first: tuple[TuiKeyBinding, ...],
+        second: tuple[TuiKeyBinding, ...],
+        suffix: str
+    ) -> str:
+        """生成两个互补动作的首选按键提示。"""
+        labels = "/".join(filter(None, (
+            primary_binding_label(first),
+            primary_binding_label(second),
+        )))
+        return f"{labels} {suffix}" if labels else ""
+
+    @staticmethod
+    def _add_configured_bindings(
+        bindings: KeyBindings,
+        configured: tuple[TuiKeyBinding, ...],
+        handler: typing.Callable[[typing.Any], None],
+        *,
+        binding_filter: typing.Any = True
+    ) -> None:
+        """把已解析的按键序列注册到一个输入上下文。"""
+        for binding in configured:
+            bindings.add(
+                *binding.keys,
+                eager=True,
+                filter=binding_filter,
+            )(handler)
+
+    @staticmethod
+    def _help_line(hints: typing.Iterable[str]) -> str:
+        """组合一行非空的完整记录操作提示。"""
+        content = "   ".join(hint for hint in hints if hint)
+        return f" {content}" if content else ""
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
@@ -749,22 +797,6 @@ class TuiScreen(object):
             self._transcript_key_bindings(),
         ])
         self.invalidate()
-
-    def _validate_keymap(self, keymap: TuiRuntimeKeymap) -> None:
-        """校验全局记录入口不会覆盖现有主输入动作。"""
-        reserved = [
-            (f"tui.input.binding[{index}]", tuple(binding.keys))
-            for index, binding in enumerate(self.input_model.key_bindings.bindings)
-        ]
-        fixed = KeyBindings()
-        for action, key in (
-            ("tui.transcript.clear", "c-l"),
-            ("tui.transcript.page_up", "pageup"),
-            ("tui.transcript.page_down", "pagedown"),
-        ):
-            fixed.add(key)(lambda event: None)
-            reserved.append((action, tuple(fixed.bindings[-1].keys)))
-        keymap.validate_main_conflicts(reserved)
 
     def set_transcript_only(self, active: bool) -> None:
         """切换为只保留正文的终端画布。"""
@@ -801,65 +833,6 @@ class TuiScreen(object):
                     self._restore_transcript_focus()
         self.invalidate()
         return True
-
-    def _restore_transcript_focus(self) -> None:
-        """把完整记录关闭后的焦点恢复到当前交互表面。"""
-        surface = self.bottom_pane.active_surface
-        if surface is None:
-            self._focus_input()
-        else:
-            self._focus_bottom_surface(surface)
-
-    def _enter_transcript_screen(self) -> None:
-        """保存 inline 渲染状态并准备完整终端画面。"""
-        renderer = self.application.renderer
-        if self._inline_renderer_state is not None:
-            return None
-
-        # prompt_toolkit 没有运行中切换全屏的公开接口；固定版本下保留
-        # inline diff 状态，退出 alternate screen 后才能原位继续渲染。
-        self._inline_renderer_state = _InlineRendererState(
-            cursor_pos=renderer._cursor_pos,
-            last_screen=renderer._last_screen,
-            last_size=renderer._last_size,
-            last_style=renderer._last_style,
-            last_cursor_shape=renderer._last_cursor_shape,
-            min_available_height=renderer._min_available_height,
-        )
-
-        self.application.full_screen = True
-
-        renderer.full_screen           = True
-        renderer._cursor_pos           = Point(x=0, y=0)
-        renderer._last_screen          = None
-        renderer._last_size            = None
-        renderer._last_style           = None
-        renderer._last_cursor_shape    = None
-        renderer._min_available_height = self.terminal_height
-
-    def _leave_transcript_screen(self) -> None:
-        """退出完整终端画面并恢复 inline 渲染状态。"""
-        renderer = self.application.renderer
-        state = self._inline_renderer_state
-
-        try:
-            if renderer._in_alternate_screen:
-                renderer.output.quit_alternate_screen()
-                renderer.output.flush()
-        finally:
-            renderer._in_alternate_screen = False
-            self.application.full_screen  = False
-            renderer.full_screen          = False
-
-            if state is not None:
-                renderer._cursor_pos           = state.cursor_pos
-                renderer._last_screen          = state.last_screen
-                renderer._last_size            = state.last_size
-                renderer._last_style           = state.last_style
-                renderer._last_cursor_shape    = state.last_cursor_shape
-                renderer._min_available_height = state.min_available_height
-
-            self._inline_renderer_state = None
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
@@ -900,6 +873,105 @@ class TuiScreen(object):
     def transcript_fragments(self) -> FormattedText:
         """生成会话内容区域的格式化片段。"""
         return self.document.fragments(width=self.terminal_width)
+
+    def _capture_frame_geometry(self, application: Application[None]) -> None:
+        """在布局计算前固定当前帧使用的终端尺寸。"""
+        self._frame_geometry = self._read_frame_geometry(
+            revision=application.render_counter,
+        )
+        self._observe_terminal_geometry(
+            self._frame_geometry.width,
+            self._frame_geometry.height,
+        )
+
+    def _release_frame_geometry(self, application: Application[None]) -> None:
+        """在渲染结束后恢复终端尺寸的实时读取。"""
+        _ = application
+        self._frame_geometry = None
+
+    def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
+        """读取并规范化一个终端尺寸快照。"""
+        width, height = self._output_size()
+        return FrameGeometry(
+            width=max(20, width),
+            height=max(1, height),
+            revision=max(0, int(revision)),
+        )
+
+    def _restore_transcript_focus(self) -> None:
+        """把完整记录关闭后的焦点恢复到当前交互表面。"""
+        surface = self.bottom_pane.active_surface
+        if surface is None:
+            self._focus_input()
+        else:
+            self._focus_bottom_surface(surface)
+
+    def _enter_transcript_screen(self) -> None:
+        """保存 inline 渲染状态并准备完整终端画面。"""
+        renderer = self.application.renderer
+        if self._inline_renderer_state is not None:
+            return None
+
+        # prompt_toolkit 没有运行中切换全屏的公开接口；固定版本下保留
+        # inline diff 状态，退出 alternate screen 后才能原位继续渲染。
+        self._inline_renderer_state = _InlineRendererState(
+            cursor_pos=renderer._cursor_pos,
+            last_screen=renderer._last_screen,
+            last_size=renderer._last_size,
+            last_style=renderer._last_style,
+            last_cursor_shape=renderer._last_cursor_shape,
+            min_available_height=renderer._min_available_height,
+        )
+
+        self.application.full_screen = True
+
+        renderer.full_screen = True
+        renderer._cursor_pos = Point(x=0, y=0)
+        renderer._last_screen = None
+        renderer._last_size = None
+        renderer._last_style = None
+        renderer._last_cursor_shape = None
+        renderer._min_available_height = self.terminal_height
+
+    def _leave_transcript_screen(self) -> None:
+        """退出完整终端画面并恢复 inline 渲染状态。"""
+        renderer = self.application.renderer
+        state = self._inline_renderer_state
+
+        try:
+            if renderer._in_alternate_screen:
+                renderer.output.quit_alternate_screen()
+                renderer.output.flush()
+        finally:
+            renderer._in_alternate_screen = False
+            self.application.full_screen = False
+            renderer.full_screen = False
+
+            if state is not None:
+                renderer._cursor_pos = state.cursor_pos
+                renderer._last_screen = state.last_screen
+                renderer._last_size = state.last_size
+                renderer._last_style = state.last_style
+                renderer._last_cursor_shape = state.last_cursor_shape
+                renderer._min_available_height = state.min_available_height
+
+            self._inline_renderer_state = None
+
+    def _validate_keymap(self, keymap: TuiRuntimeKeymap) -> None:
+        """校验全局记录入口不会覆盖现有主输入动作。"""
+        reserved = [
+            (f"tui.input.binding[{index}]", tuple(binding.keys))
+            for index, binding in enumerate(self.input_model.key_bindings.bindings)
+        ]
+        fixed = KeyBindings()
+        for action, key in (
+                ("tui.transcript.clear", "c-l"),
+                ("tui.transcript.page_up", "pageup"),
+                ("tui.transcript.page_down", "pagedown"),
+        ):
+            fixed.add(key)(lambda event: None)
+            reserved.append((action, tuple(fixed.bindings[-1].keys)))
+        keymap.validate_main_conflicts(reserved)
 
     def _transcript_snapshot(self) -> TranscriptSnapshot:
         """组合已提交记录和当前画面专用的动态尾部。"""
@@ -1016,31 +1088,6 @@ class TuiScreen(object):
     def _placeholder_fragments(self) -> StyleAndTextTuples:
         """返回当前输入轮次固定的占位文案。"""
         return [("class:placeholder", f" {self._get_placeholder_text()}")]
-
-    @staticmethod
-    def _assistant_line(
-        fragments: FormattedText,
-        target_line: int
-    ) -> bool:
-        """判断指定正文逻辑行是否属于助手正文块。"""
-        line_number   = 0
-        at_line_start = True
-
-        for style, text in fragments:
-            parts = text.split("\n")
-            last_index = len(parts) - 1
-            for index, part in enumerate(parts):
-                if line_number == target_line and at_line_start and part:
-                    return style == ASSISTANT_PREFIX_CLASS
-                if part:
-                    at_line_start = False
-                if index < last_index:
-                    if line_number == target_line:
-                        return False
-                    line_number += 1
-                    at_line_start = True
-
-        return False
 
     def _status_fragments(self) -> FormattedText:
         """生成动画专属区域的格式化片段。"""
@@ -1427,22 +1474,6 @@ class TuiScreen(object):
 
         return bindings
 
-    @staticmethod
-    def _add_configured_bindings(
-        bindings: KeyBindings,
-        configured: tuple[TuiKeyBinding, ...],
-        handler: typing.Callable[[typing.Any], None],
-        *,
-        binding_filter: typing.Any = True,
-    ) -> None:
-        """把已解析的按键序列注册到一个输入上下文。"""
-        for binding in configured:
-            bindings.add(
-                *binding.keys,
-                eager=True,
-                filter=binding_filter,
-            )(handler)
-
     def _canvas_dimension(self) -> Dimension:
         """返回随内容自然增长并受终端高度限制的画布高度。"""
         return Dimension.exact(self._visible_height())
@@ -1507,10 +1538,11 @@ class TuiScreen(object):
 
     def _transcript_overlay_separator_fragments(self) -> FormattedText:
         """生成包含滚动百分比的底栏分隔线。"""
-        width = self.terminal_width
-        percentage = self.transcript_overlay.scroll_percentage()
-        progress = f" {percentage}% "
+        width          = self.terminal_width
+        percentage     = self.transcript_overlay.scroll_percentage()
+        progress       = f" {percentage}% "
         progress_start = max(0, width - len(progress) - 1)
+
         return [
             ("class:transcript.overlay.rule", "─" * progress_start),
             ("class:transcript.overlay.progress", progress),
@@ -1633,25 +1665,6 @@ class TuiScreen(object):
         )
 
         return [("class:transcript.overlay.help", self._help_line(hints))]
-
-    @staticmethod
-    def _paired_key_hint(
-        first: tuple[TuiKeyBinding, ...],
-        second: tuple[TuiKeyBinding, ...],
-        suffix: str
-    ) -> str:
-        """生成两个互补动作的首选按键提示。"""
-        labels = "/".join(filter(None, (
-            primary_binding_label(first),
-            primary_binding_label(second),
-        )))
-        return f"{labels} {suffix}" if labels else ""
-
-    @staticmethod
-    def _help_line(hints: typing.Iterable[str]) -> str:
-        """组合一行非空的完整记录操作提示。"""
-        content = "   ".join(hint for hint in hints if hint)
-        return f" {content}" if content else ""
 
     def _transcript_dimension(self) -> Dimension:
         """返回正文当前内容在画布中占用的高度。"""
@@ -2058,17 +2071,6 @@ class TuiScreen(object):
         fallback = shutil.get_terminal_size(fallback=(100, 24))
 
         return fallback.columns, fallback.lines
-
-
-def _erase_terminal_scrollback(output: Output) -> None:
-    """清除支持 VT 擦除指令的终端滚屏缓冲区。"""
-    if isinstance(output, (DummyOutput, PlainTextOutput)):
-        return None
-    if sys.platform == "win32" and not hasattr(output, "vt100_output"):
-        return None
-
-    output.write_raw("\x1b[3J")
-    output.flush()
 
 
 if __name__ == '__main__':

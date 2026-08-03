@@ -442,6 +442,7 @@ def test_render_frame_uses_one_terminal_geometry_snapshot() -> None:
     assert runtime.screen.frame_geometry == FrameGeometry(40, 10, 1)
     assert runtime.screen.terminal_width == 40
     assert runtime.screen.terminal_height == 10
+    assert runtime.viewport._observed_geometry == (40, 10)
     assert runtime.screen._output_size.call_count == 1
 
     runtime.screen.application.after_render.fire()
@@ -454,6 +455,16 @@ def test_render_frame_uses_one_terminal_geometry_snapshot() -> None:
     assert runtime.screen.terminal_width == 72
     assert runtime.screen.terminal_height == 18
     assert runtime.screen._output_size.call_count == 2
+
+
+def test_geometry_refresh_reads_one_settled_size_snapshot() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = Mock(return_value=(54, 16))
+
+    runtime.viewport.refresh_geometry()
+
+    assert runtime.viewport._observed_geometry == (54, 16)
+    runtime.screen._output_size.assert_called_once_with()
 
 
 def test_replace_transcript_resets_document_state() -> None:
@@ -575,7 +586,7 @@ async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize()
 
                 terminal_size = Size(rows=10, columns=40)
                 runtime.set_execution_active(False)
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.12)
 
                 assert runtime.document.scrollback_line_count > 2
                 assert "first 29" in _document_text(runtime.document)
@@ -727,7 +738,7 @@ async def test_width_resize_reflows_native_scrollback_from_document() -> None:
                     wraps=runtime.screen.application.print_text,
                 ) as print_text:
                     terminal_size = Size(rows=10, columns=24)
-                    runtime.viewport.observe_terminal_width(24)
+                    runtime.viewport.observe_terminal_geometry(24, 10)
                     await asyncio.sleep(0.12)
 
                 chunks = [
@@ -739,7 +750,7 @@ async def test_width_resize_reflows_native_scrollback_from_document() -> None:
                 clear.assert_called_once_with()
                 assert chunks
                 assert "\n".join([*chunks, visible]) == source
-                assert runtime.viewport._reflowed_terminal_width == 24
+                assert runtime.viewport._reflowed_geometry == (24, 10)
             finally:
                 await runtime.close()
 
@@ -780,7 +791,7 @@ async def test_width_resize_reflow_waits_for_transient_surface(
                     "clear_terminal_scrollback",
                 ) as clear:
                     terminal_size = Size(rows=8, columns=24)
-                    runtime.viewport.observe_terminal_width(24)
+                    runtime.viewport.observe_terminal_geometry(24, 8)
                     await asyncio.sleep(0.12)
                     clear.assert_not_called()
 
@@ -791,7 +802,146 @@ async def test_width_resize_reflow_waits_for_transient_surface(
                     await asyncio.sleep(0.02)
 
                 clear.assert_called_once_with()
-                assert runtime.viewport._reflowed_terminal_width == 24
+                assert runtime.viewport._reflowed_geometry == (24, 8)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_height_only_resize_reflows_native_scrollback() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+        source = "\n".join(f"entry {index:02d}" for index in range(60))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block(source), kind="assistant")
+                await asyncio.sleep(0.02)
+                assert runtime.document.scrollback_line_count > 0
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_scrollback",
+                ) as clear, patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    terminal_size = Size(rows=14, columns=40)
+                    runtime.viewport.observe_terminal_geometry(40, 14)
+                    await asyncio.sleep(0.12)
+
+                clear.assert_called_once_with()
+                assert runtime.viewport._reflowed_geometry == (40, 14)
+                chunks = [
+                    "".join(text for _style, text in call.args[0])
+                    for call in print_text.call_args_list
+                ]
+                assert "\n".join([
+                    *chunks,
+                    _document_text(runtime.document),
+                ]) == source
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_rechecks_settled_geometry_before_reflow() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(60))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_scrollback",
+                ) as clear:
+                    terminal_size = Size(rows=8, columns=24)
+                    runtime.viewport.observe_terminal_geometry(24, 8)
+                    terminal_size = Size(rows=12, columns=30)
+                    await asyncio.sleep(0.2)
+
+                clear.assert_called_once_with()
+                assert runtime.viewport._observed_geometry == (30, 12)
+                assert runtime.viewport._reflowed_geometry == (30, 12)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_modal_return_refreshes_terminal_geometry() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=10, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                async def external_program() -> str:
+                    nonlocal terminal_size
+                    terminal_size = Size(rows=16, columns=32)
+                    return "done"
+
+                assert await runtime.run_modal(external_program) == "done"
+                assert runtime.viewport._observed_geometry == (32, 16)
+                await asyncio.sleep(0.12)
+                assert runtime.viewport._reflowed_geometry == (32, 16)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrollback_reflow_uses_configured_line_limit() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.configure_scrollback_reflow_line_limit(7)
+        terminal_size = Size(rows=8, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(60))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+
+                with patch.object(
+                    runtime.document,
+                    "rewind_scrollback",
+                    wraps=runtime.document.rewind_scrollback,
+                ) as rewind:
+                    terminal_size = Size(rows=12, columns=40)
+                    runtime.viewport.observe_terminal_geometry(40, 12)
+                    await asyncio.sleep(0.12)
+
+                rewind.assert_called_once_with(max_line_count=7)
             finally:
                 await runtime.close()
 
