@@ -2047,7 +2047,10 @@ class TuiScreen(object):
                 ),
             )
             for line in self.document.stable_lines_since(
-                self._completion_stable_line_baseline
+                max(
+                    self._completion_stable_line_baseline,
+                    self.document.visible_prefix_line_count,
+                )
             )
         )
 
@@ -2064,7 +2067,7 @@ class TuiScreen(object):
                 fragments,
             ),
         )
-        if self.document.stable_line_count:
+        if self.document.visible_stable_lines():
             height -= 1
         return max(0, height)
 

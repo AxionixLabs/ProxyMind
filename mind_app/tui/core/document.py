@@ -740,7 +740,7 @@ class TuiDocument(object):
         blocks.extend(self._active_tail)
         return self._render_blocks(
             blocks,
-            leading_content=bool(self.blocks),
+            leading_content=bool(self.visible_stable_lines()),
         )
 
     def visible_stable_lines(self) -> list[FormattedText]:
