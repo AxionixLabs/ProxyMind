@@ -255,10 +255,10 @@ class TuiRuntime(object):
         """返回当前渲染输出的终端行数。"""
         return self.screen.terminal_height
 
-    def _terminal_geometry(self) -> tuple[int, int]:
-        """通过单次尺寸快照返回当前终端宽高。"""
-        geometry = self.screen.frame_geometry
-        return geometry.width, geometry.height
+    @property
+    def uncertain_steers_active(self) -> bool:
+        """返回当前是否存在归属未确认的输入。"""
+        return self.submissions.pending_steers.uncertain_active
 
     @property
     def has_pending_attachments(self) -> bool:
@@ -269,6 +269,11 @@ class TuiRuntime(object):
     def execution_active(self, active: bool) -> None:
         """更新模型轮次运行状态。"""
         self.task_state.set_turn_running(active)
+
+    def _terminal_geometry(self) -> tuple[int, int]:
+        """通过单次尺寸快照返回当前终端宽高。"""
+        geometry = self.screen.frame_geometry
+        return geometry.width, geometry.height
 
     def _discard_submitted_query(self) -> None:
         """在二级菜单接管交互时撤下刚提交的输入块。"""
@@ -897,6 +902,10 @@ class TuiRuntime(object):
     def resolve_pending_steer(self, client_message_id: str) -> None:
         """停止展示一条已经完成归属转换的输入。"""
         self.submissions.resolve_pending_steer(client_message_id)
+
+    def retain_uncertain_steer(self, submission: TuiSubmission) -> None:
+        """保留一条不得自动重试的未确认输入。"""
+        self.submissions.retain_uncertain_steer(submission)
 
     def consume_submission_payload(self) -> TuiSubmission | None:
         """读取最近一项输入携带的附件和扩展字段。"""

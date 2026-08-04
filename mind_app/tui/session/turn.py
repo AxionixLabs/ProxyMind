@@ -94,10 +94,11 @@ async def execute_tui_model_turn(
 
         runtime.bind_stream_command_handler(None)
         runtime.bind_turn_input_handler(None)
-        runtime.bind_queued_restore_handler(None)
         runtime.bind_interrupt_handler(None)
         if turn_input_control is not None:
             await turn_input_control.close()
+        if not runtime.uncertain_steers_active:
+            runtime.bind_queued_restore_handler(None)
         runtime.set_execution_active(False)
 
     if interrupted and show_interrupt_notice():
@@ -200,6 +201,9 @@ async def run_tui_model_turn(
         if turn_input_control is not None:
             prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
             prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
+            prompt_kwargs["on_turn_stream_end"] = (
+                turn_input_control.handle_stream_end
+            )
 
         return await mind.run_turn_lifecycle(
             runner,

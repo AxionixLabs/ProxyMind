@@ -127,32 +127,66 @@ class TuiPendingSteers(object):
     """保存等待写入当前执行轮次的输入。"""
 
     def __init__(self) -> None:
-        self._items: dict[str, TuiSubmission] = {}
+        self._items: dict[str, TuiSubmission]     = {}
+        self._uncertain: dict[str, TuiSubmission] = {}
 
     @property
     def active(self) -> bool:
         """返回当前是否存在等待提交的输入。"""
-        return bool(self._items)
+        return bool(self._items or self._uncertain)
+
+    @property
+    def uncertain_active(self) -> bool:
+        """返回当前是否存在归属未确认的输入。"""
+        return bool(self._uncertain)
 
     def add(self, item: TuiSubmission) -> None:
         """记录一条等待当前轮次接收的输入。"""
+        self._uncertain.pop(item.client_message_id, None)
         self._items[item.client_message_id] = item
 
     def remove(self, client_message_id: str) -> TuiSubmission | None:
         """移除一条已经确认或转入下一轮的输入。"""
-        return self._items.pop(client_message_id, None)
+        return (
+            self._items.pop(client_message_id, None)
+            or self._uncertain.pop(client_message_id, None)
+        )
+
+    def retain_uncertain(self, item: TuiSubmission) -> None:
+        """保留一条不得自动重试的未确认输入。"""
+        self._items.pop(item.client_message_id, None)
+        self._uncertain[item.client_message_id] = item
+
+    def pop_last_uncertain(self) -> TuiSubmission | None:
+        """取回最近一条归属未确认的输入。"""
+        if not self._uncertain:
+            return None
+        client_message_id = next(reversed(self._uncertain))
+        return self._uncertain.pop(client_message_id)
 
     def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
         """生成等待当前轮次接收的消息列表。"""
-        if not self._items:
+        if not self.active:
             return []
 
         row_limit = max(1, int(max_rows))
-        lines: list[FormattedText] = [_pending_steer_title(width)]
-        lines.extend(_submission_lines(
-            self._items.values(),
-            available=max(0, row_limit - 1),
-        ))
+
+        lines: list[FormattedText] = []
+
+        if self._items:
+            lines.append(_pending_steer_title(width))
+            lines.extend(_submission_lines(
+                self._items.values(),
+                available=max(0, row_limit - len(lines)),
+            ))
+
+        if self._uncertain and len(lines) < row_limit:
+            lines.append([("class:queue.label", "• Delivery unconfirmed")])
+            lines.extend(_submission_lines(
+                self._uncertain.values(),
+                available=max(0, row_limit - len(lines)),
+            ))
+
         return _join_lines(lines, width=width)
 
 

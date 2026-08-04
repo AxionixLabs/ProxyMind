@@ -31,40 +31,6 @@ from ..prompting.commands import (
 _INPUT_CLOSED = object()
 
 
-def _merge_rejected_steers(
-    submissions: tuple[TuiSubmission, ...]
-) -> TuiSubmission:
-    """把同一轮被退回的即时输入合并为下一轮的一次提交。"""
-    if len(submissions) == 1:
-        return submissions[0]
-
-    paste_store: dict[str, str]              = {}
-    attachments: list[dict[str, typing.Any]] = []
-    extras: dict[str, typing.Any]            = {}
-
-    for submission in submissions:
-        paste_store.update(submission.paste_store)
-        attachments.extend(submission.attachments)
-        extras.update(submission.extras)
-
-    return TuiSubmission(
-        value="\n".join(
-            submission.value
-            for submission in submissions
-            if submission.value
-        ),
-        editable_text="\n".join(
-            submission.editable_text
-            for submission in submissions
-            if submission.editable_text
-        ),
-        paste_store=paste_store,
-        attachments=tuple(attachments),
-        extras=extras,
-        payload_bound=all(submission.payload_bound for submission in submissions),
-    )
-
-
 def _ignore_interrupt() -> bool:
     """忽略未绑定的中断请求。"""
     return False
@@ -184,7 +150,10 @@ class TuiSubmissionFlow(object):
 
         self.input_model.bind_queue_rollback(
             lambda: (
-                self._is_submission_deferred()
+                (
+                    self._is_submission_deferred()
+                    or self.pending_steers.uncertain_active
+                )
                 and self.can_rollback_queued_input
             ),
             self.rollback_queued_input,
@@ -310,6 +279,7 @@ class TuiSubmissionFlow(object):
         return bool(
             self.queued_messages.can_rollback
             or self._rejected_steers
+            or self.pending_steers.uncertain_active
         )
 
     def defer_rejected_steer(self, submission: TuiSubmission) -> None:
@@ -342,6 +312,11 @@ class TuiSubmissionFlow(object):
         if self.pending_steers.remove(client_message_id) is not None:
             self._invalidate()
 
+    def retain_uncertain_steer(self, submission: TuiSubmission) -> None:
+        """保留一条需要用户决定是否重试的即时输入。"""
+        self.pending_steers.retain_uncertain(submission)
+        self._invalidate()
+
     def queue_input(self, buffer: Buffer) -> None:
         """使用下一轮意图提交当前输入内容。"""
         self._queue_submission_requested = True
@@ -371,6 +346,8 @@ class TuiSubmissionFlow(object):
         item = self.queued_messages.pop_last()
         if item is None and self._rejected_steers:
             item = self._rejected_steers.pop()
+        if item is None:
+            item = self.pending_steers.pop_last_uncertain()
         if item is None:
             return False
 
@@ -623,10 +600,11 @@ class TuiSubmissionFlow(object):
         """按提交顺序读取下一项输入，并优先传播退出请求。"""
         self._raise_requested_exit()
 
-        rejected = tuple(self._rejected_steers)
-        self._rejected_steers.clear()
-
-        retried = _merge_rejected_steers(rejected) if rejected else None
+        retried = (
+            self._rejected_steers.popleft()
+            if self._rejected_steers
+            else None
+        )
         queued  = self.queued_messages.pop_next() if retried is None else None
 
         submission = (

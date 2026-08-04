@@ -82,6 +82,71 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
 
 
 @pytest.mark.anyio
+async def test_reconcile_request_validates_complete_classification(
+    monkeypatch,
+) -> None:
+    captured = {}
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "turn_id": "turn_001",
+            "turn_status": "settled",
+            "committed_ids": ["message_1"],
+            "pending_ids": [],
+            "retry_ids": ["message_2"],
+            "unknown_ids": [],
+        },
+        request=httpx.Request("POST", "https://example.com/turn/reconcile"),
+    )
+
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return response
+
+    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
+    monkeypatch.setattr(
+        turn_control.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.com{path}",
+    )
+    monkeypatch.setattr(
+        turn_control.Channel,
+        "make_headers",
+        lambda: {"authorization": "test"},
+    )
+
+    result = await turn_control.reconcile_turn_inputs(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        client_message_ids=["message_1", "message_2", "message_1"],
+        timeout=2.0,
+    )
+
+    assert result.committed_ids == ("message_1",)
+    assert result.retry_ids == ("message_2",)
+    assert captured["url"] == "https://example.com/turn/reconcile"
+    assert captured["params"] == {"cid": "cid_1", "sid": "sid_1"}
+    assert captured["headers"] == {"authorization": "test"}
+    assert captured["json"] == {
+        "turn_id": "turn_001",
+        "client_message_ids": ["message_1", "message_2"],
+    }
+
+
+@pytest.mark.anyio
 async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
     response = httpx.Response(
         200,

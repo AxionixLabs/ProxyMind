@@ -186,6 +186,7 @@ async def _run_stream(
         ..., typing.AsyncIterator[typing.Any]
     ] | None = None,
     on_turn_input_event: typing.Callable[[typing.Any], typing.Any] | None = None,
+    on_turn_stream_end: typing.Callable[[str], None] | None = None,
     mind_state: SimpleNamespace | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
@@ -252,6 +253,8 @@ async def _run_stream(
         stream_options["extras"] = dict(extras)
     if on_turn_input_event is not None:
         stream_options["on_turn_input_event"] = on_turn_input_event
+    if on_turn_stream_end is not None:
+        stream_options["on_turn_stream_end"] = on_turn_stream_end
 
     result = await stream.stream_turn(
         mind,
@@ -391,10 +394,8 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("settlement_first", (False, True))
-async def test_stream_closes_after_done_and_settlement_without_waiting_for_eof(
+async def test_stream_reports_transport_end_after_processing_settlement(
     monkeypatch,
-    settlement_first,
 ) -> None:
     done = parse_stream_event({
         "type": "turn.done",
@@ -405,27 +406,33 @@ async def test_stream_closes_after_done_and_settlement_without_waiting_for_eof(
         "turn_id": "turn_test",
         "next_input": None,
     })
-    terminal_events = (
-        (settled, done)
-        if settlement_first
-        else (done, settled)
-    )
+    processed = []
+    stream_ends = []
 
-    async def open_stream(*_args, **_kwargs):
-        for event in terminal_events:
-            yield event
-        await asyncio.Future()
+    class SettledStream(object):
+        end_reason = "settled"
 
-    result, _mind = await asyncio.wait_for(
-        _run_stream(
-            monkeypatch,
-            [],
-            stream_factory=open_stream,
-        ),
-        timeout=1.0,
+        async def _events(self):
+            yield done
+            yield settled
+
+        def __aiter__(self):
+            return self._events()
+
+    def open_stream(*_args, **_kwargs):
+        return SettledStream()
+
+    result, _mind = await _run_stream(
+        monkeypatch,
+        [],
+        stream_factory=open_stream,
+        on_turn_input_event=lambda event: processed.append(event.type),
+        on_turn_stream_end=stream_ends.append,
     )
 
     assert result.status == "completed"
+    assert processed == ["turn.logical_settled"]
+    assert stream_ends == ["settled"]
 
 
 @pytest.mark.anyio

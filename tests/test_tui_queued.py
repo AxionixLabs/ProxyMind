@@ -158,7 +158,7 @@ def test_tab_queue_is_restored_before_rejected_steer() -> None:
 
 
 @pytest.mark.anyio
-async def test_rejected_steers_merge_before_tab_fifo() -> None:
+async def test_rejected_steers_preserve_identity_before_tab_fifo() -> None:
     runtime = TuiRuntime()
     runtime.defer_rejected_steer(TuiSubmission(
         value="first rejected",
@@ -181,17 +181,19 @@ async def test_rejected_steers_merge_before_tab_fifo() -> None:
     ))
     runtime.defer_submission(_submission("second tab"))
 
-    retried = await runtime.submissions.read_submission()
+    first_retry = await runtime.submissions.read_submission()
+    second_retry = await runtime.submissions.read_submission()
     first_tab = await runtime.submissions.read_submission()
     second_tab = await runtime.submissions.read_submission()
 
-    assert retried.value == "first rejected\nsecond rejected"
-    assert retried.attachments == (
-        {"kind": "image", "name": "first.png"},
-        {"kind": "image", "name": "second.png"},
-    )
-    assert retried.extras == {"first": 1, "shared": "new", "second": 2}
-    assert retried.payload_bound
+    assert first_retry.client_message_id == "message_rejected_1"
+    assert first_retry.attachments == ({"kind": "image", "name": "first.png"},)
+    assert first_retry.extras == {"first": 1, "shared": "old"}
+    assert first_retry.payload_bound
+    assert second_retry.client_message_id == "message_rejected_2"
+    assert second_retry.attachments == ({"kind": "image", "name": "second.png"},)
+    assert second_retry.extras == {"second": 2, "shared": "new"}
+    assert second_retry.payload_bound
     assert first_tab.value == "first tab"
     assert second_tab.value == "second tab"
 

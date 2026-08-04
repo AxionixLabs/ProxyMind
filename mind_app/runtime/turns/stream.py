@@ -258,12 +258,15 @@ async def stream_turn(
     """处理流式事件、工具调用和输出上报。"""
     on_turn_input_context = kwargs.pop("on_turn_input_context", None)
     on_turn_input_event   = kwargs.pop("on_turn_input_event", None)
+    on_turn_stream_end    = kwargs.pop("on_turn_stream_end", None)
 
     reentry_kwargs = dict(kwargs)
     if on_turn_input_context is not None:
         reentry_kwargs["on_turn_input_context"] = on_turn_input_context
     if on_turn_input_event is not None:
         reentry_kwargs["on_turn_input_event"] = on_turn_input_event
+    if on_turn_stream_end is not None:
+        reentry_kwargs["on_turn_stream_end"] = on_turn_stream_end
 
     started_at = time.perf_counter()
 
@@ -342,8 +345,6 @@ async def stream_turn(
     first_frame: bool    = True
     turn_completed: bool = False
     turn_failed: bool    = False
-    turn_done_seen: bool = False
-    turn_settled: bool   = False
 
     turn_usage: dict[str, typing.Any] = {}
 
@@ -359,6 +360,7 @@ async def stream_turn(
     turn_hook_events: TurnHookEvents | None = None
 
     stop_decision = StopHookDecision.stop()
+    event_stream  = None
 
     approvals: ApprovalStore = ApprovalStore()
     tracker: SegmentTracker  = SegmentTracker()
@@ -452,7 +454,9 @@ async def stream_turn(
             tool_call_coordinator=tool_call_coordinator,
         )
 
-        async for event in stream_chat(pref_config, message, tools, **kwargs):
+        event_stream = stream_chat(pref_config, message, tools, **kwargs)
+
+        async for event in event_stream:
             event_count += 1
             await idle_wait.cancel()
 
@@ -526,8 +530,7 @@ async def stream_turn(
                 continue
 
             if isinstance(event, TurnDoneEvent):
-                turn_done_seen = True
-                turn_usage     = dict(event.usage)
+                turn_usage = dict(event.usage)
 
                 if event.status == "interrupted":
                     interrupted = True
@@ -539,9 +542,6 @@ async def stream_turn(
                         mind.stop_anim("wait", settle=False)
                     )
                 await status_control.end_status(immediate=True)
-
-                if turn_settled:
-                    break
 
                 continue
 
@@ -561,10 +561,6 @@ async def stream_turn(
                                 extras=accepted_input.extras,
                             ),
                         )
-                if isinstance(event, TurnLogicalSettledEvent):
-                    turn_settled = True
-                    if turn_done_seen:
-                        break
                 continue
 
             if event_type == "tool.builtin.call":
@@ -1126,6 +1122,11 @@ async def stream_turn(
         )
 
     finally:
+        if on_turn_stream_end is not None and event_stream is not None:
+            on_turn_stream_end(
+                getattr(event_stream, "end_reason", None) or "disconnected"
+            )
+
         record_pending_assistant_output()
 
         record_turn_finished(
