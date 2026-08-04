@@ -170,9 +170,7 @@ class TuiScreen(object):
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
     COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
-    CONTENT_INPUT_GAP_HEIGHT: typing.Final[int]      = 1
-    OVERLAY_INPUT_GAP_HEIGHT: typing.Final[int]      = 1
-    COMMAND_SURFACE_GAP_HEIGHT: typing.Final[int]    = 2
+    CONTENT_SURFACE_GAP_HEIGHT: typing.Final[int]    = 1
     INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int]  = 1
     ESCAPE_SEQUENCE_TIMEOUT_SEC: typing.Final[float] = 0.1
 
@@ -256,7 +254,14 @@ class TuiScreen(object):
         self._animation_tick: int = 0
 
         self._frame_geometry: FrameGeometry | None = None
+
         self._canvas_height_floor: int = 0
+
+        self._completion_bottom_footprint: int     = 0
+        self._completion_was_visible: bool         = False
+        self._completion_stable_line_baseline: int = 0
+        self._completion_live_height_baseline: int = 0
+        self._completion_consumed_height: int      = 0
 
         self.activity_block: FragmentBlock | None = None
 
@@ -324,8 +329,8 @@ class TuiScreen(object):
 
         self.approval = TuiApproval(
             invalidate=self.invalidate,
-            focus_card=lambda: self.bottom_pane.activate("approval"),
-            focus_input=lambda: self.bottom_pane.deactivate("approval"),
+            focus_card=lambda: self._activate_bottom_surface("approval"),
+            focus_input=lambda: self._deactivate_bottom_surface("approval"),
             get_width=lambda: self.terminal_width,
             get_max_height=self._approval_available_height,
         )
@@ -340,8 +345,8 @@ class TuiScreen(object):
         )
         self.menu = TuiMenu(
             invalidate=self.invalidate,
-            focus_menu=lambda: self.bottom_pane.activate("menu"),
-            focus_input=lambda: self.bottom_pane.deactivate("menu"),
+            focus_menu=lambda: self._activate_bottom_surface("menu"),
+            focus_input=lambda: self._deactivate_bottom_surface("menu"),
             get_width=lambda: self.terminal_width,
         )
         self.menu_control = FormattedTextControl(
@@ -352,8 +357,8 @@ class TuiScreen(object):
         )
         self.process_viewer = TuiProcessViewer(
             invalidate=self.invalidate,
-            focus_viewer=lambda: self.bottom_pane.activate("process_viewer"),
-            focus_input=lambda: self.bottom_pane.deactivate("process_viewer"),
+            focus_viewer=lambda: self._activate_bottom_surface("process_viewer"),
+            focus_input=lambda: self._deactivate_bottom_surface("process_viewer"),
             get_width=lambda: self.terminal_width,
         )
         self.process_viewer_control = FormattedTextControl(
@@ -607,6 +612,11 @@ class TuiScreen(object):
                 )
             ),
         )
+        self.completion_release_spacer = Window(
+            height=self._completion_release_dimension,
+            char=" ",
+            dont_extend_height=True,
+        )
 
         self.canvas_spacer = Window(
             height=Dimension(min=0, preferred=0, weight=1),
@@ -625,6 +635,7 @@ class TuiScreen(object):
                 self.process_viewer_card,
                 self.menu_card,
                 self.input_area,
+                self.completion_release_spacer,
                 self.approval_card,
             ],
             align=VerticalAlign.JUSTIFY,
@@ -809,7 +820,15 @@ class TuiScreen(object):
 
     def set_transcript_only(self, active: bool) -> None:
         """切换为只保留正文的终端画布。"""
-        self._transcript_only = bool(active)
+        active = bool(active)
+        if active:
+            self._reset_completion_layout(reset_canvas_floor=True)
+        self._transcript_only = active
+        self.invalidate()
+
+    def settle_completion_layout(self) -> None:
+        """在交互周期结束时折叠尚未被正文消费的补全空间。"""
+        self._reset_completion_layout(reset_canvas_floor=False)
         self.invalidate()
 
     def set_transcript_overlay(self, active: bool) -> bool:
@@ -888,6 +907,8 @@ class TuiScreen(object):
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
+
+        self._update_completion_footprint()
 
         if not self.transcript_overlay.active and not self._transcript_only:
             self._canvas_height_floor = min(
@@ -1042,7 +1063,8 @@ class TuiScreen(object):
             - self._menu_height()
             - self._process_viewer_height()
             - int(self._transcript_status_gap_visible())
-            - self._content_input_gap_height(),
+            - self._content_input_gap_height()
+            - self._completion_release_height(),
         )
 
     def _focus_bottom_surface(self, surface: BottomSurface) -> None:
@@ -1062,6 +1084,16 @@ class TuiScreen(object):
             "process_viewer": self.process_viewer_control,
         }
         self.application.layout.focus(controls[surface])
+
+    def _activate_bottom_surface(self, surface: BottomSurface) -> None:
+        """激活底部临时表面并清除上一个交互布局的高度残留。"""
+        self.bottom_pane.activate(surface)
+        self._reset_completion_layout(reset_canvas_floor=False)
+
+    def _deactivate_bottom_surface(self, surface: BottomSurface) -> None:
+        """撤下底部临时表面并按恢复后的布局收束画布高度。"""
+        self.bottom_pane.deactivate(surface)
+        self._reset_completion_layout(reset_canvas_floor=False)
 
     def _focus_input(self) -> None:
         """把焦点路由到当前顶层记录或主输入控件。"""
@@ -1727,6 +1759,10 @@ class TuiScreen(object):
         """返回输入框、补全列表和当前可见 footer 的总高度。"""
         return Dimension.exact(self._input_stack_height())
 
+    def _completion_release_dimension(self) -> Dimension:
+        """返回补全区域收起后保留的输入框下方高度。"""
+        return Dimension.exact(self._completion_release_height())
+
     def _approval_dimension(self) -> Dimension:
         """返回审批卡背景区域的当前显示高度。"""
         return Dimension.exact(self._approval_card_height())
@@ -1931,6 +1967,124 @@ class TuiScreen(object):
         """返回补全列表占用高度。"""
         return self._completion_height()
 
+    def _update_completion_footprint(self) -> None:
+        """记录补全区域留下的空间并按新增正文逐步消费。"""
+        completion_height  = self._completion_section_height()
+        completion_visible = completion_height > 0
+
+        if completion_visible and not self._completion_was_visible:
+            self._completion_bottom_footprint = (
+                self._input_surface_height()
+                + completion_height
+            )
+            self._completion_stable_line_baseline = (
+                self.document.stable_line_count
+            )
+            self._completion_live_height_baseline = (
+                self._completion_live_height()
+            )
+            self._completion_consumed_height = 0
+        elif completion_visible:
+            self._completion_bottom_footprint = max(
+                self._completion_bottom_footprint,
+                self._input_surface_height()
+                + completion_height,
+            )
+
+        if (
+            self._completion_bottom_footprint
+            and self._completion_consumed_height
+            < self._completion_bottom_footprint
+        ):
+            stable_height = self._completion_stable_growth_height()
+            live_height   = self._completion_live_height()
+
+            growth = max(
+                0,
+                stable_height
+                + live_height
+                - self._completion_live_height_baseline,
+            )
+            self._completion_consumed_height = min(
+                self._completion_bottom_footprint,
+                max(self._completion_consumed_height, growth),
+            )
+
+        self._completion_was_visible = completion_visible
+
+        self._completion_bottom_footprint = min(
+            self._completion_bottom_footprint,
+            self.terminal_height,
+        )
+
+    def _reset_completion_layout(self, *, reset_canvas_floor: bool) -> None:
+        """清除补全布局状态并同步收束画布高度下限。"""
+        self._completion_bottom_footprint     = 0
+        self._completion_was_visible          = False
+        self._completion_stable_line_baseline = 0
+        self._completion_live_height_baseline = 0
+        self._completion_consumed_height      = 0
+
+        if reset_canvas_floor:
+            self._canvas_height_floor = 0
+        else:
+            self._canvas_height_floor = min(
+                self._canvas_height_floor,
+                self._natural_visible_height(),
+            )
+
+    def _completion_stable_growth_height(self) -> int:
+        """返回补全锚点之后新增稳定正文的显示高度。"""
+        return sum(
+            max(
+                1,
+                display_line_count(
+                    fragments_text(line),
+                    width=self.terminal_width,
+                    continuation_widths=(
+                        self._transcript_continuation_widths(line)
+                    ),
+                ),
+            )
+            for line in self.document.stable_lines_since(
+                self._completion_stable_line_baseline
+            )
+        )
+
+    def _completion_live_height(self) -> int:
+        """返回动态正文相对稳定正文新增的显示高度。"""
+        fragments = self.document.live_fragments()
+        if not fragments:
+            return 0
+
+        height = display_line_count(
+            fragments_text(fragments),
+            width=self.terminal_width,
+            continuation_widths=self._transcript_continuation_widths(
+                fragments,
+            ),
+        )
+        if self.document.stable_line_count:
+            height -= 1
+        return max(0, height)
+
+    def _completion_release_height(self) -> int:
+        """返回用于保持输入框位置的补全释放空间。"""
+        if self._transcript_only or not self.bottom_pane.input_visible:
+            return 0
+
+        occupied_height = (
+            self._input_surface_height()
+            + self._completion_section_height()
+            + self._footer_height()
+        )
+        return max(
+            0,
+            self._completion_bottom_footprint
+            - self._completion_consumed_height
+            - occupied_height,
+        )
+
     def _input_stack_height(self) -> int:
         """返回当前完整输入区域占用高度。"""
         return (
@@ -2061,6 +2215,7 @@ class TuiScreen(object):
             + int(self._transcript_status_gap_visible())
             + self._content_input_gap_height()
             + self._interaction_height()
+            + self._completion_release_height()
         )
 
         return max(1, min(self.terminal_height, height))
@@ -2069,15 +2224,7 @@ class TuiScreen(object):
         """返回正文状态区与底部交互区域之间的间距高度。"""
         if not self._content_input_gap_visible():
             return 0
-        if (
-            self.bottom_pane.is_active("menu")
-            or self.bottom_pane.is_active("process_viewer")
-        ):
-            return self.COMMAND_SURFACE_GAP_HEIGHT
-        if self.bottom_pane.transient_active:
-            return self.OVERLAY_INPUT_GAP_HEIGHT
-
-        return self.CONTENT_INPUT_GAP_HEIGHT
+        return self.CONTENT_SURFACE_GAP_HEIGHT
 
     def _content_input_gap_dimension(self) -> Dimension:
         """返回正文状态区与底部交互区域之间的间距尺寸。"""

@@ -818,10 +818,13 @@ class TuiRuntime(object):
 
     def set_execution_active(self, active: bool) -> None:
         """更新模型轮次执行状态并切换输入区布局。"""
+        was_active = self.execution_active
         self.execution_active = bool(active)
         if self.execution_active:
             self.viewport.clear_submitted_query()
         else:
+            if was_active:
+                self.screen.settle_completion_layout()
             self.submissions.clear_queued_submission_marker()
             self._flush_background_blocks()
 

@@ -144,6 +144,11 @@ class TuiDocument(object):
         )
 
     @property
+    def stable_line_count(self) -> int:
+        """返回全部稳定正文的逻辑行数量。"""
+        return self._stable_line_count()
+
+    @property
     def has_content(self) -> bool:
         """返回当前是否存在稳定或动态正文。"""
         return bool(
@@ -707,6 +712,36 @@ class TuiDocument(object):
             self._append_rendered_block(out, item)
 
         return out
+
+    def stable_lines_since(self, line_count: int) -> list[FormattedText]:
+        """返回指定累计位置之后追加的稳定正文行。"""
+        start = max(0, min(self._stable_line_count(), int(line_count)))
+        return self._stable_lines[start:]
+
+    def live_fragments(self) -> FormattedText:
+        """生成相对稳定正文追加的动态正文片段。"""
+        blocks: list[TranscriptBlock] = []
+
+        if self.active_block is not None:
+            if self.active_kind is None:
+                raise ValueError("active TUI block is missing its semantic kind")
+            blocks.append(TranscriptBlock(
+                display_block=self.active_block,
+                transcript_block=(
+                    self.active_transcript_block or self.active_block
+                ),
+                kind=self.active_kind,
+                raw_text=self.active_raw_text,
+                gap_before=self.active_gap_before,
+                stream_continuation=self.active_stream_continuation,
+                transcript_stable=False,
+            ))
+
+        blocks.extend(self._active_tail)
+        return self._render_blocks(
+            blocks,
+            leading_content=bool(self.blocks),
+        )
 
     def visible_stable_lines(self) -> list[FormattedText]:
         """返回尚未进入滚屏区且未被清除的稳定逻辑行。"""
