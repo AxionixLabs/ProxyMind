@@ -129,6 +129,7 @@ def _surface_style(
             "prompt": "#20262C",
             "prompt.kicker": "bold #596570",
             "prompt.command.slash": "#70408F",
+            "footer.model": "#005F87",
             "placeholder": "#68737D",
             "auto-suggestion": "#737F89",
             "completion-menu.empty": "#68737D",

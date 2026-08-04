@@ -387,9 +387,11 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
         "class:approval-option-selected"
     )
     shortcut = style.get_attrs_for_style_str("class:approval-shortcut")
+    model = style.get_attrs_for_style_str("class:footer.model")
     assert selected.color == "005F87"
     assert selected.bold
     assert shortcut.color == "26323C"
+    assert model.color == "005F87"
 
 
 def test_selected_session_shortcut_uses_118_style() -> None:
