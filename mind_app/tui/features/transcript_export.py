@@ -90,7 +90,11 @@ def _sections(
             continue
         out.append(_TranscriptSection(kind=cell.kind, text=text))
 
-    return tuple(out)
+    return tuple(
+        _TranscriptSection(kind=section.kind, text=section.text.strip("\n"))
+        for section in out
+        if section.text.strip("\n")
+    )
 
 
 def _cell_text(cell: TranscriptBlock) -> str:
@@ -104,7 +108,6 @@ def _cell_text(cell: TranscriptBlock) -> str:
         str(value or "")
         .replace("\r\n", "\n")
         .replace("\r", "\n")
-        .strip("\n")
     )
 
 

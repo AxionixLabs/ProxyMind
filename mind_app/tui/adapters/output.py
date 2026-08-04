@@ -35,6 +35,7 @@ from ..core.render import (
 from ..core.styles import (
     ASSISTANT_PREFIX_CLASS,
     assistant_block,
+    assistant_continuation_block,
     assistant_fragments,
     prompt_style,
     styled_block_fragments
@@ -44,10 +45,13 @@ from .markdown import render_tui_markdown
 TYPEWRITER_CURSOR_STYLE      = TextStyle(foreground="#D7E7FF", bold=True)
 STREAM_RENDER_REGULAR_SEC    = 1 / 20
 STREAM_RENDER_SLOW_SEC       = 1 / 12
+STREAM_RENDER_VERY_SLOW_SEC  = 1 / 8
 STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
 STREAM_RENDER_LONG_TEXT_SIZE = 2000
+STREAM_RENDER_HUGE_TEXT_SIZE = 50_000
 STREAM_REVEAL_CELLS_PER_SEC  = 80
 STREAM_REVEAL_MAX_LAG_SEC    = 0.2
+STREAM_STABLE_HOLDBACK_LINES = 3
 
 
 class TuiOutputControl(OutputControlPort):
@@ -75,6 +79,7 @@ class TuiOutputControl(OutputControlPort):
 
         self._stream_rendered_at: float         = 0.0
         self._stream_render_cost_sec: float     = 0.0
+        self._stream_stable_end: int            = 0
         self._final_block: FragmentBlock | None = None
 
     @property
@@ -138,11 +143,13 @@ class TuiOutputControl(OutputControlPort):
 
         if self.assistant.active:
             self.assistant.reveal_all()
+            self._stabilize_stream_prefix()
             self._final_block = self._render_final_block()
             self.runtime.set_active_renderable(
                 self._final_block,
                 kind="assistant",
-                raw_text=self.assistant.text,
+                raw_text=self._active_stream_text(),
+                stream_continuation=self._stream_stable_end > 0,
             )
 
     async def record_hidden_output(self, text: str) -> None:
@@ -244,17 +251,31 @@ class TuiOutputControl(OutputControlPort):
 
         self.runtime.commit_active_renderable(
             block,
-            raw_text=self.assistant.text,
+            raw_text=self._active_stream_text(),
         )
         self.assistant.clear()
         self._assistant_filter.reset()
+        self._stream_stable_end = 0
         self._final_block = None
 
         return True
 
     def _render_final_block(self) -> FragmentBlock:
         """把当前完整正文渲染为可直接提交的最终块。"""
-        text = self.assistant.text
+        text = self._active_stream_text()
+
+        return self._render_markdown_block(
+            text,
+            continuation=self._stream_stable_end > 0,
+        )
+
+    def _render_markdown_block(
+        self,
+        text: str,
+        *,
+        continuation: bool
+    ) -> FragmentBlock:
+        """把一段稳定 Markdown 正文渲染为助手展示块。"""
 
         try:
             rendered = render_tui_markdown(
@@ -266,6 +287,8 @@ class TuiOutputControl(OutputControlPort):
                 StyledBlock(plain_text=text),
             ))
 
+        if continuation:
+            return assistant_continuation_block(rendered)
         return assistant_block(rendered)
 
     def _finish_assistant_filter(self, *, render: bool) -> None:
@@ -337,6 +360,12 @@ class TuiOutputControl(OutputControlPort):
     def _stream_render_interval(self) -> float:
         """按正文规模和上一帧成本返回流式刷新间隔。"""
         if (
+            len(self.assistant.text) >= STREAM_RENDER_HUGE_TEXT_SIZE
+            or self._stream_render_cost_sec >= STREAM_RENDER_REGULAR_SEC
+        ):
+            return STREAM_RENDER_VERY_SLOW_SEC
+
+        if (
             len(self.assistant.text) >= STREAM_RENDER_LONG_TEXT_SIZE
             or self._stream_render_cost_sec >= STREAM_RENDER_COST_LIMIT_SEC
         ):
@@ -396,13 +425,20 @@ class TuiOutputControl(OutputControlPort):
         cursor: bool
     ) -> bool:
         """刷新当前流式内容并返回打字机光标是否可见。"""
-        block     = StyledBlock(plain_text=self.assistant.visible_text)
-        fragments = list(assistant_fragments(styled_block_fragments(block)))
+        self._stabilize_stream_prefix()
 
-        cursor_visible = cursor and _cursor_keeps_display_height(
-            fragments,
-            self._cursor,
-            width=self.terminal_width,
+        visible_text = self._active_stream_text(visible=True)
+        block        = StyledBlock(plain_text=visible_text)
+        fragments    = list(assistant_fragments(styled_block_fragments(block)))
+
+        cursor_visible = bool(
+            cursor
+            and len(visible_text) < STREAM_RENDER_LONG_TEXT_SIZE
+            and _cursor_keeps_display_height(
+                fragments,
+                self._cursor,
+                width=self.terminal_width,
+            )
         )
         if cursor_visible:
             fragments.append((prompt_style(TYPEWRITER_CURSOR_STYLE), self._cursor))
@@ -410,10 +446,51 @@ class TuiOutputControl(OutputControlPort):
         self.runtime.set_active_renderable(
             FragmentBlock(tuple(fragments)),
             kind="assistant",
-            raw_text=self.assistant.visible_text,
+            raw_text=visible_text,
+            stream_continuation=self._stream_stable_end > 0,
         )
 
         return cursor_visible
+
+    def _stabilize_stream_prefix(self) -> None:
+        """提交完整逻辑行并只保留少量可变正文尾部。"""
+        cut = self.assistant.revealed_end
+        for _ in range(STREAM_STABLE_HOLDBACK_LINES):
+            cut = self.assistant.text.rfind(
+                "\n",
+                self._stream_stable_end,
+                cut,
+            )
+            if cut < self._stream_stable_end:
+                return None
+
+        cut += 1
+        if cut <= self._stream_stable_end:
+            return None
+
+        text = self.assistant.text[self._stream_stable_end:cut]
+
+        block = self._render_markdown_block(
+            text,
+            continuation=self._stream_stable_end > 0,
+        )
+        self.runtime.set_active_renderable(
+            block,
+            kind="assistant",
+            raw_text=text,
+            stream_continuation=self._stream_stable_end > 0,
+        )
+        self.runtime.commit_active_stream_prefix(block, raw_text=text)
+        self._stream_stable_end = cut
+
+    def _active_stream_text(self, *, visible: bool = False) -> str:
+        """返回尚未稳定提交的完整或可见正文尾部。"""
+        end = (
+            self.assistant.revealed_end
+            if visible
+            else len(self.assistant.text)
+        )
+        return self.assistant.text[self._stream_stable_end:end]
 
     @staticmethod
     def _audit_payload(arguments: dict[str, typing.Any]) -> str:
@@ -445,11 +522,12 @@ def _cursor_keeps_display_height(
     if width is None:
         return True
 
-    text       = fragments_text(fragments)
+    last_line  = _last_formatted_line(fragments)
+    text       = fragments_text(last_line)
     line_width = max(1, int(width))
 
     continuation_widths = fragment_continuation_widths(
-        fragments,
+        last_line,
         prefix_style=ASSISTANT_PREFIX_CLASS,
         prefix_width=2,
     )
@@ -463,6 +541,26 @@ def _cursor_keeps_display_height(
         width=line_width,
         continuation_widths=continuation_widths,
     )
+
+
+def _last_formatted_line(
+    fragments: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """返回格式化正文的最后一个逻辑行。"""
+    line: list[tuple[str, str]] = []
+
+    for style, text in fragments:
+        if "\n" not in text:
+            line.append((style, text))
+            continue
+
+        line = []
+        tail = text.rsplit("\n", 1)[1]
+        if tail:
+            line.append((style, tail))
+
+    return line
+
 
 if __name__ == '__main__':
     pass

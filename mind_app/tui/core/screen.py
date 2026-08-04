@@ -257,6 +257,10 @@ class TuiScreen(object):
         self._frame_geometry: FrameGeometry | None    = None
         self._layout_geometry: tuple[int, int] | None = None
 
+        self._transcript_cache_key: tuple[int, int, int] | None = None
+        self._transcript_cache_fragments: FormattedText         = []
+        self._transcript_assistant_lines: frozenset[int]        = frozenset()
+
         self._canvas_height_floor: int = 0
 
         self._completion_bottom_footprint: int     = 0
@@ -735,29 +739,28 @@ class TuiScreen(object):
         )
 
     @staticmethod
-    def _assistant_line(
-        fragments: FormattedText,
-        target_line: int
-    ) -> bool:
-        """判断指定正文逻辑行是否属于助手正文块。"""
+    def _assistant_lines(fragments: FormattedText) -> frozenset[int]:
+        """返回属于助手正文块的全部逻辑行索引。"""
+        assistant_lines: set[int] = set()
+
         line_number   = 0
         at_line_start = True
 
         for style, text in fragments:
-            parts = text.split("\n")
+            parts      = text.split("\n")
             last_index = len(parts) - 1
+
             for index, part in enumerate(parts):
-                if line_number == target_line and at_line_start and part:
-                    return style == ASSISTANT_PREFIX_CLASS
-                if part:
+                if at_line_start and part:
+                    if style == ASSISTANT_PREFIX_CLASS:
+                        assistant_lines.add(line_number)
                     at_line_start = False
+
                 if index < last_index:
-                    if line_number == target_line:
-                        return False
                     line_number += 1
                     at_line_start = True
 
-        return False
+        return frozenset(assistant_lines)
 
     @staticmethod
     def _paired_key_hint(
@@ -810,7 +813,9 @@ class TuiScreen(object):
         if self.application.is_running:
             raise RuntimeError("cannot configure TUI keymap while running")
         self._validate_keymap(keymap)
+
         self.keymap = keymap
+
         self.transcript_overlay_control.key_bindings = (
             self._transcript_overlay_key_bindings()
         )
@@ -902,7 +907,18 @@ class TuiScreen(object):
 
     def transcript_fragments(self) -> FormattedText:
         """生成会话内容区域的格式化片段。"""
-        return self.document.fragments(width=self.terminal_width)
+        width = self.terminal_width
+        key = (
+            self.document.transcript_revision,
+            self.document.visible_prefix_line_count,
+            width,
+        )
+        if key != self._transcript_cache_key:
+            fragments = self.document.fragments(width=width)
+            self._transcript_cache_key = key
+            self._transcript_cache_fragments = fragments
+            self._transcript_assistant_lines = self._assistant_lines(fragments)
+        return self._transcript_cache_fragments
 
     def _capture_frame_geometry(self, application: Application[None]) -> None:
         """在布局计算前固定当前帧使用的终端尺寸。"""
@@ -983,16 +999,18 @@ class TuiScreen(object):
 
         renderer.full_screen = True
         renderer._cursor_pos = Point(x=0, y=0)
-        renderer._last_screen = None
-        renderer._last_size = None
-        renderer._last_style = None
+
+        renderer._last_screen       = None
+        renderer._last_size         = None
+        renderer._last_style        = None
         renderer._last_cursor_shape = None
+
         renderer._min_available_height = self.terminal_height
 
     def _leave_transcript_screen(self) -> None:
         """退出完整终端画面并恢复 inline 渲染状态。"""
         renderer = self.application.renderer
-        state = self._inline_renderer_state
+        state    = self._inline_renderer_state
 
         try:
             if renderer._in_alternate_screen:
@@ -1000,15 +1018,15 @@ class TuiScreen(object):
                 renderer.output.flush()
         finally:
             renderer._in_alternate_screen = False
-            self.application.full_screen = False
-            renderer.full_screen = False
+            self.application.full_screen  = False
+            renderer.full_screen          = False
 
             if state is not None:
-                renderer._cursor_pos = state.cursor_pos
-                renderer._last_screen = state.last_screen
-                renderer._last_size = state.last_size
-                renderer._last_style = state.last_style
-                renderer._last_cursor_shape = state.last_cursor_shape
+                renderer._cursor_pos           = state.cursor_pos
+                renderer._last_screen          = state.last_screen
+                renderer._last_size            = state.last_size
+                renderer._last_style           = state.last_style
+                renderer._last_cursor_shape    = state.last_cursor_shape
                 renderer._min_available_height = state.min_available_height
 
             self._inline_renderer_state = None
@@ -1142,11 +1160,16 @@ class TuiScreen(object):
         """让助手正文自动折行后继续与首行正文对齐。"""
         if (
             wrap_count <= 0
-            or not self._assistant_line(self.transcript_fragments(), line_number)
+            or line_number not in self._transcript_assistant_lines_for_frame()
         ):
             return []
 
         return [(ASSISTANT_PREFIX_CLASS, "  ")]
+
+    def _transcript_assistant_lines_for_frame(self) -> frozenset[int]:
+        """返回当前正文版本缓存的助手逻辑行索引。"""
+        self.transcript_fragments()
+        return self._transcript_assistant_lines
 
     def _transcript_fragments(self) -> FormattedText:
         """返回正文控件使用的格式化片段。"""
@@ -1182,6 +1205,7 @@ class TuiScreen(object):
             max_rows=queued_rows,
             edit_binding=self._queued_message_edit_binding,
         )
+
         if pending and queued:
             return [*pending, ("", "\n"), *queued]
         return pending or queued

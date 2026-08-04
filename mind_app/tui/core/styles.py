@@ -286,6 +286,17 @@ def assistant_block(block: FragmentBlock) -> FragmentBlock:
     return FragmentBlock(assistant_fragments(block.fragments))
 
 
+def assistant_continuation_block(block: FragmentBlock) -> FragmentBlock:
+    """给助手正文续块添加与正文对齐的显式缩进。"""
+    fragments = assistant_fragments(block.fragments)
+    if not fragments:
+        return FragmentBlock(())
+    return FragmentBlock((
+        (ASSISTANT_PREFIX_CLASS, "  "),
+        *fragments[1:],
+    ))
+
+
 def assistant_fragments(
     fragments: typing.Iterable[tuple[str, str]]
 ) -> tuple[tuple[str, str], ...]:

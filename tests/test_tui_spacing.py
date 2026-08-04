@@ -3381,6 +3381,26 @@ def test_stream_reveal_keeps_combined_text_units_intact() -> None:
     assert stream.visible_text == "A\u0301👩\u200d💻🇨🇳"
 
 
+def test_stream_pending_width_is_updated_incrementally() -> None:
+    stream = TuiAssistantStream()
+    stream.append("A中")
+
+    assert stream.pending_width == 3
+
+    stream.reveal(1)
+    assert stream.pending_width == 2
+
+    stream.append("文")
+    assert stream.pending_width == 4
+
+    stream.reveal_all()
+    assert stream.pending_width == 0
+
+    stream.append("x")
+    stream.clear()
+    assert stream.pending_width == 0
+
+
 def test_assistant_wrap_prefix_is_included_in_display_rows() -> None:
     fragments = [(ASSISTANT_PREFIX_CLASS, f"• {'x' * 17}")]
     text = "".join(value for _style, value in fragments)
@@ -3488,6 +3508,50 @@ async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
 
 
 @pytest.mark.anyio
+async def test_stream_stabilizes_complete_lines_without_losing_source() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    source = "\n".join(f"line {index}" for index in range(12))
+
+    await output.append_assistant_delta(source)
+
+    assert runtime.document.blocks
+    assert runtime.document.active_stream_continuation
+    assert output._active_stream_text().count("\n") < 3
+
+    await output.prepare_external_output()
+
+    cells = runtime.document.blocks
+    assert "".join(cell.raw_text or "" for cell in cells) == source
+    assert [cell.stream_continuation for cell in cells] == [False, True]
+    assert _document_text(runtime.document) == "\n".join([
+        "• line 0",
+        *(f"  line {index}" for index in range(1, 12)),
+    ])
+
+
+@pytest.mark.anyio
+async def test_stable_stream_prefix_keeps_markdown_rendering() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    source = "\n".join(f"**line {index}**" for index in range(12))
+
+    await output.append_assistant_delta(source)
+    await output.prepare_external_output()
+
+    fragments = [
+        fragment
+        for cell in runtime.document.blocks
+        for fragment in cell.display_block.fragments
+    ]
+    assert "**" not in "".join(text for _style, text in fragments)
+    assert all(
+        any("bold" in style and text == f"line {index}" for style, text in fragments)
+        for index in range(12)
+    )
+
+
+@pytest.mark.anyio
 async def test_animated_stream_drains_backlog_without_more_deltas() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
@@ -3559,6 +3623,34 @@ def test_stream_render_budget_adapts_to_size_and_render_cost() -> None:
     output._stream_render_cost_sec = 0.0
     output.assistant.text = "x" * 2000
     assert output._stream_render_interval() == 1 / 12
+
+    output.assistant.text = "x" * 50_000
+    assert output._stream_render_interval() == 1 / 8
+
+
+def test_transcript_prefix_reuses_revision_cache() -> None:
+    runtime = TuiRuntime()
+    runtime.set_active_renderable(
+        FragmentBlock(((ASSISTANT_PREFIX_CLASS, "• first\n  second"),)),
+        kind="assistant",
+    )
+
+    with patch.object(
+        runtime.document,
+        "fragments",
+        wraps=runtime.document.fragments,
+    ) as render:
+        assert runtime.screen._transcript_line_prefix(0, 1)
+        assert runtime.screen._transcript_line_prefix(1, 1)
+        assert render.call_count == 1
+
+        runtime.set_active_renderable(
+            FragmentBlock(((ASSISTANT_PREFIX_CLASS, "• changed"),)),
+            kind="assistant",
+        )
+
+        assert runtime.screen._transcript_line_prefix(0, 1)
+        assert render.call_count == 2
 
 
 def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:

@@ -185,7 +185,10 @@ class TuiTranscriptViewport(object):
         return bool(
             self._is_scrollback_deferred()
             or self._is_transcript_overlay_active()
-            or self.document.active_block is not None
+            or (
+                self.document.active_block is not None
+                and not self.document.active_stream_continuation
+            )
             or self.view_row is not None
         )
 
@@ -196,7 +199,10 @@ class TuiTranscriptViewport(object):
 
     def _scrollback_prefix_line_count(self) -> int:
         """计算可写入滚屏区的完整稳定逻辑行数量。"""
-        if self.document.active_block is not None:
+        if (
+            self.document.active_block is not None
+            and not self.document.active_stream_continuation
+        ):
             return 0
 
         lines = self.document.visible_stable_lines()
@@ -215,7 +221,10 @@ class TuiTranscriptViewport(object):
         if max_retirable <= 0:
             return 0
 
-        available = max(0, self._get_available_height())
+        available = max(
+            0,
+            self._get_available_height() - self._live_tail_height(),
+        )
         if available <= 0:
             return max_retirable
 
@@ -251,6 +260,22 @@ class TuiTranscriptViewport(object):
             retire_count += 1
 
         return retire_count
+
+    def _live_tail_height(self) -> int:
+        """返回当前动态正文占用的显示行数。"""
+        fragments = self.document.live_fragments()
+        if not fragments:
+            return 0
+
+        return display_line_count(
+            fragments_text(fragments),
+            width=self._get_terminal_width(),
+            continuation_widths=fragment_continuation_widths(
+                fragments,
+                prefix_style=ASSISTANT_PREFIX_CLASS,
+                prefix_width=2,
+            ),
+        )
 
     def reset_view(self) -> None:
         """让正文视口恢复跟随最新输出。"""

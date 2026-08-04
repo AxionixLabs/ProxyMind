@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import typing
 import unicodedata
 from prompt_toolkit.utils import get_cwidth
@@ -19,16 +20,26 @@ ZERO_WIDTH_ESCAPE_STYLE = "[ZeroWidthEscape]"
 OSC8_PREFIX = "\x1b]8;;"
 OSC8_SUFFIX = "\x1b\\"
 
+_UNSAFE_TERMINAL_TEXT = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+
 
 def sanitize_formatted_text(
     parts: typing.Iterable[tuple[str, str]]
 ) -> FormattedText:
     """清理格式化文本中的终端控制序列并保留样式边界。"""
+    source = list(parts)
+    if all(
+        ZERO_WIDTH_ESCAPE_STYLE not in style
+        and _UNSAFE_TERMINAL_TEXT.search(text) is None
+        for style, text in source
+    ):
+        return source
+
     text_filter        = TerminalTextFilter(measure_width=get_cwidth)
     out: FormattedText = []
     last_style: str    = ""
 
-    for style, text in parts:
+    for style, text in source:
         if not text:
             out.append((style, text))
             continue

@@ -84,6 +84,24 @@ def test_transcript_exporter_strips_terminal_hyperlink_metadata(tmp_path: Path) 
     assert result.path.read_text(encoding="utf-8") == "docs\n"
 
 
+def test_transcript_exporter_preserves_continuation_blank_lines(
+    tmp_path: Path,
+) -> None:
+    cells = (
+        _cell("first", kind="assistant", raw_text="first\n\n"),
+        _cell(
+            "second",
+            kind="assistant",
+            raw_text="second",
+            stream_continuation=True,
+        ),
+    )
+
+    result = TranscriptExporter(tmp_path).export(cells, "raw")
+
+    assert result.path.read_text(encoding="utf-8") == "first\n\nsecond\n"
+
+
 def test_transcript_exporter_cleans_temporary_file_after_failure(
     tmp_path: Path,
 ) -> None:

@@ -464,8 +464,13 @@ class TuiDocument(object):
         stream_continuation: bool = False
     ) -> bool:
         """追加一个稳定正文块并统一保留块间空行。"""
-        block            = sanitize_fragment_block(block)
-        transcript_block = sanitize_fragment_block(transcript_block or block)
+        block = sanitize_fragment_block(block)
+
+        transcript_block = (
+            block
+            if transcript_block is None
+            else sanitize_fragment_block(transcript_block)
+        )
 
         has_prior_content = bool(
             self.blocks
@@ -712,8 +717,13 @@ class TuiDocument(object):
         stream_continuation: bool = False
     ) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
-        block            = sanitize_fragment_block(block)
-        transcript_block = sanitize_fragment_block(transcript_block or block)
+        block = sanitize_fragment_block(block)
+
+        transcript_block = (
+            block
+            if transcript_block is None
+            else sanitize_fragment_block(transcript_block)
+        )
 
         if self.active_block is None:
             self.active_kind = kind
@@ -744,8 +754,13 @@ class TuiDocument(object):
         if self.active_kind is None:
             raise ValueError("cannot commit an active TUI block without a kind")
 
-        block            = sanitize_fragment_block(block)
-        transcript_block = sanitize_fragment_block(transcript_block or block)
+        block = sanitize_fragment_block(block)
+
+        transcript_block = (
+            block
+            if transcript_block is None
+            else sanitize_fragment_block(transcript_block)
+        )
 
         items = [TranscriptBlock(
             display_block=block,
