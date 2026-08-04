@@ -145,6 +145,39 @@ async def test_full_width_line_rerenders_in_one_row_after_resize() -> None:
             await runtime.close()
 
 
+@pytest.mark.anyio
+async def test_resize_discards_old_canvas_height_floor() -> None:
+    with create_pipe_input() as input_obj:
+        output = _AlternateScreenOutput(columns=40, rows=12)
+        runtime = TuiRuntime(input_obj=input_obj, output_obj=output)
+        await runtime.open()
+        try:
+            runtime.append_block(_block("x" * 60), kind="assistant")
+            await _render_next_frame(runtime)
+            narrow_natural_height = runtime.screen._natural_visible_height()
+
+            output.size = Size(rows=12, columns=80)
+            screen = await _render_next_frame(runtime)
+            positions = screen.visible_windows_to_write_positions
+
+            assert runtime.screen._natural_visible_height() == (
+                narrow_natural_height - 1
+            )
+            assert runtime.screen._visible_height() == (
+                runtime.screen._natural_visible_height()
+            )
+            assert runtime.screen.canvas_spacer not in positions
+
+            transcript = positions[runtime.screen.transcript_window]
+            content_gap = positions[runtime.screen.content_input_gap.content]
+            top_padding = positions[runtime.screen.input_top_padding]
+
+            assert content_gap.ypos == transcript.ypos + transcript.height
+            assert top_padding.ypos == content_gap.ypos + content_gap.height
+        finally:
+            await runtime.close()
+
+
 def test_failure_parts_adds_non_bold_marker_and_text() -> None:
     marker, body = failure_parts("failed")
 

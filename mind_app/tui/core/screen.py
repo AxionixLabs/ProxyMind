@@ -254,7 +254,8 @@ class TuiScreen(object):
 
         self._animation_tick: int = 0
 
-        self._frame_geometry: FrameGeometry | None = None
+        self._frame_geometry: FrameGeometry | None    = None
+        self._layout_geometry: tuple[int, int] | None = None
 
         self._canvas_height_floor: int = 0
 
@@ -908,7 +909,20 @@ class TuiScreen(object):
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
+        geometry = (
+            self._frame_geometry.width,
+            self._frame_geometry.height,
+        )
+        geometry_changed = (
+            self._layout_geometry is not None
+            and geometry != self._layout_geometry
+        )
+        self._layout_geometry = geometry
+
         self.document.set_display_width(self._frame_geometry.width)
+
+        if geometry_changed:
+            self._reset_completion_layout(reset_canvas_floor=True)
 
         self._update_completion_footprint()
 
