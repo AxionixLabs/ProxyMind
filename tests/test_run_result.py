@@ -60,6 +60,9 @@ class _OutputControl(object):
 
 
 class _OutputStatus(object):
+    def __init__(self) -> None:
+        self.end_calls: list[bool] = []
+
     async def begin_tool_status(self) -> None:
         return None
 
@@ -76,7 +79,7 @@ class _OutputStatus(object):
         _ = (text, delay_sec, animate_after_sec)
 
     async def end_status(self, *, immediate: bool = False) -> None:
-        _ = immediate
+        self.end_calls.append(immediate)
 
 
 class _Sink(object):
@@ -183,6 +186,7 @@ async def _run_stream(
         ..., typing.AsyncIterator[typing.Any]
     ] | None = None,
     on_turn_input_event: typing.Callable[[typing.Any], typing.Any] | None = None,
+    mind_state: SimpleNamespace | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -192,7 +196,7 @@ async def _run_stream(
         stream_chat = stream_factory
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
-    mind = _mind(frontend_active=frontend_active)
+    mind = mind_state or _mind(frontend_active=frontend_active)
     output_session = _output_session()
     mind.output_session = output_session
     permissions = preset_permissions("auto")
@@ -324,6 +328,32 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         "payload": {"content": "answer"},
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_done_stops_animation_before_logical_settlement(monkeypatch) -> None:
+    stream_advanced = asyncio.Event()
+    mind = _mind()
+
+    async def pending_stream(*_args, **_kwargs):
+        yield parse_stream_event({"type": "turn.done"})
+        stream_advanced.set()
+        await asyncio.Future()
+
+    task = asyncio.create_task(_run_stream(
+        monkeypatch,
+        [],
+        stream_factory=pending_stream,
+        mind_state=mind,
+    ))
+    await stream_advanced.wait()
+
+    mind.stop_anim.assert_awaited_once_with("wait", settle=False)
+    assert mind.output_session.status.end_calls == [True]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 @pytest.mark.anyio
