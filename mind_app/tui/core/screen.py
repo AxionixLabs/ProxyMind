@@ -171,6 +171,7 @@ class TuiScreen(object):
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
     COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
     CONTENT_SURFACE_GAP_HEIGHT: typing.Final[int]    = 1
+    PROCESS_SURFACE_GAP_HEIGHT: typing.Final[int]    = 2
     INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int]  = 1
     ESCAPE_SEQUENCE_TIMEOUT_SEC: typing.Final[float] = 0.1
 
@@ -907,6 +908,7 @@ class TuiScreen(object):
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
+        self.document.set_display_width(self._frame_geometry.width)
 
         self._update_completion_footprint()
 
@@ -2227,6 +2229,8 @@ class TuiScreen(object):
         """返回正文状态区与底部交互区域之间的间距高度。"""
         if not self._content_input_gap_visible():
             return 0
+        if self.bottom_pane.is_active("process_viewer"):
+            return self.PROCESS_SURFACE_GAP_HEIGHT
         return self.CONTENT_SURFACE_GAP_HEIGHT
 
     def _content_input_gap_dimension(self) -> Dimension:
@@ -2235,13 +2239,19 @@ class TuiScreen(object):
 
     def _content_input_gap_visible(self) -> bool:
         """判断正文状态区与底部交互区域之间是否保留空行。"""
+        auxiliary_content = bool(
+            self.activity_block is not None
+            or self.process_status.active
+            or self._queued_content_visible()
+        )
         return bool(
             not self._transcript_only
             and (
-                self.document.has_visible_content
-                or self.activity_block is not None
-                or self.process_status.active
-                or self._queued_content_visible()
+                auxiliary_content
+                or (
+                    self.document.has_visible_content
+                    and self.document.visible_tail_kind != "user"
+                )
             )
         )
 
@@ -2249,6 +2259,7 @@ class TuiScreen(object):
         """判断正文与活动状态之间是否保留空行。"""
         return bool(
             self.document.has_visible_content
+            and self.document.visible_tail_kind != "user"
             and (self._status_height() or self._process_status_height())
             and not self.bottom_pane.is_active("menu")
         )

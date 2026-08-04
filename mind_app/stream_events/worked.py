@@ -67,6 +67,7 @@ def emit_worked_footer(
             elapsed_sec,
             width=application.viewport.width,
         ),
+        payload={"line_fill_character": WORKED_RULE_CHAR},
     ))
     application.emit(ApplicationView(type="run.gap"))
 

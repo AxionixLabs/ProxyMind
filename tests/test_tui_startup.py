@@ -56,7 +56,7 @@ async def test_query_is_consumed_while_runtime_download_is_active() -> None:
 
     assert await asyncio.wait_for(read_task, timeout=0.2) == "what project is this?"
     assert not infrastructure_task.done()
-    assert fragments_text(runtime.document.fragments(width=80)) == (
+    assert fragments_text(runtime.document.fragments(width=80)).strip() == (
             "› what project is this?"
     )
 
@@ -109,7 +109,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
             break
         await asyncio.sleep(0)
 
-    assert fragments_text(runtime.document.fragments(width=80)) == (
+    assert fragments_text(runtime.document.fragments(width=80)).strip() == (
             "› show this immediately"
     )
     assert not run_task.done()

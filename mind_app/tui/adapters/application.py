@@ -17,7 +17,10 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from mind_nova import const
-from ..core.models import FragmentBlock
+from ..core.models import (
+    FragmentBlock,
+    LineFill
+)
 from ..core.runtime import TuiRuntime
 from ..core.styles import styled_block_fragments
 from ..core.styles import text_block
@@ -115,9 +118,21 @@ class TuiApplicationSink(ApplicationSink):
             self._commit_block(view.type, view.renderable, block_kind)
             return None
         if isinstance(view.renderable, StyledBlock):
+            fill_character = str(view.payload.get("line_fill_character") or "")
+            line_fill = (
+                LineFill(
+                    character=fill_character,
+                    margin=int(view.payload.get("line_fill_margin") or 0),
+                )
+                if fill_character
+                else None
+            )
             self._commit_block(
                 view.type,
-                FragmentBlock(styled_block_fragments(view.renderable)),
+                FragmentBlock(
+                    styled_block_fragments(view.renderable),
+                    line_fill=line_fill,
+                ),
                 block_kind,
             )
             return None

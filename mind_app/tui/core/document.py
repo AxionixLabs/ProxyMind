@@ -13,6 +13,7 @@ from .models import (
     FragmentBlock
 )
 from .render import (
+    fill_fragments,
     join_formatted_lines,
     sanitize_fragment_block,
     split_formatted_lines
@@ -122,6 +123,8 @@ class TuiDocument(object):
         self._stable_snapshot_cells: tuple[TranscriptBlock, ...] = ()
         self._stable_snapshot_revision: int                      = -1
 
+        self._display_width: int | None = None
+
     @property
     def has_pending_submission(self) -> bool:
         """返回是否存在尚未决定展示方式的用户输入。"""
@@ -178,6 +181,17 @@ class TuiDocument(object):
             or self._active_tail
         )
 
+    @property
+    def visible_tail_kind(self) -> TuiBlockKind | None:
+        """返回实时画布最后一个正文 cell 的类型。"""
+        if self._active_tail:
+            return self._active_tail[-1].kind
+        if self.active_block is not None:
+            return self.active_kind
+        if self.visible_stable_lines():
+            return self._last_rendered_kind()
+        return None
+
     @staticmethod
     def _trim_block_fragments(parts: FormattedText) -> FormattedText:
         """移除正文块外侧换行并保留块内原始结构。"""
@@ -213,11 +227,16 @@ class TuiDocument(object):
         item: TranscriptBlock,
         *,
         transcript: bool = False,
-        leading_content: bool = False
+        leading_content: bool = False,
+        previous_kind: TuiBlockKind | None = None
     ) -> bool:
         """向已有正文追加一个块并统一处理块前间距。"""
-        block = item.transcript_block if transcript else item.display_block
-        parts = self._trim_block_fragments(list(block.fragments))
+        if transcript:
+            parts = self._trim_block_fragments(
+                list(item.transcript_block.fragments)
+            )
+        else:
+            parts = join_formatted_lines(self._block_lines(item))
 
         if not parts:
             return False
@@ -226,7 +245,7 @@ class TuiDocument(object):
             separated = (
                 not item.stream_continuation
                 if transcript
-                else item.gap_before
+                else self._display_gap_before(previous_kind, item)
             )
             out.append(("", "\n\n" if separated else "\n"))
         out.extend(parts)
@@ -238,10 +257,13 @@ class TuiDocument(object):
         blocks: list[TranscriptBlock],
         *,
         transcript: bool = False,
-        leading_content: bool = False
+        leading_content: bool = False,
+        leading_kind: TuiBlockKind | None = None
     ) -> FormattedText:
         """统一渲染一组正文块及其前置间距。"""
         out: FormattedText = []
+
+        previous_kind = leading_kind
 
         for item in blocks:
             if self._append_rendered_block(
@@ -249,10 +271,32 @@ class TuiDocument(object):
                 item,
                 transcript=transcript,
                 leading_content=leading_content,
+                previous_kind=previous_kind,
             ):
                 leading_content = False
+                previous_kind = item.kind
 
         return out
+
+    @staticmethod
+    def _display_gap_before(
+        previous_kind: TuiBlockKind | None,
+        item: TranscriptBlock
+    ) -> bool:
+        """判断两个普通正文 cell 之间是否需要通用空行。"""
+        return bool(
+            item.gap_before
+            and previous_kind != "user"
+            and item.kind != "user"
+        )
+
+    def _last_rendered_kind(self) -> TuiBlockKind | None:
+        """返回最后一个包含可见内容的稳定 cell 类型。"""
+        return next((
+            item.kind
+            for item in reversed(self.blocks)
+            if self._block_lines(item)
+        ), None)
 
     def _stable_line_count(self) -> int:
         """返回全部稳定正文的逻辑行数量。"""
@@ -261,7 +305,24 @@ class TuiDocument(object):
     def _block_lines(self, item: TranscriptBlock) -> list[FormattedText]:
         """返回指定稳定块去除外侧换行后的逻辑行。"""
         parts = self._trim_block_fragments(list(item.display_block.fragments))
-        return split_formatted_lines(parts)
+        lines = split_formatted_lines(parts)
+
+        fill = item.display_block.line_fill
+        if fill is not None and self._display_width is not None:
+            lines = [
+                fill_fragments(line, width=self._display_width, fill=fill)
+                for line in lines
+            ]
+        if not lines or item.kind != "user":
+            return lines
+
+        return [
+            [("", " ")],
+            [("", " ")],
+            *lines,
+            [("", " ")],
+            [("", " ")],
+        ]
 
     def _block_start_line(self, block: FragmentBlock) -> int | None:
         """返回指定稳定块首项内容所在的逻辑行位置。"""
@@ -270,30 +331,52 @@ class TuiDocument(object):
 
         has_rendered_block: bool = False
 
+        previous_kind: TuiBlockKind | None = None
+
         for item in self.blocks:
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            if has_rendered_block and item.gap_before:
+            if (
+                has_rendered_block
+                and self._display_gap_before(previous_kind, item)
+            ):
                 line += 1
             if item.display_block is block:
                 found = line
             line += len(own_lines)
             has_rendered_block = True
+            previous_kind = item.kind
 
         return found
 
     def _rebuild_stable_lines(self) -> None:
         """根据稳定块重新生成逻辑行缓存。"""
         self._stable_lines.clear()
+        previous_kind: TuiBlockKind | None = None
 
         for item in self.blocks:
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            if self._stable_lines and item.gap_before:
+            if (
+                self._stable_lines
+                and self._display_gap_before(previous_kind, item)
+            ):
                 self._stable_lines.append([])
             self._stable_lines.extend(own_lines)
+            previous_kind = item.kind
+
+    def set_display_width(self, width: int) -> bool:
+        """更新正文显示宽度并重建需要横向填充的稳定行。"""
+        normalized = max(1, int(width))
+        if normalized == self._display_width:
+            return False
+
+        self._display_width = normalized
+        if any(item.display_block.line_fill is not None for item in self.blocks):
+            self._rebuild_stable_lines()
+        return True
 
     def _extend_stable(self, items: list[TranscriptBlock]) -> None:
         """追加稳定块并让已隐藏边界跳过新产生的块间距。"""
@@ -305,6 +388,7 @@ class TuiDocument(object):
         previous_line_count = self._stable_line_count()
         scrollback_at_end   = self.scrollback_line_count == previous_line_count
         cleared_at_end      = self.cleared_line_count == previous_line_count
+        previous_kind       = self._last_rendered_kind()
 
         content_start: int | None = None
 
@@ -314,11 +398,15 @@ class TuiDocument(object):
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            if self._stable_lines and item.gap_before:
+            if (
+                self._stable_lines
+                and self._display_gap_before(previous_kind, item)
+            ):
                 self._stable_lines.append([])
             if content_start is None:
                 content_start = len(self._stable_lines)
             self._stable_lines.extend(own_lines)
+            previous_kind = item.kind
 
         boundary_lines = max(
             0,
@@ -690,15 +778,16 @@ class TuiDocument(object):
 
     def fragments(self, *, width: int) -> FormattedText:
         """生成统一处理块边界后的正文片段。"""
-        _ = width
+        self.set_display_width(width)
         out = join_formatted_lines(
             self._stable_lines[self.visible_prefix_line_count:]
         )
+        previous_kind = self._last_rendered_kind() if out else None
 
         if self.active_block is not None:
             if self.active_kind is None:
                 raise ValueError("active TUI block is missing its semantic kind")
-            self._append_rendered_block(out, TranscriptBlock(
+            item = TranscriptBlock(
                 display_block=self.active_block,
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
@@ -706,10 +795,21 @@ class TuiDocument(object):
                 gap_before=self.active_gap_before,
                 stream_continuation=self.active_stream_continuation,
                 transcript_stable=False,
-            ))
+            )
+            if self._append_rendered_block(
+                out,
+                item,
+                previous_kind=previous_kind,
+            ):
+                previous_kind = item.kind
 
         for item in self._active_tail:
-            self._append_rendered_block(out, item)
+            if self._append_rendered_block(
+                out,
+                item,
+                previous_kind=previous_kind,
+            ):
+                previous_kind = item.kind
 
         return out
 
@@ -738,9 +838,16 @@ class TuiDocument(object):
             ))
 
         blocks.extend(self._active_tail)
+        leading_content = bool(self.visible_stable_lines())
+
         return self._render_blocks(
             blocks,
-            leading_content=bool(self.visible_stable_lines()),
+            leading_content=leading_content,
+            leading_kind=(
+                self._last_rendered_kind()
+                if leading_content
+                else None
+            ),
         )
 
     def visible_stable_lines(self) -> list[FormattedText]:
@@ -786,7 +893,7 @@ class TuiDocument(object):
 
     def all_fragments(self, *, width: int) -> FormattedText:
         """生成包含已提交前缀在内的完整对话片段。"""
-        _ = width
+        self.set_display_width(width)
         blocks = list(self.blocks)
         if self.active_block is not None:
             if self.active_kind is None:
@@ -869,9 +976,22 @@ class TuiDocument(object):
     def transcript_cell_fragments(
         self,
         cell: TranscriptBlock,
+        *,
+        width: int | None = None
     ) -> FormattedText:
         """返回单个记录 cell 去除外侧换行后的完整片段。"""
-        return self._trim_block_fragments(list(cell.transcript_block.fragments))
+        parts = self._trim_block_fragments(list(cell.transcript_block.fragments))
+
+        fill = cell.transcript_block.line_fill
+        if fill is None or width is None:
+            return parts
+
+        lines = [
+            fill_fragments(line, width=width, fill=fill)
+            for line in split_formatted_lines(parts)
+        ]
+
+        return join_formatted_lines(lines)
 
 
 if __name__ == '__main__':

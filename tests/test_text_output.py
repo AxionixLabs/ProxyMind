@@ -38,7 +38,10 @@ from mind_app.presentation.models import (
 )
 from mind_app.presentation.run_views import build_run_started_view
 from mind_app.runtime.support.calling import run_turn_lifecycle
-from mind_app.stream_events.worked import worked_footer_text
+from mind_app.stream_events.worked import (
+    emit_worked_footer,
+    worked_footer_text,
+)
 from mind_core.permissions import preset_permissions
 
 
@@ -277,6 +280,16 @@ def test_elapsed_footer_uses_finished_label() -> None:
 
     assert "Finished in 1.2s" in footer
     assert "Worked for" not in footer
+
+
+def test_elapsed_footer_emits_responsive_line_metadata() -> None:
+    application = _Application()
+
+    emit_worked_footer(application, 1.25)
+
+    worked = application.views[0]
+    assert worked.type == "run.worked"
+    assert worked.payload == {"line_fill_character": "─"}
 
 
 def test_non_interactive_rich_mode_disables_entry_outro() -> None:

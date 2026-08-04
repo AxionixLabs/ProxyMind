@@ -31,14 +31,14 @@ def test_bottom_pane_restores_previous_surface_focus() -> None:
 @pytest.mark.anyio
 async def test_approval_temporarily_replaces_menu_surface() -> None:
     runtime = TuiRuntime()
-    runtime.append_block(FragmentBlock((("", "command query"),)), kind="user")
+    runtime.append_block(FragmentBlock((("", "command context"),)), kind="system")
     menu_task = asyncio.create_task(runtime.select_menu(MenuRequest(
         title="Model",
         options=(MenuOption("gpt-test", "gpt-test"),),
     )))
     await asyncio.sleep(0)
 
-    assert runtime.screen._content_input_gap_height() == 2
+    assert runtime.screen._content_input_gap_height() == 1
 
     approval_task = asyncio.create_task(runtime.request_approval({
         "tool": "shell_command",
@@ -57,7 +57,7 @@ async def test_approval_temporarily_replaces_menu_surface() -> None:
     runtime.screen.approval.finish("decline")
     assert await approval_task == "decline"
     assert runtime.screen.bottom_pane.active_surface == "menu"
-    assert runtime.screen._content_input_gap_height() == 2
+    assert runtime.screen._content_input_gap_height() == 1
     assert runtime.screen.menu_card.filter()
 
     runtime.screen.menu.finish(None)

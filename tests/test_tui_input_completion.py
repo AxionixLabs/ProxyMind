@@ -12,6 +12,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mind_core.skills import SkillSpec
+from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 
 
@@ -47,6 +48,17 @@ async def wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
             return
         await asyncio.sleep(0.001)
     raise AssertionError(f"input text did not become {text!r}")
+
+
+async def render_next_frame(runtime: TuiRuntime):
+    """触发渲染并返回完成后的屏幕。"""
+    previous_revision = runtime.screen.application.render_counter
+    runtime.invalidate()
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if runtime.screen.application.render_counter > previous_revision:
+            return runtime.screen.application.renderer.last_rendered_screen
+    raise AssertionError("next frame was not rendered")
 
 
 async def wait_for_submission(runtime: TuiRuntime):
@@ -182,6 +194,118 @@ async def test_slash_completion_has_no_inline_ghost_text() -> None:
                 assert buffer.complete_state is not None
                 assert buffer.complete_state.complete_index == 0
                 assert rendered_input_line(runtime) == "› /"
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("initial_live_lines", (0, 3))
+async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
+    initial_live_lines: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    FragmentBlock((("", "line\n" * 20),)),
+                    kind="assistant",
+                )
+                await render_next_frame(runtime)
+
+                if initial_live_lines:
+                    runtime.set_active_renderable(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"stream {index}"
+                                for index in range(initial_live_lines)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                footer = positions.get(runtime.screen.footer_window)
+
+                assert footer is not None
+                assert footer.ypos + footer.height == 12
+
+                before = positions[runtime.screen.input.window].ypos
+
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                screen = await render_next_frame(runtime)
+                raised = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ].ypos
+
+                runtime.input_model.dismiss_completion_menu(
+                    runtime.screen.input.buffer
+                )
+                screen = await render_next_frame(runtime)
+                dismissed = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ].ypos
+
+                assert raised < before
+                assert dismissed == raised
+
+                initial_release = runtime.screen._completion_release_height()
+                final_block = None
+                for growth in range(1, initial_release + 1):
+                    line_count = initial_live_lines + growth
+                    final_block = FragmentBlock(((
+                        "",
+                        "\n".join(
+                            f"stream {index}"
+                            for index in range(line_count)
+                        ),
+                    ),))
+                    runtime.set_active_renderable(
+                        final_block,
+                        kind="assistant",
+                    )
+                    screen = await render_next_frame(runtime)
+                    positions = screen.visible_windows_to_write_positions
+                    transcript = positions[runtime.screen.transcript_window]
+                    content_gap = positions[
+                        runtime.screen.content_input_gap.content
+                    ]
+                    top_padding = positions[runtime.screen.input_top_padding]
+                    input_position = positions[runtime.screen.input.window]
+
+                    assert runtime.screen.canvas_spacer not in positions
+                    assert content_gap.ypos == transcript.ypos + transcript.height
+                    assert top_padding.ypos == content_gap.ypos + content_gap.height
+                    assert input_position.ypos == (
+                        top_padding.ypos + top_padding.height
+                    )
+                    assert input_position.ypos == min(
+                        before,
+                        dismissed + growth,
+                    )
+                    assert runtime.screen._completion_release_height() == (
+                        initial_release - growth
+                    )
+
+                assert final_block is not None
+                runtime.commit_active_renderable(final_block)
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                committed = positions[
+                    runtime.screen.input.window
+                ].ypos
+
+                assert committed == before
+                assert runtime.screen.canvas_spacer not in positions
             finally:
                 await runtime.close()
 

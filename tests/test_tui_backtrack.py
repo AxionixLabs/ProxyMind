@@ -318,7 +318,7 @@ def test_attachment_only_turn_creates_selectable_transcript_cell(tmp_path) -> No
     text = "".join(
         value
         for _style, value in runtime.document.all_fragments(width=80)
-    )
+    ).strip()
     assert text == "› [Attachment: screen.png]"
 
 

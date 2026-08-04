@@ -8,8 +8,11 @@ from mind_app.presentation.terminal_text import (
     TerminalTextFilter,
     sanitize_terminal_hyperlink
 )
-from .models import FormattedText
-from .models import FragmentBlock
+from .models import (
+    FormattedText,
+    FragmentBlock,
+    LineFill
+)
 
 ZERO_WIDTH_ESCAPE_STYLE = "[ZeroWidthEscape]"
 
@@ -47,7 +50,7 @@ def sanitize_fragment_block(block: FragmentBlock) -> FragmentBlock:
     fragments = tuple(sanitize_formatted_text(block.fragments))
     if fragments == block.fragments:
         return block
-    return FragmentBlock(fragments)
+    return FragmentBlock(fragments, line_fill=block.line_fill)
 
 
 def _append_fragment(parts: FormattedText, style: str, text: str) -> None:
@@ -283,6 +286,39 @@ def clip_fragments(parts: FormattedText, *, width: int) -> FormattedText:
         used += unit_width
 
     return _merge_fragments(out)
+
+
+def fill_fragments(
+    parts: FormattedText,
+    *,
+    width: int,
+    fill: LineFill,
+) -> FormattedText:
+    """裁剪或延伸单行片段，使其占满指定的可用宽度。"""
+    target = max(1, int(width) - max(0, int(fill.margin)))
+    out    = clip_fragments(parts, width=target)
+    used   = get_cwidth(fragments_text(out))
+
+    if used >= target:
+        return out
+
+    character = str(fill.character or " ")
+
+    character_width = get_cwidth(character)
+    if character_width <= 0:
+        character = " "
+        character_width = 1
+
+    count     = (target - used) // character_width
+    remainder = target - used - count * character_width
+    style     = next((style for style, text in reversed(out) if text), "")
+
+    if count:
+        _append_fragment(out, style, character * count)
+    if remainder:
+        _append_fragment(out, style, " " * remainder)
+
+    return out
 
 
 def display_line_count(

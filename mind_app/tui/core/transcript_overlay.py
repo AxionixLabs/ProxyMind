@@ -980,7 +980,7 @@ class TuiTranscriptOverlay(object):
         parts = (
             [("", cell.raw_text)]
             if self.raw_mode and cell.raw_text is not None
-            else self.document.transcript_cell_fragments(cell)
+            else self.document.transcript_cell_fragments(cell, width=width)
         )
         if self.raw_mode and cell.raw_text is None:
             parts = [("", fragments_text(parts))]

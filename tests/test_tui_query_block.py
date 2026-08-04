@@ -4,7 +4,9 @@ import asyncio
 import pytest
 
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.models import MenuOption, MenuRequest
+from mind_app.tui.core.document import TuiDocument
+from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
+from mind_app.tui.core.render import split_formatted_lines
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import query_block
 
@@ -26,6 +28,77 @@ def test_non_slash_input_keeps_existing_transcript_style() -> None:
         ("class:prompt.kicker", "› "),
         ("class:prompt", "hello"),
     )
+
+
+def test_submitted_query_has_transparent_padding_before_response() -> None:
+    document = TuiDocument()
+    document.append_block(
+        FragmentBlock((("", "─ Worked for 1m ─"),)),
+        kind="system",
+    )
+    document.append_block(query_block("lock this behavior"), kind="user")
+    document.append_block(
+        FragmentBlock((("", "• response"),)),
+        kind="assistant",
+    )
+
+    lines = split_formatted_lines(document.fragments(width=80))
+
+    assert lines == [
+        [("", "─ Worked for 1m ─")],
+        [("", " ")],
+        [("", " ")],
+        [
+            ("class:prompt.kicker", "› "),
+            ("class:prompt", "lock this behavior"),
+        ],
+        [("", " ")],
+        [("", " ")],
+        [("", "• response")],
+    ]
+
+
+def test_submitted_query_keeps_bottom_padding_while_last_cell() -> None:
+    document = TuiDocument()
+    document.append_block(query_block("waiting for response"), kind="user")
+
+    assert split_formatted_lines(document.fragments(width=80)) == [
+        [("", " ")],
+        [("", " ")],
+        [
+            ("class:prompt.kicker", "› "),
+            ("class:prompt", "waiting for response"),
+        ],
+        [("", " ")],
+        [("", " ")],
+    ]
+
+
+def test_submitted_query_padding_replaces_content_surface_gap() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(query_block("waiting for response"), kind="user")
+
+    assert runtime.document.visible_tail_kind == "user"
+    assert runtime.screen._content_input_gap_height() == 0
+
+    runtime.append_block(
+        FragmentBlock((("", "• response"),)),
+        kind="assistant",
+    )
+
+    assert runtime.document.visible_tail_kind == "assistant"
+    assert runtime.screen._content_input_gap_height() == 1
+
+
+def test_submitted_query_padding_replaces_activity_top_gap() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(query_block("waiting for response"), kind="user")
+    runtime.screen.set_activity_renderable(
+        FragmentBlock((("", "• Thinking"),))
+    )
+
+    assert not runtime.screen._transcript_status_gap_visible()
+    assert runtime.screen._content_input_gap_height() == 1
 
 
 def test_query_transcript_uses_regular_font_weight() -> None:

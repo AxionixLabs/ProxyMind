@@ -48,7 +48,11 @@ from mind_app.tui.core.document import (
     TuiBlockKind,
     TuiDocument,
 )
-from mind_app.tui.core.models import FragmentBlock, TranscriptBacktrackRequest
+from mind_app.tui.core.models import (
+    FragmentBlock,
+    LineFill,
+    TranscriptBacktrackRequest,
+)
 from mind_app.tui.core.keymap import TuiRuntimeKeymap
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
@@ -83,6 +87,62 @@ def _transcript_text(document: TuiDocument) -> str:
     return "".join(
         text for _style, text in document.transcript_fragments(width=80)
     )
+
+
+def test_full_width_line_tracks_terminal_width_without_wrapping() -> None:
+    document = TuiDocument()
+    document.append_block(
+        FragmentBlock(
+            (("class:rule", "─ Finished in 43s " + "─" * 60),),
+            line_fill=LineFill(character="─"),
+        ),
+        kind="system",
+    )
+
+    for width in (80, 40, 64):
+        fragments = document.fragments(width=width)
+        text = fragments_text(fragments)
+
+        assert "Finished in 43s" in text
+        assert "\n" not in text
+        assert get_cwidth(text) == width
+
+
+async def _render_next_frame(runtime: TuiRuntime):
+    """触发渲染并返回完成后的屏幕。"""
+    previous_revision = runtime.screen.application.render_counter
+    runtime.invalidate()
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if runtime.screen.application.render_counter > previous_revision:
+            return runtime.screen.application.renderer.last_rendered_screen
+    raise AssertionError("next frame was not rendered")
+
+
+@pytest.mark.anyio
+async def test_full_width_line_rerenders_in_one_row_after_resize() -> None:
+    with create_pipe_input() as input_obj:
+        output = _AlternateScreenOutput(columns=80, rows=12)
+        runtime = TuiRuntime(input_obj=input_obj, output_obj=output)
+        await runtime.open()
+        try:
+            runtime.append_block(
+                FragmentBlock(
+                    (("class:rule", "─ Finished in 43s " + "─" * 60),),
+                    line_fill=LineFill(character="─"),
+                ),
+                kind="system",
+            )
+            await _render_next_frame(runtime)
+
+            output.size = Size(rows=12, columns=40)
+            await _render_next_frame(runtime)
+
+            text = fragments_text(runtime.screen.transcript_fragments())
+            assert get_cwidth(text) == 40
+            assert runtime.screen._transcript_dimension().preferred == 1
+        finally:
+            await runtime.close()
 
 
 def test_failure_parts_adds_non_bold_marker_and_text() -> None:
@@ -131,9 +191,15 @@ def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
     ]
 
 
-@pytest.mark.parametrize("first_kind", get_args(TuiBlockKind))
-@pytest.mark.parametrize("second_kind", get_args(TuiBlockKind))
-def test_document_separates_every_block_transition(
+@pytest.mark.parametrize(
+    "first_kind",
+    tuple(kind for kind in get_args(TuiBlockKind) if kind != "user"),
+)
+@pytest.mark.parametrize(
+    "second_kind",
+    tuple(kind for kind in get_args(TuiBlockKind) if kind != "user"),
+)
+def test_document_separates_non_user_block_transition(
     first_kind: TuiBlockKind,
     second_kind: TuiBlockKind,
 ) -> None:
@@ -143,6 +209,20 @@ def test_document_separates_every_block_transition(
     document.append_block(_block("second"), kind=second_kind)
 
     assert _document_text(document) == "first\n\nsecond"
+
+
+def test_live_fragments_only_separate_visible_stable_content() -> None:
+    visible_document = TuiDocument()
+    visible_document.append_block(_block("stable"), kind="assistant")
+    visible_document.set_active(_block("live"), kind="assistant")
+
+    hidden_document = TuiDocument()
+    hidden_document.append_block(_block("stable"), kind="assistant")
+    hidden_document.commit_scrollback_prefix(1)
+    hidden_document.set_active(_block("live"), kind="assistant")
+
+    assert fragments_text(visible_document.live_fragments()) == "\n\nlive"
+    assert fragments_text(hidden_document.live_fragments()) == "live"
 
 
 def test_block_outer_newlines_do_not_duplicate_document_spacing() -> None:
@@ -1201,6 +1281,37 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
 
 
 @pytest.mark.anyio
+async def test_startup_title_uses_external_gap_and_colored_input_padding() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block(">_ App (v1.0)"), kind="system")
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                content_gap = positions[runtime.screen.content_input_gap.content]
+                top_padding = positions[runtime.screen.input_top_padding]
+                input_position = positions[runtime.screen.input.window]
+                bottom_padding = positions[runtime.screen.input_bottom_padding]
+                footer = positions[runtime.screen.footer_window]
+
+                assert content_gap.ypos == transcript.ypos + transcript.height
+                assert top_padding.ypos == content_gap.ypos + content_gap.height
+                assert input_position.ypos == top_padding.ypos + top_padding.height
+                assert bottom_padding.ypos == input_position.ypos + input_position.height
+                assert footer.ypos == bottom_padding.ypos + bottom_padding.height
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_three_row_terminal_prioritizes_complete_input_surface() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -1369,7 +1480,7 @@ async def test_final_markdown_height_change_keeps_input_anchor() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("decision", ["accept", "decline"])
-async def test_approval_dismissal_keeps_bottom_surface_anchored(
+async def test_approval_dismissal_returns_to_natural_canvas(
     decision: ApprovalDecisionValue,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -1419,7 +1530,15 @@ async def test_approval_dismissal_keeps_bottom_surface_anchored(
                     runtime.screen.footer_window
                 ]
 
-                assert footer_position.ypos + footer_position.height == 12
+                assert runtime.screen.canvas_spacer not in (
+                    screen.visible_windows_to_write_positions
+                )
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert footer_position.ypos + footer_position.height == (
+                    runtime.screen._visible_height()
+                )
             finally:
                 await runtime.close()
 
