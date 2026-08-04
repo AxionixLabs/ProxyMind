@@ -143,6 +143,7 @@ class TuiSubmissionFlow(object):
         self.queued_submission_text: str | None = None
         self.surface_submission_pending: bool   = False
         self._queue_submission_requested: bool  = False
+        self._input_handoff_pending: bool       = False
 
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer       = get_input_buffer
@@ -493,6 +494,9 @@ class TuiSubmissionFlow(object):
 
     def accept_input(self, buffer: Buffer) -> bool:
         """恢复折叠粘贴内容并按当前运行状态提交输入。"""
+        if self._input_handoff_pending:
+            return True
+
         self.clear_exit_confirmation()
         self.input_model.cancel_history_backtrack()
 
@@ -559,16 +563,21 @@ class TuiSubmissionFlow(object):
             self.surface_submission_pending = submission_uses_transient_surface(
                 submission.value
             )
+            self._input_handoff_pending = True
             self.message_queue.put_nowait(submission)
 
         self.placeholder_text = self.input_model.new_placeholder()
+
+        buffer.cancel_completion()
 
         buffer.text = submission.visible_text
         buffer.cursor_position = len(buffer.text)
 
         self.input_model.clear_submission_state()
-        self._invalidate()
+        if self._input_handoff_pending:
+            return True
 
+        self._invalidate()
         return False
 
     def bind_pending_attachment_check(
@@ -633,6 +642,10 @@ class TuiSubmissionFlow(object):
         if submission is _INPUT_CLOSED:
             raise TuiInputClosed
 
+        if self._input_handoff_pending:
+            self._input_handoff_pending = False
+            self._get_input_buffer().reset()
+
         self.clear_exit_confirmation()
         return submission
 
@@ -648,6 +661,8 @@ class TuiSubmissionFlow(object):
 
         self.interrupt_state.clear()
         self._exit_event.clear()
+
+        self._input_handoff_pending = False
 
         self._interrupt_handler       = _ignore_interrupt
         self._stream_command_handler  = _ignore_stream_command

@@ -42,6 +42,7 @@ class TuiTranscriptViewport(object):
         get_available_height: typing.Callable[[], int],
         get_transcript_fragments: typing.Callable[[], FormattedText],
         get_render_info: typing.Callable[[], WindowRenderInfo | None],
+        get_render_revision: typing.Callable[[], int],
         clear_terminal_scrollback: typing.Callable[[], None],
         invalidate: typing.Callable[[], None],
         scrollback_reflow_line_limit: int = (
@@ -61,6 +62,7 @@ class TuiTranscriptViewport(object):
         self._get_available_height     = get_available_height
         self._get_transcript_fragments = get_transcript_fragments
         self._get_render_info          = get_render_info
+        self._get_render_revision      = get_render_revision
 
         self._clear_terminal_scrollback = clear_terminal_scrollback
 
@@ -79,6 +81,9 @@ class TuiTranscriptViewport(object):
 
         self._observed_geometry: tuple[int, int] | None = None
         self._reflowed_geometry: tuple[int, int] | None = None
+
+        self._rendered_revision: int            = 0
+        self._scrollback_render_revision: int   = 0
 
         self._scrollback_reflow_handle: asyncio.TimerHandle | None = None
 
@@ -275,12 +280,33 @@ class TuiTranscriptViewport(object):
     def content_appended(self) -> None:
         """在稳定正文追加后清除提交标记并安排滚屏。"""
         self._submitted_query_block = None
-        self._invalidate()
+        self._require_stable_render()
         self.schedule_scrollback_flush()
 
     def stable_content_changed(self) -> None:
         """在动态正文提交或清除后安排滚屏。"""
+        self._require_stable_render()
+        self.schedule_scrollback_flush()
+
+    def _require_stable_render(self) -> None:
+        """记录包含最新稳定正文的下一次应用渲染。"""
         self._invalidate()
+
+        revision = max(0, int(self._get_render_revision()))
+        if self._is_application_active():
+            revision += 1
+
+        self._scrollback_render_revision = max(
+            self._scrollback_render_revision,
+            revision,
+        )
+
+    def observe_render_revision(self, revision: int) -> None:
+        """记录已经写入终端的应用帧并继续待处理滚屏。"""
+        self._rendered_revision = max(
+            self._rendered_revision,
+            max(0, int(revision)),
+        )
         self.schedule_scrollback_flush()
 
     def configure_scrollback_reflow_line_limit(self, value: int) -> None:
@@ -320,6 +346,9 @@ class TuiTranscriptViewport(object):
 
     def schedule_scrollback_flush(self) -> None:
         """在稳定正文超出实时视口时安排原生滚屏提交。"""
+        if self._rendered_revision < self._scrollback_render_revision:
+            return None
+
         if self._scrollback_reflow_pending():
             if self._scrollback_reflow_handle is None:
                 self._schedule_scrollback_reflow(delay=0)

@@ -16,6 +16,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 
+from mind_app.approval.models import ApprovalDecisionValue
 from mind_core.design.terminal_capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
@@ -1037,11 +1038,17 @@ async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
             await runtime.open()
             try:
                 runtime.set_execution_active(True)
+                render_count = runtime.screen.application.render_counter
                 for index in range(6):
                     runtime.append_block(
                         _block(f"block {index}\n" + "line\n" * 3),
                         kind="operation",
                     )
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.screen.application.render_counter > render_count:
+                        break
 
                 runtime.set_execution_active(False)
                 assert runtime.viewport.scrollback_task is not None
@@ -1053,6 +1060,40 @@ async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
 
                 runtime.set_execution_active(False)
                 await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_line_count > 0
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_stable_commit_waits_for_render_before_scrollback() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=10, columns=40),
+        ):
+            await runtime.open()
+            try:
+                block = _block("line\n" * 20)
+                runtime.set_active_renderable(block, kind="assistant")
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.screen.application.render_counter >= 2:
+                        break
+
+                runtime.commit_active_renderable(block)
+
+                assert runtime.viewport.scrollback_task is None
+
+                for _ in range(50):
+                    await asyncio.sleep(0.002)
+                    if runtime.document.scrollback_line_count > 0:
+                        break
 
                 assert runtime.document.scrollback_line_count > 0
             finally:
@@ -1144,9 +1185,13 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
 
                 render_count = runtime.screen.application.render_counter
                 runtime.append_block(_block("more\n" * 20), kind="operation")
-                for _ in range(20):
-                    await asyncio.sleep(0)
-                    if runtime.screen.application.render_counter > render_count:
+                for _ in range(50):
+                    await asyncio.sleep(0.002)
+                    if (
+                        runtime.screen.application.render_counter > render_count
+                        and runtime.document.scrollback_line_count
+                        > committed_count
+                    ):
                         break
 
                 assert runtime.document.scrollback_line_count > committed_count
@@ -1209,6 +1254,172 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
                 assert runtime.screen._input_height() == 3
                 assert runtime.screen._input_surface_height() == 5
                 assert input_position.height == 3
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_submission_handoff_never_renders_an_empty_intermediate_frame() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            frames: list[tuple[str, str, int]] = []
+
+            def capture_frame(_application) -> None:
+                frames.append((
+                    runtime.screen.input.buffer.text,
+                    _document_text(runtime.document),
+                    runtime.screen.application.render_counter,
+                ))
+
+            runtime.screen.application.after_render += capture_frame
+
+            await runtime.open()
+            try:
+                prompt_task = asyncio.create_task(runtime.read_message(
+                    PromptContext(model="test")
+                ))
+
+                runtime.screen.input.buffer.text = "first\nsecond\nthird"
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if any(input_text for input_text, _text, _revision in frames):
+                        break
+
+                start = len(frames)
+                runtime.screen.input.buffer.validate_and_handle()
+                runtime.screen.input.buffer.validate_and_handle()
+
+                assert await prompt_task == "first\nsecond\nthird"
+                assert runtime.submissions.message_queue.empty()
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if _document_text(runtime.document):
+                        break
+
+                transition = frames[start:]
+                assert transition
+                assert not any(
+                    not input_text and not document_text
+                    for input_text, document_text, _revision in transition
+                )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_final_markdown_height_change_keeps_input_anchor() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                output = TuiOutputControl("", runtime=runtime, animate=False)
+                await output.append_assistant_delta("```\nvalue\n```")
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    position = (
+                        runtime.screen.application.renderer.last_rendered_screen
+                        .visible_windows_to_write_positions.get(
+                            runtime.screen.input.window
+                        )
+                    )
+                    if position is not None and position.ypos == 5:
+                        break
+
+                streamed_position = (
+                    runtime.screen.application.renderer.last_rendered_screen
+                    .visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+
+                await output.settle_stream()
+
+                previous_revision = runtime.screen.application.render_counter
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.screen.application.render_counter > previous_revision:
+                        break
+
+                settled_position = (
+                    runtime.screen.application.renderer.last_rendered_screen
+                    .visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+
+                assert settled_position.ypos == streamed_position.ypos
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("decision", ["accept", "decline"])
+async def test_approval_dismissal_keeps_bottom_surface_anchored(
+    decision: ApprovalDecisionValue,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_active_renderable(_block("answer"), kind="assistant")
+
+                approval_task = asyncio.create_task(runtime.request_approval({
+                    "tool": "shell_command",
+                    "command": "\n".join(
+                        f"echo line-{index}" for index in range(20)
+                    ),
+                    "show_timer": False,
+                }))
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    screen = (
+                        runtime.screen.application.renderer.last_rendered_screen
+                    )
+                    if (
+                        runtime.screen.approval.active
+                        and runtime.screen.approval_window
+                        in screen.visible_windows_to_write_positions
+                    ):
+                        break
+
+                runtime.screen.approval.finish(decision)
+                assert await approval_task == decision
+
+                previous_revision = runtime.screen.application.render_counter
+                runtime.invalidate()
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.screen.application.render_counter > previous_revision:
+                        break
+
+                screen = runtime.screen.application.renderer.last_rendered_screen
+                footer_position = screen.visible_windows_to_write_positions[
+                    runtime.screen.footer_window
+                ]
+
+                assert footer_position.ypos + footer_position.height == 12
             finally:
                 await runtime.close()
 
@@ -3148,7 +3359,7 @@ async def test_animated_stream_drains_backlog_without_more_deltas() -> None:
 
 
 @pytest.mark.anyio
-async def test_animated_stream_cursor_retires_after_backlog_drains() -> None:
+async def test_animated_stream_cursor_stays_until_stream_settles() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
     output._cursor = "█"
@@ -3157,28 +3368,28 @@ async def test_animated_stream_cursor_retires_after_backlog_drains() -> None:
 
     assert output.assistant.pending_length == 0
     assert _document_text(runtime.document) == "• done█"
-    assert output._stream_cursor_retire_handle is not None
 
     await asyncio.sleep(0.12)
 
+    assert _document_text(runtime.document) == "• done█"
+
+    await output.settle_stream()
+
     assert _document_text(runtime.document) == "• done"
-    assert output._stream_cursor_retire_handle is None
 
 
 @pytest.mark.anyio
-async def test_new_delta_cancels_stream_cursor_retirement() -> None:
+async def test_new_delta_continues_active_stream_cursor() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
+    output._cursor = "█"
 
     await output.append_assistant_delta("done")
-    retire_handle = output._stream_cursor_retire_handle
-
-    assert retire_handle is not None
+    await asyncio.sleep(0.12)
 
     await output.append_assistant_delta(" next")
 
-    assert retire_handle.cancelled()
-    assert output._stream_cursor_retire_handle is None
+    assert _document_text(runtime.document).endswith("█")
 
     await output.settle_stream()
     assert _document_text(runtime.document) == "• done next"

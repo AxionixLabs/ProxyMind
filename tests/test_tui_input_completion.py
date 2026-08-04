@@ -51,13 +51,10 @@ async def wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
 
 async def wait_for_submission(runtime: TuiRuntime):
     """等待输入处理结果进入提交队列。"""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + 1.0
-    while loop.time() < deadline:
-        if not runtime.submissions.message_queue.empty():
-            return runtime.submissions.message_queue.get_nowait()
-        await asyncio.sleep(0.001)
-    raise AssertionError("submission did not become ready")
+    return await asyncio.wait_for(
+        runtime.submissions.read_submission(),
+        timeout=1.0,
+    )
 
 
 @pytest.mark.anyio

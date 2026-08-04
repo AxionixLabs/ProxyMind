@@ -48,7 +48,6 @@ STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
 STREAM_RENDER_LONG_TEXT_SIZE = 2000
 STREAM_REVEAL_CELLS_PER_SEC  = 80
 STREAM_REVEAL_MAX_LAG_SEC    = 0.2
-STREAM_CURSOR_RETIRE_FRAMES  = 2
 
 
 class TuiOutputControl(OutputControlPort):
@@ -73,7 +72,6 @@ class TuiOutputControl(OutputControlPort):
         self._cursor = random.choice(("█", "▉", "▋"))
 
         self._stream_render_handle: asyncio.TimerHandle | None = None
-        self._stream_cursor_retire_handle: asyncio.TimerHandle | None = None
 
         self._stream_rendered_at: float         = 0.0
         self._stream_render_cost_sec: float     = 0.0
@@ -120,7 +118,6 @@ class TuiOutputControl(OutputControlPort):
 
         if self.animate:
             self.assistant.append(text)
-            self._cancel_stream_cursor_retire()
             self._schedule_stream_render()
             return None
 
@@ -299,14 +296,10 @@ class TuiOutputControl(OutputControlPort):
                 or elapsed >= interval
             )
         ):
-            cursor_visible = self._render_stream_frame()
+            self._render_stream_frame()
 
             self._stream_rendered_at = loop.time()
             self._schedule_pending_stream_frame(loop)
-            self._schedule_stream_cursor_retire(
-                loop,
-                cursor_visible=cursor_visible,
-            )
             return None
 
         if self._stream_render_handle is None:
@@ -324,28 +317,22 @@ class TuiOutputControl(OutputControlPort):
             self._stream_rendered_at = 0.0
             return None
 
-        cursor_visible = self._render_stream_frame()
+        self._render_stream_frame()
 
         self._stream_rendered_at = loop.time()
         self._schedule_pending_stream_frame(loop)
-        self._schedule_stream_cursor_retire(
-            loop,
-            cursor_visible=cursor_visible,
-        )
 
-    def _render_stream_frame(self) -> bool:
-        """渲染流式帧、记录耗时并返回光标展示状态。"""
+    def _render_stream_frame(self) -> None:
+        """渲染流式帧并记录本次展示耗时。"""
         started_at = time.perf_counter()
 
         self.assistant.reveal(self._stream_reveal_cells())
-        cursor_visible = self._render_active(cursor=True)
+        self._render_active(cursor=True)
 
         self._stream_render_cost_sec = max(
             0.0,
             time.perf_counter() - started_at,
         )
-
-        return cursor_visible
 
     def _stream_render_interval(self) -> float:
         """按正文规模和上一帧成本返回流式刷新间隔。"""
@@ -392,58 +379,13 @@ class TuiOutputControl(OutputControlPort):
             loop,
         )
 
-    def _schedule_stream_cursor_retire(
-        self,
-        loop: asyncio.AbstractEventLoop,
-        *,
-        cursor_visible: bool
-    ) -> None:
-        """在正文积压清空后延迟隐藏打字机光标。"""
-        if (
-            not cursor_visible
-            or self.assistant.pending_length > 0
-            or self._stream_cursor_retire_handle is not None
-        ):
-            return None
-
-        delay = STREAM_CURSOR_RETIRE_FRAMES * self._stream_render_interval()
-
-        self._stream_cursor_retire_handle = loop.call_later(
-            delay,
-            self._retire_stream_cursor,
-            self.assistant.revealed_end,
-        )
-
-    def _retire_stream_cursor(self, expected_revealed_end: int) -> None:
-        """在正文揭示位置未变化时隐藏打字机光标。"""
-        self._stream_cursor_retire_handle = None
-
-        if (
-            not self.assistant.active
-            or self.assistant.pending_length > 0
-            or self.assistant.revealed_end != expected_revealed_end
-        ):
-            return None
-
-        self._render_active(cursor=False)
-
-    def _cancel_stream_cursor_retire(self) -> None:
-        """取消待执行的打字机光标退场。"""
-        handle = self._stream_cursor_retire_handle
-        self._stream_cursor_retire_handle = None
-
-        if handle is not None:
-            handle.cancel()
-
     def _cancel_stream_render(self) -> None:
-        """取消待展示帧和光标退场并重置流式刷新时钟。"""
+        """取消待展示帧并重置流式刷新时钟。"""
         handle = self._stream_render_handle
 
         self._stream_render_handle   = None
         self._stream_rendered_at     = 0.0
         self._stream_render_cost_sec = 0.0
-
-        self._cancel_stream_cursor_retire()
 
         if handle is not None:
             handle.cancel()

@@ -151,6 +151,7 @@ class TuiRuntime(object):
                 lambda: self.screen.transcript_fragments()
             ),
             get_render_info=lambda: self.screen.transcript_window.render_info,
+            get_render_revision=lambda: self.screen.application.render_counter,
             clear_terminal_scrollback=(
                 lambda: self.screen.clear_terminal_scrollback()
             ),
@@ -190,6 +191,7 @@ class TuiRuntime(object):
             observe_terminal_geometry=(
                 self.viewport.observe_terminal_geometry
             ),
+            observe_render_revision=self.viewport.observe_render_revision,
             keymap=self.keymap,
             input_obj=input_obj,
             output_obj=output_obj,

@@ -207,6 +207,7 @@ class TuiScreen(object):
             TranscriptExportResult,
         ] | None,
         observe_terminal_geometry: typing.Callable[[int, int], None],
+        observe_render_revision: typing.Callable[[int], None],
         keymap: TuiRuntimeKeymap,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
@@ -244,6 +245,7 @@ class TuiScreen(object):
 
         self._export_transcript         = export_transcript
         self._observe_terminal_geometry = observe_terminal_geometry
+        self._observe_render_revision   = observe_render_revision
 
         self.keymap = keymap
 
@@ -254,6 +256,7 @@ class TuiScreen(object):
         self._animation_tick: int = 0
 
         self._frame_geometry: FrameGeometry | None = None
+        self._canvas_height_floor: int = 0
 
         self.activity_block: FragmentBlock | None = None
 
@@ -605,6 +608,11 @@ class TuiScreen(object):
             ),
         )
 
+        self.canvas_spacer = Window(
+            height=Dimension(min=0, preferred=0, weight=1),
+            char=" ",
+        )
+
         self.canvas = HSplit(
             [
                 self.transcript_window,
@@ -612,13 +620,14 @@ class TuiScreen(object):
                 self.status_window,
                 self.process_status_window,
                 self.queued_window,
+                self.canvas_spacer,
                 self.content_input_gap,
                 self.process_viewer_card,
                 self.menu_card,
                 self.input_area,
                 self.approval_card,
             ],
-            align=VerticalAlign.TOP,
+            align=VerticalAlign.JUSTIFY,
             height=self._canvas_dimension,
             window_too_small=Window(),
         )
@@ -879,6 +888,16 @@ class TuiScreen(object):
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
+
+        if not self.transcript_overlay.active and not self._transcript_only:
+            self._canvas_height_floor = min(
+                self._frame_geometry.height,
+                max(
+                    self._canvas_height_floor,
+                    self._natural_visible_height(),
+                ),
+            )
+
         self._observe_terminal_geometry(
             self._frame_geometry.width,
             self._frame_geometry.height,
@@ -886,7 +905,7 @@ class TuiScreen(object):
 
     def _release_frame_geometry(self, application: Application[None]) -> None:
         """在渲染结束后恢复终端尺寸的实时读取。"""
-        _ = application
+        self._observe_render_revision(application.render_counter)
         self._frame_geometry = None
 
     def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
@@ -1792,6 +1811,9 @@ class TuiScreen(object):
 
     def _completion_visible(self) -> bool:
         """判断输入框是否存在可展示的补全候选项。"""
+        if self._get_surface_submission_pending():
+            return False
+
         state = self.input.buffer.complete_state
         return bool(
             self.bottom_pane.input_visible
@@ -1804,6 +1826,9 @@ class TuiScreen(object):
 
     def _native_completion_visible(self) -> bool:
         """判断原生补全候选列表是否应当显示。"""
+        if self._get_surface_submission_pending():
+            return False
+
         state = self.input.buffer.complete_state
         return bool(
             self.bottom_pane.input_visible
@@ -1816,6 +1841,7 @@ class TuiScreen(object):
         """判断精确命令或空结果状态是否应当显示。"""
         return bool(
             self.bottom_pane.input_visible
+            and not self._get_surface_submission_pending()
             and self._completion_fallback_fragments()
         )
 
@@ -2012,6 +2038,19 @@ class TuiScreen(object):
 
     def _visible_height(self) -> int:
         """返回 inline 画布当前需要占用的终端行数。"""
+        return max(
+            1,
+            min(
+                self.terminal_height,
+                max(
+                    self._canvas_height_floor,
+                    self._natural_visible_height(),
+                ),
+            ),
+        )
+
+    def _natural_visible_height(self) -> int:
+        """返回不包含稳定高度下限的当前内容自然高度。"""
         height = (
             self._transcript_dimension().preferred
             + self._status_height()
