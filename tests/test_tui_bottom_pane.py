@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -26,6 +27,38 @@ def test_bottom_pane_restores_previous_surface_focus() -> None:
 
     assert focused == ["menu", "approval", "menu", "input"]
     assert pane.active_surface is None
+
+
+@pytest.mark.parametrize("surface", ["approval", "menu", "process_viewer"])
+def test_top_bottom_surface_starts_height_release(surface: str) -> None:
+    runtime = TuiRuntime()
+    screen = runtime.screen
+    screen._canvas_height_floor = 12
+    screen.bottom_pane.activate(surface)
+
+    with patch.object(
+        screen,
+        "_begin_bottom_release",
+        wraps=screen._begin_bottom_release,
+    ) as begin_release:
+        screen._deactivate_bottom_surface(surface)
+
+    begin_release.assert_called_once_with(12)
+    assert screen.bottom_pane.input_visible
+
+
+def test_nested_bottom_surface_does_not_release_until_input_returns() -> None:
+    runtime = TuiRuntime()
+    screen = runtime.screen
+    screen._canvas_height_floor = 12
+    screen.bottom_pane.activate("menu")
+    screen.bottom_pane.activate("approval")
+
+    with patch.object(screen, "_begin_bottom_release") as begin_release:
+        screen._deactivate_bottom_surface("approval")
+
+    begin_release.assert_not_called()
+    assert screen.bottom_pane.active_surface == "menu"
 
 
 @pytest.mark.anyio

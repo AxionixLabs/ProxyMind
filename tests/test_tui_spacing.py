@@ -72,6 +72,7 @@ from mind_app.tui.core.screen import (
 from mind_app.tui.core.styles import (
     ASSISTANT_PREFIX_CLASS,
     failure_parts,
+    query_block,
 )
 
 
@@ -1513,7 +1514,7 @@ async def test_final_markdown_height_change_keeps_input_anchor() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("decision", ["accept", "decline"])
-async def test_approval_dismissal_returns_to_natural_canvas(
+async def test_approval_dismissal_height_is_consumed_by_stream(
     decision: ApprovalDecisionValue,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -1527,6 +1528,15 @@ async def test_approval_dismissal_returns_to_natural_canvas(
             await runtime.open()
             try:
                 runtime.set_active_renderable(_block("answer"), kind="assistant")
+                normal_screen = await _render_next_frame(runtime)
+                normal_input = normal_screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                normal_input_row = (
+                    12
+                    - runtime.screen._visible_height()
+                    + normal_input.ypos
+                )
 
                 approval_task = asyncio.create_task(runtime.request_approval({
                     "tool": "shell_command",
@@ -1559,21 +1569,125 @@ async def test_approval_dismissal_returns_to_natural_canvas(
                         break
 
                 screen = runtime.screen.application.renderer.last_rendered_screen
-                footer_position = screen.visible_windows_to_write_positions[
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                input_row = (
+                    12
+                    - runtime.screen._visible_height()
+                    + input_position.ypos
+                )
+                release_height = runtime.screen._completion_release_height()
+
+                assert release_height > 0
+                assert input_row < normal_input_row
+                assert runtime.screen.canvas_spacer not in positions
+
+                previous_row = input_row
+                for line_count in range(2, release_height + 2):
+                    runtime.set_active_renderable(
+                        _block("\n".join(
+                            f"answer {index}"
+                            for index in range(line_count)
+                        )),
+                        kind="assistant",
+                    )
+                    screen = await _render_next_frame(runtime)
+                    positions = screen.visible_windows_to_write_positions
+                    input_position = positions[runtime.screen.input.window]
+                    input_row = (
+                        12
+                        - runtime.screen._visible_height()
+                        + input_position.ypos
+                    )
+
+                    assert input_row == previous_row + 1
+                    assert runtime.screen.canvas_spacer not in positions
+                    previous_row = input_row
+
+                footer_position = positions[
                     runtime.screen.footer_window
                 ]
 
-                assert runtime.screen.canvas_spacer not in (
-                    screen.visible_windows_to_write_positions
-                )
-                assert runtime.screen._visible_height() == (
-                    runtime.screen._natural_visible_height()
-                )
+                assert input_row == normal_input_row
+                assert runtime.screen._completion_release_height() == 0
                 assert footer_position.ypos + footer_position.height == (
                     runtime.screen._visible_height()
                 )
             finally:
                 await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_approval_keeps_only_query_and_card_padding_after_wait_status(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput(columns=80, rows=24)
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        await runtime.open()
+        approval_task = None
+        try:
+            runtime.append_block(
+                query_block("执行adb devices"),
+                kind="user",
+            )
+            runtime.set_execution_active(True)
+            await runtime.begin_wait_status()
+            await _render_next_frame(runtime)
+
+            approval_task = asyncio.create_task(runtime.request_approval({
+                "tool": "shell_command",
+                "command": "adb devices",
+                "show_timer": False,
+            }))
+
+            for _ in range(100):
+                await asyncio.sleep(0)
+                if (
+                    runtime.screen.approval.active
+                    and runtime.screen.activity_block is None
+                ):
+                    break
+            else:
+                raise AssertionError("approval did not settle")
+
+            screen = await _render_next_frame(runtime)
+            positions = screen.visible_windows_to_write_positions
+            transcript = positions[runtime.screen.transcript_window]
+            approval = positions[runtime.screen.approval_window]
+
+            nonblank_rows = {
+                row: "".join(
+                    cells[column].char for column in sorted(cells)
+                ).rstrip()
+                for row, cells in screen.data_buffer.items()
+            }
+            query_row = next(
+                row
+                for row, text in nonblank_rows.items()
+                if "执行adb devices" in text
+            )
+            question_row = next(
+                row
+                for row, text in nonblank_rows.items()
+                if "Would you like" in text
+            )
+
+            assert approval.ypos == transcript.ypos + transcript.height
+            assert question_row - query_row == 4
+            assert all(
+                not nonblank_rows.get(row)
+                for row in range(query_row + 1, question_row)
+            )
+            assert runtime.screen.canvas_spacer not in positions
+            assert not runtime.screen._content_input_gap_visible()
+        finally:
+            if runtime.screen.approval.active:
+                runtime.screen.approval.finish("decline")
+            if approval_task is not None:
+                await approval_task
+            runtime.set_execution_active(False)
+            await runtime.activity.clear()
+            await runtime.close()
 
 
 @pytest.mark.anyio

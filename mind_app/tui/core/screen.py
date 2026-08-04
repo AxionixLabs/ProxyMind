@@ -1126,8 +1126,15 @@ class TuiScreen(object):
 
     def _deactivate_bottom_surface(self, surface: BottomSurface) -> None:
         """撤下底部临时表面并按恢复后的布局收束画布高度。"""
+        was_active     = self.bottom_pane.is_active(surface)
+        visible_height = self._visible_height()
+
         self.bottom_pane.deactivate(surface)
-        self._reset_completion_layout(reset_canvas_floor=False)
+
+        if was_active and self.bottom_pane.input_visible:
+            self._begin_bottom_release(visible_height)
+        else:
+            self._reset_completion_layout(reset_canvas_floor=False)
 
     def _focus_input(self) -> None:
         """把焦点路由到当前顶层记录或主输入控件。"""
@@ -1800,7 +1807,7 @@ class TuiScreen(object):
         return Dimension.exact(self._input_stack_height())
 
     def _completion_release_dimension(self) -> Dimension:
-        """返回补全区域收起后保留的输入框下方高度。"""
+        """返回底部临时区域收起后保留的输入框下方高度。"""
         return Dimension.exact(self._completion_release_height())
 
     def _approval_dimension(self) -> Dimension:
@@ -2008,7 +2015,7 @@ class TuiScreen(object):
         return self._completion_height()
 
     def _update_completion_footprint(self) -> None:
-        """记录补全区域留下的空间并按新增正文逐步消费。"""
+        """记录底部临时区域留下的空间并按新增正文逐步消费。"""
         completion_height  = self._completion_section_height()
         completion_visible = completion_height > 0
 
@@ -2057,13 +2064,45 @@ class TuiScreen(object):
             self.terminal_height,
         )
 
+    def _begin_bottom_release(self, previous_visible_height: int) -> None:
+        """保留临时区域释放的高度并建立正文增长基线。"""
+        self._clear_completion_footprint()
+
+        restored_height = self._natural_visible_height()
+
+        release_height = max(
+            0,
+            min(self.terminal_height, previous_visible_height)
+            - restored_height,
+        )
+        if release_height <= 0:
+            self._canvas_height_floor = min(
+                self._canvas_height_floor,
+                restored_height,
+            )
+            return None
+
+        occupied_height = (
+            self._input_surface_height()
+            + self._completion_section_height()
+            + self._footer_height()
+        )
+        self._completion_bottom_footprint = min(
+            self.terminal_height,
+            occupied_height + release_height,
+        )
+
+        self._completion_stable_line_baseline = self.document.stable_line_count
+        self._completion_live_height_baseline = self._completion_live_height()
+
+        self._canvas_height_floor = max(
+            self._canvas_height_floor,
+            min(self.terminal_height, previous_visible_height),
+        )
+
     def _reset_completion_layout(self, *, reset_canvas_floor: bool) -> None:
-        """清除补全布局状态并同步收束画布高度下限。"""
-        self._completion_bottom_footprint     = 0
-        self._completion_was_visible          = False
-        self._completion_stable_line_baseline = 0
-        self._completion_live_height_baseline = 0
-        self._completion_consumed_height      = 0
+        """清除底部临时区域状态并同步收束画布高度下限。"""
+        self._clear_completion_footprint()
 
         if reset_canvas_floor:
             self._canvas_height_floor = 0
@@ -2072,6 +2111,14 @@ class TuiScreen(object):
                 self._canvas_height_floor,
                 self._natural_visible_height(),
             )
+
+    def _clear_completion_footprint(self) -> None:
+        """清除底部临时区域的高度释放状态。"""
+        self._completion_bottom_footprint     = 0
+        self._completion_was_visible          = False
+        self._completion_stable_line_baseline = 0
+        self._completion_live_height_baseline = 0
+        self._completion_consumed_height      = 0
 
     def _completion_stable_growth_height(self) -> int:
         """返回补全锚点之后新增稳定正文的显示高度。"""
@@ -2112,7 +2159,7 @@ class TuiScreen(object):
         return max(0, height)
 
     def _completion_release_height(self) -> int:
-        """返回用于保持输入框位置的补全释放空间。"""
+        """返回用于保持输入框位置的底部释放空间。"""
         if self._transcript_only or not self.bottom_pane.input_visible:
             return 0
 
@@ -2278,9 +2325,9 @@ class TuiScreen(object):
     def _content_input_gap_visible(self) -> bool:
         """判断正文状态区与底部交互区域之间是否保留空行。"""
         auxiliary_content = bool(
-            self.activity_block is not None
-            or self.process_status.active
-            or self._queued_content_visible()
+            self._status_height()
+            or self._process_status_height()
+            or self._queued_height()
         )
         return bool(
             not self._transcript_only
