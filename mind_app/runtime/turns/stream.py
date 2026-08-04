@@ -496,6 +496,10 @@ async def stream_turn(
                     level="ERROR",
                     error=failure_error,
                 )
+                if turn_context.agent.depth == 0:
+                    await mind.await_cleanup(
+                        mind.stop_anim("wait", settle=False)
+                    )
                 await finish_failure(
                     status_control,
                     presentation,

@@ -1064,13 +1064,14 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_stream_returns_failed_result(monkeypatch) -> None:
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, mind = await _run_stream(monkeypatch, [
         {"type": "turn.failed", "error": "request failed"},
     ])
 
     assert result.status == "failed"
     assert result.error == "request failed"
     assert result.exit_code == 1
+    mind.stop_anim.assert_awaited_once_with("wait", settle=False)
 
 
 @pytest.mark.anyio
