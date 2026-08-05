@@ -198,6 +198,7 @@ class _BottomAnchorState(object):
         "stable_line_baseline",
         "live_height_baseline",
         "consumed_height",
+        "release_active",
     )
 
     footprint_height: int
@@ -205,6 +206,7 @@ class _BottomAnchorState(object):
     stable_line_baseline: int
     live_height_baseline: int
     consumed_height: int
+    release_active: bool
 
     def __init__(self) -> None:
         self.footprint_height     = 0
@@ -212,6 +214,7 @@ class _BottomAnchorState(object):
         self.stable_line_baseline = 0
         self.live_height_baseline = 0
         self.consumed_height      = 0
+        self.release_active       = False
 
     def begin(
         self,
@@ -220,6 +223,7 @@ class _BottomAnchorState(object):
         completion_visible: bool,
         stable_line_baseline: int,
         live_height_baseline: int,
+        release_active: bool = False
     ) -> None:
         """建立新的底部占位和正文增长基线。"""
         self.footprint_height     = max(0, footprint_height)
@@ -227,6 +231,7 @@ class _BottomAnchorState(object):
         self.stable_line_baseline = max(0, stable_line_baseline)
         self.live_height_baseline = max(0, live_height_baseline)
         self.consumed_height      = 0
+        self.release_active       = release_active
 
     def preserve_footprint(self, minimum_height: int) -> None:
         """保留不小于指定值的底部占位高度。"""
@@ -241,6 +246,19 @@ class _BottomAnchorState(object):
             self.footprint_height,
             max(self.consumed_height, max(0, height)),
         )
+
+    def begin_release(
+        self,
+        *,
+        stable_line_baseline: int,
+        live_height_baseline: int,
+    ) -> None:
+        """从临时区域关闭时的正文位置开始消费底部占位。"""
+        self.completion_visible   = False
+        self.stable_line_baseline = max(0, stable_line_baseline)
+        self.live_height_baseline = max(0, live_height_baseline)
+        self.consumed_height      = 0
+        self.release_active       = True
 
     def clamp(self, maximum_height: int) -> None:
         """把占位及已消费高度限制在终端可用范围内。"""
@@ -270,6 +288,7 @@ class _BottomAnchorState(object):
         self.stable_line_baseline = 0
         self.live_height_baseline = 0
         self.consumed_height      = 0
+        self.release_active       = False
 
 
 class TuiScreen(object):
@@ -2246,6 +2265,9 @@ class TuiScreen(object):
         anchor = self._bottom_anchor
         completion_height  = self._completion_section_height()
         completion_visible = completion_height > 0
+        completion_closed  = (
+            anchor.completion_visible and not completion_visible
+        )
 
         if completion_visible and not anchor.completion_visible:
             anchor.begin(
@@ -2262,9 +2284,15 @@ class TuiScreen(object):
                 self._input_surface_height()
                 + completion_height,
             )
+        elif completion_closed and not anchor.release_active:
+            anchor.begin_release(
+                stable_line_baseline=self.document.stable_line_count,
+                live_height_baseline=self._completion_live_height(),
+            )
 
         if (
-            anchor.footprint_height
+            anchor.release_active
+            and anchor.footprint_height
             and anchor.consumed_height < anchor.footprint_height
         ):
             stable_height = self._completion_stable_growth_height()
@@ -2315,6 +2343,7 @@ class TuiScreen(object):
             completion_visible=completion_height > 0,
             stable_line_baseline=self.document.stable_line_count,
             live_height_baseline=self._completion_live_height(),
+            release_active=True,
         )
 
         self._canvas_height_floor = max(

@@ -369,6 +369,137 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("stabilize_prefix", (False, True))
+async def test_stream_growth_while_slash_is_open_leaves_no_backspace_spacer(
+    stabilize_prefix: bool,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    FragmentBlock((("", "query"),)),
+                    kind="user",
+                )
+                await render_next_frame(runtime)
+
+                runtime.set_execution_active(True)
+                runtime.set_active_renderable(
+                    FragmentBlock(((
+                        "",
+                        "\n".join(f"stream {index}" for index in range(6)),
+                    ),)),
+                    kind="assistant",
+                )
+                await render_next_frame(runtime)
+
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+
+                if stabilize_prefix:
+                    prefix = "\n".join(
+                        f"stream {index}" for index in range(8)
+                    )
+                    runtime.commit_active_stream_prefix(
+                        FragmentBlock((("", prefix),)),
+                        raw_text=prefix,
+                    )
+                    tail = "\n".join(
+                        f"stream {index}" for index in range(8, 14)
+                    )
+                    runtime.set_active_renderable(
+                        FragmentBlock((("", tail),)),
+                        kind="assistant",
+                        raw_text=tail,
+                        stream_continuation=True,
+                    )
+                else:
+                    runtime.set_active_renderable(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"stream {index}" for index in range(14)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+                await render_next_frame(runtime)
+
+                pipe_input.send_text("\x7f")
+                await wait_for_input_text(runtime, "")
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                top_padding = positions[runtime.screen.input_top_padding]
+                input_position = positions[runtime.screen.input.window]
+                input_row = (
+                    24
+                    - runtime.screen._visible_height()
+                    + input_position.ypos
+                )
+                release_height = runtime.screen._bottom_release_height()
+
+                assert release_height > 0
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
+                assert top_padding.ypos == (
+                    transcript.ypos + transcript.height
+                )
+
+                if stabilize_prefix:
+                    tail = "\n".join(
+                        f"stream {index}" for index in range(8, 15)
+                    )
+                    runtime.set_active_renderable(
+                        FragmentBlock((("", tail),)),
+                        kind="assistant",
+                        raw_text=tail,
+                        stream_continuation=True,
+                    )
+                else:
+                    runtime.set_active_renderable(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"stream {index}" for index in range(15)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                top_padding = positions[runtime.screen.input_top_padding]
+                next_input = positions[runtime.screen.input.window]
+                next_input_row = (
+                    24
+                    - runtime.screen._visible_height()
+                    + next_input.ypos
+                )
+
+                assert runtime.screen._bottom_release_height() == (
+                    release_height - 1
+                )
+                assert next_input_row == input_row + 1
+                assert runtime.screen.canvas_spacer not in positions
+                assert top_padding.ypos == (
+                    transcript.ypos + transcript.height
+                )
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_streaming_status_keeps_content_input_gap() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
