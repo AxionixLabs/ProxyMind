@@ -2052,7 +2052,7 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("render_each_key", (False, True))
-async def test_multiline_input_backspace_releases_startup_canvas_height(
+async def test_multiline_input_backspace_keeps_input_at_canvas_bottom(
     render_each_key: bool,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -2085,7 +2085,8 @@ async def test_multiline_input_backspace_releases_startup_canvas_height(
                             break
 
                 await _render_next_frame(runtime)
-                assert runtime.screen._visible_height() > initial_height
+                expanded_height = runtime.screen._visible_height()
+                assert expanded_height > initial_height
 
                 if render_each_key:
                     for line_count in range(7, -1, -1):
@@ -2105,12 +2106,53 @@ async def test_multiline_input_backspace_releases_startup_canvas_height(
                             break
 
                 screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                spacer = positions[runtime.screen.canvas_spacer]
+                footer = positions[runtime.screen.footer_window]
 
                 assert runtime.screen._natural_visible_height() == initial_height
-                assert runtime.screen._visible_height() == initial_height
-                assert runtime.screen.canvas_spacer not in (
-                    screen.visible_windows_to_write_positions
+                assert runtime.screen._visible_height() == expanded_height
+                assert spacer.height == expanded_height - initial_height
+                assert footer.ypos + footer.height == (
+                    runtime.screen._visible_height()
                 )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_folded_multiline_paste_keeps_input_at_canvas_bottom() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                initial_height = runtime.screen._visible_height()
+                pasted = "\n".join(f"line {index}" for index in range(20))
+
+                runtime.screen.input.buffer.text = pasted
+                runtime.screen.input.buffer.cursor_position = len(pasted)
+                await _render_next_frame(runtime)
+                expanded_height = runtime.screen._visible_height()
+
+                placeholder = runtime.input_model._display_paste(pasted, "")
+                runtime.screen.input.buffer.text = placeholder
+                runtime.screen.input.buffer.cursor_position = len(placeholder)
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                spacer = positions[runtime.screen.canvas_spacer]
+                footer = positions[runtime.screen.footer_window]
+
+                assert runtime.screen._input_height() == 1
+                assert runtime.screen._natural_visible_height() == initial_height
+                assert runtime.screen._visible_height() == expanded_height
+                assert spacer.height == expanded_height - initial_height
+                assert footer.ypos + footer.height == expanded_height
             finally:
                 await runtime.close()
 
