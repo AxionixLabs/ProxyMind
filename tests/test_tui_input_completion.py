@@ -393,6 +393,107 @@ async def test_streaming_slash_completion_has_one_row_above_input(
 
 
 @pytest.mark.anyio
+async def test_approval_release_is_preserved_with_streaming_slash_completion(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                runtime.set_active_renderable(
+                    FragmentBlock(((
+                        "",
+                        "\n".join(f"stream {index}" for index in range(8)),
+                    ),)),
+                    kind="assistant",
+                )
+                await render_next_frame(runtime)
+
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                slash_screen = await render_next_frame(runtime)
+                slash_position = (
+                    slash_screen.visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+                slash_row = (
+                    24
+                    - runtime.screen._visible_height()
+                    + slash_position.ypos
+                )
+
+                approval_task = asyncio.create_task(runtime.request_approval({
+                    "tool": "shell_command",
+                    "command": "\n".join(
+                        f"echo line-{index}" for index in range(30)
+                    ),
+                    "show_timer": False,
+                }))
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.screen.approval.active:
+                        break
+                assert runtime.screen.approval.active
+                await render_next_frame(runtime)
+
+                runtime.screen.approval.finish("accept")
+                assert await approval_task == "accept"
+
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                input_row = (
+                    24
+                    - runtime.screen._visible_height()
+                    + input_position.ypos
+                )
+                release_height = runtime.screen._completion_release_height()
+
+                assert release_height > 0
+                assert input_row == slash_row - release_height
+
+                previous_row = input_row
+                for line_count in range(9, 9 + release_height):
+                    runtime.set_active_renderable(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"stream {index}"
+                                for index in range(line_count)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+                    screen = await render_next_frame(runtime)
+                    input_position = (
+                        screen.visible_windows_to_write_positions[
+                            runtime.screen.input.window
+                        ]
+                    )
+                    input_row = (
+                        24
+                        - runtime.screen._visible_height()
+                        + input_position.ypos
+                    )
+
+                    assert input_row == previous_row + 1
+                    previous_row = input_row
+
+                assert input_row == slash_row
+                assert runtime.screen._completion_release_height() == 0
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_input_prompt_uses_single_space_before_placeholder() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

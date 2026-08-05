@@ -2222,15 +2222,19 @@ class TuiScreen(object):
             )
             return None
 
+        completion_height = self._completion_section_height()
+
         occupied_height = (
             self._input_surface_height()
-            + self._completion_section_height()
+            + completion_height
             + self._footer_height()
         )
         self._completion_bottom_footprint = min(
             self.terminal_height,
             occupied_height + release_height,
         )
+
+        self._completion_was_visible = completion_height > 0
 
         self._completion_stable_line_baseline = self.document.stable_line_count
         self._completion_live_height_baseline = self._completion_live_height()
