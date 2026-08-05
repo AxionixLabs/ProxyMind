@@ -386,6 +386,11 @@ class TuiInputModel(object):
         )
         buffer.on_completions_changed.fire()
 
+    def refresh_inserted_completion_menu(self, buffer) -> None:
+        """在字符插入后同步刷新可用的补全菜单。"""
+        if buffer.completer and buffer.complete_while_typing():
+            self.refresh_completion_menu(buffer)
+
     def bind_exit(
         self,
         can_exit: typing.Callable[[], bool],

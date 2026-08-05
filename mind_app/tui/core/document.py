@@ -730,8 +730,12 @@ class TuiDocument(object):
         elif self.active_kind != kind:
             raise ValueError("active TUI block kind cannot change before commit")
 
+        direct_continuation = bool(
+            stream_continuation
+            and self._last_rendered_kind() == kind
+        )
         self.active_gap_before = bool(
-            self.blocks and not stream_continuation
+            self.blocks and not direct_continuation
         )
         self.active_block            = block
         self.active_transcript_block = transcript_block

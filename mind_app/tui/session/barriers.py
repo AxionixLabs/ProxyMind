@@ -71,6 +71,8 @@ class TuiForegroundTasks(object):
         on_cancelled: CancelledHandler | None = None
     ) -> bool:
         """合并同类前台任务并注册下一轮屏障。"""
+        self.runtime.finish_command_layout(force=True)
+
         active: asyncio.Task[None] | None = self._tasks.get(key)
         if active is not None and not active.done():
             observe("operation.skipped", operation=key, reason="already_running")
@@ -208,6 +210,7 @@ class TuiForegroundTasks(object):
         if not pending:
             return None
 
+        self.runtime.discard_pending_submission()
         self.runtime.set_foreground_active(True)
         self.runtime.bind_stream_command_handler(self._handle_wait_command)
         self.runtime.bind_interrupt_handler(self.cancel)

@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -21,6 +22,8 @@ from mind_app.tui.core.models import (
 )
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import text_block
+from mind_app.tui.session.barriers import TuiForegroundTasks
 
 
 async def wait_for_completion(runtime: TuiRuntime) -> None:
@@ -203,6 +206,34 @@ async def test_slash_completion_has_no_inline_ghost_text() -> None:
                 assert rendered_input_line(runtime) == "› /"
             finally:
                 await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_forward_typing_never_leaves_a_blank_completion_frame() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        snapshots: list[tuple[str, bool]] = []
+
+        def capture_completion_state(buffer) -> None:
+            snapshots.append((
+                buffer.text,
+                bool(
+                    runtime.screen._native_completion_visible()
+                    or runtime.screen._completion_fallback_visible()
+                ),
+            ))
+
+        runtime.screen.input.buffer.on_text_insert += capture_completion_state
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/permissions")
+            await wait_for_input_text(runtime, "/permissions")
+
+            assert snapshots
+            assert all(visible for _text, visible in snapshots)
+        finally:
+            await runtime.close()
 
 
 @pytest.mark.anyio
@@ -1283,6 +1314,129 @@ async def test_slash_command_result_releases_completion_layout(
                     render_revision + 1
                 )
             finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "command",
+    (
+        "/compact",
+        "/fork",
+        "/helix-link",
+        "/helix-stop",
+        "/mcp stop",
+    ),
+)
+@pytest.mark.parametrize("terminal_rows", (12, 24))
+async def test_foreground_command_releases_completion_before_activity(
+    command: str,
+    terminal_rows: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        release = asyncio.Event()
+        started = asyncio.Event()
+        running_row: list[int] = []
+        foreground = TuiForegroundTasks(
+            runtime,
+            SimpleNamespace(await_cleanup=lambda awaitable: awaitable),
+        )
+
+        async def operation() -> str:
+            await runtime.begin_operation_status(
+                lambda: {"summary": "Operation running"},
+            )
+            started.set()
+            await release.wait()
+            return "ready"
+
+        async def capture_running_frame() -> None:
+            await started.wait()
+            try:
+                screen = await render_next_frame(runtime)
+                position = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                running_row.append(
+                    terminal_rows
+                    - runtime.screen._visible_height()
+                    + position.ypos
+                )
+            finally:
+                release.set()
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=terminal_rows, columns=80),
+        ):
+            await runtime.open()
+            observer = None
+            try:
+                screen = await render_next_frame(runtime)
+                position = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                idle_row = (
+                    terminal_rows
+                    - runtime.screen._visible_height()
+                    + position.ypos
+                )
+
+                read_task = asyncio.create_task(runtime.read_message(
+                    PromptContext(model="test"),
+                ))
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+                pipe_input.send_text(command[1:])
+                await wait_for_input_text(runtime, command)
+                screen = await render_next_frame(runtime)
+                position = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                completion_row = (
+                    terminal_rows
+                    - runtime.screen._visible_height()
+                    + position.ypos
+                )
+
+                pipe_input.send_text("\r")
+                assert await read_task == command
+                runtime.begin_command_layout()
+                foreground.start(
+                    "operation",
+                    operation,
+                    activity_kind="operation",
+                    on_succeeded=lambda result: runtime.append_block(
+                        text_block(f"Operation {result}"),
+                        kind="operation",
+                    ),
+                )
+                observer = asyncio.create_task(capture_running_frame())
+                await foreground.wait()
+                await observer
+
+                screen = await render_next_frame(runtime)
+                position = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                final_row = (
+                    terminal_rows
+                    - runtime.screen._visible_height()
+                    + position.ypos
+                )
+
+                assert completion_row < idle_row
+                assert running_row == [idle_row]
+                assert final_row == idle_row
+                assert runtime.screen._bottom_release_height() == 0
+                assert not runtime.command_layout_pending
+            finally:
+                release.set()
+                if observer is not None:
+                    await observer
                 await runtime.close()
 
 

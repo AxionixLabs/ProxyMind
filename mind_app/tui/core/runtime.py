@@ -742,10 +742,14 @@ class TuiRuntime(object):
         if token is not None:
             self._command_layout.reset(token)
 
-    def finish_command_layout(self) -> None:
-        """在没有结果块接管时立即收束输入补全留下的临时空间。"""
+    def finish_command_layout(self, *, force: bool = False) -> None:
+        """结束命令布局并按需强制收束输入补全留下的临时空间。"""
         with self.screen.visual_update():
-            if self._complete_command_layout():
+            completed = self._complete_command_layout()
+            if force and not completed:
+                self.screen.settle_completion_layout(invalidate=False)
+                completed = True
+            if completed:
                 self.invalidate()
         self.cancel_command_layout()
 

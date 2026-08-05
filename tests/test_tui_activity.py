@@ -12,6 +12,7 @@ from prompt_toolkit.layout.screen import Screen, WritePosition
 from prompt_toolkit.output import DummyOutput
 
 from mind_app.approval.coordinator import ApprovalCoordinator
+from mind_app.interaction import PromptContext
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.adapters.session import create_tui_output_session
@@ -28,6 +29,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.status_frames import SPINNER_FRAMES
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.helix import TuiUpgradeProgress
+from mind_app.tui.session.barriers import TuiForegroundTasks
 from mind_app.runtime.support.calling import run_turn_lifecycle
 from mind_app.stream_events.worked import emit_worked_footer
 from mind_core.mcp_status import (
@@ -934,6 +936,85 @@ def test_input_surface_reserves_padding_around_dynamic_input() -> None:
         runtime.screen._input_stack_height()
         == runtime.screen._input_surface_height() + 1
     )
+
+
+@pytest.mark.anyio
+async def test_foreground_command_keeps_footer_visible_while_running() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        release = asyncio.Event()
+        started = asyncio.Event()
+        mind = SimpleNamespace(
+            await_cleanup=lambda awaitable: awaitable,
+        )
+        foreground = TuiForegroundTasks(runtime, mind)
+
+        async def operation() -> str:
+            await runtime.begin_operation_status(
+                lambda: {"summary": "Helix MCP starting"},
+            )
+            started.set()
+            await release.wait()
+            return "ready"
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            wait_task = None
+            try:
+                context = PromptContext(
+                    model="test-model",
+                    permissions_label="Auto",
+                    workspace_label="repo",
+                )
+                runtime.submissions.message_queue.put_nowait("/helix-link")
+                assert await runtime.read_message(context) == "/helix-link"
+
+                foreground.start(
+                    "Helix MCP",
+                    operation,
+                    activity_kind="operation",
+                    on_succeeded=lambda result: runtime.append_block(
+                        text_block(f"Helix MCP {result}"),
+                        kind="operation",
+                    ),
+                )
+                wait_task = asyncio.create_task(foreground.wait())
+                await started.wait()
+                screen = await _render_next_frame(runtime)
+
+                footer_text = "".join(
+                    text for _style, text in runtime.screen._footer_fragments()
+                )
+                running_input_row = _absolute_window_row(
+                    runtime,
+                    screen,
+                    runtime.screen.input.window,
+                    rows=12,
+                )
+
+                assert "test-model" in footer_text
+                assert "repo" in footer_text
+
+                release.set()
+                await wait_task
+                runtime.discard_pending_submission()
+                screen = await _render_next_frame(runtime)
+
+                assert _absolute_window_row(
+                    runtime,
+                    screen,
+                    runtime.screen.input.window,
+                    rows=12,
+                ) == running_input_row
+            finally:
+                release.set()
+                if wait_task is not None:
+                    await wait_task
+                await runtime.close()
 
 
 def test_tiny_window_uses_neutral_fallback_without_warning() -> None:

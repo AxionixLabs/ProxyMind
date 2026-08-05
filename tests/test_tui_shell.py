@@ -158,6 +158,23 @@ async def test_streaming_ps_appends_dimmed_process_summaries_without_menu() -> N
     assert stream_text.endswith("  … and 1 more running")
     assert command_text == ["adb logcat", "npm run dev", "pytest -q"]
 
+    active = runtime.document.active_block
+    assert active is not None
+    runtime.commit_active_stream_prefix(active, raw_text="model stream")
+    runtime.set_active_renderable(
+        FragmentBlock((("class:assistant", "model continuation"),)),
+        kind="assistant",
+        stream_continuation=True,
+    )
+
+    continued = "".join(
+        value
+        for _style, value in runtime.document.fragments(width=80)
+    )
+    assert continued.endswith(
+        "  … and 1 more running\n\nmodel continuation"
+    )
+
 
 @pytest.mark.anyio
 async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:

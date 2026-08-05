@@ -438,6 +438,9 @@ class TuiScreen(object):
         self.input.buffer.on_text_changed += (
             self.input_model.reopen_completion_menu
         )
+        self.input.buffer.on_text_insert += (
+            self.input_model.refresh_inserted_completion_menu
+        )
         self.input.buffer.on_completions_changed += (
             self.input_model.select_default_completion
         )
