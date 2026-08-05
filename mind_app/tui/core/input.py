@@ -315,10 +315,16 @@ class TuiInputModel(object):
         document: Document
     ) -> tuple[Completion, ...] | None:
         """返回当前未被关闭的命令或 skill 菜单项。"""
-        query = (document.text, document.cursor_position)
-        if query == self._dismissed_completion_query:
+        if self._completion_menu_dismissed(document):
             return None
         return self.completer.menu_completions(document)
+
+    def _completion_menu_dismissed(self, document: Document) -> bool:
+        """判断当前文本和光标位置是否已主动关闭补全。"""
+        return (
+            document.text,
+            document.cursor_position,
+        ) == self._dismissed_completion_query
 
     def reopen_completion_menu(self, buffer) -> None:
         """在输入内容变化后允许补全菜单重新显示。"""
@@ -578,6 +584,7 @@ class TuiInputModel(object):
         if target == len(self._history_entries):
             self.set_shell_mode(self._history_draft_shell_mode)
             buffer.document = draft
+            self.dismiss_completion_menu(buffer)
             return None
 
         text, shell_mode = self._history_entry_state(self._history_entries[target])
@@ -585,6 +592,7 @@ class TuiInputModel(object):
         self.set_shell_mode(shell_mode)
 
         buffer.document = Document(text, cursor_position=len(text))
+        self.dismiss_completion_menu(buffer)
 
     def _build_key_bindings(self) -> KeyBindings:
         """创建 TUI 输入区按键绑定。"""
@@ -638,6 +646,11 @@ class TuiInputModel(object):
                 ) is not None
             )
         )
+        dismissed_completion_query = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: self._completion_menu_dismissed(
+                get_app().current_buffer.document
+            )
+        )
 
         @bindings.add("escape", eager=True, filter=completion_menu_open)
         def _(event) -> None:
@@ -679,6 +692,21 @@ class TuiInputModel(object):
         @bindings.add("c-z", eager=True, save_before=lambda event: False)
         def _(event) -> None:
             event.app.current_buffer.undo()
+
+        @bindings.add(
+            "left",
+            eager=True,
+            filter=dismissed_completion_query,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            previous_position = buffer.cursor_position
+
+            buffer.cursor_left(count=max(1, event.arg))
+
+            if buffer.cursor_position != previous_position:
+                self.reopen_completion_menu(buffer)
+                self.refresh_completion_menu(buffer)
 
         @bindings.add("escape", "enter")
         @bindings.add("c-o")

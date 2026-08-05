@@ -73,6 +73,37 @@ def test_history_navigation_filters_by_current_prefix() -> None:
     assert buffer.text == "second input"
 
 
+def test_history_navigation_suppresses_slash_menu_until_edit() -> None:
+    model = TuiInputModel()
+    model.history.append_string("first query")
+    model.history.append_string("/skills")
+    buffer = Buffer(
+        history=model.history,
+        completer=model.completer,
+        complete_while_typing=True,
+    )
+
+    press_history_key(model, Keys.Up, buffer)
+
+    assert buffer.text == "/skills"
+    assert model.completion_menu_completions(buffer.document) is None
+
+    press_history_key(model, Keys.Up, buffer)
+
+    assert buffer.text == "first query"
+
+    press_history_key(model, Keys.Down, buffer)
+    press_history_key(model, Keys.Left, buffer)
+
+    assert buffer.text == "/skills"
+    assert model.completion_menu_completions(buffer.document) is not None
+    assert buffer.complete_state is not None
+    assert [
+        completion.display_text
+        for completion in buffer.complete_state.completions
+    ] == ["/skills"]
+
+
 def test_shell_history_restores_prefix_mode() -> None:
     model = TuiInputModel()
     model.history.append_string("! rg TODO")
