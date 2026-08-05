@@ -27,6 +27,7 @@ class TuiTranscriptViewport(object):
     """管理正文视口、分页位置和原生终端滚屏提交。"""
 
     SCROLLBACK_REFLOW_DEBOUNCE_SEC: typing.Final[float] = 0.08
+    STREAM_SCROLLBACK_BATCH_LINES: typing.Final[int]    = 4
 
     def __init__(
         self,
@@ -47,6 +48,7 @@ class TuiTranscriptViewport(object):
         clear_terminal_for_resize_replay: typing.Callable[[], None],
         begin_synchronized_output: typing.Callable[[], bool],
         end_synchronized_output: typing.Callable[[], None],
+        settle_canvas_height: typing.Callable[[], None],
         invalidate: typing.Callable[[], None],
         scrollback_reflow_line_limit: int = (
             DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
@@ -73,6 +75,7 @@ class TuiTranscriptViewport(object):
         )
         self._begin_synchronized_output = begin_synchronized_output
         self._end_synchronized_output   = end_synchronized_output
+        self._settle_canvas_height      = settle_canvas_height
 
         self._invalidate = invalidate
 
@@ -277,9 +280,9 @@ class TuiTranscriptViewport(object):
             self._schedule_scrollback_recheck(target_geometry)
             return None
 
-        synchronized = False
-        completed = False
-        previous_scrollback_position: int | None = None
+        synchronized: bool = False
+        completed: bool    = False
+
         try:
             async with in_terminal(render_cli_done=False):
                 if (
@@ -419,7 +422,7 @@ class TuiTranscriptViewport(object):
             self._get_available_height() - self._live_tail_height(),
         )
         if available <= 0:
-            return max_retirable
+            return self._stream_scrollback_batch(max_retirable)
 
         kept_rows: int = 0
 
@@ -452,7 +455,17 @@ class TuiTranscriptViewport(object):
         ):
             retire_count += 1
 
-        return retire_count
+        return self._stream_scrollback_batch(retire_count)
+
+    def _stream_scrollback_batch(self, line_count: int) -> int:
+        """流式期间只提交达到批量阈值的完整逻辑行。"""
+        line_count = max(0, int(line_count))
+        if (
+            self.document.active_stream_continuation
+            and line_count < self.STREAM_SCROLLBACK_BATCH_LINES
+        ):
+            return 0
+        return line_count
 
     def _live_tail_height(self) -> int:
         """返回当前动态正文占用的显示行数。"""
@@ -698,6 +711,7 @@ class TuiTranscriptViewport(object):
                     # print_text 统一补一个结尾换行，批次只提供行间换行。
                     self._get_application().print_text(fragments)
                     self.document.commit_scrollback_prefix(line_count)
+                    self._settle_canvas_height()
                     self.view_row = None
 
                 if self.refresh_geometry():

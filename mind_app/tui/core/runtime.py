@@ -80,18 +80,34 @@ class _DeferredBlock(object):
     activity_lease: ActivityLease | None = None
 
 
-@dataclass(slots=True)
 class _ActivityHandoff(object):
     """保存当前任务结果接管活动区域的状态。"""
+
+    __slots__ = ("lease", "deferred", "consumed")
+
     lease: ActivityLease | None
     deferred: bool
-    consumed: bool = False
+    consumed: bool
+
+    def __init__(
+        self,
+        lease: ActivityLease | None,
+        deferred: bool,
+    ) -> None:
+        self.lease    = lease
+        self.deferred = deferred
+        self.consumed = False
 
 
-@dataclass(slots=True)
 class _CommandLayoutHandoff(object):
     """保存当前命令结果对补全锚点的接管状态。"""
-    consumed: bool = False
+
+    __slots__ = ("consumed",)
+
+    consumed: bool
+
+    def __init__(self) -> None:
+        self.consumed = False
 
 
 class TuiRuntime(object):
@@ -168,9 +184,7 @@ class TuiRuntime(object):
         self.viewport = TuiTranscriptViewport(
             document=self.document,
             is_application_active=lambda: self.active,
-            is_scrollback_deferred=(
-                lambda: self.submission_deferred or self._modal_depth > 0
-            ),
+            is_scrollback_deferred=self._native_scrollback_deferred,
             is_transcript_overlay_active=(
                 lambda: self.screen.transcript_overlay.active
             ),
@@ -198,6 +212,7 @@ class TuiRuntime(object):
             end_synchronized_output=(
                 lambda: self.screen.end_synchronized_output()
             ),
+            settle_canvas_height=self._settle_stream_scrollback_layout,
             invalidate=self.invalidate,
         )
 
@@ -317,6 +332,27 @@ class TuiRuntime(object):
         """通过单次尺寸快照返回当前终端宽高。"""
         geometry = self.screen.frame_geometry
         return geometry.width, geometry.height
+
+    def _native_scrollback_deferred(self) -> bool:
+        """判断当前运行状态是否禁止提交原生终端滚屏。"""
+        if self._modal_depth > 0 or self.foreground_active:
+            return True
+        if not self.execution_active:
+            return False
+        return not (
+            self.document.active_kind == "assistant"
+            and self.document.active_stream_continuation
+            and not self.screen.scrollback_interaction_active()
+        )
+
+    def _settle_stream_scrollback_layout(self) -> None:
+        """在流式稳定前缀退休后收束其占用的实时画布。"""
+        if (
+            self.execution_active
+            and self.document.active_kind == "assistant"
+            and self.document.active_stream_continuation
+        ):
+            self.screen.settle_scrollback_layout()
 
     def _discard_submitted_query(self) -> None:
         """在二级菜单接管交互时撤下刚提交的输入块。"""

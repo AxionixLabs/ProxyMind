@@ -36,7 +36,6 @@ from ..core.styles import (
     ASSISTANT_PREFIX_CLASS,
     assistant_block,
     assistant_continuation_block,
-    assistant_fragments,
     prompt_style,
     styled_block_fragments
 )
@@ -428,8 +427,18 @@ class TuiOutputControl(OutputControlPort):
         self._stabilize_stream_prefix()
 
         visible_text = self._active_stream_text(visible=True)
-        block        = StyledBlock(plain_text=visible_text)
-        fragments    = list(assistant_fragments(styled_block_fragments(block)))
+
+        block = FragmentBlock(styled_block_fragments(
+            StyledBlock(plain_text=visible_text),
+        ))
+
+        rendered = (
+            assistant_continuation_block(block)
+            if self._stream_stable_end > 0
+            else assistant_block(block)
+        )
+
+        fragments = list(rendered.fragments)
 
         cursor_visible = bool(
             cursor

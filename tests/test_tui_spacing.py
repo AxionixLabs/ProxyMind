@@ -716,6 +716,52 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
 
 
 @pytest.mark.anyio
+async def test_stable_assistant_prefix_flushes_during_model_stream() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        source = "\n".join(f"line {index:02d}" for index in range(80))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    runtime.set_execution_active(True)
+                    await output.append_assistant_delta(source)
+                    await _render_next_frame(runtime)
+
+                    for _ in range(50):
+                        await asyncio.sleep(0.002)
+                        if runtime.document.scrollback_line_count > 0:
+                            break
+
+                printed = "\n".join(
+                    "".join(text for _style, text in call.args[0])
+                    for call in print_text.call_args_list
+                )
+                visible = _document_text(runtime.document)
+                expected = "\n".join([
+                    "• line 00",
+                    *(f"  line {index:02d}" for index in range(1, 80)),
+                ])
+
+                assert print_text.called
+                assert runtime.document.scrollback_line_count > 0
+                assert f"{printed}\n{visible}" == expected
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -1655,6 +1701,51 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
 
                 assert runtime.document.scrollback_line_count > committed_count
                 assert len(runtime.document.blocks) == 3
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_activity_height_reduction_keeps_slack_above_transcript() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block("answer"), kind="assistant")
+                runtime.screen.set_activity_renderable(_block(
+                    "first status\nsecond status\nthird status"
+                ))
+                screen = await _render_next_frame(runtime)
+                position = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                input_row = (
+                    24 - runtime.screen._visible_height() + position.ypos
+                )
+
+                runtime.screen.clear_activity_renderable()
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                position = positions[runtime.screen.input.window]
+                spacer = positions[runtime.screen.canvas_spacer]
+                transcript = positions[runtime.screen.transcript_window]
+                content_gap = positions[
+                    runtime.screen.content_input_gap.content
+                ]
+
+                assert (
+                    24 - runtime.screen._visible_height() + position.ypos == input_row
+                )
+                assert spacer.ypos + spacer.height == transcript.ypos
+                assert content_gap.ypos == (
+                    transcript.ypos + transcript.height
+                )
             finally:
                 await runtime.close()
 
@@ -4345,6 +4436,67 @@ async def test_stream_stabilizes_complete_lines_without_losing_source() -> None:
         "• line 0",
         *(f"  line {index}" for index in range(1, 12)),
     ])
+
+
+@pytest.mark.anyio
+async def test_live_stream_tail_keeps_one_assistant_prefix() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    for index in range(8):
+        await output.append_assistant_delta(
+            ("" if index == 0 else "\n") + f"line {index}"
+        )
+
+        assert _document_text(runtime.document) == "\n".join([
+            "• line 0",
+            *(f"  line {line}" for line in range(1, index + 1)),
+        ])
+
+
+@pytest.mark.anyio
+async def test_stream_markdown_reflow_keeps_slack_above_transcript() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await output.append_assistant_delta(
+                    f"[link](https://example.com/{'q' * 400})"
+                )
+                screen = await _render_next_frame(runtime)
+                position = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                input_row = (
+                    24 - runtime.screen._visible_height() + position.ypos
+                )
+
+                await output.append_assistant_delta("\na\nb\nc\n")
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                position = positions[runtime.screen.input.window]
+                spacer = positions[runtime.screen.canvas_spacer]
+                transcript = positions[runtime.screen.transcript_window]
+                top_padding = positions[runtime.screen.input_top_padding]
+
+                assert (
+                    24 - runtime.screen._visible_height() + position.ypos == input_row
+                )
+                assert spacer.ypos + spacer.height == transcript.ypos
+                assert top_padding.ypos == (
+                    transcript.ypos + transcript.height
+                )
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
 
 
 @pytest.mark.anyio

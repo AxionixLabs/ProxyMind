@@ -784,12 +784,12 @@ class TuiScreen(object):
 
         self.canvas = HSplit(
             [
+                self.canvas_spacer,
                 self.transcript_window,
                 self.transcript_status_gap,
                 self.status_window,
                 self.process_status_window,
                 self.queued_window,
-                self.canvas_spacer,
                 self.content_input_gap,
                 self.process_viewer_card,
                 self.menu_card,
@@ -1018,6 +1018,10 @@ class TuiScreen(object):
         self._reset_completion_layout(reset_canvas_floor=False)
         if invalidate:
             self.invalidate()
+
+    def settle_scrollback_layout(self) -> None:
+        """在稳定正文移入终端历史后收束实时画布高度。"""
+        self._cap_canvas_height_floor(self._natural_visible_height())
 
     def set_transcript_overlay(self, active: bool) -> bool:
         """切换完整会话记录、终端画面和键盘焦点。"""
@@ -2129,6 +2133,15 @@ class TuiScreen(object):
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""
         return bool(self.bottom_pane.transient_active or self._completion_visible())
+
+    def scrollback_interaction_active(self) -> bool:
+        """判断底部交互状态是否要求暂停原生滚屏提交。"""
+        return bool(
+            self._overlay_active()
+            or self.input.buffer.text
+            or self.input_model.shell_mode
+            or self._queued_content_visible()
+        )
 
     def _transcript_overlay_blocked(self) -> bool:
         """判断当前临时表面是否禁止打开完整会话记录。"""

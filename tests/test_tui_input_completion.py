@@ -13,6 +13,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_core.skills import SkillSpec
 from mind_app.interaction.contracts import PromptContext
+from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.core.models import (
     FragmentBlock,
     MenuOption,
@@ -494,6 +495,58 @@ async def test_stream_growth_while_slash_is_open_leaves_no_backspace_spacer(
                 assert top_padding.ypos == (
                     transcript.ypos + transcript.height
                 )
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_slash_completion_defers_stream_scrollback_until_closed() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await output.append_assistant_delta("\n".join(
+                    f"line {index:02d}" for index in range(40)
+                ))
+                await render_next_frame(runtime)
+
+                for _ in range(50):
+                    await asyncio.sleep(0.002)
+                    if runtime.document.scrollback_line_count > 0:
+                        break
+
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+                previous_count = runtime.document.scrollback_line_count
+
+                await output.append_assistant_delta("\n" + "\n".join(
+                    f"line {index:02d}" for index in range(40, 60)
+                ))
+                await render_next_frame(runtime)
+                await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_line_count == previous_count
+
+                pipe_input.send_text("\x7f")
+                await wait_for_input_text(runtime, "")
+                await render_next_frame(runtime)
+
+                for _ in range(50):
+                    await asyncio.sleep(0.002)
+                    if runtime.document.scrollback_line_count > previous_count:
+                        break
+
+                assert runtime.document.scrollback_line_count > previous_count
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
