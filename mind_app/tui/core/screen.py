@@ -196,7 +196,6 @@ class TuiScreen(object):
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
     COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
     CONTENT_SURFACE_GAP_HEIGHT: typing.Final[int]    = 1
-    PROCESS_SURFACE_GAP_HEIGHT: typing.Final[int]    = 2
     INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int]  = 1
     ESCAPE_SEQUENCE_TIMEOUT_SEC: typing.Final[float] = 0.1
 
@@ -288,11 +287,12 @@ class TuiScreen(object):
 
         self._canvas_height_floor: int = 0
 
-        self._completion_bottom_footprint: int     = 0
-        self._completion_was_visible: bool         = False
-        self._completion_stable_line_baseline: int = 0
-        self._completion_live_height_baseline: int = 0
-        self._completion_consumed_height: int      = 0
+        self._completion_bottom_footprint: int       = 0
+        self._completion_was_visible: bool           = False
+        self._completion_stable_line_baseline: int   = 0
+        self._completion_live_height_baseline: int   = 0
+        self._completion_consumed_height: int        = 0
+        self._completion_settle_revision: int | None = None
 
         self.activity_block: FragmentBlock | None = None
 
@@ -523,6 +523,11 @@ class TuiScreen(object):
             always_hide_cursor=True,
             dont_extend_height=True,
         )
+        self.process_viewer_top_padding = Window(
+            height=self._process_viewer_top_padding_dimension,
+            char=" ",
+            dont_extend_height=True,
+        )
         self.footer_window = Window(
             content=self.footer_control,
             height=Dimension.exact(1),
@@ -566,7 +571,14 @@ class TuiScreen(object):
             filter=Condition(lambda: self.bottom_pane.is_active("menu")),
         )
         self.process_viewer_card = ConditionalContainer(
-            self.process_viewer_window,
+            HSplit(
+                [
+                    self.process_viewer_top_padding,
+                    self.process_viewer_window,
+                ],
+                align=VerticalAlign.TOP,
+                window_too_small=Window(),
+            ),
             filter=Condition(
                 lambda: self.bottom_pane.is_active("process_viewer")
             ),
@@ -875,6 +887,20 @@ class TuiScreen(object):
         self._reset_completion_layout(reset_canvas_floor=False)
         self.invalidate()
 
+    def settle_completion_layout_after_render(self) -> None:
+        """在当前命令结果完成一帧渲染后折叠临时补全空间。"""
+        if not self.application.is_running or self.application.is_done:
+            self.settle_completion_layout()
+            return None
+
+        revision = self.application.render_counter + 1
+        current  = self._completion_settle_revision
+
+        self._completion_settle_revision = (
+            revision if current is None else max(current, revision)
+        )
+        self.invalidate()
+
     def set_transcript_overlay(self, active: bool) -> bool:
         """切换完整会话记录、终端画面和键盘焦点。"""
         active = bool(active)
@@ -1015,6 +1041,14 @@ class TuiScreen(object):
         """在渲染结束后恢复终端尺寸的实时读取。"""
         self._observe_render_revision(application.render_counter)
         self._frame_geometry = None
+
+        settle_revision = self._completion_settle_revision
+        if (
+            settle_revision is not None
+            and application.render_counter >= settle_revision
+        ):
+            self._reset_completion_layout(reset_canvas_floor=False)
+            self.invalidate()
 
     def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
         """读取并规范化一个终端尺寸快照。"""
@@ -1183,6 +1217,22 @@ class TuiScreen(object):
         """撤下底部临时表面并按恢复后的布局收束画布高度。"""
         was_active     = self.bottom_pane.is_active(surface)
         visible_height = self._visible_height()
+
+        alignment_padding = 0
+        if was_active and surface == "menu":
+            alignment_padding = self._menu_top_padding_height()
+        elif was_active and surface == "process_viewer":
+            alignment_padding = self._process_viewer_top_padding_height()
+
+        if alignment_padding:
+            visible_height = max(
+                1,
+                visible_height - alignment_padding,
+            )
+            self._canvas_height_floor = min(
+                self._canvas_height_floor,
+                visible_height,
+            )
 
         self.bottom_pane.deactivate(surface)
 
@@ -1883,8 +1933,12 @@ class TuiScreen(object):
         return Dimension.exact(self._menu_top_padding_height())
 
     def _process_viewer_dimension(self) -> Dimension:
-        """返回进程查看器当前显示高度。"""
-        return Dimension.exact(self._process_viewer_height())
+        """返回进程查看器内容当前显示高度。"""
+        return Dimension.exact(self._process_viewer_content_height())
+
+    def _process_viewer_top_padding_dimension(self) -> Dimension:
+        """返回进程查看器顶部对齐留白的显示高度。"""
+        return Dimension.exact(self._process_viewer_top_padding_height())
 
     def _status_height(self) -> int:
         """计算动画区域占用行数。"""
@@ -2163,6 +2217,7 @@ class TuiScreen(object):
 
     def _reset_completion_layout(self, *, reset_canvas_floor: bool) -> None:
         """清除底部临时区域状态并同步收束画布高度下限。"""
+        self._completion_settle_revision = None
         self._clear_completion_footprint()
 
         if reset_canvas_floor:
@@ -2345,6 +2400,33 @@ class TuiScreen(object):
         if not self.bottom_pane.is_active("process_viewer"):
             return 0
 
+        return (
+            self._process_viewer_top_padding_height()
+            + self._process_viewer_content_height()
+        )
+
+    def _process_viewer_content_height(self) -> int:
+        """计算进程查看器内容占用的显示高度。"""
+        if not self.bottom_pane.is_active("process_viewer"):
+            return 0
+
+        available = self._process_viewer_available_height()
+        padding   = self._process_viewer_top_padding_height()
+
+        return min(self.process_viewer.height(), max(1, available - padding))
+
+    def _process_viewer_top_padding_height(self) -> int:
+        """返回使进程查看器首行与输入文本起点对齐的顶部留白。"""
+        if not self.bottom_pane.is_active("process_viewer"):
+            return 0
+
+        return min(
+            self.INPUT_SURFACE_PADDING_HEIGHT,
+            max(0, self._process_viewer_available_height() - 1),
+        )
+
+    def _process_viewer_available_height(self) -> int:
+        """返回进程查看器表面在当前终端中的可用高度。"""
         available = max(
             1,
             self.terminal_height
@@ -2352,7 +2434,7 @@ class TuiScreen(object):
             - self._queued_height()
             - self._content_input_gap_height(),
         )
-        return min(self.process_viewer.height(), available)
+        return available
 
     def _interaction_height(self) -> int:
         """返回输入区或审批区当前占用的高度。"""
@@ -2399,8 +2481,6 @@ class TuiScreen(object):
         """返回正文状态区与底部交互区域之间的间距高度。"""
         if not self._content_input_gap_visible():
             return 0
-        if self.bottom_pane.is_active("process_viewer"):
-            return self.PROCESS_SURFACE_GAP_HEIGHT
         return self.CONTENT_SURFACE_GAP_HEIGHT
 
     def _content_input_gap_dimension(self) -> Dimension:

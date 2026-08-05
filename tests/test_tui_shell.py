@@ -698,8 +698,10 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
     assert runtime.screen.process_viewer.active
     assert runtime.document.active_block == live_block
     assert runtime.document.active_kind == "operation"
-    assert runtime.screen._process_viewer_height() == 1
-    assert runtime.screen._content_input_gap_height() == 2
+    assert runtime.screen._process_viewer_height() == 2
+    assert runtime.screen._process_viewer_content_height() == 1
+    assert runtime.screen._process_viewer_top_padding_height() == 1
+    assert runtime.screen._content_input_gap_height() == 1
     assert runtime.screen._interaction_height() == 0
     assert not runtime.screen.input_area.filter()
 

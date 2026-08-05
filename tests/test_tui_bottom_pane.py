@@ -29,8 +29,18 @@ def test_bottom_pane_restores_previous_surface_focus() -> None:
     assert pane.active_surface is None
 
 
-@pytest.mark.parametrize("surface", ["approval", "menu", "process_viewer"])
-def test_top_bottom_surface_starts_height_release(surface: str) -> None:
+@pytest.mark.parametrize(
+    ("surface", "expected_height"),
+    [
+        ("approval", 12),
+        ("menu", 11),
+        ("process_viewer", 11),
+    ],
+)
+def test_top_bottom_surface_starts_height_release(
+    surface: str,
+    expected_height: int,
+) -> None:
     runtime = TuiRuntime()
     screen = runtime.screen
     screen._canvas_height_floor = 12
@@ -43,7 +53,7 @@ def test_top_bottom_surface_starts_height_release(surface: str) -> None:
     ) as begin_release:
         screen._deactivate_bottom_surface(surface)
 
-    begin_release.assert_called_once_with(12)
+    begin_release.assert_called_once_with(expected_height)
     assert screen.bottom_pane.input_visible
 
 

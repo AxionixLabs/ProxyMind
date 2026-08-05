@@ -1755,6 +1755,153 @@ async def test_nested_menu_starts_at_query_input_offset(
 
 
 @pytest.mark.anyio
+async def test_menu_top_padding_is_not_retained_after_result() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=60),
+        ):
+            await runtime.open()
+            menu_task = None
+            try:
+                menu_task = asyncio.create_task(runtime.select_menu(
+                    MenuRequest(
+                        title="External MCP",
+                        options=tuple(
+                            MenuOption(index, f"Option {index}")
+                            for index in range(5)
+                        ),
+                    ),
+                ))
+                await asyncio.sleep(0)
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                menu_padding = positions[runtime.screen.menu_top_padding]
+                menu_height = runtime.screen._visible_height()
+
+                runtime.screen.menu.finish("stop")
+                assert await menu_task == "stop"
+                menu_task = None
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                closed_input = positions[runtime.screen.input.window]
+                closed_input_row = (
+                    16
+                    - runtime.screen._visible_height()
+                    + closed_input.ypos
+                )
+
+                assert runtime.screen._visible_height() == (
+                    menu_height - menu_padding.height
+                )
+
+                runtime.append_block(
+                    _block("■ External MCP already stopped"),
+                    kind="operation",
+                )
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                result_input = positions[runtime.screen.input.window]
+                result_input_row = (
+                    16
+                    - runtime.screen._visible_height()
+                    + result_input.ypos
+                )
+                rows = {
+                    row: "".join(
+                        cells[column].char for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+                result_row = next(
+                    row
+                    for row, text in rows.items()
+                    if "External MCP already stopped" in text
+                )
+
+                assert result_input_row == closed_input_row + 1
+                assert result_input.ypos - result_row == 3
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                if runtime.screen.menu.active:
+                    runtime.screen.menu.finish(None)
+                if menu_task is not None:
+                    await menu_task
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tail_kind", ("user", "assistant"))
+async def test_process_viewer_starts_at_query_input_offset(
+    tail_kind: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=60),
+        ):
+            await runtime.open()
+            viewer_future = None
+            try:
+                block = (
+                    query_block("run a command")
+                    if tail_kind == "user"
+                    else _block("previous answer")
+                )
+                runtime.append_block(block, kind=tail_kind)
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                input_position = positions[runtime.screen.input.window]
+                input_offset = (
+                    input_position.ypos
+                    - transcript.ypos
+                    - transcript.height
+                )
+
+                viewer_future = runtime.screen.process_viewer.begin(
+                    ProcessViewerRequest(
+                        fragments=(("", "Process running"),),
+                        max_height=1,
+                    )
+                )
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                viewer_position = positions[
+                    runtime.screen.process_viewer_window
+                ]
+                viewer_padding = positions[
+                    runtime.screen.process_viewer_top_padding
+                ]
+                viewer_offset = (
+                    viewer_position.ypos
+                    - transcript.ypos
+                    - transcript.height
+                )
+
+                assert viewer_offset == input_offset
+                assert viewer_position.ypos == (
+                    viewer_padding.ypos + viewer_padding.height
+                )
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                if runtime.screen.process_viewer.active:
+                    runtime.screen.process_viewer.resolve("detach")
+                    if viewer_future is not None:
+                        assert await viewer_future == "detach"
+                    runtime.screen.process_viewer.settle()
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_three_row_terminal_prioritizes_complete_input_surface() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

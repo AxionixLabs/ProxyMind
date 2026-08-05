@@ -170,6 +170,7 @@ async def run_tui_loop(
         if action is DispatchAction.EXIT:
             break
         if action is DispatchAction.HANDLED:
+            runtime.finish_command_layout()
             continue
 
         await state.refresh_preferences(mind, ttl_sec=0.0)

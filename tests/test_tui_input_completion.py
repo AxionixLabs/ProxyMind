@@ -62,6 +62,19 @@ async def render_next_frame(runtime: TuiRuntime):
     raise AssertionError("next frame was not rendered")
 
 
+async def wait_for_completion_layout_settled(runtime: TuiRuntime):
+    """等待命令结果首帧后的补全占位完成收束。"""
+    start_revision = runtime.screen.application.render_counter
+    for _ in range(40):
+        await asyncio.sleep(0)
+        if (
+            runtime.screen.application.render_counter >= start_revision + 2
+            and runtime.screen._completion_settle_revision is None
+        ):
+            return runtime.screen.application.renderer.last_rendered_screen
+    raise AssertionError("completion layout did not settle")
+
+
 async def wait_for_submission(runtime: TuiRuntime):
     """等待输入处理结果进入提交队列。"""
     return await asyncio.wait_for(
@@ -628,10 +641,19 @@ async def test_backspacing_skill_query_does_not_move_input() -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "command",
-    ("/helix-stop", "/fork", "/compact", "/mcp status"),
+    (
+        "/helix-link",
+        "/helix-stop",
+        "/fork",
+        "/compact",
+        "/mcp stop",
+        "/mcp status",
+    ),
 )
+@pytest.mark.parametrize("prior_line_count", (0, 20))
 async def test_slash_command_result_releases_completion_layout(
     command: str,
+    prior_line_count: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -643,6 +665,19 @@ async def test_slash_command_result_releases_completion_layout(
         ):
             await runtime.open()
             try:
+                if prior_line_count:
+                    runtime.append_block(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"prior line {index}"
+                                for index in range(prior_line_count)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+                    await render_next_frame(runtime)
+
                 read_task = asyncio.create_task(runtime.read_message(
                     PromptContext(model="test"),
                 ))
@@ -653,7 +688,15 @@ async def test_slash_command_result_releases_completion_layout(
 
                 pipe_input.send_text(command[1:])
                 await wait_for_input_text(runtime, command)
-                await render_next_frame(runtime)
+                screen = await render_next_frame(runtime)
+                command_input = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                command_input_row = (
+                    12
+                    - runtime.screen._visible_height()
+                    + command_input.ypos
+                )
 
                 pipe_input.send_text("\r")
                 assert await read_task == command
@@ -680,13 +723,115 @@ async def test_slash_command_result_releases_completion_layout(
                 )
 
                 assert input_position.ypos - result_row == 3
+                assert (
+                    12
+                    - runtime.screen._visible_height()
+                    + input_position.ypos
+                    == command_input_row + 1
+                )
                 assert all(
                     not rows.get(row)
                     for row in range(result_row + 1, input_position.ypos)
                 )
-                assert runtime.screen._completion_release_height() == 0
+                assert runtime.screen._completion_release_height() > 0
                 assert runtime.screen.canvas_spacer not in positions
+
+                result_input_row = (
+                    12
+                    - runtime.screen._visible_height()
+                    + input_position.ypos
+                )
+                runtime.finish_command_layout()
+                screen = await wait_for_completion_layout_settled(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                rows = {
+                    row: "".join(
+                        cells[column].char for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+                result_row = next(
+                    row
+                    for row, text in rows.items()
+                    if "command completed" in text
+                )
+
+                assert input_position.ypos - result_row == 3
+                assert runtime.screen._completion_release_height() == 0
+                assert (
+                    12
+                    - runtime.screen._visible_height()
+                    + input_position.ypos
+                    > result_input_row
+                )
             finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_stream_command_result_has_no_completion_release_after_turn() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                handled: list[str] = []
+
+                def handle_stream_command(value: str) -> bool:
+                    handled.append(value)
+                    return True
+
+                runtime.bind_stream_command_handler(handle_stream_command)
+                runtime.set_execution_active(True)
+                runtime.set_active_renderable(
+                    FragmentBlock((("", "streaming answer"),)),
+                    kind="assistant",
+                )
+
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+                pipe_input.send_text("helix-link\r")
+
+                for _ in range(40):
+                    await asyncio.sleep(0)
+                    if handled:
+                        break
+                assert handled == ["/helix-link"]
+
+                runtime.queue_background_block(
+                    FragmentBlock((("", "■ Helix MCP ready"),)),
+                )
+                runtime.commit_active_renderable(
+                    FragmentBlock((("", "streaming answer\nfinished"),)),
+                )
+                runtime.set_execution_active(False)
+
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                rows = {
+                    row: "".join(
+                        cells[column].char for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+                result_row = next(
+                    row
+                    for row, text in rows.items()
+                    if "Helix MCP ready" in text
+                )
+
+                assert input_position.ypos - result_row == 3
+                assert runtime.screen._completion_release_height() == 0
+            finally:
+                runtime.set_execution_active(False)
                 await runtime.close()
 
 
