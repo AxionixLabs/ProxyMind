@@ -427,16 +427,22 @@ class TuiOutputControl(OutputControlPort):
         self._stabilize_stream_prefix()
 
         visible_text = self._active_stream_text(visible=True)
+        continuation = self._stream_stable_end > 0
 
-        block = FragmentBlock(styled_block_fragments(
-            StyledBlock(plain_text=visible_text),
-        ))
-
-        rendered = (
-            assistant_continuation_block(block)
-            if self._stream_stable_end > 0
-            else assistant_block(block)
-        )
+        if len(visible_text) < STREAM_RENDER_LONG_TEXT_SIZE:
+            rendered = self._render_markdown_block(
+                visible_text,
+                continuation=continuation,
+            )
+        else:
+            block = FragmentBlock(styled_block_fragments(
+                StyledBlock(plain_text=visible_text),
+            ))
+            rendered = (
+                assistant_continuation_block(block)
+                if continuation
+                else assistant_block(block)
+            )
 
         fragments = list(rendered.fragments)
 
@@ -456,7 +462,7 @@ class TuiOutputControl(OutputControlPort):
             FragmentBlock(tuple(fragments)),
             kind="assistant",
             raw_text=visible_text,
-            stream_continuation=self._stream_stable_end > 0,
+            stream_continuation=continuation,
         )
 
         return cursor_visible

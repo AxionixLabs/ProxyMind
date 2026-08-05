@@ -27,6 +27,7 @@ class TuiTranscriptViewport(object):
     """管理正文视口、分页位置和原生终端滚屏提交。"""
 
     SCROLLBACK_REFLOW_DEBOUNCE_SEC: typing.Final[float] = 0.08
+    STREAM_SCROLLBACK_DEBOUNCE_SEC: typing.Final[float] = 0.08
     STREAM_SCROLLBACK_BATCH_LINES: typing.Final[int]    = 4
 
     def __init__(
@@ -93,17 +94,18 @@ class TuiTranscriptViewport(object):
         self._observed_geometry: tuple[int, int] | None = None
         self._reflowed_geometry: tuple[int, int] | None = None
 
-        self._reflow_generation: int  = 0
-        self._reflow_required: bool   = False
+        self._reflow_generation: int     = 0
+        self._reflow_required: bool      = False
         self._resize_during_stream: bool = False
 
-        self._rendered_revision: int            = 0
-        self._scrollback_render_revision: int   = 0
+        self._rendered_revision: int = 0
 
-        self._scrollback_reflow_handle: asyncio.TimerHandle | None = None
+        self._scrollback_render_revision: int                       = 0
+        self._scrollback_reflow_handle: asyncio.TimerHandle | None  = None
         self._scrollback_recheck_handle: asyncio.TimerHandle | None = None
-        self._scrollback_reflow_task: asyncio.Task[None] | None = None
-        self._reflow_reschedule_after_task: bool = False
+        self._stream_scrollback_handle: asyncio.TimerHandle | None  = None
+        self._scrollback_reflow_task: asyncio.Task[None] | None     = None
+        self._reflow_reschedule_after_task: bool                    = False
 
     @property
     def scrollback_task(self) -> asyncio.Task[None] | None:
@@ -170,6 +172,13 @@ class TuiTranscriptViewport(object):
         """取消尺寸重排后的终端几何复查。"""
         handle = self._scrollback_recheck_handle
         self._scrollback_recheck_handle = None
+        if handle is not None:
+            handle.cancel()
+
+    def _cancel_stream_scrollback(self) -> None:
+        """取消尚未开始的流式滚屏提交。"""
+        handle = self._stream_scrollback_handle
+        self._stream_scrollback_handle = None
         if handle is not None:
             handle.cancel()
 
@@ -519,6 +528,11 @@ class TuiTranscriptViewport(object):
         self._require_stable_render()
         self.schedule_scrollback_flush()
 
+    def stream_content_changed(self) -> None:
+        """在流式稳定前缀提交后合并安排滚屏。"""
+        self._require_stable_render()
+        self._schedule_stream_scrollback_flush()
+
     def _require_stable_render(self) -> None:
         """记录包含最新稳定正文的下一次应用渲染。"""
         self._invalidate()
@@ -594,22 +608,61 @@ class TuiTranscriptViewport(object):
 
     def schedule_scrollback_flush(self) -> None:
         """在稳定正文超出实时视口时安排原生滚屏提交。"""
-        if self._rendered_revision < self._scrollback_render_revision:
+        if self.document.active_stream_continuation:
+            self._schedule_stream_scrollback_flush()
             return None
+
+        self._cancel_stream_scrollback()
+        self._start_scrollback_flush()
+
+    def _schedule_stream_scrollback_flush(self) -> None:
+        """合并短时间内连续产生的流式滚屏提交。"""
+        if self._stream_scrollback_handle is not None:
+            return None
+        if not self._scrollback_flush_ready():
+            return None
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        self._stream_scrollback_handle = loop.call_later(
+            self.STREAM_SCROLLBACK_DEBOUNCE_SEC,
+            TuiTranscriptViewport._start_stream_scrollback_flush,
+            self,
+        )
+
+    @staticmethod
+    def _start_stream_scrollback_flush(
+        viewport: "TuiTranscriptViewport",
+    ) -> None:
+        """开始已经完成合并等待的流式滚屏提交。"""
+        viewport._stream_scrollback_handle = None
+        viewport._start_scrollback_flush()
+
+    def _scrollback_flush_ready(self) -> bool:
+        """判断当前是否具备启动原生滚屏提交的条件。"""
+        if self._rendered_revision < self._scrollback_render_revision:
+            return False
 
         if self._scrollback_reflow_pending():
             if self._scrollback_reflow_handle is None:
                 self._schedule_scrollback_reflow(delay=0)
-            return None
+            return False
 
         task = self._scrollback_task
-        if (
+        return not (
             self._is_closing()
             or not self._is_application_active()
             or self._should_defer_scrollback()
             or (task is not None and not task.done())
             or self._scrollback_prefix_line_count() <= 0
-        ):
+        )
+
+    def _start_scrollback_flush(self) -> None:
+        """在条件仍有效时启动唯一的原生滚屏任务。"""
+        if not self._scrollback_flush_ready():
             return None
 
         context = self._get_application().context
@@ -624,12 +677,14 @@ class TuiTranscriptViewport(object):
 
     def pause_scrollback(self) -> None:
         """取消正在等待的原生滚屏提交。"""
+        self._cancel_stream_scrollback()
         task = self._scrollback_task
         if task is not None and not task.done():
             task.cancel()
 
     def clear_visible(self) -> None:
         """清理当前终端画布并保留完整会话归档。"""
+        self._cancel_stream_scrollback()
         task = self._scrollback_task
         if task is not None and not task.done():
             task.cancel()
@@ -690,11 +745,16 @@ class TuiTranscriptViewport(object):
         """原子提交溢出的稳定正文并推进文档提交游标。"""
         current_task = asyncio.current_task()
 
-        reschedule: bool = False
+        reschedule: bool   = False
+        synchronized: bool = False
 
         try:
+            synchronized = self._begin_synchronized_output()
+
             while self._is_application_active() and not self._is_closing():
                 if self._should_defer_scrollback():
+                    return None
+                if self._scrollback_prefix_line_count() <= 0:
                     return None
 
                 async with in_terminal(render_cli_done=False):
@@ -726,6 +786,8 @@ class TuiTranscriptViewport(object):
             return None
 
         finally:
+            if synchronized:
+                self._end_synchronized_output()
             if self._scrollback_task is current_task:
                 self._scrollback_task = None
                 if reschedule:
@@ -736,6 +798,7 @@ class TuiTranscriptViewport(object):
         """取消并等待全部原生滚屏任务结束。"""
         self._cancel_scrollback_reflow()
         self._cancel_scrollback_recheck()
+        self._cancel_stream_scrollback()
 
         tasks = tuple(
             task

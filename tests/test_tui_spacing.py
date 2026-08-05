@@ -42,7 +42,10 @@ from mind_app.presentation.tool_views import (
     build_tool_start_view,
 )
 from mind_app.tui.adapters.content import TuiContentSink
-from mind_app.tui.adapters.output import TuiOutputControl
+from mind_app.tui.adapters.output import (
+    STREAM_RENDER_LONG_TEXT_SIZE,
+    TuiOutputControl,
+)
 from mind_app.tui.adapters.presentation import TuiPresentationSink
 from mind_app.tui.core.assistant import TuiAssistantStream
 from mind_app.tui.core.document import (
@@ -124,6 +127,22 @@ async def _render_next_frame(runtime: TuiRuntime):
         if runtime.screen.application.render_counter > previous_revision:
             return runtime.screen.application.renderer.last_rendered_screen
     raise AssertionError("next frame was not rendered")
+
+
+async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
+    """等待管道输入被主输入框完整消费。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+
+    while loop.time() < deadline:
+        if runtime.screen.input.buffer.text == text:
+            return None
+        await asyncio.sleep(0.001)
+
+    raise AssertionError(
+        "input text did not become "
+        f"{text!r}: {runtime.screen.input.buffer.text!r}"
+    )
 
 
 @pytest.mark.anyio
@@ -772,7 +791,7 @@ async def test_stable_assistant_prefix_flushes_during_model_stream() -> None:
                     await output.append_assistant_delta(source)
                     await _render_next_frame(runtime)
 
-                    for _ in range(50):
+                    for _ in range(100):
                         await asyncio.sleep(0.002)
                         if runtime.document.scrollback_line_count > 0:
                             break
@@ -790,6 +809,124 @@ async def test_stable_assistant_prefix_flushes_during_model_stream() -> None:
                 assert print_text.called
                 assert runtime.document.scrollback_line_count > 0
                 assert f"{printed}\n{visible}" == expected
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_stream_scrollback_is_debounced_and_synchronized() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        events: list[str] = []
+
+        @asynccontextmanager
+        async def controlled_terminal(render_cli_done: bool = False):
+            _ = render_cli_done
+            events.append("terminal enter")
+            try:
+                yield
+            finally:
+                events.append("terminal exit")
+
+        with (
+            patch.object(
+                runtime.screen.application.output,
+                "get_size",
+                return_value=Size(rows=12, columns=40),
+            ),
+            patch(
+                "mind_app.tui.core.viewport.in_terminal",
+                controlled_terminal,
+            ),
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        side_effect=(
+                            lambda: events.append("sync begin") or True
+                        ),
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                        side_effect=lambda: events.append("sync end"),
+                    ) as end,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=lambda _value: events.append("print"),
+                    ) as print_text,
+                ):
+                    runtime.set_execution_active(True)
+                    await output.append_assistant_delta("\n".join(
+                        f"line {index:02d}" for index in range(80)
+                    ))
+                    await _render_next_frame(runtime)
+
+                    assert runtime.viewport.scrollback_task is None
+                    assert runtime.viewport._stream_scrollback_handle is not None
+
+                    await asyncio.sleep(0.12)
+
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
+                assert print_text.call_count >= 1
+                assert events[0] == "sync begin"
+                assert events[-1] == "sync end"
+                assert events.count("terminal enter") == print_text.call_count
+                assert events.count("terminal exit") == print_text.call_count
+                assert events.count("print") == print_text.call_count
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_continuous_markdown_stream_bounds_native_redraws() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        wraps=runtime.screen.application.print_text,
+                    ) as print_text,
+                    patch.object(
+                        runtime.screen.application.renderer,
+                        "erase",
+                        wraps=runtime.screen.application.renderer.erase,
+                    ) as erase,
+                ):
+                    runtime.set_execution_active(True)
+                    for index in range(40):
+                        prefix = "" if index == 0 else "\n"
+                        await output.append_assistant_delta(
+                            prefix
+                            + f"- **entry {index:02d}** "
+                            + "[docs](https://example.com/reference)"
+                        )
+                        await asyncio.sleep(0.005)
+
+                    await asyncio.sleep(0.12)
+
+                assert 0 < print_text.call_count <= 4
+                assert erase.call_count == print_text.call_count
+                assert runtime.document.scrollback_line_count > 0
+                assert len(runtime.document.visible_stable_lines()) <= 8
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
@@ -2104,19 +2241,14 @@ async def test_multiline_input_backspace_keeps_input_at_canvas_bottom(
                 if render_each_key:
                     for line_count in range(1, 9):
                         pipe_input.send_text("\x0f")
-                        for _ in range(40):
-                            await asyncio.sleep(0)
-                            if runtime.screen.input.buffer.text == (
-                                "\n" * line_count
-                            ):
-                                break
+                        await _wait_for_input_text(
+                            runtime,
+                            "\n" * line_count,
+                        )
                         await _render_next_frame(runtime)
                 else:
                     pipe_input.send_text("\x0f" * 8)
-                    for _ in range(40):
-                        await asyncio.sleep(0)
-                        if runtime.screen.input.buffer.text == "\n" * 8:
-                            break
+                    await _wait_for_input_text(runtime, "\n" * 8)
 
                 await _render_next_frame(runtime)
                 expanded_height = runtime.screen._visible_height()
@@ -2125,19 +2257,14 @@ async def test_multiline_input_backspace_keeps_input_at_canvas_bottom(
                 if render_each_key:
                     for line_count in range(7, -1, -1):
                         pipe_input.send_text("\x7f")
-                        for _ in range(40):
-                            await asyncio.sleep(0)
-                            if runtime.screen.input.buffer.text == (
-                                "\n" * line_count
-                            ):
-                                break
+                        await _wait_for_input_text(
+                            runtime,
+                            "\n" * line_count,
+                        )
                         await _render_next_frame(runtime)
                 else:
                     pipe_input.send_text("\x7f" * 8)
-                    for _ in range(40):
-                        await asyncio.sleep(0)
-                        if not runtime.screen.input.buffer.text:
-                            break
+                    await _wait_for_input_text(runtime, "")
 
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
@@ -2211,16 +2338,10 @@ async def test_multiline_input_backspace_keeps_transcript_canvas_floor() -> None
                 assert runtime.screen._canvas_height_floor == 12
 
                 pipe_input.send_text("\x0f" * 8)
-                for _ in range(40):
-                    await asyncio.sleep(0)
-                    if runtime.screen.input.buffer.text == "\n" * 8:
-                        break
+                await _wait_for_input_text(runtime, "\n" * 8)
 
                 pipe_input.send_text("\x7f" * 8)
-                for _ in range(40):
-                    await asyncio.sleep(0)
-                    if not runtime.screen.input.buffer.text:
-                        break
+                await _wait_for_input_text(runtime, "")
 
                 await _render_next_frame(runtime)
 
@@ -4531,7 +4652,49 @@ async def test_live_stream_tail_keeps_one_assistant_prefix() -> None:
 
 
 @pytest.mark.anyio
-async def test_stream_markdown_reflow_keeps_slack_above_transcript() -> None:
+async def test_live_stream_tail_uses_markdown_rendering() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    source = "\n".join(
+        f"**line {index}** [docs](https://example.com/{index})"
+        for index in range(4)
+    )
+
+    await output.append_assistant_delta(source)
+
+    active = runtime.document.active_block
+    assert active is not None
+    text = fragments_text(active.fragments)
+    assert "**" not in text
+    assert "https://" not in text
+    assert all(f"line {index} docs" in text for index in range(1, 4))
+    assert any(
+        "bold" in style
+        for style, value in active.fragments
+        if value.strip()
+    )
+    assert any(
+        "underline" in style
+        for style, value in active.fragments
+        if value.strip()
+    )
+
+
+@pytest.mark.anyio
+async def test_oversized_live_tail_skips_repeated_markdown_parsing() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    with patch("mind_app.tui.adapters.output.render_tui_markdown") as render:
+        await output.append_assistant_delta(
+            "x" * STREAM_RENDER_LONG_TEXT_SIZE
+        )
+
+    render.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_markdown_tail_keeps_input_anchor_without_slack() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -4559,14 +4722,16 @@ async def test_stream_markdown_reflow_keeps_slack_above_transcript() -> None:
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 position = positions[runtime.screen.input.window]
-                spacer = positions[runtime.screen.canvas_spacer]
                 transcript = positions[runtime.screen.transcript_window]
                 top_padding = positions[runtime.screen.input_top_padding]
 
                 assert (
-                    24 - runtime.screen._visible_height() + position.ypos == input_row
+                    24
+                    - runtime.screen._visible_height()
+                    + position.ypos
+                    == input_row
                 )
-                assert spacer.ypos + spacer.height == transcript.ypos
+                assert runtime.screen.canvas_spacer not in positions
                 assert top_padding.ypos == (
                     transcript.ypos + transcript.height
                 )

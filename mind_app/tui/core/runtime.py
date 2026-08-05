@@ -1046,7 +1046,7 @@ class TuiRuntime(object):
         """提交流式正文的稳定前缀并继续保留当前执行周期。"""
         self.document.commit_active(block, raw_text=raw_text)
         self.screen.transcript_overlay.content_changed()
-        self.viewport.stable_content_changed()
+        self.viewport.stream_content_changed()
 
     def clear_active_renderable(self) -> None:
         """清空当前流式展示块。"""
