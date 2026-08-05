@@ -46,6 +46,37 @@ def test_task_state_aggregates_turn_and_activity_sources() -> None:
 
     assert not state.running
 
+
+def test_visual_update_merges_nested_invalidation_requests() -> None:
+    runtime = TuiRuntime()
+
+    with patch.object(runtime.screen, "_invalidate_now") as invalidate:
+        with runtime.screen.visual_update():
+            runtime.invalidate()
+            with runtime.screen.visual_update():
+                runtime.invalidate()
+
+    invalidate.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_stale_activity_lease_does_not_clear_replacement() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=lambda block: rendered.__setitem__(slice(None), [block]),
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    await activity.begin_compact(lambda: {"summary": "first"})
+    lease = activity.lease("compact")
+    assert lease is not None
+
+    await activity.begin_compact(lambda: {"summary": "second"})
+
+    assert not activity.release(lease)
+    assert "second" in _block_text(rendered[-1])
+    await activity.clear()
+
 def test_tui_output_session_separates_content_and_event_status() -> None:
     runtime = TuiRuntime()
     session = create_tui_output_session("", runtime=runtime, animate=False)

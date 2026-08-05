@@ -30,8 +30,6 @@ from ..features.conversation import (
     ForkLiveStatus,
     compact_current_conversation,
     copy_last_assistant_reply,
-    finish_compact_activity,
-    finish_fork_activity,
     fork_current_conversation,
     render_compact_failure,
     render_compact_interrupted,
@@ -45,7 +43,6 @@ from ..features.helix import (
     choose_helix_tool_profile,
     confirm_runtime_download,
     download_service_runtime,
-    finish_helix_download,
     open_helix_home,
     render_helix_command_failure,
     render_helix_command_hint,
@@ -262,7 +259,7 @@ class TuiCommandDispatcher(object):
                     self.mind,
                     pref_config=self.state.pref_config,
                 ),
-                finish_activity=lambda: finish_compact_activity(self.mind),
+                activity_kind="compact",
                 on_succeeded=lambda status: render_compact_result(
                     self.mind,
                     status,
@@ -282,7 +279,7 @@ class TuiCommandDispatcher(object):
                 lambda: fork_current_conversation(
                     self.mind,
                 ),
-                finish_activity=lambda: finish_fork_activity(self.mind),
+                activity_kind="compact",
                 on_succeeded=self._finish_conversation_fork,
                 on_failed=lambda error: render_fork_failure(
                     self.mind,
@@ -369,10 +366,7 @@ class TuiCommandDispatcher(object):
             self.foreground_tasks.start(
                 "Helix MCP stop",
                 lambda: stop_helix_runtime(self.mind),
-                finish_activity=lambda: self.runtime.end_activity_status(
-                    "operation",
-                    settle=False,
-                ),
+                activity_kind="operation",
                 on_succeeded=lambda result: render_helix_stop_result(
                     self.mind,
                     result,
@@ -415,7 +409,7 @@ class TuiCommandDispatcher(object):
         self.foreground_tasks.start(
             "Helix runtime download",
             lambda: download_service_runtime(self.mind, context),
-            finish_activity=lambda: finish_helix_download(self.mind),
+            activity_kind="download",
             on_succeeded=lambda _downloaded: render_helix_download_result(
                 self.mind,
                 command,

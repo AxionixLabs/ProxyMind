@@ -362,6 +362,9 @@ class TuiScreen(object):
 
         self._animation_tick: int = 0
 
+        self._visual_update_depth: int = 0
+        self._visual_update_dirty: bool = False
+
         self._frame_geometry: FrameGeometry | None    = None
         self._layout_geometry: tuple[int, int] | None = None
 
@@ -375,8 +378,6 @@ class TuiScreen(object):
         self._input_canvas_floor_growth: int = 0
 
         self._bottom_anchor = _BottomAnchorState()
-
-        self._completion_settle_revision: int | None = None
 
         self.activity_block: FragmentBlock | None = None
 
@@ -932,6 +933,14 @@ class TuiScreen(object):
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
+        if self._visual_update_depth:
+            self._visual_update_dirty = True
+            return None
+
+        self._invalidate_now()
+
+    def _invalidate_now(self) -> None:
+        """立即向运行中的 Application 提交一次绘制请求。"""
         application = getattr(self, "application", None)
         if (
             application is not None
@@ -940,6 +949,25 @@ class TuiScreen(object):
         ):
             with contextlib.suppress(Exception):
                 application.invalidate()
+
+    def visual_update(self) -> contextlib.AbstractContextManager[None]:
+        """把一组同步画面状态变更合并为一次绘制请求。"""
+
+        @contextlib.contextmanager
+        def transaction() -> typing.Iterator[None]:
+            self._visual_update_depth += 1
+            try:
+                yield
+            finally:
+                self._visual_update_depth -= 1
+                if (
+                    self._visual_update_depth == 0
+                    and self._visual_update_dirty
+                ):
+                    self._visual_update_dirty = False
+                    self._invalidate_now()
+
+        return transaction()
 
     def set_keymap(self, keymap: TuiRuntimeKeymap) -> None:
         """在 Application 启动前替换主视图和记录面板按键。"""
@@ -966,24 +994,11 @@ class TuiScreen(object):
         self._transcript_only = active
         self.invalidate()
 
-    def settle_completion_layout(self) -> None:
+    def settle_completion_layout(self, *, invalidate: bool = True) -> None:
         """在交互周期结束时折叠尚未被正文消费的补全空间。"""
         self._reset_completion_layout(reset_canvas_floor=False)
-        self.invalidate()
-
-    def settle_completion_layout_after_render(self) -> None:
-        """在当前命令结果完成一帧渲染后折叠临时补全空间。"""
-        if not self.application.is_running or self.application.is_done:
-            self.settle_completion_layout()
-            return None
-
-        revision = self.application.render_counter + 1
-        current  = self._completion_settle_revision
-
-        self._completion_settle_revision = (
-            revision if current is None else max(current, revision)
-        )
-        self.invalidate()
+        if invalidate:
+            self.invalidate()
 
     def set_transcript_overlay(self, active: bool) -> bool:
         """切换完整会话记录、终端画面和键盘焦点。"""
@@ -1150,14 +1165,6 @@ class TuiScreen(object):
         """在渲染结束后恢复终端尺寸的实时读取。"""
         self._observe_render_revision(application.render_counter)
         self._frame_geometry = None
-
-        settle_revision = self._completion_settle_revision
-        if (
-            settle_revision is not None
-            and application.render_counter >= settle_revision
-        ):
-            self._reset_completion_layout(reset_canvas_floor=False)
-            self.invalidate()
 
     def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
         """读取并规范化一个终端尺寸快照。"""
@@ -2317,7 +2324,6 @@ class TuiScreen(object):
 
     def _reset_completion_layout(self, *, reset_canvas_floor: bool) -> None:
         """清除底部临时区域状态并同步收束画布高度下限。"""
-        self._completion_settle_revision = None
         self._bottom_anchor.clear()
 
         if reset_canvas_floor:

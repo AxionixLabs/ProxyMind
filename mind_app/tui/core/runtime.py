@@ -4,6 +4,8 @@
 import typing
 import asyncio
 import contextlib
+import contextvars
+from dataclasses import dataclass
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.application import in_terminal
 from prompt_toolkit.input.base import Input
@@ -31,7 +33,10 @@ from .models import (
     TranscriptExportResult
 )
 from .terminal_input import clear_pending_input
-from .activity import TuiActivity
+from .activity import (
+    ActivityLease,
+    TuiActivity,
+)
 from .document import (
     TranscriptCellSource,
     TranscriptBlock,
@@ -65,6 +70,28 @@ StartupAnimation: typing.TypeAlias = typing.Callable[
 ]
 
 ModalResult = typing.TypeVar("ModalResult")
+
+
+@dataclass(frozen=True, slots=True)
+class _DeferredBlock(object):
+    """保存等待安全边界提交的正文块和活动租约。"""
+    block: FragmentBlock
+    transcript_block: FragmentBlock
+    activity_lease: ActivityLease | None = None
+
+
+@dataclass(slots=True)
+class _ActivityHandoff(object):
+    """保存当前任务结果接管活动区域的状态。"""
+    lease: ActivityLease | None
+    deferred: bool
+    consumed: bool = False
+
+
+@dataclass(slots=True)
+class _CommandLayoutHandoff(object):
+    """保存当前命令结果对补全锚点的接管状态。"""
+    consumed: bool = False
 
 
 class TuiRuntime(object):
@@ -104,9 +131,16 @@ class TuiRuntime(object):
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
 
-        self._background_blocks: list[
-            tuple[FragmentBlock, FragmentBlock]
-        ] = []
+        self._background_blocks: list[_DeferredBlock] = []
+
+        self._activity_handoff = contextvars.ContextVar[
+            _ActivityHandoff | None
+        ]("tui_activity_handoff", default=None)
+
+        self._command_layout = contextvars.ContextVar[
+            _CommandLayoutHandoff | None
+        ]("tui_command_layout", default=None)
+        self._command_layout_token: contextvars.Token | None = None
 
         self._open_callbacks: list[typing.Callable[[], None]] = []
         self._startup_animations: list[StartupAnimation]      = []
@@ -309,12 +343,24 @@ class TuiRuntime(object):
         blocks = tuple(self._background_blocks)
         self._background_blocks.clear()
 
-        for block, transcript_block in blocks:
-            self.append_block(
-                block,
-                kind="notice",
-                transcript_block=transcript_block,
-            )
+        with self.screen.visual_update():
+            for deferred in blocks:
+                self._append_block(
+                    deferred.block,
+                    kind="notice",
+                    transcript_block=deferred.transcript_block,
+                    activity_lease=deferred.activity_lease,
+                )
+
+    def _discard_background_blocks(self) -> None:
+        """丢弃延迟正文并释放其持有的活动区域。"""
+        blocks = tuple(self._background_blocks)
+        self._background_blocks.clear()
+
+        with self.screen.visual_update():
+            for deferred in blocks:
+                if deferred.activity_lease is not None:
+                    self.activity.release(deferred.activity_lease)
 
     def _background_task_done(self, task: asyncio.Task[None]) -> None:
         """回收已完成的 TUI 后台任务。"""
@@ -558,7 +604,12 @@ class TuiRuntime(object):
         """在不打断流式正文的边界提交后台摘要。"""
         transcript_block = transcript_block or block
         if self.execution_active or self.document.active_block is not None:
-            self._background_blocks.append((block, transcript_block))
+            lease = self._consume_activity_handoff(deferred=True)
+            self._background_blocks.append(_DeferredBlock(
+                block,
+                transcript_block,
+                lease,
+            ))
             return None
 
         self.append_block(
@@ -575,17 +626,48 @@ class TuiRuntime(object):
         transcript_block: FragmentBlock | None = None,
         source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
-        stream_continuation: bool = False
+        stream_continuation: bool = False,
     ) -> None:
         """向会话内容追加一个稳定展示块。"""
-        if self.document.append_block(
+        with self.screen.visual_update():
+            self._append_block(
+                block,
+                kind=kind,
+                transcript_block=transcript_block,
+                source=source,
+                raw_text=raw_text,
+                stream_continuation=stream_continuation,
+                activity_lease=self._consume_activity_handoff(
+                    deferred=False,
+                ),
+            )
+
+    def _append_block(
+        self,
+        block: FragmentBlock,
+        *,
+        kind: TuiBlockKind,
+        transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
+        raw_text: str | None = None,
+        stream_continuation: bool = False,
+        activity_lease: ActivityLease | None = None,
+    ) -> None:
+        """在当前视觉事务中追加正文并完成相关状态交接。"""
+        appended = self.document.append_block(
             block,
             kind=kind,
             transcript_block=transcript_block,
             source=source,
             raw_text=raw_text,
             stream_continuation=stream_continuation,
-        ):
+        )
+
+        if activity_lease is not None:
+            self.activity.release(activity_lease)
+
+        if appended:
+            self._complete_command_layout()
             self.screen.transcript_overlay.content_changed()
             self.viewport.content_appended()
 
@@ -597,7 +679,7 @@ class TuiRuntime(object):
         self.viewport.pause_scrollback()
         self.document.replace_blocks(blocks)
 
-        self._background_blocks.clear()
+        self._discard_background_blocks()
 
         self.viewport.clear_submitted_query()
         self.viewport.reset_view()
@@ -610,9 +692,93 @@ class TuiRuntime(object):
         if self.document.discard_submission():
             self.invalidate()
 
+    def begin_command_layout(self) -> None:
+        """标记当前输入可能通过命令结果收束补全占位。"""
+        self.cancel_command_layout()
+        self._command_layout_token = self._command_layout.set(
+            _CommandLayoutHandoff()
+        )
+
+    def cancel_command_layout(self) -> None:
+        """取消当前输入的命令收束标记并保留正文增长锚点。"""
+        token = self._command_layout_token
+        self._command_layout_token = None
+        if token is not None:
+            self._command_layout.reset(token)
+
     def finish_command_layout(self) -> None:
-        """在命令结果首帧完成后收束输入补全留下的临时空间。"""
-        self.screen.settle_completion_layout_after_render()
+        """在没有结果块接管时立即收束输入补全留下的临时空间。"""
+        with self.screen.visual_update():
+            if self._complete_command_layout():
+                self.invalidate()
+        self.cancel_command_layout()
+
+    def _complete_command_layout(self) -> bool:
+        """同步消费命令收束标记并更新最终画布高度。"""
+        handoff = self._command_layout.get()
+        if handoff is None or handoff.consumed:
+            return False
+        handoff.consumed = True
+        self.screen.settle_completion_layout(invalidate=False)
+        return True
+
+    @property
+    def command_layout_pending(self) -> bool:
+        """返回当前任务是否仍等待命令结果收束补全锚点。"""
+        handoff = self._command_layout.get()
+        return handoff is not None and not handoff.consumed
+
+    def activity_handoff(
+        self,
+        kind: ActivityStatusKind | None,
+    ) -> contextlib.AbstractContextManager[None]:
+        """让当前任务的首个可见结果接管指定活动区域。"""
+
+        @contextlib.contextmanager
+        def transaction() -> typing.Iterator[None]:
+            lease = self.activity.lease(kind) if kind is not None else None
+            deferred = bool(
+                self.execution_active
+                or self.document.active_block is not None
+            )
+            handoff = _ActivityHandoff(lease, deferred)
+
+            if lease is not None and deferred:
+                with self.screen.visual_update():
+                    self.activity.freeze(lease)
+
+            token = self._activity_handoff.set(handoff)
+            try:
+                yield
+            finally:
+                self._activity_handoff.reset(token)
+                if lease is not None and not handoff.consumed:
+                    with self.screen.visual_update():
+                        self.activity.release(lease)
+
+        return transaction()
+
+    def _consume_activity_handoff(
+        self,
+        *,
+        deferred: bool,
+    ) -> ActivityLease | None:
+        """消费当前任务等待交接的活动租约。"""
+        handoff = self._activity_handoff.get()
+        if handoff is None or handoff.consumed:
+            return None
+
+        lease = handoff.lease
+        if lease is None:
+            handoff.consumed = True
+            return None
+
+        if deferred and not handoff.deferred:
+            self.activity.freeze(lease)
+            handoff.deferred = True
+
+        handoff.consumed = True
+        return lease
 
     def replace_input_text(self, text: str) -> None:
         """替换主输入内容并把光标移动到末尾。"""
@@ -769,16 +935,17 @@ class TuiRuntime(object):
         stream_continuation: bool = False
     ) -> None:
         """替换当前流式展示块。"""
-        self.document.set_active(
-            block,
-            kind=kind,
-            transcript_block=transcript_block,
-            raw_text=raw_text,
-            stream_continuation=stream_continuation,
-        )
+        with self.screen.visual_update():
+            self.document.set_active(
+                block,
+                kind=kind,
+                transcript_block=transcript_block,
+                raw_text=raw_text,
+                stream_continuation=stream_continuation,
+            )
 
-        self.screen.transcript_overlay.content_changed()
-        self.invalidate()
+            self.screen.transcript_overlay.content_changed()
+            self.invalidate()
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""

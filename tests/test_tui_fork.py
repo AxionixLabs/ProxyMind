@@ -118,7 +118,6 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
     monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
 
     status = await conversation.fork_current_conversation(mind)
-    await conversation.finish_fork_activity(mind)
     conversation.render_fork_result(mind, status)
 
     assert mind.bound == [
@@ -133,7 +132,7 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
         )
     ]
     assert mind.started[0]()["items"][0]["name"] == "Fork"
-    assert mind.stopped == ("compact", False)
+    assert mind.stopped is None
     result = next(view for view in mind.views if view.type == "tui.fork.status")
     assert result.renderable.plain_text == (
         "■ Conversation forked. · 24 items"

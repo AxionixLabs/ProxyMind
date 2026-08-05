@@ -176,12 +176,6 @@ async def download_service_runtime(
     )
 
 
-async def finish_helix_download(mind: "Mind") -> None:
-    """结束服务运行时下载状态。"""
-    runtime = require_tui_runtime(mind.frontend.runtime)
-    await runtime.end_activity_status("download", settle=False)
-
-
 async def choose_helix_tool_profile(
     runtime: TuiRuntime,
     current: ToolFilterMode,

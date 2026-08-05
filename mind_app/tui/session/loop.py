@@ -17,7 +17,6 @@ from ..core.submission import (
 )
 from ..features.conversation import (
     ForkLiveStatus,
-    finish_fork_activity,
     fork_current_conversation,
     render_fork_failure,
     render_fork_interrupted,
@@ -158,20 +157,27 @@ async def run_tui_loop(
                 )
                 state.replace_pending_prompt_extras(submission.extras)
 
+            runtime.begin_command_layout()
             try:
                 action = (
                     DispatchAction.MODEL_TURN
                     if not prompt_text.strip() and runtime.has_pending_attachments
                     else await dispatcher.dispatch(prompt_text)
                 )
+            except BaseException:
+                runtime.cancel_command_layout()
+                raise
             finally:
                 runtime.discard_pending_submission()
 
         if action is DispatchAction.EXIT:
+            runtime.finish_command_layout()
             break
         if action is DispatchAction.HANDLED:
             runtime.finish_command_layout()
             continue
+
+        runtime.cancel_command_layout()
 
         await state.refresh_preferences(mind, ttl_sec=0.0)
         application.emit(ApplicationView(type="tui.gap"))
@@ -266,7 +272,7 @@ async def _handle_transcript_backtrack(
                 extras=request.extras,
             ),
         ),
-        finish_activity=lambda: finish_fork_activity(mind),
+        activity_kind="compact",
         on_succeeded=lambda status: _finish_transcript_backtrack(
             mind,
             runtime,

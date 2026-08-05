@@ -10,6 +10,7 @@ from engine.observability import (
     observe_exception
 )
 from engine.errors import AppError
+from mind_app.frontend.contracts import ActivityStatusKind
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
@@ -17,7 +18,6 @@ from ..core.styles import (
     text_block
 )
 from ..features.helix import (
-    finish_helix_activity,
     link_helix_runtime,
     render_helix_interrupted,
     render_helix_link_failure,
@@ -25,7 +25,6 @@ from ..features.helix import (
 )
 from ..features.mcp import (
     McpAction,
-    finish_mcp_activity,
     parse_mcp_command,
     render_mcp_action_cancelled,
     render_mcp_action_failure,
@@ -38,7 +37,6 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 CancelCleanup    = typing.Callable[[], typing.Awaitable[None]]
-ActivityFinisher = typing.Callable[[], typing.Awaitable[None]]
 
 SucceededHandler = typing.Callable[
     [typing.Any],
@@ -67,7 +65,7 @@ class TuiForegroundTasks(object):
         ],
         *,
         cancel_cleanup: CancelCleanup | None = None,
-        finish_activity: ActivityFinisher | None = None,
+        activity_kind: ActivityStatusKind | None = None,
         on_succeeded: SucceededHandler | None = None,
         on_failed: FailedHandler | None = None,
         on_cancelled: CancelledHandler | None = None
@@ -84,7 +82,7 @@ class TuiForegroundTasks(object):
                 key,
                 factory,
                 cancel_cleanup=cancel_cleanup,
-                finish_activity=finish_activity,
+                activity_kind=activity_kind,
                 on_succeeded=on_succeeded,
                 on_failed=on_failed,
                 on_cancelled=on_cancelled,
@@ -111,7 +109,7 @@ class TuiForegroundTasks(object):
             "Helix MCP",
             lambda: link_helix_runtime(self.mind),
             cancel_cleanup=self.mind.cancel_service_runtime_startup,
-            finish_activity=lambda: finish_helix_activity(self.mind),
+            activity_kind="inbuild",
             on_succeeded=lambda linked: render_helix_link_result(
                 self.mind,
                 linked,
@@ -125,13 +123,16 @@ class TuiForegroundTasks(object):
 
     def start_external_mcp(self, action: McpAction) -> bool:
         """按统一生命周期启动外部 MCP 任务。"""
+        activity_kind: ActivityStatusKind
+        if action == "stop":
+            activity_kind = "operation"
+        else:
+            activity_kind = "external_mcp"
+
         return self.start(
             "External MCP",
             lambda: run_mcp_action(self.mind, action),
-            finish_activity=lambda: finish_mcp_activity(
-                self.mind,
-                action,
-            ),
+            activity_kind=activity_kind,
             on_succeeded=lambda was_started: render_mcp_action_result(
                 self.mind,
                 action,
@@ -227,7 +228,7 @@ class TuiForegroundTasks(object):
         ],
         *,
         cancel_cleanup: CancelCleanup | None,
-        finish_activity: ActivityFinisher | None,
+        activity_kind: ActivityStatusKind | None,
         on_succeeded: SucceededHandler | None,
         on_failed: FailedHandler | None,
         on_cancelled: CancelledHandler | None
@@ -239,15 +240,14 @@ class TuiForegroundTasks(object):
 
         try:
             result = await factory()
-            if finish_activity is not None:
-                await finish_activity()
         except asyncio.CancelledError:
-            if cancel_cleanup is not None:
-                await self.mind.await_cleanup(cancel_cleanup())
-            if finish_activity is not None:
-                await self.mind.await_cleanup(finish_activity())
-            if on_cancelled is not None:
-                on_cancelled()
+            try:
+                if cancel_cleanup is not None:
+                    await self.mind.await_cleanup(cancel_cleanup())
+            finally:
+                with self.runtime.activity_handoff(activity_kind):
+                    if on_cancelled is not None:
+                        on_cancelled()
 
             observe(
                 "operation.interrupted",
@@ -258,9 +258,6 @@ class TuiForegroundTasks(object):
             raise
 
         except AppError as error:
-            if finish_activity is not None:
-                await self.mind.await_cleanup(finish_activity())
-
             observe_exception(
                 "operation.failed",
                 error,
@@ -269,13 +266,13 @@ class TuiForegroundTasks(object):
             )
 
             if on_failed is None:
+                with self.runtime.activity_handoff(activity_kind):
+                    pass
                 raise
-            on_failed(error)
+            with self.runtime.activity_handoff(activity_kind):
+                on_failed(error)
 
         except Exception as error:
-            if finish_activity is not None:
-                await self.mind.await_cleanup(finish_activity())
-
             observe_exception(
                 "operation.failed",
                 error,
@@ -284,14 +281,18 @@ class TuiForegroundTasks(object):
             )
 
             if on_failed is None:
+                with self.runtime.activity_handoff(activity_kind):
+                    pass
                 raise
-            on_failed(error)
+            with self.runtime.activity_handoff(activity_kind):
+                on_failed(error)
 
         else:
-            if on_succeeded is not None:
-                handled = on_succeeded(result)
-                if inspect.isawaitable(handled):
-                    await handled
+            with self.runtime.activity_handoff(activity_kind):
+                if on_succeeded is not None:
+                    handled = on_succeeded(result)
+                    if inspect.isawaitable(handled):
+                        await handled
             observe(
                 "operation.complete",
                 operation=key,

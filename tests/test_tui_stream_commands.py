@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from engine.errors import AppError
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.styles import text_block
@@ -26,31 +27,223 @@ async def test_foreground_result_is_rendered_before_barrier_release() -> None:
     await runtime.begin_operation_status(
         lambda: {"summary": "Operation running"},
     )
+    runtime.begin_command_layout()
 
     async def operation() -> str:
         events.append("business")
         return "ready"
 
-    async def finish() -> None:
-        events.append("finish")
-        await runtime.end_activity_status("operation", settle=False)
-
     def render(result: str) -> None:
         assert result == "ready"
         assert runtime.foreground_active
+        runtime.append_block(text_block("Operation ready"))
         assert runtime.screen.activity_block is None
         events.append("render")
 
     foreground.start(
         "operation",
         operation,
-        finish_activity=finish,
+        activity_kind="operation",
         on_succeeded=render,
     )
     await foreground.wait()
 
-    assert events == ["business", "finish", "render"]
+    assert events == ["business", "render"]
+    assert not runtime.command_layout_pending
+    runtime.finish_command_layout()
     assert not runtime.foreground_active
+
+
+@pytest.mark.anyio
+async def test_existing_background_task_cannot_consume_command_layout() -> None:
+    runtime = TuiRuntime()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def background() -> None:
+        started.set()
+        await release.wait()
+        runtime.append_block(text_block("background"))
+
+    task = asyncio.create_task(background())
+    await started.wait()
+
+    runtime.begin_command_layout()
+    release.set()
+    await task
+
+    assert runtime.command_layout_pending
+
+    runtime.append_block(text_block("command result"))
+
+    assert not runtime.command_layout_pending
+    runtime.finish_command_layout()
+
+
+@pytest.mark.anyio
+async def test_stream_foreground_result_replaces_frozen_activity_at_flush(
+) -> None:
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
+        await_cleanup=lambda awaitable: awaitable,
+    )
+    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    snapshot = {
+        "done": False,
+        "items": [{"name": "docs", "state": "linking", "tools": 0}],
+    }
+
+    runtime.set_execution_active(True)
+    runtime.set_active_renderable(text_block("streaming answer"))
+    await runtime.begin_external_mcp_status(lambda: dict(snapshot))
+
+    async def operation() -> str:
+        snapshot["done"] = True
+        snapshot["items"] = [
+            {"name": "docs", "state": "ready", "tools": 4},
+        ]
+        return "ready"
+
+    foreground.start(
+        "external",
+        operation,
+        activity_kind="external_mcp",
+        on_succeeded=lambda _result: runtime.queue_background_block(
+            text_block("External MCP ready"),
+        ),
+    )
+    await foreground.wait()
+
+    assert runtime.screen.activity_block is not None
+    assert "External MCP ready" in fragments_text(
+        runtime.screen.activity_block.fragments,
+    )
+    assert len(runtime._background_blocks) == 1
+
+    runtime.commit_active_renderable(text_block("streaming answer"))
+    runtime.set_execution_active(False)
+
+    assert runtime.screen.activity_block is None
+    assert not runtime._background_blocks
+    assert "External MCP ready" in fragments_text(
+        runtime.document.fragments(width=80),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("outcome", ("failed", "cancelled"))
+async def test_stream_foreground_terminal_outcome_keeps_activity_until_flush(
+    outcome: str,
+) -> None:
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
+        await_cleanup=lambda awaitable: awaitable,
+    )
+    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    started = asyncio.Event()
+
+    runtime.set_execution_active(True)
+    runtime.set_active_renderable(text_block("streaming answer"))
+    await runtime.begin_operation_status(lambda: {"summary": "working"})
+
+    async def operation() -> None:
+        started.set()
+        if outcome == "failed":
+            raise AppError("failed")
+        await asyncio.Future()
+
+    foreground.start(
+        outcome,
+        operation,
+        activity_kind="operation",
+        on_failed=lambda _error: runtime.queue_background_block(
+            text_block("Operation failed"),
+        ),
+        on_cancelled=lambda: runtime.queue_background_block(
+            text_block("Operation cancelled"),
+        ),
+    )
+    wait_task = asyncio.create_task(foreground.wait())
+    await started.wait()
+    if outcome == "cancelled":
+        foreground.cancel()
+    await wait_task
+
+    assert runtime.screen.activity_block is not None
+    assert len(runtime._background_blocks) == 1
+
+    runtime.commit_active_renderable(text_block("streaming answer"))
+    runtime.set_execution_active(False)
+
+    assert runtime.screen.activity_block is None
+    assert f"Operation {outcome}" in fragments_text(
+        runtime.document.fragments(width=80),
+    )
+
+
+@pytest.mark.anyio
+async def test_replace_transcript_releases_deferred_activity_handoff() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    runtime.set_active_renderable(text_block("streaming answer"))
+    await runtime.begin_operation_status(lambda: {"summary": "working"})
+
+    with runtime.activity_handoff("operation"):
+        runtime.queue_background_block(text_block("Operation ready"))
+
+    assert runtime.screen.activity_block is not None
+    assert len(runtime._background_blocks) == 1
+
+    runtime.replace_transcript(())
+
+    assert runtime.screen.activity_block is None
+    assert not runtime._background_blocks
+    await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_cancel_cleanup_failure_still_releases_activity_handoff() -> None:
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
+        await_cleanup=lambda awaitable: awaitable,
+    )
+    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    started = asyncio.Event()
+    cancelled = Mock()
+
+    await runtime.begin_operation_status(lambda: {"summary": "working"})
+
+    async def operation() -> None:
+        started.set()
+        await asyncio.Future()
+
+    async def failed_cleanup() -> None:
+        raise RuntimeError("cleanup failed")
+
+    def render_cancelled() -> None:
+        cancelled()
+        runtime.append_block(text_block("Operation cancelled"))
+
+    foreground.start(
+        "cancel-cleanup",
+        operation,
+        cancel_cleanup=failed_cleanup,
+        activity_kind="operation",
+        on_cancelled=render_cancelled,
+    )
+    wait_task = asyncio.create_task(foreground.wait())
+    await started.wait()
+    foreground.cancel()
+    await wait_task
+
+    cancelled.assert_called_once_with()
+    assert runtime.screen.activity_block is None
+    assert "Operation cancelled" in fragments_text(
+        runtime.document.fragments(width=80),
+    )
 
 
 @pytest.mark.anyio

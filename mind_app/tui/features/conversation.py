@@ -468,16 +468,6 @@ async def fork_current_conversation(
     return status
 
 
-async def finish_compact_activity(mind: "Mind") -> None:
-    """结束上下文压缩活动状态。"""
-    await mind.stop_anim("compact", settle=False)
-
-
-async def finish_fork_activity(mind: "Mind") -> None:
-    """结束会话分支操作复用的活动动画。"""
-    await mind.stop_anim("compact", settle=False)
-
-
 def render_fork_result(mind: "Mind", status: ForkLiveStatus) -> None:
     """展示会话分支操作的最终状态。"""
     view = external_mcp_status_view(status.snapshot(), detail_limit=0)

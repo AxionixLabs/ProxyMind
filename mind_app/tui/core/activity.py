@@ -71,14 +71,53 @@ def _no_final_block() -> FragmentBlock | None:
     return None
 
 
-@dataclass(slots=True)
 class _ActivitySlot(object):
     """保存一项活动动画的渲染和完成状态。"""
+
+    __slots__ = (
+        "key",
+        "kind",
+        "render",
+        "finalize",
+        "phase",
+        "generation",
+        "frozen",
+    )
+
     key: ActivitySlotKey
     kind: ActivityStatusKind
     render: typing.Callable[[float], FragmentBlock]
-    finalize: typing.Callable[[], FragmentBlock | None] = _no_final_block
-    phase: float = 0.0
+    finalize: typing.Callable[[], FragmentBlock | None]
+    phase: float
+    generation: int
+    frozen: bool
+
+    def __init__(
+        self,
+        *,
+        key: ActivitySlotKey,
+        kind: ActivityStatusKind,
+        render: typing.Callable[[float], FragmentBlock],
+        finalize: typing.Callable[
+            [], FragmentBlock | None
+        ] = _no_final_block,
+        phase: float = 0.0,
+    ) -> None:
+        self.key        = key
+        self.kind       = kind
+        self.render     = render
+        self.finalize   = finalize
+        self.phase      = phase
+        self.generation = 0
+        self.frozen     = False
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityLease(object):
+    """标识一项仍由原启动方持有的活动状态。"""
+    key: ActivitySlotKey
+    kind: ActivityStatusKind
+    generation: int
 
 
 class TuiActivity(object):
@@ -98,6 +137,10 @@ class TuiActivity(object):
         self.color_level      = color_level
 
         self.task: asyncio.Task[None] | None = None
+
+        self._retired_tasks: set[asyncio.Task[None]] = set()
+
+        self._generation: int = 0
 
         self._wait_elapsed_sec: float       = 0.0
         self._wait_started_at: float | None = None
@@ -253,6 +296,7 @@ class TuiActivity(object):
                 continue
 
             slot.render = lambda _phase, block=final: block
+            slot.frozen = True
             self._settle_deadlines[key] = expires_at
 
         await self._refresh_task()
@@ -263,6 +307,11 @@ class TuiActivity(object):
         self._settle_deadlines.clear()
         self._reset_wait()
         await self._cancel_task()
+        retired = tuple(self._retired_tasks)
+        for task in retired:
+            task.cancel()
+        if retired:
+            await asyncio.gather(*retired, return_exceptions=True)
         self.clear_renderable()
 
     async def hold(self, kind: ActivityStatusKind) -> None:
@@ -278,9 +327,57 @@ class TuiActivity(object):
             self._slots.pop(key, None)
         else:
             slot.render = lambda _phase, block=final: block
+            slot.frozen = True
 
         self._settle_deadlines.pop(key, None)
         await self._refresh_task()
+
+    def lease(self, kind: ActivityStatusKind) -> ActivityLease | None:
+        """返回指定活动当前可用于视觉交接的租约。"""
+        key = _SLOT_KEYS[kind]
+        slot = self._slots.get(key)
+        if slot is None or slot.kind != kind:
+            return None
+        return ActivityLease(key, kind, slot.generation)
+
+    def freeze(self, lease: ActivityLease) -> bool:
+        """把租约对应的活动冻结为静态最终帧。"""
+        slot = self._leased_slot(lease)
+        if slot is None:
+            return False
+
+        block = slot.finalize() or slot.render(slot.phase)
+        slot.render = lambda _phase, frozen=block: frozen
+        slot.frozen = True
+        self._settle_deadlines.pop(slot.key, None)
+        self._render_slots()
+
+        if not self._needs_render_task():
+            self._retire_task()
+        return True
+
+    def release(self, lease: ActivityLease) -> bool:
+        """同步移除租约对应的活动并保留其他槽位。"""
+        slot = self._leased_slot(lease)
+        if slot is None:
+            return False
+
+        self._slots.pop(slot.key, None)
+        self._settle_deadlines.pop(slot.key, None)
+        if slot.kind == "wait":
+            self._reset_wait()
+
+        if not self._slots:
+            self._retire_task()
+            self.clear_renderable()
+            return True
+
+        self._render_slots()
+        if self._needs_render_task():
+            self._ensure_task()
+        else:
+            self._retire_task()
+        return True
 
     async def pause_wait(self) -> bool:
         """暂停当前等待动画和耗时统计。"""
@@ -333,11 +430,12 @@ class TuiActivity(object):
 
     async def _set_slot(self, slot: _ActivitySlot) -> None:
         """添加或替换一项活动动画。"""
+        self._generation += 1
+        slot.generation = self._generation
         self._slots[slot.key] = slot
         self._settle_deadlines.pop(slot.key, None)
         self._render_slots()
-        if self.task is None:
-            self.task = asyncio.create_task(self._render_loop())
+        self._ensure_task()
 
     async def _discard(self, kind: ActivityStatusKind) -> None:
         """移除一项活动动画但不生成最终状态。"""
@@ -357,8 +455,10 @@ class TuiActivity(object):
 
         self._render_slots()
 
-        if self.task is None:
-            self.task = asyncio.create_task(self._render_loop())
+        if self._needs_render_task():
+            self._ensure_task()
+        else:
+            await self._cancel_task()
 
     async def _render_loop(self) -> None:
         """持续合成全部活动槽位的动画帧。"""
@@ -367,7 +467,7 @@ class TuiActivity(object):
         previous_tick = loop.time()
 
         try:
-            while self._slots:
+            while self._needs_render_task():
                 await asyncio.sleep(interval)
                 current_tick = loop.time()
 
@@ -417,6 +517,46 @@ class TuiActivity(object):
         else:
             self.clear_renderable()
 
+    def _leased_slot(self, lease: ActivityLease) -> _ActivitySlot | None:
+        """返回仍与租约匹配的活动槽位。"""
+        slot = self._slots.get(lease.key)
+        if (
+            slot is None
+            or slot.kind != lease.kind
+            or slot.generation != lease.generation
+        ):
+            return None
+        return slot
+
+    def _needs_render_task(self) -> bool:
+        """返回当前槽位是否仍需周期刷新或到期清理。"""
+        return any(
+            not slot.frozen or key in self._settle_deadlines
+            for key, slot in self._slots.items()
+        )
+
+    def _ensure_task(self) -> None:
+        """确保需要动态刷新时存在合成任务。"""
+        if self.task is None and self._needs_render_task():
+            self.task = asyncio.create_task(self._render_loop())
+
+    def _retire_task(self) -> None:
+        """同步取消当前合成任务并在后台回收结果。"""
+        task = self.task
+        self.task = None
+        if task is None:
+            return None
+
+        task.cancel()
+        self._retired_tasks.add(task)
+        task.add_done_callback(self._retired_task_done)
+
+    def _retired_task_done(self, task: asyncio.Task[None]) -> None:
+        """回收已同步撤下的合成任务。"""
+        self._retired_tasks.discard(task)
+        with contextlib.suppress(asyncio.CancelledError):
+            task.exception()
+
     def _wait_elapsed(self) -> float:
         """返回不包含暂停时段的等待耗时。"""
         started_at = self._wait_started_at
@@ -435,6 +575,7 @@ class TuiActivity(object):
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:
     """生成附件上传活动状态。"""
     event = data.get("event")
+
     indicator = spinner_indicator_fragment(
         phase,
         family="wait",
@@ -487,11 +628,12 @@ def _compact_activity_block(
     data: dict[str, typing.Any],
     *,
     phase: float,
-    width: int,
+    width: int
 ) -> FragmentBlock:
     """生成对话压缩活动区域使用的单行状态。"""
     summary = str(data.get("summary") or "Context compacting...").strip()
     summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
+
     return _status_block(
         summary,
         family="wait",
@@ -505,7 +647,7 @@ def _operation_activity_block(
     data: dict[str, typing.Any],
     *,
     phase: float,
-    width: int,
+    width: int
 ) -> FragmentBlock:
     """生成通用前台操作使用的单行状态。"""
     summary = str(data.get("summary") or "working...").strip()
@@ -581,7 +723,7 @@ def _mcp_final_block(view: McpStatusView, *, width: int) -> FragmentBlock | None
 def _external_mcp_final_block(
     snapshot: dict[str, typing.Any],
     *,
-    width: int,
+    width: int
 ) -> FragmentBlock | None:
     """生成外部 MCP 活动区域使用的单行最终状态。"""
     return _mcp_final_block(
@@ -612,6 +754,7 @@ def _status_block(
 
     if spinner:
         fragments[0] = spinner_indicator_fragment(phase, family=family)
+
     if started_at or elapsed_sec is not None:
         elapsed = (
             max(0.0, float(elapsed_sec))
@@ -657,7 +800,7 @@ def _truncate_display_text(text: str, *, limit: int) -> str:
 def _clip_activity_fragments(
     fragments: list[tuple[str, str]],
     *,
-    width: int,
+    width: int
 ) -> list[tuple[str, str]]:
     """把活动状态裁成单行，并对不完整内容补充省略符。"""
     limit = max(1, int(width))

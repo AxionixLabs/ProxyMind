@@ -127,11 +127,9 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
         mind,
         pref_config={},
     )
-    await conversation.finish_compact_activity(mind)
     conversation.render_compact_result(mind, status)
 
-    kind, final = snapshots[-1]
-    assert kind == "compact"
+    final = snapshots[0]()
     assert final["done"] is True
     assert final["summary"] == "Context compaction failed. Please try again."
     assert final["detail_limit"] == 0
@@ -240,10 +238,9 @@ async def test_compact_cancellation_clears_animation_without_failure(
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    await conversation.finish_compact_activity(mind)
     conversation.render_compact_interrupted(mind)
 
-    assert mind.stopped == [("compact", False)]
+    assert mind.stopped == []
     assert any(view.type == "tui.compact.interrupted" for view in mind.views)
     assert not any(view.type == "tui.compact.status" for view in mind.views)
 

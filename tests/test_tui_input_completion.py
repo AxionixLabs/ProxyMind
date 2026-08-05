@@ -67,19 +67,6 @@ async def render_next_frame(runtime: TuiRuntime):
     raise AssertionError("next frame was not rendered")
 
 
-async def wait_for_completion_layout_settled(runtime: TuiRuntime):
-    """等待命令结果首帧后的补全占位完成收束。"""
-    start_revision = runtime.screen.application.render_counter
-    for _ in range(40):
-        await asyncio.sleep(0)
-        if (
-            runtime.screen.application.render_counter >= start_revision + 2
-            and runtime.screen._completion_settle_revision is None
-        ):
-            return runtime.screen.application.renderer.last_rendered_screen
-    raise AssertionError("completion layout did not settle")
-
-
 async def wait_for_submission(runtime: TuiRuntime):
     """等待输入处理结果进入提交队列。"""
     return await asyncio.wait_for(
@@ -1067,11 +1054,14 @@ async def test_slash_command_result_releases_completion_layout(
                 pipe_input.send_text("\r")
                 assert await read_task == command
 
+                runtime.begin_command_layout()
+                render_revision = runtime.screen.application.render_counter
                 runtime.append_block(
                     FragmentBlock((("", "■ command completed"),)),
                     kind="operation",
                 )
                 runtime.discard_pending_submission()
+                runtime.finish_command_layout()
 
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
@@ -1089,47 +1079,24 @@ async def test_slash_command_result_releases_completion_layout(
                 )
 
                 assert input_position.ypos - result_row == 3
-                assert (
+                final_input_row = (
                     12
                     - runtime.screen._visible_height()
                     + input_position.ypos
-                    == command_input_row + 1
                 )
+                assert final_input_row > command_input_row
                 assert all(
                     not rows.get(row)
                     for row in range(result_row + 1, input_position.ypos)
                 )
-                assert runtime.screen._bottom_release_height() > 0
-                assert runtime.screen.canvas_spacer not in positions
-
-                result_input_row = (
-                    12
-                    - runtime.screen._visible_height()
-                    + input_position.ypos
-                )
-                runtime.finish_command_layout()
-                screen = await wait_for_completion_layout_settled(runtime)
-                positions = screen.visible_windows_to_write_positions
-                input_position = positions[runtime.screen.input.window]
-                rows = {
-                    row: "".join(
-                        cells[column].char for column in sorted(cells)
-                    ).rstrip()
-                    for row, cells in screen.data_buffer.items()
-                }
-                result_row = next(
-                    row
-                    for row, text in rows.items()
-                    if "command completed" in text
-                )
-
-                assert input_position.ypos - result_row == 3
                 assert runtime.screen._bottom_release_height() == 0
-                assert (
-                    12
-                    - runtime.screen._visible_height()
-                    + input_position.ypos
-                    > result_input_row
+                assert runtime.screen.canvas_spacer not in positions
+                assert not runtime.command_layout_pending
+
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                assert runtime.screen.application.render_counter == (
+                    render_revision + 1
                 )
             finally:
                 await runtime.close()

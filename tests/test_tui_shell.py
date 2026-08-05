@@ -597,7 +597,11 @@ def test_background_completion_waits_for_stream_boundary() -> None:
     runtime.queue_background_block(block)
 
     assert not runtime.document.blocks
-    assert runtime._background_blocks == [(block, block)]
+    assert len(runtime._background_blocks) == 1
+    deferred = runtime._background_blocks[0]
+    assert deferred.block == block
+    assert deferred.transcript_block == block
+    assert deferred.activity_lease is None
 
     runtime.set_execution_active(False)
 
