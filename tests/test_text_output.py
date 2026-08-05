@@ -333,3 +333,49 @@ async def test_non_animated_mode_does_not_emit_worked_footer() -> None:
     await run_turn_lifecycle(mind, runner)
 
     assert application.views == []
+
+
+@pytest.mark.anyio
+async def test_worked_footer_precedes_final_animation_cleanup() -> None:
+    events: list[str] = []
+
+    class Application(_Application):
+        def emit(self, view) -> None:
+            events.append(view.type)
+            super().emit(view)
+
+    async def stop_anim(_kind: str) -> None:
+        events.append("anim.clear")
+
+    async def await_cleanup(awaitable) -> None:
+        await awaitable
+
+    runtime = SimpleNamespace(
+        begin_terminal_progress=lambda: events.append("progress.begin"),
+        end_terminal_progress=lambda: events.append("progress.clear"),
+    )
+    mind = SimpleNamespace(
+        animate=True,
+        frontend=SimpleNamespace(
+            application=Application(),
+            runtime=runtime,
+        ),
+        start_anim=AsyncMock(side_effect=lambda: events.append("anim.begin")),
+        stop_anim=stop_anim,
+        await_cleanup=await_cleanup,
+    )
+
+    async def runner() -> None:
+        events.append("runner")
+
+    await run_turn_lifecycle(mind, runner)
+
+    assert events == [
+        "progress.begin",
+        "anim.begin",
+        "runner",
+        "run.worked",
+        "run.gap",
+        "anim.clear",
+        "progress.clear",
+    ]

@@ -136,6 +136,13 @@ class FrontendRuntime(typing.Protocol):
         """结束当前活动状态。"""
         ...
 
+    async def freeze_activity_status(
+        self,
+        kind: ActivityStatusKind,
+    ) -> None:
+        """冻结活动状态并等待后续可见结果接管。"""
+        ...
+
 
 class PassiveFrontendRuntime(object):
     """提供无需常驻前端运行期时的空实现。"""
@@ -222,6 +229,14 @@ class PassiveFrontendRuntime(object):
         """忽略活动状态结束请求。"""
         _ = kind
         _ = settle
+        return None
+
+    async def freeze_activity_status(
+        self,
+        kind: ActivityStatusKind,
+    ) -> None:
+        """忽略活动状态冻结请求。"""
+        _ = kind
         return None
 
 

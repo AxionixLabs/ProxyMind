@@ -1100,6 +1100,13 @@ class Mind(object):
             return None
         await self.anim_manager.stop()
 
+    async def freeze_anim(self, kind: ActivityStatusKind) -> None:
+        """冻结指定活动动画并等待后续展示接管。"""
+        if self.frontend.runtime.active:
+            await self.frontend.runtime.freeze_activity_status(kind)
+            return None
+        await self.anim_manager.stop()
+
     def require_design(self) -> TerminalDesign:
         """返回非 TUI 终端设计能力。"""
         if self.design is None:

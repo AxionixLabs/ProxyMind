@@ -6,11 +6,14 @@ from unittest.mock import patch
 
 import pytest
 from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.layout.mouse_handlers import MouseHandlers
 from prompt_toolkit.layout.screen import Screen, WritePosition
+from prompt_toolkit.output import DummyOutput
 
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.tui.adapters.output import TuiOutputControl
+from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.adapters.session import create_tui_output_session
 from mind_app.tui.adapters.status import TuiStreamStatusControl
 from mind_app.tui.core.activity import (
@@ -26,10 +29,26 @@ from mind_app.tui.core.status_frames import SPINNER_FRAMES
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.helix import TuiUpgradeProgress
 from mind_app.runtime.support.calling import run_turn_lifecycle
+from mind_app.stream_events.worked import emit_worked_footer
 from mind_core.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )
+
+
+async def _render_next_frame(runtime: TuiRuntime):
+    previous_revision = runtime.screen.application.render_counter
+    runtime.invalidate()
+    for _ in range(40):
+        await asyncio.sleep(0)
+        if runtime.screen.application.render_counter > previous_revision:
+            return runtime.screen.application.renderer.last_rendered_screen
+    raise AssertionError("TUI frame was not rendered")
+
+
+def _absolute_window_row(runtime, screen, window, *, rows: int) -> int:
+    position = screen.visible_windows_to_write_positions[window]
+    return rows - runtime.screen._visible_height() + position.ypos
 
 
 def test_task_state_aggregates_turn_and_activity_sources() -> None:
@@ -57,6 +76,85 @@ def test_visual_update_merges_nested_invalidation_requests() -> None:
                 runtime.invalidate()
 
     invalidate.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_worked_footer_atomically_replaces_frozen_wait() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await runtime.begin_wait_status()
+                await output.append_assistant_delta("answer")
+                screen = await _render_next_frame(runtime)
+
+                baseline_transcript = _absolute_window_row(
+                    runtime,
+                    screen,
+                    runtime.screen.transcript_window,
+                    rows=16,
+                )
+                baseline_input = _absolute_window_row(
+                    runtime,
+                    screen,
+                    runtime.screen.input.window,
+                    rows=16,
+                )
+                observed: list[tuple[int, int]] = []
+
+                def capture_frame(_application) -> None:
+                    rendered = runtime.screen.application.renderer.last_rendered_screen
+                    positions = rendered.visible_windows_to_write_positions
+                    if (
+                        runtime.screen.transcript_window not in positions
+                        or runtime.screen.input.window not in positions
+                    ):
+                        return None
+                    observed.append((
+                        _absolute_window_row(
+                            runtime,
+                            rendered,
+                            runtime.screen.transcript_window,
+                            rows=16,
+                        ),
+                        _absolute_window_row(
+                            runtime,
+                            rendered,
+                            runtime.screen.input.window,
+                            rows=16,
+                        ),
+                    ))
+
+                runtime.screen.application.after_render += capture_frame
+
+                await runtime.freeze_activity_status("wait")
+                output._commit_current()
+                await _render_next_frame(runtime)
+
+                emit_worked_footer(TuiApplicationSink(runtime), 1.2)
+                await _render_next_frame(runtime)
+
+                runtime.set_execution_active(False)
+                await _render_next_frame(runtime)
+
+                assert observed
+                assert set(observed) == {(baseline_transcript, baseline_input)}
+                assert runtime.screen.activity_block is None
+                assert [item.kind for item in runtime.document.blocks] == [
+                    "assistant",
+                    "system",
+                ]
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
 
 
 @pytest.mark.anyio

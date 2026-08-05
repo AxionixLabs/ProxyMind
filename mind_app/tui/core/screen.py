@@ -1137,7 +1137,11 @@ class TuiScreen(object):
         if geometry_changed:
             self._reset_completion_layout(reset_canvas_floor=True)
 
+        previous_release_height = self._bottom_release_height()
         completion_visible = self._update_bottom_anchor()
+        release_consumed = (
+            self._bottom_release_height() < previous_release_height
+        )
 
         if not self.transcript_overlay.active and not self._transcript_only:
             input_height          = self._input_height()
@@ -1157,7 +1161,7 @@ class TuiScreen(object):
                 self._input_canvas_floor_growth -= released_height
 
             natural_height = self._natural_visible_height()
-            if completion_visible:
+            if completion_visible or release_consumed:
                 self._cap_canvas_height_floor(natural_height)
 
             previous_floor = self._canvas_height_floor

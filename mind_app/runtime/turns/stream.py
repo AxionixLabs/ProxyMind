@@ -539,7 +539,7 @@ async def stream_turn(
 
                 if turn_context.agent.depth == 0:
                     await mind.await_cleanup(
-                        mind.stop_anim("wait", settle=False)
+                        mind.freeze_anim("wait")
                     )
                 await status_control.end_status(immediate=True)
 

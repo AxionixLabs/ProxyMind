@@ -98,6 +98,14 @@ class TuiApplicationSink(ApplicationSink):
 
     def _emit_active(self, view: ApplicationView) -> None:
         """把单项应用展示写入已启动的 TUI。"""
+        if view.type == "run.worked":
+            with self.runtime.activity_handoff("wait"):
+                self._emit_view(view)
+            return None
+        self._emit_view(view)
+
+    def _emit_view(self, view: ApplicationView) -> None:
+        """把单项应用展示转换为正文或运行期状态。"""
         if view.type in {"tui.gap", "run.gap", "spacer"}:
             return None
         if view.type == "intro":

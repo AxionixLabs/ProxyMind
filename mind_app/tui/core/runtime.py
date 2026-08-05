@@ -1453,6 +1453,15 @@ class TuiRuntime(object):
         """结束运行期活动动画。"""
         await self.activity.stop(kind, settle=settle)
 
+    async def freeze_activity_status(
+        self,
+        kind: ActivityStatusKind,
+    ) -> None:
+        """冻结活动状态并等待后续可见结果接管。"""
+        lease = self.activity.lease(kind)
+        if lease is not None:
+            self.activity.freeze(lease)
+
     async def run_modal(
         self,
         operation: typing.Callable[[], typing.Awaitable[ModalResult]]

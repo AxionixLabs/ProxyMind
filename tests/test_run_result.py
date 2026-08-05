@@ -154,6 +154,7 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         ),
         approval_coordinator=ApprovalCoordinator(interaction),
         stop_anim=AsyncMock(),
+        freeze_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
         remembered=remembered,
@@ -334,7 +335,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_done_stops_animation_before_logical_settlement(monkeypatch) -> None:
+async def test_done_freezes_animation_before_logical_settlement(monkeypatch) -> None:
     stream_advanced = asyncio.Event()
     mind = _mind()
 
@@ -351,7 +352,8 @@ async def test_done_stops_animation_before_logical_settlement(monkeypatch) -> No
     ))
     await stream_advanced.wait()
 
-    mind.stop_anim.assert_awaited_once_with("wait", settle=False)
+    mind.freeze_anim.assert_awaited_once_with("wait")
+    mind.stop_anim.assert_not_awaited()
     assert mind.output_session.status.end_calls == [True]
 
     task.cancel()

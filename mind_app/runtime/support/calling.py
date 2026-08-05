@@ -37,21 +37,23 @@ async def run_turn_lifecycle(
 
     try:
         await mind.start_anim()
-        try:
-            result = await runner(**kwargs)
-        finally:
-            await mind.await_cleanup(mind.stop_anim("wait"))
+        result = await runner(**kwargs)
 
         completed = True
 
         return result
 
     finally:
-        frontend_runtime.end_terminal_progress()
-        if completed and mind.animate:
-            emit_worked_footer(
-                mind.frontend.application, time.perf_counter() - started_at
-            )
+        try:
+            if completed and mind.animate:
+                emit_worked_footer(
+                    mind.frontend.application, time.perf_counter() - started_at
+                )
+        finally:
+            try:
+                await mind.await_cleanup(mind.stop_anim("wait"))
+            finally:
+                frontend_runtime.end_terminal_progress()
 
 
 async def calling(
