@@ -331,6 +331,68 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("wait_for_candidates", (False, True))
+@pytest.mark.parametrize("stable_line_count", (0, 20))
+async def test_streaming_slash_completion_has_one_row_above_input(
+    wait_for_candidates: bool,
+    stable_line_count: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                if stable_line_count:
+                    runtime.append_block(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"stable {index}"
+                                for index in range(stable_line_count)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+                    await render_next_frame(runtime)
+
+                runtime.set_execution_active(True)
+                runtime.set_active_renderable(
+                    FragmentBlock((("", "streaming response"),)),
+                    kind="assistant",
+                )
+                await render_next_frame(runtime)
+
+                pipe_input.send_text("/")
+                if wait_for_candidates:
+                    await wait_for_completion(runtime)
+                else:
+                    await wait_for_input_text(runtime, "/")
+
+                runtime.set_active_renderable(
+                    FragmentBlock((("", "streaming response updated"),)),
+                    kind="assistant",
+                )
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                input_position = positions[runtime.screen.input.window]
+
+                assert runtime.screen._completion_visible()
+                assert input_position.ypos == (
+                    transcript.ypos + transcript.height + 1
+                )
+                assert runtime.screen.content_input_gap.content not in positions
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_input_prompt_uses_single_space_before_placeholder() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

@@ -2531,6 +2531,12 @@ class TuiScreen(object):
             or self._process_status_height()
             or self._queued_height()
         )
+        streaming_completion = bool(
+            self._get_submission_deferred()
+            and self.document.active_kind == "assistant"
+            and self.input.buffer.text.startswith("/")
+            and self._completion_visible()
+        )
         return bool(
             not self._transcript_only
             and (
@@ -2538,6 +2544,7 @@ class TuiScreen(object):
                 or (
                     self.document.has_visible_content
                     and self.document.visible_tail_kind != "user"
+                    and not streaming_completion
                 )
             )
         )
