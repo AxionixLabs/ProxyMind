@@ -53,6 +53,8 @@ from mind_app.tui.core.document import (
 from mind_app.tui.core.models import (
     FragmentBlock,
     LineFill,
+    MenuOption,
+    MenuRequest,
     TranscriptBacktrackRequest,
 )
 from mind_app.tui.core.keymap import TuiRuntimeKeymap
@@ -1689,6 +1691,70 @@ async def test_startup_title_uses_external_gap_and_colored_input_padding() -> No
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("menu_level", (2, 3, 4))
+async def test_nested_menu_starts_at_query_input_offset(
+    menu_level: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=60),
+        ):
+            await runtime.open()
+            menu_task = None
+            try:
+                runtime.append_block(
+                    query_block("choose an option"),
+                    kind="user",
+                )
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                input_transcript = positions[runtime.screen.transcript_window]
+                input_offset = (
+                    input_position.ypos
+                    - input_transcript.ypos
+                    - input_transcript.height
+                )
+
+                menu_task = asyncio.create_task(runtime.select_menu(
+                    MenuRequest(
+                        title=f"Level {menu_level}",
+                        options=tuple(
+                            MenuOption(index, f"Option {index}")
+                            for index in range(1, menu_level + 1)
+                        ),
+                    ),
+                ))
+                await asyncio.sleep(0)
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                menu_position = positions[runtime.screen.menu_window]
+                menu_transcript = positions[runtime.screen.transcript_window]
+                menu_padding = positions[runtime.screen.menu_top_padding]
+                menu_offset = (
+                    menu_position.ypos
+                    - menu_transcript.ypos
+                    - menu_transcript.height
+                )
+
+                assert input_offset == 1
+                assert menu_offset == input_offset
+                assert menu_position.ypos == (
+                    menu_padding.ypos + menu_padding.height
+                )
+            finally:
+                if runtime.screen.menu.active:
+                    runtime.screen.menu.finish(None)
+                if menu_task is not None:
+                    await menu_task
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_three_row_terminal_prioritizes_complete_input_surface() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -2078,6 +2144,49 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
                     text
                     for _style, text in runtime.document.all_fragments(width=40)
                 )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_ctrl_l_clear_discards_full_canvas_height() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"line {index}" for index in range(30))),
+                    kind="assistant",
+                )
+                await _render_next_frame(runtime)
+
+                assert runtime.screen._canvas_height_floor == 12
+
+                pipe_input.send_text("\x0c")
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    if not runtime.document.has_visible_content:
+                        break
+                else:
+                    raise AssertionError("Ctrl+L did not clear the transcript")
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                top_padding = positions[runtime.screen.input_top_padding]
+                input_position = positions[runtime.screen.input.window]
+
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
+                assert top_padding.ypos == 0
+                assert input_position.ypos == top_padding.height
             finally:
                 await runtime.close()
 

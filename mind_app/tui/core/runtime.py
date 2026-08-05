@@ -608,7 +608,7 @@ class TuiRuntime(object):
     def discard_pending_submission(self) -> None:
         """清理由命令分派结束后仍未接管的暂存输入。"""
         if self.document.discard_submission():
-            self.invalidate()
+            self.screen.settle_completion_layout()
 
     def replace_input_text(self, text: str) -> None:
         """替换主输入内容并把光标移动到末尾。"""

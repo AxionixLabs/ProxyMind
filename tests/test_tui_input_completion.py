@@ -12,6 +12,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mind_core.skills import SkillSpec
+from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 
@@ -243,22 +244,28 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                 pipe_input.send_text("/")
                 await wait_for_completion(runtime)
                 screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
                 raised = screen.visible_windows_to_write_positions[
                     runtime.screen.input.window
                 ].ypos
+
+                assert runtime.screen.canvas_spacer not in positions
 
                 runtime.input_model.dismiss_completion_menu(
                     runtime.screen.input.buffer
                 )
                 screen = await render_next_frame(runtime)
-                dismissed = screen.visible_windows_to_write_positions[
+                positions = screen.visible_windows_to_write_positions
+                dismissed = positions[
                     runtime.screen.input.window
                 ].ypos
 
                 assert raised < before
                 assert dismissed == raised
+                assert runtime.screen.canvas_spacer not in positions
 
                 initial_release = runtime.screen._completion_release_height()
+                initial_gap_growth = int(initial_live_lines == 0)
                 final_block = None
                 for growth in range(1, initial_release + 1):
                     line_count = initial_live_lines + growth
@@ -290,7 +297,7 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                     )
                     assert input_position.ypos == min(
                         before,
-                        dismissed + growth,
+                        dismissed + growth + initial_gap_growth,
                     )
                     assert runtime.screen._completion_release_height() == (
                         initial_release - growth
@@ -573,6 +580,114 @@ async def test_skill_menu_keeps_all_matches_beyond_visible_height() -> None:
             assert buffer.complete_state.current_completion.text == "$skill-12 "
         finally:
             await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_backspacing_skill_query_does_not_move_input() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills(tuple(
+            skill_spec(f"skill-{index:02d}")
+            for index in range(1, 13)
+        ))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                pipe_input.send_text("$")
+                await wait_for_completion(runtime)
+                screen = await render_next_frame(runtime)
+                opened = screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ].ypos
+
+                query = "$skill-01"
+                pipe_input.send_text(query[1:])
+                await wait_for_input_text(runtime, query)
+
+                for remaining_length in range(len(query) - 1, -1, -1):
+                    pipe_input.send_text("\x7f")
+                    expected = query[:remaining_length]
+                    await wait_for_input_text(runtime, expected)
+                    screen = await render_next_frame(runtime)
+                    positions = screen.visible_windows_to_write_positions
+
+                    assert (
+                        positions[runtime.screen.input.window].ypos
+                        == opened
+                    )
+                    assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "command",
+    ("/helix-stop", "/fork", "/compact", "/mcp status"),
+)
+async def test_slash_command_result_releases_completion_layout(
+    command: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                read_task = asyncio.create_task(runtime.read_message(
+                    PromptContext(model="test"),
+                ))
+
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+
+                pipe_input.send_text(command[1:])
+                await wait_for_input_text(runtime, command)
+                await render_next_frame(runtime)
+
+                pipe_input.send_text("\r")
+                assert await read_task == command
+
+                runtime.append_block(
+                    FragmentBlock((("", "■ command completed"),)),
+                    kind="operation",
+                )
+                runtime.discard_pending_submission()
+
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                rows = {
+                    row: "".join(
+                        cells[column].char for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+                result_row = next(
+                    row
+                    for row, text in rows.items()
+                    if "command completed" in text
+                )
+
+                assert input_position.ypos - result_row == 3
+                assert all(
+                    not rows.get(row)
+                    for row in range(result_row + 1, input_position.ypos)
+                )
+                assert runtime.screen._completion_release_height() == 0
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
 
 
 @pytest.mark.anyio
