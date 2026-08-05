@@ -238,8 +238,12 @@ def skill_display_text(name: str) -> str:
 
 def skill_meta_description(description: str) -> str:
     """返回 skill 菜单摘要。"""
-    text = " ".join(str(description or "").split())
-    return truncate_display_width(text, 42)
+    return truncate_display_width(skill_description_text(description), 42)
+
+
+def skill_description_text(description: str) -> str:
+    """把 skill 描述规范化为单行文本。"""
+    return " ".join(str(description or "").split())
 
 
 def truncate_display_width(text: str, limit: int) -> str:

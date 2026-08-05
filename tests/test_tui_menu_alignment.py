@@ -84,6 +84,44 @@ async def test_menu_rows_fit_terminal_width_with_wide_text() -> None:
 
 
 @pytest.mark.anyio
+async def test_skills_and_resume_details_share_adaptive_terminal_width() -> None:
+    detail = " ".join(
+        f"detail-{index}"
+        for index in range(30)
+    )
+    requests = (
+        MenuRequest(
+            title="Skills",
+            options=(MenuOption("skill", "review", detail),),
+        ),
+        MenuRequest(
+            title="Resume conversation",
+            options=(MenuOption("record", "08-05 10:30", detail),),
+        ),
+    )
+
+    async def option_width(request: MenuRequest, width: int) -> int:
+        menu = TuiMenu(
+            invalidate=lambda: None,
+            focus_menu=lambda: None,
+            focus_input=lambda: None,
+            get_width=lambda: width,
+        )
+        task = asyncio.create_task(menu.request(request))
+        await asyncio.sleep(0)
+        line = _fragments_text(menu.fragments()).splitlines()[2]
+        menu.finish(None)
+        await task
+        return get_cwidth(line)
+
+    narrow = [await option_width(request, 48) for request in requests]
+    wide = [await option_width(request, 96) for request in requests]
+
+    assert narrow == [48, 48]
+    assert wide == [96, 96]
+
+
+@pytest.mark.anyio
 async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     width = 36
     menu = TuiMenu(

@@ -109,7 +109,8 @@ async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
     assert request.title == "Skills"
     assert request.options[0].label == "review"
     assert request.options[0].detail == (
-        "Review the current changes and report e..."
+        "Review the current changes and report every important issue "
+        "without omitting details"
     )
 
 

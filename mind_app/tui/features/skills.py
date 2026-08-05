@@ -7,7 +7,7 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
-from ..prompting.skills import skill_meta_description
+from ..prompting.skills import skill_description_text
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
@@ -25,7 +25,7 @@ async def choose_skill(runtime: "TuiRuntime") -> SkillSpec | None:
             MenuOption(
                 value=skill,
                 label=skill.name,
-                detail=skill_meta_description(skill.description),
+                detail=skill_description_text(skill.description),
             )
             for skill in skills
         ),
