@@ -1960,6 +1960,110 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("render_each_key", (False, True))
+async def test_multiline_input_backspace_releases_startup_canvas_height(
+    render_each_key: bool,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                initial_height = runtime.screen._visible_height()
+
+                if render_each_key:
+                    for line_count in range(1, 9):
+                        pipe_input.send_text("\x0f")
+                        for _ in range(40):
+                            await asyncio.sleep(0)
+                            if runtime.screen.input.buffer.text == (
+                                "\n" * line_count
+                            ):
+                                break
+                        await _render_next_frame(runtime)
+                else:
+                    pipe_input.send_text("\x0f" * 8)
+                    for _ in range(40):
+                        await asyncio.sleep(0)
+                        if runtime.screen.input.buffer.text == "\n" * 8:
+                            break
+
+                await _render_next_frame(runtime)
+                assert runtime.screen._visible_height() > initial_height
+
+                if render_each_key:
+                    for line_count in range(7, -1, -1):
+                        pipe_input.send_text("\x7f")
+                        for _ in range(40):
+                            await asyncio.sleep(0)
+                            if runtime.screen.input.buffer.text == (
+                                "\n" * line_count
+                            ):
+                                break
+                        await _render_next_frame(runtime)
+                else:
+                    pipe_input.send_text("\x7f" * 8)
+                    for _ in range(40):
+                        await asyncio.sleep(0)
+                        if not runtime.screen.input.buffer.text:
+                            break
+
+                screen = await _render_next_frame(runtime)
+
+                assert runtime.screen._natural_visible_height() == initial_height
+                assert runtime.screen._visible_height() == initial_height
+                assert runtime.screen.canvas_spacer not in (
+                    screen.visible_windows_to_write_positions
+                )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_multiline_input_backspace_keeps_transcript_canvas_floor() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"line {index}" for index in range(30))),
+                    kind="assistant",
+                )
+                await _render_next_frame(runtime)
+                assert runtime.screen._canvas_height_floor == 12
+
+                pipe_input.send_text("\x0f" * 8)
+                for _ in range(40):
+                    await asyncio.sleep(0)
+                    if runtime.screen.input.buffer.text == "\n" * 8:
+                        break
+
+                pipe_input.send_text("\x7f" * 8)
+                for _ in range(40):
+                    await asyncio.sleep(0)
+                    if not runtime.screen.input.buffer.text:
+                        break
+
+                await _render_next_frame(runtime)
+
+                assert runtime.screen._canvas_height_floor == 12
+                assert runtime.screen._visible_height() == 12
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_submission_handoff_never_renders_an_empty_intermediate_frame() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

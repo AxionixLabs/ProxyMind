@@ -799,10 +799,10 @@ async def test_stream_command_result_has_no_completion_release_after_turn() -> N
                 await render_next_frame(runtime)
                 pipe_input.send_text("helix-link\r")
 
-                for _ in range(40):
-                    await asyncio.sleep(0)
-                    if handled:
-                        break
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + 1.0
+                while not handled and loop.time() < deadline:
+                    await asyncio.sleep(0.001)
                 assert handled == ["/helix-link"]
 
                 runtime.queue_background_block(

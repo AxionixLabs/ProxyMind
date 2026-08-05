@@ -285,7 +285,10 @@ class TuiScreen(object):
         self._transcript_cache_fragments: FormattedText         = []
         self._transcript_assistant_lines: frozenset[int]        = frozenset()
 
-        self._canvas_height_floor: int = 0
+        self._canvas_height_floor: int        = 0
+        self._canvas_input_height: int | None = None
+
+        self._input_canvas_floor_growth: int = 0
 
         self._completion_bottom_footprint: int       = 0
         self._completion_was_visible: bool           = False
@@ -1018,19 +1021,44 @@ class TuiScreen(object):
         completion_visible = self._update_completion_footprint()
 
         if not self.transcript_overlay.active and not self._transcript_only:
+            input_height          = self._input_height()
+            previous_input_height = self._canvas_input_height
+
+            if previous_input_height is None:
+                previous_input_height = input_height
+            elif input_height < previous_input_height:
+                released_height = min(
+                    previous_input_height - input_height,
+                    self._input_canvas_floor_growth,
+                )
+                self._canvas_height_floor = max(
+                    0,
+                    self._canvas_height_floor - released_height,
+                )
+                self._input_canvas_floor_growth -= released_height
+
             natural_height = self._natural_visible_height()
             if completion_visible:
-                self._canvas_height_floor = min(
-                    self._canvas_height_floor,
-                    natural_height,
-                )
-            self._canvas_height_floor = min(
+                self._cap_canvas_height_floor(natural_height)
+
+            previous_floor = self._canvas_height_floor
+
+            canvas_height = min(
                 self._frame_geometry.height,
                 max(
                     self._canvas_height_floor,
                     natural_height,
                 ),
             )
+
+            if input_height > previous_input_height:
+                self._input_canvas_floor_growth += min(
+                    input_height - previous_input_height,
+                    max(0, canvas_height - previous_floor),
+                )
+
+            self._canvas_height_floor = canvas_height
+            self._canvas_input_height = input_height
 
         self._observe_terminal_geometry(
             self._frame_geometry.width,
@@ -1229,10 +1257,7 @@ class TuiScreen(object):
                 1,
                 visible_height - alignment_padding,
             )
-            self._canvas_height_floor = min(
-                self._canvas_height_floor,
-                visible_height,
-            )
+            self._cap_canvas_height_floor(visible_height)
 
         self.bottom_pane.deactivate(surface)
 
@@ -2222,11 +2247,23 @@ class TuiScreen(object):
 
         if reset_canvas_floor:
             self._canvas_height_floor = 0
+            self._canvas_input_height = 1
+            self._input_canvas_floor_growth = 0
         else:
-            self._canvas_height_floor = min(
-                self._canvas_height_floor,
-                self._natural_visible_height(),
-            )
+            self._cap_canvas_height_floor(self._natural_visible_height())
+
+    def _cap_canvas_height_floor(self, maximum_height: int) -> None:
+        """降低画布高度下限并同步撤销输入区贡献的增量。"""
+        previous_height = self._canvas_height_floor
+        self._canvas_height_floor = min(
+            previous_height,
+            max(0, int(maximum_height)),
+        )
+        released_height = previous_height - self._canvas_height_floor
+        self._input_canvas_floor_growth = max(
+            0,
+            self._input_canvas_floor_growth - released_height,
+        )
 
     def _clear_completion_footprint(self) -> None:
         """清除底部临时区域的高度释放状态。"""
