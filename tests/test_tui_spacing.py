@@ -2236,7 +2236,7 @@ async def test_approval_dismissal_height_is_consumed_by_stream(
                     - runtime.screen._visible_height()
                     + input_position.ypos
                 )
-                release_height = runtime.screen._completion_release_height()
+                release_height = runtime.screen._bottom_release_height()
 
                 assert release_height > 0
                 assert input_row < normal_input_row
@@ -2269,7 +2269,7 @@ async def test_approval_dismissal_height_is_consumed_by_stream(
                 ]
 
                 assert input_row == normal_input_row
-                assert runtime.screen._completion_release_height() == 0
+                assert runtime.screen._bottom_release_height() == 0
                 assert footer_position.ypos + footer_position.height == (
                     runtime.screen._visible_height()
                 )

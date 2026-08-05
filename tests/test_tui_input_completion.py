@@ -13,7 +13,12 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_core.skills import SkillSpec
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.models import (
+    FragmentBlock,
+    MenuOption,
+    MenuRequest,
+)
+from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.runtime import TuiRuntime
 
 
@@ -277,7 +282,7 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                 assert dismissed == raised
                 assert runtime.screen.canvas_spacer not in positions
 
-                initial_release = runtime.screen._completion_release_height()
+                initial_release = runtime.screen._bottom_release_height()
                 initial_gap_growth = int(initial_live_lines == 0)
                 final_block = None
                 for growth in range(1, initial_release + 1):
@@ -312,7 +317,7 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                         before,
                         dismissed + growth + initial_gap_growth,
                     )
-                    assert runtime.screen._completion_release_height() == (
+                    assert runtime.screen._bottom_release_height() == (
                         initial_release - growth
                     )
 
@@ -393,7 +398,26 @@ async def test_streaming_slash_completion_has_one_row_above_input(
 
 
 @pytest.mark.anyio
-async def test_approval_release_is_preserved_with_streaming_slash_completion(
+@pytest.mark.parametrize("stable_line_count", (0, 20))
+@pytest.mark.parametrize(
+    (
+        "surface",
+        "surface_visible_height",
+        "closed_visible_height",
+        "expected_release_height",
+    ),
+    (
+        ("approval", 24, 24, 5),
+        ("menu", 22, 21, 2),
+        ("process_viewer", 24, 23, 4),
+    ),
+)
+async def test_bottom_surface_release_preserves_streaming_slash_anchor(
+    surface: str,
+    surface_visible_height: int,
+    closed_visible_height: int,
+    expected_release_height: int,
+    stable_line_count: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -404,7 +428,21 @@ async def test_approval_release_is_preserved_with_streaming_slash_completion(
             return_value=Size(rows=24, columns=40),
         ):
             await runtime.open()
+            surface_task = None
             try:
+                if stable_line_count:
+                    runtime.append_block(
+                        FragmentBlock(((
+                            "",
+                            "\n".join(
+                                f"stable {index}"
+                                for index in range(stable_line_count)
+                            ),
+                        ),)),
+                        kind="assistant",
+                    )
+                    await render_next_frame(runtime)
+
                 runtime.set_execution_active(True)
                 runtime.set_active_renderable(
                     FragmentBlock(((
@@ -428,23 +466,69 @@ async def test_approval_release_is_preserved_with_streaming_slash_completion(
                     - runtime.screen._visible_height()
                     + slash_position.ypos
                 )
+                assert slash_row == 14
 
-                approval_task = asyncio.create_task(runtime.request_approval({
-                    "tool": "shell_command",
-                    "command": "\n".join(
-                        f"echo line-{index}" for index in range(30)
-                    ),
-                    "show_timer": False,
-                }))
+                if surface == "approval":
+                    surface_task = asyncio.create_task(
+                        runtime.request_approval({
+                            "tool": "shell_command",
+                            "command": "\n".join(
+                                f"echo line-{index}"
+                                for index in range(30)
+                            ),
+                            "show_timer": False,
+                        })
+                    )
+                    surface_active = lambda: runtime.screen.approval.active
+                elif surface == "menu":
+                    surface_task = asyncio.create_task(runtime.select_menu(
+                        MenuRequest(
+                            title="Menu",
+                            options=tuple(
+                                MenuOption(index, f"Option {index}")
+                                for index in range(20)
+                            ),
+                        ),
+                    ))
+                    surface_active = lambda: runtime.screen.menu.active
+                else:
+                    surface_task = runtime.screen.process_viewer.begin(
+                        ProcessViewerRequest(
+                            fragments=((
+                                "",
+                                "\n".join(
+                                    f"process line {index}"
+                                    for index in range(30)
+                                ),
+                            ),),
+                            max_height=28,
+                        )
+                    )
+                    surface_active = (
+                        lambda: runtime.screen.process_viewer.active
+                    )
+
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if runtime.screen.approval.active:
+                    if surface_active():
                         break
-                assert runtime.screen.approval.active
+                assert surface_active()
                 await render_next_frame(runtime)
+                assert runtime.screen._visible_height() == (
+                    24 if stable_line_count else surface_visible_height
+                )
 
-                runtime.screen.approval.finish("accept")
-                assert await approval_task == "accept"
+                if surface == "approval":
+                    runtime.screen.approval.finish("accept")
+                    assert await surface_task == "accept"
+                elif surface == "menu":
+                    runtime.screen.menu.finish("done")
+                    assert await surface_task == "done"
+                else:
+                    runtime.screen.process_viewer.resolve("done")
+                    assert await surface_task == "done"
+                    runtime.screen.process_viewer.settle()
+                surface_task = None
 
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
@@ -454,13 +538,29 @@ async def test_approval_release_is_preserved_with_streaming_slash_completion(
                     - runtime.screen._visible_height()
                     + input_position.ypos
                 )
-                release_height = runtime.screen._completion_release_height()
+                release_height = runtime.screen._bottom_release_height()
+                expected_closed_height = (
+                    24 if stable_line_count else closed_visible_height
+                )
+                expected_release = (
+                    0 if stable_line_count else expected_release_height
+                )
 
-                assert release_height > 0
+                assert runtime.screen._visible_height() == (
+                    expected_closed_height
+                )
+                assert release_height == expected_release
                 assert input_row == slash_row - release_height
+                assert runtime.screen.canvas_spacer not in positions
+                assert (
+                    runtime.screen.content_input_gap.content
+                    not in positions
+                )
 
-                previous_row = input_row
-                for line_count in range(9, 9 + release_height):
+                released_input_row = input_row
+                growth_steps = max(2, release_height)
+                for growth in range(1, growth_steps + 1):
+                    line_count = 8 + growth
                     runtime.set_active_renderable(
                         FragmentBlock(((
                             "",
@@ -483,12 +583,30 @@ async def test_approval_release_is_preserved_with_streaming_slash_completion(
                         + input_position.ypos
                     )
 
-                    assert input_row == previous_row + 1
-                    previous_row = input_row
+                    assert input_row == min(
+                        slash_row,
+                        released_input_row + growth,
+                    )
+                    assert runtime.screen._bottom_release_height() == max(
+                        0,
+                        release_height - growth,
+                    )
+                    assert runtime.screen.canvas_spacer not in (
+                        screen.visible_windows_to_write_positions
+                    )
 
                 assert input_row == slash_row
-                assert runtime.screen._completion_release_height() == 0
+                assert runtime.screen._bottom_release_height() == 0
             finally:
+                if runtime.screen.approval.active:
+                    runtime.screen.approval.finish("decline")
+                if runtime.screen.menu.active:
+                    runtime.screen.menu.finish(None)
+                if runtime.screen.process_viewer.active:
+                    runtime.screen.process_viewer.resolve("detach")
+                    runtime.screen.process_viewer.settle()
+                if surface_task is not None:
+                    await surface_task
                 runtime.set_execution_active(False)
                 await runtime.close()
 
@@ -896,7 +1014,7 @@ async def test_slash_command_result_releases_completion_layout(
                     not rows.get(row)
                     for row in range(result_row + 1, input_position.ypos)
                 )
-                assert runtime.screen._completion_release_height() > 0
+                assert runtime.screen._bottom_release_height() > 0
                 assert runtime.screen.canvas_spacer not in positions
 
                 result_input_row = (
@@ -921,7 +1039,7 @@ async def test_slash_command_result_releases_completion_layout(
                 )
 
                 assert input_position.ypos - result_row == 3
-                assert runtime.screen._completion_release_height() == 0
+                assert runtime.screen._bottom_release_height() == 0
                 assert (
                     12
                     - runtime.screen._visible_height()
@@ -933,7 +1051,7 @@ async def test_slash_command_result_releases_completion_layout(
 
 
 @pytest.mark.anyio
-async def test_stream_command_result_has_no_completion_release_after_turn() -> None:
+async def test_stream_command_result_has_no_bottom_release_after_turn() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -992,7 +1110,7 @@ async def test_stream_command_result_has_no_completion_release_after_turn() -> N
                 )
 
                 assert input_position.ypos - result_row == 3
-                assert runtime.screen._completion_release_height() == 0
+                assert runtime.screen._bottom_release_height() == 0
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
