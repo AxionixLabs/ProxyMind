@@ -228,6 +228,7 @@ class TuiDocument(object):
         *,
         transcript: bool = False,
         leading_content: bool = False,
+        leading_content_terminated: bool = False,
         previous_kind: TuiBlockKind | None = None
     ) -> bool:
         """向已有正文追加一个块并统一处理块前间距。"""
@@ -247,7 +248,12 @@ class TuiDocument(object):
                 if transcript
                 else self._display_gap_before(previous_kind, item)
             )
-            out.append(("", "\n\n" if separated else "\n"))
+            if leading_content_terminated and not out:
+                separator = "\n" if separated else ""
+            else:
+                separator = "\n\n" if separated else "\n"
+            if separator:
+                out.append(("", separator))
         out.extend(parts)
 
         return True
@@ -258,6 +264,7 @@ class TuiDocument(object):
         *,
         transcript: bool = False,
         leading_content: bool = False,
+        leading_content_terminated: bool = False,
         leading_kind: TuiBlockKind | None = None
     ) -> FormattedText:
         """统一渲染一组正文块及其前置间距。"""
@@ -271,9 +278,11 @@ class TuiDocument(object):
                 item,
                 transcript=transcript,
                 leading_content=leading_content,
+                leading_content_terminated=leading_content_terminated,
                 previous_kind=previous_kind,
             ):
                 leading_content = False
+                leading_content_terminated = False
                 previous_kind = item.kind
 
         return out
@@ -301,6 +310,10 @@ class TuiDocument(object):
     def _stable_line_count(self) -> int:
         """返回全部稳定正文的逻辑行数量。"""
         return len(self._stable_lines)
+
+    def _has_native_scrollback_boundary(self) -> bool:
+        """判断当前可见正文前是否保留原生滚屏内容。"""
+        return self.scrollback_line_count > self.cleared_line_count
 
     def _block_lines(self, item: TranscriptBlock) -> list[FormattedText]:
         """返回指定稳定块去除外侧换行后的逻辑行。"""
@@ -379,14 +392,13 @@ class TuiDocument(object):
         return True
 
     def _extend_stable(self, items: list[TranscriptBlock]) -> None:
-        """追加稳定块并让已隐藏边界跳过新产生的块间距。"""
+        """追加稳定块并让清屏边界跳过新产生的块间距。"""
         if not items:
             return None
 
         self.stable_transcript_revision += 1
 
         previous_line_count = self._stable_line_count()
-        scrollback_at_end   = self.scrollback_line_count == previous_line_count
         cleared_at_end      = self.cleared_line_count == previous_line_count
         previous_kind       = self._last_rendered_kind()
 
@@ -413,8 +425,6 @@ class TuiDocument(object):
             int(content_start or 0) - previous_line_count,
         )
 
-        if scrollback_at_end:
-            self.scrollback_line_count += boundary_lines
         if cleared_at_end:
             self.cleared_line_count += boundary_lines
 
@@ -801,7 +811,14 @@ class TuiDocument(object):
         out = join_formatted_lines(
             self._stable_lines[self.visible_prefix_line_count:]
         )
-        previous_kind = self._last_rendered_kind() if out else None
+        hidden_stable_content = bool(
+            not out and self._has_native_scrollback_boundary()
+        )
+        previous_kind = (
+            self._last_rendered_kind()
+            if out or hidden_stable_content
+            else None
+        )
 
         if self.active_block is not None:
             if self.active_kind is None:
@@ -818,16 +835,22 @@ class TuiDocument(object):
             if self._append_rendered_block(
                 out,
                 item,
+                leading_content=hidden_stable_content,
+                leading_content_terminated=hidden_stable_content,
                 previous_kind=previous_kind,
             ):
+                hidden_stable_content = False
                 previous_kind = item.kind
 
         for item in self._active_tail:
             if self._append_rendered_block(
                 out,
                 item,
+                leading_content=hidden_stable_content,
+                leading_content_terminated=hidden_stable_content,
                 previous_kind=previous_kind,
             ):
+                hidden_stable_content = False
                 previous_kind = item.kind
 
         return out
@@ -858,13 +881,20 @@ class TuiDocument(object):
 
         blocks.extend(self._active_tail)
         leading_content = bool(self.visible_stable_lines())
+        leading_content_terminated = bool(
+            not leading_content
+            and self._has_native_scrollback_boundary()
+        )
 
         return self._render_blocks(
             blocks,
-            leading_content=leading_content,
+            leading_content=(
+                leading_content or leading_content_terminated
+            ),
+            leading_content_terminated=leading_content_terminated,
             leading_kind=(
                 self._last_rendered_kind()
-                if leading_content
+                if leading_content or leading_content_terminated
                 else None
             ),
         )

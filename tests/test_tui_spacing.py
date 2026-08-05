@@ -251,18 +251,24 @@ def test_document_separates_non_user_block_transition(
     assert _document_text(document) == "first\n\nsecond"
 
 
-def test_live_fragments_only_separate_visible_stable_content() -> None:
+def test_live_fragments_preserve_native_scrollback_boundary() -> None:
     visible_document = TuiDocument()
     visible_document.append_block(_block("stable"), kind="assistant")
     visible_document.set_active(_block("live"), kind="assistant")
 
-    hidden_document = TuiDocument()
-    hidden_document.append_block(_block("stable"), kind="assistant")
-    hidden_document.commit_scrollback_prefix(1)
-    hidden_document.set_active(_block("live"), kind="assistant")
+    scrolled_document = TuiDocument()
+    scrolled_document.append_block(_block("stable"), kind="assistant")
+    scrolled_document.commit_scrollback_prefix(1)
+    scrolled_document.set_active(_block("live"), kind="assistant")
+
+    cleared_document = TuiDocument()
+    cleared_document.append_block(_block("stable"), kind="assistant")
+    cleared_document.clear_visible_prefix()
+    cleared_document.set_active(_block("live"), kind="assistant")
 
     assert fragments_text(visible_document.live_fragments()) == "\n\nlive"
-    assert fragments_text(hidden_document.live_fragments()) == "live"
+    assert fragments_text(scrolled_document.live_fragments()) == "\nlive"
+    assert fragments_text(cleared_document.live_fragments()) == "live"
 
 
 def test_block_outer_newlines_do_not_duplicate_document_spacing() -> None:
@@ -472,6 +478,34 @@ def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
     assert "".join(
         text for _style, text in document.all_fragments(width=80)
     ) == "first\n\nsecond\n\nthird"
+
+
+def test_scrollback_keeps_gaps_between_consecutive_visual_blocks() -> None:
+    document = TuiDocument()
+    document.append_block(_block("reply"), kind="assistant")
+    document.commit_scrollback_prefix(1)
+
+    document.append_block(_block("Started command"), kind="operation")
+    assert _document_text(document) == "\nStarted command"
+    document.commit_scrollback_prefix(2)
+
+    document.append_block(_block("/ps output"), kind="operation")
+    assert _document_text(document) == "\n/ps output"
+    document.commit_scrollback_prefix(2)
+
+    document.set_active(_block("assistant reply"), kind="assistant")
+    assert _document_text(document) == "\nassistant reply"
+    assert fragments_text(document.live_fragments()) == "\nassistant reply"
+    document.commit_active(_block("assistant reply"))
+    document.commit_scrollback_prefix(2)
+
+    document.append_block(_block("Wrote stdin"), kind="operation")
+
+    assert _document_text(document) == "\nWrote stdin"
+    assert fragments_text(document.all_fragments(width=80)) == (
+        "reply\n\nStarted command\n\n/ps output\n\n"
+        "assistant reply\n\nWrote stdin"
+    )
 
 
 def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
