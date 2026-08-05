@@ -532,7 +532,7 @@ async def test_stream_growth_while_slash_is_open_leaves_no_backspace_spacer(
 
 
 @pytest.mark.anyio
-async def test_slash_completion_defers_stream_scrollback_until_closed() -> None:
+async def test_slash_completion_does_not_commit_active_stream() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -550,15 +550,9 @@ async def test_slash_completion_defers_stream_scrollback_until_closed() -> None:
                 ))
                 await render_next_frame(runtime)
 
-                for _ in range(50):
-                    await asyncio.sleep(0.002)
-                    if runtime.document.scrollback_line_count > 0:
-                        break
-
                 pipe_input.send_text("/")
                 await wait_for_completion(runtime)
                 await render_next_frame(runtime)
-                previous_count = runtime.document.scrollback_line_count
 
                 await output.append_assistant_delta("\n" + "\n".join(
                     f"line {index:02d}" for index in range(40, 60)
@@ -566,18 +560,26 @@ async def test_slash_completion_defers_stream_scrollback_until_closed() -> None:
                 await render_next_frame(runtime)
                 await asyncio.sleep(0.02)
 
-                assert runtime.document.scrollback_line_count == previous_count
+                assert runtime.document.scrollback_line_count == 0
+                assert not runtime.document.blocks
 
                 pipe_input.send_text("\x7f")
                 await wait_for_input_text(runtime, "")
                 await render_next_frame(runtime)
 
+                await asyncio.sleep(0.02)
+                assert runtime.document.scrollback_line_count == 0
+                assert not runtime.document.blocks
+
+                await output.prepare_external_output()
+                runtime.set_execution_active(False)
+
                 for _ in range(50):
                     await asyncio.sleep(0.002)
-                    if runtime.document.scrollback_line_count > previous_count:
+                    if runtime.document.scrollback_line_count > 0:
                         break
 
-                assert runtime.document.scrollback_line_count > previous_count
+                assert runtime.document.scrollback_line_count > 0
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
