@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import (
     AsyncMock,
     Mock,
     PropertyMock,
+    call,
     patch,
 )
 
@@ -67,7 +69,9 @@ from mind_app.tui.core.render import (
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.screen import (
     FrameGeometry,
+    _clear_terminal_for_resize_replay,
     _erase_terminal_scrollback,
+    _set_synchronized_output,
 )
 from mind_app.tui.core.styles import (
     ASSISTANT_PREFIX_CLASS,
@@ -532,6 +536,38 @@ def test_terminal_scrollback_uses_vt_erase_sequence() -> None:
     output.flush.assert_called_once_with()
 
 
+def test_resize_replay_clears_visible_screen_and_scrollback() -> None:
+    output = SimpleNamespace(
+        vt100_output=object(),
+        write_raw=Mock(),
+        flush=Mock(),
+    )
+
+    _clear_terminal_for_resize_replay(output)
+
+    output.write_raw.assert_called_once_with(
+        "\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H"
+    )
+    output.flush.assert_not_called()
+
+
+def test_resize_replay_pairs_synchronized_output_sequences() -> None:
+    output = SimpleNamespace(
+        vt100_output=object(),
+        write_raw=Mock(),
+        flush=Mock(),
+    )
+
+    assert _set_synchronized_output(output, True) is True
+    assert _set_synchronized_output(output, False) is True
+
+    assert output.write_raw.call_args_list == [
+        call("\x1b[?2026h"),
+        call("\x1b[?2026l"),
+    ]
+    assert output.flush.call_count == 2
+
+
 def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
     monkeypatch,
 ) -> None:
@@ -846,7 +882,7 @@ async def test_width_resize_reflows_native_scrollback_from_document() -> None:
 
                 with patch.object(
                     runtime.screen,
-                    "clear_terminal_scrollback",
+                    "clear_terminal_for_resize_replay",
                 ) as clear, patch.object(
                     runtime.screen.application,
                     "print_text",
@@ -903,7 +939,7 @@ async def test_width_resize_reflow_waits_for_transient_surface(
 
                 with patch.object(
                     runtime.screen,
-                    "clear_terminal_scrollback",
+                    "clear_terminal_for_resize_replay",
                 ) as clear:
                     terminal_size = Size(rows=8, columns=24)
                     runtime.viewport.observe_terminal_geometry(24, 8)
@@ -942,7 +978,7 @@ async def test_height_only_resize_reflows_native_scrollback() -> None:
 
                 with patch.object(
                     runtime.screen,
-                    "clear_terminal_scrollback",
+                    "clear_terminal_for_resize_replay",
                 ) as clear, patch.object(
                     runtime.screen.application,
                     "print_text",
@@ -987,7 +1023,7 @@ async def test_resize_rechecks_settled_geometry_before_reflow() -> None:
 
                 with patch.object(
                     runtime.screen,
-                    "clear_terminal_scrollback",
+                    "clear_terminal_for_resize_replay",
                 ) as clear:
                     terminal_size = Size(rows=8, columns=24)
                     runtime.viewport.observe_terminal_geometry(24, 8)
@@ -997,6 +1033,313 @@ async def test_resize_rechecks_settled_geometry_before_reflow() -> None:
                 clear.assert_called_once_with()
                 assert runtime.viewport._observed_geometry == (30, 12)
                 assert runtime.viewport._reflowed_geometry == (30, 12)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_storm_replays_once_in_synchronized_output() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+        events: list[str] = []
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(60))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+
+                @asynccontextmanager
+                async def controlled_terminal(
+                    render_cli_done: bool = False,
+                ):
+                    _ = render_cli_done
+                    events.append("wait")
+                    await asyncio.sleep(0)
+                    events.append("acquired")
+                    try:
+                        yield
+                    finally:
+                        events.append("redraw")
+
+                with (
+                    patch(
+                        "mind_app.tui.core.viewport.in_terminal",
+                        controlled_terminal,
+                    ),
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        side_effect=lambda: events.append("begin") or True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "clear_terminal_for_resize_replay",
+                        side_effect=lambda: events.append("clear"),
+                    ) as clear,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                        side_effect=lambda: events.append("end"),
+                    ) as end,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=lambda _fragments: events.append("replay"),
+                    ),
+                    patch.object(
+                        runtime.screen.application.renderer,
+                        "clear",
+                    ) as renderer_clear,
+                ):
+                    for width, height in (
+                        (30, 9),
+                        (22, 11),
+                        (48, 14),
+                        (36, 12),
+                    ):
+                        terminal_size = Size(rows=height, columns=width)
+                        runtime.viewport.observe_terminal_geometry(width, height)
+
+                    await asyncio.sleep(0.12)
+
+                begin.assert_called_once_with()
+                clear.assert_called_once_with()
+                end.assert_called_once_with()
+                renderer_clear.assert_not_called()
+                assert events == [
+                    "wait",
+                    "acquired",
+                    "begin",
+                    "clear",
+                    "replay",
+                    "redraw",
+                    "end",
+                ]
+                assert runtime.viewport._reflowed_geometry == (36, 12)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_invalidated_while_acquiring_terminal_keeps_position() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = {"value": Size(rows=8, columns=40)}
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size["value"],
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(60))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+
+                previous_position = runtime.document.scrollback_line_count
+                assert previous_position > 0
+
+                terminal_size["value"] = Size(rows=8, columns=24)
+                runtime.viewport.observe_terminal_geometry(24, 8)
+                runtime.viewport._cancel_scrollback_reflow()
+                generation = runtime.viewport._reflow_generation
+
+                @asynccontextmanager
+                async def resize_while_waiting(
+                    render_cli_done: bool = False,
+                ):
+                    _ = render_cli_done
+                    terminal_size["value"] = Size(rows=8, columns=40)
+                    runtime.viewport.observe_terminal_geometry(40, 8)
+                    yield
+
+                with (
+                    patch(
+                        "mind_app.tui.core.viewport.in_terminal",
+                        resize_while_waiting,
+                    ),
+                    patch.object(
+                        runtime.screen,
+                        "clear_terminal_for_resize_replay",
+                    ) as clear,
+                ):
+                    await runtime.viewport._reflow_scrollback(
+                        (24, 8),
+                        generation,
+                    )
+
+                clear.assert_not_called()
+                assert runtime.document.scrollback_line_count == previous_position
+                assert runtime.viewport._observed_geometry == (40, 8)
+                assert runtime.viewport._reflowed_geometry == (40, 8)
+                assert runtime.viewport._reflow_required is False
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_replay_failure_restores_scrollback_position() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(60))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+
+                previous_position = runtime.document.scrollback_line_count
+                terminal_size = Size(rows=10, columns=24)
+                runtime.viewport.observe_terminal_geometry(24, 10)
+                runtime.viewport._cancel_scrollback_reflow()
+                generation = runtime.viewport._reflow_generation
+
+                @asynccontextmanager
+                async def controlled_terminal(
+                    render_cli_done: bool = False,
+                ):
+                    _ = render_cli_done
+                    yield
+
+                with (
+                    patch(
+                        "mind_app.tui.core.viewport.in_terminal",
+                        controlled_terminal,
+                    ),
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        return_value=True,
+                    ),
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                    ) as end,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=RuntimeError("replay failed"),
+                    ),
+                ):
+                    with pytest.raises(RuntimeError, match="replay failed"):
+                        await runtime.viewport._reflow_scrollback(
+                            (24, 10),
+                            generation,
+                        )
+
+                end.assert_called_once_with()
+                assert runtime.document.scrollback_line_count == previous_position
+                assert runtime.viewport._reflow_required is True
+            finally:
+                runtime.viewport._cancel_scrollback_reflow()
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_rechecks_geometry_reported_after_first_replay() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"entry {index}" for index in range(60))),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_for_resize_replay",
+                ) as clear:
+                    terminal_size = Size(rows=8, columns=24)
+                    runtime.viewport.observe_terminal_geometry(24, 8)
+                    await asyncio.sleep(0.11)
+                    clear.assert_called_once_with()
+
+                    terminal_size = Size(rows=12, columns=30)
+                    await asyncio.sleep(0.2)
+
+                assert clear.call_count == 2
+                assert runtime.viewport._observed_geometry == (30, 12)
+                assert runtime.viewport._reflowed_geometry == (30, 12)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_during_stream_replays_final_stable_content() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+        stable_source = "\n".join(
+            f"stable entry {index:02d}" for index in range(60)
+        )
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block(stable_source), kind="assistant")
+                await asyncio.sleep(0.02)
+                runtime.set_active_renderable(
+                    _block("stream tail"),
+                    kind="assistant",
+                    raw_text="stream tail",
+                    stream_continuation=True,
+                )
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_for_resize_replay",
+                ) as clear:
+                    terminal_size = Size(rows=10, columns=24)
+                    runtime.viewport.observe_terminal_geometry(24, 10)
+                    await asyncio.sleep(0.12)
+
+                    clear.assert_called_once_with()
+                    assert runtime.viewport._resize_during_stream is True
+
+                    runtime.commit_active_renderable(
+                        _block("stream tail"),
+                        raw_text="stream tail",
+                    )
+                    await asyncio.sleep(0.05)
+
+                assert clear.call_count == 2
+                assert runtime.viewport._resize_during_stream is False
+                assert runtime.viewport._reflowed_geometry == (24, 10)
+                transcript = _transcript_text(runtime.document)
+                assert transcript.count("stream tail") == 1
             finally:
                 await runtime.close()
 
@@ -1031,7 +1374,7 @@ async def test_stream_commit_during_resize_reflows_only_final_geometry() -> None
 
                 with patch.object(
                     runtime.screen,
-                    "clear_terminal_scrollback",
+                    "clear_terminal_for_resize_replay",
                 ) as clear:
                     for width, height in ((30, 9), (22, 11), (36, 12)):
                         terminal_size = Size(rows=height, columns=width)

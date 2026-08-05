@@ -134,15 +134,40 @@ def _queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
     return "alt + ↑"
 
 
+def _supports_vt_control(output: Output) -> bool:
+    """判断输出对象是否可以安全接收 VT 控制序列。"""
+    if isinstance(output, (DummyOutput, PlainTextOutput)):
+        return False
+    if sys.platform == "win32" and not hasattr(output, "vt100_output"):
+        return False
+    return True
+
+
 def _erase_terminal_scrollback(output: Output) -> None:
     """清除支持 VT 擦除指令的终端滚屏缓冲区。"""
-    if isinstance(output, (DummyOutput, PlainTextOutput)):
-        return None
-    if sys.platform == "win32" and not hasattr(output, "vt100_output"):
+    if not _supports_vt_control(output):
         return None
 
     output.write_raw("\x1b[3J")
     output.flush()
+
+
+def _clear_terminal_for_resize_replay(output: Output) -> None:
+    """为尺寸重排清除可见画面和原生滚屏缓冲区。"""
+    if not _supports_vt_control(output):
+        return None
+
+    output.write_raw("\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H")
+
+
+def _set_synchronized_output(output: Output, active: bool) -> bool:
+    """切换支持终端的同步输出更新区间。"""
+    if not _supports_vt_control(output):
+        return False
+
+    output.write_raw("\x1b[?2026h" if active else "\x1b[?2026l")
+    output.flush()
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -890,6 +915,18 @@ class TuiScreen(object):
         self.application.renderer.clear()
         _erase_terminal_scrollback(self.application.output)
         self.invalidate()
+
+    def clear_terminal_for_resize_replay(self) -> None:
+        """在尺寸重排事务中清除可见画面和原生滚屏。"""
+        _clear_terminal_for_resize_replay(self.application.output)
+
+    def begin_synchronized_output(self) -> bool:
+        """开始终端同步输出更新并返回是否已启用。"""
+        return _set_synchronized_output(self.application.output, True)
+
+    def end_synchronized_output(self) -> None:
+        """结束终端同步输出更新。"""
+        _set_synchronized_output(self.application.output, False)
 
     def print_exit_summary(self, session_id: str) -> None:
         """在 Application 停止后向终端打印会话恢复提示。"""

@@ -902,6 +902,13 @@ class TuiDocument(object):
 
         self.scrollback_line_count = min(line_count, replay_start)
 
+    def restore_scrollback_position(self, line_count: int) -> None:
+        """把原生滚屏游标恢复到先前提交位置。"""
+        self.scrollback_line_count = max(
+            0,
+            min(self._stable_line_count(), int(line_count)),
+        )
+
     def clear_visible_prefix(self) -> None:
         """隐藏当前稳定正文并保留完整归档。"""
         self.cleared_line_count = self._stable_line_count()

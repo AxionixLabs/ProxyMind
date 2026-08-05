@@ -155,6 +155,15 @@ class TuiRuntime(object):
             clear_terminal_scrollback=(
                 lambda: self.screen.clear_terminal_scrollback()
             ),
+            clear_terminal_for_resize_replay=(
+                lambda: self.screen.clear_terminal_for_resize_replay()
+            ),
+            begin_synchronized_output=(
+                lambda: self.screen.begin_synchronized_output()
+            ),
+            end_synchronized_output=(
+                lambda: self.screen.end_synchronized_output()
+            ),
             invalidate=self.invalidate,
         )
 
@@ -805,12 +814,15 @@ class TuiRuntime(object):
         raw_text: str | None = None
     ) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
+        assistant_stream = self.document.active_kind == "assistant"
         self.document.commit_active(
             block,
             transcript_block=transcript_block,
             raw_text=raw_text,
         )
         self.screen.transcript_overlay.content_changed()
+        if assistant_stream:
+            self.viewport.stream_finalized()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
 
@@ -827,8 +839,11 @@ class TuiRuntime(object):
 
     def clear_active_renderable(self) -> None:
         """清空当前流式展示块。"""
+        assistant_stream = self.document.active_kind == "assistant"
         self.document.clear_active()
         self.screen.transcript_overlay.content_changed()
+        if assistant_stream:
+            self.viewport.stream_finalized()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
 
