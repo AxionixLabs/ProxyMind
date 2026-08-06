@@ -645,19 +645,12 @@ class TuiDocument(object):
         normalized_turn_id = str(turn_id or "").strip()
         if not normalized_turn_id:
             raise ValueError("turn_id is required")
-        for index in range(len(self.blocks) - 1, -1, -1):
-            item = self.blocks[index]
-            if item.kind != "user" or item.turn_id:
-                continue
-            self.blocks[index] = replace(
-                item,
-                turn_id=normalized_turn_id,
-                prompt=str(prompt),
-            )
-            self.stable_transcript_revision += 1
-            return True
 
-        return False
+        return self._replace_latest_user(
+            lambda item: not item.turn_id,
+            turn_id=normalized_turn_id,
+            prompt=str(prompt),
+        )
 
     def truncate_before_turn(self, turn_id: str) -> bool:
         """移除指定用户轮次及其后的稳定正文。"""
@@ -751,25 +744,40 @@ class TuiDocument(object):
         if not normalized_turn_id:
             raise ValueError("turn_id is required")
 
-        for index in range(len(self.blocks) - 1, -1, -1):
-            item = self.blocks[index]
-            if item.kind != "user" or item.turn_id != normalized_turn_id:
-                continue
-            self.blocks[index] = replace(
-                item,
-                attachments=(
-                    tuple(deepcopy(dict(value)) for value in attachments)
-                    if attachments is not None
-                    else item.attachments
-                ),
-                extras=(
-                    deepcopy(dict(extras))
-                    if extras is not None
-                    else item.extras
-                ),
+        changes: dict[str, typing.Any] = {}
+        if attachments is not None:
+            changes["attachments"] = tuple(
+                deepcopy(dict(value)) for value in attachments
             )
-            self.stable_transcript_revision += 1
-            return True
+        if extras is not None:
+            changes["extras"] = deepcopy(dict(extras))
+
+        return self._replace_latest_user(
+            lambda item: item.turn_id == normalized_turn_id,
+            **changes,
+        )
+
+    def _replace_latest_user(
+        self,
+        match: typing.Callable[[TranscriptBlock], bool],
+        **changes: typing.Any
+    ) -> bool:
+        """在稳定正文或动态尾部替换最近一条匹配的用户记录。"""
+        for items, active in (
+            (self._active_tail, True),
+            (self.blocks, False),
+        ):
+            for index in range(len(items) - 1, -1, -1):
+                item = items[index]
+                if item.kind != "user" or not match(item):
+                    continue
+                items[index] = replace(item, **changes)
+                if active:
+                    self.active_transcript_revision += 1
+                else:
+                    self.stable_transcript_revision += 1
+                return True
+
         return False
 
     def _turn_boundary(self, turn_id: str) -> int | None:

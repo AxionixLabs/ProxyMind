@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mind_app.tui.core.queued import TuiSubmission
+from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import query_block, text_block
 from mind_app.tui.session import turn_input as turn_input_session
 from mind_app.tui.session.turn import execute_tui_model_turn
 from mind_app.tui.session.turn_input import TuiTurnInputControl
@@ -480,6 +482,68 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
     assert runtime.document.blocks[-1].kind == "user"
     assert runtime.document.blocks[-1].turn_id == "turn_001"
     assert runtime.document.blocks[-1].prompt == "accepted steer"
+
+
+@pytest.mark.anyio
+async def test_sampling_acceptance_binds_input_behind_active_tool(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        turn_input_session,
+        "steer_turn",
+        AsyncMock(return_value=SimpleNamespace(status="accepted")),
+    )
+    runtime = TuiRuntime()
+    runtime.append_block(query_block("original request"), kind="user")
+    assert runtime.bind_submitted_turn("turn_001", "original request")
+    runtime.set_active_renderable(
+        text_block("Running long shell command"),
+        kind="operation",
+    )
+    attachments = _Attachments([{"kind": "image", "name": "screen.png"}])
+    state = _State({"source": "selection"})
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=attachments),
+        runtime,
+        state,
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    _mark_started(control)
+    submission = _submission("accepted during tool")
+
+    assert control.submit(submission, False)
+    await asyncio.sleep(0)
+
+    accepted = control.handle_event(TurnInputAcceptedEvent(
+        type="turn.input.accepted",
+        turn_id="turn_001",
+        client_message_id=submission.client_message_id,
+    ))
+
+    assert accepted == TurnInput(
+        client_message_id=submission.client_message_id,
+        text=submission.value,
+        attachments=({"kind": "image", "name": "screen.png"},),
+        extras={"source": "selection"},
+    )
+    assert not runtime.submissions.pending_steers.active
+    live_tail = runtime.document.transcript_snapshot().live_tail
+    assert live_tail is not None
+    accepted_cell = live_tail.cells[-1]
+    assert accepted_cell.kind == "user"
+    assert accepted_cell.turn_id == "turn_001"
+    assert accepted_cell.prompt == submission.value
+    assert accepted_cell.attachments == accepted.attachments
+    assert accepted_cell.extras == accepted.extras
+    assert submission.value in fragments_text(
+        runtime.screen.transcript_fragments()
+    )
+
+    runtime.commit_active_renderable(text_block("Completed long shell command"))
+    assert runtime.document.blocks[-1] == accepted_cell
+    await control.close()
 
 
 @pytest.mark.anyio
