@@ -43,6 +43,7 @@ from mind_app.presentation.models import (
     PlanUpdateView,
     ToolStartView,
 )
+from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_app.presentation.tool_views import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
@@ -546,6 +547,52 @@ def test_scrollback_keeps_gaps_between_consecutive_visual_blocks() -> None:
     )
 
 
+def test_scrollback_prefix_advances_only_to_complete_block_boundaries() -> None:
+    document = TuiDocument()
+    document.append_block(_block("first 0\nfirst 1\nfirst 2"), kind="assistant")
+    document.append_block(_block("second 0\nsecond 1"), kind="operation")
+    document.append_block(_block("third"), kind="assistant")
+
+    assert document.complete_scrollback_prefix_line_count(
+        required_line_count=2,
+        maximum_line_count=8,
+    ) == 3
+    assert document.complete_scrollback_prefix_line_count(
+        required_line_count=4,
+        maximum_line_count=8,
+    ) == 6
+    assert document.complete_scrollback_prefix_line_count(
+        required_line_count=4,
+        maximum_line_count=5,
+    ) == 3
+
+    document.commit_scrollback_prefix(3)
+
+    assert document.complete_scrollback_prefix_line_count(
+        required_line_count=1,
+        maximum_line_count=5,
+    ) == 3
+
+
+def test_scrollback_block_boundary_keeps_submitted_query_visible() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("prior 0\nprior 1"), kind="assistant")
+    runtime.append_block(_block("new query"), kind="user")
+    query = runtime.document.blocks[-1].display_block
+    runtime.viewport.mark_submitted_query(query)
+
+    with (
+        patch.object(runtime.viewport, "_get_available_height", return_value=1),
+        patch.object(runtime.viewport, "_get_terminal_width", return_value=40),
+    ):
+        line_count = runtime.viewport._scrollback_prefix_line_count()
+
+    assert line_count == 2
+    assert fragments_text(
+        runtime.document.scrollback_prefix_fragments(line_count)
+    ) == "prior 0\nprior 1"
+
+
 def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("old history"), kind="operation")
@@ -640,6 +687,28 @@ def test_resize_replay_pairs_synchronized_output_sequences() -> None:
         call("\x1b[?2026l"),
     ]
     assert output.flush.call_count == 2
+
+
+def test_scrollback_batch_moves_vt_cursor_to_next_line() -> None:
+    stream = io.StringIO()
+    output = Vt100_Output(
+        stream,
+        lambda: Size(rows=12, columns=40),
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+    runtime = TuiRuntime(output_obj=output)
+
+    runtime.viewport._print_scrollback_fragments([
+        ("", "first\nsecond"),
+    ])
+    runtime.viewport._print_scrollback_fragments([
+        ("", "third"),
+    ])
+
+    assert sanitize_terminal_text(stream.getvalue()) == (
+        "first\nsecond\nthird\n"
+    )
 
 
 def test_transcript_screen_pairs_alternate_scroll_sequences() -> None:
@@ -827,6 +896,85 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
 
 
 @pytest.mark.anyio
+async def test_scrollback_starts_synchronized_output_after_terminal_acquire() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        events: list[str] = []
+        printed: list[str] = []
+
+        @asynccontextmanager
+        async def controlled_terminal(render_cli_done: bool = False):
+            _ = render_cli_done
+            events.append("wait")
+            await asyncio.sleep(0)
+            events.append("acquired")
+            try:
+                yield
+            finally:
+                events.append("redraw")
+
+        with (
+            patch.object(
+                runtime.screen.application.output,
+                "get_size",
+                return_value=Size(rows=8, columns=40),
+            ),
+            patch(
+                "mind_app.tui.core.viewport.in_terminal",
+                controlled_terminal,
+            ),
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        side_effect=lambda: events.append("begin") or True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                        side_effect=lambda: events.append("end"),
+                    ) as end,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=lambda value: (
+                            events.append("print"),
+                            printed.append(fragments_text(value)),
+                        ),
+                    ),
+                ):
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"line {index}" for index in range(30)
+                        )),
+                        kind="assistant",
+                    )
+
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        if end.called:
+                            break
+
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
+                assert events == [
+                    "wait",
+                    "acquired",
+                    "begin",
+                    "print",
+                    "redraw",
+                    "end",
+                ]
+                assert len(printed) == 1
+                assert printed[0].endswith("line 29\n")
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_assistant_stream_flushes_to_scrollback_after_commit() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -873,7 +1021,8 @@ async def test_assistant_stream_flushes_to_scrollback_after_commit() -> None:
 
                 assert print_text.called
                 assert runtime.document.scrollback_line_count > 0
-                assert f"{printed}\n{visible}" == expected
+                assert printed == expected + "\n"
+                assert visible == ""
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
@@ -1561,7 +1710,7 @@ async def test_active_markdown_stream_rerenders_from_source_on_resize() -> None:
 
 
 @pytest.mark.anyio
-async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize() -> None:
+async def test_scrollback_commits_oversized_replies_as_complete_blocks() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         terminal_size = Size(rows=30, columns=40)
@@ -1587,7 +1736,10 @@ async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize()
                 await asyncio.sleep(0.12)
 
                 assert runtime.document.scrollback_line_count > 2
-                assert "first 29" in _document_text(runtime.document)
+                assert _document_text(runtime.document) == "\nFinished first"
+                assert "first 29" in fragments_text(
+                    runtime.document.all_fragments(width=40)
+                )
 
                 runtime.set_execution_active(True)
                 runtime.append_block(_block("next question"), kind="user")
@@ -1602,13 +1754,17 @@ async def test_scrollback_keeps_latest_oversized_reply_across_turns_and_resize()
                 assert runtime.document.scrollback_line_count > 5
                 visible = _document_text(runtime.document)
                 assert "first 29" not in visible
-                assert "second 29" in visible
+                assert "second 29" not in visible
+                assert visible == "\nFinished second"
+                assert "second 29" in fragments_text(
+                    runtime.document.all_fragments(width=40)
+                )
             finally:
                 await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_single_oversized_block_retires_complete_logical_lines() -> None:
+async def test_single_oversized_block_retires_as_one_complete_block() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         source = "\n".join(f"line {index:02d}" for index in range(80))
@@ -1648,20 +1804,53 @@ async def test_single_oversized_block_retires_complete_logical_lines() -> None:
                 visible = _document_text(runtime.document)
 
                 assert printed.startswith("• line 00\n")
-                assert not printed.endswith("\n")
-                assert visible.endswith("line 79")
-                assert f"{printed}\n{visible}" == expected
-                assert runtime.document.scrollback_line_count > 0
-                assert display_line_count(
-                    visible,
-                    width=runtime.terminal_width,
-                ) <= runtime.screen.transcript_available_height()
+                assert printed.endswith("  line 79\n")
+                assert printed == expected + "\n"
+                assert visible == ""
+                assert (
+                    runtime.document.scrollback_line_count
+                    == runtime.document.stable_line_count
+                )
             finally:
                 await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_line_scrollback_resize_never_reprints_retired_content() -> None:
+async def test_completed_scrollback_collapses_retired_canvas_height() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"line {index}" for index in range(30))),
+                    kind="assistant",
+                )
+
+                for _ in range(100):
+                    await asyncio.sleep(0.002)
+                    if runtime.document.scrollback_line_count > 0:
+                        break
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+
+                assert runtime.document.scrollback_line_count > 0
+                assert runtime.screen._canvas_height_floor == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_complete_block_scrollback_resize_never_reprints_content() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         terminal_size = Size(rows=12, columns=40)
@@ -1682,6 +1871,7 @@ async def test_line_scrollback_resize_never_reprints_retired_content() -> None:
                     runtime.append_block(_block(source), kind="assistant")
                     await asyncio.sleep(0.02)
                     first_count = runtime.document.scrollback_line_count
+                    assert first_count == runtime.document.stable_line_count
 
                     terminal_size = Size(rows=20, columns=40)
                     runtime.viewport.schedule_scrollback_flush()
@@ -1698,9 +1888,9 @@ async def test_line_scrollback_resize_never_reprints_retired_content() -> None:
                 ]
                 visible = _document_text(runtime.document)
 
-                assert len(chunks) == 2
-                assert "\n".join([*chunks, visible]) == source
-                assert runtime.document.scrollback_line_count > first_count
+                assert chunks == [source + "\n"]
+                assert visible == ""
+                assert runtime.document.scrollback_line_count == first_count
                 assert "".join(
                     text
                     for _style, text in runtime.document.all_fragments(width=40)
@@ -1747,7 +1937,8 @@ async def test_width_resize_reflows_native_scrollback_from_document() -> None:
 
                 clear.assert_called_once_with()
                 assert chunks
-                assert "\n".join([*chunks, visible]) == source
+                assert chunks == [source + "\n"]
+                assert visible == ""
                 assert runtime.viewport._reflowed_geometry == (24, 10)
             finally:
                 await runtime.close()
@@ -1841,10 +2032,9 @@ async def test_height_only_resize_reflows_native_scrollback() -> None:
                     "".join(text for _style, text in call.args[0])
                     for call in print_text.call_args_list
                 ]
-                assert "\n".join([
-                    *chunks,
-                    _document_text(runtime.document),
-                ]) == source
+                visible = _document_text(runtime.document)
+                assert chunks == [source + "\n"]
+                assert visible == ""
             finally:
                 await runtime.close()
 
@@ -1943,6 +2133,11 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                         side_effect=lambda _fragments: events.append("replay"),
                     ),
                     patch.object(
+                        runtime.screen,
+                        "settle_scrollback_layout",
+                        side_effect=lambda: events.append("settle"),
+                    ) as settle,
+                    patch.object(
                         runtime.screen.application.renderer,
                         "clear",
                     ) as renderer_clear,
@@ -1960,6 +2155,7 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
 
                 begin.assert_called_once_with()
                 clear.assert_called_once_with()
+                settle.assert_called_once_with()
                 end.assert_called_once_with()
                 renderer_clear.assert_not_called()
                 assert events == [
@@ -1968,6 +2164,7 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                     "begin",
                     "clear",
                     "replay",
+                    "settle",
                     "redraw",
                     "end",
                 ]
@@ -2148,6 +2345,9 @@ async def test_resize_during_stream_replays_final_stable_content() -> None:
         stable_source = "\n".join(
             f"stable entry {index:02d}" for index in range(60)
         )
+        stream_source = "\n".join(
+            f"stream entry {index:02d}" for index in range(30)
+        )
 
         with patch.object(
             runtime.screen.application.output,
@@ -2159,9 +2359,9 @@ async def test_resize_during_stream_replays_final_stable_content() -> None:
                 runtime.append_block(_block(stable_source), kind="assistant")
                 await asyncio.sleep(0.02)
                 runtime.set_active_renderable(
-                    _block("stream tail"),
+                    _block(stream_source),
                     kind="assistant",
-                    raw_text="stream tail",
+                    raw_text=stream_source,
                     stream_continuation=True,
                 )
 
@@ -2175,10 +2375,12 @@ async def test_resize_during_stream_replays_final_stable_content() -> None:
 
                     clear.assert_called_once_with()
                     assert runtime.viewport._resize_during_stream is True
+                    await _render_next_frame(runtime)
+                    assert runtime.screen._canvas_height_floor == 10
 
                     runtime.commit_active_renderable(
-                        _block("stream tail"),
-                        raw_text="stream tail",
+                        _block(stream_source),
+                        raw_text=stream_source,
                     )
                     await asyncio.sleep(0.05)
 
@@ -2186,7 +2388,15 @@ async def test_resize_during_stream_replays_final_stable_content() -> None:
                 assert runtime.viewport._resize_during_stream is False
                 assert runtime.viewport._reflowed_geometry == (24, 10)
                 transcript = _transcript_text(runtime.document)
-                assert transcript.count("stream tail") == 1
+                assert transcript.count("stream entry 00") == 1
+                assert transcript.count("stream entry 29") == 1
+                screen = await _render_next_frame(runtime)
+                assert runtime.screen._canvas_height_floor == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in (
+                    screen.visible_windows_to_write_positions
+                )
             finally:
                 await runtime.close()
 
@@ -3047,7 +3257,7 @@ async def test_folded_multiline_paste_keeps_input_at_canvas_bottom() -> None:
 
 
 @pytest.mark.anyio
-async def test_multiline_input_backspace_keeps_transcript_canvas_floor() -> None:
+async def test_multiline_input_backspace_keeps_retired_canvas_collapsed() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -3071,10 +3281,18 @@ async def test_multiline_input_backspace_keeps_transcript_canvas_floor() -> None
                 pipe_input.send_text("\x7f" * 8)
                 await _wait_for_input_text(runtime, "")
 
-                await _render_next_frame(runtime)
+                screen = await _render_next_frame(runtime)
 
-                assert runtime.screen._canvas_height_floor == 12
-                assert runtime.screen._visible_height() == 12
+                assert runtime.document.scrollback_line_count > 0
+                assert runtime.screen._canvas_height_floor == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in (
+                    screen.visible_windows_to_write_positions
+                )
             finally:
                 await runtime.close()
 
@@ -3522,14 +3740,13 @@ async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
             assert rendered_lines[0].startswith(
                 "/ T R A N S C R I P T"
             )
-            assert rendered_lines[1].startswith("› first question")
-            assert "full output" in rendered_text
+            assert "line 29" in rendered_text
             assert "Esc/Q/Ctrl+C/Ctrl+T to quit" in rendered_text
-            assert runtime.screen.transcript_overlay.scroll_offset == 0
-            assert not runtime.screen.transcript_overlay.follow_bottom
-            assert runtime.screen.transcript_overlay.scroll_percentage() == 0
+            assert runtime.screen.transcript_overlay.scroll_offset > 0
+            assert runtime.screen.transcript_overlay.follow_bottom
+            assert runtime.screen.transcript_overlay.scroll_percentage() == 100
             assert any(
-                "─" in line and " 0% " in line
+                "─" in line and " 100% " in line
                 for line in rendered_lines
             )
             assert "full output" in "".join(
@@ -3751,7 +3968,7 @@ def test_transcript_screen_pairs_vt_terminal_modes() -> None:
     assert "\x1b[?1007l\x1b[?1049l" in terminal_output
 
 
-def test_transcript_screen_reopens_at_first_query() -> None:
+def test_transcript_screen_reopens_at_latest_content() -> None:
     runtime = TuiRuntime()
     runtime.screen._output_size = lambda: (40, 10)
     runtime.append_block(query_block("first question"), kind="user")
@@ -3762,15 +3979,13 @@ def test_transcript_screen_reopens_at_first_query() -> None:
     overlay = runtime.screen.transcript_overlay
 
     runtime.toggle_transcript_overlay()
-    overlay.jump_bottom()
+    overlay.jump_top()
     runtime.toggle_transcript_overlay()
     runtime.toggle_transcript_overlay()
 
-    assert overlay.scroll_offset == 0
-    assert not overlay.follow_bottom
-    assert fragments_text(overlay.visible_fragments()).startswith(
-        "› first question"
-    )
+    assert overlay.scroll_offset == overlay._max_scroll_offset()
+    assert overlay.follow_bottom
+    assert fragments_text(overlay.visible_fragments()).endswith("line 19")
 
 
 def test_transcript_takeover_failure_restores_inline_screen() -> None:
@@ -4993,6 +5208,7 @@ async def test_submission_changes_preserve_open_transcript_reader_position() -> 
     )
     runtime.toggle_transcript_overlay()
     overlay = runtime.screen.transcript_overlay
+    overlay.jump_top()
 
     runtime.submissions.enqueue_message("new question")
     with patch.object(

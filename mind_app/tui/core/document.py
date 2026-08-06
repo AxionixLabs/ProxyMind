@@ -100,6 +100,7 @@ class TuiDocumentState(object):
     pending_submission_raw_text: str | None
     active_tail: tuple[TranscriptBlock, ...]
     stable_lines: tuple[FormattedText, ...]
+    stable_block_end_lines: tuple[int, ...]
     stable_snapshot_cells: tuple[TranscriptBlock, ...]
     stable_snapshot_revision: int
 
@@ -128,6 +129,7 @@ class TuiDocument(object):
         self._active_tail: list[TranscriptBlock] = []
 
         self._stable_lines: list[FormattedText]                  = []
+        self._stable_block_end_lines: list[int]                  = []
         self._stable_snapshot_cells: tuple[TranscriptBlock, ...] = ()
         self._stable_snapshot_revision: int                      = -1
 
@@ -385,6 +387,7 @@ class TuiDocument(object):
     def _rebuild_stable_lines(self) -> None:
         """根据稳定块重新生成逻辑行缓存。"""
         self._stable_lines.clear()
+        self._stable_block_end_lines.clear()
         previous_kind: TuiBlockKind | None = None
 
         for item in self.blocks:
@@ -397,6 +400,7 @@ class TuiDocument(object):
             ):
                 self._stable_lines.append([])
             self._stable_lines.extend(own_lines)
+            self._stable_block_end_lines.append(len(self._stable_lines))
             previous_kind = item.kind
 
     def set_display_width(
@@ -481,6 +485,7 @@ class TuiDocument(object):
             if content_start is None:
                 content_start = len(self._stable_lines)
             self._stable_lines.extend(own_lines)
+            self._stable_block_end_lines.append(len(self._stable_lines))
             previous_kind = item.kind
 
         boundary_lines = max(
@@ -705,6 +710,7 @@ class TuiDocument(object):
             pending_submission_raw_text=self._pending_submission_raw_text,
             active_tail=deepcopy(tuple(self._active_tail)),
             stable_lines=deepcopy(tuple(self._stable_lines)),
+            stable_block_end_lines=tuple(self._stable_block_end_lines),
             stable_snapshot_cells=deepcopy(self._stable_snapshot_cells),
             stable_snapshot_revision=self._stable_snapshot_revision,
         )
@@ -729,6 +735,7 @@ class TuiDocument(object):
         self._active_tail = deepcopy(list(state.active_tail))
 
         self._stable_lines             = deepcopy(list(state.stable_lines))
+        self._stable_block_end_lines   = list(state.stable_block_end_lines)
         self._stable_snapshot_cells    = deepcopy(state.stable_snapshot_cells)
         self._stable_snapshot_revision = state.stable_snapshot_revision
 
@@ -997,6 +1004,39 @@ class TuiDocument(object):
         start = self.visible_prefix_line_count
         limit = max(0, min(len(self._stable_lines) - start, int(line_count)))
         return join_formatted_lines(self._stable_lines[start:start + limit])
+
+    def complete_scrollback_prefix_line_count(
+        self,
+        *,
+        required_line_count: int,
+        maximum_line_count: int
+    ) -> int:
+        """返回满足目标且不拆分稳定块的滚屏前缀行数。"""
+        start = self.visible_prefix_line_count
+        required = max(1, int(required_line_count))
+        maximum = max(
+            0,
+            min(
+                self._stable_line_count() - start,
+                int(maximum_line_count),
+            ),
+        )
+        if maximum <= 0:
+            return 0
+
+        fallback = 0
+
+        for end in self._stable_block_end_lines:
+            offset = end - start
+            if offset <= 0:
+                continue
+            if offset > maximum:
+                break
+            fallback = offset
+            if offset >= required:
+                return offset
+
+        return fallback
 
     def commit_scrollback_prefix(self, line_count: int) -> None:
         """推进已经写入终端滚屏区的稳定逻辑行边界。"""

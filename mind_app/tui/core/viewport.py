@@ -303,7 +303,7 @@ class TuiTranscriptViewport(object):
         return self._normalize_geometry(width, height)
 
     def _scrollback_prefix_line_count(self) -> int:
-        """计算可写入滚屏区的完整稳定逻辑行数量。"""
+        """计算可写入滚屏区且不拆分稳定块的逻辑行数量。"""
         if (
             self.document.active_block is not None
             and not self.document.active_stream_continuation
@@ -331,38 +331,36 @@ class TuiTranscriptViewport(object):
             self._get_available_height() - self._live_tail_height(),
         )
         if available <= 0:
-            return self._stream_scrollback_batch(max_retirable)
-
-        kept_rows: int = 0
-
-        for index in range(len(lines) - 1, -1, -1):
-            line = lines[index]
-            rows = max(1, display_line_count(
-                fragments_text(line),
-                width=self._get_terminal_width(),
-                continuation_widths=fragment_continuation_widths(
-                    line,
-                    prefix_style=ASSISTANT_PREFIX_CLASS,
-                    prefix_width=2,
-                ),
-            ))
-
-            candidate = rows + kept_rows
-            if candidate > available:
-                retire_count = min(index + 1, len(lines) - 1)
-                break
-
-            kept_rows = candidate
+            retire_count = max_retirable
         else:
-            return 0
+            kept_rows: int = 0
+
+            for index in range(len(lines) - 1, -1, -1):
+                line = lines[index]
+                rows = max(1, display_line_count(
+                    fragments_text(line),
+                    width=self._get_terminal_width(),
+                    continuation_widths=fragment_continuation_widths(
+                        line,
+                        prefix_style=ASSISTANT_PREFIX_CLASS,
+                        prefix_width=2,
+                    ),
+                ))
+
+                candidate = rows + kept_rows
+                if candidate > available:
+                    retire_count = min(index + 1, len(lines) - 1)
+                    break
+
+                kept_rows = candidate
+            else:
+                return 0
 
         retire_count = min(retire_count, max_retirable)
-
-        while (
-            retire_count < max_retirable
-            and not fragments_text(lines[retire_count]).strip()
-        ):
-            retire_count += 1
+        retire_count = self.document.complete_scrollback_prefix_line_count(
+            required_line_count=retire_count,
+            maximum_line_count=max_retirable,
+        )
 
         return self._stream_scrollback_batch(retire_count)
 
@@ -636,38 +634,47 @@ class TuiTranscriptViewport(object):
         if self.view_row is None:
             self.schedule_scrollback_flush()
 
+    def _print_scrollback_fragments(self, fragments: FormattedText) -> None:
+        """打印滚屏批次并把物理光标推进到下一行行首。"""
+        self._get_application().print_text([
+            *fragments,
+            ("", "\n"),
+        ])
+
     async def _flush_scrollback(self) -> None:
         """原子提交溢出的稳定正文并推进文档提交游标。"""
         current_task = asyncio.current_task()
 
-        reschedule: bool   = False
-        synchronized: bool = False
+        reschedule: bool = False
 
         try:
-            synchronized = self._begin_synchronized_output()
-
             while self._is_application_active() and not self._is_closing():
                 if self._should_defer_scrollback():
                     return None
                 if self._scrollback_prefix_line_count() <= 0:
                     return None
 
-                async with in_terminal(render_cli_done=False):
-                    if self._should_defer_scrollback():
-                        return None
+                synchronized = False
+                try:
+                    async with in_terminal(render_cli_done=False):
+                        if self._should_defer_scrollback():
+                            return None
 
-                    line_count = self._scrollback_prefix_line_count()
-                    if line_count <= 0:
-                        return None
+                        line_count = self._scrollback_prefix_line_count()
+                        if line_count <= 0:
+                            return None
 
-                    fragments = self.document.scrollback_prefix_fragments(
-                        line_count
-                    )
-                    # print_text 统一补一个结尾换行，批次只提供行间换行。
-                    self._get_application().print_text(fragments)
-                    self.document.commit_scrollback_prefix(line_count)
-                    self._settle_canvas_height()
-                    self.view_row = None
+                        fragments = self.document.scrollback_prefix_fragments(
+                            line_count
+                        )
+                        synchronized = self._begin_synchronized_output()
+                        self._print_scrollback_fragments(fragments)
+                        self.document.commit_scrollback_prefix(line_count)
+                        self._settle_canvas_height()
+                        self.view_row = None
+                finally:
+                    if synchronized:
+                        self._end_synchronized_output()
 
                 if self.refresh_geometry():
                     reschedule = True
@@ -681,8 +688,6 @@ class TuiTranscriptViewport(object):
             return None
 
         finally:
-            if synchronized:
-                self._end_synchronized_output()
             if self._scrollback_task is current_task:
                 self._scrollback_task = None
                 if reschedule:
@@ -783,8 +788,9 @@ class TuiTranscriptViewport(object):
                         fragments = self.document.scrollback_prefix_fragments(
                             line_count
                         )
-                        self._get_application().print_text(fragments)
+                        self._print_scrollback_fragments(fragments)
                         self.document.commit_scrollback_prefix(line_count)
+                        self._settle_canvas_height()
 
                     self._complete_scrollback_reflow(target_geometry)
                     completed = True

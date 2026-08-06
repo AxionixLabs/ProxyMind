@@ -213,7 +213,7 @@ class TuiRuntime(object):
             end_synchronized_output=(
                 lambda: self.screen.end_synchronized_output()
             ),
-            settle_canvas_height=self._settle_stream_scrollback_layout,
+            settle_canvas_height=self._settle_scrollback_layout,
             invalidate=self.invalidate,
         )
 
@@ -347,14 +347,9 @@ class TuiRuntime(object):
             and not self.screen.scrollback_interaction_active()
         )
 
-    def _settle_stream_scrollback_layout(self) -> None:
-        """在流式稳定前缀退休后收束其占用的实时画布。"""
-        if (
-            self.execution_active
-            and self.document.active_kind == "assistant"
-            and self.document.active_stream_continuation
-        ):
-            self.screen.settle_scrollback_layout()
+    def _settle_scrollback_layout(self) -> None:
+        """在稳定正文退休后收束其占用的实时画布。"""
+        self.screen.settle_scrollback_layout()
 
     def _discard_submitted_query(self) -> None:
         """在二级菜单接管交互时撤下刚提交的输入块。"""
