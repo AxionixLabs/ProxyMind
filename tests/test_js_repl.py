@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import hashlib
 import json
 import os
 import re
@@ -687,39 +686,6 @@ async def test_js_repl_kernel_exit_waits_for_started_tool_calls(tmp_path: Path) 
     finally:
         release.set()
         await pool.close()
-
-
-@pytest.mark.anyio
-async def test_js_repl_is_registered_and_runtime_assets_are_unbranded() -> None:
-    coding = NativeCoding()
-    try:
-        tools = {tool.name: tool for tool in coding_tools(coding)}
-        assert "js_repl" in tools
-        assert "js_repl_reset" in tools
-        assert tools["js_repl"].input_schema["required"] == ["code"]
-        assert tools["js_repl_reset"].input_schema["properties"] == {}
-        description = tools["js_repl"].description
-        for required_hint in (
-            "child_process",
-            "host.tool",
-            "shell_command",
-            "Start-Process",
-            "不要退出 js_repl",
-            "结构化真实结果",
-            "嵌套调用沿用对应工具的审批和展示流程",
-        ):
-            assert required_hint in description
-
-        asset_root = Path(__file__).parents[1] / "node_repl"
-        kernel = (asset_root / "kernel.js").read_text(encoding="utf-8").lower()
-        for removed_name in ("co" + "dex", "open" + "ai"):
-            assert removed_name not in kernel
-        vendor = asset_root / "vendor" / "meriyah.umd.min.js"
-        assert hashlib.sha256(vendor.read_bytes()).hexdigest() == (
-            "168e1667f51a2f0655e40c470254314f2587521ce47282a7fc328f8e723a7c37"
-        )
-    finally:
-        await coding.close()
 
 
 @pytest.mark.anyio

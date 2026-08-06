@@ -160,9 +160,10 @@ class TuiTranscriptOverlay(object):
         return rows
 
     def open(self) -> None:
-        """打开完整会话记录并定位到最新内容。"""
+        """打开完整会话记录并定位到记录开头。"""
         self.active = True
-        self.follow_bottom = True
+        self.scroll_offset = 0
+        self.follow_bottom = False
         self._sync_scroll_offset()
         self._invalidate()
 

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import io
 import typing
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import pytest
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.approval.models import ApprovalDecisionValue
@@ -83,6 +85,7 @@ from mind_app.tui.core.screen import (
     FrameGeometry,
     _clear_terminal_for_resize_replay,
     _erase_terminal_scrollback,
+    _set_alternate_scroll_mode,
     _set_synchronized_output,
 )
 from mind_app.tui.core.styles import (
@@ -637,6 +640,21 @@ def test_resize_replay_pairs_synchronized_output_sequences() -> None:
         call("\x1b[?2026l"),
     ]
     assert output.flush.call_count == 2
+
+
+def test_transcript_screen_pairs_alternate_scroll_sequences() -> None:
+    output = SimpleNamespace(
+        vt100_output=object(),
+        write_raw=Mock(),
+    )
+
+    assert _set_alternate_scroll_mode(output, True) is True
+    assert _set_alternate_scroll_mode(output, False) is True
+
+    assert output.write_raw.call_args_list == [
+        call("\x1b[?1007h"),
+        call("\x1b[?1007l"),
+    ]
 
 
 def test_nested_synchronized_output_toggles_only_at_outer_boundary() -> None:
@@ -3460,9 +3478,16 @@ async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
         output = _AlternateScreenOutput(columns=72, rows=18)
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
         runtime.append_block(
+            query_block("first question"),
+            kind="user",
+        )
+        runtime.append_block(
             _block("compact"),
             kind="operation",
-            transcript_block=_block("full output"),
+            transcript_block=_block(
+                "full output\n"
+                + "\n".join(f"line {index}" for index in range(30))
+            ),
         )
 
         await runtime.open()
@@ -3493,15 +3518,19 @@ async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
                 for row in range(18)
             )
             assert "T R A N S C R I P T" in rendered_text
-            assert rendered_text.splitlines()[0].startswith(
+            rendered_lines = rendered_text.splitlines()
+            assert rendered_lines[0].startswith(
                 "/ T R A N S C R I P T"
             )
+            assert rendered_lines[1].startswith("› first question")
             assert "full output" in rendered_text
             assert "Esc/Q/Ctrl+C/Ctrl+T to quit" in rendered_text
-            assert "100%" in rendered_text
+            assert runtime.screen.transcript_overlay.scroll_offset == 0
+            assert not runtime.screen.transcript_overlay.follow_bottom
+            assert runtime.screen.transcript_overlay.scroll_percentage() == 0
             assert any(
-                "─" in line and "100%" in line
-                for line in rendered_text.splitlines()
+                "─" in line and " 0% " in line
+                for line in rendered_lines
             )
             assert "full output" in "".join(
                 text
@@ -3640,10 +3669,129 @@ def test_transcript_overlay_does_not_cover_blocking_surface(surface: str) -> Non
     runtime = TuiRuntime()
     runtime.screen.bottom_pane.activate(surface)
 
-    runtime.toggle_transcript_overlay()
+    with patch.object(
+        runtime.viewport,
+        "pause_scrollback",
+    ) as pause_scrollback, patch.object(
+        runtime.viewport,
+        "schedule_scrollback_flush",
+    ) as resume_scrollback:
+        runtime.toggle_transcript_overlay()
 
     assert not runtime.screen.transcript_overlay.active
     assert runtime.screen.bottom_pane.active_surface == surface
+    pause_scrollback.assert_called_once_with()
+    resume_scrollback.assert_called_once_with()
+
+
+def test_transcript_open_pauses_scrollback_before_switching_screen() -> None:
+    runtime = TuiRuntime()
+    calls: list[str] = []
+
+    with patch.object(
+        runtime.viewport,
+        "pause_scrollback",
+        side_effect=lambda: calls.append("pause"),
+    ), patch.object(
+        runtime.screen,
+        "set_transcript_overlay",
+        side_effect=lambda active: calls.append(f"overlay:{active}") or True,
+    ):
+        runtime.toggle_transcript_overlay()
+
+    assert calls == ["pause", "overlay:True"]
+
+
+def test_transcript_screen_immediately_owns_terminal_from_origin() -> None:
+    output = _AlternateScreenOutput(columns=64, rows=16)
+    runtime = TuiRuntime(output_obj=output)
+    renderer = runtime.screen.application.renderer
+    calls: list[object] = []
+
+    with patch.object(
+        output,
+        "enter_alternate_screen",
+        side_effect=lambda: calls.append("enter"),
+    ), patch.object(
+        output,
+        "erase_screen",
+        side_effect=lambda: calls.append("erase"),
+    ), patch.object(
+        output,
+        "cursor_goto",
+        side_effect=lambda row, column: calls.append(("cursor", row, column)),
+    ), patch.object(
+        output,
+        "flush",
+        side_effect=lambda: calls.append("flush"),
+    ):
+        assert runtime.screen.set_transcript_overlay(True)
+
+    assert calls == ["enter", "erase", ("cursor", 0, 0), "flush"]
+    assert renderer._in_alternate_screen
+
+
+def test_transcript_screen_pairs_vt_terminal_modes() -> None:
+    stream = io.StringIO()
+    output = Vt100_Output(
+        stream,
+        lambda: Size(rows=16, columns=64),
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+    runtime = TuiRuntime(output_obj=output)
+
+    runtime.toggle_transcript_overlay()
+    runtime.toggle_transcript_overlay()
+
+    terminal_output = stream.getvalue()
+    assert "\x1b[?1049h\x1b[H\x1b[?1007h\x1b[2J\x1b[0;0H" in (
+        terminal_output
+    )
+    assert "\x1b[?1007l\x1b[?1049l" in terminal_output
+
+
+def test_transcript_screen_reopens_at_first_query() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (40, 10)
+    runtime.append_block(query_block("first question"), kind="user")
+    runtime.append_block(
+        _block("\n".join(f"line {index}" for index in range(20))),
+        kind="assistant",
+    )
+    overlay = runtime.screen.transcript_overlay
+
+    runtime.toggle_transcript_overlay()
+    overlay.jump_bottom()
+    runtime.toggle_transcript_overlay()
+    runtime.toggle_transcript_overlay()
+
+    assert overlay.scroll_offset == 0
+    assert not overlay.follow_bottom
+    assert fragments_text(overlay.visible_fragments()).startswith(
+        "› first question"
+    )
+
+
+def test_transcript_takeover_failure_restores_inline_screen() -> None:
+    output = _AlternateScreenOutput(columns=64, rows=16)
+    runtime = TuiRuntime(output_obj=output)
+    screen = runtime.screen
+
+    with patch.object(
+        output,
+        "erase_screen",
+        side_effect=OSError("terminal unavailable"),
+    ), pytest.raises(OSError, match="terminal unavailable"):
+        screen.set_transcript_overlay(True)
+
+    assert output.enter_count == 1
+    assert output.quit_count == 1
+    assert not screen.transcript_overlay.active
+    assert not screen.application.full_screen
+    assert not screen.application.renderer.full_screen
+    assert not screen.application.renderer._in_alternate_screen
+    assert screen._inline_renderer_state is None
 
 
 def test_transcript_open_failure_restores_inline_renderer_state() -> None:
@@ -4836,7 +4984,7 @@ def test_transcript_overlay_rewraps_long_url_without_losing_text() -> None:
 
 
 @pytest.mark.anyio
-async def test_submission_commit_and_rollback_notify_open_transcript() -> None:
+async def test_submission_changes_preserve_open_transcript_reader_position() -> None:
     runtime = TuiRuntime()
     runtime.screen._output_size = lambda: (40, 10)
     runtime.append_block(
@@ -4858,9 +5006,13 @@ async def test_submission_commit_and_rollback_notify_open_transcript() -> None:
 
     assert value == "new question"
     assert content_changed.call_count == 1
-    assert overlay.follow_bottom
-    assert "new question" in "".join(
+    assert not overlay.follow_bottom
+    assert overlay.scroll_offset == 0
+    assert "new question" not in "".join(
         text for _style, text in overlay.visible_fragments()
+    )
+    assert "new question" in "".join(
+        text for _style, text in overlay.fragments()
     )
 
     with patch.object(
@@ -4874,7 +5026,8 @@ async def test_submission_commit_and_rollback_notify_open_transcript() -> None:
     assert "new question" not in "".join(
         text for _style, text in overlay.fragments()
     )
-    assert overlay.follow_bottom
+    assert not overlay.follow_bottom
+    assert overlay.scroll_offset == 0
 
 
 @pytest.mark.anyio

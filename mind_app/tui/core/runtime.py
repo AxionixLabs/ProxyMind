@@ -998,26 +998,36 @@ class TuiRuntime(object):
         self.input_model.cancel_history_backtrack()
         active = not self.screen.transcript_overlay.active
 
-        if not self.screen.set_transcript_overlay(active):
+        if active:
+            self._open_transcript_overlay()
             return None
 
-        if active:
-            self.viewport.pause_scrollback()
-        else:
+        if self.screen.set_transcript_overlay(False):
             self.viewport.schedule_scrollback_flush()
 
     def open_transcript_backtrack(self) -> None:
         """从主输入区打开完整记录并选择最近用户轮次。"""
-        if not self.screen.set_transcript_overlay(True):
+        if not self._open_transcript_overlay():
             return None
-
-        self.viewport.pause_scrollback()
 
         if self.screen.transcript_overlay.begin_or_step_backtrack():
             return None
 
         self.screen.set_transcript_overlay(False)
         self.viewport.schedule_scrollback_flush()
+
+    def _open_transcript_overlay(self) -> bool:
+        """冻结原生滚屏后切换到完整记录画面。"""
+        self.viewport.pause_scrollback()
+        try:
+            opened = self.screen.set_transcript_overlay(True)
+        except BaseException:
+            self.viewport.schedule_scrollback_flush()
+            raise
+
+        if not opened:
+            self.viewport.schedule_scrollback_flush()
+        return opened
 
     def commit_active_renderable(
         self,

@@ -170,6 +170,15 @@ def _set_synchronized_output(output: Output, active: bool) -> bool:
     return True
 
 
+def _set_alternate_scroll_mode(output: Output, active: bool) -> bool:
+    """切换 alternate screen 中的滚轮方向键转换。"""
+    if not _supports_vt_control(output):
+        return False
+
+    output.write_raw("\x1b[?1007h" if active else "\x1b[?1007l")
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class _InlineRendererState(object):
     """保存进入完整终端画面前的 renderer diff 状态。"""
@@ -1280,6 +1289,8 @@ class TuiScreen(object):
         if self._inline_renderer_state is not None:
             return None
 
+        terminal_height = self.terminal_height
+
         # prompt_toolkit 没有运行中切换全屏的公开接口；固定版本下保留
         # inline diff 状态，退出 alternate screen 后才能原位继续渲染。
         self._inline_renderer_state = _InlineRendererState(
@@ -1291,9 +1302,16 @@ class TuiScreen(object):
             min_available_height=renderer._min_available_height,
         )
 
-        self.application.full_screen = True
+        self.application.full_screen  = True
+        renderer.full_screen          = True
+        renderer._in_alternate_screen = True
 
-        renderer.full_screen = True
+        renderer.output.enter_alternate_screen()
+        _set_alternate_scroll_mode(renderer.output, True)
+        renderer.output.erase_screen()
+        renderer.output.cursor_goto(0, 0)
+        renderer.output.flush()
+
         renderer._cursor_pos = Point(x=0, y=0)
 
         renderer._last_screen       = None
@@ -1301,7 +1319,7 @@ class TuiScreen(object):
         renderer._last_style        = None
         renderer._last_cursor_shape = None
 
-        renderer._min_available_height = self.terminal_height
+        renderer._min_available_height = terminal_height
 
     def _leave_transcript_screen(self) -> None:
         """退出完整终端画面并恢复 inline 渲染状态。"""
@@ -1310,8 +1328,12 @@ class TuiScreen(object):
 
         try:
             if renderer._in_alternate_screen:
-                renderer.output.quit_alternate_screen()
-                renderer.output.flush()
+                try:
+                    _set_alternate_scroll_mode(renderer.output, False)
+                finally:
+                    renderer.output.quit_alternate_screen()
+                    renderer.output.flush()
+
         finally:
             renderer._in_alternate_screen = False
             self.application.full_screen  = False
