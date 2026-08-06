@@ -11,6 +11,13 @@ from mcp import types as mcp_types
 if typing.TYPE_CHECKING:
     from mind_app.runtime.execution import TurnContext
 
+NestedToolDispatch = typing.Callable[
+    [str, dict[str, typing.Any], str, dict[str, typing.Any] | None],
+    typing.Awaitable[mcp_types.CallToolResult]
+]
+
+NESTED_TOOL_DISPATCH_META_KEY = "_nested_tool_dispatch"
+
 
 @dataclass(slots=True)
 class ClientToolRuntime:
@@ -23,6 +30,7 @@ class ClientToolRuntime:
     meta: dict[str, typing.Any] | None = None
     execution: dict[str, typing.Any] | None = None
     call_id: str | None = None
+    nested_tool_dispatch: NestedToolDispatch | None = None
 
 
 ClientToolHandler = typing.Callable[

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.client_tools.types import NESTED_TOOL_DISPATCH_META_KEY
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
 from mind_app.runtime.execution import ToolInvocation
@@ -49,10 +50,17 @@ async def execute_tool(
                 stream_callback=stream_callback
             )
 
+    runtime_meta = (
+        invocation.meta
+        if NESTED_TOOL_DISPATCH_META_KEY in (invocation.meta or {})
+        else None
+    )
+
     return await session.call_tool(
         invocation.name,
         invocation.arguments,
         progress_callback=progress_callback,
+        meta=runtime_meta,
         execution=invocation.execution,
         call_id=invocation.call_id,
         turn_context=invocation.turn,

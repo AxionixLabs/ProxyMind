@@ -3,6 +3,30 @@
 
 import typing
 
+JS_REPL_INPUT_SCHEMA: dict[str, typing.Any] = {
+    "type": "object",
+    "properties": {
+        "code": {
+            "type": "string",
+            "description": "要在持久 JavaScript 内核中执行的代码。使用 console.log 输出结果。",
+        },
+        "timeout_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 30000,
+            "description": "本次执行的超时毫秒数；超时会重置内核。",
+        },
+    },
+    "required": ["code"],
+    "additionalProperties": False,
+}
+
+JS_REPL_RESET_INPUT_SCHEMA: dict[str, typing.Any] = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
 SHELL_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
     "type": "object",
     "properties": {

@@ -171,6 +171,7 @@ class Mind(object):
                 self,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
                 transcript_path_for=self.transcripts.path_for_session,
+                session_cleanup=self._close_repl_session,
                 graph_store=(
                     kwargs.get("agent_graph_store")
                     or AgentGraphStore(
@@ -482,9 +483,17 @@ class Mind(object):
                 transcript.close()
 
         subagent_snapshots = await self.subagents.shutdown_root(sid)
+
         for snapshot in subagent_snapshots:
             await self.hook_registry.cleanup_session(snapshot.thread.sid)
+            with contextlib.suppress(Exception):
+                await self.native_coding.close_js_repl_session(snapshot.thread.sid)
+
+        with contextlib.suppress(Exception):
+            await self.native_coding.close_js_repl_session(sid)
+
         self.command_hook_sessions.clear_root(sid)
+
         await self.session_lifecycle.end(
             self._conversation_lifecycle_id,
             self._session_hook_context(cid=cid, sid=sid),
@@ -629,12 +638,17 @@ class Mind(object):
         if not task.cancelled():
             task.exception()
 
+    async def _close_repl_session(self, session_id: str) -> None:
+        """关闭指定执行会话持有的 JavaScript Kernel。"""
+        await self.native_coding.close_js_repl_session(session_id)
+
     def _build_client_tools(self) -> ClientToolRegistry:
         """按当前工作区构建客户端工具注册表。"""
         return default_client_tool_registry(
             self.native_coding,
             execution_root=self.history_workspace,
             subagent_runtime=self.subagents,
+            approval_coordinator=self.approval_coordinator,
         )
 
     def bind_server_manager(self, server_manager: ServerManage) -> None:

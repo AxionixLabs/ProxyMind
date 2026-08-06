@@ -124,6 +124,9 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     controller.command_hook_sessions = SimpleNamespace(
         clear_root=Mock(),
     )
+    controller.native_coding = SimpleNamespace(
+        close_js_repl_session=AsyncMock(return_value=True),
+    )
 
     ended = await Mind.end_conversation(controller, reason="exit")
 
@@ -144,6 +147,10 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
     controller.hook_registry.cleanup_session.assert_awaited_once_with(
         "sid_child"
     )
+    assert [
+        item.args[0]
+        for item in controller.native_coding.close_js_repl_session.await_args_list
+    ] == ["sid_child", "sid_test_1_abcdef"]
     controller.command_hook_sessions.clear_root.assert_called_once_with(
         "sid_test_1_abcdef"
     )

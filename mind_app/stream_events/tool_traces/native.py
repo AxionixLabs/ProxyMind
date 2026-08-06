@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+import textwrap
 from mind_app.stream_events.command_preview import command_text
 from .common import (
     MAX_PREVIEW_WIDTH,
@@ -11,6 +12,7 @@ from .common import (
     _result_payload,
     _short_text,
     _summary_lines,
+    _trace_code_preview_from_lines,
     _trace_preview_from_lines
 )
 from mind_app.presentation.models import TraceEntry
@@ -36,6 +38,8 @@ NATIVE_CODING_TRACE_TOOLS = {
     "shell_command",
     "exec_command",
     "write_stdin",
+    "js_repl",
+    "js_repl_reset",
     "apply_patch"
 }
 
@@ -51,16 +55,40 @@ def render_tool_start_trace(
     arguments: dict[str, typing.Any]
 ) -> str:
     """生成工具开始执行时的轨迹标题。"""
-    _ = arguments
+    if name == "js_repl":
+        return "• JavaScript"
+    if name == "js_repl_reset":
+        return "• Resetting JavaScript"
+    if name in {"shell_command", "exec_command"}:
+        command = _shell_command_title(arguments.get("command"))
+        return f"• Running {command}".rstrip()
+    if name == "write_stdin":
+        session_id = str(arguments.get("session_id") or "").strip()
+        return f"• Writing stdin {session_id}".rstrip()
+    if name == "apply_patch":
+        return "• Applying patch"
+
     return f"• Function Calling {str(name or 'tool').strip() or 'tool'}"
 
 
 def render_tool_start_preview(
-    arguments: dict[str, typing.Any]
+    arguments: dict[str, typing.Any],
+    *,
+    name: str = ""
 ) -> TracePreview:
     """生成工具开始执行时的参数预览。"""
     if not isinstance(arguments, dict) or not arguments:
         return _trace_preview_from_lines(["no args"])
+
+    if name == "js_repl":
+        code = str(arguments.get("code") or "")
+        lines = _javascript_preview_lines(code)
+        if not any(line.strip() for line in lines):
+            lines = ["(empty cell)"]
+        return _trace_code_preview_from_lines(lines)
+
+    if name in NATIVE_CODING_TRACE_TOOLS:
+        return TracePreview()
 
     lines: list[str] = []
     for key in sorted(arguments, key=lambda item: str(item))[:6]:
@@ -70,6 +98,25 @@ def render_tool_start_preview(
         lines.append(f"… +{len(arguments) - 6} args")
 
     return _trace_preview_from_lines(lines)
+
+
+def _javascript_preview_lines(code: str) -> list[str]:
+    """清理源码边界空行并移除外层文本带入的公共缩进。"""
+    normalized = str(code or "").replace("\r\n", "\n").replace("\r", "\n")
+    trimmed    = normalized.strip("\n")
+
+    lines = trimmed.split("\n") if trimmed else []
+    if len(lines) < 2 or lines[0] != lines[0].lstrip():
+        return lines
+
+    tail = lines[1:]
+    last = next((line.lstrip() for line in reversed(tail) if line.strip()), "")
+
+    if not last.startswith((")", "]", "}")):
+        return lines
+
+    normalized_tail = textwrap.dedent("\n".join(tail)).split("\n")
+    return [lines[0], *normalized_tail]
 
 
 def render_tool_result_preview(
@@ -154,6 +201,22 @@ def render_tool_result_preview(
 
         return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
 
+    if name == "js_repl":
+        source = data.get("error") if is_error else data.get("output")
+
+        lines = shell_output_lines(source)
+        if not lines:
+            lines = ["JavaScript cell failed." if is_error else "JavaScript cell completed."]
+        return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
+
+    if name == "js_repl_reset":
+        source = data.get("error") if is_error else None
+
+        lines = shell_output_lines(source)
+        if not lines:
+            lines = ["JavaScript kernel reset failed." if is_error else "JavaScript kernel reset."]
+        return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
+
     return TracePreview()
 
 
@@ -221,6 +284,12 @@ def render_tool_trace(
         command = _shell_command_title(payload.get("command") or args.get("command"))
         verb    = "Started" if name == "exec_command" and payload.get("status") == "running" else "Ran"
         return f"• {verb} {command}".rstrip()
+
+    if name == "js_repl":
+        return "• JavaScript"
+
+    if name == "js_repl_reset":
+        return "• Reset JavaScript"
 
     summary = _short_text(args, 100)
     detail  = f" {summary}" if summary else ""

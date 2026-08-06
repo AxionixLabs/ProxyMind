@@ -59,9 +59,9 @@ from mind_app.runtime.subagents.thread import (
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
 
-SkillsProvider = typing.Callable[[], list[dict[str, str]]]
-
+SkillsProvider         = typing.Callable[[], list[dict[str, str]]]
 TranscriptPathResolver = typing.Callable[[str], str]
+SessionCleanup         = typing.Callable[[str], typing.Awaitable[typing.Any]]
 
 
 class SubagentTurnFailedError(RuntimeError):
@@ -86,15 +86,16 @@ class SubagentRuntime:
         message_delivery: AgentMessageDeliveryPort | None = None,
         graph_store: AgentGraphStore | None = None,
         skills_provider: SkillsProvider | None = None,
-        transcript_path_for: TranscriptPathResolver | None = None
+        transcript_path_for: TranscriptPathResolver | None = None,
+        session_cleanup: SessionCleanup | None = None
     ) -> None:
-        self._controller          = controller
-        self._settings            = settings or AgentSettings()
-        self._executor            = executor or StreamSubagentExecutor(controller)
-        self._message_delivery    = message_delivery or SteeringMessageDelivery()
-        self._graph_store         = graph_store
+        self._controller       = controller
+        self._settings         = settings or AgentSettings()
+        self._executor         = executor or StreamSubagentExecutor(controller)
+        self._message_delivery = message_delivery or SteeringMessageDelivery()
+        self._graph_store      = graph_store
 
-        self._graph_persistence   = (
+        self._graph_persistence = (
             AgentGraphPersistence(graph_store)
             if graph_store is not None
             else None
@@ -102,6 +103,7 @@ class SubagentRuntime:
 
         self._skills_provider     = skills_provider or self._configured_skills
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
+        self._session_cleanup     = session_cleanup
         self._runner              = SubagentRunner(controller)
         self._lock                = asyncio.Lock()
         self._delivery_lock       = asyncio.Lock()
@@ -332,11 +334,25 @@ class SubagentRuntime:
         root_session_id: str,
         target: str,
         *,
-        caller: AgentContext | None = None,
+        caller: AgentContext | None = None
     ) -> AgentSnapshot:
         """关闭根会话中指定执行线程及其后代并返回关闭前快照。"""
-        control = await self._existing_control(root_session_id)
-        return await control.close(target, caller=caller)
+        control         = await self._existing_control(root_session_id)
+        target_snapshot = await control.get(target, caller=caller)
+        previous        = await control.close(target, caller=caller)
+
+        snapshots = await control.list_snapshots(
+            caller=caller,
+            path_prefix=target_snapshot.thread.agent.task_path,
+        )
+
+        if self._session_cleanup is not None:
+            await asyncio.gather(
+                *(self._session_cleanup(snapshot.thread.sid) for snapshot in snapshots),
+                return_exceptions=True,
+            )
+
+        return previous
 
     async def shutdown_root(
         self,

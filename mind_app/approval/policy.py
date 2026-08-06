@@ -298,6 +298,8 @@ def _canonical_tool_arguments(
     normalized_tool = str(tool or "").strip()
     if normalized_tool == "shell_command":
         return _normalize_shell_command_arguments(arguments)
+    if normalized_tool == "js_repl":
+        return _normalize_js_repl_arguments(arguments)
     if normalized_tool == "exec_command":
         return _normalize_exec_command_arguments(arguments)
     if normalized_tool == "write_stdin":
@@ -335,6 +337,19 @@ def _normalize_shell_command_arguments(
 ) -> dict[str, typing.Any]:
     """规范化单条 shell_command 参数。"""
     return _normalize_shell_command_item(arguments)
+
+
+def _normalize_js_repl_arguments(
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """规范化 js_repl 参数。"""
+    item       = arguments if isinstance(arguments, dict) else {}
+    timeout_ms = item.get("timeout_ms")
+
+    return {
+        "code": str(item.get("code") or ""),
+        "timeout_ms": _int_default(timeout_ms, 30000),
+    }
 
 
 def _normalize_shell_command_item(

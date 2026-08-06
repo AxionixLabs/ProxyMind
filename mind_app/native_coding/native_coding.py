@@ -14,6 +14,10 @@ from mind_app.native_coding.exec.process_session import (
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
 from mind_app.native_coding.edit.turn_diff import TurnDiffTracker
+from mind_app.native_coding.js_repl import (
+    JavaScriptReplPool,
+    ReplRuntimeError
+)
 
 
 class NativeCoding(NativeCodingBase):
@@ -24,6 +28,7 @@ class NativeCoding(NativeCodingBase):
         super().__init__(root=root)
 
         self._process_sessions = ProcessSessionManager()
+        self._javascript_repls = JavaScriptReplPool(self.root)
 
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
@@ -200,7 +205,68 @@ class NativeCoding(NativeCodingBase):
 
     async def close(self) -> None:
         """关闭全部本地进程会话。"""
+        await self._javascript_repls.close()
         await self._process_sessions.close()
+
+    async def js_repl(
+        self,
+        *,
+        session_id: str,
+        code: str,
+        cwd: str,
+        access_mode: str,
+        timeout_ms: int,
+        call_tool: typing.Any
+    ) -> dict[str, typing.Any]:
+        """在会话持有的持久 JavaScript 内核中执行代码。"""
+        try:
+            result = await self._javascript_repls.execute(
+                session_id,
+                code,
+                cwd=cwd,
+                access_mode=access_mode,
+                timeout_ms=timeout_ms,
+                call_tool=call_tool,
+            )
+        except (OSError, ReplRuntimeError) as exc:
+            return self.fail_result(
+                "js_repl_execution_failed",
+                error=str(exc).strip() or type(exc).__name__,
+            )
+
+        output = self.clip_output(result.output)
+
+        return {
+            "ok": True,
+            "text": output or "JavaScript cell completed.",
+            "attachments": list(result.attachments),
+            "data": {
+                "output": output,
+                "output_truncated": output != result.output,
+            },
+            "logs": [],
+        }
+
+    async def reset_js_repl(self, session_id: str) -> dict[str, typing.Any]:
+        """重置指定会话的 JavaScript 内核。"""
+        try:
+            reset = await self._javascript_repls.reset_session(session_id)
+        except (OSError, ReplRuntimeError) as exc:
+            return self.fail_result(
+                "js_repl_reset_failed",
+                error=str(exc).strip() or type(exc).__name__,
+            )
+
+        return {
+            "ok": True,
+            "text": "JavaScript kernel reset.",
+            "data": {"reset": reset},
+            "logs": [],
+        }
+
+    async def close_js_repl_session(self, session_id: str) -> bool:
+        """关闭指定会话持有的 JavaScript 内核。"""
+        return await self._javascript_repls.close_session(session_id)
 
     def apply_patch(
         self,

@@ -118,6 +118,119 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
 
 
 @pytest.mark.anyio
+async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch) -> None:
+    async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
+        )
+
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
+    runner, ports = _runner(coordinator)
+    base = _invocation()
+    invocation = ToolInvocation(
+        turn=base.turn,
+        call_id="call-js",
+        name="js_repl",
+        arguments={"code": "await work();", "timeout_ms": 30000},
+    )
+    tool_run = SimpleNamespace(
+        ok=True,
+        fields={"ok": True, "text": "done"},
+        text="done",
+        cost_ms=200,
+    )
+    run_tool_step = AsyncMock(return_value=tool_run)
+    monkeypatch.setattr(client_call, "run_tool_step", run_tool_step)
+    monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
+    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+
+    result = await runner.execute(invocation, use_coding_trace=True)
+
+    assert result.result.ok is True
+    assert run_tool_step.await_args.kwargs["status_text"] == "JavaScript"
+    client_call.show_tool_start.assert_awaited_once_with(
+        runner.presentation,
+        "js_repl",
+        {"code": "await work();", "timeout_ms": 30000},
+        call_id="call-js",
+    )
+    client_call.show_tool_result.assert_awaited_once()
+    ports.output.record_tool_arguments.assert_called_once_with(
+        "js_repl",
+        {"code": "await work();", "timeout_ms": 30000},
+        call_id="call-js",
+    )
+    nested_dispatch = run_tool_step.await_args.kwargs["invocation"].meta[
+        "_nested_tool_dispatch"
+    ]
+    assert callable(nested_dispatch)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("name", "shows_start"),
+    (
+        ("shell_command", True),
+        ("apply_patch", False),
+        ("exec_command", False),
+        ("write_stdin", False),
+        ("js_repl_reset", False),
+    ),
+)
+async def test_native_tool_start_trace_uses_two_stage_policy(
+    monkeypatch,
+    name: str,
+    shows_start: bool,
+) -> None:
+    async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
+        )
+
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
+    runner, _ports = _runner(coordinator)
+    base = _invocation()
+    invocation = ToolInvocation(
+        turn=base.turn,
+        call_id=f"call-{name}",
+        name=name,
+        arguments={"command": "echo ready"},
+    )
+    tool_run = SimpleNamespace(
+        ok=True,
+        fields={"ok": True, "text": "done"},
+        text="done",
+        cost_ms=7,
+    )
+    show_start = AsyncMock()
+    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=tool_run))
+    monkeypatch.setattr(client_call, "show_tool_start", show_start)
+    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+
+    await runner.execute(invocation, use_coding_trace=True)
+
+    if shows_start:
+        show_start.assert_awaited_once()
+    else:
+        show_start.assert_not_awaited()
+    client_call.show_tool_result.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
     async def run_allowed(invocation, operation):
         operation_result = await operation(invocation)
@@ -150,7 +263,7 @@ async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
     assert result.ok is False
     assert result.text == "RuntimeError: failed"
     assert result.fields["data"] == {"error": "RuntimeError: failed"}
-    client_call.show_tool_result.assert_not_awaited()
+    client_call.show_tool_result.assert_awaited_once()
 
 
 @pytest.mark.anyio

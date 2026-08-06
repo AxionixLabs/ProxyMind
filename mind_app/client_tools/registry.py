@@ -8,7 +8,8 @@ from mcp import types as mcp_types
 from mind_app.runtime.execution import TurnContext
 from .types import (
     ClientTool,
-    ClientToolRuntime
+    ClientToolRuntime,
+    NESTED_TOOL_DISPATCH_META_KEY,
 )
 from .coding import coding_tools
 from .planning import planning_tools
@@ -17,6 +18,7 @@ from .update_plan import update_plan_tools
 from .view_image import view_image_tools
 
 if typing.TYPE_CHECKING:
+    from mind_app.approval.coordinator import ApprovalCoordinator
     from mind_app.runtime.subagents.runtime import SubagentRuntime
 
 
@@ -72,15 +74,25 @@ class ClientToolRegistry:
         if not isinstance(pref_config, typing.Mapping):
             raise TypeError("client tool preference config is required")
 
+        runtime_meta = dict(meta or {})
+
+        nested_dispatch = runtime_meta.pop(
+            NESTED_TOOL_DISPATCH_META_KEY,
+            None,
+        )
+
         runtime = ClientToolRuntime(
             session=session,
             turn_context=turn_context,
             pref_config=copy.deepcopy(dict(pref_config)),
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
-            meta=meta,
+            meta=runtime_meta or None,
             execution=execution,
             call_id=call_id,
+            nested_tool_dispatch=(
+                nested_dispatch if callable(nested_dispatch) else None
+            ),
         )
         return await tool.handler(dict(arguments or {}), runtime)
 
@@ -89,7 +101,8 @@ def default_registry(
     native_coding: typing.Any = None,
     *,
     execution_root: str | Path | None = None,
-    subagent_runtime: "SubagentRuntime | None" = None
+    subagent_runtime: "SubagentRuntime | None" = None,
+    approval_coordinator: "ApprovalCoordinator | None" = None
 ) -> ClientToolRegistry:
     """构建默认客户端工具注册表。"""
     root_source = execution_root
@@ -101,9 +114,13 @@ def default_registry(
     tools = [
         *planning_tools(),
         *update_plan_tools(),
-        *coding_tools(native_coding),
+        *coding_tools(
+            native_coding,
+            approval_coordinator=approval_coordinator,
+        ),
         *view_image_tools(root),
     ]
+
     if (
         subagent_runtime is not None
         and subagent_runtime.settings.enabled

@@ -195,6 +195,27 @@ def test_text_tool_labels_are_colored_without_mcp_prefix_or_color_leak() -> None
     )
 
 
+def test_text_js_repl_start_prints_source() -> None:
+    stderr = io.StringIO()
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=False,
+    )
+    control = TextOutputControl(state)
+    source = "await host.tool('shell_command', {command: 'echo ready'});"
+
+    control.record_tool_arguments(
+        "js_repl",
+        {"code": source, "timeout_ms": 30000},
+    )
+
+    assert stderr.getvalue() == f"JavaScript\n{source}\n"
+    assert "".join(record.parts) == f"JavaScript\n{source}\n"
+
+
 @pytest.mark.anyio
 async def test_text_tool_events_color_only_the_tool_name() -> None:
     stderr = io.StringIO()

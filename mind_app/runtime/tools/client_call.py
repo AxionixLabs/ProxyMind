@@ -4,25 +4,36 @@
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
+    replace
 )
+from mcp import types as mcp_types
+from mind_app.client_tools.types import NESTED_TOOL_DISPATCH_META_KEY
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
 )
 from mind_app.presentation.contracts import PresentationSink
-from mind_app.runtime.execution import ToolInvocation
+from mind_app.runtime.execution import (
+    ToolInvocation,
+    TurnContext
+)
 from mind_app.runtime.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from mind_app.stream_events.tool_trace import coding_trace_tool
 from .display import (
+    TWO_STAGE_NATIVE_TOOLS,
     show_tool_result,
     show_tool_start
 )
-from .run import run_tool_step
+from .run import (
+    ToolRunResult,
+    run_tool_step
+)
 
 
 @dataclass(slots=True)
@@ -36,11 +47,13 @@ class ClientToolCallResult:
     call_id: str = ""
     fields: dict[str, typing.Any] = field(default_factory=dict)
     hook_response: typing.Any = None
+    response: mcp_types.CallToolResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ClientToolCallOutcome:
     """描述客户端工具执行和 Hook 反馈的组合结果。"""
+
     result: ClientToolCallResult
     additional_context: tuple[str, ...] = ()
     system_message: str = ""
@@ -79,7 +92,7 @@ class ClientToolCallOutcome:
 def build_client_tool_post_kwargs(
     outcome: ClientToolCallOutcome,
     *,
-    execution: dict[str, typing.Any] | None,
+    execution: dict[str, typing.Any] | None
 ) -> dict[str, typing.Any]:
     """构建客户端工具结果回传参数。"""
     post_kwargs: dict[str, typing.Any] = {
@@ -117,6 +130,32 @@ class ClientToolCallRunner:
         self.pref_config           = pref_config
         self.tool_call_coordinator = tool_call_coordinator
 
+    @staticmethod
+    def _denied_result(
+        invocation: ToolInvocation,
+        reason: str
+    ) -> ClientToolCallResult:
+        """构建被前置 Hook 阻止的工具结果。"""
+        text = str(reason or "tool use denied by hook")
+
+        fields = {
+            "ok": False,
+            "text": text,
+            "data": {
+                "hook_denied": True,
+                "error": text,
+            },
+        }
+
+        return ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=False,
+            text=text,
+            call_id=invocation.call_id,
+            fields=fields,
+        )
+
     async def _execute_allowed_call(
         self,
         invocation: ToolInvocation,
@@ -130,6 +169,31 @@ class ClientToolCallRunner:
         call_id   = invocation.call_id
         cost_ms   = 0
 
+        response: mcp_types.CallToolResult | None = None
+
+        if name == "js_repl":
+            async def dispatch_nested_tool(
+                tool_name: str,
+                tool_arguments: dict[str, typing.Any],
+                nested_call_id: str,
+                execution: dict[str, typing.Any] | None,
+            ) -> mcp_types.CallToolResult:
+                return await self._execute_nested_tool(
+                    invocation.turn,
+                    tool_name=tool_name,
+                    arguments=tool_arguments,
+                    call_id=nested_call_id,
+                    execution=execution,
+                )
+
+            invocation = replace(
+                invocation,
+                meta={
+                    **(invocation.meta or {}),
+                    NESTED_TOOL_DISPATCH_META_KEY: dispatch_nested_tool,
+                },
+            )
+
         try:
             if display:
                 self.output_control.record_tool_arguments(
@@ -137,7 +201,7 @@ class ClientToolCallRunner:
                     arguments,
                     call_id=call_id,
                 )
-                if not use_coding_trace:
+                if not use_coding_trace or name in TWO_STAGE_NATIVE_TOOLS:
                     await show_tool_start(
                         self.presentation,
                         name,
@@ -153,7 +217,7 @@ class ClientToolCallRunner:
                 invocation=invocation,
                 pref_config=self.pref_config,
                 enable_progress_notify=True,
-                status_text=None,
+                status_text="JavaScript" if name == "js_repl" else None,
             )
 
             ok      = tool_run.ok
@@ -161,21 +225,11 @@ class ClientToolCallRunner:
             text    = tool_run.text
             cost_ms = tool_run.cost_ms
 
-            hook_response = getattr(tool_run, "hook_response", fields)
+            raw_response = getattr(tool_run, "result", None)
+            if isinstance(raw_response, mcp_types.CallToolResult):
+                response = raw_response
 
-            if display:
-                if use_coding_trace:
-                    await self.status_control.end_status()
-                await show_tool_result(
-                    self.presentation,
-                    name,
-                    arguments,
-                    tool_run,
-                    ok=ok,
-                    text=text,
-                    use_coding_trace=use_coding_trace,
-                    call_id=call_id,
-                )
+            hook_response = getattr(tool_run, "hook_response", fields)
 
         except Exception as exc:
             text = f"{type(exc).__name__}: {exc}"
@@ -189,6 +243,31 @@ class ClientToolCallRunner:
 
             hook_response = None
 
+            tool_run = ToolRunResult(
+                result=None,
+                ok=False,
+                fields=fields,
+                text=text,
+                data=fields["data"],
+                hook_response=None,
+                cost_ms=cost_ms,
+                status="failed",
+            )
+
+        if display:
+            if use_coding_trace:
+                await self.status_control.end_status()
+            await show_tool_result(
+                self.presentation,
+                name,
+                arguments,
+                tool_run,
+                ok=ok,
+                text=text,
+                use_coding_trace=use_coding_trace,
+                call_id=call_id,
+            )
+
         return ClientToolCallResult(
             name=name,
             arguments=arguments,
@@ -198,7 +277,34 @@ class ClientToolCallRunner:
             call_id=call_id,
             fields=fields,
             hook_response=hook_response,
+            response=response,
         )
+
+    async def _execute_nested_tool(
+        self,
+        turn: TurnContext,
+        *,
+        tool_name: str,
+        arguments: dict[str, typing.Any],
+        call_id: str,
+        execution: dict[str, typing.Any] | None
+    ) -> mcp_types.CallToolResult:
+        """通过普通工具生命周期执行内核发起的嵌套调用。"""
+        outcome = await self.execute(
+            ToolInvocation(
+                turn=turn,
+                call_id=call_id,
+                name=tool_name,
+                arguments=arguments,
+                execution=execution,
+            ),
+            use_coding_trace=coding_trace_tool(tool_name),
+            display=False,
+        )
+        result = outcome.result
+        if result.response is None:
+            raise RuntimeError(result.text or f"nested {tool_name} call failed")
+        return result.response
 
     async def execute(
         self,
@@ -255,35 +361,10 @@ class ClientToolCallRunner:
                 call_id=hook_run.value.call_id,
                 fields=visible.fields,
                 hook_response=hook_run.value.hook_response,
+                response=hook_run.value.response,
             ),
             additional_context=visible.additional_context,
             system_message=visible.system_message,
-        )
-
-    @staticmethod
-    def _denied_result(
-        invocation: ToolInvocation,
-        reason: str
-    ) -> ClientToolCallResult:
-        """构建被前置 Hook 阻止的工具结果。"""
-        text = str(reason or "tool use denied by hook")
-
-        fields = {
-            "ok": False,
-            "text": text,
-            "data": {
-                "hook_denied": True,
-                "error": text,
-            },
-        }
-
-        return ClientToolCallResult(
-            name=invocation.name,
-            arguments=dict(invocation.arguments),
-            ok=False,
-            text=text,
-            call_id=invocation.call_id,
-            fields=fields,
         )
 
 

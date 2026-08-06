@@ -209,6 +209,46 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_runtime_close_cleans_target_and_descendant_sessions() -> None:
+    controller = _Controller()
+    cleaned = []
+
+    async def cleanup(session_id: str) -> None:
+        cleaned.append(session_id)
+
+    runtime = SubagentRuntime(
+        controller,
+        settings=AgentSettings(max_depth=2),
+        session_cleanup=cleanup,
+    )
+    parent = _parent_turn()
+    child = await runtime.spawn(
+        parent,
+        "inspect",
+        {},
+        agent_type="review",
+        task_name="inspect",
+        agent_id="agent_child",
+    )
+    await runtime.wait(parent.sid, [child.agent_id], timeout_sec=1)
+    child_turn = controller.stream_calls[0]["turn_execution"].context
+    descendant = await runtime.spawn(
+        child_turn,
+        "verify",
+        {},
+        agent_type="test",
+        task_name="verify",
+        agent_id="agent_descendant",
+    )
+    await runtime.wait(parent.sid, [descendant.agent_id], timeout_sec=1)
+
+    await runtime.close(parent.sid, child.agent_id)
+
+    assert set(cleaned) == {child.thread.sid, descendant.thread.sid}
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
 async def test_runtime_flushes_graph_checkpoint_on_shutdown(tmp_path) -> None:
     controller = _Controller()
     store = AgentGraphStore(tmp_path / "agents.db")

@@ -36,8 +36,10 @@ from mind_app.output.content import (
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.lifecycle_views import build_failure_view
 from mind_app.presentation.models import (
+    NativeToolResultView,
     PlanItemView,
     PlanUpdateView,
+    ToolStartView,
 )
 from mind_app.presentation.tool_views import (
     build_generic_tool_result_view,
@@ -4931,6 +4933,144 @@ async def test_native_tool_results_start_separate_tool_groups() -> None:
         True,
     ]
     assert _document_text(runtime.document).count("\n\n") == 1
+
+
+@pytest.mark.anyio
+async def test_js_repl_start_and_result_are_two_separated_blocks() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    arguments = {
+        "code": "await host.tool('shell_command', {command: 'echo ready'});",
+        "timeout_ms": 30000,
+    }
+
+    await presentation.emit(build_tool_start_view(
+        "js_repl",
+        arguments,
+        call_id="call-js",
+    ))
+
+    assert len(runtime.document.blocks) == 1
+    assert "host.tool('shell_command'" in _document_text(runtime.document)
+
+    await presentation.emit(build_native_tool_result_view(
+        "js_repl",
+        arguments,
+        ok=True,
+        data={"output": "ready"},
+        call_id="call-js",
+    ))
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "operation",
+        "operation",
+    ]
+    assert "host.tool('shell_command'" in runtime.document.blocks[0].raw_text
+    assert "ready" in runtime.document.blocks[1].raw_text
+    document_text = _document_text(runtime.document)
+    transcript_text = _transcript_text(runtime.document)
+    assert document_text.count("• JavaScript") == 2
+    assert "host.tool('shell_command'" in document_text
+    assert "\n└ ready" in document_text
+    assert transcript_text.count("• JavaScript") == 2
+    assert "host.tool('shell_command'" in transcript_text
+    assert "\n└ ready" in transcript_text
+    assert "\n\n• JavaScript\n└ ready" in document_text
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        True,
+    ]
+    assert isinstance(runtime.document.blocks[0].source, ToolStartView)
+    assert isinstance(runtime.document.blocks[1].source, NativeToolResultView)
+
+    await presentation.emit(build_tool_start_view(
+        "js_repl",
+        {"code": "console.log('next');", "timeout_ms": 30000},
+        call_id="call-js-next",
+    ))
+    await presentation.emit(build_native_tool_result_view(
+        "js_repl",
+        {"code": "console.log('next');", "timeout_ms": 30000},
+        ok=True,
+        data={"output": "next"},
+        call_id="call-js-next",
+    ))
+
+    document_text = _document_text(runtime.document)
+    assert "ready\n\n• JavaScript" in document_text
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        True,
+        True,
+        True,
+    ]
+
+
+@pytest.mark.anyio
+async def test_js_repl_query_padding_and_two_stage_display() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    javascript_arguments = {
+        "code": "await host.tool('shell_command', {command: 'echo ready'});\n\n",
+        "timeout_ms": 30000,
+    }
+    runtime.append_block(
+        query_block(
+            "js repl执行\n"
+            + javascript_arguments["code"].strip("\n")
+        ),
+        kind="user",
+    )
+
+    await presentation.emit(build_tool_start_view(
+        "js_repl",
+        javascript_arguments,
+        call_id="outer-js",
+    ))
+
+    running_text = _document_text(runtime.document)
+    assert len(runtime.document.blocks) == 2
+    assert running_text.count("• JavaScript") == 1
+    assert "Running" not in running_text
+    assert "Ran" not in running_text
+    lines = [
+        fragments_text(line)
+        for line in split_formatted_lines(runtime.document.fragments(width=80))
+    ]
+    javascript_line = lines.index("• JavaScript")
+    assert lines[javascript_line - 2:javascript_line] == [" ", " "]
+    assert lines[javascript_line - 3] != " "
+    await presentation.emit(build_native_tool_result_view(
+        "js_repl",
+        javascript_arguments,
+        ok=True,
+        data={"output": ""},
+        call_id="outer-js",
+    ))
+
+    completed_text = _document_text(runtime.document)
+    assert len(runtime.document.blocks) == 3
+    assert completed_text.count("• JavaScript") == 2
+    assert "Running" not in completed_text
+    assert "Ran" not in completed_text
+    assert "JavaScript cell completed." in completed_text
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        True,
+        True,
+    ]
+    assert [type(item.source) for item in runtime.document.blocks[1:]] == [
+        ToolStartView,
+        NativeToolResultView,
+    ]
+
+    await output.append_assistant_delta("已执行完成。")
+    await output.prepare_external_output()
+
+    final_text = _document_text(runtime.document)
+    assert "JavaScript cell completed.\n\n• 已执行完成。" in final_text
 
 
 @pytest.mark.anyio

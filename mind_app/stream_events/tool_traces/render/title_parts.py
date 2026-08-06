@@ -103,7 +103,7 @@ def _styled_action_body_parts(
         parts.append(part(leading, base_style))
     if action:
         parts.append(part(action, action_style))
-    if action in {"Ran", "Started"}:
+    if action in {"Ran", "Started", "Running"}:
         parts.extend(_command_tail_parts(tail, base_style=base_style, ok=ok, part=part))
         return parts
     if tail:
@@ -153,7 +153,12 @@ def _plain_body_parts(
 
 def _split_action(body: str) -> tuple[str, str]:
     """拆分标题动作前缀和剩余文本。"""
-    for action in ("Function Calling", "Function Invoked", "Wrote stdin"):
+    for action in (
+        "Function Calling",
+        "Function Invoked",
+        "Writing stdin",
+        "Wrote stdin",
+    ):
         if body == action:
             return action, ""
         if body.startswith(f"{action} "):
@@ -171,15 +176,15 @@ def _action_style_for_body(
 
     first, _tail = _split_action(text)
 
-    if first in {"Added", "Edited", "Deleted", "Patch"}:
+    if first in {"Added", "Applying", "Edited", "Deleted", "Patch"}:
         return ACTION_EDIT_STYLE
-    if first in {"Ran", "Started"}:
+    if first in {"Ran", "Running", "Started"}:
         return ACTION_RUN_STYLE
     if first == "Function Calling":
         return ACTION_TOOL_CALLING_STYLE
     if first == "Function Invoked":
         return ACTION_TOOL_INVOKED_STYLE
-    if first in {"Tool", "Wrote stdin"}:
+    if first in {"Resetting", "Tool", "Writing stdin", "Wrote stdin"}:
         return ACTION_TOOL_STYLE
 
     return None

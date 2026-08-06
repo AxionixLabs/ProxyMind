@@ -8,12 +8,17 @@ from mind_app.presentation.plan_views import build_plan_update_view
 from mind_app.presentation.tool_views import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
-    build_tool_start_view,
+    build_tool_start_view
 )
 from .plan_steps import PlanExecutionReport
 from .run import ToolRunResult
 
 ToolDisplayResult = ToolRunResult | PlanExecutionReport
+
+TWO_STAGE_NATIVE_TOOLS = frozenset({
+    "js_repl",
+    "shell_command",
+})
 
 
 async def show_tool_start(
@@ -21,7 +26,7 @@ async def show_tool_start(
     name: str,
     arguments: dict[str, typing.Any],
     *,
-    call_id: str = "",
+    call_id: str = ""
 ) -> None:
     """发送普通工具开始执行的结构化展示数据。"""
     if name == UPDATE_PLAN_TOOL:
@@ -41,7 +46,7 @@ async def show_tool_result(
     ok: typing.Optional[bool] = None,
     text: typing.Optional[str] = None,
     use_coding_trace: bool = False,
-    call_id: str = "",
+    call_id: str = ""
 ) -> None:
     """发送工具结果的结构化展示数据。"""
     display_ok   = tool_run.ok if ok is None else ok

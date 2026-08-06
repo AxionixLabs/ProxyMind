@@ -276,6 +276,10 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
             cwd = _line(args.get("cwd") or ".")
             self.state.process("exec", style=ANSI_CYAN)
             self.state.process(f"\n{command} in {cwd}\n")
+        elif tool == "js_repl":
+            code = sanitize_terminal_text(args.get("code") or "").strip("\n")
+            self.state.process("JavaScript", style=ANSI_CYAN)
+            self.state.process(f"\n{code}\n" if code else "\n")
         else:
             self.state.process(tool, style=ANSI_CYAN)
             self.state.process("\n")

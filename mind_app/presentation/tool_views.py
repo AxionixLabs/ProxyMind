@@ -19,7 +19,7 @@ def build_tool_start_view(
     name: str,
     arguments: dict[str, typing.Any],
     *,
-    call_id: str = "",
+    call_id: str = ""
 ) -> ToolStartView:
     """构建普通工具开始执行时的展示数据。"""
     normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
@@ -28,7 +28,10 @@ def build_tool_start_view(
         name=str(name or "tool").strip() or "tool",
         arguments=normalized_arguments,
         title=render_tool_start_trace(name, normalized_arguments),
-        preview=render_tool_start_preview(normalized_arguments),
+        preview=render_tool_start_preview(
+            normalized_arguments,
+            name=str(name or "").strip(),
+        ),
         call_id=str(call_id or ""),
     )
 
@@ -38,7 +41,7 @@ def build_generic_tool_result_view(
     text: typing.Any,
     *,
     ok: bool,
-    call_id: str = "",
+    call_id: str = ""
 ) -> GenericToolResultView:
     """构建普通工具执行结果的展示数据。"""
     normalized_name = str(name or "tool").strip() or "tool"

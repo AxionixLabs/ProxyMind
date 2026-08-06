@@ -18,6 +18,13 @@ setup(
     author_email=const.EMAIL,
     description=const.APP_DESC,
     packages=find_packages(),
+    data_files=[
+        ("node_repl", ["node_repl/kernel.js"]),
+        (
+            "node_repl/vendor",
+            ["node_repl/vendor/meriyah.umd.min.js"],
+        ),
+    ],
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     install_requires=requirements,
