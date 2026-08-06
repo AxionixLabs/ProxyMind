@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from bisect import (
+    bisect_left,
+    bisect_right
+)
 from copy import deepcopy
 from dataclasses import (
     dataclass,
@@ -1024,28 +1028,47 @@ class TuiDocument(object):
         if maximum <= 0:
             return 0
 
-        fallback = 0
+        maximum_end  = start + maximum
+        required_end = start + required
 
-        for end in self._stable_block_end_lines:
-            offset = end - start
-            if offset <= 0:
-                continue
-            if offset > maximum:
-                break
-            fallback = offset
-            if offset >= required:
-                return offset
+        target_index = bisect_left(
+            self._stable_block_end_lines,
+            required_end,
+        )
 
-        return fallback
+        if (
+            target_index < len(self._stable_block_end_lines)
+            and self._stable_block_end_lines[target_index] <= maximum_end
+        ):
+            return self._stable_block_end_lines[target_index] - start
 
-    def commit_scrollback_prefix(self, line_count: int) -> None:
+        fallback_index = bisect_right(
+            self._stable_block_end_lines,
+            maximum_end,
+        ) - 1
+        if fallback_index < 0:
+            return 0
+
+        fallback = self._stable_block_end_lines[fallback_index] - start
+        return max(0, fallback)
+
+    def commit_scrollback_prefix(
+        self,
+        line_count: int,
+        *,
+        expected_start: int
+    ) -> bool:
         """推进已经写入终端滚屏区的稳定逻辑行边界。"""
-        start     = self.visible_prefix_line_count
+        start = self.visible_prefix_line_count
+        if start != int(expected_start):
+            return False
+
         remaining = self._stable_line_count() - start
 
         self.scrollback_line_count = (
             start + max(0, min(remaining, int(line_count)))
         )
+        return True
 
     def rewind_scrollback(self, *, max_line_count: int) -> None:
         """把原生滚屏游标回退到最近一段可重新输出的稳定内容。"""

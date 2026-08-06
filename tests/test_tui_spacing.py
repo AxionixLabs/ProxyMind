@@ -297,7 +297,7 @@ def test_live_fragments_preserve_native_scrollback_boundary() -> None:
 
     scrolled_document = TuiDocument()
     scrolled_document.append_block(_block("stable"), kind="assistant")
-    scrolled_document.commit_scrollback_prefix(1)
+    scrolled_document.commit_scrollback_prefix(1, expected_start=0)
     scrolled_document.set_active(_block("live"), kind="assistant")
 
     cleared_document = TuiDocument()
@@ -489,7 +489,7 @@ def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
         text for _style, text in document.scrollback_prefix_fragments(2)
     ) == "first\n"
 
-    document.commit_scrollback_prefix(2)
+    document.commit_scrollback_prefix(2, expected_start=0)
 
     assert len(document.blocks) == 2
     assert document.scrollback_line_count == 2
@@ -511,7 +511,7 @@ def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
         for _style, text in document.scrollback_prefix_fragments(1)
     ) == "third"
 
-    document.commit_scrollback_prefix(1)
+    document.commit_scrollback_prefix(1, expected_start=4)
 
     assert document.scrollback_line_count == 5
     assert "".join(
@@ -522,21 +522,21 @@ def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
 def test_scrollback_keeps_gaps_between_consecutive_visual_blocks() -> None:
     document = TuiDocument()
     document.append_block(_block("reply"), kind="assistant")
-    document.commit_scrollback_prefix(1)
+    document.commit_scrollback_prefix(1, expected_start=0)
 
     document.append_block(_block("Started command"), kind="operation")
     assert _document_text(document) == "\nStarted command"
-    document.commit_scrollback_prefix(2)
+    document.commit_scrollback_prefix(2, expected_start=1)
 
     document.append_block(_block("/ps output"), kind="operation")
     assert _document_text(document) == "\n/ps output"
-    document.commit_scrollback_prefix(2)
+    document.commit_scrollback_prefix(2, expected_start=3)
 
     document.set_active(_block("assistant reply"), kind="assistant")
     assert _document_text(document) == "\nassistant reply"
     assert fragments_text(document.live_fragments()) == "\nassistant reply"
     document.commit_active(_block("assistant reply"))
-    document.commit_scrollback_prefix(2)
+    document.commit_scrollback_prefix(2, expected_start=5)
 
     document.append_block(_block("Wrote stdin"), kind="operation")
 
@@ -566,12 +566,22 @@ def test_scrollback_prefix_advances_only_to_complete_block_boundaries() -> None:
         maximum_line_count=5,
     ) == 3
 
-    document.commit_scrollback_prefix(3)
+    document.commit_scrollback_prefix(3, expected_start=0)
 
     assert document.complete_scrollback_prefix_line_count(
         required_line_count=1,
         maximum_line_count=5,
     ) == 3
+
+
+def test_scrollback_commit_rejects_changed_visible_prefix() -> None:
+    document = TuiDocument()
+    document.append_block(_block("first\nsecond"), kind="assistant")
+
+    assert not document.commit_scrollback_prefix(1, expected_start=1)
+    assert document.scrollback_line_count == 0
+    assert document.commit_scrollback_prefix(1, expected_start=0)
+    assert document.scrollback_line_count == 1
 
 
 def test_scrollback_block_boundary_keeps_submitted_query_visible() -> None:
@@ -1047,6 +1057,166 @@ async def test_scrollback_starts_synchronized_output_after_terminal_acquire() ->
                 assert len(printed) == 1
                 assert printed[0].endswith("line 29\n")
             finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrollback_reuses_unchanged_candidate_after_terminal_acquire() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        calculation_counts: list[int] = []
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=8, columns=40),
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch.object(
+                        runtime.viewport,
+                        "_scrollback_prefix_line_count",
+                        wraps=runtime.viewport._scrollback_prefix_line_count,
+                    ) as calculate,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=lambda _value: calculation_counts.append(
+                            calculate.call_count
+                        ),
+                    ) as print_text,
+                ):
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"line {index}" for index in range(30)
+                        )),
+                        kind="assistant",
+                    )
+
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        if print_text.called:
+                            break
+
+                assert calculation_counts == [1]
+                assert runtime.document.scrollback_line_count > 0
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrollback_rechecks_submitted_query_before_printing() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        printed: list[str] = []
+        query = _block("\n".join(f"query {index}" for index in range(20)))
+
+        @asynccontextmanager
+        async def mark_query_while_waiting(render_cli_done: bool = False):
+            _ = render_cli_done
+            runtime.viewport.mark_submitted_query(query)
+            yield
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=8, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                runtime.append_block(
+                    _block("\n".join(
+                        f"prior {index}" for index in range(30)
+                    )),
+                    kind="assistant",
+                )
+                runtime.append_block(query, kind="user")
+
+                with (
+                    patch(
+                        "mind_app.tui.core.viewport.in_terminal",
+                        mark_query_while_waiting,
+                    ),
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=lambda value: printed.append(
+                            fragments_text(value)
+                        ),
+                    ) as print_text,
+                ):
+                    runtime.set_execution_active(False)
+
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        if print_text.called:
+                            break
+
+                assert len(printed) == 1
+                assert "prior 29" in printed[0]
+                assert "query 0" not in printed[0]
+                visible = _document_text(runtime.document)
+                assert "prior 29" not in visible
+                assert "query 0" in visible
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrollback_discards_candidate_after_unobserved_resize() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = {"value": Size(rows=8, columns=40)}
+
+        @asynccontextmanager
+        async def resize_while_waiting(render_cli_done: bool = False):
+            _ = render_cli_done
+            terminal_size["value"] = Size(rows=8, columns=24)
+            yield
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size["value"],
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch(
+                        "mind_app.tui.core.viewport.in_terminal",
+                        resize_while_waiting,
+                    ),
+                    patch.object(
+                        runtime.viewport,
+                        "_schedule_scrollback_reflow",
+                    ) as schedule_reflow,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                    ) as print_text,
+                ):
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"line {index}" for index in range(30)
+                        )),
+                        kind="assistant",
+                    )
+
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        if runtime.viewport.scrollback_task is None:
+                            break
+
+                print_text.assert_not_called()
+                schedule_reflow.assert_any_call()
+                assert runtime.document.scrollback_line_count == 0
+                assert runtime.viewport._observed_geometry == (24, 8)
+                assert runtime.viewport._reflow_required is True
+            finally:
+                runtime.viewport._reflow_required = False
                 await runtime.close()
 
 
@@ -2598,13 +2768,13 @@ def test_scrollback_reflow_keeps_clear_boundary_and_caps_replay() -> None:
         _block("\n".join(f"old {index}" for index in range(20))),
         kind="assistant",
     )
-    document.commit_scrollback_prefix(20)
+    document.commit_scrollback_prefix(20, expected_start=0)
     document.clear_visible_prefix()
     document.append_block(
         _block("\n".join(f"new {index}" for index in range(20))),
         kind="assistant",
     )
-    document.commit_scrollback_prefix(21)
+    document.commit_scrollback_prefix(21, expected_start=21)
 
     document.rewind_scrollback(max_line_count=5)
 
