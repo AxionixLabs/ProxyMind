@@ -2809,7 +2809,7 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("render_each_key", (False, True))
-async def test_multiline_input_backspace_keeps_input_at_canvas_bottom(
+async def test_multiline_input_backspace_shrinks_without_top_spacer(
     render_each_key: bool,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -2825,16 +2825,18 @@ async def test_multiline_input_backspace_keeps_input_at_canvas_bottom(
                 initial_height = runtime.screen._visible_height()
 
                 if render_each_key:
+                    pipe_input.send_text("x")
+                    await _wait_for_input_text(runtime, "x")
                     for line_count in range(1, 9):
                         pipe_input.send_text("\x0f")
                         await _wait_for_input_text(
                             runtime,
-                            "\n" * line_count,
+                            "x" + "\n" * line_count,
                         )
                         await _render_next_frame(runtime)
                 else:
-                    pipe_input.send_text("\x0f" * 8)
-                    await _wait_for_input_text(runtime, "\n" * 8)
+                    pipe_input.send_text("x" + "\x0f" * 8)
+                    await _wait_for_input_text(runtime, "x" + "\n" * 8)
 
                 await _render_next_frame(runtime)
                 expanded_height = runtime.screen._visible_height()
@@ -2845,24 +2847,81 @@ async def test_multiline_input_backspace_keeps_input_at_canvas_bottom(
                         pipe_input.send_text("\x7f")
                         await _wait_for_input_text(
                             runtime,
-                            "\n" * line_count,
+                            "x" + "\n" * line_count,
                         )
-                        await _render_next_frame(runtime)
+                        screen = await _render_next_frame(runtime)
+                        positions = screen.visible_windows_to_write_positions
+
+                        assert (
+                            runtime.screen._visible_height()
+                            == runtime.screen._natural_visible_height()
+                        )
+                        assert runtime.screen.canvas_spacer not in positions
                 else:
                     pipe_input.send_text("\x7f" * 8)
-                    await _wait_for_input_text(runtime, "")
+                    await _wait_for_input_text(runtime, "x")
 
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
-                spacer = positions[runtime.screen.canvas_spacer]
                 footer = positions[runtime.screen.footer_window]
 
                 assert runtime.screen._natural_visible_height() == initial_height
-                assert runtime.screen._visible_height() == expanded_height
-                assert spacer.height == expanded_height - initial_height
-                assert footer.ypos + footer.height == (
-                    runtime.screen._visible_height()
+                assert runtime.screen._visible_height() == initial_height
+                assert runtime.screen.canvas_spacer not in positions
+                assert footer.ypos + footer.height == initial_height
+
+                pipe_input.send_text("\x7f")
+                await _wait_for_input_text(runtime, "")
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+
+                assert runtime.screen._visible_height() == initial_height
+                assert (
+                    runtime.screen._canvas_height_floor
+                    == runtime.screen._natural_visible_height()
                 )
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_ctrl_u_clears_multiline_input_without_top_canvas_spacer() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block("transcript line"), kind="assistant")
+                await _render_next_frame(runtime)
+                initial_height = runtime.screen._visible_height()
+
+                value = "\n".join(f"line {index}" for index in range(8))
+                runtime.screen.input.buffer.text = value
+                runtime.screen.input.buffer.cursor_position = len(value)
+                await _render_next_frame(runtime)
+
+                assert runtime.screen._visible_height() > initial_height
+
+                pipe_input.send_text("\x15")
+                await _wait_for_input_text(runtime, "")
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+
+                assert runtime.screen._input_height() == 1
+                assert runtime.screen._visible_height() == initial_height
+                assert (
+                    runtime.screen._canvas_height_floor
+                    == runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
             finally:
                 await runtime.close()
 

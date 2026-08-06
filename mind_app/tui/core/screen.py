@@ -393,6 +393,8 @@ class TuiScreen(object):
 
         self._canvas_height_floor: int = 0
 
+        self._input_canvas_floor_baseline: int | None = None
+
         self._bottom_anchor = _BottomAnchorState()
 
         self.activity_block: FragmentBlock | None = None
@@ -1019,6 +1021,21 @@ class TuiScreen(object):
         if invalidate:
             self.invalidate()
 
+    def settle_input_layout(self) -> None:
+        """随输入内容缩短收束输入区留下的画布高度。"""
+        baseline = self._input_canvas_floor_baseline
+        if baseline is None:
+            return None
+
+        self._cap_canvas_height_floor(max(
+            baseline,
+            self._natural_visible_height(),
+        ))
+        if not self.input.buffer.text:
+            self._bottom_anchor.clear()
+            self._input_canvas_floor_baseline = None
+        self.invalidate()
+
     def settle_scrollback_layout(self) -> None:
         """在稳定正文移入终端历史后收束实时画布高度。"""
         self._cap_canvas_height_floor(self._natural_visible_height())
@@ -1151,6 +1168,12 @@ class TuiScreen(object):
 
         if not self.transcript_overlay.active and not self._transcript_only:
             natural_height = self._natural_visible_height()
+            if (
+                self._input_height() > 1
+                and self._input_canvas_floor_baseline is None
+            ):
+                self._input_canvas_floor_baseline = self._canvas_height_floor
+
             if completion_visible or release_consumed:
                 self._cap_canvas_height_floor(natural_height)
 
@@ -2354,9 +2377,12 @@ class TuiScreen(object):
         self._bottom_anchor.clear()
 
         if reset_canvas_floor:
-            self._canvas_height_floor = 0
+            self._canvas_height_floor         = 0
+            self._input_canvas_floor_baseline = None
         else:
             self._cap_canvas_height_floor(self._natural_visible_height())
+            if not self.input.buffer.text:
+                self._input_canvas_floor_baseline = None
 
     def _cap_canvas_height_floor(self, maximum_height: int) -> None:
         """降低画布高度下限并同步撤销输入区贡献的增量。"""

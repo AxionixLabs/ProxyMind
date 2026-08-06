@@ -263,6 +263,7 @@ class TuiRuntime(object):
             self._can_report_missing_backtrack,
             self._report_missing_backtrack,
         )
+        self.input_model.bind_input_shrink(self.screen.settle_input_layout)
 
         self.activity = TuiActivity(
             set_renderable=lambda block: self.screen.set_activity_renderable(
