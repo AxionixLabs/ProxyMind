@@ -843,6 +843,82 @@ def test_replace_transcript_resets_document_state() -> None:
 
 
 @pytest.mark.anyio
+async def test_replace_transcript_replays_only_configured_tail() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.configure_scrollback_reflow_line_limit(7)
+        restored = tuple(
+            TranscriptBlock(
+                display_block=_block(f"history {index:02d}"),
+                transcript_block=_block(f"history {index:02d}"),
+                kind="assistant",
+            )
+            for index in range(20)
+        )
+        terminal_size = Size(rows=8, columns=40)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                ) as print_text:
+                    runtime.replace_transcript(restored)
+
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        if print_text.called:
+                            break
+
+                printed = "".join(
+                    text
+                    for call_args in print_text.call_args_list
+                    for _style, text in call_args.args[0]
+                )
+                visible = _document_text(runtime.document)
+                main_text = f"{printed}{visible}"
+
+                assert "history 00" not in main_text
+                assert "history 19" in main_text
+                assert (
+                    runtime.document.stable_line_count
+                    - runtime.document.cleared_line_count
+                    <= 7
+                )
+                transcript = _transcript_text(runtime.document)
+                assert "history 00" in transcript
+                assert "history 19" in transcript
+
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                ) as resize_print_text:
+                    terminal_size = Size(rows=8, columns=24)
+                    runtime.viewport.observe_terminal_geometry(24, 8)
+                    await asyncio.sleep(0.12)
+
+                replayed = "".join(
+                    text
+                    for call_args in resize_print_text.call_args_list
+                    for _style, text in call_args.args[0]
+                )
+                resized_main_text = (
+                    f"{replayed}{_document_text(runtime.document)}"
+                )
+                assert resize_print_text.called
+                assert "history 00" not in resized_main_text
+                assert "history 19" in resized_main_text
+                assert len(resized_main_text.splitlines()) <= 7
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "state_setter",
     ["set_execution_active", "set_foreground_active"],

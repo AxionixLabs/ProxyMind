@@ -505,12 +505,18 @@ class TuiTranscriptViewport(object):
         self.schedule_scrollback_flush()
 
     def configure_scrollback_reflow_line_limit(self, value: int) -> None:
-        """设置单次几何重排允许回放的最大逻辑行数。"""
+        """设置恢复和几何重排允许回放的最大逻辑行数。"""
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(
                 "scrollback reflow line limit must be a positive integer"
             )
         self.scrollback_reflow_line_limit = value
+
+    def prepare_restored_scrollback(self) -> None:
+        """把恢复记录的主界面回放范围限制为最近一段。"""
+        self.document.prepare_scrollback_tail(
+            max_line_count=self.scrollback_reflow_line_limit,
+        )
 
     def observe_terminal_geometry(self, width: int, height: int) -> None:
         """记录终端尺寸并在稳定后安排原生滚屏重排。"""

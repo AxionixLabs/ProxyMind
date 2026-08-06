@@ -448,7 +448,7 @@ class TuiRuntime(object):
         self.keymap = keymap
 
     def configure_scrollback_reflow_line_limit(self, value: int) -> None:
-        """配置终端尺寸变化时允许回放的最大逻辑行数。"""
+        """配置会话恢复和终端尺寸变化允许回放的最大逻辑行数。"""
         if self.active:
             raise RuntimeError(
                 "cannot configure scrollback reflow while TUI is running"
@@ -711,6 +711,7 @@ class TuiRuntime(object):
         """用恢复内容替换当前记录并重置终端视口。"""
         self.viewport.pause_scrollback()
         self.document.replace_blocks(blocks)
+        self.viewport.prepare_restored_scrollback()
 
         self._discard_background_blocks()
 

@@ -1058,6 +1058,18 @@ class TuiDocument(object):
 
         self.scrollback_line_count = min(line_count, replay_start)
 
+    def prepare_scrollback_tail(self, *, max_line_count: int) -> None:
+        """把当前终端回放范围限制为稳定正文的最近一段。"""
+        line_count = self._stable_line_count()
+
+        replay_start = max(
+            0,
+            line_count - max(0, int(max_line_count)),
+        )
+
+        self.scrollback_line_count = replay_start
+        self.cleared_line_count    = replay_start
+
     def restore_scrollback_position(self, line_count: int) -> None:
         """把原生滚屏游标恢复到先前提交位置。"""
         self.scrollback_line_count = max(
