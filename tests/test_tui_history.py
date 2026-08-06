@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptEntry
 from mind_app.tui.features import history
@@ -274,3 +275,42 @@ def test_history_transcript_restores_markdown_hyperlink_metadata() -> None:
         style != "[ZeroWidthEscape]"
         for style, _text in plain[0].transcript_block.fragments
     )
+
+
+def test_history_transcript_restores_responsive_markdown_tables() -> None:
+    source = (
+        "| Name | Status | Description |\n"
+        "|---|---|---|\n"
+        "| API | Ready | Service is available |"
+    )
+    entry = TranscriptEntry(
+        timestamp="2026-08-02T00:00:00.000Z",
+        event="message.created",
+        session_id="session_table",
+        turn_id="turn_table",
+        actor="assistant",
+        payload={"content": source},
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return (entry,)
+
+    cell = history.load_history_transcript(
+        Controller(),
+        "session_table",
+        terminal_width=24,
+    )[0]
+    narrow = "".join(text for _style, text in cell.display_block.fragments)
+
+    assert cell.source_renderer is not None
+    assert cell.source_render_width == 24
+    assert "  Description" in narrow
+    assert all(get_cwidth(line) <= 24 for line in narrow.splitlines())
+
+    wide = cell.source_renderer(source, 60)
+    wide_text = "".join(text for _style, text in wide.fragments)
+
+    assert "━" in wide_text
+    assert "Name  Status" in wide_text

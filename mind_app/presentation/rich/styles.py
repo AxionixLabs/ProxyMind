@@ -14,6 +14,7 @@ def rich_style(style: TextStyle) -> str | None:
             (style.italic, "italic"),
             (style.underline, "underline"),
             (style.reverse, "reverse"),
+            (style.strikethrough, "strike"),
         )
         if enabled
     ]

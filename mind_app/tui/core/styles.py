@@ -24,6 +24,11 @@ from ..prompting.commands import (
     resolve_slash_command
 )
 from .models import FragmentBlock
+from .render import (
+    ZERO_WIDTH_ESCAPE_STYLE,
+    join_formatted_lines,
+    split_formatted_lines
+)
 
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
 ACCENT_STYLE  = TextStyle(foreground="#AFC7D8", bold=True)
@@ -203,6 +208,7 @@ def prompt_style(style: TextStyle) -> str:
             (style.italic, "italic"),
             (style.underline, "underline"),
             (style.reverse, "reverse"),
+            (style.strikethrough, "strike"),
         )
         if enabled
     ]
@@ -313,13 +319,33 @@ def assistant_fragments(
     if not out:
         return ()
 
-    return (
+    prefixed = (
         (ASSISTANT_PREFIX_CLASS, "• "),
         *_assistant_continuation_fragments(
             out,
             indent_style=ASSISTANT_PREFIX_CLASS,
         ),
     )
+    return _normalize_whitespace_only_fragments(prefixed)
+
+
+def _normalize_whitespace_only_fragments(
+    fragments: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """把只含空白和终端链接控制符的显示行转换为空行。"""
+    lines = split_formatted_lines(list(fragments))
+
+    normalized = []
+
+    for line in lines:
+        visible = "".join(
+            text
+            for style, text in line
+            if ZERO_WIDTH_ESCAPE_STYLE not in style
+        )
+        normalized.append([] if not visible.strip() else line)
+
+    return tuple(join_formatted_lines(normalized))
 
 
 def _assistant_continuation_fragments(
@@ -329,7 +355,8 @@ def _assistant_continuation_fragments(
 ) -> tuple[tuple[str, str], ...]:
     """在助手正文每个显式续行前补充两个空格。"""
     out: list[tuple[str, str]] = []
-    continuation = False
+
+    continuation: bool = False
 
     for style, text in fragments:
         lines      = text.split("\n")
@@ -337,7 +364,7 @@ def _assistant_continuation_fragments(
 
         for index, line in enumerate(lines):
             has_newline = index < last_index
-            if continuation and (line or has_newline):
+            if continuation and line:
                 out.append((indent_style, "  "))
                 continuation = False
             if line:

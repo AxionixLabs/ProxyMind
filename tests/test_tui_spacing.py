@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import typing
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import get_args
@@ -44,10 +45,13 @@ from mind_app.presentation.tool_views import (
     build_tool_start_view,
 )
 from mind_app.tui.adapters.content import TuiContentSink
-from mind_app.tui.adapters.markdown import render_tui_markdown
+from mind_app.tui.adapters import markdown as tui_markdown
+from mind_app.tui.adapters.markdown import (
+    TuiMarkdownStreamRenderer,
+    render_tui_markdown,
+)
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.presentation import TuiPresentationSink
-from mind_app.tui.core.assistant import TuiAssistantStream
 from mind_app.tui.core.document import (
     TranscriptBlock,
     TuiBlockKind,
@@ -70,6 +74,7 @@ from mind_app.tui.core.render import (
     join_formatted_lines,
     sanitize_formatted_text,
     split_formatted_lines,
+    wrap_formatted_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.screen import (
@@ -80,6 +85,7 @@ from mind_app.tui.core.screen import (
 )
 from mind_app.tui.core.styles import (
     ASSISTANT_PREFIX_CLASS,
+    assistant_block,
     failure_parts,
     query_block,
 )
@@ -248,6 +254,14 @@ def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
         ("", "\n"),
         ("class:second", "two"),
     ]
+
+
+def test_assistant_block_keeps_whitespace_only_rows_structurally_empty() -> None:
+    block = assistant_block(_block("first\n   \nsecond"))
+    lines = split_formatted_lines(list(block.fragments))
+
+    assert fragments_text(block.fragments) == "• first\n\n  second"
+    assert lines[1] == []
 
 
 @pytest.mark.parametrize(
@@ -889,7 +903,7 @@ async def test_active_stream_does_not_schedule_native_scrollback() -> None:
 
 
 @pytest.mark.anyio
-async def test_continuous_markdown_stream_keeps_plain_style_until_committed() -> None:
+async def test_continuous_markdown_stream_renders_only_complete_source_lines() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -902,7 +916,7 @@ async def test_continuous_markdown_stream_keeps_plain_style_until_committed() ->
             await runtime.open()
             try:
                 with patch(
-                    "mind_app.tui.adapters.output.render_tui_markdown",
+                        "mind_app.tui.adapters.markdown.render_tui_markdown",
                     wraps=render_tui_markdown,
                 ) as render:
                     runtime.set_execution_active(True)
@@ -921,10 +935,13 @@ async def test_continuous_markdown_stream_keeps_plain_style_until_committed() ->
                     active = runtime.document.active_block
                     assert active is not None
                     active_text = fragments_text(active.fragments)
-                    assert "**entry 00**" in active_text
-                    assert "https://example.com/reference" in active_text
-                    assert all(
-                        "bold" not in style and "underline" not in style
+                    assert "**" not in active_text
+                    assert "https://" not in active_text
+                    assert "entry 00 docs" in active_text
+                    assert "entry 38 docs" in active_text
+                    assert "entry 39 docs" not in active_text
+                    assert any(
+                        "bold" in style
                         for style, text in active.fragments
                         if text.strip()
                     )
@@ -934,7 +951,7 @@ async def test_continuous_markdown_stream_keeps_plain_style_until_committed() ->
                     render.assert_not_called()
                     active = runtime.document.active_block
                     assert active is not None
-                    assert "**entry 00**" in fragments_text(active.fragments)
+                    assert "entry 39 docs" in fragments_text(active.fragments)
 
                     source = output.assistant.text
                     await output.prepare_external_output()
@@ -942,6 +959,7 @@ async def test_continuous_markdown_stream_keeps_plain_style_until_committed() ->
                     render.assert_called_once_with(
                         source,
                         hyperlinks=runtime.hyperlinks_enabled,
+                        width=max(1, runtime.terminal_width - 2),
                     )
                     settled = runtime.document.blocks[-1].display_block
                     settled_text = fragments_text(settled.fragments)
@@ -954,6 +972,547 @@ async def test_continuous_markdown_stream_keeps_plain_style_until_committed() ->
                     )
             finally:
                 runtime.set_execution_active(False)
+                await runtime.close()
+
+
+def test_markdown_uses_terminal_native_semantic_hierarchy() -> None:
+    block = render_tui_markdown(
+        "# Primary\n\n"
+        "## Secondary\n\n"
+        "### Tertiary\n\n"
+        "#### Detail\n\n"
+        "Body with **strong**, *emphasis*, ~~old~~ and `code`.\n\n"
+        "- bullet\n"
+        "1. ordered\n\n"
+        "> quoted\n\n"
+        "---\n\n"
+        "[docs](https://example.com)",
+        width=60,
+    )
+    fragments = list(block.fragments)
+    text = fragments_text(fragments)
+
+    assert text.startswith(
+        "# Primary\n\n## Secondary\n\n### Tertiary\n\n#### Detail"
+    )
+    assert any(
+        "bold" in style and "underline" in style and value == "# Primary"
+        for style, value in fragments
+    )
+    assert any(
+        "bold" in style and "italic" in style and value == "### Tertiary"
+        for style, value in fragments
+    )
+    assert any(
+        "dim" in style and "italic" in style and value == "#### Detail"
+        for style, value in fragments
+    )
+    assert any("strike" in style and value == "old" for style, value in fragments)
+    assert any("fg:" in style and value == "code" for style, value in fragments)
+    assert any("dim" in style and value == "- " for style, value in fragments)
+    assert any("fg:" in style and value == "1. " for style, value in fragments)
+    assert any("fg:" in style and value == "▎ " for style, value in fragments)
+    assert any("dim" in style and value == "quoted" for style, value in fragments)
+    assert "———" in text
+    assert any(
+        "underline" in style and value == "docs"
+        for style, value in fragments
+    )
+    assert any(style == "" and "Body with " in value for style, value in fragments)
+
+
+def test_multiline_list_items_align_wrapped_content_and_stay_separated() -> None:
+    block = render_tui_markdown(
+        "1. a deliberately long first list item for wrapping\n"
+        "2. short second item",
+        width=24,
+    )
+    lines = fragments_text(block.fragments).splitlines()
+
+    assert lines[0].startswith("1. ")
+    assert lines[1].startswith("   ")
+    assert lines[2].startswith("   ")
+    assert "" in lines
+    assert lines[-1].startswith("2. ")
+    assert all(get_cwidth(line) <= 24 for line in lines)
+
+
+def test_markdown_stream_replaces_only_the_mutable_setext_tail() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+
+    paragraph = renderer.render("first\n\nTitle\n")
+    assert fragments_text(paragraph.fragments) == "first\n\nTitle"
+    assert all(
+        "bold" not in style
+        for style, text in paragraph.fragments
+        if text == "Title"
+    )
+
+    heading = renderer.render("first\n\nTitle\n---\n")
+    assert fragments_text(heading.fragments) == "first\n\n## Title"
+    assert any(
+        "bold" in style
+        for style, text in heading.fragments
+        if text == "## Title"
+    )
+
+
+@pytest.mark.anyio
+async def test_split_markdown_tokens_appear_only_after_the_source_line_closes() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("**bo")
+    await output.append_assistant_delta("ld**")
+    assert runtime.document.active_block is None
+
+    await output.append_assistant_delta("\n")
+    active = runtime.document.active_block
+    assert active is not None
+    assert fragments_text(active.fragments) == "• bold"
+    assert any(
+        "bold" in style
+        for style, text in active.fragments
+        if text == "bold"
+    )
+
+
+def test_markdown_stream_does_not_rerender_stable_top_level_blocks() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+
+    with patch.object(
+        tui_markdown._MARKDOWN,
+        "parse",
+        wraps=tui_markdown._MARKDOWN.parse,
+    ) as parse:
+        renderer.render("first\n\nsecond\n")
+        first_parse_count = parse.call_count
+        renderer.render("first\n\nsecond\n\nthird\n")
+
+    new_sources = [
+        call_args.args[0]
+        for call_args in parse.call_args_list[first_parse_count:]
+    ]
+    assert new_sources == ["second\n\nthird\n"]
+
+
+@pytest.mark.parametrize(
+    ("initial", "extended"),
+    (
+        ("- first\n\n", "- first\n\n  continuation\n\n"),
+        ("1. first\n\n", "1. first\n\n   second paragraph\n\n"),
+    ),
+)
+def test_markdown_stream_keeps_the_last_commonmark_block_mutable(
+    initial: str,
+    extended: str,
+) -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    renderer.render(initial, width=40)
+
+    streamed = renderer.render(extended, width=40)
+    final = render_tui_markdown(extended, width=40)
+
+    assert fragments_text(streamed.fragments) == fragments_text(final.fragments)
+
+
+def test_plain_multiline_stream_skips_repeated_markdown_parsing() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    source = ""
+
+    with patch.object(tui_markdown._MARKDOWN, "parse") as parse:
+        for index in range(1000):
+            source += f"plain line {index}\n"
+            renderer.render(source, width=80)
+
+    parse.assert_not_called()
+
+
+def test_reference_link_definition_recomputes_the_stable_prefix() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    unresolved = renderer.render(
+        "[docs][ref]\n\nfollowing paragraph\n",
+        width=40,
+    )
+    assert "[docs][ref]" in fragments_text(unresolved.fragments)
+
+    resolved = renderer.render(
+        "[docs][ref]\n\nfollowing paragraph\n\n"
+        "[ref]: https://example.com/reference\n",
+        width=40,
+    )
+
+    assert "[docs][ref]" not in fragments_text(resolved.fragments)
+    assert fragments_text(resolved.fragments).startswith("docs\n\n")
+    assert any(
+        "underline" in style
+        for style, text in resolved.fragments
+        if text == "docs"
+    )
+
+
+@pytest.mark.anyio
+async def test_streaming_fence_never_displays_raw_fence_markers() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("```python\nprint('ok')\n")
+
+    active = runtime.document.active_block
+    assert active is not None
+    assert fragments_text(active.fragments) == "• print('ok')"
+    assert any(
+        "fg:" in style
+        for style, text in active.fragments
+        if "print" in text
+    )
+
+    await output.append_assistant_delta("```\n")
+    assert "```" not in _document_text(runtime.document)
+
+
+@pytest.mark.anyio
+async def test_streaming_table_replaces_the_whole_mutable_tail() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("| Name | Value |\n")
+    assert "| Name | Value |" in _document_text(runtime.document)
+
+    await output.append_assistant_delta("|:---|---:|\n")
+    header = _document_text(runtime.document)
+    assert "|:---|---:|" not in header
+    assert "━" in header
+    assert not any(character in header for character in "┌┬┐├┼┤└┴┘│")
+
+    await output.append_assistant_delta("| Longer Name | 1000 |\n")
+    table = _document_text(runtime.document)
+    assert "Longer Name" in table
+    assert table.count("━") > header.count("━")
+    assert any(
+        "bold" in style
+        for style, text in runtime.document.active_block.fragments
+        if text in {"Name", "Value"}
+    )
+
+
+def test_streaming_table_wraps_cells_without_heavy_borders() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    block = renderer.render(
+        "| Name | Value |\n"
+        "|---|---|\n"
+        "| a very long name | a very long value |\n",
+        width=22,
+    )
+    lines = fragments_text(block.fragments).splitlines()
+
+    assert len(lines) >= 4
+    assert all(get_cwidth(line) == 22 for line in lines)
+    assert set(lines[1]) == {"━"}
+    assert not any(
+        character in "".join(lines)
+        for character in "┌┬┐├┼┤└┴┘│"
+    )
+
+
+def test_narrow_markdown_table_switches_to_stacked_records() -> None:
+    block = render_tui_markdown(
+        "| Name | Status | Description |\n"
+        "|---|---|---|\n"
+        "| API | Ready | Service is available |\n"
+        "| Worker | Running | Processing jobs |\n",
+        width=22,
+    )
+    lines = fragments_text(block.fragments).splitlines()
+
+    assert lines[:6] == [
+        " Name",
+        "  API",
+        " Status",
+        "  Ready",
+        " Description",
+        "  Service is available",
+    ]
+    assert set(lines[6]) == {"─"}
+    assert "  Processing jobs" in lines
+    assert all(get_cwidth(line) <= 22 for line in lines)
+
+
+@pytest.mark.parametrize("width", (22, 80))
+def test_streaming_table_increment_matches_full_render(width: int) -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    source = "| Name | Value |\n|---|---|\n"
+    rows = (
+        "| A | one |\n",
+        "| Longer Name | `two` |\n",
+        "| C | a value that changes the fitted width |\n",
+    )
+
+    for row in rows:
+        source += row
+        assert renderer.render(source, width=width) == render_tui_markdown(
+            source,
+            width=width,
+        )
+
+    source += "\n| separate | paragraph |\n"
+    assert renderer.render(source, width=width) == render_tui_markdown(
+        source,
+        width=width,
+    )
+
+
+def test_streaming_table_parses_only_the_appended_row() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    source = "| Name | Value |\n|---|---|\n| existing | one |\n"
+    renderer.render(source, width=80)
+
+    with patch.object(
+        tui_markdown._MARKDOWN,
+        "parse",
+        wraps=tui_markdown._MARKDOWN.parse,
+    ) as parse:
+        renderer.render(source + "| appended | two |\n", width=80)
+
+    parse.assert_called_once()
+    parsed_source = parse.call_args.args[0]
+    assert "appended" in parsed_source
+    assert "existing" not in parsed_source
+
+
+@pytest.mark.anyio
+async def test_source_reflow_invalidates_the_screen_transcript_cache() -> None:
+    runtime = TuiRuntime()
+    size = [60, 24]
+    runtime.screen._output_size = lambda: tuple(size)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    source = (
+        "| Name | Status | Description |\n"
+        "|---|---|---|\n"
+        "| API | Ready | Service is available |\n"
+        "| Worker | Running | Processing jobs |\n"
+    )
+
+    await output.append_assistant_delta(source)
+    await output.prepare_external_output()
+    runtime.screen.transcript_fragments()
+
+    size[0] = 22
+    runtime.document.set_display_width(22, reflow_sources=False)
+    before_reflow = fragments_text(runtime.screen.transcript_fragments())
+
+    assert runtime.document.set_display_width(22, reflow_sources=True)
+    after_reflow = fragments_text(runtime.screen.transcript_fragments())
+    expected = fragments_text(
+        runtime.document.fragments(width=22, reflow_sources=False)
+    )
+
+    assert after_reflow != before_reflow
+    assert after_reflow == expected
+    assert after_reflow.count("Description") == 2
+    assert all(get_cwidth(line) <= 22 for line in after_reflow.splitlines())
+
+
+def test_markdown_only_table_fence_is_rendered_as_a_table() -> None:
+    source = (
+        "```markdown\n"
+        "| Name | Value |\n"
+        "|---|---|\n"
+        "| API | Ready |\n"
+        "```"
+    )
+    block = render_tui_markdown(source, width=30)
+    text = fragments_text(block.fragments)
+
+    assert "```" not in text
+    assert "|---|" not in text
+    assert "━" in text
+    assert "API" in text and "Ready" in text
+
+
+def test_markdown_table_fence_accepts_a_longer_closing_fence() -> None:
+    block = render_tui_markdown(
+        "```markdown\n"
+        "| Name | Value |\n"
+        "|---|---|\n"
+        "| API | Ready |\n"
+        "````",
+        width=30,
+    )
+    text = fragments_text(block.fragments)
+
+    assert "|---|" not in text
+    assert "━" in text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("animate", (False, True))
+async def test_streamed_tool_table_never_leaves_a_duplicate_mutable_row(
+    animate: bool,
+) -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (48, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=animate)
+    source = (
+        "## 命令行工具\n\n"
+        "| 工具 | 用途 |\n"
+        "|---|---|\n"
+        "| rg (ripgrep) | 快速文本搜索、文件发现 |\n"
+        "| ast-grep | 基于语法结构的代码搜索和改写 |\n"
+        "| jq | JSON 数据处理和查询 |\n"
+        "| yq | YAML 数据处理和查询 |\n"
+        "| sqlite3 | SQLite 数据库查询 |\n"
+        "| xh | HTTP 请求（类似 httpie） |\n"
+        "| 7z | 文件压缩/解压 |\n"
+    )
+
+    for line in source.splitlines(keepends=True):
+        await output.append_assistant_delta(line)
+        if animate:
+            output._cancel_stream_render()
+            while output._stream_visible_rows < len(output._stream_rows):
+                output._render_stream_frame()
+
+        active = runtime.document.active_block
+        visible = fragments_text(active.fragments) if active is not None else ""
+        assert visible.count("xh") <= 1
+        if "xh" in visible:
+            assert visible.index("## 命令行工具") < visible.index("xh")
+
+    streamed = fragments_text(runtime.document.active_block.fragments)
+    await output.prepare_external_output()
+    final = fragments_text(runtime.document.blocks[-1].display_block.fragments)
+
+    assert streamed.count("xh") == 1
+    assert final.count("xh") == 1
+    assert streamed == final
+
+
+def test_non_table_markdown_fence_stays_a_code_block() -> None:
+    block = render_tui_markdown(
+        "```markdown\n# literal heading\n```",
+        width=30,
+    )
+
+    assert fragments_text(block.fragments) == "# literal heading"
+    assert all(
+        "bold" not in style
+        for style, text in block.fragments
+        if "literal heading" in text
+    )
+
+
+@pytest.mark.anyio
+async def test_final_markdown_table_rerenders_from_source_on_resize() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    source = (
+        "| Name | Value |\n"
+        "|---|---|\n"
+        "| a very long name | a very long value |"
+    )
+
+    await output.append_assistant_delta(source)
+    await output.prepare_external_output()
+
+    narrow = fragments_text(runtime.document.fragments(width=24)).splitlines()
+    assert all(get_cwidth(line) == 24 for line in narrow)
+    assert set(narrow[1].strip()) == {"━"}
+    assert not any(
+        character in "".join(narrow)
+        for character in "┌┬┐├┼┤└┴┘│"
+    )
+    cell = runtime.document.blocks[-1]
+    transcript = fragments_text(
+        runtime.document.transcript_cell_fragments(cell, width=24)
+    ).splitlines()
+    assert transcript == narrow
+    assert cell.raw_text == source
+
+
+@pytest.mark.anyio
+async def test_stream_animation_releases_one_complete_display_row_per_tick() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+
+    await output.append_assistant_delta("one\ntwo\nthree\n")
+    output._cancel_stream_render()
+
+    assert output._stream_visible_rows == 1
+    assert _document_text(runtime.document) == "• one"
+
+    output._render_stream_frame()
+    assert output._stream_visible_rows == 2
+    assert _document_text(runtime.document) == "• one\n  two"
+
+    output._render_stream_frame()
+    assert output._stream_visible_rows == 3
+    assert _document_text(runtime.document) == "• one\n  two\n  three"
+
+
+@pytest.mark.anyio
+async def test_stream_animation_catches_up_when_line_queue_is_large() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+    source = "".join(f"line {index}\n" for index in range(8))
+
+    await output.append_assistant_delta(source)
+
+    assert output._stream_visible_rows == len(output._stream_rows) == 8
+    assert _document_text(runtime.document).endswith("  line 7")
+
+
+@pytest.mark.anyio
+async def test_stream_animation_catches_up_when_oldest_row_waits_too_long() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+
+    await output.append_assistant_delta("one\ntwo\nthree\n")
+    output._cancel_stream_render()
+    assert output._stream_visible_rows == 1
+    assert output._stream_oldest_pending_at is not None
+
+    output._stream_oldest_pending_at -= 0.13
+    output._render_stream_frame()
+
+    assert output._stream_visible_rows == len(output._stream_rows) == 3
+    assert _document_text(runtime.document).endswith("  three")
+
+
+@pytest.mark.anyio
+async def test_active_markdown_stream_rerenders_from_source_on_resize() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        terminal_size = Size(rows=24, columns=40)
+        source = "x" * 70
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    output._markdown_stream,
+                    "render",
+                    wraps=output._markdown_stream.render,
+                ) as render:
+                    await output.append_assistant_delta(source + "\n")
+                    await _render_next_frame(runtime)
+                    assert output._stream_width == 38
+
+                    terminal_size = Size(rows=24, columns=24)
+                    await _render_next_frame(runtime)
+                    await asyncio.sleep(0.09)
+                    await _render_next_frame(runtime)
+
+                assert output._stream_width == 22
+                assert render.call_count == 2
+                lines = _document_text(runtime.document).splitlines()
+                assert "".join(line[2:] for line in lines) == source
+            finally:
                 await runtime.close()
 
 
@@ -4469,12 +5028,15 @@ async def test_tui_stream_keeps_long_live_line_without_rich_clipping() -> None:
 
     await output.append_assistant_delta(source)
 
-    assert runtime.document.active_block is not None
-    active_text = "".join(
-        text for _style, text in runtime.document.active_block.fragments
-    )
-    assert active_text == f"• {source}"
-    assert " ..." not in active_text
+    assert runtime.document.active_block is None
+
+    await output.settle_stream()
+
+    active = runtime.document.active_block
+    assert active is not None
+    active_lines = fragments_text(active.fragments).splitlines()
+    assert "".join(line[2:] for line in active_lines) == source
+    assert " ..." not in fragments_text(active.fragments)
 
     await output.prepare_external_output()
 
@@ -4489,46 +5051,13 @@ async def test_wide_character_stream_reflows_without_losing_content() -> None:
 
     await output.append_assistant_delta(source)
 
-    visible = _document_text(runtime.document)
-    assert visible == f"• {source}"
-    assert display_line_count(visible, width=40) > display_line_count(
-        visible,
-        width=80,
-    )
+    assert runtime.document.active_block is None
 
-
-def test_stream_reveal_keeps_combined_text_units_intact() -> None:
-    stream = TuiAssistantStream()
-    stream.append("A\u0301👩\u200d💻🇨🇳x")
-
-    stream.reveal(1)
-    assert stream.visible_text == "A\u0301"
-
-    stream.reveal(1)
-    assert stream.visible_text == "A\u0301👩\u200d💻"
-
-    stream.reveal(1)
-    assert stream.visible_text == "A\u0301👩\u200d💻🇨🇳"
-
-
-def test_stream_pending_width_is_updated_incrementally() -> None:
-    stream = TuiAssistantStream()
-    stream.append("A中")
-
-    assert stream.pending_width == 3
-
-    stream.reveal(1)
-    assert stream.pending_width == 2
-
-    stream.append("文")
-    assert stream.pending_width == 4
-
-    stream.reveal_all()
-    assert stream.pending_width == 0
-
-    stream.append("x")
-    stream.clear()
-    assert stream.pending_width == 0
+    await output.settle_stream()
+    active = runtime.document.active_block
+    assert active is not None
+    active_lines = fragments_text(active.fragments).splitlines()
+    assert "".join(line[2:] for line in active_lines) == source
 
 
 def test_assistant_wrap_prefix_is_included_in_display_rows() -> None:
@@ -4569,8 +5098,10 @@ async def test_text_done_boundary_adds_one_assistant_continuation_line() -> None
     output = TuiOutputControl("", runtime=runtime, animate=False)
 
     await output.append_assistant_delta("first")
+    await output.settle_stream()
     output.mark_stream_boundary()
     await output.append_assistant_delta("second")
+    await output.settle_stream()
 
     assert _document_text(runtime.document) == "• first\n  second"
 
@@ -4591,8 +5122,10 @@ async def test_text_done_boundary_does_not_duplicate_existing_newline(
     output = TuiOutputControl("", runtime=runtime, animate=False)
 
     await output.append_assistant_delta(first)
+    await output.settle_stream()
     output.mark_stream_boundary()
     await output.append_assistant_delta(second)
+    await output.settle_stream()
 
     assert _document_text(runtime.document) == "• first\n  second"
 
@@ -4612,7 +5145,7 @@ async def test_animated_stream_uses_the_same_text_done_boundary() -> None:
 
 
 @pytest.mark.anyio
-async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
+async def test_animated_stream_waits_for_complete_source_line() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
 
@@ -4623,7 +5156,7 @@ async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
             wraps=runtime.set_active_renderable,
         ) as update,
         patch(
-            "mind_app.tui.adapters.output.render_tui_markdown",
+            "mind_app.tui.adapters.markdown.render_tui_markdown",
             wraps=render_tui_markdown,
         ) as render,
     ):
@@ -4632,20 +5165,21 @@ async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
         await output.append_assistant_delta(" third**")
 
         assert output.assistant.text == "**first second third**"
-        assert output.assistant.visible_text != output.assistant.text
-        assert update.call_count == 1
+        assert runtime.document.active_block is None
+        assert update.call_count == 0
         render.assert_not_called()
 
         await output.settle_stream()
-        assert update.call_count == 2
+        assert update.call_count == 1
         render.assert_not_called()
         await asyncio.sleep(0.04)
-        assert update.call_count == 2
+        assert update.call_count == 1
 
         await output.prepare_external_output()
         render.assert_called_once_with(
             "**first second third**",
             hyperlinks=runtime.hyperlinks_enabled,
+            width=max(1, runtime.terminal_width - 2),
         )
 
     assert _document_text(runtime.document) == "• first second third"
@@ -4664,7 +5198,7 @@ async def test_stream_keeps_one_plain_active_block_without_losing_source() -> No
     assert output._active_stream_text() == source
     assert _document_text(runtime.document) == "\n".join([
         "• line 0",
-        *(f"  line {index}" for index in range(1, 12)),
+        *(f"  line {index}" for index in range(1, 11)),
     ])
 
     await output.prepare_external_output()
@@ -4689,14 +5223,18 @@ async def test_live_stream_tail_keeps_one_assistant_prefix() -> None:
             ("" if index == 0 else "\n") + f"line {index}"
         )
 
-        assert _document_text(runtime.document) == "\n".join([
+        expected = "\n".join([
             "• line 0",
-            *(f"  line {line}" for line in range(1, index + 1)),
-        ])
+            *(f"  line {line}" for line in range(1, index)),
+        ]) if index else ""
+        assert _document_text(runtime.document) == expected
+
+    await output.settle_stream()
+    assert _document_text(runtime.document).endswith("  line 7")
 
 
 @pytest.mark.anyio
-async def test_live_stream_tail_renders_markdown_only_when_committed() -> None:
+async def test_live_stream_tail_is_rendered_before_it_appears() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     source = "\n".join(
@@ -4705,7 +5243,7 @@ async def test_live_stream_tail_renders_markdown_only_when_committed() -> None:
     )
 
     with patch(
-        "mind_app.tui.adapters.output.render_tui_markdown",
+        "mind_app.tui.adapters.markdown.render_tui_markdown",
         wraps=render_tui_markdown,
     ) as render:
         await output.append_assistant_delta(source)
@@ -4714,10 +5252,12 @@ async def test_live_stream_tail_renders_markdown_only_when_committed() -> None:
         active = runtime.document.active_block
         assert active is not None
         text = fragments_text(active.fragments)
-        assert "**line 0**" in text
-        assert "https://example.com/0" in text
-        assert all(
-            "bold" not in style and "underline" not in style
+        assert "**" not in text
+        assert "https://" not in text
+        assert "line 2 docs" in text
+        assert "line 3 docs" not in text
+        assert any(
+            "bold" in style
             for style, value in active.fragments
             if value.strip()
         )
@@ -4727,13 +5267,14 @@ async def test_live_stream_tail_renders_markdown_only_when_committed() -> None:
         render.assert_not_called()
         active = runtime.document.active_block
         assert active is not None
-        assert "**line 0**" in fragments_text(active.fragments)
+        assert "line 3 docs" in fragments_text(active.fragments)
 
         await output.prepare_external_output()
 
         render.assert_called_once_with(
             source,
             hyperlinks=runtime.hyperlinks_enabled,
+            width=max(1, runtime.terminal_width - 2),
         )
 
     settled = runtime.document.blocks[-1].display_block
@@ -4829,39 +5370,37 @@ async def test_final_stream_renders_full_markdown_in_one_block() -> None:
 async def test_animated_stream_drains_backlog_without_more_deltas() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
-    source = "中文" * 50
+    source = "中文" * 50 + "\n"
 
     await output.append_assistant_delta(source)
 
     assert output.assistant.text == source
-    assert 0 < output.assistant.pending_width <= 16
+    assert 0 < output._stream_visible_rows < len(output._stream_rows)
 
     for _ in range(50):
-        if output.assistant.pending_length == 0:
+        if output._stream_visible_rows == len(output._stream_rows):
             break
         await asyncio.sleep(0.01)
 
-    assert output.assistant.visible_text == source
+    assert output._stream_visible_rows == len(output._stream_rows)
     assert output._stream_render_handle is None
 
     await output.settle_stream()
-    assert _document_text(runtime.document) == f"• {source}"
+    visible_lines = _document_text(runtime.document).splitlines()
+    assert "".join(line[2:] for line in visible_lines) == source.rstrip("\n")
 
 
 @pytest.mark.anyio
-async def test_animated_stream_cursor_stays_until_stream_settles() -> None:
+async def test_incomplete_animated_line_never_creates_a_transient_block() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
-    output._cursor = "█"
-
     await output.append_assistant_delta("done")
 
-    assert output.assistant.pending_length == 0
-    assert _document_text(runtime.document) == "• done█"
+    assert runtime.document.active_block is None
 
     await asyncio.sleep(0.12)
 
-    assert _document_text(runtime.document) == "• done█"
+    assert runtime.document.active_block is None
 
     await output.settle_stream()
 
@@ -4869,20 +5408,150 @@ async def test_animated_stream_cursor_stays_until_stream_settles() -> None:
 
 
 @pytest.mark.anyio
-async def test_new_delta_continues_active_stream_cursor() -> None:
+async def test_settled_stream_skips_an_identical_visible_tail_update() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    with patch.object(
+        runtime,
+        "set_active_renderable",
+        wraps=runtime.set_active_renderable,
+    ) as update:
+        await output.append_assistant_delta("done\n")
+        revision = runtime.document.active_transcript_revision
+
+        await output.settle_stream()
+
+    assert update.call_count == 1
+    assert runtime.document.active_transcript_revision == revision
+
+
+def test_final_stream_handoff_merges_render_requests() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    output.assistant.append("final line")
+
+    with patch.object(runtime.screen, "_invalidate_now") as invalidate:
+        output._commit_current()
+
+    invalidate.assert_called_once_with()
+    assert runtime.document.active_block is None
+    assert _document_text(runtime.document) == "• final line"
+
+
+@pytest.mark.anyio
+async def test_output_stop_unregisters_the_stream_resize_callback() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    event = runtime.screen.application.before_render
+
+    assert output._sync_stream_width in event._handlers
+
+    await output.stop()
+
+    assert output._sync_stream_width not in event._handlers
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "source",
+    (
+        "x" * 77,
+        "first\n   \nsecond",
+        "```\nvalue\n```\n\n- item " + "x" * 40,
+        (
+            "| Name | Value |\n"
+            "|---|---|\n"
+            "| short | one |\n"
+            f"| Longer Name | {'x' * 50} |"
+        ),
+        "last line without newline",
+    ),
+)
+async def test_final_stream_handoff_preserves_the_rendered_frame(
+    source: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=60, columns=40),
+        ):
+            await runtime.open()
+            try:
+                await output.append_assistant_delta(source)
+                await output.settle_stream()
+                streamed_screen = await _render_next_frame(runtime)
+
+                def frame_signature(screen) -> tuple[typing.Any, ...]:
+                    positions = screen.visible_windows_to_write_positions
+                    transcript = positions[runtime.screen.transcript_window]
+                    input_position = positions[runtime.screen.input.window]
+                    rows = tuple(
+                        tuple(
+                            (
+                                screen.data_buffer[row][column].char,
+                                screen.data_buffer[row][column].style,
+                            )
+                            for column in range(40)
+                        )
+                        for row in range(
+                            transcript.ypos,
+                            transcript.ypos + transcript.height,
+                        )
+                    )
+                    return (
+                        transcript.ypos,
+                        transcript.height,
+                        input_position.ypos,
+                        rows,
+                    )
+
+                streamed = frame_signature(streamed_screen)
+                frames: list[tuple[typing.Any, ...]] = []
+
+                def capture_frame(_application) -> None:
+                    rendered = (
+                        runtime.screen.application.renderer.last_rendered_screen
+                    )
+                    positions = rendered.visible_windows_to_write_positions
+                    if (
+                        runtime.screen.transcript_window not in positions
+                        or runtime.screen.input.window not in positions
+                    ):
+                        return None
+                    frames.append(frame_signature(rendered))
+
+                runtime.screen.application.after_render += capture_frame
+                output._commit_current()
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if frames:
+                        break
+
+                assert frames
+                assert all(frame == streamed for frame in frames)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_partial_delta_does_not_mutate_visible_completed_line() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
-    output._cursor = "█"
-
-    await output.append_assistant_delta("done")
-    await asyncio.sleep(0.12)
+    await output.append_assistant_delta("done\n")
+    visible = _document_text(runtime.document)
 
     await output.append_assistant_delta(" next")
 
-    assert _document_text(runtime.document).endswith("█")
+    assert _document_text(runtime.document) == visible
 
     await output.settle_stream()
-    assert _document_text(runtime.document) == "• done next"
+    assert _document_text(runtime.document) == "• done\n  next"
 
 
 def test_stream_render_budget_adapts_to_size_and_render_cost() -> None:
@@ -4927,34 +5596,15 @@ def test_transcript_prefix_reuses_revision_cache() -> None:
         assert render.call_count == 2
 
 
-def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:
-    runtime = TuiRuntime()
-    output = TuiOutputControl("", runtime=runtime, animate=True)
-    output._cursor = "█"
+def test_formatted_stream_wrap_releases_complete_display_rows() -> None:
+    rows = wrap_formatted_lines(
+        [("bold", "abcdefgh"), ("italic", "中文")],
+        width=5,
+    )
 
-    with patch.object(
-        runtime.screen.application.output,
-        "get_size",
-        return_value=Size(rows=24, columns=40),
-    ):
-        output.assistant.append("short")
-        output.assistant.reveal_all()
-        output._render_active(cursor=True)
-        assert _document_text(runtime.document).endswith("█")
-
-        output.assistant.clear()
-        output.assistant.append("x" * 38)
-        output.assistant.reveal_all()
-        output._render_active(cursor=True)
-        active_text = _document_text(runtime.document)
-        active_rows = display_line_count(active_text, width=40)
-        output._render_active(cursor=False)
-
-        assert active_text == f"• {'x' * 38}"
-        assert display_line_count(
-            _document_text(runtime.document),
-            width=40,
-        ) == active_rows
+    assert [fragments_text(row) for row in rows] == ["abcde", "fgh中", "文"]
+    assert rows[0] == [("bold", "abcde")]
+    assert rows[-1] == [("italic", "文")]
 
 
 @pytest.mark.anyio
@@ -5004,29 +5654,32 @@ async def test_assistant_commit_renders_markdown_without_final_units_bridge() ->
 
 
 @pytest.mark.anyio
-async def test_segment_completion_keeps_markdown_plain_until_output_boundary() -> None:
+async def test_segment_completion_keeps_rendered_markdown_stable() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     content = TuiContentSink(output)
 
     with patch(
-        "mind_app.tui.adapters.output.render_tui_markdown",
+        "mind_app.tui.adapters.markdown.render_tui_markdown",
         wraps=render_tui_markdown,
     ) as render:
         await content.emit(AssistantTextDelta("**bold**"))
         await content.emit(AssistantSegmentCompleted())
 
         render.assert_not_called()
-        assert _document_text(runtime.document) == "• **bold**"
+        assert _document_text(runtime.document) == "• bold"
+        first_fragments = runtime.document.active_block.fragments
+        assert any("bold" in style for style, text in first_fragments if text)
 
         await content.emit(AssistantTextDelta(" and `code`"))
         render.assert_not_called()
-        assert _document_text(runtime.document) == "• **bold**\n   and `code`"
+        assert _document_text(runtime.document) == "• bold"
 
         await content.emit(AssistantOutputBoundary())
         render.assert_called_once_with(
             "**bold**\n and `code`",
             hyperlinks=runtime.hyperlinks_enabled,
+            width=max(1, runtime.terminal_width - 2),
         )
 
     fragments = runtime.document.blocks[-1].display_block.fragments
@@ -5055,7 +5708,7 @@ async def test_assistant_commit_falls_back_to_plain_text_after_markdown_failure(
 
     await output.append_assistant_delta("```\nvalue\n```")
     with patch(
-        "mind_app.tui.adapters.output.render_tui_markdown",
+        "mind_app.tui.adapters.markdown.render_tui_markdown",
         side_effect=IndexError("invalid markdown"),
     ):
         await presentation.emit(build_failure_view("turn.failed", "request failed"))

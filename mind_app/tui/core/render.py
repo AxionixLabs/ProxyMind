@@ -245,6 +245,39 @@ def join_formatted_lines(lines: typing.Iterable[FormattedText]) -> FormattedText
     return out
 
 
+def wrap_formatted_lines(
+    parts: FormattedText,
+    *,
+    width: int
+) -> list[FormattedText]:
+    """按终端宽度把格式化逻辑行拆成完整显示行。"""
+    limit = max(1, int(width))
+
+    rows: list[FormattedText] = []
+
+    for line in split_formatted_lines(parts):
+        if not line:
+            rows.append([])
+            continue
+
+        current: FormattedText = []
+
+        used: int = 0
+
+        for unit in iter_formatted_text_units(line):
+            unit_width = max(0, get_cwidth(fragments_text(unit)))
+            if current and unit_width and used + unit_width > limit:
+                rows.append(_merge_fragments(current))
+                current = []
+                used = 0
+            current.extend(unit)
+            used += unit_width
+
+        rows.append(_merge_fragments(current))
+
+    return rows
+
+
 def clip_text(text: typing.Any, *, width: int) -> str:
     """按终端显示宽度裁剪单行文本并保留省略标记。"""
     value = str(text or "").replace("\n", " ")
@@ -303,7 +336,7 @@ def fill_fragments(
     parts: FormattedText,
     *,
     width: int,
-    fill: LineFill,
+    fill: LineFill
 ) -> FormattedText:
     """裁剪或延伸单行片段，使其占满指定的可用宽度。"""
     target = max(1, int(width) - max(0, int(fill.margin)))

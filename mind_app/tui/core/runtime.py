@@ -38,6 +38,7 @@ from .activity import (
     TuiActivity,
 )
 from .document import (
+    SourceBlockRenderer,
     TranscriptCellSource,
     TranscriptBlock,
     TuiBlockKind,
@@ -1022,20 +1023,25 @@ class TuiRuntime(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        raw_text: str | None = None
+        raw_text: str | None = None,
+        source_renderer: SourceBlockRenderer | None = None,
+        source_render_width: int | None = None
     ) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
-        assistant_stream = self.document.active_kind == "assistant"
-        self.document.commit_active(
-            block,
-            transcript_block=transcript_block,
-            raw_text=raw_text,
-        )
-        self.screen.transcript_overlay.content_changed()
-        if assistant_stream:
-            self.viewport.stream_finalized()
-        self.viewport.stable_content_changed()
-        self._flush_background_blocks()
+        with self.screen.visual_update():
+            assistant_stream = self.document.active_kind == "assistant"
+            self.document.commit_active(
+                block,
+                transcript_block=transcript_block,
+                raw_text=raw_text,
+                source_renderer=source_renderer,
+                source_render_width=source_render_width,
+            )
+            self.screen.transcript_overlay.content_changed()
+            if assistant_stream:
+                self.viewport.stream_finalized()
+            self.viewport.stable_content_changed()
+            self._flush_background_blocks()
 
     def commit_active_stream_prefix(
         self,

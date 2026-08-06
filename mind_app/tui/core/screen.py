@@ -1111,7 +1111,10 @@ class TuiScreen(object):
             width,
         )
         if key != self._transcript_cache_key:
-            fragments = self.document.fragments(width=width)
+            fragments = self.document.fragments(
+                width=width,
+                reflow_sources=False,
+            )
             self._transcript_cache_key = key
             self._transcript_cache_fragments = fragments
             self._transcript_assistant_lines = self._assistant_lines(fragments)
@@ -1132,7 +1135,10 @@ class TuiScreen(object):
         )
         self._layout_geometry = geometry
 
-        self.document.set_display_width(self._frame_geometry.width)
+        self.document.set_display_width(
+            self._frame_geometry.width,
+            reflow_sources=False,
+        )
 
         if geometry_changed:
             self._reset_completion_layout(reset_canvas_floor=True)

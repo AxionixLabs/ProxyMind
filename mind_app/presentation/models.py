@@ -42,6 +42,7 @@ class TextStyle(object):
     italic: bool = False
     underline: bool = False
     reverse: bool = False
+    strikethrough: bool = False
 
 
 @dataclass(frozen=True, slots=True)

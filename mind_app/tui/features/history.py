@@ -4,6 +4,7 @@
 import json
 import time
 import typing
+from functools import partial
 from prompt_toolkit.utils import get_cwidth
 from mind_app.history.transcript import (
     TranscriptEntry,
@@ -20,7 +21,7 @@ from mind_app.presentation.tool_views import (
     build_tool_start_view
 )
 from mind_app.stream_events.tool_trace import coding_trace_tool
-from ..adapters.markdown import render_tui_markdown
+from ..adapters.markdown import render_tui_assistant_markdown
 from ..core.document import TranscriptBlock
 from ..core.models import (
     FragmentBlock,
@@ -29,7 +30,6 @@ from ..core.models import (
 )
 from ..core.styles import (
     MUTED_STYLE,
-    assistant_block,
     failure_text_block,
     query_block,
     styled_block_fragments,
@@ -148,7 +148,11 @@ def _render_replay_blocks(
 
     for entry in entries:
         if entry.event == "message.created":
-            block = _message_block(entry, hyperlinks=hyperlinks)
+            block = _message_block(
+                entry,
+                terminal_width=terminal_width,
+                hyperlinks=hyperlinks,
+            )
             if block is not None:
                 blocks.append(block)
             continue
@@ -206,6 +210,7 @@ def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
 def _message_block(
     entry: TranscriptEntry,
     *,
+    terminal_width: int,
     hyperlinks: bool = False
 ) -> TranscriptBlock | None:
     """把用户或助手消息转换为正文块。"""
@@ -237,13 +242,11 @@ def _message_block(
     if entry.actor != "assistant":
         return None
 
-    try:
-        block = assistant_block(render_tui_markdown(
-            content,
-            hyperlinks=hyperlinks,
-        ))
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
-        block = assistant_block(text_block(content))
+    block = render_tui_assistant_markdown(
+        content,
+        terminal_width,
+        hyperlinks=hyperlinks,
+    )
 
     return TranscriptBlock(
         display_block=block,
@@ -251,6 +254,11 @@ def _message_block(
         kind="assistant",
         source=entry,
         raw_text=content,
+        source_renderer=partial(
+            render_tui_assistant_markdown,
+            hyperlinks=hyperlinks,
+        ),
+        source_render_width=terminal_width,
     )
 
 

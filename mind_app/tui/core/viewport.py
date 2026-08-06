@@ -117,6 +117,14 @@ class TuiTranscriptViewport(object):
         """把终端尺寸限制为有效正整数。"""
         return max(1, int(width)), max(1, int(height))
 
+    @staticmethod
+    def _start_stream_scrollback_flush(
+        viewport: "TuiTranscriptViewport"
+    ) -> None:
+        """开始已经完成合并等待的流式滚屏提交。"""
+        viewport._stream_scrollback_handle = None
+        viewport._start_scrollback_flush()
+
     def _schedule_scrollback_reflow(
         self,
         *,
@@ -185,7 +193,7 @@ class TuiTranscriptViewport(object):
     def _start_scrollback_reflow(
         self,
         target_geometry: tuple[int, int],
-        generation: int,
+        generation: int
     ) -> None:
         """为稳定尺寸启动唯一的原生滚屏重排任务。"""
         self._scrollback_reflow_handle = None
@@ -236,114 +244,6 @@ class TuiTranscriptViewport(object):
         elif not self._reflow_required:
             self.schedule_scrollback_flush()
 
-    async def _cancel_scrollback_task(self) -> None:
-        """取消并等待普通原生滚屏提交任务退出。"""
-        task = self._scrollback_task
-        if (
-            task is None
-            or task.done()
-            or task is asyncio.current_task()
-        ):
-            return None
-
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-    async def _reflow_scrollback(
-        self,
-        target_geometry: tuple[int, int],
-        generation: int,
-    ) -> None:
-        """按最终终端尺寸集中清屏并回放有界稳定内容。"""
-        if generation != self._reflow_generation:
-            return None
-
-        settled_geometry = self._current_geometry()
-        if settled_geometry != self._observed_geometry:
-            self.observe_terminal_geometry(*settled_geometry)
-            return None
-        if settled_geometry != target_geometry:
-            return None
-
-        if (
-            target_geometry != self._observed_geometry
-            or not self._reflow_required
-        ):
-            return None
-        if self._should_defer_scrollback():
-            return None
-
-        await self._cancel_scrollback_task()
-        if (
-            generation != self._reflow_generation
-            or target_geometry != self._observed_geometry
-            or self._should_defer_scrollback()
-        ):
-            return None
-
-        if self.document.scrollback_line_count <= self.document.cleared_line_count:
-            self._complete_scrollback_reflow(target_geometry)
-            self.view_row = None
-            self._invalidate()
-            self._schedule_scrollback_recheck(target_geometry)
-            return None
-
-        synchronized: bool = False
-        completed: bool    = False
-
-        try:
-            async with in_terminal(render_cli_done=False):
-                if (
-                    generation != self._reflow_generation
-                    or target_geometry != self._observed_geometry
-                    or self._should_defer_scrollback()
-                ):
-                    return None
-
-                synchronized = self._begin_synchronized_output()
-                previous_scrollback_position = (
-                    self.document.scrollback_line_count
-                )
-                try:
-                    self.document.rewind_scrollback(
-                        max_line_count=self.scrollback_reflow_line_limit,
-                    )
-                    self.view_row = None
-
-                    self._clear_terminal_for_resize_replay()
-
-                    line_count = self._scrollback_prefix_line_count()
-                    if line_count > 0:
-                        fragments = self.document.scrollback_prefix_fragments(
-                            line_count
-                        )
-                        self._get_application().print_text(fragments)
-                        self.document.commit_scrollback_prefix(line_count)
-
-                    self._complete_scrollback_reflow(target_geometry)
-                    completed = True
-                except BaseException:
-                    self.document.restore_scrollback_position(
-                        previous_scrollback_position
-                    )
-                    raise
-        finally:
-            if synchronized:
-                self._end_synchronized_output()
-            if (
-                not completed
-                and generation == self._reflow_generation
-                and target_geometry == self._observed_geometry
-            ):
-                self._reflow_required = True
-                self._invalidate()
-
-        if self.document.active_kind == "assistant":
-            self._resize_during_stream = True
-
-        self._schedule_scrollback_recheck(target_geometry)
-
     def _complete_scrollback_reflow(
         self,
         target_geometry: tuple[int, int],
@@ -374,7 +274,7 @@ class TuiTranscriptViewport(object):
 
     def _recheck_scrollback_geometry(
         self,
-        target_geometry: tuple[int, int],
+        target_geometry: tuple[int, int]
     ) -> None:
         """复查重排后的终端尺寸并安排最终修复。"""
         self._scrollback_recheck_handle = None
@@ -410,7 +310,7 @@ class TuiTranscriptViewport(object):
         ):
             return 0
 
-        lines = self.document.visible_stable_lines()
+        lines     = self.document.visible_stable_lines()
         submitted = self._submitted_query_block
 
         if not lines:
@@ -492,6 +392,71 @@ class TuiTranscriptViewport(object):
             ),
         )
 
+    def _schedule_stream_scrollback_flush(self) -> None:
+        """合并短时间内连续产生的流式滚屏提交。"""
+        if self._stream_scrollback_handle is not None:
+            return None
+        if not self._scrollback_flush_ready():
+            return None
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        self._stream_scrollback_handle = loop.call_later(
+            self.STREAM_SCROLLBACK_DEBOUNCE_SEC,
+            TuiTranscriptViewport._start_stream_scrollback_flush,
+            self,
+        )
+
+    def _scrollback_flush_ready(self) -> bool:
+        """判断当前是否具备启动原生滚屏提交的条件。"""
+        if self._rendered_revision < self._scrollback_render_revision:
+            return False
+
+        if self._scrollback_reflow_pending():
+            if self._scrollback_reflow_handle is None:
+                self._schedule_scrollback_reflow(delay=0)
+            return False
+
+        task = self._scrollback_task
+        return not (
+            self._is_closing()
+            or not self._is_application_active()
+            or self._should_defer_scrollback()
+            or (task is not None and not task.done())
+            or self._scrollback_prefix_line_count() <= 0
+        )
+
+    def _start_scrollback_flush(self) -> None:
+        """在条件仍有效时启动唯一的原生滚屏任务。"""
+        if not self._scrollback_flush_ready():
+            return None
+
+        context = self._get_application().context
+        if context is None:
+            return None
+
+        self._scrollback_task = asyncio.create_task(
+            self._flush_scrollback(),
+            name="tui scrollback flush",
+            context=context.copy(),
+        )
+
+    def _require_stable_render(self) -> None:
+        """记录包含最新稳定正文的下一次应用渲染。"""
+        self._invalidate()
+
+        revision = max(0, int(self._get_render_revision()))
+        if self._is_application_active():
+            revision += 1
+
+        self._scrollback_render_revision = max(
+            self._scrollback_render_revision,
+            revision,
+        )
+
     def reset_view(self) -> None:
         """让正文视口恢复跟随最新输出。"""
         self.view_row = None
@@ -532,19 +497,6 @@ class TuiTranscriptViewport(object):
         """在流式稳定前缀提交后合并安排滚屏。"""
         self._require_stable_render()
         self._schedule_stream_scrollback_flush()
-
-    def _require_stable_render(self) -> None:
-        """记录包含最新稳定正文的下一次应用渲染。"""
-        self._invalidate()
-
-        revision = max(0, int(self._get_render_revision()))
-        if self._is_application_active():
-            revision += 1
-
-        self._scrollback_render_revision = max(
-            self._scrollback_render_revision,
-            revision,
-        )
 
     def observe_render_revision(self, revision: int) -> None:
         """记录已经写入终端的应用帧并继续待处理滚屏。"""
@@ -600,10 +552,13 @@ class TuiTranscriptViewport(object):
         """在终端恢复后重新读取尺寸并刷新正文布局。"""
         previous = self._observed_geometry
         current  = self._current_geometry()
+
         self.observe_terminal_geometry(*current)
         self._invalidate()
+
         if current == previous:
             self.schedule_scrollback_flush()
+
         return current != previous
 
     def schedule_scrollback_flush(self) -> None:
@@ -614,66 +569,6 @@ class TuiTranscriptViewport(object):
 
         self._cancel_stream_scrollback()
         self._start_scrollback_flush()
-
-    def _schedule_stream_scrollback_flush(self) -> None:
-        """合并短时间内连续产生的流式滚屏提交。"""
-        if self._stream_scrollback_handle is not None:
-            return None
-        if not self._scrollback_flush_ready():
-            return None
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return None
-
-        self._stream_scrollback_handle = loop.call_later(
-            self.STREAM_SCROLLBACK_DEBOUNCE_SEC,
-            TuiTranscriptViewport._start_stream_scrollback_flush,
-            self,
-        )
-
-    @staticmethod
-    def _start_stream_scrollback_flush(
-        viewport: "TuiTranscriptViewport",
-    ) -> None:
-        """开始已经完成合并等待的流式滚屏提交。"""
-        viewport._stream_scrollback_handle = None
-        viewport._start_scrollback_flush()
-
-    def _scrollback_flush_ready(self) -> bool:
-        """判断当前是否具备启动原生滚屏提交的条件。"""
-        if self._rendered_revision < self._scrollback_render_revision:
-            return False
-
-        if self._scrollback_reflow_pending():
-            if self._scrollback_reflow_handle is None:
-                self._schedule_scrollback_reflow(delay=0)
-            return False
-
-        task = self._scrollback_task
-        return not (
-            self._is_closing()
-            or not self._is_application_active()
-            or self._should_defer_scrollback()
-            or (task is not None and not task.done())
-            or self._scrollback_prefix_line_count() <= 0
-        )
-
-    def _start_scrollback_flush(self) -> None:
-        """在条件仍有效时启动唯一的原生滚屏任务。"""
-        if not self._scrollback_flush_ready():
-            return None
-
-        context = self._get_application().context
-        if context is None:
-            return None
-
-        self._scrollback_task = asyncio.create_task(
-            self._flush_scrollback(),
-            name="tui scrollback flush",
-            context=context.copy(),
-        )
 
     def pause_scrollback(self) -> None:
         """取消正在等待的原生滚屏提交。"""
@@ -793,6 +688,126 @@ class TuiTranscriptViewport(object):
                 if reschedule:
                     self.schedule_scrollback_flush()
             self._invalidate()
+
+    async def _cancel_scrollback_task(self) -> None:
+        """取消并等待普通原生滚屏提交任务退出。"""
+        task = self._scrollback_task
+        if (
+            task is None
+            or task.done()
+            or task is asyncio.current_task()
+        ):
+            return None
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _reflow_scrollback(
+        self,
+        target_geometry: tuple[int, int],
+        generation: int
+    ) -> None:
+        """按最终终端尺寸集中清屏并回放有界稳定内容。"""
+        if generation != self._reflow_generation:
+            return None
+
+        settled_geometry = self._current_geometry()
+        if settled_geometry != self._observed_geometry:
+            self.observe_terminal_geometry(*settled_geometry)
+            return None
+        if settled_geometry != target_geometry:
+            return None
+
+        if (
+            target_geometry != self._observed_geometry
+            or not self._reflow_required
+        ):
+            return None
+        if self._should_defer_scrollback():
+            return None
+
+        had_native_scrollback = bool(
+            self.document.scrollback_line_count
+            > self.document.cleared_line_count
+        )
+        source_reflowed = self.document.set_display_width(
+            target_geometry[0],
+            reflow_sources=True,
+        )
+        if source_reflowed:
+            self.view_row = None
+            self._invalidate()
+
+        if not had_native_scrollback:
+            self._complete_scrollback_reflow(target_geometry)
+            self._schedule_scrollback_recheck(target_geometry)
+            return None
+
+        await self._cancel_scrollback_task()
+        if (
+            generation != self._reflow_generation
+            or target_geometry != self._observed_geometry
+            or self._should_defer_scrollback()
+        ):
+            return None
+
+        synchronized: bool = False
+        completed: bool    = False
+
+        try:
+            async with in_terminal(render_cli_done=False):
+                if (
+                    generation != self._reflow_generation
+                    or target_geometry != self._observed_geometry
+                    or self._should_defer_scrollback()
+                ):
+                    return None
+
+                synchronized = self._begin_synchronized_output()
+
+                previous_scrollback_position = (
+                    self.document.scrollback_line_count
+                )
+
+                try:
+                    self.document.rewind_scrollback(
+                        max_line_count=self.scrollback_reflow_line_limit,
+                    )
+                    self.view_row = None
+
+                    self._clear_terminal_for_resize_replay()
+
+                    line_count = self._scrollback_prefix_line_count()
+                    if line_count > 0:
+                        fragments = self.document.scrollback_prefix_fragments(
+                            line_count
+                        )
+                        self._get_application().print_text(fragments)
+                        self.document.commit_scrollback_prefix(line_count)
+
+                    self._complete_scrollback_reflow(target_geometry)
+                    completed = True
+                except BaseException:
+                    self.document.restore_scrollback_position(
+                        previous_scrollback_position
+                    )
+                    raise
+        finally:
+            if synchronized:
+                self._end_synchronized_output()
+            if (
+                not completed
+                and generation == self._reflow_generation
+                and target_geometry == self._observed_geometry
+            ):
+                self._reflow_required = True
+                self._invalidate()
+
+        if self.document.active_kind == "assistant":
+            self._resize_during_stream = True
+
+        self._schedule_scrollback_recheck(target_geometry)
 
     async def close(self) -> None:
         """取消并等待全部原生滚屏任务结束。"""

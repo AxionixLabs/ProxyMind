@@ -40,6 +40,12 @@ TuiBlockKind = typing.Literal[
     "system"
 ]
 
+SourceBlockRenderer: typing.TypeAlias = typing.Callable[
+    [str, int],
+    FragmentBlock
+]
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptBlock(object):
     """保存一项正文的普通表示、完整表示及视觉间距。"""
@@ -55,6 +61,8 @@ class TranscriptBlock(object):
     prompt: str = ""
     attachments: tuple[dict[str, typing.Any], ...] = ()
     extras: dict[str, typing.Any] = field(default_factory=dict)
+    source_renderer: SourceBlockRenderer | None = None
+    source_render_width: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +131,8 @@ class TuiDocument(object):
         self._stable_snapshot_cells: tuple[TranscriptBlock, ...] = ()
         self._stable_snapshot_revision: int                      = -1
 
-        self._display_width: int | None = None
+        self._display_width: int | None       = None
+        self._source_layout_width: int | None = None
 
     @property
     def has_pending_submission(self) -> bool:
@@ -317,10 +326,20 @@ class TuiDocument(object):
 
     def _block_lines(self, item: TranscriptBlock) -> list[FormattedText]:
         """返回指定稳定块去除外侧换行后的逻辑行。"""
-        parts = self._trim_block_fragments(list(item.display_block.fragments))
+        block = self._source_rendered_block(
+            item,
+            width=(
+                self._source_layout_width
+                if item.source_renderer is not None
+                else self._display_width
+            ),
+            transcript=False,
+        )
+
+        parts = self._trim_block_fragments(list(block.fragments))
         lines = split_formatted_lines(parts)
 
-        fill = item.display_block.line_fill
+        fill = block.line_fill
         if fill is not None and self._display_width is not None:
             lines = [
                 fill_fragments(line, width=self._display_width, fill=fill)
@@ -380,15 +399,59 @@ class TuiDocument(object):
             self._stable_lines.extend(own_lines)
             previous_kind = item.kind
 
-    def set_display_width(self, width: int) -> bool:
-        """更新正文显示宽度并重建需要横向填充的稳定行。"""
-        normalized = max(1, int(width))
-        if normalized == self._display_width:
+    def set_display_width(
+        self,
+        width: int,
+        *,
+        reflow_sources: bool = True,
+    ) -> bool:
+        """更新正文显示宽度并重建依赖宽度的稳定行。"""
+        normalized    = max(1, int(width))
+        width_changed = normalized != self._display_width
+        has_source    = any(item.source_renderer is not None for item in self.blocks)
+
+        source_reflow = bool(
+            has_source
+            and reflow_sources
+            and normalized != self._source_layout_width
+        )
+        if not width_changed and not source_reflow:
             return False
 
         self._display_width = normalized
-        if any(item.display_block.line_fill is not None for item in self.blocks):
+        if not has_source or self._source_layout_width is None:
+            self._source_layout_width = normalized
+
+        previous_line_count = self._stable_line_count()
+        cleared_at_end      = self.cleared_line_count == previous_line_count
+        scrollback_at_end   = self.scrollback_line_count == previous_line_count
+
+        if source_reflow:
+            self._source_layout_width = normalized
+
+        if source_reflow or (
+            width_changed
+            and any(
+                item.display_block.line_fill is not None
+                for item in self.blocks
+            )
+        ):
             self._rebuild_stable_lines()
+            line_count = self._stable_line_count()
+
+            self.cleared_line_count = (
+                line_count
+                if cleared_at_end
+                else min(self.cleared_line_count, line_count)
+            )
+            self.scrollback_line_count = (
+                line_count
+                if scrollback_at_end
+                else min(self.scrollback_line_count, line_count)
+            )
+            if source_reflow:
+                self.stable_transcript_revision += 1
+
         return True
 
     def _extend_stable(self, items: list[TranscriptBlock]) -> None:
@@ -762,7 +825,9 @@ class TuiDocument(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        raw_text: str | None = None
+        raw_text: str | None = None,
+        source_renderer: SourceBlockRenderer | None = None,
+        source_render_width: int | None = None
     ) -> None:
         """把当前动态正文替换为相同位置的稳定块。"""
         if self.active_kind is None:
@@ -787,6 +852,8 @@ class TuiDocument(object):
             ),
             gap_before=self.active_gap_before,
             stream_continuation=self.active_stream_continuation,
+            source_renderer=source_renderer,
+            source_render_width=source_render_width,
         ), *self._active_tail]
 
         self._extend_stable(items)
@@ -805,15 +872,22 @@ class TuiDocument(object):
         if changed:
             self.active_transcript_revision += 1
 
-    def fragments(self, *, width: int) -> FormattedText:
+    def fragments(
+        self,
+        *,
+        width: int,
+        reflow_sources: bool = True
+    ) -> FormattedText:
         """生成统一处理块边界后的正文片段。"""
-        self.set_display_width(width)
+        self.set_display_width(width, reflow_sources=reflow_sources)
+
         out = join_formatted_lines(
             self._stable_lines[self.visible_prefix_line_count:]
         )
         hidden_stable_content = bool(
             not out and self._has_native_scrollback_boundary()
         )
+
         previous_kind = (
             self._last_rendered_kind()
             if out or hidden_stable_content
@@ -1036,9 +1110,15 @@ class TuiDocument(object):
         width: int | None = None
     ) -> FormattedText:
         """返回单个记录 cell 去除外侧换行后的完整片段。"""
-        parts = self._trim_block_fragments(list(cell.transcript_block.fragments))
+        block = self._source_rendered_block(
+            cell,
+            width=width,
+            transcript=True,
+        )
 
-        fill = cell.transcript_block.line_fill
+        parts = self._trim_block_fragments(list(block.fragments))
+
+        fill = block.line_fill
         if fill is None or width is None:
             return parts
 
@@ -1048,6 +1128,30 @@ class TuiDocument(object):
         ]
 
         return join_formatted_lines(lines)
+
+    @staticmethod
+    def _source_rendered_block(
+        cell: TranscriptBlock,
+        *,
+        width: int | None,
+        transcript: bool
+    ) -> FragmentBlock:
+        """按需从原始源码生成指定宽度的正文块。"""
+        fallback = (
+            cell.transcript_block
+            if transcript
+            else cell.display_block
+        )
+
+        if (
+            width is None
+            or cell.source_renderer is None
+            or cell.raw_text is None
+            or width == cell.source_render_width
+        ):
+            return fallback
+
+        return cell.source_renderer(cell.raw_text, width)
 
 
 if __name__ == '__main__':

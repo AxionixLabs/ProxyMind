@@ -95,7 +95,7 @@ async def test_worked_footer_atomically_replaces_frozen_wait() -> None:
             try:
                 runtime.set_execution_active(True)
                 await runtime.begin_wait_status()
-                await output.append_assistant_delta("answer")
+                await output.append_assistant_delta("answer\n")
                 screen = await _render_next_frame(runtime)
 
                 baseline_transcript = _absolute_window_row(
