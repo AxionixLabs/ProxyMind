@@ -263,7 +263,7 @@ class TuiRuntime(object):
             self._can_report_missing_backtrack,
             self._report_missing_backtrack,
         )
-        self.input_model.bind_input_shrink(self.screen.settle_input_layout)
+        self.input_model.bind_input_resize(self.screen.settle_input_layout)
 
         self.activity = TuiActivity(
             set_renderable=lambda block: self.screen.set_activity_renderable(
@@ -1201,6 +1201,7 @@ class TuiRuntime(object):
                 application.exit(result=None)
 
         await asyncio.gather(task, return_exceptions=True)
+        self.screen.reset_synchronized_output()
 
         self._application_task      = None
         application.erase_when_done = False
@@ -1346,6 +1347,7 @@ class TuiRuntime(object):
             else:
                 committed = self.document.commit_submission()
                 if committed is not None:
+                    self.screen.synchronize_next_render()
                     self.screen.transcript_overlay.content_changed()
                     self.viewport.content_appended()
                     self.viewport.mark_submitted_query(committed)

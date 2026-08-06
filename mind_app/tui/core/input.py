@@ -147,7 +147,7 @@ class TuiInputModel(object):
 
         self.interrupt_handler: typing.Callable[[], None]    = _ignore_action
         self.exit_handler: typing.Callable[[], None]         = _ignore_action
-        self.input_shrink_handler: typing.Callable[[], None] = _ignore_action
+        self.input_resize_handler: typing.Callable[[], None] = _ignore_action
 
         self.can_exit: typing.Callable[[], bool]                     = _deny_action
         self.can_submit_queue: typing.Callable[[], bool]             = _deny_action
@@ -300,9 +300,9 @@ class TuiInputModel(object):
         """绑定主运行时提供的输入中断处理函数。"""
         self.interrupt_handler = handler
 
-    def bind_input_shrink(self, handler: typing.Callable[[], None]) -> None:
-        """绑定输入内容缩短后需要执行的布局收束动作。"""
-        self.input_shrink_handler = handler
+    def bind_input_resize(self, handler: typing.Callable[[], None]) -> None:
+        """绑定编辑操作改变输入尺寸后执行的布局收束动作。"""
+        self.input_resize_handler = handler
 
     def handle_interrupt(self, buffer) -> None:
         """优先关闭补全，再把取消操作交给主运行时。"""
@@ -637,7 +637,7 @@ class TuiInputModel(object):
             buffer.cursor_position = 0
             self._clear_paste_state()
             self.set_shell_mode(False)
-            self.input_shrink_handler()
+            self.input_resize_handler()
 
         shell_mode_empty = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: self.shell_mode and not get_app().current_buffer.text
@@ -699,11 +699,12 @@ class TuiInputModel(object):
             if buffer.completer and buffer.complete_while_typing():
                 self.refresh_completion_menu(buffer, selected_text)
 
-            self.input_shrink_handler()
+            self.input_resize_handler()
 
         @bindings.add("c-z", eager=True, save_before=lambda event: False)
         def _(event) -> None:
             event.app.current_buffer.undo()
+            self.input_resize_handler()
 
         @bindings.add(
             "left",

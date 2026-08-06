@@ -384,6 +384,10 @@ class TuiScreen(object):
         self._visual_update_depth: int = 0
         self._visual_update_dirty: bool = False
 
+        self._synchronized_output_depth: int   = 0
+        self._synchronized_frame_pending: bool = False
+        self._synchronized_frame_active: bool  = False
+
         self._frame_geometry: FrameGeometry | None    = None
         self._layout_geometry: tuple[int, int] | None = None
 
@@ -854,8 +858,8 @@ class TuiScreen(object):
             erase_when_done=False,
             mouse_support=False,
             max_render_postpone_time=None,
-            before_render=self._capture_frame_geometry,
-            after_render=self._release_frame_geometry,
+            before_render=self._prepare_frame_render,
+            after_render=self._finish_frame_render,
             input=application_input,
             output=application_output,
         )
@@ -1099,11 +1103,39 @@ class TuiScreen(object):
 
     def begin_synchronized_output(self) -> bool:
         """开始终端同步输出更新并返回是否已启用。"""
-        return _set_synchronized_output(self.application.output, True)
+        if self._synchronized_output_depth:
+            self._synchronized_output_depth += 1
+            return True
+
+        if not _set_synchronized_output(self.application.output, True):
+            return False
+
+        self._synchronized_output_depth = 1
+        return True
 
     def end_synchronized_output(self) -> None:
         """结束终端同步输出更新。"""
+        if self._synchronized_output_depth <= 0:
+            return None
+
+        self._synchronized_output_depth -= 1
+        if self._synchronized_output_depth == 0:
+            _set_synchronized_output(self.application.output, False)
+
+    def reset_synchronized_output(self) -> None:
+        """释放尚未结束的终端同步输出状态。"""
+        self._synchronized_frame_pending = False
+        self._synchronized_frame_active  = False
+        if self._synchronized_output_depth <= 0:
+            return None
+
+        self._synchronized_output_depth = 0
         _set_synchronized_output(self.application.output, False)
+
+    def synchronize_next_render(self) -> None:
+        """请求把下一帧作为一次终端同步更新提交。"""
+        self._synchronized_frame_pending = True
+        self.invalidate()
 
     def print_exit_summary(self, session_id: str) -> None:
         """在 Application 停止后向终端打印会话恢复提示。"""
@@ -1136,6 +1168,34 @@ class TuiScreen(object):
             self._transcript_cache_fragments = fragments
             self._transcript_assistant_lines = self._assistant_lines(fragments)
         return self._transcript_cache_fragments
+
+    def _prepare_frame_render(self, application: Application[None]) -> None:
+        """开始同步帧并固定本次布局计算使用的终端尺寸。"""
+        if self._synchronized_frame_pending:
+            self._synchronized_frame_pending = False
+            self._synchronized_frame_active = (
+                self.begin_synchronized_output()
+            )
+
+        try:
+            self._capture_frame_geometry(application)
+        except BaseException:
+            self._finish_synchronized_frame()
+            raise
+
+    def _finish_frame_render(self, application: Application[None]) -> None:
+        """完成帧状态记录并释放本次终端同步更新。"""
+        try:
+            self._release_frame_geometry(application)
+        finally:
+            self._finish_synchronized_frame()
+
+    def _finish_synchronized_frame(self) -> None:
+        """结束当前帧持有的终端同步输出状态。"""
+        if not self._synchronized_frame_active:
+            return None
+        self._synchronized_frame_active = False
+        self.end_synchronized_output()
 
     def _capture_frame_geometry(self, application: Application[None]) -> None:
         """在布局计算前固定当前帧使用的终端尺寸。"""

@@ -639,6 +639,30 @@ def test_resize_replay_pairs_synchronized_output_sequences() -> None:
     assert output.flush.call_count == 2
 
 
+def test_nested_synchronized_output_toggles_only_at_outer_boundary() -> None:
+    runtime = TuiRuntime()
+
+    with patch(
+        "mind_app.tui.core.screen._set_synchronized_output",
+        return_value=True,
+    ) as set_synchronized:
+        assert runtime.screen.begin_synchronized_output() is True
+        assert runtime.screen.begin_synchronized_output() is True
+
+        runtime.screen.end_synchronized_output()
+        set_synchronized.assert_called_once_with(
+            runtime.screen.application.output,
+            True,
+        )
+
+        runtime.screen.end_synchronized_output()
+
+    assert set_synchronized.call_args_list == [
+        call(runtime.screen.application.output, True),
+        call(runtime.screen.application.output, False),
+    ]
+
+
 def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
     monkeypatch,
 ) -> None:
@@ -2887,6 +2911,47 @@ async def test_multiline_input_backspace_shrinks_without_top_spacer(
 
 
 @pytest.mark.anyio
+async def test_multiline_input_undo_shrinks_without_top_spacer() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                initial_height = runtime.screen._visible_height()
+                buffer = runtime.screen.input.buffer
+
+                buffer.text = "first"
+                buffer.cursor_position = len(buffer.text)
+                buffer.save_to_undo_stack()
+
+                buffer.text = "first\nsecond\nthird"
+                buffer.cursor_position = len(buffer.text)
+                await _render_next_frame(runtime)
+
+                assert runtime.screen._visible_height() > initial_height
+
+                pipe_input.send_text("\x1a")
+                await _wait_for_input_text(runtime, "first")
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+
+                assert runtime.screen._visible_height() == initial_height
+                assert (
+                    runtime.screen._canvas_height_floor
+                    == runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_ctrl_u_clears_multiline_input_without_top_canvas_spacer() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -3031,16 +3096,30 @@ async def test_submission_handoff_never_renders_an_empty_intermediate_frame() ->
                         break
 
                 start = len(frames)
-                runtime.screen.input.buffer.validate_and_handle()
-                runtime.screen.input.buffer.validate_and_handle()
+                with (
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        return_value=True,
+                    ) as begin_synchronized,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                    ) as end_synchronized,
+                ):
+                    runtime.screen.input.buffer.validate_and_handle()
+                    runtime.screen.input.buffer.validate_and_handle()
 
-                assert await prompt_task == "first\nsecond\nthird"
-                assert runtime.submissions.message_queue.empty()
+                    assert await prompt_task == "first\nsecond\nthird"
+                    assert runtime.submissions.message_queue.empty()
 
-                for _ in range(20):
-                    await asyncio.sleep(0)
-                    if _document_text(runtime.document):
-                        break
+                    for _ in range(20):
+                        await asyncio.sleep(0)
+                        if end_synchronized.called:
+                            break
+
+                    begin_synchronized.assert_called_once_with()
+                    end_synchronized.assert_called_once_with()
 
                 transition = frames[start:]
                 assert transition
