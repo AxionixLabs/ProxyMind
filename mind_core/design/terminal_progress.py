@@ -15,13 +15,18 @@ TERMINAL_TITLE_SPINNER_INTERVAL = 0.1
 TERMINAL_TITLE_ACTION_INTERVAL  = 1.0
 
 TERMINAL_TITLE_ACTION_PREFIXES  = (
-    "[ ! ] Action Required",
-    "[ . ] Action Required",
+    "[ ● ] Action Required",
+    "[ ○ ] Action Required",
 )
+TERMINAL_TITLE_IDLE_PREFIX = ">_ "
 
 
 class TerminalProgress(typing.Protocol):
     """描述终端标题中的运行状态。"""
+
+    def set_workspace_title(self, title: str) -> None:
+        """设置终端标题中使用的工作区名称。"""
+        ...
 
     def begin(self) -> None:
         """进入不确定进度状态。"""
@@ -35,9 +40,19 @@ class TerminalProgress(typing.Protocol):
         """清除终端标题中的运行状态。"""
         ...
 
+    def close(self) -> None:
+        """停止标题状态并清除应用设置的标题。"""
+        ...
+
 
 class PassiveTerminalProgress(object):
     """提供不支持标题状态的空实现。"""
+
+    @staticmethod
+    def set_workspace_title(title: str) -> None:
+        """忽略工作区标题更新。"""
+        _ = title
+        return None
 
     @staticmethod
     def begin() -> None:
@@ -54,6 +69,11 @@ class PassiveTerminalProgress(object):
         """忽略进度清理请求。"""
         return None
 
+    @staticmethod
+    def close() -> None:
+        """忽略标题状态关闭请求。"""
+        return None
+
 
 class OscTerminalProgress(object):
     """通过 OSC 0 维护终端标题中的运行状态。"""
@@ -64,7 +84,17 @@ class OscTerminalProgress(object):
         self._mode: typing.Literal["spinner", "action"] | None = None
         self._frame_index: int                                 = 0
         self._title: str | None                                = None
+        self._workspace_title: str                             = ""
         self._animation_task: asyncio.Task[None] | None        = None
+
+    def set_workspace_title(self, title: str) -> None:
+        """更新终端标题中使用的工作区名称。"""
+        workspace_title = _sanitize_title(title)
+        if workspace_title == self._workspace_title:
+            return None
+        self._workspace_title = workspace_title
+        if self._mode is None:
+            self._write_title(self._idle_title())
 
     def begin(self) -> None:
         """进入不确定进度状态。"""
@@ -79,12 +109,18 @@ class OscTerminalProgress(object):
         self._start("action")
 
     def clear(self) -> None:
-        """清除已设置的终端标题状态。"""
-        if self._mode is None:
-            return None
+        """清除运行状态并恢复静止标题。"""
+        if self._mode is not None:
+            self._cancel_animation()
+            self._mode = None
+        self._write_title(self._idle_title())
+
+    def close(self) -> None:
+        """停止动画并清除应用设置的终端标题。"""
         self._cancel_animation()
         self._mode = None
-        self._write_title("")
+        if self._title is not None:
+            self._write_title("")
 
     def _start(self, mode: typing.Literal["spinner", "action"]) -> None:
         """切换标题动画并立即写入首帧。"""
@@ -122,13 +158,19 @@ class OscTerminalProgress(object):
             prefix = TERMINAL_TITLE_SPINNER_FRAMES[
                 self._frame_index % len(TERMINAL_TITLE_SPINNER_FRAMES)
             ]
-            title = f"{prefix} {const.APP_DESC}"
+            title = f"{prefix} {self._workspace_title or const.APP_DESC}"
         else:
             title = TERMINAL_TITLE_ACTION_PREFIXES[
                 self._frame_index % len(TERMINAL_TITLE_ACTION_PREFIXES)
             ]
 
         self._write_title(title)
+
+    def _idle_title(self) -> str:
+        """返回静止状态显示的工作区标题。"""
+        if not self._workspace_title:
+            return ""
+        return f"{TERMINAL_TITLE_IDLE_PREFIX}{self._workspace_title}"
 
     def _start_animation(
         self,
@@ -156,9 +198,20 @@ class OscTerminalProgress(object):
         self._title = title
 
 
+def _sanitize_title(title: str) -> str:
+    """移除终端标题中的控制字符并限制展示长度。"""
+    value = "".join(
+        character
+        for character in str(title or "").strip()
+        if ord(character) >= 0x20
+        and not 0x7F <= ord(character) <= 0x9F
+    )
+    return value[:120]
+
+
 def supports_osc_title(
     stream: typing.TextIO,
-    environ: typing.Mapping[str, str] | None = None,
+    environ: typing.Mapping[str, str] | None = None
 ) -> bool:
     """判断输出流是否适合写入 OSC 0 标题。"""
     isatty = getattr(stream, "isatty", None)
@@ -174,7 +227,7 @@ def supports_osc_title(
 
 def create_terminal_progress(
     stream: typing.TextIO,
-    environ: typing.Mapping[str, str] | None = None,
+    environ: typing.Mapping[str, str] | None = None
 ) -> TerminalProgress:
     """为当前终端创建标题状态实现。"""
     if supports_osc_title(stream, environ):

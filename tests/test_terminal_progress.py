@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mind_app.runtime.support.calling import run_turn_lifecycle
+from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.design.terminal_progress import (
     OscTerminalProgress,
@@ -74,6 +75,61 @@ def test_osc_terminal_progress_writes_state_changes() -> None:
         "\x1b]0;\x07"
     )
     assert stream.flush_count == 4
+
+
+def test_osc_terminal_progress_restores_workspace_title_when_idle() -> None:
+    stream = TerminalStream()
+    progress = OscTerminalProgress(stream)
+
+    progress.set_workspace_title("ProxyMind")
+    progress.begin()
+    progress.clear()
+    progress.close()
+
+    assert stream.getvalue() == (
+        "\x1b]0;>_ ProxyMind\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} ProxyMind\x07"
+        "\x1b]0;>_ ProxyMind\x07"
+        "\x1b]0;\x07"
+    )
+
+
+def test_osc_terminal_progress_sanitizes_workspace_title() -> None:
+    stream = TerminalStream()
+    progress = OscTerminalProgress(stream)
+
+    progress.set_workspace_title("  Project\x1b]0;Injected\x07\n  ")
+
+    assert stream.getvalue() == "\x1b]0;>_ Project]0;Injected\x07"
+
+
+@pytest.mark.parametrize(
+    ("workspace_label", "expected_title"),
+    (
+        (r"D:\Projects\ProxyMind", "ProxyMind"),
+        ("~/Projects/Craft", "Craft"),
+        ("?", ""),
+    ),
+)
+def test_tui_prompt_context_updates_idle_workspace_title(
+    workspace_label: str,
+    expected_title: str,
+) -> None:
+    progress = SimpleNamespace(
+        set_workspace_title=Mock(),
+        begin=Mock(),
+        warning=Mock(),
+        clear=Mock(),
+        close=Mock(),
+    )
+    runtime = TuiRuntime(terminal_progress=progress)
+
+    runtime.set_prompt_context(PromptContext(
+        model="model",
+        workspace_label=workspace_label,
+    ))
+
+    progress.set_workspace_title.assert_called_once_with(expected_title)
 
 
 @pytest.mark.anyio
