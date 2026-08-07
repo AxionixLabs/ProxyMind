@@ -42,6 +42,11 @@ PS_STREAM_OUTPUT_LINES: int      = 3
 PROCESS_STATUS_ACTIVE_SEC: float = 0.5
 PROCESS_STATUS_IDLE_SEC: float   = 1.0
 
+ProcessViewerMode: typing.TypeAlias = typing.Literal[
+    "process",
+    "inline",
+]
+
 PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
     fragments=(("", " \n "),),
     max_height=2,
@@ -421,9 +426,10 @@ async def watch_exec_session(
     *,
     announce_detach: bool = False,
     initial_snapshot: dict[str, typing.Any] | None = None,
-    activate_immediately: bool = False
+    activate_immediately: bool = False,
+    viewer_mode: ProcessViewerMode = "process"
 ) -> bool | str:
-    """在主 TUI 中持续查看命令会话输出。"""
+    """按指定展示模式持续查看命令会话输出。"""
     sid = str(session_id or "").strip()
     if not sid:
         return False
@@ -464,6 +470,7 @@ async def watch_exec_session(
         runtime=runtime,
         announce_detach=announce_detach,
         activate_immediately=activate_immediately,
+        viewer_mode=viewer_mode,
     )
 
 
@@ -474,7 +481,8 @@ async def _watch_exec_session(
     *,
     runtime: "TuiRuntime",
     announce_detach: bool,
-    activate_immediately: bool
+    activate_immediately: bool,
+    viewer_mode: ProcessViewerMode
 ) -> bool | str:
     """轮询并更新主 TUI 中的命令会话面板。"""
     application = mind.frontend.application
@@ -482,6 +490,7 @@ async def _watch_exec_session(
     live_block = exec_session_live_block(
         state.get("snapshot"),
         terminal_width=application.viewport.width,
+        viewer_mode=viewer_mode,
     )
     transcript_block = exec_session_transcript_block(state.get("snapshot"))
 
@@ -516,6 +525,7 @@ async def _watch_exec_session(
             updated_block = exec_session_live_block(
                 current_snapshot,
                 terminal_width=application.viewport.width,
+                viewer_mode=viewer_mode,
             )
 
             updated_transcript = exec_session_transcript_block(current_snapshot)
@@ -593,24 +603,24 @@ def render_exec_session_panel(
     state: dict[str, typing.Any],
     *,
     height: int,
-    terminal_width: int | None = None
+    terminal_width: int | None = None,
+    viewer_mode: ProcessViewerMode = "process"
 ) -> StyleAndTextTuples:
-    """生成 exec_command 会话查看面板内容。"""
+    """生成进程会话查看面板内容。"""
     snapshot = state.get("snapshot")
     if not isinstance(snapshot, dict):
         snapshot = {}
 
     body_height = max(1, height - 2)
+    width       = _terminal_width(terminal_width)
 
-    width = _terminal_width(terminal_width)
-
-    if snapshot.get("origin") == "tui_shell":
+    if viewer_mode == "inline":
         if snapshot.get("ok") is False:
             output_lines = (
                 f"■ {snapshot.get('reason') or 'snapshot_failed'}",
             )
         else:
-            visible = _panel_output_lines(snapshot, limit=body_height)
+            visible      = _panel_output_lines(snapshot, limit=body_height)
             output_lines = tuple(visible[-body_height:]) if visible else ("",)
 
         block = command_summary_text(
@@ -667,15 +677,17 @@ def render_exec_session_panel(
 def exec_session_live_block(
     snapshot: typing.Any,
     *,
-    terminal_width: int | None = None
+    terminal_width: int | None = None,
+    viewer_mode: ProcessViewerMode = "process"
 ) -> FragmentBlock:
-    """生成前台命令运行期间的动态正文块。"""
+    """生成进程运行期间的动态正文块。"""
     current = snapshot if isinstance(snapshot, dict) else {}
 
     fragments = render_exec_session_panel(
         {"snapshot": current},
         height=PS_VISIBLE_OUTPUT_LINES + 2,
         terminal_width=terminal_width,
+        viewer_mode=viewer_mode,
     )
 
     return FragmentBlock(tuple(fragments))

@@ -8,13 +8,13 @@ import ctypes
 import typing
 from mind_app.frontend import (
     ApplicationSink,
-    ApplicationView,
+    ApplicationView
 )
 from ..core.styles import failure_text_block
 from .processes import watch_exec_session
 from .summary import (
     CommandSummary,
-    render_command_summary,
+    render_command_summary
 )
 
 SHELL_COMMAND_TIMEOUT_SEC = 3600
@@ -55,7 +55,7 @@ INTERACTIVE_SHELL_COMMANDS = frozenset({
 async def run_shell_escape(
     runtime: typing.Any,
     mind: typing.Any,
-    value: str,
+    value: str
 ) -> bool:
     """执行 TUI shell escape 并管理进程查看状态。"""
     command = parse_shell_escape(value)
@@ -65,6 +65,7 @@ async def run_shell_escape(
         return True
 
     application = mind.frontend.application
+
     blocked = blocked_interactive_shell_command(command)
     if blocked:
         render_blocked_interactive_shell_command(
@@ -109,6 +110,7 @@ async def run_shell_escape(
         mind,
         str(snapshot.get("session_id") or ""),
         announce_detach=True,
+        viewer_mode="inline",
     )
     return True
 
@@ -143,6 +145,7 @@ def shell_command_args(executable: str, command: str) -> list[str]:
         return [executable, "-NoLogo", "-NoProfile", "-Command", command]
     if name in {"cmd", "cmd.exe"}:
         return [executable, "/d", "/s", "/c", command]
+
     return [executable, "-lc", command]
 
 
@@ -164,6 +167,7 @@ def direct_command_args(command: str) -> list[str] | None:
         return None
     if os.path.splitext(resolved)[1].lower() in {".bat", ".cmd"}:
         return None
+
     return [resolved, *parts[1:]]
 
 
@@ -179,7 +183,7 @@ def blocked_interactive_shell_command(command: str) -> str:
 def render_blocked_interactive_shell_command(
     application: ApplicationSink,
     command: str,
-    name: str,
+    name: str
 ) -> None:
     """渲染交互命令被屏蔽的提示。"""
     render_command_summary(
@@ -197,7 +201,7 @@ def render_blocked_interactive_shell_command(
 def render_shell_start_failure(
     application: ApplicationSink,
     command: str,
-    error: typing.Any,
+    error: typing.Any
 ) -> None:
     """渲染 shell 会话启动失败摘要。"""
     render_command_summary(

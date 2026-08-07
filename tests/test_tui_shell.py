@@ -219,6 +219,7 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
         mind,
         "exec_shell",
         announce_detach=True,
+        viewer_mode="inline",
     )
 
 
@@ -520,6 +521,13 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
     release_output.set()
     await viewer_updated.wait()
     assert runtime.document.active_gap_before == 2
+    active_block = runtime.document.active_block
+    assert active_block is not None
+    active_text = "".join(
+        value for _style, value in active_block.fragments
+    )
+    assert active_text.startswith("Shell running · pid=101 · exec_shell")
+    assert "Enter/Esc/q background" in active_text
 
     runtime.resolve_process_viewer("detach")
     assert await task
@@ -613,6 +621,7 @@ async def test_detaching_shell_viewer_keeps_session_for_ps() -> None:
         mind,
         "exec_background",
         announce_detach=True,
+        viewer_mode="inline",
     )
 
     assert viewed
@@ -707,6 +716,7 @@ def test_shell_stream_panel_writes_tree_summary_into_document() -> None:
         }},
         height=10,
         terminal_width=80,
+        viewer_mode="inline",
     )
 
     text = "".join(value for _style, value in fragments)
@@ -716,6 +726,28 @@ def test_shell_stream_panel_writes_tree_summary_into_document() -> None:
         "└ List of devices attached\n"
         "  device-1\n "
     )
+
+
+def test_ps_process_panel_does_not_branch_on_shell_origin() -> None:
+    fragments = render_exec_session_panel(
+        {"snapshot": {
+            "ok": True,
+            "session_id": "exec_shell",
+            "command": "adb devices",
+            "status": "running",
+            "pid": 123,
+            "origin": "tui_shell",
+            "output_lines": ["device-1"],
+        }},
+        height=10,
+        terminal_width=80,
+    )
+
+    lines = "".join(value for _style, value in fragments).splitlines()
+
+    assert lines[0].startswith("Shell running · pid=123 · exec_shell")
+    assert lines[1].startswith("Enter/Esc/q background")
+    assert lines[2:] == ["  device-1"]
 
 
 def test_process_transcript_keeps_full_command_and_retained_output() -> None:
@@ -815,6 +847,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
         mind,
         "exec_shell",
         announce_detach=True,
+        viewer_mode="inline",
     )
 
     assert result == "exited"
@@ -856,6 +889,7 @@ async def test_process_completion_preserves_total_layout_height(
     live_block = exec_session_live_block(
         snapshot,
         terminal_width=terminal_width,
+        viewer_mode="inline",
     )
     final_block = exec_session_summary_block(
         {**snapshot, "status": "exited", "exit_code": 0},
