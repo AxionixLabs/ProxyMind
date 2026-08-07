@@ -467,6 +467,28 @@ def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
     assert document.blocks[-1].kind == "assistant"
 
 
+@pytest.mark.anyio
+async def test_process_viewer_keeps_two_blank_lines_before_title() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("Finished"), kind="system")
+
+    viewer = runtime.begin_process_viewer(
+        ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+        _block("Exec running"),
+    )
+
+    assert _document_text(runtime.document) == "Finished\n\n\nExec running"
+
+    runtime.update_process_viewer(_block("Exec updated"))
+    assert _document_text(runtime.document) == "Finished\n\n\nExec updated"
+
+    runtime.resolve_process_viewer("done")
+    assert await viewer == "done"
+    runtime.commit_process_viewer(_block("Exec complete"))
+
+    assert _document_text(runtime.document) == "Finished\n\n\nExec complete"
+
+
 def test_running_command_error_enters_document_after_active_block() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("approved"), kind="approval")

@@ -524,6 +524,7 @@ class TuiRuntime(object):
             block,
             kind="operation",
             transcript_block=transcript_block,
+            gap_before=2,
         )
 
         return self.screen.process_viewer.begin(request)
@@ -539,6 +540,7 @@ class TuiRuntime(object):
             block,
             kind="operation",
             transcript_block=transcript_block,
+            gap_before=2,
         )
 
     def resolve_process_viewer(self, value: typing.Any = None) -> None:
@@ -970,7 +972,8 @@ class TuiRuntime(object):
         kind: TuiBlockKind = "assistant",
         transcript_block: FragmentBlock | None = None,
         raw_text: str | None = None,
-        stream_continuation: bool = False
+        stream_continuation: bool = False,
+        gap_before: int | None = None
     ) -> None:
         """替换当前流式展示块。"""
         with self.screen.visual_update():
@@ -980,6 +983,7 @@ class TuiRuntime(object):
                 transcript_block=transcript_block,
                 raw_text=raw_text,
                 stream_continuation=stream_continuation,
+                gap_before=gap_before,
             )
 
             self.screen.transcript_overlay.content_changed()

@@ -58,7 +58,7 @@ class TranscriptBlock(object):
     kind: TuiBlockKind
     source: TranscriptCellSource | None = None
     raw_text: str | None = None
-    gap_before: bool = False
+    gap_before: int = 0
     stream_continuation: bool = False
     transcript_stable: bool = True
     turn_id: str = ""
@@ -96,7 +96,7 @@ class TuiDocumentState(object):
     active_transcript_block: FragmentBlock | None
     active_raw_text: str | None
     active_kind: TuiBlockKind | None
-    active_gap_before: bool
+    active_gap_before: int
     active_stream_continuation: bool
     active_transcript_revision: int
     stable_transcript_revision: int
@@ -121,7 +121,7 @@ class TuiDocument(object):
         self.active_transcript_block: FragmentBlock | None = None
         self.active_raw_text: str | None                   = None
         self.active_kind: TuiBlockKind | None              = None
-        self.active_gap_before: bool                       = False
+        self.active_gap_before: int                        = 0
         self.active_stream_continuation: bool              = False
 
         self.active_transcript_revision: int = 0
@@ -233,7 +233,7 @@ class TuiDocument(object):
         self.active_transcript_block    = None
         self.active_raw_text            = None
         self.active_kind                = None
-        self.active_gap_before          = False
+        self.active_gap_before          = 0
         self.active_stream_continuation = False
 
     def _append_rendered_block(
@@ -258,15 +258,19 @@ class TuiDocument(object):
             return False
 
         if out or leading_content:
-            separated = (
-                not item.stream_continuation
-                if transcript
-                else self._display_gap_before(previous_kind, item)
+            gap_height = (
+                0
+                if transcript and item.stream_continuation
+                else (
+                    max(1, int(item.gap_before))
+                    if transcript
+                    else self._display_gap_height(previous_kind, item)
+                )
             )
             if leading_content_terminated and not out:
-                separator = "\n" if separated else ""
+                separator = "\n" * gap_height
             else:
-                separator = "\n\n" if separated else "\n"
+                separator = "\n" * (gap_height + 1)
             if separator:
                 out.append(("", separator))
         out.extend(parts)
@@ -303,16 +307,14 @@ class TuiDocument(object):
         return out
 
     @staticmethod
-    def _display_gap_before(
+    def _display_gap_height(
         previous_kind: TuiBlockKind | None,
         item: TranscriptBlock
-    ) -> bool:
-        """判断两个普通正文 cell 之间是否需要通用空行。"""
-        return bool(
-            item.gap_before
-            and previous_kind != "user"
-            and item.kind != "user"
-        )
+    ) -> int:
+        """返回两个普通正文 cell 之间需要保留的空行数。"""
+        if previous_kind == "user" or item.kind == "user":
+            return 0
+        return max(0, int(item.gap_before))
 
     def _last_rendered_kind(self) -> TuiBlockKind | None:
         """返回最后一个包含可见内容的稳定 cell 类型。"""
@@ -377,9 +379,9 @@ class TuiDocument(object):
                 continue
             if (
                 has_rendered_block
-                and self._display_gap_before(previous_kind, item)
+                and self._display_gap_height(previous_kind, item)
             ):
-                line += 1
+                line += self._display_gap_height(previous_kind, item)
             if item.display_block is block:
                 found = line
             line += len(own_lines)
@@ -398,11 +400,9 @@ class TuiDocument(object):
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            if (
-                self._stable_lines
-                and self._display_gap_before(previous_kind, item)
-            ):
-                self._stable_lines.append([])
+            gap_height = self._display_gap_height(previous_kind, item)
+            if self._stable_lines and gap_height:
+                self._stable_lines.extend([] for _ in range(gap_height))
             self._stable_lines.extend(own_lines)
             self._stable_block_end_lines.append(len(self._stable_lines))
             previous_kind = item.kind
@@ -481,11 +481,9 @@ class TuiDocument(object):
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            if (
-                self._stable_lines
-                and self._display_gap_before(previous_kind, item)
-            ):
-                self._stable_lines.append([])
+            gap_height = self._display_gap_height(previous_kind, item)
+            if self._stable_lines and gap_height:
+                self._stable_lines.extend([] for _ in range(gap_height))
             if content_start is None:
                 content_start = len(self._stable_lines)
             self._stable_lines.extend(own_lines)
@@ -806,7 +804,8 @@ class TuiDocument(object):
         kind: TuiBlockKind,
         transcript_block: FragmentBlock | None = None,
         raw_text: str | None = None,
-        stream_continuation: bool = False
+        stream_continuation: bool = False,
+        gap_before: int | None = None
     ) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
         block = sanitize_fragment_block(block)
@@ -826,9 +825,13 @@ class TuiDocument(object):
             stream_continuation
             and self._last_rendered_kind() == kind
         )
-        self.active_gap_before = bool(
-            self.blocks and not direct_continuation
-        )
+        if gap_before is not None:
+            self.active_gap_before = max(0, int(gap_before))
+        else:
+            self.active_gap_before = int(bool(
+                self.blocks and not direct_continuation
+            ))
+
         self.active_block            = block
         self.active_transcript_block = transcript_block
 
