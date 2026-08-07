@@ -464,6 +464,7 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
     application = _ApplicationStub()
     output_requested = asyncio.Event()
     release_output = asyncio.Event()
+    viewer_updated = asyncio.Event()
     session = {
         "session_id": "exec_shell",
         "command": "long task",
@@ -477,6 +478,22 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
         return {**session, "ok": True, "status": "running", "output_lines": []}
 
     runtime = TuiRuntime()
+    original_update = runtime.update_process_viewer
+
+    def update_process_viewer(
+        block,
+        *,
+        transcript_block=None,
+        gap_before=None,
+    ) -> None:
+        original_update(
+            block,
+            transcript_block=transcript_block,
+            gap_before=gap_before,
+        )
+        viewer_updated.set()
+
+    runtime.update_process_viewer = update_process_viewer
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         native_coding=SimpleNamespace(
@@ -498,9 +515,13 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
     assert runtime.screen.process_viewer.active
     assert runtime.screen.bottom_pane.active_surface == "process_viewer"
     assert not runtime.screen.input_area.filter()
+    assert runtime.document.active_gap_before == 2
+
+    release_output.set()
+    await viewer_updated.wait()
+    assert runtime.document.active_gap_before == 2
 
     runtime.resolve_process_viewer("detach")
-    release_output.set()
     assert await task
 
 

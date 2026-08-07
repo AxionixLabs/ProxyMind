@@ -515,7 +515,8 @@ class TuiRuntime(object):
         request: ProcessViewerRequest,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None
     ) -> asyncio.Future[typing.Any]:
         """同步激活进程查看器并返回等待结果。"""
         self._discard_submitted_query()
@@ -524,7 +525,7 @@ class TuiRuntime(object):
             block,
             kind="operation",
             transcript_block=transcript_block,
-            gap_before=2,
+            gap_before=gap_before,
         )
 
         return self.screen.process_viewer.begin(request)
@@ -533,14 +534,15 @@ class TuiRuntime(object):
         self,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None
     ) -> None:
         """替换当前动态进程正文。"""
         self.set_active_renderable(
             block,
             kind="operation",
             transcript_block=transcript_block,
-            gap_before=2,
+            gap_before=gap_before,
         )
 
     def resolve_process_viewer(self, value: typing.Any = None) -> None:

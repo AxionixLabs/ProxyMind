@@ -490,6 +490,7 @@ async def _watch_exec_session(
             PROCESS_VIEWER_FOCUS_REQUEST,
             live_block,
             transcript_block=transcript_block,
+            gap_before=2,
         )
     else:
         viewer_task = asyncio.create_task(runtime.view_process(
@@ -512,10 +513,24 @@ async def _watch_exec_session(
             state["updated_at"]    = time.time()
             state["last_snapshot"] = current_snapshot
 
-            runtime.update_process_viewer(exec_session_live_block(
+            updated_block = exec_session_live_block(
                 current_snapshot,
                 terminal_width=application.viewport.width,
-            ), transcript_block=exec_session_transcript_block(current_snapshot))
+            )
+
+            updated_transcript = exec_session_transcript_block(current_snapshot)
+
+            if activate_immediately:
+                runtime.update_process_viewer(
+                    updated_block,
+                    transcript_block=updated_transcript,
+                    gap_before=2,
+                )
+            else:
+                runtime.update_process_viewer(
+                    updated_block,
+                    transcript_block=updated_transcript,
+                )
 
             if str(current_snapshot.get("status") or "").strip() == "exited":
                 runtime.resolve_process_viewer(current_snapshot)
