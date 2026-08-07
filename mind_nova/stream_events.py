@@ -10,6 +10,12 @@ from dataclasses import (
 from collections.abc import Mapping
 from mind_nova.turn_inputs import TurnInput
 
+TurnDoneStatus: typing.TypeAlias = typing.Literal[
+    "completed",
+    "incomplete",
+    "interrupted",
+]
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StreamEvent:
@@ -27,19 +33,34 @@ class MarkerEvent(StreamEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TurnFailedEvent(StreamEvent):
+class TurnTerminalEvent(StreamEvent):
+    """描述模型轮次终态携带的响应元数据。"""
+    response_id: str = ""
+    model: str = ""
+    route: str = ""
+    request_id: str = ""
+    service_tier: str = ""
+    usage: dict[str, typing.Any] = field(default_factory=dict)
+    stop_reason: str | None = None
+    stop_sequence: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "usage", copy.deepcopy(dict(self.usage or {})))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TurnFailedEvent(TurnTerminalEvent):
     """描述失败的模型轮次。"""
+    status: typing.Literal["failed"] = "failed"
     error: str = "unknown error"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TurnDoneEvent(StreamEvent):
-    """描述已完成的模型轮次。"""
-    status: str = "completed"
-    usage: dict[str, typing.Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "usage", copy.deepcopy(dict(self.usage or {})))
+class TurnDoneEvent(TurnTerminalEvent):
+    """描述正常、未完整或中断的模型轮次。"""
+    status: TurnDoneStatus = "completed"
+    reason: str = ""
+    can_continue: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -173,7 +194,9 @@ _MARKER_EVENT_TYPES = {
 }
 
 
-def parse_stream_event(payload: Mapping[str, typing.Any]) -> ChatStreamEvent:
+def parse_stream_event(
+    payload: Mapping[str, typing.Any]
+) -> ChatStreamEvent:
     """把流式协议对象解析为稳定事件类型。"""
     if not isinstance(payload, Mapping):
         raise TypeError("stream event must be an object")
@@ -191,13 +214,16 @@ def parse_stream_event(payload: Mapping[str, typing.Any]) -> ChatStreamEvent:
     if event_type == "turn.failed":
         return TurnFailedEvent(
             **common,
-            error=str(raw.get("error") or "unknown error"),
+            **_terminal_fields(raw),
+            error=_error_text(raw.get("error")),
         )
     if event_type == "turn.done":
         return TurnDoneEvent(
             **common,
-            status=_text(raw.get("status")) or "completed",
-            usage=_dict(raw.get("usage")),
+            **_terminal_fields(raw),
+            status=_turn_done_status(raw.get("status")),
+            reason=_text(raw.get("reason")),
+            can_continue=_optional_bool(raw.get("can_continue")),
         )
     if event_type == "turn.input.accepted":
         return TurnInputAcceptedEvent(
@@ -286,6 +312,20 @@ def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     }
 
 
+def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """提取轮次终态共享的响应元数据。"""
+    return {
+        "response_id"   : _text(payload.get("response_id")),
+        "model"         : _text(payload.get("model")),
+        "route"         : _text(payload.get("route")),
+        "request_id"    : _text(payload.get("request_id")),
+        "service_tier"  : _text(payload.get("service_tier")),
+        "usage"         : _dict(payload.get("usage")),
+        "stop_reason"   : _optional_text(payload.get("stop_reason")),
+        "stop_sequence" : _optional_text(payload.get("stop_sequence")),
+    }
+
+
 def _approval_required(payload: dict[str, typing.Any]) -> bool:
     """读取工具事件顶层的审批要求。"""
     return any(
@@ -308,9 +348,39 @@ def _truthy(value: typing.Any) -> bool:
     return False
 
 
+def _optional_bool(value: typing.Any) -> bool | None:
+    """读取可选布尔协议值。"""
+    return value if isinstance(value, bool) else None
+
+
+def _turn_done_status(value: typing.Any) -> TurnDoneStatus:
+    """读取轮次完成事件的受支持状态。"""
+    status = _text(value) or "completed"
+    if status == "completed":
+        return "completed"
+    if status == "incomplete":
+        return "incomplete"
+    if status == "interrupted":
+        return "interrupted"
+
+    raise ValueError(f"unsupported turn.done status: {status}")
+
+
+def _error_text(value: typing.Any) -> str:
+    """读取失败终态中优先展示的错误说明。"""
+    if isinstance(value, Mapping):
+        return _text(value.get("message")) or "unknown error"
+    return _text(value) or "unknown error"
+
+
 def _text(value: typing.Any) -> str:
     """把可选协议值转换为文本。"""
     return str(value or "").strip()
+
+
+def _optional_text(value: typing.Any) -> str | None:
+    """保留可空文本协议值。"""
+    return None if value is None else str(value).strip()
 
 
 def _dict(value: typing.Any) -> dict[str, typing.Any]:

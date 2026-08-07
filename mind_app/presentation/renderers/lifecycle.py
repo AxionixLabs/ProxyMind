@@ -7,6 +7,7 @@ from mind_app.stream_events.lifecycle_display import render_lifecycle_display_pa
 from ..models import (
     FailureView,
     LifecycleView,
+    RunIncompleteView,
     StyledBlock
 )
 
@@ -21,6 +22,21 @@ def render_failure_view(
     return render_failure_block(
         view.phase,
         view.error,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+
+
+def render_incomplete_view(
+    view: RunIncompleteView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
+) -> StyledBlock:
+    """把未完整结束的运行转换为中立展示块。"""
+    return render_failure_block(
+        "turn.incomplete",
+        view.reason or "The response is incomplete",
         terminal_width=terminal_width,
         measure_width=measure_width,
     )

@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field
+)
 from mind_app.approval.models import ApprovalDecisionValue
 
 PlanStatus = typing.Literal[
@@ -30,7 +33,6 @@ ProgressSource = typing.Literal[
     "tool",
     "enhancement",
 ]
-
 
 @dataclass(frozen=True, slots=True)
 class TextStyle(object):
@@ -82,6 +84,28 @@ class RunStartedView(object):
 class RunCompletedView(object):
     """描述一次非交互输出任务的完成信息。"""
     usage: dict[str, typing.Any]
+    response_id: str = ""
+    model: str = ""
+    route: str = ""
+    request_id: str = ""
+    service_tier: str = ""
+    stop_reason: str | None = None
+    stop_sequence: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunIncompleteView(object):
+    """描述一次未完整结束的模型运行。"""
+    usage: dict[str, typing.Any]
+    reason: str = ""
+    can_continue: bool | None = None
+    response_id: str = ""
+    model: str = ""
+    route: str = ""
+    request_id: str = ""
+    service_tier: str = ""
+    stop_reason: str | None = None
+    stop_sequence: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +214,14 @@ class FailureView(object):
     """描述运行失败时的展示数据。"""
     phase: str
     error: str
+    usage: dict[str, typing.Any] = field(default_factory=dict)
+    response_id: str = ""
+    model: str = ""
+    route: str = ""
+    request_id: str = ""
+    service_tier: str = ""
+    stop_reason: str | None = None
+    stop_sequence: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

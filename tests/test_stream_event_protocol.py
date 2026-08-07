@@ -8,6 +8,7 @@ from mind_nova.stream_events import (
     ToolCallEvent,
     ToolOutputEvent,
     TurnDoneEvent,
+    TurnFailedEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
     UnknownStreamEvent,
@@ -146,6 +147,55 @@ def test_turn_control_events_preserve_stable_input_identity() -> None:
     assert settled.next_input.attachments == ({"kind": "image"},)
     assert isinstance(done, TurnDoneEvent)
     assert done.status == "interrupted"
+
+
+def test_turn_terminal_events_preserve_response_metadata() -> None:
+    usage = {
+        "input_tokens": 11,
+        "output_tokens": 7,
+        "cache": {"read_tokens": 3},
+    }
+    done = parse_stream_event({
+        "type": "turn.done",
+        "status": "incomplete",
+        "reason": "max_output_tokens",
+        "can_continue": True,
+        "response_id": "msg_1",
+        "model": "claude-test",
+        "route": "messages",
+        "request_id": "req_1",
+        "service_tier": "standard",
+        "usage": usage,
+        "stop_reason": "max_tokens",
+        "stop_sequence": None,
+    })
+    failed = parse_stream_event({
+        "type": "turn.failed",
+        "status": "failed",
+        "error": {"message": "pause_turn is not supported"},
+        "route": "messages",
+        "usage": {"output_tokens": 2},
+        "stop_reason": "pause_turn",
+    })
+    usage["cache"]["read_tokens"] = 99
+
+    assert isinstance(done, TurnDoneEvent)
+    assert done.status == "incomplete"
+    assert done.reason == "max_output_tokens"
+    assert done.can_continue is True
+    assert done.response_id == "msg_1"
+    assert done.model == "claude-test"
+    assert done.route == "messages"
+    assert done.request_id == "req_1"
+    assert done.service_tier == "standard"
+    assert done.usage["cache"] == {"read_tokens": 3}
+    assert done.stop_reason == "max_tokens"
+    assert done.stop_sequence is None
+    assert isinstance(failed, TurnFailedEvent)
+    assert failed.status == "failed"
+    assert failed.error == "pause_turn is not supported"
+    assert failed.stop_reason == "pause_turn"
+    assert failed.usage == {"output_tokens": 2}
 
 
 def test_logical_settlement_accepts_null_next_input() -> None:

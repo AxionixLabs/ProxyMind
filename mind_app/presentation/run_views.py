@@ -2,13 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import re
+import copy
 import typing
 from mind_core.provider_config import SUPPORTED_PROVIDER_OPTIONS
 from mind_core.permissions import PermissionSettings
 from .models import (
     RunCompletedView,
+    RunIncompleteView,
     RunStartedView
 )
+
 
 def _display_workdir(value: typing.Any) -> str:
     """返回适合终端展示的工作区路径。"""
@@ -62,10 +65,50 @@ def _provider_label(value: typing.Any) -> str:
 
 
 def build_run_completed_view(
-    usage: dict[str, typing.Any] | None
+    usage: dict[str, typing.Any] | None,
+    terminal_meta: dict[str, typing.Any] | None = None
 ) -> RunCompletedView:
     """构建一次运行的完成展示数据。"""
-    return RunCompletedView(usage=dict(usage) if isinstance(usage, dict) else {})
+    meta = terminal_meta if isinstance(terminal_meta, dict) else {}
+
+    return RunCompletedView(
+        usage=copy.deepcopy(usage) if isinstance(usage, dict) else {},
+        response_id=str(meta.get("response_id") or ""),
+        model=str(meta.get("model") or ""),
+        route=str(meta.get("route") or ""),
+        request_id=str(meta.get("request_id") or ""),
+        service_tier=str(meta.get("service_tier") or ""),
+        stop_reason=meta.get("stop_reason"),
+        stop_sequence=meta.get("stop_sequence"),
+    )
+
+
+def build_run_incomplete_view(
+    usage: dict[str, typing.Any] | None,
+    *,
+    reason: str | None = None,
+    can_continue: bool | None = None,
+    terminal_meta: dict[str, typing.Any] | None = None
+) -> RunIncompleteView:
+    """构建一次未完整结束的运行展示数据。"""
+    meta = terminal_meta if isinstance(terminal_meta, dict) else {}
+
+    return RunIncompleteView(
+        usage=copy.deepcopy(usage) if isinstance(usage, dict) else {},
+        reason=str(reason or meta.get("reason") or ""),
+        can_continue=(
+            can_continue
+            if can_continue is not None
+            else meta.get("can_continue")
+        ),
+        response_id=str(meta.get("response_id") or ""),
+        model=str(meta.get("model") or ""),
+        route=str(meta.get("route") or ""),
+        request_id=str(meta.get("request_id") or ""),
+        service_tier=str(meta.get("service_tier") or ""),
+        stop_reason=meta.get("stop_reason"),
+        stop_sequence=meta.get("stop_sequence"),
+    )
 
 
 if __name__ == '__main__':

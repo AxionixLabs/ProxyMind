@@ -15,6 +15,7 @@ from ..models import (
     PlanUpdateView,
     ProgressView,
     RunCompletedView,
+    RunIncompleteView,
     RunStartedView,
     StyledBlock,
     ToolStartView
@@ -27,6 +28,7 @@ from .batch import (
 )
 from .lifecycle import (
     render_failure_view,
+    render_incomplete_view,
     render_lifecycle_view
 )
 from .plan import (
@@ -131,6 +133,12 @@ def _render_presentation_view(
     """把展示视图转换为尚未执行终端清理的文本块。"""
     if isinstance(view, (RunStartedView, RunCompletedView)):
         return ()
+    if isinstance(view, RunIncompleteView):
+        return (render_incomplete_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, ApprovalView):
         return (render_approval_view(view),)
     if isinstance(view, ToolStartView):

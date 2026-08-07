@@ -209,10 +209,15 @@ def test_history_transcript_uses_placeholder_when_content_is_unavailable() -> No
     ("event", "payload", "expected"),
     [
         ("turn.failed", {"error": "request failed"}, "■ request failed"),
+        (
+            "turn.incomplete",
+            {"error": "max_output_tokens"},
+            "■ max_output_tokens",
+        ),
         ("turn.interrupted", {}, "Turn interrupted"),
     ],
 )
-def test_history_transcript_marks_only_failures(event, payload, expected) -> None:
+def test_history_transcript_marks_terminal_notices(event, payload, expected) -> None:
     entry = TranscriptEntry(
         timestamp="2026-08-02T00:00:00.000Z",
         event=event,

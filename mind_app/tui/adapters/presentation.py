@@ -17,6 +17,7 @@ from mind_app.presentation.models import (
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
+    RunIncompleteView,
     StyledBlock,
     TextSpan,
     ToolStartView
@@ -50,7 +51,7 @@ def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
         return "plan"
     if isinstance(view, _OPERATION_VIEWS):
         return "operation"
-    if isinstance(view, (FailureView, LifecycleView)):
+    if isinstance(view, (FailureView, LifecycleView, RunIncompleteView)):
         return "notice"
 
     return "system"

@@ -25,6 +25,7 @@ from mind_app.presentation.models import (
     PlanUpdateView,
     ProgressView,
     RunCompletedView,
+    RunIncompleteView,
     RunStartedView,
     ToolStartView
 )
@@ -344,6 +345,11 @@ class TextPresentationSink(PresentationSink):
             return None
         if isinstance(view, RunCompletedView):
             self.state.settle_assistant()
+            return None
+        if isinstance(view, RunIncompleteView):
+            self.state.settle_assistant()
+            reason = view.reason or "The response is incomplete"
+            self.state.process(f"INCOMPLETE:\n{reason}\n")
             return None
         if isinstance(view, ToolStartView):
             return None

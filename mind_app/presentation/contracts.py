@@ -14,6 +14,7 @@ from .models import (
     PlanUpdateView,
     ProgressView,
     RunCompletedView,
+    RunIncompleteView,
     RunStartedView,
     ToolStartView
 )
@@ -21,6 +22,7 @@ from .models import (
 PresentationView: typing.TypeAlias = (
     RunStartedView
     | RunCompletedView
+    | RunIncompleteView
     | ApprovalView
     | ToolStartView
     | GenericToolResultView

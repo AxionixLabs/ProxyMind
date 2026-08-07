@@ -169,6 +169,7 @@ def _render_replay_blocks(
             "context.compacted",
             "context.compaction.failed",
             "turn.failed",
+            "turn.incomplete",
             "turn.interrupted",
         }:
             blocks.append(_notice_block(entry))
@@ -189,6 +190,8 @@ def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
         fallback = (
             "Turn interrupted"
             if entry.event == "turn.interrupted"
+            else "Turn incomplete"
+            if entry.event == "turn.incomplete"
             else "Turn failed"
         )
         text = str(entry.payload.get("error") or fallback).strip()

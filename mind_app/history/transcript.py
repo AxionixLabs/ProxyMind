@@ -248,6 +248,7 @@ class TranscriptReplay(object):
                     "context.compacted",
                     "context.compaction.failed",
                     "turn.failed",
+                    "turn.incomplete",
                     "turn.interrupted",
                 }:
                     replay.append(entry)

@@ -2,6 +2,7 @@
 
 from mind_app.presentation.models import (
     FailureView,
+    RunIncompleteView,
     TextSpan,
     TextStyle
 )
@@ -86,6 +87,16 @@ def test_failure_transcript_keeps_width_independent_logical_lines() -> None:
 
     assert transcript == f"■ turn.failed\n└ {error}"
     assert len(transcript.splitlines()) == 2
+
+
+def test_incomplete_view_dispatch_displays_reason() -> None:
+    blocks = render_presentation_view(RunIncompleteView(
+        usage={"output_tokens": 7},
+        reason="max_output_tokens",
+        can_continue=False,
+    ))
+
+    assert blocks[0].plain_text == "■ turn.incomplete\n└ max_output_tokens"
 
 
 def test_tool_title_wrap_keeps_existing_continuation_prefix() -> None:

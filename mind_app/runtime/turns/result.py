@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import typing
 from dataclasses import (
     dataclass,
@@ -23,9 +24,19 @@ class RunResult(object):
     usage: dict[str, typing.Any] = field(default_factory=dict)
     error: str | None = None
     additional_context: tuple[str, ...] = ()
+    response_id: str = ""
+    model: str = ""
+    route: str = ""
+    request_id: str = ""
+    service_tier: str = ""
+    stop_reason: str | None = None
+    stop_sequence: str | None = None
+    reason: str = ""
+    can_continue: bool = False
 
     def __post_init__(self) -> None:
-        """规范化失败轮次需要保留的附加上下文。"""
+        """规范化轮次结果中的可变数据和附加上下文。"""
+        object.__setattr__(self, "usage", copy.deepcopy(dict(self.usage or {})))
         object.__setattr__(
             self,
             "additional_context",
@@ -49,15 +60,33 @@ class RunResult(object):
 
     def to_dict(self) -> dict[str, typing.Any]:
         """返回可用于协议输出的结构化结果。"""
-        result = {
+        result: dict[str, typing.Any] = {
             "status"         : self.status,
             "assistant_text" : self.assistant_text,
-            "usage"          : dict(self.usage),
+            "usage"          : copy.deepcopy(self.usage),
             "error"          : self.error,
             "exit_code"      : self.exit_code
         }
+
+        for field_name in (
+            "response_id",
+            "model",
+            "route",
+            "request_id",
+            "service_tier",
+            "stop_reason",
+            "stop_sequence",
+            "reason",
+        ):
+            value = getattr(self, field_name)
+            if value not in {None, ""}:
+                result[field_name] = value
+
+        if self.status == "incomplete":
+            result["can_continue"] = self.can_continue
         if self.additional_context:
             result["additional_context"] = list(self.additional_context)
+
         return result
 
 

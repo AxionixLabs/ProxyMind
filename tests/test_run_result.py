@@ -22,7 +22,11 @@ from mind_app.output.content import (
     SourcesOutput,
 )
 from mind_app.output.session import OutputSession
-from mind_app.presentation.models import ApprovalView
+from mind_app.presentation.models import (
+    ApprovalView,
+    FailureView,
+    RunIncompleteView,
+)
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.runtime import HookRuntime
@@ -272,6 +276,32 @@ def test_run_result_maps_status_to_exit_code() -> None:
     assert RunResult(status="failed", error="failed").exit_code == 1
     assert RunResult(status="incomplete").exit_code == 1
     assert RunResult(status="interrupted").exit_code == 1
+
+
+def test_run_result_preserves_nested_usage_and_terminal_metadata() -> None:
+    usage = {"input_tokens": 4, "cache": {"read_tokens": 2}}
+    result = RunResult(
+        status="incomplete",
+        usage=usage,
+        response_id="msg_1",
+        model="claude-test",
+        route="messages",
+        request_id="req_1",
+        service_tier="standard",
+        stop_reason="max_tokens",
+        reason="max_output_tokens",
+        can_continue=True,
+    )
+    usage["cache"]["read_tokens"] = 99
+    dumped = result.to_dict()
+    dumped["usage"]["cache"]["read_tokens"] = 100
+
+    assert result.usage["cache"] == {"read_tokens": 2}
+    assert dumped["response_id"] == "msg_1"
+    assert dumped["route"] == "messages"
+    assert dumped["stop_reason"] == "max_tokens"
+    assert dumped["reason"] == "max_output_tokens"
+    assert dumped["can_continue"] is True
 
 
 @pytest.mark.anyio
@@ -1099,6 +1129,133 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
         False,
         True,
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("can_continue", "expected_status", "expected_messages"),
+    (
+        (False, "incomplete", ["hello"]),
+        (True, "completed", ["hello", "continue once"]),
+    ),
+)
+async def test_incomplete_turn_gates_stop_hook_continuation(
+    monkeypatch,
+    can_continue: bool,
+    expected_status: str,
+    expected_messages: list[str],
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, payload):
+            if not payload["stop_hook_active"]:
+                return SimpleNamespace(data={
+                    "decision": "block",
+                    "reason": "continue once",
+                })
+            return SimpleNamespace(data={})
+
+    definitions = resolve_hook_definitions(
+        {"Stop": [_hook("stop")]},
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+    messages = []
+
+    async def terminal_stream(_pref, message, _tools, **_kwargs):
+        messages.append(message)
+        if len(messages) == 1:
+            yield parse_stream_event({
+                "type": "text.delta",
+                "text": "partial answer",
+            })
+            yield parse_stream_event({
+                "type": "turn.done",
+                "status": "incomplete",
+                "reason": "max_output_tokens",
+                "can_continue": can_continue,
+                "response_id": "msg_1",
+                "route": "messages",
+                "usage": {"output_tokens": 7},
+                "stop_reason": "max_tokens",
+            })
+            return
+        yield parse_stream_event({"type": "turn.done", "status": "completed"})
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        stream_factory=terminal_stream,
+    )
+
+    assert result.status == expected_status
+    assert messages == expected_messages
+    if can_continue:
+        return
+    assert result.reason == "max_output_tokens"
+    assert result.can_continue is False
+    assert result.stop_reason == "max_tokens"
+    assert result.usage == {"output_tokens": 7}
+    assert mind.transcripts.entries[-1]["event"] == "turn.incomplete"
+    assert mind.transcripts.entries[-1]["payload"]["stop_reason"] == (
+        "max_tokens"
+    )
+    assert mind.transcripts.entries[-1]["payload"]["can_continue"] is False
+    assert isinstance(
+        mind.output_session.presentation.items[-1],
+        RunIncompleteView,
+    )
+
+
+@pytest.mark.anyio
+async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={
+                "decision": "block",
+                "reason": "retry",
+            })
+
+    definitions = resolve_hook_definitions(
+        {"Stop": [_hook("stop")]},
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+    messages = []
+
+    async def failed_stream(_pref, message, _tools, **_kwargs):
+        messages.append(message)
+        yield parse_stream_event({
+            "type": "turn.failed",
+            "status": "failed",
+            "error": "pause_turn is not supported",
+            "route": "messages",
+            "usage": {"output_tokens": 2},
+            "stop_reason": "pause_turn",
+        })
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        stream_factory=failed_stream,
+    )
+
+    assert result.status == "failed"
+    assert result.error == "pause_turn is not supported"
+    assert result.stop_reason == "pause_turn"
+    assert result.usage == {"output_tokens": 2}
+    assert messages == ["hello"]
+    assert mind.transcripts.entries[-1]["payload"]["stop_reason"] == (
+        "pause_turn"
+    )
+    failure_view = mind.output_session.presentation.items[-1]
+    assert isinstance(failure_view, FailureView)
+    assert failure_view.error == "pause_turn is not supported"
+    assert failure_view.stop_reason == "pause_turn"
+    assert failure_view.usage == {"output_tokens": 2}
 
 
 @pytest.mark.anyio

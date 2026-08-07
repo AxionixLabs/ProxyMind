@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import time
 import typing
 import asyncio
@@ -159,20 +160,28 @@ def record_turn_finished(
     status: str,
     usage: typing.Mapping[str, typing.Any] | None = None,
     error: str | None = None,
+    terminal_meta: typing.Mapping[str, typing.Any] | None = None
 ) -> None:
     """写入轮次的稳定终态。"""
     normalized_status = str(status or "failed").strip() or "failed"
+
     event = (
         "turn.interrupted"
         if normalized_status == "interrupted"
         else "turn.completed"
         if normalized_status == "completed"
+        else "turn.incomplete"
+        if normalized_status == "incomplete"
         else "turn.failed"
     )
+
     payload: dict[str, typing.Any] = {
         "status": normalized_status,
-        "usage": dict(usage or {}),
+        "usage": copy.deepcopy(dict(usage or {})),
     }
+
+    payload.update(copy.deepcopy(dict(terminal_meta or {})))
+
     if error:
         payload["error"] = str(error)
 

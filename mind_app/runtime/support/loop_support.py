@@ -19,12 +19,21 @@ async def finish_failure(
     **extra: typing.Any
 ) -> None:
     """统一结束失败事件并输出用户可见错误。"""
-    message = "" if error is None else str(error)
+    message       = "" if error is None else str(error)
+    usage         = extra.pop("usage", None)
+    terminal_meta = extra.pop("terminal_meta", None)
 
     await finish_stream(ev_report, phase=phase, error=message, **extra)
     await status_control.end_status(immediate=True)
 
-    await presentation.emit(build_failure_view(phase, message))
+    await presentation.emit(
+        build_failure_view(
+            phase,
+            message,
+            usage=usage,
+            terminal_meta=terminal_meta,
+        )
+    )
 
 
 if __name__ == '__main__':

@@ -21,6 +21,7 @@ from mind_app.presentation.models import (
     PlanUpdateView,
     ProgressView,
     RunCompletedView,
+    RunIncompleteView,
     RunStartedView,
     ToolStartView
 )
@@ -57,6 +58,39 @@ def _plain(value: typing.Any) -> typing.Any:
 def _data_payload(data: typing.Any) -> dict[str, typing.Any]:
     """提取工具结果字典。"""
     return data if isinstance(data, dict) else {}
+
+
+def _terminal_payload(
+    view: RunCompletedView | RunIncompleteView | FailureView,
+    *,
+    status: str
+) -> dict[str, typing.Any]:
+    """构建结构化输出使用的轮次终态载荷。"""
+    payload: dict[str, typing.Any] = {
+        "status": status,
+        "usage": view.usage,
+    }
+
+    for field_name in (
+        "response_id",
+        "model",
+        "route",
+        "request_id",
+        "service_tier",
+        "stop_reason",
+        "stop_sequence",
+    ):
+        value = getattr(view, field_name)
+        if value not in {None, ""}:
+            payload[field_name] = value
+
+    if isinstance(view, RunIncompleteView):
+        if view.reason:
+            payload["reason"] = view.reason
+        if view.can_continue is not None:
+            payload["can_continue"] = view.can_continue
+
+    return payload
 
 
 def _command(arguments: dict[str, typing.Any], data: dict[str, typing.Any]) -> str:
@@ -298,11 +332,30 @@ class JsonPresentationSink(PresentationSink):
             return None
         if isinstance(view, RunCompletedView):
             self.state.flush_assistant()
-            self.state.emit({"type": "turn.completed", "usage": view.usage})
+            self.state.emit({
+                "type": "turn.completed",
+                **_terminal_payload(view, status="completed"),
+            })
+            return None
+        if isinstance(view, RunIncompleteView):
+            self.state.flush_assistant()
+            self.state.emit({
+                "type": "turn.incomplete",
+                **_terminal_payload(view, status="incomplete"),
+            })
             return None
         if isinstance(view, FailureView):
             self.state.flush_assistant()
-            self.state.emit({"type": "turn.failed", "error": view.error, "phase": view.phase})
+            incomplete = view.phase == "turn.incomplete"
+            self.state.emit({
+                "type": "turn.incomplete" if incomplete else "turn.failed",
+                "error": view.error,
+                "phase": view.phase,
+                **_terminal_payload(
+                    view,
+                    status="incomplete" if incomplete else "failed",
+                ),
+            })
             return None
         if isinstance(view, ToolStartView):
             return None
