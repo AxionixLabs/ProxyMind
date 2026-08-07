@@ -182,12 +182,16 @@ def render_blocked_interactive_shell_command(
     name: str,
 ) -> None:
     """渲染交互命令被屏蔽的提示。"""
-    render_command_summary(application, CommandSummary(
-        kind="Shell",
-        command=command,
-        suffix=" · blocked",
-        lines=(f"Interactive command blocked: {name}",),
-    ))
+    render_command_summary(
+        application,
+        CommandSummary(
+            kind="Shell",
+            command=command,
+            suffix=" · blocked",
+            lines=(f"Interactive command blocked: {name}",),
+        ),
+        first_line_prefix="└ ",
+    )
 
 
 def render_shell_start_failure(
@@ -196,12 +200,16 @@ def render_shell_start_failure(
     error: typing.Any,
 ) -> None:
     """渲染 shell 会话启动失败摘要。"""
-    render_command_summary(application, CommandSummary(
-        kind="Shell",
-        command=command,
-        suffix=" · failed",
-        lines=(str(error or "shell_start_failed"),),
-    ))
+    render_command_summary(
+        application,
+        CommandSummary(
+            kind="Shell",
+            command=command,
+            suffix=" · failed",
+            lines=(str(error or "shell_start_failed"),),
+        ),
+        first_line_prefix="└ ",
+    )
 
 
 def _split_command_parts(command: str) -> list[str]:

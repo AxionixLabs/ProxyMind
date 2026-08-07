@@ -241,6 +241,21 @@ class _AlternateScreenOutput(DummyOutput):
         self.quit_count += 1
 
 
+class _KnownInlineHeightOutput(_AlternateScreenOutput):
+    def __init__(
+        self,
+        *,
+        columns: int = 80,
+        rows: int = 24,
+        available_rows: int,
+    ) -> None:
+        super().__init__(columns=columns, rows=rows)
+        self.available_rows = available_rows
+
+    def get_rows_below_cursor_position(self) -> int:
+        return self.available_rows
+
+
 def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
     fragments = [
         ("class:first", "one\n"),
@@ -798,6 +813,55 @@ def test_render_frame_uses_one_terminal_geometry_snapshot() -> None:
     assert runtime.screen.terminal_width == 72
     assert runtime.screen.terminal_height == 18
     assert runtime.screen._output_size.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_known_inline_viewport_does_not_expand_renderer_height() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=14,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+
+        await runtime.open()
+        try:
+            initial_screen = runtime.screen.application.renderer.last_rendered_screen
+            assert initial_screen.height == 14
+
+            runtime.set_active_renderable(
+                _block("\n".join(f"line {index}" for index in range(16))),
+                kind="operation",
+            )
+            expanded_screen = await _render_next_frame(runtime)
+
+            assert runtime.screen.terminal_height == 14
+            assert runtime.screen._visible_height() == 14
+            assert expanded_screen.height == initial_screen.height
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_inline_viewport_remeasures_after_terminal_resize() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=14,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+
+        await runtime.open()
+        try:
+            assert runtime.screen._read_frame_geometry(revision=1).height == 14
+
+            output.size = Size(rows=24, columns=80)
+
+            assert runtime.screen._read_frame_geometry(revision=2).height == 24
+        finally:
+            await runtime.close()
 
 
 def test_geometry_refresh_reads_one_settled_size_snapshot() -> None:

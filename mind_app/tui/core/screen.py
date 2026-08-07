@@ -397,8 +397,10 @@ class TuiScreen(object):
         self._synchronized_frame_pending: bool = False
         self._synchronized_frame_active: bool  = False
 
-        self._frame_geometry: FrameGeometry | None    = None
-        self._layout_geometry: tuple[int, int] | None = None
+        self._frame_geometry: FrameGeometry | None     = None
+        self._frame_output_size: Size | None           = None
+        self._rendered_output_size: Size | None        = None
+        self._layout_geometry: tuple[int, int] | None  = None
 
         self._transcript_cache_key: tuple[int, int, int] | None = None
         self._transcript_cache_fragments: FormattedText         = []
@@ -1264,16 +1266,45 @@ class TuiScreen(object):
     def _release_frame_geometry(self, application: Application[None]) -> None:
         """在渲染结束后恢复终端尺寸的实时读取。"""
         self._observe_render_revision(application.render_counter)
+        self._rendered_output_size = self._frame_output_size
+        self._frame_output_size = None
         self._frame_geometry = None
 
     def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
         """读取并规范化一个终端尺寸快照。"""
         width, height = self._output_size()
+        self._frame_output_size = Size(rows=height, columns=width)
+
+        height = self._inline_layout_height(
+            width=width,
+            height=height,
+        )
+
         return FrameGeometry(
             width=max(20, width),
             height=max(1, height),
             revision=max(0, int(revision)),
         )
+
+    def _inline_layout_height(self, *, width: int, height: int) -> int:
+        """返回不会推动原生终端滚屏的 inline 布局高度。"""
+        application = getattr(self, "application", None)
+        if application is None or application.full_screen:
+            return height
+
+        renderer = application.renderer
+        previous_screen = renderer.last_rendered_screen
+        output_size = Size(rows=height, columns=width)
+
+        if (
+            previous_screen is None
+            or self._rendered_output_size != output_size
+            or not renderer.height_is_known
+        ):
+            return height
+
+        available_height = height - renderer.rows_above_layout
+        return min(height, max(1, available_height))
 
     def _restore_transcript_focus(self) -> None:
         """把完整记录关闭后的焦点恢复到当前交互表面。"""

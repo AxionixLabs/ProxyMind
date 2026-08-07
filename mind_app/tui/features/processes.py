@@ -402,12 +402,16 @@ def render_exec_sessions_stopped(
         f"{'└' if index == len(details) - 1 else '├'} {line}"
         for index, line in enumerate(details)
     )
-    render_command_summary(application, CommandSummary(
-        kind="Processes",
-        command="stop all background commands",
-        suffix=" · complete" if failed == 0 else " · partial",
-        lines=lines,
-    ))
+    render_command_summary(
+        application,
+        CommandSummary(
+            kind="Processes",
+            command="stop all background commands",
+            suffix=" · complete" if failed == 0 else " · partial",
+            lines=lines,
+        ),
+        line_prefix="",
+    )
 
 
 async def watch_exec_session(
@@ -584,6 +588,31 @@ def render_exec_session_panel(
     body_height = max(1, height - 2)
 
     width = _terminal_width(terminal_width)
+
+    if snapshot.get("origin") == "tui_shell":
+        if snapshot.get("ok") is False:
+            output_lines = (
+                f"■ {snapshot.get('reason') or 'snapshot_failed'}",
+            )
+        else:
+            visible = _panel_output_lines(snapshot, limit=body_height)
+            output_lines = tuple(visible[-body_height:]) if visible else ("",)
+
+        block = command_summary_text(
+            CommandSummary(
+                kind="Shell",
+                command=str(
+                    snapshot.get("command")
+                    or snapshot.get("session_id")
+                    or "command"
+                ),
+                lines=output_lines,
+            ),
+            terminal_width=width,
+            first_line_prefix="└ ",
+        )
+        return [*block.fragments, ("", "\n ")]
+
     title = _panel_title_fragments(snapshot, terminal_width=width)
 
     help_text = _clip_inline(
@@ -680,6 +709,7 @@ def exec_session_summary_block(
     return command_summary_text(
         exec_session_command_summary(snapshot),
         terminal_width=terminal_width,
+        first_line_prefix=_summary_first_line_prefix(snapshot),
     )
 
 
@@ -698,7 +728,11 @@ def exec_session_detached_block(
         lines=tuple(exec_session_summary_lines(snapshot)),
     )
 
-    return command_summary_text(summary, terminal_width=terminal_width)
+    return command_summary_text(
+        summary,
+        terminal_width=terminal_width,
+        first_line_prefix=_summary_first_line_prefix(snapshot),
+    )
 
 
 def exec_session_command_summary(snapshot: dict[str, typing.Any]) -> CommandSummary:
@@ -826,6 +860,7 @@ async def _watch_detached_exec_session(
                 command_summary_text(
                     exec_session_command_summary(snapshot),
                     terminal_width=mind.frontend.application.viewport.width,
+                    first_line_prefix=_summary_first_line_prefix(snapshot),
                 ),
                 transcript_block=exec_session_transcript_block(snapshot),
             )
@@ -837,6 +872,11 @@ async def _watch_detached_exec_session(
 def _session_kind(snapshot: dict[str, typing.Any]) -> str:
     """返回会话来源对应的展示名称。"""
     return "Shell" if snapshot.get("origin") == "tui_shell" else "Exec"
+
+
+def _summary_first_line_prefix(snapshot: dict[str, typing.Any]) -> str:
+    """返回会话摘要首行的层级前缀。"""
+    return "└ " if snapshot.get("origin") == "tui_shell" else "  "
 
 
 def _origin_label(origin: typing.Any) -> str:

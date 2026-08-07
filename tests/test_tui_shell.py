@@ -421,7 +421,7 @@ async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
     )
     assert "stop all background commands" in text
     assert "stopped=2" in text
-    assert "\n  └ requested=2 · stopped=2 · failed=0" in text
+    assert "\n└ requested=2 · stopped=2 · failed=0" in text
 
 
 @pytest.mark.anyio
@@ -522,8 +522,8 @@ def test_ps_stop_all_partial_result_uses_tree_branches() -> None:
         value
         for _style, value in application.views[-1].renderable.fragments
     )
-    assert "\n  ├ requested=2 · stopped=1 · failed=1" in text
-    assert "\n  └ failed pid=102 adb logcat · access_denied" in text
+    assert "\n├ requested=2 · stopped=1 · failed=1" in text
+    assert "\n└ failed pid=102 adb logcat · access_denied" in text
 
 
 @pytest.mark.anyio
@@ -674,6 +674,29 @@ def test_process_stream_panel_uses_two_clipped_header_lines() -> None:
     assert all(get_cwidth(line) <= 60 for line in lines)
 
 
+def test_shell_stream_panel_writes_tree_summary_into_document() -> None:
+    fragments = render_exec_session_panel(
+        {"snapshot": {
+            "ok": True,
+            "session_id": "exec_shell",
+            "command": "adb devices",
+            "status": "running",
+            "origin": "tui_shell",
+            "output_lines": ["List of devices attached", "device-1"],
+        }},
+        height=10,
+        terminal_width=80,
+    )
+
+    text = "".join(value for _style, value in fragments)
+
+    assert text == (
+        "• Shell adb devices\n"
+        "└ List of devices attached\n"
+        "  device-1\n "
+    )
+
+
 def test_process_transcript_keeps_full_command_and_retained_output() -> None:
     command = "Get-ChildItem\n| Select-Object Name"
     output = "\n".join(f"line {index}" for index in range(40))
@@ -777,12 +800,16 @@ async def test_foreground_process_completion_commits_in_place() -> None:
     assert runtime.document.active_block is None
     assert not runtime.screen.process_viewer.active
     assert runtime.screen.input_area.filter()
+    assert runtime.screen.input_footer.filter()
     text = "".join(
         value
         for _style, value in runtime.document.blocks[-1].display_block.fragments
     )
-    assert "git pull" in text
-    assert "Already up to date." in text
+    assert text == (
+        "• Shell git pull\n"
+        "└ Updating files\n"
+        "  Already up to date."
+    )
 
 
 @pytest.mark.anyio

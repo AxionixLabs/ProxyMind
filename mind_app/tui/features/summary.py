@@ -29,12 +29,17 @@ class CommandSummary(object):
 
 def render_command_summary(
     application: ApplicationSink,
-    summary: CommandSummary
+    summary: CommandSummary,
+    *,
+    line_prefix: str = "  ",
+    first_line_prefix: str | None = None
 ) -> None:
     """渲染命令面板最终摘要。"""
     renderable = command_summary_text(
         summary,
-        terminal_width=application.viewport.width
+        terminal_width=application.viewport.width,
+        line_prefix=line_prefix,
+        first_line_prefix=first_line_prefix,
     )
     application.emit(ApplicationView(
         type="tui.command_summary",
@@ -45,7 +50,9 @@ def render_command_summary(
 def command_summary_text(
     summary: CommandSummary,
     *,
-    terminal_width: int | None = None
+    terminal_width: int | None = None,
+    line_prefix: str = "  ",
+    first_line_prefix: str | None = None
 ) -> FragmentBlock:
     """生成命令面板最终摘要文本。"""
     fragments: list[tuple[str, str]] = []
@@ -56,10 +63,18 @@ def command_summary_text(
     ):
         fragments.append((style, text))
 
-    for line in summary.lines:
+    for index, line in enumerate(summary.lines):
+        prefix = (
+            first_line_prefix
+            if index == 0 and first_line_prefix is not None
+            else line_prefix
+        )
         fragments.extend([
             ("", "\n"),
-            (prompt_style(TextStyle(foreground="#7F8C9A", dim=True)), "  "),
+            (
+                prompt_style(TextStyle(foreground="#7F8C9A", dim=True)),
+                prefix,
+            ),
             (
                 prompt_style(TextStyle(foreground="#A8B1BB", dim=True)),
                 _summary_line_text(line, terminal_width=terminal_width),
