@@ -50,7 +50,7 @@ from mind_core.permissions import preset_permissions
 def _require_node() -> None:
     node_path = shutil.which(os.environ.get("JS_REPL_NODE_PATH") or "node")
     if not node_path:
-        pytest.skip("Node is unavailable")
+        pytest.fail("Node is required for js_repl tests")
     output = subprocess.run(
         [node_path, "--version"],
         check=True,
@@ -58,8 +58,10 @@ def _require_node() -> None:
         text=True,
     ).stdout.strip()
     match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", output)
-    if match is None or tuple(map(int, match.groups())) < (22, 22, 0):
-        pytest.skip("Node 22.22.0 or newer is required")
+    if match is None:
+        pytest.fail(f"Unable to parse Node version: {output!r}")
+    if tuple(map(int, match.groups())) < (22, 22, 0):
+        pytest.fail("Node 22.22.0 or newer is required for js_repl tests")
 
 
 def test_js_repl_does_not_require_shell_execution_metadata() -> None:
@@ -205,6 +207,81 @@ async def test_js_repl_preserves_initialized_bindings_after_cell_error(
 
 
 @pytest.mark.anyio
+async def test_js_repl_persists_complex_bindings_and_failed_cell_writes(
+    tmp_path: Path,
+) -> None:
+    _require_node()
+
+    async def call_tool(name, arguments, call_id):
+        raise AssertionError((name, arguments, call_id))
+
+    pool = JavaScriptReplPool(tmp_path)
+    try:
+        await pool.execute(
+            "sid-complex-bindings",
+            "let mutable = 2; var legacy = 3; "
+            "function double(value) { return value * 2; } "
+            "class Box { constructor(value) { this.value = value; } } "
+            "const {left, nested: {right}} = {left: 4, nested: {right: 5}};",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+        updated = await pool.execute(
+            "sid-complex-bindings",
+            "mutable += 10; legacy++; "
+            "console.log(mutable, legacy, double(left), new Box(right).value);",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+        persisted_update = await pool.execute(
+            "sid-complex-bindings",
+            "console.log(mutable, legacy);",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+
+        with pytest.raises(ReplRuntimeError, match="commit selected bindings"):
+            await pool.execute(
+                "sid-complex-bindings",
+                "let failedLet = 8; var failedVar = 9; "
+                "function failedFunction() { return 10; } "
+                "class FailedClass { static value() { return 11; } } "
+                "const [failedLeft, ...failedRest] = [12, 13, 14]; "
+                "futureAssigned = 15; var futureAssigned; "
+                "for (var loopValue of [16]) { break; } "
+                "throw new Error('commit selected bindings'); "
+                "var unreachedVar = 17; "
+                "function unreachedFunction() { return 18; } "
+                "class UnreachedClass {}",
+                cwd=tmp_path,
+                timeout_ms=5000,
+                call_tool=call_tool,
+            )
+        committed = await pool.execute(
+            "sid-complex-bindings",
+            "console.log(failedLet, failedVar, failedFunction(), "
+            "FailedClass.value(), failedLeft, failedRest.join(','), "
+            "futureAssigned, loopValue); "
+            "console.log(typeof unreachedVar, typeof unreachedFunction, "
+            "typeof UnreachedClass);",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+    finally:
+        await pool.close()
+
+    assert updated.output == "12 4 8 5"
+    assert persisted_update.output == "12 4"
+    assert committed.output == (
+        "8 9 10 11 12 13,14 15 16\nundefined undefined undefined"
+    )
+
+
+@pytest.mark.anyio
 async def test_js_repl_sessions_are_isolated_and_reset_lazily(tmp_path: Path) -> None:
     _require_node()
 
@@ -250,6 +327,79 @@ async def test_js_repl_sessions_are_isolated_and_reset_lazily(tmp_path: Path) ->
 
     assert isolated.output == "undefined"
     assert restarted.output == "undefined"
+
+
+@pytest.mark.anyio
+async def test_js_repl_serializes_same_session_without_blocking_other_sessions(
+    tmp_path: Path,
+) -> None:
+    _require_node()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocking_tool(name, arguments, call_id):
+        assert name == "wait"
+        assert arguments == {}
+        started.set()
+        await release.wait()
+        return {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": "released",
+        }
+
+    async def unexpected_tool(name, arguments, call_id):
+        raise AssertionError((name, arguments, call_id))
+
+    pool = JavaScriptReplPool(tmp_path)
+    try:
+        running = asyncio.create_task(pool.execute(
+            "sid-serialized",
+            "const serialValue = 41; await host.tool('wait', {});",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=blocking_tool,
+        ))
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        queued = asyncio.create_task(pool.execute(
+            "sid-serialized",
+            "console.log(serialValue + 1);",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=unexpected_tool,
+        ))
+        await asyncio.sleep(0)
+        resetting = asyncio.create_task(pool.reset_session("sid-serialized"))
+
+        independent = await asyncio.wait_for(pool.execute(
+            "sid-independent",
+            "console.log('independent');",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=unexpected_tool,
+        ), timeout=2)
+        assert not queued.done()
+        assert not resetting.done()
+
+        release.set()
+        first, second, reset = await asyncio.gather(running, queued, resetting)
+        after_reset = await pool.execute(
+            "sid-serialized",
+            "console.log(typeof serialValue);",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=unexpected_tool,
+        )
+    finally:
+        release.set()
+        await pool.close()
+
+    assert independent.output == "independent"
+    assert first.output == ""
+    assert second.output == "42"
+    assert reset is True
+    assert after_reset.output == "undefined"
 
 
 @pytest.mark.anyio
@@ -456,6 +606,93 @@ async def test_js_repl_matches_module_and_local_import_rules(
 
     assert first.output == "undefined 1 function"
     assert reloaded.output == "2"
+
+
+@pytest.mark.anyio
+async def test_js_repl_resolves_nested_files_packages_and_module_boundaries(
+    tmp_path: Path,
+) -> None:
+    _require_node()
+    nested_path = tmp_path / "nested.mjs"
+    nested_path.write_text("export const nested = 4;\n", encoding="utf-8")
+    (tmp_path / "entry.mjs").write_text(
+        "import {nested} from './nested.mjs'; export const combined = nested + 1;\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "data.json").write_text('{"value": 1}\n', encoding="utf-8")
+    (tmp_path / "module-directory").mkdir()
+
+    package_root = tmp_path / "node_modules" / "repl-fixture"
+    package_root.mkdir(parents=True)
+    (package_root / "package.json").write_text(json.dumps({
+        "name": "repl-fixture",
+        "type": "module",
+        "exports": {
+            ".": "./index.js",
+            "./feature": "./feature.js",
+        },
+    }), encoding="utf-8")
+    (package_root / "index.js").write_text(
+        "export const packageValue = 6;\n",
+        encoding="utf-8",
+    )
+    (package_root / "feature.js").write_text(
+        "export const featureValue = 7;\n",
+        encoding="utf-8",
+    )
+
+    async def call_tool(name, arguments, call_id):
+        raise AssertionError((name, arguments, call_id))
+
+    pool = JavaScriptReplPool(tmp_path)
+    try:
+        resolved = await pool.execute(
+            "sid-module-boundaries",
+            "const entry = await import('./entry.mjs'); "
+            f"const fileModule = await import({json.dumps(nested_path.as_uri())}); "
+            "const packageModule = await import('repl-fixture'); "
+            "const feature = await import('repl-fixture/feature'); "
+            "console.log(entry.combined, fileModule.nested, "
+            "packageModule.packageValue, feature.featureValue, "
+            "import.meta.main, import.meta.resolve('./entry.mjs').startsWith('file:'));",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+        with pytest.raises(
+            ReplRuntimeError,
+            match="Directory imports are not supported",
+        ):
+            await pool.execute(
+                "sid-module-boundaries",
+                "await import('./module-directory');",
+                cwd=tmp_path,
+                timeout_ms=5000,
+                call_tool=call_tool,
+            )
+        with pytest.raises(
+            ReplRuntimeError,
+            match="Only .js and .mjs files are supported",
+        ):
+            await pool.execute(
+                "sid-module-boundaries",
+                "await import('./data.json');",
+                cwd=tmp_path,
+                timeout_ms=5000,
+                call_tool=call_tool,
+            )
+        with pytest.raises(ReplRuntimeError, match="Unsupported import specifier"):
+            await pool.execute(
+                "sid-module-boundaries",
+                "await import('https://example.com/module.js');",
+                cwd=tmp_path,
+                timeout_ms=5000,
+                call_tool=call_tool,
+            )
+    finally:
+        await pool.close()
+
+    assert resolved.output == "5 4 6 7 true true"
 
 
 @pytest.mark.anyio
