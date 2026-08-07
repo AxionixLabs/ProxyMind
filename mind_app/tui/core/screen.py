@@ -51,6 +51,7 @@ from prompt_toolkit.layout.screen import Screen
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
+from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import TextArea
@@ -138,7 +139,11 @@ def _supports_vt_control(output: Output) -> bool:
     """判断输出对象是否可以安全接收 VT 控制序列。"""
     if isinstance(output, (DummyOutput, PlainTextOutput)):
         return False
-    if sys.platform == "win32" and not hasattr(output, "vt100_output"):
+    if (
+        sys.platform == "win32"
+        and not isinstance(output, Vt100_Output)
+        and not hasattr(output, "vt100_output")
+    ):
         return False
     return True
 

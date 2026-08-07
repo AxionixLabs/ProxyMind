@@ -766,11 +766,14 @@ def test_scrollback_batch_moves_vt_cursor_to_next_line() -> None:
     )
 
 
-def test_transcript_screen_pairs_alternate_scroll_sequences() -> None:
+def test_transcript_screen_pairs_alternate_scroll_sequences(
+    monkeypatch,
+) -> None:
     output = SimpleNamespace(
         vt100_output=object(),
         write_raw=Mock(),
     )
+    monkeypatch.setattr("mind_app.tui.core.screen.sys.platform", "win32")
 
     assert _set_alternate_scroll_mode(output, True) is True
     assert _set_alternate_scroll_mode(output, False) is True
@@ -4288,7 +4291,7 @@ def test_transcript_screen_immediately_owns_terminal_from_origin() -> None:
     assert renderer._in_alternate_screen
 
 
-def test_transcript_screen_pairs_vt_terminal_modes() -> None:
+def test_transcript_screen_pairs_vt_terminal_modes(monkeypatch) -> None:
     stream = io.StringIO()
     output = Vt100_Output(
         stream,
@@ -4296,6 +4299,7 @@ def test_transcript_screen_pairs_vt_terminal_modes() -> None:
         term="xterm-256color",
         enable_cpr=False,
     )
+    monkeypatch.setattr("mind_app.tui.core.screen.sys.platform", "win32")
     runtime = TuiRuntime(output_obj=output)
 
     runtime.toggle_transcript_overlay()
