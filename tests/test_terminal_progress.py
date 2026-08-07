@@ -87,9 +87,9 @@ def test_osc_terminal_progress_restores_workspace_title_when_idle() -> None:
     progress.close()
 
     assert stream.getvalue() == (
-        "\x1b]0;>_ ProxyMind\x07"
+        "\x1b]0;ProxyMind\x07"
         f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} ProxyMind\x07"
-        "\x1b]0;>_ ProxyMind\x07"
+        "\x1b]0;ProxyMind\x07"
         "\x1b]0;\x07"
     )
 
@@ -100,7 +100,7 @@ def test_osc_terminal_progress_sanitizes_workspace_title() -> None:
 
     progress.set_workspace_title("  Project\x1b]0;Injected\x07\n  ")
 
-    assert stream.getvalue() == "\x1b]0;>_ Project]0;Injected\x07"
+    assert stream.getvalue() == "\x1b]0;Project]0;Injected\x07"
 
 
 @pytest.mark.parametrize(

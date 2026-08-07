@@ -15,10 +15,9 @@ TERMINAL_TITLE_SPINNER_INTERVAL = 0.1
 TERMINAL_TITLE_ACTION_INTERVAL  = 1.0
 
 TERMINAL_TITLE_ACTION_PREFIXES  = (
-    "[ ● ] Action Required",
-    "[ ○ ] Action Required",
+    "[ ! ] Action Required",
+    "[ . ] Action Required",
 )
-TERMINAL_TITLE_IDLE_PREFIX = ">_ "
 
 
 class TerminalProgress(typing.Protocol):
@@ -94,7 +93,7 @@ class OscTerminalProgress(object):
             return None
         self._workspace_title = workspace_title
         if self._mode is None:
-            self._write_title(self._idle_title())
+            self._write_title(self._workspace_title)
 
     def begin(self) -> None:
         """进入不确定进度状态。"""
@@ -113,7 +112,7 @@ class OscTerminalProgress(object):
         if self._mode is not None:
             self._cancel_animation()
             self._mode = None
-        self._write_title(self._idle_title())
+        self._write_title(self._workspace_title)
 
     def close(self) -> None:
         """停止动画并清除应用设置的终端标题。"""
@@ -165,12 +164,6 @@ class OscTerminalProgress(object):
             ]
 
         self._write_title(title)
-
-    def _idle_title(self) -> str:
-        """返回静止状态显示的工作区标题。"""
-        if not self._workspace_title:
-            return ""
-        return f"{TERMINAL_TITLE_IDLE_PREFIX}{self._workspace_title}"
 
     def _start_animation(
         self,
