@@ -1264,6 +1264,7 @@
                       <select id="primary-provider" name="primary_provider">
                         <option value="openai_compatible">OpenAI Compatible</option>
                         <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
                       </select>
                     </div>
                   </div>
@@ -1289,6 +1290,7 @@
                       <select id="primary-route" name="primary_route">
                         <option value="responses">Responses API</option>
                         <option value="chat_completions">Chat Completions API</option>
+                        <option value="messages">Messages API</option>
                       </select>
                     </div>
                   </div>
@@ -1494,6 +1496,31 @@
       if (target) target.checked = Boolean(value);
     }
 
+    function routeOptions(provider) {
+      if (provider === "anthropic") {
+        return [{value: "messages", label: "Messages API"}];
+      }
+      return [
+        {value: "responses", label: "Responses API"},
+        {value: "chat_completions", label: "Chat Completions API"}
+      ];
+    }
+
+    function syncProviderRoute(prefix, selectedRoute = "") {
+      const provider = fieldSelectValue(`${prefix}-provider`, "openai_compatible");
+      const target = document.getElementById(`${prefix}-route`);
+      if (!target) return;
+
+      const options = routeOptions(provider);
+      const current = String(selectedRoute || target.value || "");
+      target.innerHTML = options.map((option) => `
+        <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
+      `).join("");
+      target.value = options.some((option) => option.value === current)
+        ? current
+        : options[0].value;
+    }
+
     function syncSlotEnabled(prefix) {
       const enabled = checkboxValue(`${prefix}-enabled`);
       if (!fieldSelectValue(`${prefix}-provider`, "")) {
@@ -1505,6 +1532,7 @@
       if (!fieldSelectValue(`${prefix}-reasoning-effort`, "")) {
         fieldValue(`${prefix}-reasoning-effort`, "medium");
       }
+      syncProviderRoute(prefix);
       [
         `${prefix}-provider`,
         `${prefix}-type`,
@@ -1569,7 +1597,7 @@
 
       setCheckboxValue("primary-enabled", primaryEnabled);
       fieldValue("primary-provider", primary.provider || "openai_compatible");
-      fieldValue("primary-route", primary.route || "responses");
+      syncProviderRoute("primary", primary.route);
       fieldValue("primary-reasoning-effort", primary.reasoning_effort || "medium");
       fieldValue("primary-model", primary.model);
       fieldValue("primary-api-key", primary.apikey);
@@ -1709,6 +1737,10 @@
     document.querySelectorAll(".select-wrap select").forEach((select) => {
       select.addEventListener("change", () => syncSelectWrapState(select));
       select.addEventListener("blur", () => syncSelectWrapState(select));
+    });
+    document.getElementById("primary-provider").addEventListener("change", () => {
+      syncProviderRoute("primary");
+      syncSelectStates();
     });
     ["primary"].forEach((prefix) => {
       const toggle = document.getElementById(`${prefix}-enabled`);

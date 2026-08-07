@@ -10,7 +10,8 @@ from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
-    SUPPORTED_REASONING_EFFORTS
+    SUPPORTED_REASONING_EFFORTS,
+    default_route_for_provider
 )
 from mind_core.hook_discovery import normalize_hook_table
 from mind_core.hooks import (
@@ -94,6 +95,7 @@ def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     providers       = _as_dict(data.get("model_providers"))
     provider_config = _as_dict(providers.get(provider))
     model           = _as_str(data.get("model")).strip()
+    default_route   = default_route_for_provider(provider)
 
     enabled = (
         _as_bool(data.get("model_enabled"), bool(model))
@@ -104,8 +106,8 @@ def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     return {
         "provider": provider,
         "route": (
-            _as_str(provider_config.get("route"), DEFAULT_ROUTE_NAME).strip()
-            or DEFAULT_ROUTE_NAME
+            _as_str(provider_config.get("route"), default_route).strip()
+            or default_route
         ),
         "model": model,
         "apikey": _as_str(provider_config.get("api_key")).strip(),
@@ -872,6 +874,7 @@ def model_config_values(
         _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME).strip()
         or DEFAULT_PROVIDER_NAME
     )
+    default_route = default_route_for_provider(provider)
 
     return {
         ("model",): _as_str(slot.get("model")).strip(),
@@ -882,8 +885,8 @@ def model_config_values(
         ),
         ("model_enabled",): _as_bool(slot.get("enabled"), False),
         ("model_providers", provider, "route"): (
-            _as_str(slot.get("route"), DEFAULT_ROUTE_NAME).strip()
-            or DEFAULT_ROUTE_NAME
+            _as_str(slot.get("route"), default_route).strip()
+            or default_route
         ),
         ("model_providers", provider, "api_key"): (
             _as_str(slot.get("apikey")).strip()

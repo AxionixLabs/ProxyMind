@@ -8,15 +8,15 @@ from engine.observability import (
     observe,
     observe_exception
 )
-from mind_core.config import (
-    config_to_preferences,
-)
+from mind_core.config import config_to_preferences
 from mind_core.config_session import ConfigSession
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
-    SUPPORTED_REASONING_EFFORTS
+    SUPPORTED_REASONING_EFFORTS,
+    default_route_for_provider
+
 )
 from mind_nova import const
 
@@ -140,6 +140,8 @@ class Preferences(object):
         if provider:
             primary["provider"] = provider
             primary["enabled"]  = True
+            if not route:
+                primary["route"] = default_route_for_provider(provider)
         if route:
             primary["route"]   = route
             primary["enabled"] = True
@@ -188,14 +190,23 @@ class Preferences(object):
         """规范化单个模型槽位配置。"""
         slot = raw if isinstance(raw, dict) else {}
 
+        provider = str(
+            slot.get("provider", DEFAULT_PROVIDER_NAME)
+            or DEFAULT_PROVIDER_NAME
+        )
+
+        default_route = default_route_for_provider(provider)
+
         return {
-            "provider"         : str(slot.get("provider", DEFAULT_PROVIDER_NAME) or DEFAULT_PROVIDER_NAME),
-            "route"            : str(slot.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
-            "model"            : str(slot.get("model", "")),
-            "apikey"           : str(slot.get("apikey", "")),
-            "base_url"         : str(slot.get("base_url", "")),
-            "reasoning_effort" : _normalize_reasoning_effort(slot.get("reasoning_effort")),
-            "enabled"          : _as_bool(slot.get("enabled"), False)
+            "provider": provider,
+            "route": str(
+                slot.get("route", default_route) or default_route
+            ),
+            "model": str(slot.get("model", "")),
+            "apikey": str(slot.get("apikey", "")),
+            "base_url": str(slot.get("base_url", "")),
+            "reasoning_effort": _normalize_reasoning_effort(slot.get("reasoning_effort")),
+            "enabled": _as_bool(slot.get("enabled"), False)
         }
 
     @classmethod

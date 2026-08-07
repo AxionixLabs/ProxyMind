@@ -7,9 +7,9 @@ from mind_core.config_session import ConfigSession
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
-    DEFAULT_ROUTE_NAME,
     SUPPORTED_REASONING_EFFORTS,
-    SUPPORTED_PROVIDER_OPTIONS
+    SUPPORTED_PROVIDER_OPTIONS,
+    default_route_for_provider
 )
 from mind_core.service_config import normalize_domain
 
@@ -90,17 +90,21 @@ def config_slot_to_pref(slot: typing.Any) -> dict[str, typing.Any]:
     """把 config.toml 模型槽位转换为偏好接口结构。"""
     data       = slot if isinstance(slot, dict) else {}
     is_enabled = bool(data.get("enabled"))
+    provider   = clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME)
 
     return {
-        "provider"         : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
-        "route"            : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
-        "model"            : clean_text(data.get("model")),
-        "apikey"           : clean_text(data.get("apikey")),
-        "base_url"         : clean_text(data.get("base_url")),
-        "reasoning_effort" : normalize_reasoning_effort(data.get("reasoning_effort")),
-        "enabled"          : is_enabled,
-        "type"             : clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
-        "notes"            : clean_text(data.get("notes"))
+        "provider": provider,
+        "route": clean_text(
+            data.get("route"),
+            default_route_for_provider(provider)
+        ),
+        "model": clean_text(data.get("model")),
+        "apikey": clean_text(data.get("apikey")),
+        "base_url": clean_text(data.get("base_url")),
+        "reasoning_effort": normalize_reasoning_effort(data.get("reasoning_effort")),
+        "enabled": is_enabled,
+        "type": clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
+        "notes": clean_text(data.get("notes"))
     }
 
 
@@ -108,15 +112,19 @@ def pref_to_config_slot(slot: typing.Any, *, enabled: bool | None) -> dict[str, 
     """把偏好接口结构转换为 config.toml 模型槽位。"""
     data       = slot if isinstance(slot, dict) else {}
     is_enabled = bool(enabled)
+    provider   = clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME)
 
     result: dict[str, typing.Any] = {
-        "provider"         : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
-        "route"            : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
-        "model"            : clean_text(data.get("model")),
-        "apikey"           : clean_text(data.get("apikey")),
-        "base_url"         : clean_text(data.get("base_url")),
-        "reasoning_effort" : normalize_reasoning_effort(data.get("reasoning_effort")),
-        "enabled"          : is_enabled
+        "provider": provider,
+        "route": clean_text(
+            data.get("route"),
+            default_route_for_provider(provider)
+        ),
+        "model": clean_text(data.get("model")),
+        "apikey": clean_text(data.get("apikey")),
+        "base_url": clean_text(data.get("base_url")),
+        "reasoning_effort": normalize_reasoning_effort(data.get("reasoning_effort")),
+        "enabled": is_enabled
     }
 
     return result
