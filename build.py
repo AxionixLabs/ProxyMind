@@ -462,8 +462,10 @@ async def post_build() -> None:
 
     async def forward_dependencies() -> None:
         """
-        拷贝所有依赖文件与目录至编译产物路径，并执行重命名与缓存清理。
+        规范化编译产物后拷贝依赖，并完成目录重命名与缓存清理。
         """
+        await rename_so_files(ops, target)
+
         with Progress(
                 TextColumn(text_format=f"[bold #80C0FF]{const.APP_DESC} | {{task.description}}", justify="right"),
                 SpinnerColumn(style="bold #FFA07A", speed=1, finished_text="[bold #7CFC00]✓"),
@@ -484,9 +486,6 @@ async def post_build() -> None:
         await authorized_tools(
             ops, target / schematic.name / kit, target / const.APP_NAME, target / launch[0].name
         )
-
-        # Notes: ==== macOS Only ====
-        await rename_so_files(ops, target)
 
         await rename_sensitive(*rename)
         await sweep_cache_tree(app)
