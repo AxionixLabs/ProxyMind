@@ -3514,6 +3514,75 @@ async def test_activity_height_reduction_keeps_slack_above_transcript() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("queue_mode", ("enter", "tab"))
+async def test_activity_queue_spacing_uses_only_input_surface_padding(
+    queue_mode: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=80),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                runtime.screen.set_activity_renderable(_block(
+                    "• Thinking (22s • esc to interrupt)"
+                ))
+                submission = TuiSubmission(
+                    value="queued input",
+                    editable_text="queued input",
+                    paste_store={},
+                )
+                if queue_mode == "enter":
+                    runtime.track_pending_steer(submission)
+                    queue_label = "Messages to be submitted"
+                    final_queue_line = "↳ queued input"
+                else:
+                    runtime.defer_submission(submission)
+                    queue_label = "Queued follow-up inputs"
+                    final_queue_line = "edit last queued message"
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                rows = {
+                    row: "".join(
+                        cells[column].char for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+                activity_row = next(
+                    row for row, text in rows.items() if "Thinking" in text
+                )
+                queue_row = next(
+                    row for row, text in rows.items() if queue_label in text
+                )
+                final_queue_row = next(
+                    row
+                    for row, text in rows.items()
+                    if final_queue_line in text
+                )
+                queued = positions[runtime.screen.queued_window]
+                top_padding = positions[runtime.screen.input_top_padding]
+                input_position = positions[runtime.screen.input.window]
+
+                assert queue_row == activity_row + 2
+                assert not rows.get(activity_row + 1)
+                assert runtime.screen.content_input_gap.content not in positions
+                assert final_queue_row == top_padding.ypos - 1
+                assert top_padding.ypos == queued.ypos + queued.height
+                assert input_position.ypos == (
+                    top_padding.ypos + top_padding.height
+                )
+            finally:
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_startup_title_uses_external_gap_and_colored_input_padding() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

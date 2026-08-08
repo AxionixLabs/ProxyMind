@@ -1587,8 +1587,13 @@ class TuiScreen(object):
         )
 
         if pending and queued:
-            return [*pending, ("", "\n"), *queued]
-        return pending or queued
+            fragments = [*pending, ("", "\n"), *queued]
+        else:
+            fragments = pending or queued
+
+        if fragments and self._activity_queue_gap_visible():
+            return [("", "\n"), *fragments]
+        return fragments
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
@@ -2227,7 +2232,13 @@ class TuiScreen(object):
             return 0
 
         rows = display_line_count(text, width=self.terminal_width)
-        return min(self.QUEUED_MAX_HEIGHT, max(1, rows))
+
+        max_rows = (
+            self.QUEUED_MAX_HEIGHT
+            + int(self._activity_queue_gap_visible())
+        )
+
+        return min(max_rows, max(1, rows))
 
     def _process_status_height(self) -> int:
         """计算后台进程状态区域占用行数。"""
@@ -2764,6 +2775,12 @@ class TuiScreen(object):
 
     def _content_input_gap_visible(self) -> bool:
         """判断正文状态区与底部交互区域之间是否保留空行。"""
+        if (
+            self.bottom_pane.input_visible
+            and self._queued_content_visible()
+        ):
+            return False
+
         auxiliary_content = bool(
             self._status_height()
             or self._process_status_height()
@@ -2784,6 +2801,13 @@ class TuiScreen(object):
                     and not assistant_stream_active
                 )
             )
+        )
+
+    def _activity_queue_gap_visible(self) -> bool:
+        """判断活动状态与待提交消息之间是否保留空行。"""
+        return bool(
+            self._status_height()
+            and self._queued_content_visible()
         )
 
     def _inline_process_growth_active(self) -> bool:
