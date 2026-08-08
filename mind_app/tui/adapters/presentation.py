@@ -2,6 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import re
+import typing
+from functools import partial
 from mind_app.presentation.contracts import (
     PresentationSink,
     PresentationView
@@ -29,7 +31,11 @@ from mind_app.presentation.renderers.dispatch import (
 )
 from prompt_toolkit.utils import get_cwidth
 from ..core.document import TuiBlockKind
-from .output import TuiOutputControl
+from ..core.models import FragmentBlock
+from ..core.styles import styled_block_fragments
+
+if typing.TYPE_CHECKING:
+    from .output import TuiOutputControl
 
 _OPERATION_VIEWS = (
     ToolStartView,
@@ -38,6 +44,14 @@ _OPERATION_VIEWS = (
     BatchStartView,
     BatchCompletedView,
     ProgressView
+)
+
+_WIDTH_AWARE_VIEWS = (
+    ToolStartView,
+    GenericToolResultView,
+    NativeToolResultView,
+    FailureView,
+    RunIncompleteView,
 )
 
 _OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)$")
@@ -60,7 +74,7 @@ def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
 class TuiPresentationSink(PresentationSink):
     """把结构化展示数据写入持久 TUI。"""
 
-    def __init__(self, output: TuiOutputControl) -> None:
+    def __init__(self, output: "TuiOutputControl") -> None:
         self.output = output
 
     async def emit(self, view: PresentationView) -> None:
@@ -86,13 +100,11 @@ class TuiPresentationSink(PresentationSink):
             raise ValueError("presentation block projections differ in count")
 
         transcript_key = self.output.runtime.keymap.open_transcript_label
+        width_aware    = isinstance(view, _WIDTH_AWARE_VIEWS)
 
-        for block, transcript_block, raw_text in zip(
-            blocks,
-            transcript_blocks,
-            raw_blocks,
-            strict=True,
-        ):
+        for index, (block, transcript_block, raw_text) in enumerate(zip(
+            blocks, transcript_blocks, raw_blocks, strict=True,
+        )):
             await self.output.append_presentation_block(
                 _with_transcript_hint(
                     block,
@@ -103,7 +115,51 @@ class TuiPresentationSink(PresentationSink):
                 transcript_block=transcript_block,
                 source=view,
                 raw_text=raw_text,
+                display_renderer=(
+                    partial(
+                        render_presentation_fragment_block,
+                        view,
+                        index,
+                        block_count=len(blocks),
+                        key_label=transcript_key,
+                        hyperlinks=self.output.runtime.hyperlinks_enabled,
+                    )
+                    if width_aware
+                    else None
+                ),
+                display_render_width=(
+                    terminal_width if width_aware else None
+                ),
             )
+
+
+def render_presentation_fragment_block(
+    view: PresentationView,
+    block_index: int,
+    terminal_width: int,
+    *,
+    block_count: int,
+    key_label: str = "",
+    hyperlinks: bool = False
+) -> FragmentBlock:
+    """按指定宽度生成一项结构化展示片段。"""
+    blocks = render_presentation_view(
+        view,
+        terminal_width=terminal_width,
+        measure_width=get_cwidth,
+    )
+    if len(blocks) != block_count:
+        raise ValueError("presentation display block count changed")
+
+    block = _with_transcript_hint(
+        blocks[block_index],
+        key_label,
+        terminal_width=terminal_width,
+    )
+    return FragmentBlock(styled_block_fragments(
+        block,
+        hyperlinks=hyperlinks,
+    ))
 
 
 def _with_transcript_hint(

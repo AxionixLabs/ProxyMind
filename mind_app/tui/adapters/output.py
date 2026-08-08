@@ -19,7 +19,8 @@ from mind_app.stream_sanitize import sanitize_value
 from ..core.assistant import TuiAssistantStream
 from ..core.document import (
     TranscriptCellSource,
-    TuiBlockKind
+    TuiBlockKind,
+    WidthBlockRenderer
 )
 from ..core.runtime import TuiRuntime
 from ..core.models import (
@@ -208,7 +209,9 @@ class TuiOutputControl(OutputControlPort):
         block_kind: TuiBlockKind = "operation",
         transcript_block: StyledBlock | None = None,
         source: TranscriptCellSource | None = None,
-        raw_text: str | None = None
+        raw_text: str | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None
     ) -> None:
         """提交正文后追加一个结构化展示块。"""
         block            = sanitize_styled_block(block)
@@ -233,6 +236,8 @@ class TuiOutputControl(OutputControlPort):
             )),
             source=source,
             raw_text=raw_text,
+            display_renderer=display_renderer,
+            display_render_width=display_render_width,
         )
 
     def flush(self) -> None:

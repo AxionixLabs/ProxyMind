@@ -22,6 +22,7 @@ from mind_app.presentation.tool_views import (
 )
 from mind_app.stream_events.tool_trace import coding_trace_tool
 from ..adapters.markdown import render_tui_assistant_markdown
+from ..adapters.presentation import render_presentation_fragment_block
 from ..core.document import TranscriptBlock
 from ..core.models import (
     FragmentBlock,
@@ -338,14 +339,19 @@ def _tool_blocks(
             kind="operation",
             source=entry,
             raw_text=raw_text,
+            display_renderer=partial(
+                render_presentation_fragment_block,
+                view,
+                index,
+                block_count=len(display),
+                hyperlinks=hyperlinks,
+            ),
+            display_render_width=terminal_width,
         )
 
-        for display_block, transcript_block, raw_text in zip(
-            display,
-            transcript,
-            raw,
-            strict=True,
-        )
+        for index, (display_block, transcript_block, raw_text) in enumerate(zip(
+            display, transcript, raw, strict=True,
+        ))
     )
 
 

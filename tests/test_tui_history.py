@@ -4,6 +4,8 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptEntry
+from mind_app.tui.core.document import TuiDocument
+from mind_app.tui.core.render import fragments_text
 from mind_app.tui.features import history
 
 
@@ -319,3 +321,63 @@ def test_history_transcript_restores_responsive_markdown_tables() -> None:
 
     assert "━" in wide_text
     assert "Name  Status" in wide_text
+
+
+def test_history_shell_display_reflows_without_changing_transcript() -> None:
+    command = "python3 -c \"print('" + "界" * 80 + "')\""
+    output_lines = [
+        f"output {index} " + "👩\u200d💻" * 30
+        for index in range(8)
+    ]
+
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_shell_resize",
+            turn_id="turn_shell_resize",
+            actor="tool",
+            payload=payload,
+        )
+
+    entries = (
+        entry("tool.started", {
+            "call_id": "call_shell_resize",
+            "name": "shell_command",
+            "arguments": {"command": command},
+        }),
+        entry("tool.completed", {
+            "call_id": "call_shell_resize",
+            "result": {
+                "command": command,
+                "output_lines": output_lines,
+            },
+        }),
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return entries
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_shell_resize",
+        terminal_width=20,
+    )
+    document = TuiDocument()
+    document.replace_blocks(blocks)
+
+    narrow = fragments_text(document.fragments(width=20))
+    transcript = fragments_text(document.transcript_fragments(width=80))
+    wide = fragments_text(document.fragments(width=80))
+
+    assert wide != narrow
+    assert get_cwidth(narrow.splitlines()[0]) <= 20
+    assert get_cwidth(wide.splitlines()[0]) <= 80
+    assert get_cwidth(wide.splitlines()[0]) > get_cwidth(
+        narrow.splitlines()[0]
+    )
+    assert fragments_text(document.transcript_fragments(width=80)) == transcript
+    assert command in transcript
+    assert output_lines[-1] in transcript

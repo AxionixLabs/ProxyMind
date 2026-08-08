@@ -6920,7 +6920,7 @@ async def test_tui_shell_preview_keeps_each_output_on_one_visual_row() -> None:
         call_id="preview-width",
     ))
 
-    display = _document_text(runtime.document)
+    display = fragments_text(runtime.document.fragments(width=20))
     display_lines = display.splitlines()
 
     assert len(display_lines) == 4
@@ -7018,7 +7018,7 @@ async def test_shell_transcript_hint_uses_one_visual_row(
         call_id="transcript-hint-width",
     ))
 
-    display = _document_text(runtime.document)
+    display = fragments_text(runtime.document.fragments(width=width))
     display_lines = display.splitlines()
     transcript = _transcript_text(runtime.document)
 
@@ -7027,6 +7027,138 @@ async def test_shell_transcript_hint_uses_one_visual_row(
     assert display_line_count(display, width=width) == len(display_lines)
     assert output_lines[-1] in transcript
     assert expected_hint not in transcript
+
+
+@pytest.mark.anyio
+async def test_stable_shell_display_reflows_only_after_resize_settles() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    command = "python3 -c \"print('" + "界" * 80 + "')\""
+    output_lines = [
+        f"output {index} " + "👩\u200d💻" * 30
+        for index in range(8)
+    ]
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": command},
+        ok=True,
+        data={
+            "command": command,
+            "output_lines": output_lines,
+        },
+        call_id="resize-stable-shell",
+    ))
+
+    def display_at(width: int, *, reflow_sources: bool) -> str:
+        return fragments_text(runtime.document.fragments(
+            width=width,
+            reflow_sources=reflow_sources,
+        ))
+
+    narrow = display_at(20, reflow_sources=True)
+    transcript = _transcript_text(runtime.document)
+    raw_texts = tuple(item.raw_text for item in runtime.document.blocks)
+    gaps = tuple(item.gap_before for item in runtime.document.blocks)
+
+    runtime.document.set_display_width(80, reflow_sources=False)
+    assert display_at(80, reflow_sources=False) == narrow
+
+    runtime.document.set_display_width(80, reflow_sources=True)
+    wide = display_at(80, reflow_sources=False)
+
+    assert wide != narrow
+    assert "… +3 lines Ctrl+T" in narrow
+    assert "… +3 lines (Ctrl+T to view transcript)" in wide
+    assert get_cwidth(narrow.splitlines()[0]) <= 20
+    assert get_cwidth(wide.splitlines()[0]) <= 80
+    assert get_cwidth(wide.splitlines()[0]) > get_cwidth(
+        narrow.splitlines()[0]
+    )
+    assert all(get_cwidth(line) <= 80 for line in wide.splitlines())
+    assert _transcript_text(runtime.document) == transcript
+    assert output_lines[-1] in transcript
+    assert tuple(item.raw_text for item in runtime.document.blocks) == raw_texts
+    assert tuple(item.gap_before for item in runtime.document.blocks) == gaps
+
+    runtime.document.set_display_width(20, reflow_sources=False)
+    assert display_at(20, reflow_sources=False) == wide
+
+    runtime.document.set_display_width(20, reflow_sources=True)
+    assert display_at(20, reflow_sources=False) == narrow
+    assert _transcript_text(runtime.document) == transcript
+
+
+@pytest.mark.anyio
+async def test_shell_resize_replays_new_width_through_native_scrollback() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=20)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                output = TuiOutputControl("", runtime=runtime, animate=False)
+                presentation = TuiPresentationSink(output)
+                command = "python3 -c \"print('" + "界" * 80 + "')\""
+                output_lines = [
+                    f"output {index} " + "👩\u200d💻" * 30
+                    for index in range(8)
+                ]
+
+                await presentation.emit(build_native_tool_result_view(
+                    "shell_command",
+                    {"command": command},
+                    ok=True,
+                    data={
+                        "command": command,
+                        "output_lines": output_lines,
+                    },
+                    call_id="resize-scrollback-shell",
+                ))
+                await asyncio.sleep(0.02)
+
+                assert runtime.document.scrollback_line_count > 0
+                transcript = _transcript_text(runtime.document)
+
+                with patch.object(
+                    runtime.screen,
+                    "clear_terminal_for_resize_replay",
+                ) as clear, patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    terminal_size = Size(rows=8, columns=80)
+                    runtime.viewport.observe_terminal_geometry(80, 8)
+                    await asyncio.sleep(0.12)
+
+                replayed = "".join(
+                    text
+                    for call in print_text.call_args_list
+                    for _style, text in call.args[0]
+                )
+
+                clear.assert_called_once_with()
+                assert print_text.called
+                assert replayed.count("• Ran ") == 1
+                assert "… +3 lines (Ctrl+T to view transcript)" in replayed
+                assert all(
+                    get_cwidth(line) <= 80
+                    for line in replayed.splitlines()
+                )
+                assert _transcript_text(runtime.document) == transcript
+                assert command in transcript
+                assert output_lines[-1] in transcript
+                assert runtime.viewport._reflowed_geometry == (80, 8)
+            finally:
+                await runtime.close()
 
 
 @pytest.mark.anyio

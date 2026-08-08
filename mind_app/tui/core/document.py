@@ -48,6 +48,10 @@ SourceBlockRenderer: typing.TypeAlias = typing.Callable[
     [str, int],
     FragmentBlock
 ]
+WidthBlockRenderer: typing.TypeAlias = typing.Callable[
+    [int],
+    FragmentBlock
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +71,8 @@ class TranscriptBlock(object):
     extras: dict[str, typing.Any] = field(default_factory=dict)
     source_renderer: SourceBlockRenderer | None = None
     source_render_width: int | None = None
+    display_renderer: WidthBlockRenderer | None = None
+    display_render_width: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,7 +344,10 @@ class TuiDocument(object):
             item,
             width=(
                 self._source_layout_width
-                if item.source_renderer is not None
+                if (
+                    item.source_renderer is not None
+                    or item.display_renderer is not None
+                )
                 else self._display_width
             ),
             transcript=False,
@@ -416,10 +425,15 @@ class TuiDocument(object):
         """更新正文显示宽度并重建依赖宽度的稳定行。"""
         normalized    = max(1, int(width))
         width_changed = normalized != self._display_width
-        has_source    = any(item.source_renderer is not None for item in self.blocks)
+
+        has_renderer  = any(
+            item.source_renderer is not None
+            or item.display_renderer is not None
+            for item in self.blocks
+        )
 
         source_reflow = bool(
-            has_source
+            has_renderer
             and reflow_sources
             and normalized != self._source_layout_width
         )
@@ -427,7 +441,7 @@ class TuiDocument(object):
             return False
 
         self._display_width = normalized
-        if not has_source or self._source_layout_width is None:
+        if not has_renderer or self._source_layout_width is None:
             self._source_layout_width = normalized
 
         previous_line_count = self._stable_line_count()
@@ -541,7 +555,9 @@ class TuiDocument(object):
         transcript_block: FragmentBlock | None = None,
         source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
-        stream_continuation: bool = False
+        stream_continuation: bool = False,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None
     ) -> bool:
         """追加一个稳定正文块并统一保留块间空行。"""
         block = sanitize_fragment_block(block)
@@ -566,6 +582,8 @@ class TuiDocument(object):
             raw_text=str(raw_text) if raw_text is not None else None,
             gap_before=bool(has_prior_content and not stream_continuation),
             stream_continuation=bool(stream_continuation),
+            display_renderer=display_renderer,
+            display_render_width=display_render_width,
         )
 
         if self.active_block is not None:
@@ -1222,12 +1240,17 @@ class TuiDocument(object):
         width: int | None,
         transcript: bool
     ) -> FragmentBlock:
-        """按需从原始源码生成指定宽度的正文块。"""
+        """按需生成指定宽度的正文块。"""
         fallback = (
             cell.transcript_block
             if transcript
             else cell.display_block
         )
+
+        if not transcript and cell.display_renderer is not None:
+            if width is None or width == cell.display_render_width:
+                return fallback
+            return cell.display_renderer(width)
 
         if (
             width is None

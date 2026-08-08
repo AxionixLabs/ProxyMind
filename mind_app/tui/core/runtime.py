@@ -44,7 +44,8 @@ from .document import (
     TranscriptBlock,
     TuiBlockKind,
     TuiDocument,
-    TuiDocumentState
+    TuiDocumentState,
+    WidthBlockRenderer
 )
 from .input import TuiInputModel
 from .interrupt import TuiExitReason
@@ -771,6 +772,8 @@ class TuiRuntime(object):
         source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         stream_continuation: bool = False,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> None:
         """向会话内容追加一个稳定展示块。"""
         with self.screen.visual_update():
@@ -781,6 +784,8 @@ class TuiRuntime(object):
                 source=source,
                 raw_text=raw_text,
                 stream_continuation=stream_continuation,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
                 activity_lease=self._consume_activity_handoff(
                     deferred=False,
                 ),
@@ -795,6 +800,8 @@ class TuiRuntime(object):
         source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         stream_continuation: bool = False,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
         activity_lease: ActivityLease | None = None,
     ) -> None:
         """在当前视觉事务中追加正文并完成相关状态交接。"""
@@ -805,6 +812,8 @@ class TuiRuntime(object):
             source=source,
             raw_text=raw_text,
             stream_continuation=stream_continuation,
+            display_renderer=display_renderer,
+            display_render_width=display_render_width,
         )
 
         if activity_lease is not None:
