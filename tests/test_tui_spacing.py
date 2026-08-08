@@ -82,6 +82,7 @@ from mind_app.tui.core.render import (
     wrap_formatted_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.features.processes import exec_session_summary_block
 from mind_app.tui.core.screen import (
     FrameGeometry,
     _clear_terminal_for_resize_replay,
@@ -3129,6 +3130,70 @@ async def test_startup_title_uses_external_gap_and_colored_input_padding() -> No
                 assert input_position.ypos == top_padding.ypos + top_padding.height
                 assert bottom_padding.ypos == input_position.ypos + input_position.height
                 assert footer.ypos == bottom_padding.ypos + bottom_padding.height
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_shell_completion_keeps_baseline_layout_and_footer() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=80),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block(">_ App (v1.0)"), kind="system")
+                runtime.append_block(
+                    exec_session_summary_block({
+                        "ok": True,
+                        "command": "adb devices",
+                        "status": "exited",
+                        "origin": "tui_shell",
+                        "output_lines": ["List of devices attached"],
+                    }, terminal_width=80),
+                    kind="notice",
+                )
+
+                screen = await _render_next_frame(runtime)
+                rows = {
+                    row: "".join(
+                        cells[column].char
+                        for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+                title_row = next(
+                    row for row, text in rows.items()
+                    if "• Shell adb devices" in text
+                )
+                output_row = next(
+                    row for row, text in rows.items()
+                    if "└ List of devices attached" in text
+                )
+                header_row = next(
+                    row for row, text in rows.items()
+                    if ">_ App (v1.0)" in text
+                )
+
+                assert title_row - header_row == 2
+                assert output_row == title_row + 1
+                assert runtime.screen._process_status_height() == 0
+                assert runtime.screen.input_area.filter()
+                assert runtime.screen.input_footer.filter()
+
+                positions = screen.visible_windows_to_write_positions
+                input_position = positions[runtime.screen.input.window]
+                bottom_padding = positions[runtime.screen.input_bottom_padding]
+                footer_position = positions[runtime.screen.footer_window]
+                assert footer_position.ypos == (
+                    input_position.ypos
+                    + input_position.height
+                    + bottom_padding.height
+                )
             finally:
                 await runtime.close()
 
