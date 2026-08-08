@@ -882,7 +882,7 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
     application = _ApplicationStub()
     output_requested = asyncio.Event()
     release_output = asyncio.Event()
-    viewer_updated = asyncio.Event()
+    snapshot_loaded = asyncio.Event()
     session = {
         "session_id": "exec_shell",
         "command": "long task",
@@ -893,25 +893,10 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
     async def output_snapshot(**_kwargs):
         output_requested.set()
         await release_output.wait()
+        snapshot_loaded.set()
         return {**session, "ok": True, "status": "running", "output_lines": []}
 
     runtime = TuiRuntime()
-    original_update = runtime.update_process_viewer
-
-    def update_process_viewer(
-        block,
-        *,
-        transcript_block=None,
-        gap_before=None,
-    ) -> None:
-        original_update(
-            block,
-            transcript_block=transcript_block,
-            gap_before=gap_before,
-        )
-        viewer_updated.set()
-
-    runtime.update_process_viewer = update_process_viewer
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         native_coding=SimpleNamespace(
@@ -936,7 +921,7 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
     assert runtime.document.active_gap_before == 2
 
     release_output.set()
-    await viewer_updated.wait()
+    await snapshot_loaded.wait()
     assert runtime.document.active_gap_before == 2
     active_block = runtime.document.active_block
     assert active_block is not None
@@ -948,6 +933,98 @@ async def test_ps_selection_activates_viewer_before_loading_output() -> None:
 
     runtime.resolve_process_viewer("detach")
     assert await task
+
+
+@pytest.mark.anyio
+async def test_process_viewer_skips_only_fully_unchanged_render_blocks() -> None:
+    application = _ApplicationStub()
+    tail = [f"tail {index}" for index in range(8)]
+    initial = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "long task",
+        "status": "running",
+        "origin": "tui_shell",
+        "output_lines": ["original", *tail],
+    }
+    unchanged = {**initial, "polled_at": 1}
+    transcript_changed = {
+        **initial,
+        "output_lines": ["replacement", *tail],
+    }
+    exited = {
+        **transcript_changed,
+        "status": "exited",
+        "exit_code": 0,
+    }
+
+    assert exec_session_live_block(
+        initial,
+        terminal_width=80,
+        viewer_mode="inline",
+    ) == exec_session_live_block(
+        transcript_changed,
+        terminal_width=80,
+        viewer_mode="inline",
+    )
+    assert exec_session_transcript_block(initial) != (
+        exec_session_transcript_block(transcript_changed)
+    )
+    assert exec_session_live_block(
+        transcript_changed,
+        terminal_width=80,
+        viewer_mode="inline",
+    ) == exec_session_live_block(
+        exited,
+        terminal_width=80,
+        viewer_mode="inline",
+    )
+
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=SimpleNamespace(
+            exec_session_output_snapshot=AsyncMock(
+                side_effect=[unchanged, transcript_changed, exited],
+            ),
+        ),
+    )
+    runtime = TuiRuntime()
+
+    with (
+        patch(
+            "mind_app.tui.features.processes.PS_PANEL_TICK_SEC",
+            0,
+        ),
+        patch.object(
+            runtime,
+            "update_process_viewer",
+            wraps=runtime.update_process_viewer,
+        ) as update,
+    ):
+        result = await watch_exec_session(
+            runtime,
+            mind,
+            "exec_shell",
+            initial_snapshot=initial,
+            activate_immediately=True,
+            viewer_mode="inline",
+        )
+
+    assert result == "exited"
+    update.assert_called_once_with(
+        exec_session_live_block(
+            transcript_changed,
+            terminal_width=80,
+            viewer_mode="inline",
+        ),
+        transcript_block=exec_session_transcript_block(transcript_changed),
+        gap_before=2,
+    )
+    assert runtime.document.active_block is None
+    assert "replacement" in "".join(
+        text
+        for _style, text in runtime.document.blocks[-1].transcript_block.fragments
+    )
 
 
 def test_ps_stop_all_partial_result_uses_tree_branches() -> None:

@@ -662,6 +662,9 @@ async def _watch_exec_session(
         ))
 
     async def poll() -> None:
+        rendered_block = live_block
+        rendered_transcript = transcript_block
+
         while not viewer_task.done():
             current_snapshot = await mind.native_coding.exec_session_output_snapshot(
                 session_id=session_id,
@@ -683,17 +686,24 @@ async def _watch_exec_session(
 
             updated_transcript = exec_session_transcript_block(current_snapshot)
 
-            if activate_immediately:
-                runtime.update_process_viewer(
-                    updated_block,
-                    transcript_block=updated_transcript,
-                    gap_before=2,
-                )
-            else:
-                runtime.update_process_viewer(
-                    updated_block,
-                    transcript_block=updated_transcript,
-                )
+            if (
+                updated_block != rendered_block
+                or updated_transcript != rendered_transcript
+            ):
+                if activate_immediately:
+                    runtime.update_process_viewer(
+                        updated_block,
+                        transcript_block=updated_transcript,
+                        gap_before=2,
+                    )
+                else:
+                    runtime.update_process_viewer(
+                        updated_block,
+                        transcript_block=updated_transcript,
+                    )
+
+                rendered_block = updated_block
+                rendered_transcript = updated_transcript
 
             if str(current_snapshot.get("status") or "").strip() == "exited":
                 runtime.resolve_process_viewer(current_snapshot)
