@@ -201,6 +201,7 @@ async def test_rejected_steers_preserve_identity_before_tab_fifo() -> None:
 @pytest.mark.parametrize(
     "identity",
     (
+        TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
         TerminalIdentity(TerminalKind.VSCODE, "VS Code"),
         TerminalIdentity(TerminalKind.WARP, "Warp"),
         TerminalIdentity(TerminalKind.APPLE_TERMINAL, "Apple Terminal"),
