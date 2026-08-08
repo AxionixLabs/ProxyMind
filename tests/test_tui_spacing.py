@@ -1227,6 +1227,57 @@ async def test_scrollback_starts_synchronized_output_after_terminal_acquire() ->
 
 
 @pytest.mark.anyio
+async def test_scrollback_vt_baseline_erases_before_synchronized_output() -> None:
+    stream = io.StringIO()
+    output = Vt100_Output(
+        stream,
+        lambda: Size(rows=8, columns=40),
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        await runtime.open()
+        try:
+            stream.seek(0)
+            stream.truncate(0)
+
+            runtime.append_block(
+                _block("\n".join(f"line {index}" for index in range(30))),
+                kind="assistant",
+            )
+
+            for _ in range(100):
+                await asyncio.sleep(0.002)
+                if (
+                    runtime.document.scrollback_line_count > 0
+                    and runtime.viewport.scrollback_task is None
+                ):
+                    break
+
+            payload = stream.getvalue()
+            synchronized_begin = payload.find("\x1b[?2026h")
+            synchronized_end = payload.find(
+                "\x1b[?2026l",
+                synchronized_begin + 1,
+            )
+            erased = payload.rfind("\x1b[J", 0, synchronized_begin)
+            printed = payload.find("line 0", synchronized_begin)
+
+            assert runtime.document.scrollback_line_count > 0
+            assert -1 not in (
+                erased,
+                synchronized_begin,
+                printed,
+                synchronized_end,
+            )
+            assert erased < synchronized_begin < printed < synchronized_end
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_scrollback_reuses_unchanged_candidate_after_terminal_acquire() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

@@ -237,6 +237,109 @@ async def test_forward_typing_never_leaves_a_blank_completion_frame() -> None:
 
 
 @pytest.mark.anyio
+async def test_slash_canvas_frames_keep_raised_anchor_after_dismissal() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        frames: list[tuple[str, int, int, int, bool]] = []
+
+        def capture_frame(_application) -> None:
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            positions = screen.visible_windows_to_write_positions
+            input_position = positions.get(runtime.screen.input.window)
+            if input_position is None:
+                return None
+
+            input_row = (
+                24 - runtime.screen._visible_height() + input_position.ypos
+            )
+            has_rendered_candidate = any(
+                "".join(
+                    cells[column].char
+                    for column in sorted(cells)
+                ).lstrip().startswith("/")
+                for row, cells in screen.data_buffer.items()
+                if row > input_position.ypos
+            )
+            frames.append((
+                runtime.screen.input.buffer.text,
+                input_row,
+                runtime.screen._completion_section_height(),
+                runtime.screen._bottom_release_height(),
+                has_rendered_candidate,
+            ))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            runtime.screen.application.after_render += capture_frame
+            await runtime.open()
+            try:
+                idle_screen = (
+                    runtime.screen.application.renderer.last_rendered_screen
+                )
+                idle_position = (
+                    idle_screen.visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+                idle_row = (
+                    24 - runtime.screen._visible_height() + idle_position.ypos
+                )
+
+                opened_at = len(frames)
+                pipe_input.send_text("/")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+
+                opened_frames = [
+                    frame
+                    for frame in frames[opened_at:]
+                    if frame[0] == "/"
+                ]
+                assert idle_row == 21
+                assert opened_frames
+                assert all(
+                    input_row == 14
+                    and completion_height == 8
+                    and release_height == 0
+                    and has_rendered_candidate
+                    for (
+                        _text,
+                        input_row,
+                        completion_height,
+                        release_height,
+                        has_rendered_candidate,
+                    ) in opened_frames
+                ), opened_frames
+
+                dismissed_at = len(frames)
+                runtime.input_model.dismiss_completion_menu(
+                    runtime.screen.input.buffer
+                )
+                await render_next_frame(runtime)
+
+                dismissed_frames = frames[dismissed_at:]
+                assert dismissed_frames
+                assert all(
+                    input_row == 14
+                    and completion_height == 0
+                    and release_height == 7
+                    and not has_rendered_candidate
+                    for (
+                        _text,
+                        input_row,
+                        completion_height,
+                        release_height,
+                        has_rendered_candidate,
+                    ) in dismissed_frames
+                ), dismissed_frames
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("stable_line_count", (0, 20))
 @pytest.mark.parametrize("close_method", ("escape", "backspace"))
 async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
