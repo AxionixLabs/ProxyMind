@@ -408,9 +408,14 @@ class TuiScreen(object):
         self._rendered_output_size: Size | None        = None
         self._layout_geometry: tuple[int, int] | None  = None
 
-        self._transcript_cache_key: tuple[int, int, int] | None = None
-        self._transcript_cache_fragments: FormattedText         = []
-        self._transcript_assistant_lines: frozenset[int]        = frozenset()
+        self._transcript_cache_key: tuple[int, int, int] | None     = None
+        self._transcript_cache_fragments: FormattedText             = []
+        self._transcript_assistant_lines: frozenset[int]            = frozenset()
+        self._transcript_text_key: tuple[int, int, int] | None      = None
+        self._transcript_metrics_key: tuple[int, int, int] | None   = None
+        self._transcript_cache_continuation_widths: tuple[int, ...] = ()
+        self._transcript_cache_text: str                            = ""
+        self._transcript_cache_display_rows: int                    = 0
 
         self._canvas_height_floor: int = 0
 
@@ -1190,6 +1195,43 @@ class TuiScreen(object):
             self._transcript_assistant_lines = self._assistant_lines(fragments)
         return self._transcript_cache_fragments
 
+    def _transcript_text(self) -> str:
+        """返回当前正文版本可复用的纯文本。"""
+        fragments = self.transcript_fragments()
+        key       = self._transcript_cache_key
+
+        if key != self._transcript_text_key:
+            self._transcript_text_key = key
+            self._transcript_cache_text = fragments_text(fragments)
+
+        return self._transcript_cache_text
+
+    def _transcript_display_metrics(
+        self,
+    ) -> tuple[tuple[int, ...], int]:
+        """返回当前正文版本可复用的续行宽度与显示行数。"""
+        fragments = self.transcript_fragments()
+        key = self._transcript_cache_key
+
+        if key != self._transcript_metrics_key:
+            text = self._transcript_text()
+            continuation_widths = self._transcript_continuation_widths(
+                fragments,
+            )
+
+            self._transcript_metrics_key = key
+            self._transcript_cache_continuation_widths = continuation_widths
+            self._transcript_cache_display_rows = display_line_count(
+                text,
+                width=self.terminal_width,
+                continuation_widths=continuation_widths,
+            )
+
+        return (
+            self._transcript_cache_continuation_widths,
+            self._transcript_cache_display_rows,
+        )
+
     def _prepare_frame_render(self, application: Application[None]) -> None:
         """开始同步帧并固定本次布局计算使用的终端尺寸。"""
         if self._synchronized_frame_pending:
@@ -1650,20 +1692,18 @@ class TuiScreen(object):
 
     def _transcript_cursor(self) -> Point:
         """让会话内容视口跟随最新输出。"""
-        fragments = self.transcript_fragments()
-        text      = fragments_text(fragments)
-        view_row  = self._get_transcript_view_row()
+        text     = self._transcript_text()
+        view_row = self._get_transcript_view_row()
 
         if view_row is None:
             x, y = cursor_point(text, width=self.terminal_width)
         else:
+            continuation_widths, _rows = self._transcript_display_metrics()
             x, y = cursor_point_for_display_row(
                 text,
                 width=self.terminal_width,
                 display_row=view_row,
-                continuation_widths=self._transcript_continuation_widths(
-                    fragments,
-                ),
+                continuation_widths=continuation_widths,
             )
 
         return Point(x=x, y=y)
@@ -2150,16 +2190,7 @@ class TuiScreen(object):
 
     def _transcript_dimension(self) -> Dimension:
         """返回正文当前内容在画布中占用的高度。"""
-        fragments = self.transcript_fragments()
-        text      = fragments_text(fragments)
-
-        rows = display_line_count(
-            text,
-            width=self.terminal_width,
-            continuation_widths=self._transcript_continuation_widths(
-                fragments,
-            ),
-        )
+        _continuation_widths, rows = self._transcript_display_metrics()
         return Dimension.exact(min(rows, self.transcript_available_height()))
 
     def _status_dimension(self) -> Dimension:

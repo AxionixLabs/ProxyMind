@@ -1346,6 +1346,7 @@ async def test_scrollback_releases_sync_when_terminal_wait_is_cancelled() -> Non
 async def test_scrollback_releases_sync_after_print_failure() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        released = asyncio.Event()
 
         with patch.object(
             runtime.screen.application.output,
@@ -1363,6 +1364,7 @@ async def test_scrollback_releases_sync_after_print_failure() -> None:
                     patch.object(
                         runtime.screen,
                         "end_synchronized_output",
+                        side_effect=released.set,
                     ) as end,
                     patch.object(
                         runtime.screen.application,
@@ -1377,13 +1379,12 @@ async def test_scrollback_releases_sync_after_print_failure() -> None:
                         kind="assistant",
                     )
 
-                    for _ in range(100):
-                        await asyncio.sleep(0.002)
-                        if end.called:
-                            break
+                    await asyncio.wait_for(released.wait(), timeout=1.0)
 
-                begin.assert_called_once_with()
-                end.assert_called_once_with()
+                    runtime.set_execution_active(True)
+                    await runtime.viewport._cancel_scrollback_task()
+
+                assert begin.call_count == end.call_count >= 1
                 assert runtime.document.scrollback_line_count == 0
             finally:
                 await runtime.close()
@@ -6909,6 +6910,93 @@ def test_transcript_height_uses_assistant_wrap_prefix() -> None:
         return_value=Size(rows=24, columns=20),
     ):
         assert runtime.screen._transcript_dimension().preferred == 3
+
+
+def test_transcript_display_metrics_cache_tracks_layout_dependencies() -> None:
+    runtime = TuiRuntime()
+    size = Size(rows=24, columns=20)
+    runtime.set_active_renderable(
+        FragmentBlock(((ASSISTANT_PREFIX_CLASS, f"• {'x' * 37}"),)),
+        kind="assistant",
+    )
+
+    with (
+        patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: size,
+        ),
+        patch(
+            "mind_app.tui.core.screen.display_line_count",
+            wraps=display_line_count,
+        ) as line_count,
+        patch.object(
+            runtime.screen,
+            "_transcript_continuation_widths",
+            wraps=runtime.screen._transcript_continuation_widths,
+        ) as continuation_widths,
+    ):
+        def transcript_scan_count() -> int:
+            return sum(
+                "continuation_widths" in item.kwargs
+                for item in line_count.call_args_list
+            )
+
+        runtime.screen._transcript_cursor()
+        assert transcript_scan_count() == 0
+        assert continuation_widths.call_count == 0
+
+        assert runtime.screen._transcript_dimension().preferred == 3
+        assert runtime.screen._transcript_dimension().preferred == 3
+
+        assert transcript_scan_count() == 1
+        assert continuation_widths.call_count == 1
+
+        with patch.object(
+            runtime.screen,
+            "transcript_available_height",
+            return_value=2,
+        ):
+            assert runtime.screen._transcript_dimension().preferred == 2
+
+        assert transcript_scan_count() == 1
+
+        runtime.set_active_renderable(
+            FragmentBlock(((ASSISTANT_PREFIX_CLASS, f"• {'x' * 57}"),)),
+            kind="assistant",
+        )
+        assert runtime.screen._transcript_dimension().preferred == 4
+        assert transcript_scan_count() == 2
+
+        size = Size(rows=24, columns=30)
+        assert runtime.screen._transcript_dimension().preferred == 3
+        assert transcript_scan_count() == 3
+
+
+def test_transcript_display_metrics_cache_tracks_visible_prefix() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("first\nsecond\nthird"), kind="assistant")
+
+    with patch(
+        "mind_app.tui.core.screen.display_line_count",
+        wraps=display_line_count,
+    ) as line_count:
+        def transcript_scan_count() -> int:
+            return sum(
+                "continuation_widths" in item.kwargs
+                for item in line_count.call_args_list
+            )
+
+        assert runtime.screen._transcript_dimension().preferred == 3
+        assert runtime.screen._transcript_dimension().preferred == 3
+        assert transcript_scan_count() == 1
+
+        assert runtime.document.commit_scrollback_prefix(
+            1,
+            expected_start=0,
+        )
+        assert runtime.screen._transcript_dimension().preferred == 2
+        assert transcript_scan_count() == 2
 
 
 @pytest.mark.anyio
