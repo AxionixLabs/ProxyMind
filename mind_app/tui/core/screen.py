@@ -1047,6 +1047,28 @@ class TuiScreen(object):
         if invalidate:
             self.invalidate()
 
+    def turn_settlement_frame_key(self) -> tuple[typing.Any, ...]:
+        """返回执行周期收束时决定当前画面的状态键。"""
+        anchor = self._bottom_anchor
+        return (
+            self.document.transcript_revision,
+            self.document.visible_prefix_line_count,
+            self.activity_block,
+            tuple(self._footer_fragments()),
+            self._content_input_gap_height(),
+            self._completion_section_height(),
+            self._bottom_release_height(),
+            self._visible_height(),
+            self._canvas_height_floor,
+            self._input_canvas_floor_baseline,
+            anchor.footprint_height,
+            anchor.completion_visible,
+            anchor.stable_line_baseline,
+            anchor.live_height_baseline,
+            anchor.consumed_height,
+            anchor.release_active,
+        )
+
     def settle_input_layout(self) -> None:
         """随输入内容缩短收束输入区留下的画布高度。"""
         baseline = self._input_canvas_floor_baseline

@@ -7447,6 +7447,90 @@ async def test_final_stream_handoff_preserves_the_rendered_frame(
 
 
 @pytest.mark.anyio
+async def test_execution_end_skips_an_unchanged_final_canvas_frame() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=60, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await output.append_assistant_delta("first\nlast")
+                await output.settle_stream()
+                await _render_next_frame(runtime)
+
+                output._commit_current()
+                await _render_next_frame(runtime)
+                render_revision = runtime.screen.application.render_counter
+
+                runtime.set_execution_active(False)
+                for _ in range(20):
+                    await asyncio.sleep(0)
+
+                assert runtime.screen.application.render_counter == (
+                    render_revision
+                )
+                assert not runtime.execution_active
+            finally:
+                runtime.set_execution_active(False)
+                await output.stop()
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_execution_end_renders_changed_queue_hint() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=60, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                runtime.screen.input.buffer.text = "draft"
+                runtime.screen.input.buffer.cursor_position = 5
+                await output.append_assistant_delta("first\nlast")
+                await output.settle_stream()
+                await _render_next_frame(runtime)
+
+                output._commit_current()
+                await _render_next_frame(runtime)
+                render_revision = runtime.screen.application.render_counter
+                assert "tab to queue" in fragments_text(
+                    runtime.screen._footer_fragments()
+                )
+
+                runtime.set_execution_active(False)
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if (
+                        runtime.screen.application.render_counter
+                        > render_revision
+                    ):
+                        break
+
+                assert runtime.screen.application.render_counter == (
+                    render_revision + 1
+                )
+                assert "tab to queue" not in fragments_text(
+                    runtime.screen._footer_fragments()
+                )
+            finally:
+                runtime.set_execution_active(False)
+                await output.stop()
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_partial_delta_does_not_mutate_visible_completed_line() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
