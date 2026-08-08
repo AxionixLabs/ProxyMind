@@ -1300,10 +1300,12 @@ class TuiScreen(object):
         application = getattr(self, "application", None)
         if application is None or application.full_screen:
             return height
+        if self._inline_process_growth_active():
+            return height
 
-        renderer = application.renderer
+        renderer        = application.renderer
         previous_screen = renderer.last_rendered_screen
-        output_size = Size(rows=height, columns=width)
+        output_size     = Size(rows=height, columns=width)
 
         if (
             previous_screen is None
@@ -2782,6 +2784,14 @@ class TuiScreen(object):
                     and not assistant_stream_active
                 )
             )
+        )
+
+    def _inline_process_growth_active(self) -> bool:
+        """判断当前进程正文是否允许推动 inline 画布增长。"""
+        return bool(
+            self.bottom_pane.input_visible
+            and self.process_viewer.input_passthrough
+            and self.document.active_kind == "operation"
         )
 
     def _transcript_status_gap_visible(self) -> bool:

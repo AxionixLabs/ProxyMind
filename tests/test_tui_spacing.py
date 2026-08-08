@@ -882,6 +882,70 @@ async def test_known_inline_viewport_does_not_expand_renderer_height() -> None:
 
 
 @pytest.mark.anyio
+async def test_inline_shell_grows_known_viewport_like_stream_content() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=6,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+
+        await runtime.open()
+        viewer = None
+        try:
+            input_rows = []
+            screen_heights = []
+
+            for line_count in (1, 2, 4):
+                snapshot = {
+                    "ok": True,
+                    "session_id": "exec_shell",
+                    "command": "ping -t 8.8.8.8",
+                    "status": "running",
+                    "origin": "tui_shell",
+                    "output_lines": [
+                        f"reply {index}"
+                        for index in range(line_count)
+                    ],
+                }
+                block = exec_session_live_block(
+                    snapshot,
+                    terminal_width=80,
+                    viewer_mode="inline",
+                )
+                if viewer is None:
+                    viewer = runtime.begin_process_viewer(
+                        ProcessViewerRequest(
+                            fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+                            max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+                            capture_input=False,
+                            session_id="exec_shell",
+                        ),
+                        block,
+                    )
+                else:
+                    runtime.update_process_viewer(block)
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_rows.append(positions[runtime.screen.input.window].ypos)
+                screen_heights.append(screen.height)
+
+                assert runtime.screen._content_input_gap_visible()
+
+            assert input_rows == [4, 5, 7]
+            assert screen_heights == [7, 8, 10]
+        finally:
+            if runtime.screen.process_viewer.active:
+                runtime.resolve_process_viewer("detach")
+                if viewer is not None:
+                    await viewer
+                runtime.dismiss_process_viewer()
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_inline_viewport_remeasures_after_terminal_resize() -> None:
     with create_pipe_input() as pipe_input:
         output = _KnownInlineHeightOutput(
@@ -3275,7 +3339,6 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
 
                 assert running_input_row == initial_input_row
                 assert completed_input_row == initial_input_row
-                assert completed_input.ypos == running_input.ypos
 
                 for screen in (
                     initial_screen,
