@@ -56,7 +56,10 @@ from .styles import (
     query_block,
     text_block
 )
-from ..prompting.commands import resolve_tui_command
+from ..prompting.commands import (
+    resolve_tui_command,
+    submission_replaces_query
+)
 from .submission import (
     TuiInputClosed,
     TuiInterruptRequested,
@@ -256,6 +259,7 @@ class TuiRuntime(object):
             output_obj=output_obj,
             terminal_capabilities=terminal_capabilities,
         )
+        self.input_model.bind_interrupt(self._handle_input_interrupt)
 
         self.input_model.bind_history_backtrack(
             self._can_backtrack_history,
@@ -324,6 +328,12 @@ class TuiRuntime(object):
     def has_pending_attachments(self) -> bool:
         """返回当前是否存在可随空消息发送的附件。"""
         return self.submissions.has_pending_attachments
+
+    @property
+    def inline_process_session_id(self) -> str:
+        """返回当前在正文中展示的进程会话标识。"""
+        viewer = self.screen.process_viewer
+        return viewer.active_session_id if viewer.input_passthrough else ""
 
     @execution_active.setter
     def execution_active(self, active: bool) -> None:
@@ -498,6 +508,15 @@ class TuiRuntime(object):
         """更新动画区域下方的后台进程摘要。"""
         self.screen.process_status.set_label(label)
 
+    def _handle_input_interrupt(self) -> None:
+        """按当前前台交互状态分派输入中断。"""
+        viewer = self.screen.process_viewer
+        if viewer.input_passthrough:
+            viewer.resolve("interrupt")
+            self.submissions.interrupt_input()
+            return None
+        self.submissions.interrupt_input()
+
     def begin_terminal_progress(self) -> None:
         """启动终端窗口的不确定进度。"""
         self._turn_progress_active = True
@@ -536,6 +555,15 @@ class TuiRuntime(object):
 
         return self.screen.process_viewer.begin(request)
 
+    async def detach_inline_process_viewer(self) -> None:
+        """在提交新输入前撤下保持输入可见的进程查看器。"""
+        viewer = self.screen.process_viewer
+        if not viewer.input_passthrough:
+            return None
+
+        viewer.resolve("detach")
+        await viewer.wait_settled()
+
     def update_process_viewer(
         self,
         block: FragmentBlock,
@@ -564,8 +592,11 @@ class TuiRuntime(object):
         """原位提交进程摘要并恢复主输入区域。"""
         if self.document.active_kind != "operation":
             raise RuntimeError("cannot commit a process without active output")
+        input_passthrough = self.screen.process_viewer.input_passthrough
         self.document.commit_active(block, transcript_block=transcript_block)
         self.screen.process_viewer.settle()
+        if input_passthrough:
+            self.screen.settle_dynamic_output_layout()
         self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
@@ -573,10 +604,13 @@ class TuiRuntime(object):
     def dismiss_process_viewer(self) -> None:
         """撤下动态进程正文并恢复主输入区域。"""
         changed = self.document.active_kind == "operation"
+        input_passthrough = self.screen.process_viewer.input_passthrough
         if changed:
             self.document.clear_active()
 
         self.screen.process_viewer.settle()
+        if input_passthrough:
+            self.screen.settle_dynamic_output_layout()
 
         if changed:
             self.screen.transcript_overlay.content_changed()
@@ -1356,9 +1390,11 @@ class TuiRuntime(object):
             value = str(submission)
             visible = value
 
+        await self.detach_inline_process_viewer()
+
         self.viewport.reset_view()
 
-        if visible:
+        if visible and not submission_replaces_query(value):
             block = query_block(visible)
             self.document.stage_submission(block, raw_text=visible)
             if resolve_tui_command(value) is not None:

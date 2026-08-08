@@ -117,6 +117,7 @@ async def run_shell_escape(
             initial_snapshot=snapshot,
             viewer_mode="inline",
             ready_event=viewer_ready,
+            capture_input=False,
         ),
         name=f"shell viewer {session_id}",
     )

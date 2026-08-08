@@ -35,6 +35,7 @@ if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
 PS_PANEL_TICK_SEC: float         = 0.12
+PS_INTERRUPT_GRACE_SEC: float    = 0.05
 PS_OUTPUT_LIMIT: int             = 120000
 PS_VISIBLE_OUTPUT_LINES: int     = 8
 PS_STREAM_VISIBLE_PROCESSES: int = 3
@@ -67,9 +68,10 @@ async def monitor_exec_status(
                 snapshot = await mind.native_coding.running_exec_sessions()
                 sessions = _running_items(snapshot)
 
-                label = exec_status_display_label(
+                _set_exec_status(
+                    runtime,
                     snapshot,
-                    line_width=runtime.terminal_width,
+                    excluded_session_id=runtime.inline_process_session_id,
                 )
 
                 delay = (
@@ -78,8 +80,6 @@ async def monitor_exec_status(
                     else PROCESS_STATUS_IDLE_SEC
                 )
 
-                runtime.set_process_status_label(label)
-
             except (OSError, RuntimeError, TypeError, ValueError):
                 pass
 
@@ -87,6 +87,39 @@ async def monitor_exec_status(
 
     finally:
         runtime.set_process_status_label("")
+
+
+def _set_exec_status(
+    runtime: "TuiRuntime",
+    snapshot: typing.Any,
+    *,
+    excluded_session_id: str = ""
+) -> None:
+    """更新排除当前前台会话后的后台进程摘要。"""
+    filtered = _without_running_session(snapshot, excluded_session_id)
+
+    runtime.set_process_status_label(exec_status_display_label(
+        filtered,
+        line_width=runtime.terminal_width,
+    ))
+
+
+def _without_running_session(
+    snapshot: typing.Any,
+    session_id: str,
+) -> dict[str, typing.Any]:
+    """返回排除指定会话后的运行中进程快照。"""
+    current = dict(snapshot) if isinstance(snapshot, dict) else {}
+    excluded = str(session_id or "").strip()
+    items = [
+        item
+        for item in _running_items(current)
+        if not excluded
+        or str(item.get("session_id") or "").strip() != excluded
+    ]
+    current["items"] = items
+    current["count"] = len(items)
+    return current
 
 
 async def manage_exec_sessions(
@@ -428,7 +461,8 @@ async def watch_exec_session(
     initial_snapshot: dict[str, typing.Any] | None = None,
     activate_immediately: bool = False,
     viewer_mode: ProcessViewerMode = "process",
-    ready_event: asyncio.Event | None = None
+    ready_event: asyncio.Event | None = None,
+    capture_input: bool = True
 ) -> bool | str:
     """按指定展示模式持续查看命令会话输出。"""
     sid = str(session_id or "").strip()
@@ -477,6 +511,7 @@ async def watch_exec_session(
         activate_immediately=activate_immediately,
         viewer_mode=viewer_mode,
         ready_event=ready_event,
+        capture_input=capture_input,
     )
 
 
@@ -489,21 +524,41 @@ async def _watch_exec_session(
     announce_detach: bool,
     activate_immediately: bool,
     viewer_mode: ProcessViewerMode,
-    ready_event: asyncio.Event | None
+    ready_event: asyncio.Event | None,
+    capture_input: bool
 ) -> bool | str:
     """轮询并更新主 TUI 中的命令会话面板。"""
     application = mind.frontend.application
+
+    if not capture_input:
+        try:
+            running = await mind.native_coding.running_exec_sessions()
+            _set_exec_status(
+                runtime,
+                running,
+                excluded_session_id=session_id,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            runtime.set_process_status_label("")
 
     live_block = exec_session_live_block(
         state.get("snapshot"),
         terminal_width=application.viewport.width,
         viewer_mode=viewer_mode,
     )
+
     transcript_block = exec_session_transcript_block(state.get("snapshot"))
+
+    viewer_request = ProcessViewerRequest(
+        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+        capture_input=capture_input,
+        session_id=session_id,
+    )
 
     if activate_immediately:
         viewer_task = runtime.begin_process_viewer(
-            PROCESS_VIEWER_FOCUS_REQUEST,
+            viewer_request,
             live_block,
             transcript_block=transcript_block,
             gap_before=2,
@@ -512,7 +567,7 @@ async def _watch_exec_session(
             ready_event.set()
     else:
         viewer_task = asyncio.create_task(runtime.view_process(
-            PROCESS_VIEWER_FOCUS_REQUEST,
+            viewer_request,
             live_block,
             transcript_block=transcript_block,
             ready_event=ready_event,
@@ -646,7 +701,7 @@ def render_exec_session_panel(
             terminal_width=width,
             first_line_prefix="└ ",
         )
-        return [*block.fragments, ("", "\n ")]
+        return list(block.fragments)
 
     title = _panel_title_fragments(snapshot, terminal_width=width)
 
@@ -851,29 +906,28 @@ async def _interrupt_exec_session(
     session_id: str
 ) -> dict[str, typing.Any]:
     """中断进程会话并返回收束后快照。"""
-    await mind.native_coding.control_exec_session(
+    snapshot = await mind.native_coding.control_exec_session(
         session_id=session_id,
         control="interrupt",
     )
-    for _index in range(8):
-        await asyncio.sleep(0.1)
-        snapshot = await mind.native_coding.exec_session_output_snapshot(
-            session_id=session_id,
-            max_output_chars=PS_OUTPUT_LIMIT,
-        )
-        if snapshot.get("ok") is False:
-            return snapshot
-        if str(snapshot.get("status") or "") == "exited":
-            return snapshot
+    if snapshot.get("ok") is False:
+        return snapshot
+    if str(snapshot.get("status") or "") == "exited":
+        return snapshot
 
-    await mind.native_coding.control_exec_session(
-        session_id=session_id,
-        control="terminate",
-    )
-
-    return await mind.native_coding.exec_session_output_snapshot(
+    await asyncio.sleep(PS_INTERRUPT_GRACE_SEC)
+    snapshot = await mind.native_coding.exec_session_output_snapshot(
         session_id=session_id,
         max_output_chars=PS_OUTPUT_LIMIT,
+    )
+    if snapshot.get("ok") is False:
+        return snapshot
+    if str(snapshot.get("status") or "") == "exited":
+        return snapshot
+
+    return await mind.native_coding.control_exec_session(
+        session_id=session_id,
+        control="kill",
     )
 
 

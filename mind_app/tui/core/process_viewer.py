@@ -24,6 +24,8 @@ class ProcessViewerRequest(object):
     """描述主 TUI 中的进程输出查看内容。"""
     fragments: tuple[tuple[str, str], ...]
     max_height: int = 28
+    capture_input: bool = True
+    session_id: str = ""
 
 
 @dataclass(slots=True)
@@ -31,6 +33,7 @@ class ProcessViewerState(object):
     """保存进程查看器的内容和等待结果。"""
     request: ProcessViewerRequest
     future: asyncio.Future[typing.Any]
+    settled_event: asyncio.Event
 
 
 class TuiProcessViewer(object):
@@ -59,6 +62,24 @@ class TuiProcessViewer(object):
         """返回当前是否正在查看进程。"""
         return self.state is not None
 
+    @property
+    def input_passthrough(self) -> bool:
+        """返回查看器是否保持主输入区可交互。"""
+        state = self.state
+        return bool(state is not None and not state.request.capture_input)
+
+    @property
+    def active_session_id(self) -> str:
+        """返回当前查看器关联的进程会话标识。"""
+        state = self.state
+        return str(state.request.session_id if state is not None else "")
+
+    async def wait_settled(self) -> None:
+        """等待当前查看器完成撤下。"""
+        state = self.state
+        if state is not None:
+            await state.settled_event.wait()
+
     async def request(self, request: ProcessViewerRequest) -> typing.Any:
         """显示进程内容并等待用户动作。"""
         future = self.begin(request)
@@ -79,10 +100,17 @@ class TuiProcessViewer(object):
         safe_request = ProcessViewerRequest(
             fragments=tuple(sanitize_formatted_text(request.fragments)),
             max_height=request.max_height,
+            capture_input=request.capture_input,
+            session_id=str(request.session_id or "").strip(),
         )
-        self.state = ProcessViewerState(request=safe_request, future=future)
+        self.state = ProcessViewerState(
+            request=safe_request,
+            future=future,
+            settled_event=asyncio.Event(),
+        )
 
-        self.focus_viewer()
+        if safe_request.capture_input:
+            self.focus_viewer()
         self.invalidate()
 
         return future
@@ -98,9 +126,12 @@ class TuiProcessViewer(object):
         if self.state is None:
             return None
 
+        state = self.state
         self.state = None
 
-        self.focus_input()
+        if state.request.capture_input:
+            self.focus_input()
+        state.settled_event.set()
         self.invalidate()
 
     async def close(self) -> None:

@@ -8,13 +8,15 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.tui.core.process_status import TuiProcessStatus
+from mind_app.tui.core.process_viewer import ProcessViewerRequest
+from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.context import exec_status_display_label
 from mind_app.tui.features.processes import monitor_exec_status
 from mind_app.tui.features.summary import (
     CommandSummary,
-    command_summary_title_parts,
+    command_summary_title_parts
 )
 
 
@@ -142,3 +144,51 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
         "",
     ]
     assert runtime.screen.process_status.label == ""
+
+
+@pytest.mark.anyio
+async def test_process_status_excludes_inline_shell_and_shows_background(
+) -> None:
+    runtime = TuiRuntime()
+    viewer = runtime.begin_process_viewer(
+        ProcessViewerRequest(
+            fragments=(("", " "),),
+            capture_input=False,
+            session_id="exec_current",
+        ),
+        FragmentBlock((("", "• Shell current"),)),
+    )
+    mind = SimpleNamespace(
+        task_event=SimpleNamespace(is_set=lambda: False),
+        native_coding=SimpleNamespace(
+            running_exec_sessions=AsyncMock(return_value={
+                "count": 2,
+                "items": [
+                    {
+                        "session_id": "exec_background",
+                        "command": "ping -t 8.8.8.8",
+                    },
+                    {
+                        "session_id": "exec_current",
+                        "command": "adb devices",
+                    },
+                ],
+            }),
+        ),
+    )
+
+    async def stop_after_refresh(_delay: float) -> None:
+        assert runtime.screen.process_status.label == "ping -t 8.8.8.8"
+        assert runtime.screen._process_status_height() == 1
+        raise asyncio.CancelledError()
+
+    with patch(
+        "mind_app.tui.features.processes.asyncio.sleep",
+        side_effect=stop_after_refresh,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await monitor_exec_status(runtime, mind)
+
+    runtime.resolve_process_viewer("detach")
+    assert await viewer == "detach"
+    runtime.dismiss_process_viewer()

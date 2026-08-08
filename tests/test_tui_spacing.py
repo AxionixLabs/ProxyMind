@@ -82,7 +82,11 @@ from mind_app.tui.core.render import (
     wrap_formatted_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features.processes import exec_session_summary_block
+from mind_app.tui.features.processes import (
+    PROCESS_VIEWER_FOCUS_REQUEST,
+    exec_session_live_block,
+    exec_session_summary_block,
+)
 from mind_app.tui.core.screen import (
     FrameGeometry,
     _clear_terminal_for_resize_replay,
@@ -3195,6 +3199,279 @@ async def test_shell_completion_keeps_baseline_layout_and_footer() -> None:
                     + bottom_padding.height
                 )
             finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=80),
+        ):
+            await runtime.open()
+            viewer = None
+            try:
+                runtime.append_block(_block(">_ App (v1.0)"), kind="system")
+                initial_screen = await _render_next_frame(runtime)
+                initial_input = initial_screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                initial_input_row = (
+                    12 - runtime.screen._visible_height() + initial_input.ypos
+                )
+
+                snapshot = {
+                    "ok": True,
+                    "session_id": "exec_shell",
+                    "command": "adb devices",
+                    "status": "running",
+                    "origin": "tui_shell",
+                    "output_lines": ["List of devices attached"],
+                }
+                live_block = exec_session_live_block(
+                    snapshot,
+                    terminal_width=80,
+                    viewer_mode="inline",
+                )
+                viewer = runtime.begin_process_viewer(
+                    ProcessViewerRequest(
+                        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+                        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+                        capture_input=False,
+                    ),
+                    live_block,
+                )
+                running_screen = await _render_next_frame(runtime)
+                running_input = running_screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                running_input_row = (
+                    12 - runtime.screen._visible_height() + running_input.ypos
+                )
+                assert runtime.screen.input_area.filter()
+                assert runtime.screen.input_footer.filter()
+                assert runtime.screen._process_status_height() == 0
+
+                runtime.resolve_process_viewer("exited")
+                assert await viewer == "exited"
+                viewer = None
+                runtime.commit_process_viewer(exec_session_summary_block(
+                    {**snapshot, "status": "exited", "exit_code": 0},
+                    terminal_width=80,
+                ))
+                completed_screen = await _render_next_frame(runtime)
+                completed_input = (
+                    completed_screen.visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+                completed_input_row = (
+                    12 - runtime.screen._visible_height() + completed_input.ypos
+                )
+
+                assert running_input_row == initial_input_row
+                assert completed_input_row == initial_input_row
+                assert completed_input.ypos == running_input.ypos
+
+                for screen in (
+                    initial_screen,
+                    running_screen,
+                    completed_screen,
+                ):
+                    positions = screen.visible_windows_to_write_positions
+                    assert runtime.screen.canvas_spacer not in positions
+                    nonblank_rows = [
+                        row
+                        for row, cells in screen.data_buffer.items()
+                        if "".join(
+                            cells[column].char
+                            for column in sorted(cells)
+                        ).strip()
+                    ]
+                    assert min(nonblank_rows) == 0
+            finally:
+                if runtime.screen.process_viewer.active:
+                    runtime.resolve_process_viewer("detach")
+                    if viewer is not None:
+                        await viewer
+                    runtime.dismiss_process_viewer()
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_shell_submission_keeps_input_row_during_viewer_handoff() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=80),
+        ):
+            await runtime.open()
+            viewer = None
+            try:
+                runtime.append_block(_block(">_ App (v1.0)"), kind="system")
+                prompt_task = asyncio.create_task(runtime.read_message(
+                    PromptContext(model="test")
+                ))
+                runtime.screen.input.buffer.text = "!adb devices"
+                typed_screen = await _render_next_frame(runtime)
+                typed_input = typed_screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                typed_input_row = (
+                    12 - runtime.screen._visible_height() + typed_input.ypos
+                )
+
+                with patch.object(
+                    runtime.document,
+                    "stage_submission",
+                    wraps=runtime.document.stage_submission,
+                ) as stage_submission:
+                    runtime.screen.input.buffer.validate_and_handle()
+                    assert await prompt_task == "!adb devices"
+
+                stage_submission.assert_not_called()
+                submitted_screen = await _render_next_frame(runtime)
+                submitted_input = (
+                    submitted_screen.visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+                submitted_input_row = (
+                    12 - runtime.screen._visible_height() + submitted_input.ypos
+                )
+
+                snapshot = {
+                    "ok": True,
+                    "session_id": "exec_shell",
+                    "command": "adb devices",
+                    "status": "running",
+                    "origin": "tui_shell",
+                    "output_lines": ["List of devices attached"],
+                }
+                viewer = runtime.begin_process_viewer(
+                    ProcessViewerRequest(
+                        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+                        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+                        capture_input=False,
+                    ),
+                    exec_session_live_block(
+                        snapshot,
+                        terminal_width=80,
+                        viewer_mode="inline",
+                    ),
+                )
+                viewer_screen = await _render_next_frame(runtime)
+                viewer_input = viewer_screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                viewer_input_row = (
+                    12 - runtime.screen._visible_height() + viewer_input.ypos
+                )
+
+                assert submitted_input_row == typed_input_row
+                assert viewer_input_row == typed_input_row
+            finally:
+                if runtime.screen.process_viewer.active:
+                    runtime.resolve_process_viewer("detach")
+                    if viewer is not None:
+                        await viewer
+                    runtime.dismiss_process_viewer()
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_inline_shell_detaches_before_next_submission_is_staged() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=80),
+        ):
+            await runtime.open()
+            settle_task = None
+            try:
+                runtime.append_block(_block(">_ App (v1.0)"), kind="system")
+                viewer = runtime.begin_process_viewer(
+                    ProcessViewerRequest(
+                        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+                        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+                        capture_input=False,
+                    ),
+                    exec_session_live_block(
+                        {
+                            "ok": True,
+                            "session_id": "exec_shell",
+                            "command": "ping -t 8.8.8.8",
+                            "status": "running",
+                            "origin": "tui_shell",
+                            "output_lines": ["reply"],
+                        },
+                        terminal_width=80,
+                        viewer_mode="inline",
+                    ),
+                )
+
+                async def settle_viewer() -> None:
+                    assert await viewer == "detach"
+                    runtime.commit_process_viewer(_block(
+                        "• Shell ping -t 8.8.8.8\n└ reply"
+                    ))
+
+                settle_task = asyncio.create_task(settle_viewer())
+                prompt_task = asyncio.create_task(runtime.read_message(
+                    PromptContext(model="test")
+                ))
+                runtime.screen.input.buffer.text = "/resume"
+                active_screen = await _render_next_frame(runtime)
+                active_input = active_screen.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+                active_input_row = (
+                    12 - runtime.screen._visible_height() + active_input.ypos
+                )
+
+                stage_states: list[bool] = []
+                stage_submission = runtime.document.stage_submission
+
+                def stage_after_detach(*args, **kwargs) -> None:
+                    stage_states.append(runtime.screen.process_viewer.active)
+                    stage_submission(*args, **kwargs)
+
+                with patch.object(
+                    runtime.document,
+                    "stage_submission",
+                    side_effect=stage_after_detach,
+                ):
+                    runtime.screen.input.buffer.validate_and_handle()
+                    assert await prompt_task == "/resume"
+
+                await settle_task
+                settle_task = None
+                submitted_screen = await _render_next_frame(runtime)
+                submitted_input = (
+                    submitted_screen.visible_windows_to_write_positions[
+                        runtime.screen.input.window
+                    ]
+                )
+                submitted_input_row = (
+                    12 - runtime.screen._visible_height() + submitted_input.ypos
+                )
+
+                assert stage_states == [False]
+                assert submitted_input_row == active_input_row
+            finally:
+                if settle_task is not None:
+                    settle_task.cancel()
+                    await asyncio.gather(settle_task, return_exceptions=True)
                 await runtime.close()
 
 

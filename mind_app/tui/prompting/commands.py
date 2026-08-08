@@ -291,6 +291,11 @@ def submission_uses_transient_surface(value: str) -> bool:
     return bool(command is not None and command.surface_on_bare)
 
 
+def submission_replaces_query(value: str) -> bool:
+    """判断输入是否由后续结果块直接替代。"""
+    return str(value or "").startswith("!")
+
+
 def _completion_items() -> tuple[dict[str, str], ...]:
     """生成补全器使用的有序命令条目。"""
     items: list[dict[str, str]] = []

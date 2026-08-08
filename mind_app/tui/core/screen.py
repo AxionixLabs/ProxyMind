@@ -1060,6 +1060,10 @@ class TuiScreen(object):
         """在稳定正文移入终端历史后收束实时画布高度。"""
         self._cap_canvas_height_floor(self._natural_visible_height())
 
+    def settle_dynamic_output_layout(self) -> None:
+        """在动态正文结束后收束实时画布高度。"""
+        self._cap_canvas_height_floor(self._natural_visible_height())
+
     def set_transcript_overlay(self, active: bool) -> bool:
         """切换完整会话记录、终端画面和键盘焦点。"""
         active = bool(active)

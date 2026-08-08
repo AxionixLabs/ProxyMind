@@ -19,7 +19,9 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
     PROCESS_VIEWER_FOCUS_REQUEST,
+    PS_INTERRUPT_GRACE_SEC,
     PS_OUTPUT_LIMIT,
+    _interrupt_exec_session,
     append_exec_stream_snapshot,
     exec_session_live_block,
     exec_session_summary_block,
@@ -232,12 +234,13 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
     assert watch.call_args.args[:3] == (runtime, mind, "exec_shell")
     assert watch.call_args.kwargs["announce_detach"] is True
     assert watch.call_args.kwargs["viewer_mode"] == "inline"
+    assert watch.call_args.kwargs["capture_input"] is False
     assert runtime.started[0] == "shell viewer exec_shell"
     await runtime.task
 
 
 @pytest.mark.anyio
-async def test_shell_escape_background_task_preserves_modal_viewer() -> None:
+async def test_shell_escape_background_task_keeps_input_visible() -> None:
     snapshot = {
         "ok": True,
         "session_id": "exec_shell",
@@ -251,6 +254,10 @@ async def test_shell_escape_background_task_preserves_modal_viewer() -> None:
         frontend=SimpleNamespace(application=application),
         native_coding=SimpleNamespace(
             start_user_shell_session=AsyncMock(return_value=snapshot),
+            running_exec_sessions=AsyncMock(return_value={
+                "count": 1,
+                "items": [snapshot],
+            }),
             exec_session_output_snapshot=AsyncMock(return_value=snapshot),
         ),
     )
@@ -270,7 +277,11 @@ async def test_shell_escape_background_task_preserves_modal_viewer() -> None:
 
     assert handled
     assert runtime.screen.process_viewer.active
-    assert not runtime.screen.input_area.filter()
+    assert runtime.screen.process_viewer.input_passthrough
+    assert runtime.screen.bottom_pane.active_surface is None
+    assert runtime.screen.input_area.filter()
+    assert runtime.screen.input_footer.filter()
+    assert runtime.screen._process_status_height() == 0
     assert runtime._background_tasks
 
     tasks = tuple(runtime._background_tasks)
@@ -279,6 +290,188 @@ async def test_shell_escape_background_task_preserves_modal_viewer() -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
     assert not runtime.screen.process_viewer.active
+
+
+@pytest.mark.anyio
+async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
+    running = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "ping -t 8.8.8.8",
+        "status": "running",
+        "origin": "tui_shell",
+        "output_lines": ["reply"],
+    }
+    exited = {
+        **running,
+        "status": "exited",
+        "exit_code": 130,
+    }
+    state = {"interrupted": False}
+
+    async def control_exec_session(**_kwargs):
+        state["interrupted"] = True
+        return exited
+
+    async def output_snapshot(**_kwargs):
+        return exited if state["interrupted"] else running
+
+    native_coding = SimpleNamespace(
+        start_user_shell_session=AsyncMock(return_value=running),
+        running_exec_sessions=AsyncMock(return_value={
+            "count": 1,
+            "items": [{
+                "session_id": "exec_shell",
+                "command": "ping -t 8.8.8.8",
+            }],
+        }),
+        exec_session_output_snapshot=AsyncMock(side_effect=output_snapshot),
+        control_exec_session=AsyncMock(side_effect=control_exec_session),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=_ApplicationStub()),
+        native_coding=native_coding,
+    )
+    runtime = TuiRuntime()
+
+    with (
+        patch(
+            "mind_app.tui.features.shell.default_shell_executable",
+            return_value="shell",
+        ),
+        patch(
+            "mind_app.tui.features.shell.direct_command_args",
+            return_value=["ping", "-t", "8.8.8.8"],
+        ),
+    ):
+        assert await run_shell_escape(
+            runtime,
+            mind,
+            "!ping -t 8.8.8.8",
+        )
+
+    tasks = tuple(runtime._background_tasks)
+    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+    await asyncio.gather(*tasks)
+
+    native_coding.control_exec_session.assert_awaited_once_with(
+        session_id="exec_shell",
+        control="interrupt",
+    )
+    assert not runtime.screen.process_viewer.active
+    assert runtime.document.active_block is None
+
+
+@pytest.mark.anyio
+async def test_interrupt_exec_session_returns_control_snapshot_immediately() -> None:
+    exited = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "status": "exited",
+        "exit_code": 130,
+    }
+    native_coding = SimpleNamespace(
+        control_exec_session=AsyncMock(return_value=exited),
+        exec_session_output_snapshot=AsyncMock(),
+    )
+    mind = SimpleNamespace(native_coding=native_coding)
+
+    with patch(
+        "mind_app.tui.features.processes.asyncio.sleep",
+        new_callable=AsyncMock,
+    ) as sleep:
+        result = await _interrupt_exec_session(mind, "exec_shell")
+
+    assert result == exited
+    sleep.assert_not_awaited()
+    native_coding.exec_session_output_snapshot.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_interrupt_exec_session_force_stops_unresponsive_process() -> None:
+    running = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "status": "running",
+    }
+    exited = {
+        **running,
+        "status": "exited",
+        "exit_code": 1,
+    }
+    native_coding = SimpleNamespace(
+        control_exec_session=AsyncMock(side_effect=[running, exited]),
+        exec_session_output_snapshot=AsyncMock(return_value=running),
+    )
+    mind = SimpleNamespace(native_coding=native_coding)
+
+    with patch(
+        "mind_app.tui.features.processes.asyncio.sleep",
+        new_callable=AsyncMock,
+    ) as sleep:
+        result = await _interrupt_exec_session(mind, "exec_shell")
+
+    assert result == exited
+    sleep.assert_awaited_once_with(PS_INTERRUPT_GRACE_SEC)
+    assert [
+        call.kwargs["control"]
+        for call in native_coding.control_exec_session.await_args_list
+    ] == ["interrupt", "kill"]
+
+
+@pytest.mark.anyio
+async def test_second_shell_shows_first_shell_in_process_status() -> None:
+    current = {
+        "ok": True,
+        "session_id": "exec_second",
+        "command": "adb devices",
+        "status": "running",
+        "origin": "tui_shell",
+        "output_lines": [],
+    }
+    native_coding = SimpleNamespace(
+        start_user_shell_session=AsyncMock(return_value=current),
+        running_exec_sessions=AsyncMock(return_value={
+            "count": 2,
+            "items": [
+                {
+                    "session_id": "exec_first",
+                    "command": "ping -t 8.8.8.8",
+                },
+                {
+                    "session_id": "exec_second",
+                    "command": "adb devices",
+                },
+            ],
+        }),
+        exec_session_output_snapshot=AsyncMock(return_value=current),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=_ApplicationStub()),
+        native_coding=native_coding,
+    )
+    runtime = TuiRuntime()
+
+    with (
+        patch(
+            "mind_app.tui.features.shell.default_shell_executable",
+            return_value="shell",
+        ),
+        patch(
+            "mind_app.tui.features.shell.direct_command_args",
+            return_value=["adb", "devices"],
+        ),
+    ):
+        assert await run_shell_escape(runtime, mind, "!adb devices")
+
+    assert runtime.inline_process_session_id == "exec_second"
+    assert runtime.screen.process_status.label == "ping -t 8.8.8.8"
+    assert runtime.screen._process_status_height() == 1
+
+    tasks = tuple(runtime._background_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @pytest.mark.anyio
@@ -782,7 +975,7 @@ def test_shell_stream_panel_writes_tree_summary_into_document() -> None:
     assert text == (
         "• Shell adb devices\n"
         "└ List of devices attached\n"
-        "  device-1\n "
+        "  device-1"
     )
 
 
@@ -874,6 +1067,70 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
 
 
 @pytest.mark.anyio
+async def test_inline_process_viewer_keeps_input_and_footer_visible() -> None:
+    runtime = TuiRuntime()
+    live_block = FragmentBlock((("class:ps.title", "Shell running\noutput"),))
+    task = asyncio.create_task(runtime.view_process(
+        ProcessViewerRequest(
+            fragments=(("", " "),),
+            max_height=1,
+            capture_input=False,
+            session_id="exec_shell",
+        ),
+        live_block,
+    ))
+    await asyncio.sleep(0)
+
+    assert runtime.screen.process_viewer.active
+    assert runtime.screen.process_viewer.input_passthrough
+    assert runtime.inline_process_session_id == "exec_shell"
+    assert runtime.screen.bottom_pane.active_surface is None
+    assert runtime.screen.input_area.filter()
+    assert runtime.screen.input_footer.filter()
+    assert runtime.screen._process_viewer_height() == 0
+    assert runtime.screen._process_status_height() == 0
+
+    runtime.resolve_process_viewer("detach")
+    assert await task == "detach"
+    assert runtime.screen.process_viewer.active
+
+    runtime.dismiss_process_viewer()
+    assert not runtime.screen.process_viewer.active
+
+
+@pytest.mark.anyio
+async def test_ctrl_c_interrupts_inline_shell_and_arms_exit() -> None:
+    runtime = TuiRuntime()
+    task = asyncio.create_task(runtime.view_process(
+        ProcessViewerRequest(
+            fragments=(("", " "),),
+            capture_input=False,
+            session_id="exec_shell",
+        ),
+        FragmentBlock((("", "• Shell ping -t 8.8.8.8"),)),
+    ))
+    await asyncio.sleep(0)
+
+    runtime.screen.input.buffer.text = "draft"
+    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+
+    assert await task == "interrupt"
+    assert runtime.screen.input.buffer.text == ""
+    assert runtime.submissions.interrupt_state.exit_armed
+    assert "".join(
+        text for _style, text in runtime.screen._footer_fragments()
+    ) == "Ctrl + C again to exit"
+    assert runtime.screen.process_viewer.active
+
+    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+
+    assert runtime.submissions.interrupt_state.exit_requested
+
+    runtime.dismiss_process_viewer()
+    assert not runtime.screen.process_viewer.active
+
+
+@pytest.mark.anyio
 async def test_foreground_process_completion_commits_in_place() -> None:
     application = _ApplicationStub()
     initial = {
@@ -930,7 +1187,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
     "output_lines",
     [[], [f"line {index}" for index in range(12)]],
 )
-async def test_process_completion_preserves_total_layout_height(
+async def test_inline_shell_completion_preserves_total_layout_height(
     output_lines,
     terminal_width,
 ) -> None:
@@ -954,7 +1211,12 @@ async def test_process_completion_preserves_total_layout_height(
         terminal_width=terminal_width,
     )
     task = asyncio.create_task(runtime.view_process(
-        PROCESS_VIEWER_FOCUS_REQUEST,
+        ProcessViewerRequest(
+            fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+            max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+            capture_input=False,
+            session_id="exec_shell",
+        ),
         live_block,
     ))
     await asyncio.sleep(0)
