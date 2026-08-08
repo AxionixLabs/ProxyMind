@@ -488,6 +488,13 @@ async def post_build() -> None:
         )
 
         await rename_sensitive(*rename)
+
+        if ops == "darwin":
+            standalone_output = app / f"{const.APP_NAME}.dist"
+            if standalone_output.exists():
+                await asyncio.to_thread(shutil.rmtree, standalone_output)
+                compile_log(f"[✓] 已清理独立模式中间产物 {standalone_output}")
+
         await sweep_cache_tree(app)
 
         structure_parent = (
