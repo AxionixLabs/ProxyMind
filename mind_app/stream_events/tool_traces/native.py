@@ -3,9 +3,11 @@
 
 import typing
 import textwrap
-import unicodedata
 from mind_app.stream_events.command_preview import command_text
-from mind_app.presentation.text_layout import text_display_width
+from mind_app.presentation.text_layout import (
+    clip_display_text,
+    text_display_width
+)
 from mind_app.presentation.terminal_text import sanitize_terminal_line
 from .common import (
     MAX_PREVIEW_WIDTH,
@@ -444,99 +446,11 @@ def _shell_command_title(
         terminal_width - max(0, width_of(SHELL_TRACE_TITLE_PREFIX)),
     )
 
-    return _clip_display_text(
+    return clip_display_text(
         text,
         width=available,
         measure_width=width_of,
     )
-
-
-def _clip_display_text(
-    text: str,
-    *,
-    width: int,
-    measure_width: typing.Callable[[str], int]
-) -> str:
-    """按终端显示宽度裁剪单行文本并保留组合字符边界。"""
-    limit = max(0, int(width))
-    if limit <= 0:
-        return ""
-    if measure_width(text) <= limit:
-        return text
-
-    ellipsis_text = "…"
-
-    ellipsis_width = max(0, measure_width(ellipsis_text))
-    if limit <= ellipsis_width:
-        return ellipsis_text if ellipsis_width <= limit else ""
-
-    target = limit - ellipsis_width
-
-    used: int = 0
-
-    units: list[str] = []
-    for unit in _display_text_units(text):
-        unit_width = max(0, measure_width(unit))
-        if used + unit_width > target:
-            break
-        units.append(unit)
-        used += unit_width
-
-    return f"{''.join(units).rstrip()}{ellipsis_text}"
-
-
-def _display_text_units(text: str) -> typing.Iterator[str]:
-    """迭代裁剪时不得拆开的组合文本单元。"""
-    value = str(text or "")
-    start = 0
-
-    while start < len(value):
-        end = _display_text_unit_end(value, start)
-        yield value[start:end]
-        start = end
-
-
-def _display_text_unit_end(text: str, start: int) -> int:
-    """返回一个组合文本单元在字符串中的结束位置。"""
-    limit = len(text)
-    index = min(limit, max(0, int(start)))
-    if index >= limit:
-        return limit
-
-    first = text[index]
-    index += 1
-    if _regional_indicator(first):
-        if index < limit and _regional_indicator(text[index]):
-            index += 1
-        return index
-
-    while index < limit:
-        char = text[index]
-        if _extends_display_text_unit(char):
-            index += 1
-            continue
-        if char == "\u200d" and index + 1 < limit:
-            index += 2
-            continue
-        break
-    return index
-
-
-def _extends_display_text_unit(char: str) -> bool:
-    """判断字符是否延续前一个组合文本单元。"""
-    codepoint = ord(char)
-    return bool(
-        unicodedata.combining(char)
-        or unicodedata.category(char).startswith("M")
-        or 0xFE00 <= codepoint <= 0xFE0F
-        or 0xE0100 <= codepoint <= 0xE01EF
-        or 0x1F3FB <= codepoint <= 0x1F3FF
-    )
-
-
-def _regional_indicator(char: str) -> bool:
-    """判断字符是否为区域指示符。"""
-    return 0x1F1E6 <= ord(char) <= 0x1F1FF
 
 
 def _shell_command_raw_lines(command: typing.Any) -> list[str]:

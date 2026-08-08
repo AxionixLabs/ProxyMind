@@ -237,6 +237,47 @@ def test_width_limited_shell_title_keeps_full_command_projections() -> None:
     assert command in render_presentation_raw_view(result_view)[0]
 
 
+@pytest.mark.parametrize("width", (20, 40, 80, 160))
+@pytest.mark.parametrize(
+    "output_line",
+    (
+        "value-" * 80,
+        "界" * 240,
+        "👩\u200d💻" * 120,
+    ),
+    ids=("ascii", "cjk", "zwj"),
+)
+@pytest.mark.parametrize("ok", (True, False), ids=("success", "failure"))
+def test_shell_preview_lines_use_terminal_display_width(
+    width: int,
+    output_line: str,
+    ok: bool,
+) -> None:
+    view = build_native_tool_result_view(
+        "shell_command",
+        {"command": "printf output"},
+        ok=ok,
+        data={
+            "command": "printf output",
+            "output_lines": [output_line],
+            "exit_code": 0 if ok else 1,
+        },
+    )
+
+    block = render_presentation_view(
+        view,
+        terminal_width=width,
+        measure_width=get_cwidth,
+    )[0]
+    display_lines = _rendered_text(block).splitlines()
+
+    assert len(display_lines) == 2
+    assert display_lines[1].startswith("└ ")
+    assert all(get_cwidth(line) <= width for line in display_lines)
+    assert output_line in render_presentation_transcript_view(view)[0].plain_text
+    assert output_line in render_presentation_raw_view(view)[0]
+
+
 def test_tool_result_uses_invoked_copy_and_result_colors() -> None:
     success = render_generic_tool_result_view(build_generic_tool_result_view(
         "remote_tool",

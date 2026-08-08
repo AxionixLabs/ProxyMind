@@ -89,6 +89,12 @@ def render_native_tool_result_view(
                 title,
                 preview=entry.preview,
                 ok=entry.ok,
+                terminal_width=(
+                    terminal_width
+                    if view.name in {"shell_command", "exec_command", "write_stdin"}
+                    else None
+                ),
+                measure_width=measure_width,
             )),
             preserve_spans=True,
         ))

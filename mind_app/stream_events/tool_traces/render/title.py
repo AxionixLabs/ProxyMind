@@ -8,6 +8,10 @@ from mind_app.presentation.models import (
     TextStyle,
     TracePreview
 )
+from mind_app.presentation.text_layout import (
+    clip_display_text,
+    text_display_width
+)
 from mind_app.presentation.styles import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
@@ -35,12 +39,20 @@ def render_tool_trace_parts(
     title: str,
     *,
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
-    ok: bool | None = True
+    ok: bool | None = True,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> list[TextSpan]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
     parts = title_parts(title, ok=ok, part=_part)
 
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
+
+    preview_text = _clip_text_preview(
+        preview_text,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
     if preview_text:
         if parts:
             parts.append(_part("\n", None))
@@ -67,6 +79,30 @@ def render_tool_trace_parts(
             parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
 
     return parts
+
+
+def _clip_text_preview(
+    preview_text: str,
+    *,
+    terminal_width: int | None,
+    measure_width: typing.Callable[[str], int] | None
+) -> str:
+    """按轨迹前缀后的可用宽度裁剪文本预览行。"""
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return preview_text
+
+    width_of     = measure_width or text_display_width
+    prefix_width = max(width_of("└ "), width_of("  "))
+    available    = max(0, terminal_width - prefix_width)
+
+    return "\n".join(
+        clip_display_text(
+            line,
+            width=available,
+            measure_width=width_of,
+        )
+        for line in str(preview_text or "").split("\n")
+    )
 
 
 def _plain_preview_parts(

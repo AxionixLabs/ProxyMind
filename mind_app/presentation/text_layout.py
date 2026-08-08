@@ -16,6 +16,43 @@ def text_display_width(text: str) -> int:
     return width
 
 
+def clip_display_text(
+    text: str,
+    *,
+    width: int,
+    measure_width: typing.Callable[[str], int] | None = None,
+) -> str:
+    """按终端显示宽度裁剪单行文本并保留组合字符边界。"""
+    value = str(text or "")
+    limit = max(0, int(width))
+    width_of = measure_width or text_display_width
+
+    if limit <= 0:
+        return ""
+    if width_of(value) <= limit:
+        return value
+
+    ellipsis_text = "…"
+
+    ellipsis_width = max(0, width_of(ellipsis_text))
+    if limit <= ellipsis_width:
+        return ellipsis_text if ellipsis_width <= limit else ""
+
+    target = limit - ellipsis_width
+
+    used: int = 0
+
+    units: list[str] = []
+    for unit in _display_text_units(value):
+        unit_width = max(0, width_of(unit))
+        if used + unit_width > target:
+            break
+        units.append(unit)
+        used += unit_width
+
+    return f"{''.join(units).rstrip()}{ellipsis_text}"
+
+
 def wrap_styled_line(
     parts: list[TextSpan],
     *,
@@ -33,7 +70,8 @@ def wrap_styled_line(
     line_width  = max(1, int(terminal_width or 0))
     first_width = max(1, line_width - width_of(first_prefix))
     next_width  = max(1, line_width - width_of(continuation_prefix.text))
-    lines       = _wrap_styled_cells(
+
+    lines = _wrap_styled_cells(
         cells,
         first_width=first_width,
         next_width=next_width,
@@ -50,15 +88,70 @@ def wrap_styled_line(
     return wrapped
 
 
+def _display_text_units(text: str) -> typing.Iterator[str]:
+    """迭代裁剪时不得拆开的组合文本单元。"""
+    value = str(text or "")
+    start = 0
+
+    while start < len(value):
+        end = _display_text_unit_end(value, start)
+        yield value[start:end]
+        start = end
+
+
+def _display_text_unit_end(text: str, start: int) -> int:
+    """返回一个组合文本单元在字符串中的结束位置。"""
+    limit = len(text)
+    index = min(limit, max(0, int(start)))
+    if index >= limit:
+        return limit
+
+    first = text[index]
+    index += 1
+    if _regional_indicator(first):
+        if index < limit and _regional_indicator(text[index]):
+            index += 1
+        return index
+
+    while index < limit:
+        char = text[index]
+        if _extends_display_text_unit(char):
+            index += 1
+            continue
+        if char == "\u200d" and index + 1 < limit:
+            index += 2
+            continue
+        break
+    return index
+
+
+def _extends_display_text_unit(char: str) -> bool:
+    """判断字符是否延续前一个组合文本单元。"""
+    codepoint = ord(char)
+    return bool(
+        unicodedata.combining(char)
+        or unicodedata.category(char).startswith("M")
+        or 0xFE00 <= codepoint <= 0xFE0F
+        or 0xE0100 <= codepoint <= 0xE01EF
+        or 0x1F3FB <= codepoint <= 0x1F3FF
+    )
+
+
+def _regional_indicator(char: str) -> bool:
+    """判断字符是否为区域指示符。"""
+    return 0x1F1E6 <= ord(char) <= 0x1F1FF
+
+
 def _wrap_styled_cells(
     cells: list[TextSpan],
     *,
     first_width: int,
     next_width: int,
-    measure_width: typing.Callable[[str], int],
+    measure_width: typing.Callable[[str], int]
 ) -> list[list[TextSpan]]:
     """按首行和续行宽度拆分样式单元。"""
     lines: list[list[TextSpan]] = []
+
     remaining = cells
     width     = first_width
 
@@ -93,6 +186,7 @@ def _take_wrapped_line(
     limit = max(1, int(max_width or 1))
 
     line: list[TextSpan] = []
+
     width      = 0
     cursor     = 0
     last_space = -1

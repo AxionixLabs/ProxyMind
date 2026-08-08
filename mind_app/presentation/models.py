@@ -50,7 +50,7 @@ class TextStyle(object):
 @dataclass(frozen=True, slots=True)
 class TextSpan(object):
     """保存一段文本及其中立样式。"""
-    text: str
+    text: str = field()
     style: TextStyle = TextStyle()
     hyperlink: str | None = None
 

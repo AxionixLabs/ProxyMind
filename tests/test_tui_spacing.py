@@ -6898,6 +6898,38 @@ async def test_tui_shell_titles_share_one_visual_row_budget() -> None:
 
 
 @pytest.mark.anyio
+async def test_tui_shell_preview_keeps_each_output_on_one_visual_row() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    output_lines = [
+        "value-" * 40,
+        "界" * 120,
+        "👩\u200d💻" * 60,
+    ]
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "printf output"},
+        ok=True,
+        data={
+            "command": "printf output",
+            "output_lines": output_lines,
+        },
+        call_id="preview-width",
+    ))
+
+    display = _document_text(runtime.document)
+    display_lines = display.splitlines()
+
+    assert len(display_lines) == 4
+    assert all(get_cwidth(line) <= 20 for line in display_lines)
+    assert display_line_count(display, width=20) == len(display_lines)
+    assert all(line in _transcript_text(runtime.document) for line in output_lines)
+
+
+@pytest.mark.anyio
 async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
