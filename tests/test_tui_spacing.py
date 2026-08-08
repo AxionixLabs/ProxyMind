@@ -6842,6 +6842,62 @@ async def test_presentation_separates_consecutive_tool_groups() -> None:
 
 
 @pytest.mark.anyio
+async def test_tui_shell_titles_share_one_visual_row_budget() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    command = "echo " + "界🙂" * 80
+    arguments = {"command": command}
+
+    await presentation.emit(build_tool_start_view(
+        "shell_command",
+        arguments,
+        call_id="running",
+    ))
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        arguments,
+        ok=True,
+        data={"command": command, "output_lines": ["done"]},
+        call_id="ran",
+    ))
+    await presentation.emit(build_native_tool_result_view(
+        "exec_command",
+        arguments,
+        ok=True,
+        data={
+            "command": command,
+            "status": "running",
+            "output_lines": ["pending"],
+        },
+        call_id="started",
+    ))
+
+    lines = [
+        fragments_text(line)
+        for line in split_formatted_lines(runtime.document.fragments(width=20))
+    ]
+    titles = tuple(
+        next(line for line in lines if line.startswith(prefix))
+        for prefix in ("• Running ", "• Ran ", "• Started ")
+    )
+    summaries = tuple(
+        title.removeprefix(prefix)
+        for title, prefix in zip(
+            titles,
+            ("• Running ", "• Ran ", "• Started "),
+            strict=True,
+        )
+    )
+
+    assert all(get_cwidth(title) <= 20 for title in titles)
+    assert all("│" not in title for title in titles)
+    assert len(set(summaries)) == 1
+    assert command in _transcript_text(runtime.document)
+
+
+@pytest.mark.anyio
 async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)

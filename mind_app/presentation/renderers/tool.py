@@ -4,6 +4,10 @@
 import json
 import typing
 from mind_app.stream_events.command_preview import command_text
+from mind_app.stream_events.tool_traces.native import (
+    render_tool_start_trace,
+    render_tool_trace
+)
 from mind_app.stream_events.tool_traces.render import render_tool_trace_parts
 from ..models import (
     GenericToolResultView,
@@ -14,12 +18,27 @@ from ..models import (
 )
 
 
-def render_tool_start_view(view: ToolStartView) -> StyledBlock:
+def render_tool_start_view(
+    view: ToolStartView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
+) -> StyledBlock:
     """把普通工具开始视图转换为中立展示块。"""
+    title = (
+        render_tool_start_trace(
+            view.name,
+            view.arguments,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+        if view.name in {"shell_command", "exec_command"}
+        else view.title
+    )
     return StyledBlock(
-        plain_text=view.title,
+        plain_text=title,
         spans=tuple(render_tool_trace_parts(
-            view.title,
+            title,
             preview=view.preview,
             ok=None,
         )),
@@ -53,20 +72,27 @@ def render_native_tool_result_view(
             measure_width=measure_width,
         ),)
 
-    return tuple(
-        StyledBlock(
-            plain_text=_coding_trace_text(entry.title, entry.preview),
+    blocks: list[StyledBlock] = []
+    for entry in view.entries:
+        title = _native_result_title(
+            view,
+            entry.title,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+        blocks.append(StyledBlock(
+            plain_text=_coding_trace_text(
+                title,
+                entry.preview,
+            ),
             spans=tuple(render_tool_trace_parts(
-                entry.title,
+                title,
                 preview=entry.preview,
                 ok=entry.ok,
-                terminal_width=terminal_width,
-                measure_width=measure_width,
             )),
             preserve_spans=True,
-        )
-        for entry in view.entries
-    )
+        ))
+    return tuple(blocks)
 
 
 def render_javascript_result_view(
@@ -86,15 +112,34 @@ def render_javascript_result_view(
             title,
             preview=result_preview,
             ok=view.ok,
-            terminal_width=terminal_width,
-            measure_width=measure_width,
         )),
         preserve_spans=True,
     )
 
 
-def render_javascript_result_transcript_view(
+def _native_result_title(
     view: NativeToolResultView,
+    fallback: str,
+    *,
+    terminal_width: int | None,
+    measure_width: typing.Callable[[str], int] | None
+) -> str:
+    """返回按当前终端宽度生成的原生工具结果标题。"""
+    if view.name not in {"shell_command", "exec_command"}:
+        return fallback
+    return render_tool_trace(
+        view.name,
+        view.arguments,
+        ok=view.ok,
+        data=view.data,
+        cost_ms=view.cost_ms,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+
+
+def render_javascript_result_transcript_view(
+    view: NativeToolResultView
 ) -> StyledBlock:
     """把完整 JavaScript 源码和执行结果合并为记录块。"""
     title  = view.entries[0].title if view.entries else "• JavaScript"
@@ -107,7 +152,7 @@ def render_javascript_result_transcript_view(
 
 
 def render_javascript_result_raw_text(
-    view: NativeToolResultView,
+    view: NativeToolResultView
 ) -> str:
     """返回合并完成块中不含视觉装饰的完整文本。"""
     source = str(view.arguments.get("code") or "").strip("\n")
@@ -183,7 +228,7 @@ def render_tool_start_raw_text(view: ToolStartView) -> str:
 
 
 def render_generic_tool_result_raw_text(
-    view: GenericToolResultView,
+    view: GenericToolResultView
 ) -> str:
     """把普通工具结果转换为无装饰文本。"""
     return str(view.text or "")

@@ -3,21 +3,18 @@
 from mind_app.presentation.models import (
     FailureView,
     RunIncompleteView,
-    TextSpan,
-    TextStyle
+    TextSpan
 )
 from mind_app.presentation.renderers.dispatch import (
     render_presentation_transcript_view,
     render_presentation_view,
 )
-from mind_app.presentation.styles import PREVIEW_STYLE
 from mind_app.presentation.text_layout import text_display_width
 from mind_app.stream_events.failure_display import (
     render_failure_block,
     render_failure_display_parts,
     render_failure_text
 )
-from mind_app.stream_events.tool_traces.render.preview_wrap import wrap_title_parts
 
 
 def _display_text(parts: list[TextSpan]) -> str:
@@ -97,23 +94,3 @@ def test_incomplete_view_dispatch_displays_reason() -> None:
     ))
 
     assert blocks[0].plain_text == "■ turn.incomplete\n└ max_output_tokens"
-
-
-def test_tool_title_wrap_keeps_existing_continuation_prefix() -> None:
-    parts = [TextSpan("• Ran a command with a long title", TextStyle(bold=True))]
-
-    wrapped = wrap_title_parts(
-        parts,
-        terminal_width=16,
-        continuation_prefix="  │ ",
-        part=lambda text, style: TextSpan(text, style or TextStyle()),
-    )
-    lines = _display_text(wrapped).splitlines()
-
-    assert len(lines) > 1
-    assert all(line.startswith("  │ ") for line in lines[1:])
-    assert all(text_display_width(line) <= 16 for line in lines)
-    assert any(
-        part.text == "  │ " and part.style == PREVIEW_STYLE
-        for part in wrapped
-    )

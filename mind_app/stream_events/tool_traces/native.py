@@ -3,7 +3,10 @@
 
 import typing
 import textwrap
+import unicodedata
 from mind_app.stream_events.command_preview import command_text
+from mind_app.presentation.text_layout import text_display_width
+from mind_app.presentation.terminal_text import sanitize_terminal_line
 from .common import (
     MAX_PREVIEW_WIDTH,
     SCREEN_PREVIEW_LINES,
@@ -43,6 +46,9 @@ NATIVE_CODING_TRACE_TOOLS = {
     "apply_patch"
 }
 
+SHELL_TRACE_TITLE_PREFIX = "• Running "
+
+
 def coding_trace_tool(
     name: str
 ) -> bool:
@@ -52,7 +58,10 @@ def coding_trace_tool(
 
 def render_tool_start_trace(
     name: str,
-    arguments: dict[str, typing.Any]
+    arguments: dict[str, typing.Any],
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
     """生成工具开始执行时的轨迹标题。"""
     if name == "js_repl":
@@ -60,7 +69,11 @@ def render_tool_start_trace(
     if name == "js_repl_reset":
         return "• Resetting JavaScript"
     if name in {"shell_command", "exec_command"}:
-        command = _shell_command_title(arguments.get("command"))
+        command = _shell_command_title(
+            arguments.get("command"),
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
         return f"• Running {command}".rstrip()
     if name == "write_stdin":
         session_id = str(arguments.get("session_id") or "").strip()
@@ -81,7 +94,7 @@ def render_tool_start_preview(
         return _trace_preview_from_lines(["no args"])
 
     if name == "js_repl":
-        code = str(arguments.get("code") or "")
+        code  = str(arguments.get("code") or "")
         lines = _javascript_preview_lines(code)
         if not any(line.strip() for line in lines):
             lines = ["(empty cell)"]
@@ -250,7 +263,9 @@ def render_tool_trace(
     *,
     ok: bool,
     data: typing.Any = None,
-    cost_ms: int | None = None
+    cost_ms: int | None = None,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
     """生成工具执行完成后的轨迹标题。"""
     _ = cost_ms
@@ -281,8 +296,13 @@ def render_tool_trace(
             suffix     = f" {session_id}" if session_id else ""
             return f"• Wrote stdin{suffix}".rstrip()
 
-        command = _shell_command_title(payload.get("command") or args.get("command"))
-        verb    = "Started" if name == "exec_command" and payload.get("status") == "running" else "Ran"
+        command = _shell_command_title(
+            payload.get("command") or args.get("command"),
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+
+        verb = "Started" if name == "exec_command" and payload.get("status") == "running" else "Ran"
         return f"• {verb} {command}".rstrip()
 
     if name == "js_repl":
@@ -403,12 +423,120 @@ def _shell_command_empty_preview_lines(
     return [summary]
 
 
-def _shell_command_title(command: typing.Any) -> str:
+def _shell_command_title(
+    command: typing.Any,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
+) -> str:
     """生成 shell_command 标题中的命令摘要。"""
-    lines = _shell_command_raw_lines(command)
-    if not lines:
-        return "shell command"
-    return _short_text(lines[0], MAX_PREVIEW_WIDTH)
+    lines  = _shell_command_raw_lines(command)
+    source = lines[0] if lines else "shell command"
+
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return _short_text(source, MAX_PREVIEW_WIDTH)
+
+    width_of = measure_width or text_display_width
+    text     = sanitize_terminal_line(source, measure_width=width_of) or "shell command"
+
+    available = max(
+        0,
+        terminal_width - max(0, width_of(SHELL_TRACE_TITLE_PREFIX)),
+    )
+
+    return _clip_display_text(
+        text,
+        width=available,
+        measure_width=width_of,
+    )
+
+
+def _clip_display_text(
+    text: str,
+    *,
+    width: int,
+    measure_width: typing.Callable[[str], int]
+) -> str:
+    """按终端显示宽度裁剪单行文本并保留组合字符边界。"""
+    limit = max(0, int(width))
+    if limit <= 0:
+        return ""
+    if measure_width(text) <= limit:
+        return text
+
+    ellipsis_text = "…"
+
+    ellipsis_width = max(0, measure_width(ellipsis_text))
+    if limit <= ellipsis_width:
+        return ellipsis_text if ellipsis_width <= limit else ""
+
+    target = limit - ellipsis_width
+
+    used: int = 0
+
+    units: list[str] = []
+    for unit in _display_text_units(text):
+        unit_width = max(0, measure_width(unit))
+        if used + unit_width > target:
+            break
+        units.append(unit)
+        used += unit_width
+
+    return f"{''.join(units).rstrip()}{ellipsis_text}"
+
+
+def _display_text_units(text: str) -> typing.Iterator[str]:
+    """迭代裁剪时不得拆开的组合文本单元。"""
+    value = str(text or "")
+    start = 0
+
+    while start < len(value):
+        end = _display_text_unit_end(value, start)
+        yield value[start:end]
+        start = end
+
+
+def _display_text_unit_end(text: str, start: int) -> int:
+    """返回一个组合文本单元在字符串中的结束位置。"""
+    limit = len(text)
+    index = min(limit, max(0, int(start)))
+    if index >= limit:
+        return limit
+
+    first = text[index]
+    index += 1
+    if _regional_indicator(first):
+        if index < limit and _regional_indicator(text[index]):
+            index += 1
+        return index
+
+    while index < limit:
+        char = text[index]
+        if _extends_display_text_unit(char):
+            index += 1
+            continue
+        if char == "\u200d" and index + 1 < limit:
+            index += 2
+            continue
+        break
+    return index
+
+
+def _extends_display_text_unit(char: str) -> bool:
+    """判断字符是否延续前一个组合文本单元。"""
+    codepoint = ord(char)
+    return bool(
+        unicodedata.combining(char)
+        or unicodedata.category(char).startswith("M")
+        or 0xFE00 <= codepoint <= 0xFE0F
+        or 0xE0100 <= codepoint <= 0xE01EF
+        or 0x1F3FB <= codepoint <= 0x1F3FF
+    )
+
+
+def _regional_indicator(char: str) -> bool:
+    """判断字符是否为区域指示符。"""
+    return 0x1F1E6 <= ord(char) <= 0x1F1FF
 
 
 def _shell_command_raw_lines(command: typing.Any) -> list[str]:

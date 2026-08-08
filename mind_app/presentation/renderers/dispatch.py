@@ -142,7 +142,11 @@ def _render_presentation_view(
     if isinstance(view, ApprovalView):
         return (render_approval_view(view),)
     if isinstance(view, ToolStartView):
-        return (render_tool_start_view(view),)
+        return (render_tool_start_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, GenericToolResultView):
         return (render_generic_tool_result_view(view),)
     if isinstance(view, NativeToolResultView):

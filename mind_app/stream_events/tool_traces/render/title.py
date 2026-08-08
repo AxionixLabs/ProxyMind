@@ -23,10 +23,6 @@ from ..common import _preview_text
 from .preview_code import code_parts
 from .preview_error import error_preview_line_parts
 from .preview_tree import tree_preview_line_parts
-from .preview_wrap import (
-    shell_title_needs_wrap,
-    wrap_title_parts
-)
 from .title_parts import title_parts
 
 
@@ -39,53 +35,31 @@ def render_tool_trace_parts(
     title: str,
     *,
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
-    ok: bool | None = True,
-    terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    ok: bool | None = True
 ) -> list[TextSpan]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
     parts = title_parts(title, ok=ok, part=_part)
 
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
     if preview_text:
-        title_wrapped = shell_title_needs_wrap(
-            title,
-            terminal_width=terminal_width,
-            measure_width=measure_width,
-        )
-        if title_wrapped:
-            parts = wrap_title_parts(
-                parts,
-                terminal_width=max(1, int(terminal_width or 0)),
-                continuation_prefix="  │ ",
-                part=_part,
-                measure_width=measure_width,
-            )
-
         if parts:
             parts.append(_part("\n", None))
 
         preview_kind = preview.kind if isinstance(preview, TracePreview) else "text"
         if preview_kind == "plain":
-            preview_prefix = "  └ " if title_wrapped else "└ "
-            preview_indent = "    " if title_wrapped else "  "
-
             parts.extend([
-                _part(preview_prefix, PREVIEW_STYLE),
-                *_plain_preview_parts(preview_text, indent_prefix=preview_indent)
+                _part("└ ", PREVIEW_STYLE),
+                *_plain_preview_parts(preview_text, indent_prefix="  ")
             ])
 
         elif preview_kind in {"file_tree", "patch_tree"}:
             parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
 
         elif preview_kind != "tree":
-            preview_prefix = "  └ " if title_wrapped else "└ "
-            preview_indent = "    " if title_wrapped else "  "
-
             parts.extend(
                 [
-                    _part(preview_prefix, PREVIEW_STYLE),
-                    *_preview_parts(preview_text, ok=ok, indent_prefix=preview_indent)
+                    _part("└ ", PREVIEW_STYLE),
+                    *_preview_parts(preview_text, ok=ok, indent_prefix="  ")
                 ]
             )
 

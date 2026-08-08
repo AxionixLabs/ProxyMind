@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import pytest
+from prompt_toolkit.utils import get_cwidth
+
 from mind_app.presentation.renderers.tool import (
     render_generic_tool_result_view,
     render_javascript_result_raw_text,
@@ -10,6 +13,7 @@ from mind_app.presentation.renderers.tool import (
 )
 from mind_app.presentation.batch_views import build_batch_start_view
 from mind_app.presentation.renderers.dispatch import (
+    render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view,
 )
@@ -30,6 +34,19 @@ from mind_app.presentation.tool_views import (
 
 def _span_style(block, text: str):
     return next(span.style for span in block.spans if span.text == text)
+
+
+def _rendered_text(block) -> str:
+    return "".join(span.text for span in block.spans) or block.plain_text
+
+
+def _shell_display_title(block, *, preview: bool) -> str:
+    text = _rendered_text(block)
+    if not preview:
+        return text
+    title, separator, _preview = text.partition("\n└ ")
+    assert separator
+    return title
 
 
 def test_batch_start_transcript_keeps_full_nested_arguments() -> None:
@@ -81,6 +98,143 @@ def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
     assert "".join(span.text for span in start.spans) == "• Running echo ready"
     assert _span_style(start, "Running") == ACTION_RUN_STYLE
     assert result.plain_text.startswith("• Ran echo ready\n")
+
+
+def test_width_aware_short_shell_titles_keep_text_and_action_style() -> None:
+    arguments = {"command": "echo ready"}
+    start = render_presentation_view(
+        build_tool_start_view("shell_command", arguments),
+        terminal_width=40,
+        measure_width=get_cwidth,
+    )[0]
+    ran = render_presentation_view(
+        build_native_tool_result_view(
+            "shell_command",
+            arguments,
+            ok=True,
+            data={"command": "echo ready", "output_lines": ["ready"]},
+        ),
+        terminal_width=40,
+        measure_width=get_cwidth,
+    )[0]
+    started = render_presentation_view(
+        build_native_tool_result_view(
+            "exec_command",
+            arguments,
+            ok=True,
+            data={
+                "command": "echo ready",
+                "status": "running",
+                "output_lines": ["pending"],
+            },
+        ),
+        terminal_width=40,
+        measure_width=get_cwidth,
+    )[0]
+
+    assert _shell_display_title(start, preview=False) == "• Running echo ready"
+    assert _shell_display_title(ran, preview=True) == "• Ran echo ready"
+    assert _shell_display_title(started, preview=True) == "• Started echo ready"
+    assert _span_style(start, "Running") == ACTION_RUN_STYLE
+    assert _span_style(ran, "Ran") == ACTION_RUN_STYLE
+    assert _span_style(started, "Started") == ACTION_RUN_STYLE
+
+
+@pytest.mark.parametrize("width", (20, 40, 80, 160))
+@pytest.mark.parametrize(
+    "command",
+    (
+        "echo " + "value-" * 40,
+        "echo " + "界" * 120,
+        "echo " + "🙂" * 120,
+        "echo " + "👨\u200d👩\u200d👧\u200d👦" * 40,
+        "echo " + "e\u0301" * 240,
+    ),
+    ids=("ascii", "cjk", "emoji", "zwj", "combining"),
+)
+def test_shell_titles_use_one_shared_display_width_budget(
+    width: int,
+    command: str,
+) -> None:
+    arguments = {"command": command}
+    start = render_presentation_view(
+        build_tool_start_view("shell_command", arguments),
+        terminal_width=width,
+        measure_width=get_cwidth,
+    )[0]
+    ran = render_presentation_view(
+        build_native_tool_result_view(
+            "shell_command",
+            arguments,
+            ok=True,
+            data={"command": command, "output_lines": ["done"]},
+        ),
+        terminal_width=width,
+        measure_width=get_cwidth,
+    )[0]
+    started = render_presentation_view(
+        build_native_tool_result_view(
+            "exec_command",
+            arguments,
+            ok=True,
+            data={
+                "command": command,
+                "status": "running",
+                "output_lines": ["pending"],
+            },
+        ),
+        terminal_width=width,
+        measure_width=get_cwidth,
+    )[0]
+
+    titles = (
+        _shell_display_title(start, preview=False),
+        _shell_display_title(ran, preview=True),
+        _shell_display_title(started, preview=True),
+    )
+    prefixes = ("• Running ", "• Ran ", "• Started ")
+    summaries = tuple(
+        title.removeprefix(prefix)
+        for title, prefix in zip(titles, prefixes, strict=True)
+    )
+
+    assert all("\n" not in title and "│" not in title for title in titles)
+    assert all(get_cwidth(title) <= width for title in titles)
+    assert len(set(summaries)) == 1
+    assert summaries[0].endswith("…")
+    assert not summaries[0][:-1].endswith("\u200d")
+
+
+def test_width_limited_shell_title_keeps_full_command_projections() -> None:
+    command = "echo " + "value-" * 40 + "\n| jq .result"
+    start_view = build_tool_start_view(
+        "shell_command",
+        {"command": command},
+    )
+    result_view = build_native_tool_result_view(
+        "shell_command",
+        {"command": command},
+        ok=True,
+        data={"command": command, "output_lines": ["done"]},
+    )
+
+    start_display = render_presentation_view(
+        start_view,
+        terminal_width=20,
+        measure_width=get_cwidth,
+    )[0]
+    result_display = render_presentation_view(
+        result_view,
+        terminal_width=20,
+        measure_width=get_cwidth,
+    )[0]
+
+    assert command not in _rendered_text(start_display)
+    assert command not in _rendered_text(result_display)
+    assert command in render_presentation_transcript_view(start_view)[0].plain_text
+    assert command in render_presentation_transcript_view(result_view)[0].plain_text
+    assert render_presentation_raw_view(start_view) == (command,)
+    assert command in render_presentation_raw_view(result_view)[0]
 
 
 def test_tool_result_uses_invoked_copy_and_result_colors() -> None:
