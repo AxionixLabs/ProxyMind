@@ -21,11 +21,10 @@ from .queued import (
 )
 from ..prompting.commands import (
     StreamCommandPolicy,
-    is_unrecognized_slash_command,
+    slash_command_notice_message,
     submission_uses_transient_surface,
     stream_command_label,
-    stream_command_policy,
-    unrecognized_slash_command_message
+    stream_command_policy
 )
 
 _INPUT_CLOSED = object()
@@ -75,10 +74,6 @@ class TuiSubmissionFlow(object):
     """管理输入提交、可见排队、流式命令和退出中断状态。"""
 
     EXIT_CONFIRM_TIMEOUT_SEC: typing.Final[float] = 2.0
-
-    ROOT_SLASH_HINT: typing.Final[str] = (
-        "Choose a slash command from the menu or type its full name."
-    )
 
     def __init__(
         self,
@@ -168,27 +163,6 @@ class TuiSubmissionFlow(object):
     def has_pending_attachments(self) -> bool:
         """返回当前是否存在可随空消息发送的附件。"""
         return bool(self._has_pending_attachments())
-
-    def _reject_input(
-        self,
-        buffer: Buffer,
-        *,
-        editable_text: str,
-        message: str
-    ) -> bool:
-        """拒绝无效输入并显示一项输入提示。"""
-        self.input_model.rollback_submission_history(editable_text)
-        self.input_model.clear_submission_state()
-
-        buffer.text = ""
-        buffer.cursor_position = 0
-
-        self._append_notice(FragmentBlock((
-            ("class:input.notice.hint", "• "),
-            ("class:input.notice.hint", message),
-        )))
-        self._invalidate()
-        return False
 
     def _schedule_exit_expiry(self) -> None:
         """安排退出确认窗口到期后的界面恢复。"""
@@ -492,24 +466,6 @@ class TuiSubmissionFlow(object):
         if shell_mode:
             value = f"! {value}" if value else "!"
 
-        if value == "/":
-            return self._reject_input(
-                buffer,
-                editable_text=editable_text,
-                message=self.ROOT_SLASH_HINT,
-            )
-
-        if is_unrecognized_slash_command(value):
-            self._append_notice(FragmentBlock((
-                ("class:input.notice.hint", "•"),
-                (
-                    "class:input.notice.hint",
-                    f" {unrecognized_slash_command_message(value)}",
-                ),
-            )))
-            self._invalidate()
-            return True
-
         submission = TuiSubmission(
             value=value,
             editable_text=editable_text,
@@ -623,6 +579,13 @@ class TuiSubmissionFlow(object):
         if self._input_handoff_pending:
             self._input_handoff_pending = False
             self._get_input_buffer().reset()
+            if (
+                isinstance(submission, TuiSubmission)
+                and slash_command_notice_message(submission.value)
+            ):
+                self.input_model.rollback_submission_history(
+                    submission.visible_text
+                )
 
         self.clear_exit_confirmation()
         return submission

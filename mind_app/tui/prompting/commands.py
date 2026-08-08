@@ -236,6 +236,16 @@ def unrecognized_slash_command_message(value: str) -> str:
     )
 
 
+def slash_command_notice_message(value: str) -> str:
+    """返回无效斜杠输入需要展示的提示。"""
+    normalized = str(value or "").strip()
+    if normalized == "/":
+        return "Choose a slash command from the menu or type its full name."
+    if is_unrecognized_slash_command(normalized):
+        return unrecognized_slash_command_message(normalized)
+    return ""
+
+
 def parameterized_command_texts() -> tuple[str, ...]:
     """返回选中补全后继续保留编辑状态的命令文本。"""
     return tuple(

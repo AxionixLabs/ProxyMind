@@ -222,7 +222,24 @@ def test_root_slash_only_opens_completion() -> None:
 
 
 @pytest.mark.anyio
-async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    (
+        (
+            "/今天天气",
+            "Unrecognized command '/今天天气'. "
+            'Type "/" for a list of supported commands.',
+        ),
+        (
+            "/",
+            "Choose a slash command from the menu or type its full name.",
+        ),
+    ),
+)
+async def test_dispatcher_handles_invalid_slash_without_model(
+    command,
+    expected,
+) -> None:
     views = []
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
@@ -236,15 +253,12 @@ async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
         SimpleNamespace(),
     )
 
-    action = await dispatcher.dispatch("/今天天气")
+    action = await dispatcher.dispatch(command)
 
     assert action is DispatchAction.HANDLED
     assert "".join(
         text for _style, text in views[-1].renderable.fragments
-    ) == (
-        "Unrecognized command '/今天天气'. "
-        'Type "/" for a list of supported commands.'
-    )
+    ) == expected
 
 
 @pytest.mark.anyio

@@ -3450,7 +3450,18 @@ async def test_shell_submission_keeps_input_row_during_viewer_handoff() -> None:
 
 
 @pytest.mark.anyio
-async def test_inline_shell_detaches_before_next_submission_is_staged() -> None:
+@pytest.mark.parametrize(
+    ("value", "expected_stage_states"),
+    (
+        ("/resume", [False]),
+        ("/does-not-exist", []),
+        ("/", []),
+    ),
+)
+async def test_inline_shell_detaches_before_next_submission_is_staged(
+    value,
+    expected_stage_states,
+) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -3493,7 +3504,7 @@ async def test_inline_shell_detaches_before_next_submission_is_staged() -> None:
                 prompt_task = asyncio.create_task(runtime.read_message(
                     PromptContext(model="test")
                 ))
-                runtime.screen.input.buffer.text = "/resume"
+                runtime.screen.input.buffer.text = value
                 active_screen = await _render_next_frame(runtime)
                 active_input = active_screen.visible_windows_to_write_positions[
                     runtime.screen.input.window
@@ -3515,7 +3526,7 @@ async def test_inline_shell_detaches_before_next_submission_is_staged() -> None:
                     side_effect=stage_after_detach,
                 ):
                     runtime.screen.input.buffer.validate_and_handle()
-                    assert await prompt_task == "/resume"
+                    assert await prompt_task == value
 
                 await settle_task
                 settle_task = None
@@ -3529,8 +3540,9 @@ async def test_inline_shell_detaches_before_next_submission_is_staged() -> None:
                     12 - runtime.screen._visible_height() + submitted_input.ypos
                 )
 
-                assert stage_states == [False]
-                assert submitted_input_row == active_input_row
+                assert stage_states == expected_stage_states
+                if value != "/":
+                    assert submitted_input_row == active_input_row
             finally:
                 if settle_task is not None:
                     settle_task.cancel()

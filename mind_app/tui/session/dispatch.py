@@ -86,9 +86,8 @@ from ..features.skills import choose_skill
 from ..features.tools import print_available_tools
 from ..prompting.commands import (
     command_spec,
-    is_unrecognized_slash_command,
     matches_command,
-    unrecognized_slash_command_message
+    slash_command_notice_message
 )
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
@@ -132,6 +131,11 @@ class TuiCommandDispatcher(object):
 
     async def dispatch(self, prompt_text: str) -> DispatchAction:
         """处理一项输入并返回会话循环的下一步。"""
+        slash_notice = slash_command_notice_message(prompt_text)
+        if slash_notice:
+            self._present(text_block(slash_notice, BODY_STYLE))
+            return DispatchAction.HANDLED
+
         if ignored_tui_input(prompt_text):
             return DispatchAction.HANDLED
 
@@ -142,13 +146,6 @@ class TuiCommandDispatcher(object):
                 return DispatchAction.HANDLED
 
         command = prompt_text.strip().lower()
-
-        if is_unrecognized_slash_command(prompt_text):
-            self._present(text_block(
-                unrecognized_slash_command_message(prompt_text),
-                BODY_STYLE,
-            ))
-            return DispatchAction.HANDLED
 
         if command.startswith("/"):
             self._present()

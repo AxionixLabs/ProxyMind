@@ -59,6 +59,7 @@ from .styles import (
 )
 from ..prompting.commands import (
     resolve_tui_command,
+    slash_command_notice_message,
     submission_replaces_query
 )
 from .submission import (
@@ -1464,7 +1465,11 @@ class TuiRuntime(object):
 
         self.viewport.reset_view()
 
-        if visible and not submission_replaces_query(value):
+        if (
+            visible
+            and not submission_replaces_query(value)
+            and not slash_command_notice_message(value)
+        ):
             block = query_block(visible)
             self.document.stage_submission(block, raw_text=visible)
             if resolve_tui_command(value) is not None:

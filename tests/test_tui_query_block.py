@@ -116,50 +116,24 @@ def test_unknown_slash_text_is_not_styled_as_a_command() -> None:
     )
 
 
-def test_unknown_slash_command_stays_editable_and_never_enters_queue() -> None:
+@pytest.mark.anyio
+@pytest.mark.parametrize("value", ("/今天天气", "/"))
+async def test_invalid_slash_uses_submission_boundary_without_query_block(
+    value,
+) -> None:
     runtime = TuiRuntime()
     buffer = runtime.screen.input.buffer
-    buffer.text = "/今天天气"
+    read_task = asyncio.create_task(runtime.read_message(PromptContext(model="test")))
+    buffer.text = value
+    buffer.validate_and_handle()
 
-    keep_text = runtime.submissions.accept_input(buffer)
-
-    assert keep_text
-    assert buffer.text == "/今天天气"
-    assert runtime.submissions.message_queue.empty()
-    assert not runtime.submissions.queued_messages.active
-    assert runtime.document.blocks[-1].kind == "notice"
-    assert runtime.document.blocks[-1].display_block.fragments == (
-        ("class:input.notice.hint", "•"),
-        (
-            "class:input.notice.hint",
-            " Unrecognized command '/今天天气'. "
-            'Type "/" for a list of supported commands.',
-        ),
-    )
-    assert "".join(
-        text for _style, text in runtime.document.blocks[-1].display_block.fragments
-    ) == (
-        "• Unrecognized command '/今天天气'. "
-        'Type "/" for a list of supported commands.'
-    )
-
-
-def test_root_slash_is_rejected_with_hint_before_queueing() -> None:
-    runtime = TuiRuntime()
-    buffer = runtime.screen.input.buffer
-    buffer.text = "/"
-
-    keep_text = runtime.submissions.accept_input(buffer)
-
-    assert not keep_text
+    assert await read_task == value
     assert buffer.text == ""
     assert runtime.submissions.message_queue.empty()
     assert not runtime.submissions.queued_messages.active
-    assert "".join(
-        text for _style, text in runtime.document.blocks[-1].display_block.fragments
-    ) == (
-        "• Choose a slash command from the menu or type its full name."
-    )
+    assert runtime.input_model.history.get_strings() == []
+    assert not runtime.document.blocks
+    assert not runtime.document.has_pending_submission
 
 
 @pytest.mark.parametrize("text", ("", "   "))
