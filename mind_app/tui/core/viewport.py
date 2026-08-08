@@ -780,6 +780,8 @@ class TuiTranscriptViewport(object):
             synchronized: bool = False
 
             try:
+                synchronized = self._begin_synchronized_output()
+
                 async with in_terminal(render_cli_done=False):
                     if not self._scrollback_candidate_still_valid(candidate):
                         candidate = self._prepare_scrollback_candidate()
@@ -795,8 +797,6 @@ class TuiTranscriptViewport(object):
                     fragments = self.document.scrollback_prefix_fragments(
                         candidate.line_count
                     )
-
-                    synchronized = self._begin_synchronized_output()
 
                     self._print_scrollback_fragments(fragments)
 

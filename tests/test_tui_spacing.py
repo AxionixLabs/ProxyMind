@@ -1148,7 +1148,7 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
 
 
 @pytest.mark.anyio
-async def test_scrollback_starts_synchronized_output_after_terminal_acquire() -> None:
+async def test_scrollback_synchronizes_the_complete_terminal_transition() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         events: list[str] = []
@@ -1213,9 +1213,9 @@ async def test_scrollback_starts_synchronized_output_after_terminal_acquire() ->
                 begin.assert_called_once_with()
                 end.assert_called_once_with()
                 assert events == [
+                    "begin",
                     "wait",
                     "acquired",
-                    "begin",
                     "print",
                     "redraw",
                     "end",
@@ -1227,7 +1227,7 @@ async def test_scrollback_starts_synchronized_output_after_terminal_acquire() ->
 
 
 @pytest.mark.anyio
-async def test_scrollback_vt_baseline_erases_before_synchronized_output() -> None:
+async def test_scrollback_vt_transaction_wraps_erase_and_output() -> None:
     stream = io.StringIO()
     output = Vt100_Output(
         stream,
@@ -1262,7 +1262,7 @@ async def test_scrollback_vt_baseline_erases_before_synchronized_output() -> Non
                 "\x1b[?2026l",
                 synchronized_begin + 1,
             )
-            erased = payload.rfind("\x1b[J", 0, synchronized_begin)
+            erased = payload.find("\x1b[J", synchronized_begin)
             printed = payload.find("line 0", synchronized_begin)
 
             assert runtime.document.scrollback_line_count > 0
@@ -1272,9 +1272,121 @@ async def test_scrollback_vt_baseline_erases_before_synchronized_output() -> Non
                 printed,
                 synchronized_end,
             )
-            assert erased < synchronized_begin < printed < synchronized_end
+            assert synchronized_begin < erased < printed < synchronized_end
         finally:
             await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrollback_releases_sync_when_terminal_wait_is_cancelled() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        waiting = asyncio.Event()
+        blocked = asyncio.Event()
+        events: list[str] = []
+
+        @asynccontextmanager
+        async def blocked_terminal(render_cli_done: bool = False):
+            _ = render_cli_done
+            events.append("wait")
+            waiting.set()
+            await blocked.wait()
+            yield
+
+        with (
+            patch.object(
+                runtime.screen.application.output,
+                "get_size",
+                return_value=Size(rows=8, columns=40),
+            ),
+            patch(
+                "mind_app.tui.core.viewport.in_terminal",
+                blocked_terminal,
+            ),
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        side_effect=lambda: events.append("begin") or True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                        side_effect=lambda: events.append("end"),
+                    ) as end,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                    ) as print_text,
+                ):
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"line {index}" for index in range(30)
+                        )),
+                        kind="assistant",
+                    )
+                    await asyncio.wait_for(waiting.wait(), timeout=1.0)
+
+                    runtime.set_execution_active(True)
+                    await runtime.viewport._cancel_scrollback_task()
+
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
+                print_text.assert_not_called()
+                assert events == ["begin", "wait", "end"]
+                assert runtime.document.scrollback_line_count == 0
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrollback_releases_sync_after_print_failure() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=8, columns=40),
+        ):
+            await runtime.open()
+            try:
+                with (
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        return_value=True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                    ) as end,
+                    patch.object(
+                        runtime.screen.application,
+                        "print_text",
+                        side_effect=RuntimeError("print failed"),
+                    ),
+                ):
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"line {index}" for index in range(30)
+                        )),
+                        kind="assistant",
+                    )
+
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        if end.called:
+                            break
+
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
+                assert runtime.document.scrollback_line_count == 0
+            finally:
+                await runtime.close()
 
 
 @pytest.mark.anyio
@@ -1411,6 +1523,15 @@ async def test_scrollback_discards_candidate_after_unobserved_resize() -> None:
                         "_schedule_scrollback_reflow",
                     ) as schedule_reflow,
                     patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        return_value=True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                    ) as end,
+                    patch.object(
                         runtime.screen.application,
                         "print_text",
                     ) as print_text,
@@ -1428,6 +1549,8 @@ async def test_scrollback_discards_candidate_after_unobserved_resize() -> None:
                             break
 
                 print_text.assert_not_called()
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
                 schedule_reflow.assert_any_call()
                 assert runtime.document.scrollback_line_count == 0
                 assert runtime.viewport._observed_geometry == (24, 8)
