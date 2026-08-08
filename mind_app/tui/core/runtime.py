@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import typing
 import asyncio
 import contextlib
@@ -84,6 +85,13 @@ class _DeferredBlock(object):
     activity_lease: ActivityLease | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ProcessCompletion(object):
+    """保存尚未由用户确认的后台进程完成状态。"""
+    snapshot: dict[str, typing.Any]
+    label: str
+
+
 class _ActivityHandoff(object):
     """保存当前任务结果接管活动区域的状态。"""
 
@@ -152,6 +160,13 @@ class TuiRuntime(object):
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
 
         self._background_blocks: list[_DeferredBlock] = []
+
+        self._running_process_status_label: str = ""
+
+        self._process_completions: dict[str, _ProcessCompletion] = {}
+
+        self._process_routing_settled: asyncio.Event = asyncio.Event()
+        self._process_routing_settled.set()
 
         self._activity_handoff = contextvars.ContextVar[
             _ActivityHandoff | None
@@ -506,7 +521,58 @@ class TuiRuntime(object):
 
     def set_process_status_label(self, label: str) -> None:
         """更新动画区域下方的后台进程摘要。"""
+        self._running_process_status_label = str(label or "")
+        self._refresh_process_status()
+
+    def retain_process_completion(
+        self,
+        snapshot: dict[str, typing.Any],
+        *,
+        label: str
+    ) -> None:
+        """保存一项需要通过进程面板确认的完成快照。"""
+        session_id = str(snapshot.get("session_id") or "").strip()
+        if not session_id:
+            return None
+
+        self._process_completions.pop(session_id, None)
+        self._process_completions[session_id] = _ProcessCompletion(
+            snapshot=copy.deepcopy(snapshot),
+            label=str(label or "").strip(),
+        )
+        self._refresh_process_status()
+
+    def process_completion_snapshots(self) -> tuple[dict[str, typing.Any], ...]:
+        """返回尚未确认的后台进程完成快照。"""
+        return tuple(
+            copy.deepcopy(item.snapshot)
+            for item in self._process_completions.values()
+        )
+
+    def acknowledge_process_completion(self, session_id: typing.Any) -> None:
+        """移除一项已经查看的后台进程完成状态。"""
+        sid = str(session_id or "").strip()
+        if sid and self._process_completions.pop(sid, None) is not None:
+            self._refresh_process_status()
+
+    def _refresh_process_status(self) -> None:
+        """按完成通知优先级刷新专用进程状态行。"""
+        completion = next(reversed(self._process_completions.values()), None)
+        label = (
+            completion.label
+            if completion is not None
+            else self._running_process_status_label
+        )
         self.screen.process_status.set_label(label)
+
+    async def wait_for_process_routing_boundary(self) -> None:
+        """等待当前命令和临时交互结束后再决定进程结果落点。"""
+        while (
+            self._command_layout_token is not None
+            or self.screen.bottom_pane.transient_active
+        ):
+            self._process_routing_settled.clear()
+            await self._process_routing_settled.wait()
 
     def _handle_input_interrupt(self) -> None:
         """按当前前台交互状态分派输入中断。"""
@@ -773,6 +839,7 @@ class TuiRuntime(object):
     def begin_command_layout(self) -> None:
         """标记当前输入可能通过命令结果收束补全占位。"""
         self.cancel_command_layout()
+        self._process_routing_settled.clear()
         self._command_layout_token = self._command_layout.set(
             _CommandLayoutHandoff()
         )
@@ -783,6 +850,7 @@ class TuiRuntime(object):
         self._command_layout_token = None
         if token is not None:
             self._command_layout.reset(token)
+        self._process_routing_settled.set()
 
     def finish_command_layout(self, *, force: bool = False) -> None:
         """结束命令布局并按需强制收束输入补全留下的临时空间。"""
@@ -1333,6 +1401,8 @@ class TuiRuntime(object):
         await self.activity.clear()
 
         self.task_state.clear()
+        self._running_process_status_label = ""
+        self._process_completions.clear()
         self.screen.process_status.clear()
 
         await self.screen.approval.close()
@@ -1414,7 +1484,11 @@ class TuiRuntime(object):
     async def select_menu(self, request: MenuRequest) -> typing.Any:
         """在主 Application 画布内读取菜单选择。"""
         self._discard_submitted_query()
-        return await self.screen.menu.request(request)
+        self._process_routing_settled.clear()
+        try:
+            return await self.screen.menu.request(request)
+        finally:
+            self._process_routing_settled.set()
 
     async def request_approval(
         self,

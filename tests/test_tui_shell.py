@@ -22,6 +22,7 @@ from mind_app.tui.features.processes import (
     PS_INTERRUPT_GRACE_SEC,
     PS_OUTPUT_LIMIT,
     _interrupt_exec_session,
+    _watch_detached_exec_session,
     append_exec_stream_snapshot,
     exec_session_live_block,
     exec_session_summary_block,
@@ -63,7 +64,7 @@ async def test_ps_without_sessions_renders_command_and_empty_terminal_state() ->
             "items": [],
         }),
     )
-    runtime = SimpleNamespace()
+    runtime = SimpleNamespace(process_completion_snapshots=lambda: ())
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         native_coding=native_coding,
@@ -191,6 +192,10 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         native_coding=native_coding,
+        conversation=SimpleNamespace(snapshot=lambda: {
+            "cid": "cid_owner",
+            "sid": "sid_owner",
+        }),
     )
 
     class RuntimeStub(object):
@@ -229,6 +234,8 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
         command="resolved arg",
         args=["resolved", "arg"],
         timeout_sec=3600,
+        owner_cid="cid_owner",
+        owner_sid="sid_owner",
     )
     watch.assert_awaited_once()
     assert watch.call_args.args[:3] == (runtime, mind, "exec_shell")
@@ -486,6 +493,8 @@ async def test_user_shell_session_is_listed_and_closed(tmp_path) -> None:
         ],
         timeout_sec=60,
         idle_timeout_sec=60,
+        owner_cid="cid_owner",
+        owner_sid="sid_owner",
     )
 
     try:
@@ -505,11 +514,118 @@ async def test_user_shell_session_is_listed_and_closed(tmp_path) -> None:
         )
 
         assert item["origin"] == "tui_shell"
+        assert item["owner_cid"] == "cid_owner"
+        assert item["owner_sid"] == "sid_owner"
+        assert snapshot["owner_cid"] == "cid_owner"
+        assert snapshot["owner_sid"] == "sid_owner"
         assert "ready" in snapshot["output"]
     finally:
         await coding.close()
 
     assert (await coding.running_exec_sessions())["count"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("current_session", "expected_blocks"),
+    (
+        (("cid_owner", "sid_owner"), 1),
+        (("cid_other", "sid_other"), 0),
+    ),
+)
+async def test_detached_shell_completion_stays_with_owning_conversation(
+    current_session,
+    expected_blocks,
+) -> None:
+    snapshot = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "long task",
+        "status": "exited",
+        "exit_code": 0,
+        "origin": "tui_shell",
+        "owner_cid": "cid_owner",
+        "owner_sid": "sid_owner",
+        "output_lines": ["complete"],
+    }
+    blocks = []
+    completions = []
+    runtime = SimpleNamespace(
+        wait_for_process_routing_boundary=AsyncMock(),
+        queue_background_block=lambda block, **kwargs: blocks.append(
+            (block, kwargs)
+        ),
+        retain_process_completion=lambda snapshot, **kwargs: completions.append(
+            (snapshot, kwargs)
+        ),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=_ApplicationStub()),
+        native_coding=SimpleNamespace(
+            exec_session_output_snapshot=AsyncMock(return_value=snapshot),
+        ),
+        conversation=SimpleNamespace(snapshot=lambda: {
+            "cid": current_session[0],
+            "sid": current_session[1],
+        }),
+    )
+
+    await _watch_detached_exec_session(runtime, mind, "exec_shell")
+
+    assert len(blocks) == expected_blocks
+    assert len(completions) == 1 - expected_blocks
+    if completions:
+        assert completions[0][1]["label"] == "long task completed"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("conversation_changed", (False, True))
+async def test_detached_shell_completion_waits_for_command_scope_result(
+    conversation_changed,
+) -> None:
+    snapshot = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "long task",
+        "status": "exited",
+        "exit_code": 0,
+        "origin": "tui_shell",
+        "owner_cid": "cid_owner",
+        "owner_sid": "sid_owner",
+        "output_lines": ["complete"],
+    }
+    current = {"cid": "cid_owner", "sid": "sid_owner"}
+    runtime = TuiRuntime()
+    runtime.begin_command_layout()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=_ApplicationStub()),
+        native_coding=SimpleNamespace(
+            exec_session_output_snapshot=AsyncMock(return_value=snapshot),
+        ),
+        conversation=SimpleNamespace(snapshot=lambda: dict(current)),
+    )
+
+    task = asyncio.create_task(
+        _watch_detached_exec_session(runtime, mind, "exec_shell")
+    )
+    await asyncio.sleep(0)
+
+    assert not task.done()
+    assert not runtime.document.blocks
+    assert runtime.process_completion_snapshots() == ()
+
+    if conversation_changed:
+        current.update(cid="cid_other", sid="sid_other")
+    runtime.finish_command_layout()
+    await task
+
+    if conversation_changed:
+        assert not runtime.document.blocks
+        assert len(runtime.process_completion_snapshots()) == 1
+        assert runtime.screen.process_status.label == "long task completed"
+    else:
+        assert len(runtime.document.blocks) == 1
+        assert runtime.process_completion_snapshots() == ()
 
 
 @pytest.mark.anyio
@@ -648,6 +764,7 @@ async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
         select_menu=select_menu,
         cancel_background_session_task=cancelled.append,
         set_process_status_label=status_labels.append,
+        process_completion_snapshots=lambda: (),
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
@@ -698,7 +815,10 @@ async def test_ps_stop_all_defaults_to_cancel() -> None:
         requests.append(request)
         return request.options[-1].value if len(requests) == 1 else None
 
-    runtime = SimpleNamespace(select_menu=select_menu)
+    runtime = SimpleNamespace(
+        select_menu=select_menu,
+        process_completion_snapshots=lambda: (),
+    )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         native_coding=native_coding,
@@ -709,6 +829,52 @@ async def test_ps_stop_all_defaults_to_cancel() -> None:
     assert not handled
     assert requests[1].selected == 0
     native_coding.stop_exec_sessions.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_ps_views_and_acknowledges_cross_conversation_completion() -> None:
+    application = _ApplicationStub()
+    runtime = TuiRuntime()
+    runtime.retain_process_completion(
+        {
+            "ok": True,
+            "session_id": "exec_complete",
+            "command": "long task",
+            "status": "exited",
+            "exit_code": 0,
+            "origin": "tui_shell",
+            "output_lines": ["complete"],
+        },
+        label="long task completed",
+    )
+    requests = []
+
+    async def select_menu(request):
+        requests.append(request)
+        return request.options[0].value if request.options else None
+
+    runtime.select_menu = select_menu
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=SimpleNamespace(
+            running_exec_sessions=AsyncMock(return_value={
+                "count": 0,
+                "items": [],
+            }),
+        ),
+    )
+
+    handled = await manage_exec_sessions(runtime, mind)
+
+    assert handled
+    assert [request.title for request in requests] == [
+        "Background Commands",
+        "Shell completed",
+    ]
+    assert "complete" in requests[1].body[-1]
+    assert runtime.process_completion_snapshots() == ()
+    assert runtime.screen.process_status.label == ""
+    assert not runtime.document.blocks
 
 
 @pytest.mark.anyio
@@ -1179,6 +1345,55 @@ async def test_foreground_process_completion_commits_in_place() -> None:
         "└ Updating files\n"
         "  Already up to date."
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("starts_exited", (False, True))
+async def test_ps_cross_conversation_completion_does_not_commit_transcript(
+    starts_exited,
+) -> None:
+    running = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "long task",
+        "status": "running",
+        "origin": "tui_shell",
+        "owner_cid": "cid_owner",
+        "owner_sid": "sid_owner",
+        "output_lines": ["working"],
+    }
+    completed = {
+        **running,
+        "status": "exited",
+        "exit_code": 0,
+        "output_lines": ["working", "complete"],
+    }
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=_ApplicationStub()),
+        native_coding=SimpleNamespace(
+            exec_session_output_snapshot=AsyncMock(return_value=completed),
+        ),
+        conversation=SimpleNamespace(snapshot=lambda: {
+            "cid": "cid_other",
+            "sid": "sid_other",
+        }),
+    )
+    runtime = TuiRuntime()
+
+    result = await watch_exec_session(
+        runtime,
+        mind,
+        "exec_shell",
+        initial_snapshot=completed if starts_exited else running,
+        activate_immediately=not starts_exited,
+    )
+
+    assert result == "exited"
+    assert not runtime.document.blocks
+    assert runtime.document.active_block is None
+    assert not runtime.screen.process_viewer.active
+    assert len(runtime.process_completion_snapshots()) == 1
+    assert runtime.screen.process_status.label == "long task completed"
 
 
 @pytest.mark.anyio

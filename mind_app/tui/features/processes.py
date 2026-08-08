@@ -53,7 +53,8 @@ PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
     max_height=2,
 )
 
-_STOP_ALL_ACTION = object()
+_STOP_ALL_ACTION  = object()
+_COMPLETED_ACTION = "completed"
 
 
 async def monitor_exec_status(
@@ -130,14 +131,22 @@ async def manage_exec_sessions(
     application = mind.frontend.application
     snapshot    = await mind.native_coding.running_exec_sessions()
     sessions    = _running_items(snapshot)
+    completions = list(runtime.process_completion_snapshots())
 
-    if not sessions:
+    if not sessions and not completions:
         render_no_background_terminals(application, command="/ps")
         return True
 
+    status_parts: list[str] = []
+
+    if sessions:
+        status_parts.append(f"running={len(sessions)}")
+    if completions:
+        status_parts.append(f"completed={len(completions)}")
+
     selection = await runtime.select_menu(MenuRequest(
         title="Background Commands",
-        status=f"running={len(sessions)}",
+        status=" · ".join(status_parts),
         help_text="Up/Down select · Enter choose · Esc/q close",
         options=(
             *(
@@ -151,21 +160,69 @@ async def manage_exec_sessions(
                 )
                 for item in sessions
             ),
-            MenuOption(
-                value=_STOP_ALL_ACTION,
-                label="Stop all background commands",
-                detail=(
-                    f"terminate {len(sessions)} "
-                    f"process {'tree' if len(sessions) == 1 else 'trees'}"
-                ),
+            *(
+                MenuOption(
+                    value=(
+                        _COMPLETED_ACTION,
+                        str(item.get("session_id") or "").strip(),
+                    ),
+                    label=(
+                        _inline_text(item.get("command"))
+                        or "(unknown command)"
+                    ),
+                    detail=(
+                        f"{_completion_state(item)} "
+                        f"exit={_exit_code_label(item)}"
+                    ),
+                )
+                for item in completions
+            ),
+            *(
+                (
+                    MenuOption(
+                        value=_STOP_ALL_ACTION,
+                        label="Stop all background commands",
+                        detail=(
+                            f"terminate {len(sessions)} "
+                            f"process {'tree' if len(sessions) == 1 else 'trees'}"
+                        ),
+                    ),
+                )
+                if sessions
+                else ()
             ),
         ),
     ))
 
     if selection is None:
         return False
+
     if selection is _STOP_ALL_ACTION:
         return await stop_all_exec_sessions(runtime, mind, sessions=sessions)
+
+    if (
+        isinstance(selection, tuple)
+        and len(selection) == 2
+        and selection[0] == _COMPLETED_ACTION
+    ):
+        session_id = str(selection[1] or "").strip()
+
+        completed = next(
+            (
+                item
+                for item in completions
+                if str(item.get("session_id") or "").strip() == session_id
+            ),
+            None,
+        )
+
+        if completed is None:
+            return False
+
+        await runtime.select_menu(_completed_exec_panel(completed))
+        runtime.acknowledge_process_completion(session_id)
+
+        return True
 
     selected_session = next(
         (
@@ -182,6 +239,27 @@ async def manage_exec_sessions(
         initial_snapshot=selected_session,
         activate_immediately=True,
     ))
+
+
+def _completed_exec_panel(snapshot: dict[str, typing.Any]) -> MenuRequest:
+    """生成已完成后台进程的只读输出面板。"""
+    session_id = str(snapshot.get("session_id") or "").strip()
+    exit_code  = snapshot.get("exit_code")
+
+    output_lines = _panel_output_lines(
+        snapshot,
+        limit=PS_VISIBLE_OUTPUT_LINES,
+    )
+
+    body = tuple(f"  {line}" for line in output_lines) or ("  (no output)",)
+
+    return MenuRequest(
+        title=f"{_session_kind(snapshot)} {_completion_state(snapshot)}",
+        status=f"exit={exit_code if exit_code is not None else '-'} · "
+               f"{session_id}",
+        help_text="Esc/q close",
+        body=body,
+    )
 
 
 async def stop_all_exec_sessions(
@@ -488,20 +566,30 @@ async def watch_exec_session(
         if ready_event is not None:
             ready_event.set()
         return False
+
     if str(initial.get("status") or "").strip() == "exited":
-        runtime.commit_process_result(exec_session_summary_block(
-            initial,
-            terminal_width=application.viewport.width,
-        ), transcript_block=exec_session_transcript_block(initial))
+        if _belongs_to_current_conversation(mind, initial):
+            runtime.commit_process_result(exec_session_summary_block(
+                initial,
+                terminal_width=application.viewport.width,
+            ), transcript_block=exec_session_transcript_block(initial))
+        else:
+            runtime.retain_process_completion(
+                initial,
+                label=_completion_status_label(initial),
+            )
+
         if ready_event is not None:
             ready_event.set()
+
         return "exited"
 
     state: dict[str, typing.Any] = {
         "snapshot": initial,
         "last_snapshot": initial,
-        "updated_at": time.time(),
+        "updated_at": time.time()
     }
+
     return await _watch_exec_session(
         mind,
         sid,
@@ -630,13 +718,22 @@ async def _watch_exec_session(
     try:
         if result == "interrupt":
             result = await _interrupt_exec_session(mind, session_id)
+
         if isinstance(result, dict):
-            runtime.commit_process_viewer(exec_session_summary_block(
-                result,
-                terminal_width=application.viewport.width,
-            ), transcript_block=exec_session_transcript_block(result))
+            if _belongs_to_current_conversation(mind, result):
+                runtime.commit_process_viewer(exec_session_summary_block(
+                    result,
+                    terminal_width=application.viewport.width,
+                ), transcript_block=exec_session_transcript_block(result))
+            else:
+                runtime.dismiss_process_viewer()
+                runtime.retain_process_completion(
+                    result,
+                    label=_completion_status_label(result),
+                )
             settled = True
             return "exited"
+
         if result == "detach":
             snapshot = state.get("last_snapshot") or state.get("snapshot")
             if announce_detach and isinstance(snapshot, dict):
@@ -947,17 +1044,78 @@ async def _watch_detached_exec_session(
             return None
 
         if str(snapshot.get("status") or "").strip() == "exited":
-            runtime.queue_background_block(
-                command_summary_text(
-                    exec_session_command_summary(snapshot),
-                    terminal_width=mind.frontend.application.viewport.width,
-                    first_line_prefix=_summary_first_line_prefix(snapshot),
-                ),
-                transcript_block=exec_session_transcript_block(snapshot),
-            )
+            await runtime.wait_for_process_routing_boundary()
+            if _belongs_to_current_conversation(mind, snapshot):
+                runtime.queue_background_block(
+                    command_summary_text(
+                        exec_session_command_summary(snapshot),
+                        terminal_width=mind.frontend.application.viewport.width,
+                        first_line_prefix=_summary_first_line_prefix(snapshot),
+                    ),
+                    transcript_block=exec_session_transcript_block(snapshot),
+                )
+            else:
+                runtime.retain_process_completion(
+                    snapshot,
+                    label=_completion_status_label(snapshot),
+                )
+
             return None
 
         await asyncio.sleep(0.25)
+
+
+def _belongs_to_current_conversation(
+    controller: typing.Any,
+    snapshot: dict[str, typing.Any]
+) -> bool:
+    """判断进程完成摘要是否仍属于当前对话。"""
+    owner = (
+        str(snapshot.get("owner_cid") or "").strip(),
+        str(snapshot.get("owner_sid") or "").strip(),
+    )
+    if not all(owner):
+        return True
+
+    conversation    = getattr(controller, "conversation", None)
+    snapshot_method = getattr(conversation, "snapshot", None)
+
+    if conversation is None or not callable(snapshot_method):
+        return False
+
+    current = snapshot_method()
+    if not isinstance(current, dict):
+        return False
+
+    return owner == (
+        str(current.get("cid") or "").strip(),
+        str(current.get("sid") or "").strip(),
+    )
+
+
+def _completion_status_label(snapshot: dict[str, typing.Any]) -> str:
+    """生成后台进程完成后使用的单行状态。"""
+    command = _inline_text(
+        snapshot.get("command") or snapshot.get("session_id") or "command"
+    )
+    return f"{command} {_completion_state(snapshot)}"
+
+
+def _completion_state(snapshot: dict[str, typing.Any]) -> str:
+    """返回进程退出状态对应的简短展示名称。"""
+    exit_code = snapshot.get("exit_code")
+    if exit_code == 0:
+        return "completed"
+    if exit_code in {130, -2}:
+        return "interrupted"
+
+    return "failed"
+
+
+def _exit_code_label(snapshot: dict[str, typing.Any]) -> str:
+    """返回进程退出码的单行展示文本。"""
+    exit_code = snapshot.get("exit_code")
+    return str(exit_code) if exit_code is not None else "-"
 
 
 def _session_kind(snapshot: dict[str, typing.Any]) -> str:

@@ -88,11 +88,15 @@ async def run_shell_escape(
     if args is None:
         args = shell_command_args(executable, command)
 
+    owner_cid, owner_sid = _conversation_owner(mind)
+
     try:
         snapshot = await mind.native_coding.start_user_shell_session(
             command=command,
             args=args,
             timeout_sec=SHELL_COMMAND_TIMEOUT_SEC,
+            owner_cid=owner_cid,
+            owner_sid=owner_sid,
         )
     except (OSError, RuntimeError, ValueError) as exc:
         render_shell_start_failure(application, command, exc)
@@ -106,8 +110,9 @@ async def run_shell_escape(
         )
         return True
 
-    session_id = str(snapshot.get("session_id") or "").strip()
+    session_id   = str(snapshot.get("session_id") or "").strip()
     viewer_ready = asyncio.Event()
+
     runtime.start_background_task(
         watch_exec_session(
             runtime,
@@ -123,6 +128,24 @@ async def run_shell_escape(
     )
     await viewer_ready.wait()
     return True
+
+
+def _conversation_owner(controller: typing.Any) -> tuple[str, str]:
+    """返回当前对话对应的本地进程展示归属。"""
+    conversation    = getattr(controller, "conversation", None)
+    snapshot_method = getattr(conversation, "snapshot", None)
+
+    if conversation is None or not callable(snapshot_method):
+        return "", ""
+
+    snapshot = snapshot_method()
+    if not isinstance(snapshot, dict):
+        return "", ""
+
+    return (
+        str(snapshot.get("cid") or "").strip(),
+        str(snapshot.get("sid") or "").strip(),
+    )
 
 
 def parse_shell_escape(value: str) -> str | None:
@@ -142,9 +165,11 @@ def default_shell_executable() -> str:
             or shutil.which("cmd")
             or ""
         )
+
     configured = os.environ.get("SHELL")
     if configured and shutil.which(configured):
         return configured
+
     return shutil.which("bash") or shutil.which("sh") or ""
 
 

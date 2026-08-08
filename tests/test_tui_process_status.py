@@ -101,6 +101,32 @@ def test_process_status_filters_controls_before_clipping() -> None:
     assert get_cwidth(rendered) <= 30
 
 
+def test_process_completion_status_precedes_running_status_until_acknowledged(
+) -> None:
+    runtime = TuiRuntime()
+    runtime.set_process_status_label("other task")
+    runtime.retain_process_completion(
+        {
+            "session_id": "exec_complete",
+            "command": "long task",
+            "status": "exited",
+            "exit_code": 0,
+        },
+        label="long task completed",
+    )
+
+    runtime.set_process_status_label("new running task")
+
+    assert runtime.screen.process_status.label == "long task completed"
+    snapshots = runtime.process_completion_snapshots()
+    assert snapshots[0]["session_id"] == "exec_complete"
+
+    runtime.acknowledge_process_completion("exec_complete")
+
+    assert runtime.screen.process_status.label == "new running task"
+    assert runtime.process_completion_snapshots() == ()
+
+
 def test_command_summary_bolds_action_but_not_command() -> None:
     parts = command_summary_title_parts(CommandSummary(
         kind="Started",

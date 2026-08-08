@@ -145,6 +145,8 @@ class NativeCoding(NativeCodingBase):
         args: typing.Sequence[str],
         timeout_sec: int = 3600,
         idle_timeout_sec: int = 1800,
+        owner_cid: str = "",
+        owner_sid: str = ""
     ) -> dict[str, typing.Any]:
         """启动由本地用户显式请求的 shell 会话。"""
         cmd = str(command or "").strip()
@@ -167,6 +169,8 @@ class NativeCoding(NativeCodingBase):
             origin="tui_shell",
             timeout_sec=max(1, int(timeout_sec or 3600)),
             idle_timeout_sec=max(1, int(idle_timeout_sec or 1800)),
+            owner_cid=str(owner_cid or "").strip(),
+            owner_sid=str(owner_sid or "").strip(),
             stdin_enabled=False,
         ))
         return await self._process_sessions.output_snapshot(
@@ -261,7 +265,7 @@ class NativeCoding(NativeCodingBase):
             "ok": True,
             "text": "JavaScript kernel reset.",
             "data": {"reset": reset},
-            "logs": [],
+            "logs": []
         }
 
     async def close_js_repl_session(self, session_id: str) -> bool:
@@ -287,8 +291,8 @@ class NativeCoding(NativeCodingBase):
     def patch_diff_snapshot(self) -> dict[str, typing.Any]:
         """返回当前 apply_patch 净差异快照。"""
         return {
-            "invalidated" : self._turn_diff.invalidated,
-            "diff"        : self._turn_diff.unified_diff
+            "invalidated": self._turn_diff.invalidated,
+            "diff": self._turn_diff.unified_diff
         }
 
 

@@ -156,20 +156,25 @@ class ProcessSessionManager(object):
     async def running_snapshot(self) -> dict[str, typing.Any]:
         """返回当前仍在运行的会话摘要。"""
         await self.cleanup()
+
         items = [
             {
-                "session_id"    : session.session_id,
-                "command"       : session.command,
-                "cwd"           : session.cwd,
-                "pid"           : session.process.pid,
-                "started_at"    : session.started_at,
-                "last_activity" : session.last_activity,
-                "origin"        : session.origin
+                "session_id": session.session_id,
+                "command": session.command,
+                "cwd": session.cwd,
+                "pid": session.process.pid,
+                "started_at": session.started_at,
+                "last_activity": session.last_activity,
+                "origin": session.origin,
+                "owner_cid": session.owner_cid,
+                "owner_sid": session.owner_sid
             }
             for session in self.sessions.values()
             if session.process.returncode is None
         ]
+
         items.sort(key=lambda item: float(item.get("started_at") or 0.0))
+
         return {"count": len(items), "items": items}
 
     async def output_snapshot(
@@ -224,6 +229,8 @@ class ProcessSessionManager(object):
             "runtime"          : dict(session.runtime),
             "runtime_name"     : session.runtime.get("name"),
             "origin"           : session.origin,
+            "owner_cid"        : session.owner_cid,
+            "owner_sid"        : session.owner_sid,
             "output"           : self._clip(output_text, limit),
             "stdout"           : self._clip(stdout_text, limit),
             "stderr"           : self._clip(stderr_text, limit),
