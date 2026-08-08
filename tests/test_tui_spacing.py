@@ -162,6 +162,24 @@ async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     )
 
 
+async def _wait_for_scrollback_advance(
+    runtime: TuiRuntime,
+    *,
+    after: int = 0,
+) -> int:
+    """等待原生滚屏游标推进且当前提交任务结束。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+
+    while loop.time() < deadline:
+        cursor = runtime.document.scrollback_line_count
+        if cursor > after and runtime.viewport.scrollback_task is None:
+            return cursor
+        await asyncio.sleep(0.001)
+
+    raise AssertionError("scrollback did not advance")
+
+
 @pytest.mark.anyio
 async def test_full_width_line_rerenders_in_one_row_after_resize() -> None:
     with create_pipe_input() as input_obj:
@@ -878,6 +896,351 @@ async def test_known_inline_viewport_does_not_expand_renderer_height() -> None:
             assert runtime.screen._visible_height() == 14
             assert expanded_screen.height == initial_screen.height
         finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("remaining_rows", (2, 4, 8))
+async def test_next_assistant_stream_grows_after_native_scrollback(
+    remaining_rows: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+
+        await runtime.open()
+        try:
+            original_print_text = runtime.screen.application.print_text
+
+            def print_at_terminal_bottom(value) -> None:
+                original_print_text(value)
+                output.available_rows = remaining_rows
+
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+                side_effect=print_at_terminal_bottom,
+            ):
+                runtime.append_block(
+                    _block("\n".join(
+                        f"first answer {index}" for index in range(30)
+                    )),
+                    kind="assistant",
+                )
+
+                await _wait_for_scrollback_advance(runtime)
+
+            settled_screen = await _render_next_frame(runtime)
+            settled_height = settled_screen.height
+
+            assert runtime.document.scrollback_line_count > 0
+            assert output.available_rows <= settled_height < output.size.rows
+            assert (
+                runtime.screen.application.renderer.rows_above_layout
+                == output.size.rows - settled_height
+            )
+
+            runtime.set_execution_active(True)
+            runtime.append_block(query_block("second question"), kind="user")
+
+            screen_heights = []
+            transcript_rows = []
+            for line_count in (1, 4, 8, 16):
+                runtime.set_active_renderable(
+                    _block("\n".join(
+                        f"second answer {index}"
+                        for index in range(line_count)
+                    )),
+                    kind="assistant",
+                )
+                screen = await _render_next_frame(runtime)
+                transcript = screen.visible_windows_to_write_positions.get(
+                    runtime.screen.transcript_window
+                )
+
+                assert transcript is not None
+                screen_heights.append(screen.height)
+                transcript_rows.append(
+                    output.size.rows - screen.height
+                    + transcript.ypos
+                )
+
+            assert screen_heights[0] > settled_height
+            assert all(
+                later > earlier
+                for earlier, later in zip(screen_heights, screen_heights[1:])
+            )
+            assert screen_heights[-1] == output.size.rows
+            assert all(
+                later < earlier
+                for earlier, later in zip(transcript_rows, transcript_rows[1:])
+            )
+            assert transcript_rows[-1] == 0
+        finally:
+            runtime.set_execution_active(False)
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_repeated_assistant_streams_recover_after_scrollback() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        printed_batches = []
+
+        await runtime.open()
+        try:
+            original_print_text = runtime.screen.application.print_text
+
+            def print_at_terminal_bottom(value) -> None:
+                printed_batches.append(fragments_text(value))
+                original_print_text(value)
+                output.available_rows = 4
+
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+                side_effect=print_at_terminal_bottom,
+            ):
+                runtime.append_block(
+                    _block("\n".join(
+                        f"first answer {index}" for index in range(30)
+                    )),
+                    kind="assistant",
+                )
+
+                scrollback_cursor = await _wait_for_scrollback_advance(runtime)
+
+                for turn in (2, 3):
+                    settled_screen = await _render_next_frame(runtime)
+                    assert settled_screen.height == 4
+                    assert (
+                        runtime.screen.application.renderer.rows_above_layout
+                        == 14
+                    )
+
+                    runtime.set_execution_active(True)
+                    runtime.append_block(
+                        query_block(f"question {turn}"),
+                        kind="user",
+                    )
+
+                    screen_heights = []
+                    final_block = None
+                    for line_count in (1, 8, 16):
+                        final_block = _block("\n".join(
+                            f"turn {turn} line {index}"
+                            for index in range(line_count)
+                        ))
+                        runtime.set_active_renderable(
+                            final_block,
+                            kind="assistant",
+                        )
+                        screen = await _render_next_frame(runtime)
+                        screen_heights.append(screen.height)
+
+                    assert final_block is not None
+                    assert screen_heights[0] > settled_screen.height
+                    assert screen_heights[-1] == output.size.rows
+
+                    runtime.commit_active_renderable(final_block)
+                    runtime.set_execution_active(False)
+
+                    previous_cursor = scrollback_cursor
+                    scrollback_cursor = await _wait_for_scrollback_advance(
+                        runtime,
+                        after=previous_cursor,
+                    )
+
+            assert len(printed_batches) == 3
+            for turn in (2, 3):
+                final_line = f"turn {turn} line 15"
+                assert sum(
+                    batch.count(final_line)
+                    for batch in printed_batches
+                ) == 1
+        finally:
+            runtime.set_execution_active(False)
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_long_stream_grows_after_approval_and_consecutive_tools() -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=64,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        presentation = TuiPresentationSink(output)
+        printed_batches = []
+
+        await runtime.open()
+        approval_task = None
+        try:
+            original_print_text = runtime.screen.application.print_text
+
+            def print_at_terminal_bottom(value) -> None:
+                printed_batches.append(fragments_text(value))
+                original_print_text(value)
+                terminal.available_rows = 4
+
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+                side_effect=print_at_terminal_bottom,
+            ):
+                runtime.append_block(
+                    query_block("run approved tools"),
+                    kind="user",
+                )
+                runtime.set_execution_active(True)
+                await runtime.begin_wait_status()
+
+                approval = {
+                    "tool": "shell_command",
+                    "command": "echo approved",
+                    "arguments": {"command": "echo approved"},
+                    "show_timer": False,
+                }
+                approval_task = asyncio.create_task(
+                    runtime.request_approval(approval)
+                )
+
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.screen.approval.active:
+                        break
+
+                assert runtime.screen.approval.active
+                approval_screen = await _render_next_frame(runtime)
+                approval_positions = (
+                    approval_screen.visible_windows_to_write_positions
+                )
+                assert runtime.screen.approval_window in approval_positions
+                assert runtime.screen.input.window not in approval_positions
+
+                runtime.screen.approval.finish("accept")
+                assert await approval_task == "accept"
+                approval_task = None
+                await runtime.end_activity_status("wait", settle=False)
+
+                await presentation.emit(build_approval_view(
+                    approval,
+                    decision="accept",
+                ))
+
+                for index in range(3):
+                    call_id = f"tool-{index}"
+                    arguments = {"command": f"echo {call_id}"}
+
+                    await presentation.emit(build_tool_start_view(
+                        "shell_command",
+                        arguments,
+                        call_id=call_id,
+                    ))
+                    start_screen = await _render_next_frame(runtime)
+                    assert runtime.screen.input.window in (
+                        start_screen.visible_windows_to_write_positions
+                    )
+
+                    await presentation.emit(build_native_tool_result_view(
+                        "shell_command",
+                        arguments,
+                        ok=True,
+                        data={
+                            "command": arguments["command"],
+                            "output_lines": [
+                                f"tool {index} output {line}"
+                                for line in range(6)
+                            ],
+                        },
+                        call_id=call_id,
+                    ))
+                    result_screen = await _render_next_frame(runtime)
+                    result_positions = (
+                        result_screen.visible_windows_to_write_positions
+                    )
+                    assert runtime.screen.input.window in result_positions
+                    assert runtime.screen.approval_window not in result_positions
+
+                first_source = "\n".join(
+                    f"first long answer {index}" for index in range(30)
+                )
+                await output.append_assistant_delta(first_source + "\n")
+                first_stream_screen = await _render_next_frame(runtime)
+                assert first_stream_screen.height == terminal.size.rows
+
+                await output.prepare_external_output()
+                await _render_next_frame(runtime)
+                runtime.set_execution_active(False)
+                await _wait_for_scrollback_advance(runtime)
+
+                settled_screen = await _render_next_frame(runtime)
+                assert settled_screen.height == 4
+                assert (
+                    runtime.screen.application.renderer.rows_above_layout
+                    == 14
+                )
+                assert not runtime.document.visible_stable_lines()
+
+                assert len(printed_batches) == 1
+                printed = printed_batches[0]
+                assert "You approved" in printed
+                for index in range(3):
+                    assert f"echo tool-{index}" in printed
+                assert printed.count("first long answer 29") == 1
+
+                runtime.set_execution_active(True)
+                runtime.append_block(
+                    query_block("write another long answer"),
+                    kind="user",
+                )
+
+                screen_heights = []
+                transcript_rows = []
+                previous_line_count = 0
+                for line_count in (1, 4, 8, 16):
+                    delta = "\n".join(
+                        f"second long answer {index}"
+                        for index in range(previous_line_count, line_count)
+                    ) + "\n"
+                    await output.append_assistant_delta(delta)
+                    screen = await _render_next_frame(runtime)
+                    transcript = (
+                        screen.visible_windows_to_write_positions[
+                            runtime.screen.transcript_window
+                        ]
+                    )
+
+                    screen_heights.append(screen.height)
+                    transcript_rows.append(
+                        terminal.size.rows - screen.height + transcript.ypos
+                    )
+                    previous_line_count = line_count
+
+                assert screen_heights == [10, 13, 17, 18]
+                assert transcript_rows == [8, 5, 1, 0]
+                assert runtime.document.active_kind == "assistant"
+                assert not runtime.screen.approval.active
+                assert runtime.screen.activity_block is None
+        finally:
+            if runtime.screen.approval.active:
+                runtime.screen.approval.finish("decline")
+            if approval_task is not None:
+                await approval_task
+            runtime.set_execution_active(False)
+            await runtime.activity.clear()
             await runtime.close()
 
 

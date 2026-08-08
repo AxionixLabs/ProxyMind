@@ -1365,7 +1365,10 @@ class TuiScreen(object):
         application = getattr(self, "application", None)
         if application is None or application.full_screen:
             return height
-        if self._inline_process_growth_active():
+        if (
+            self._inline_assistant_growth_active()
+            or self._inline_process_growth_active()
+        ):
             return height
 
         renderer        = application.renderer
@@ -2870,6 +2873,14 @@ class TuiScreen(object):
             self.bottom_pane.input_visible
             and self.process_viewer.input_passthrough
             and self.document.active_kind == "operation"
+        )
+
+    def _inline_assistant_growth_active(self) -> bool:
+        """判断当前回复正文是否允许推动 inline 画布增长。"""
+        return bool(
+            self._get_submission_deferred()
+            and self.bottom_pane.input_visible
+            and self.document.active_kind == "assistant"
         )
 
     def _transcript_status_gap_visible(self) -> bool:
