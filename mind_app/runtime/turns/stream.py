@@ -1030,6 +1030,7 @@ async def stream_turn(
                         "arguments": arguments,
                         "ok": tool_run.ok,
                         "status": tool_run.status,
+                        "duration_ms": tool_run.cost_ms,
                         "result": tool_run.fields,
                     },
                 )

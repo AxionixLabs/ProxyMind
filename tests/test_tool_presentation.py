@@ -298,6 +298,98 @@ def test_tool_result_uses_invoked_copy_and_result_colors() -> None:
     assert _span_style(failure, "Function Invoked") == ACTION_TOOL_INVOKED_STYLE
 
 
+@pytest.mark.parametrize(
+    ("view", "expected"),
+    (
+        (
+            build_native_tool_result_view(
+                "shell_command",
+                {"command": "echo ready"},
+                ok=True,
+                data={"command": "echo ready", "output_lines": ["ready"]},
+                cost_ms=0,
+            ),
+            "✓ • 0ms",
+        ),
+        (
+            build_native_tool_result_view(
+                "shell_command",
+                {"command": "exit 1"},
+                ok=False,
+                data={
+                    "command": "exit 1",
+                    "exit_code": 1,
+                    "output_lines": ["failed"],
+                },
+                cost_ms=800,
+            ),
+            "✗ (1) • 800ms",
+        ),
+        (
+            build_native_tool_result_view(
+                "exec_command",
+                {"command": "sleep 3.5"},
+                ok=True,
+                data={"command": "sleep 3.5"},
+                cost_ms=3500,
+            ),
+            "✓ • 3.50s",
+        ),
+    ),
+)
+def test_command_transcript_appends_codex_status_summary(
+    view,
+    expected: str,
+) -> None:
+    display = render_presentation_view(view)[0].plain_text
+    transcript = render_presentation_transcript_view(view)[0]
+
+    assert transcript.plain_text.splitlines()[-1] == expected
+    assert transcript.spans[-2].text in {"✓", "✗", " (1)"}
+    assert transcript.spans[-1].style.dim
+    icon = next(span for span in transcript.spans if span.text in {"✓", "✗"})
+    assert icon.style.bold
+    assert icon.style.foreground == (
+        "#6EE7A8" if icon.text == "✓" else "#FF6B6B"
+    )
+    assert "✓ •" not in display
+    assert "✗ •" not in display
+
+
+def test_non_command_tools_do_not_render_command_status_summary() -> None:
+    generic = build_generic_tool_result_view(
+        "remote_tool",
+        "complete",
+        ok=True,
+    )
+    javascript = build_native_tool_result_view(
+        "js_repl",
+        {"code": "1 + 1"},
+        ok=True,
+        data={"output": "2"},
+        cost_ms=25,
+    )
+
+    assert "✓" not in render_presentation_transcript_view(generic)[0].plain_text
+    assert "✓" not in render_presentation_transcript_view(
+        javascript,
+    )[0].plain_text
+
+
+def test_command_transcript_without_duration_does_not_invent_status() -> None:
+    view = build_native_tool_result_view(
+        "shell_command",
+        {"command": "echo ready"},
+        ok=True,
+        data={"command": "echo ready", "output_lines": ["ready"]},
+    )
+
+    transcript = render_presentation_transcript_view(view)[0]
+
+    assert transcript.plain_text.splitlines()[-1] == "ready"
+    assert "✓" not in transcript.plain_text
+
+
 def test_shell_result_expands_tabs_without_changing_raw_data() -> None:
     raw_line = "47031FDAQ001MK\tdevice"
     view = build_native_tool_result_view(

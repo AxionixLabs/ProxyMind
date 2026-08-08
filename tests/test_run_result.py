@@ -547,6 +547,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
             "call_id": "call-1",
             "arguments": {"value": 1},
             "status": "completed",
+            "elapsed_ms": 3500,
             "result": {"ok": True, "text": "done"},
         },
         {"type": "text.delta", "text": "after"},
@@ -566,6 +567,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
         {"content": "before"},
     )
     assert ordered[1][0:2] == ("tool.completed", "tool")
+    assert ordered[1][2]["duration_ms"] == 3500
     assert ordered[2] == (
         "message.created",
         "assistant",

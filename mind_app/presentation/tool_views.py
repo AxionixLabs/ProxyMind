@@ -70,22 +70,30 @@ def build_native_tool_result_view(
     normalized_name      = str(name or "tool").strip() or "tool"
     normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
     normalized_data      = dict(data) if isinstance(data, dict) else data
+    normalized_cost_ms   = _normalized_cost_ms(cost_ms)
 
     return NativeToolResultView(
         name=normalized_name,
         arguments=normalized_arguments,
         ok=bool(ok),
         data=normalized_data,
-        cost_ms=cost_ms,
+        cost_ms=normalized_cost_ms,
         entries=tuple(render_tool_result_entries(
             normalized_name,
             normalized_arguments,
             ok=bool(ok),
             data=normalized_data,
-            cost_ms=cost_ms,
+            cost_ms=normalized_cost_ms,
         )),
         call_id=str(call_id or ""),
     )
+
+
+def _normalized_cost_ms(value: int | None) -> int | None:
+    """规范化可选的非负毫秒耗时。"""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return max(0, value)
 
 
 if __name__ == '__main__':

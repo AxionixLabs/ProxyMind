@@ -6060,46 +6060,65 @@ def test_fragment_sanitizer_only_allows_safe_osc8_sequences() -> None:
     ]
 
 
-def test_transcript_overlay_live_tail_tracks_animation_tick() -> None:
+def test_transcript_overlay_excludes_activity_animation() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("stable"), kind="assistant")
     activity = _block("Thinking frame")
     runtime.screen.set_activity_renderable(activity)
 
     document_snapshot = runtime.document.transcript_snapshot()
-    screen_snapshot = runtime.screen._transcript_snapshot()
-
     assert document_snapshot.live_tail is None
-    assert screen_snapshot.live_tail is not None
-    assert not screen_snapshot.live_tail.cells[-1].transcript_stable
 
     runtime.toggle_transcript_overlay()
     overlay = runtime.screen.transcript_overlay
-    assert "Thinking frame" in "".join(
+    assert "Thinking frame" not in "".join(
         text for _style, text in overlay.fragments()
     )
-    first_key = overlay._cached_live_tail_key
+    assert overlay._cached_live_tail_key is None
 
-    runtime.screen.set_activity_renderable(activity)
-    overlay.fragments()
-    second_key = overlay._cached_live_tail_key
+    with patch.object(runtime.screen, "invalidate") as invalidate:
+        runtime.screen.set_activity_renderable(_block("Thinking next frame"))
 
-    assert first_key is not None
-    assert second_key is not None
-    assert second_key.width == first_key.width
-    assert second_key.revision == first_key.revision
-    assert second_key.animation_tick != first_key.animation_tick
-
-    runtime.screen.set_activity_renderable(_block("Thinking next frame"))
-    assert "Thinking next frame" in "".join(
+    invalidate.assert_not_called()
+    assert "Thinking next frame" not in "".join(
         text for _style, text in overlay.fragments()
     )
+    assert overlay._cached_live_tail_key is None
 
     runtime.screen.clear_activity_renderable()
     assert "Thinking next frame" not in "".join(
         text for _style, text in overlay.fragments()
     )
     assert overlay._cached_live_tail_key is None
+
+
+@pytest.mark.anyio
+async def test_transcript_overlay_styles_command_status_after_full_output() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "echo ready"},
+        ok=True,
+        data={
+            "command": "echo ready",
+            "output_lines": ["ready"],
+            "exit_code": 0,
+        },
+        cost_ms=0,
+    ))
+
+    assert "✓" not in _document_text(runtime.document)
+
+    runtime.toggle_transcript_overlay()
+    fragments = runtime.screen.transcript_overlay.fragments()
+    text = "".join(value for _style, value in fragments)
+
+    assert text.splitlines()[-2:] == ["ready", "✓ • 0ms"]
+    assert ("bold fg:#6EE7A8", "✓") in fragments
+    assert ("dim", " • 0ms") in fragments
 
 
 def test_transcript_overlay_stream_continuation_controls_shared_spacing() -> None:

@@ -9,13 +9,20 @@ from mind_app.stream_events.tool_traces.native import (
     render_tool_trace
 )
 from mind_app.stream_events.tool_traces.render import render_tool_trace_parts
+from ..formatting import format_duration_ms
 from ..models import (
     GenericToolResultView,
     NativeToolResultView,
     StyledBlock,
+    TextSpan,
+    TextStyle,
     ToolStartView,
     TracePreview
 )
+
+TRANSCRIPT_SUCCESS_STYLE  = TextStyle(foreground="#6EE7A8", bold=True)
+TRANSCRIPT_FAILURE_STYLE  = TextStyle(foreground="#FF6B6B", bold=True)
+TRANSCRIPT_DURATION_STYLE = TextStyle(dim=True)
 
 
 def render_tool_start_view(
@@ -203,10 +210,18 @@ def render_native_tool_result_transcript_view(
             payload.get("command") or view.arguments.get("command")
         )
         output = _native_output_text(payload)
+
         body = "\n".join(
             item for item in (f"$ {command}" if command else "", output) if item
         )
-        return (_transcript_block(title, body),)
+
+        return (_command_result_transcript_block(
+            title,
+            body,
+            ok=view.ok,
+            cost_ms=view.cost_ms,
+            exit_code=payload.get("exit_code"),
+        ),)
 
     if view.name == "write_stdin":
         output = _native_output_text(payload)
@@ -273,6 +288,52 @@ def _transcript_block(title: str, body: str) -> StyledBlock:
     text    = f"{heading}\n{content}" if heading and content else heading or content
 
     return StyledBlock(plain_text=text)
+
+
+def _command_result_transcript_block(
+    title: str,
+    body: str,
+    *,
+    ok: bool,
+    cost_ms: int | None,
+    exit_code: typing.Any
+) -> StyledBlock:
+    """在完整命令输出底部追加静态执行结果。"""
+    block = _transcript_block(title, body)
+    if cost_ms is None:
+        return block
+
+    icon = "✓" if ok else "✗"
+
+    icon_style = (
+        TRANSCRIPT_SUCCESS_STYLE if ok else TRANSCRIPT_FAILURE_STYLE
+    )
+
+    code = (
+        exit_code
+        if not ok and isinstance(exit_code, int) and not isinstance(exit_code, bool)
+        else None
+    )
+
+    status_spans = [TextSpan(icon, icon_style)]
+
+    if code is not None:
+        status_spans.append(TextSpan(f" ({code})"))
+    status_spans.append(TextSpan(
+        f" • {format_duration_ms(cost_ms)}",
+        TRANSCRIPT_DURATION_STYLE,
+    ))
+
+    separator   = "\n" if block.plain_text else ""
+    status_text = "".join(span.text for span in status_spans)
+
+    return StyledBlock(
+        plain_text=f"{block.plain_text}{separator}{status_text}",
+        spans=(
+            *((TextSpan(f"{block.plain_text}{separator}"),) if separator else ()),
+            *status_spans,
+        ),
+    )
 
 
 def _command_text(value: typing.Any) -> str:

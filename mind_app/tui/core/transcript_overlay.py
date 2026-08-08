@@ -50,7 +50,6 @@ class TranscriptRenderKey(object):
     width: int
     revision: int
     stream_continuation: bool
-    animation_tick: int | None
 
 
 class TuiTranscriptOverlay(object):
@@ -633,7 +632,6 @@ class TuiTranscriptOverlay(object):
                 width=width,
                 revision=live_tail.revision,
                 stream_continuation=live_tail.stream_continuation,
-                animation_tick=live_tail.animation_tick,
             )
             if live_tail is not None
             else None

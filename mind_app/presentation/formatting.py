@@ -46,5 +46,16 @@ def format_elapsed(elapsed_sec: float) -> str:
     return f"{years}y {months}mo {days}d"
 
 
+def format_duration_ms(duration_ms: int) -> str:
+    """把毫秒耗时格式化为紧凑标签。"""
+    elapsed_ms = max(0, int(duration_ms))
+    if elapsed_ms < 1000:
+        return f"{elapsed_ms}ms"
+    if elapsed_ms < 60_000:
+        return f"{elapsed_ms / 1000:.2f}s"
+    minutes, seconds = divmod(elapsed_ms // 1000, 60)
+    return f"{minutes}m {seconds:02d}s"
+
+
 if __name__ == '__main__':
     pass

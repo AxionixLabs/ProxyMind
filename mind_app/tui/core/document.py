@@ -81,7 +81,6 @@ class TranscriptLiveTail(object):
     cells: tuple[TranscriptBlock, ...]
     revision: int
     stream_continuation: bool
-    animation_tick: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

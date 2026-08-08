@@ -110,6 +110,7 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
             actor="tool",
             payload={
                 "call_id": "call_1",
+                "duration_ms": 120,
                 "result": {"output": "D:/workspace"},
             },
         ),
@@ -161,6 +162,12 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     assert "D:/workspace" in "".join(
         text for _style, text in blocks[1].transcript_block.fragments
     )
+    assert "✓ • 120ms" in "".join(
+        text for _style, text in blocks[1].transcript_block.fragments
+    )
+    assert "".join(
+        text for _style, text in blocks[1].transcript_block.fragments
+    ).splitlines()[-1] == "✓ • 120ms"
     assert "Done" in "".join(
         text for _style, text in blocks[2].display_block.fragments
     )

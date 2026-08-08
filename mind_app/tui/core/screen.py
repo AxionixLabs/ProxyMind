@@ -72,8 +72,6 @@ from .bottom_pane import (
 )
 from .document import (
     TranscriptBlock,
-    TranscriptLiveTail,
-    TranscriptSnapshot,
     TuiDocument
 )
 from .input import (
@@ -394,9 +392,7 @@ class TuiScreen(object):
 
         self._transcript_only: bool = False
 
-        self._animation_tick: int = 0
-
-        self._visual_update_depth: int = 0
+        self._visual_update_depth: int  = 0
         self._visual_update_dirty: bool = False
 
         self._synchronized_output_depth: int   = 0
@@ -535,7 +531,7 @@ class TuiScreen(object):
             document=self.document,
             get_width=lambda: self.terminal_width,
             get_height=lambda: self._transcript_overlay_height(),
-            get_snapshot=self._transcript_snapshot,
+            get_snapshot=self.document.transcript_snapshot,
             invalidate=self.invalidate,
         )
         self.transcript_overlay_control = FormattedTextControl(
@@ -1126,18 +1122,15 @@ class TuiScreen(object):
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
         self.activity_block = block
-        self._animation_tick += 1
-        self.transcript_overlay.content_changed()
-        self.invalidate()
+        if not self.transcript_overlay.active:
+            self.invalidate()
 
     def clear_activity_renderable(self) -> None:
         """清空活动状态区域的展示内容。"""
         changed = self.activity_block is not None
         self.activity_block = None
-        if changed:
-            self._animation_tick += 1
-            self.transcript_overlay.content_changed()
-        self.invalidate()
+        if changed and not self.transcript_overlay.active:
+            self.invalidate()
 
     def clear_terminal_scrollback(self) -> None:
         """清除当前画布及终端滚屏缓冲区。"""
@@ -1474,44 +1467,6 @@ class TuiScreen(object):
             fixed.add(key)(lambda event: None)
             reserved.append((action, tuple(fixed.bindings[-1].keys)))
         keymap.validate_main_conflicts(reserved)
-
-    def _transcript_snapshot(self) -> TranscriptSnapshot:
-        """组合已提交记录和当前画面专用的动态尾部。"""
-        snapshot = self.document.transcript_snapshot()
-        activity = self.activity_block
-        if activity is None:
-            return snapshot
-
-        document_tail = snapshot.live_tail
-
-        cells = list(document_tail.cells) if document_tail is not None else []
-        cells.append(TranscriptBlock(
-            display_block=activity,
-            transcript_block=activity,
-            kind="operation",
-            gap_before=bool(snapshot.committed_cells or cells),
-            stream_continuation=False,
-            transcript_stable=False,
-        ))
-
-        return TranscriptSnapshot(
-            committed_cells=snapshot.committed_cells,
-            live_tail=TranscriptLiveTail(
-                cells=tuple(cells),
-                revision=(
-                    document_tail.revision
-                    if document_tail is not None
-                    else self.document.active_transcript_revision
-                ),
-                stream_continuation=(
-                    document_tail.stream_continuation
-                    if document_tail is not None
-                    else False
-                ),
-                animation_tick=self._animation_tick,
-            ),
-            committed_revision=snapshot.committed_revision,
-        )
 
     def transcript_available_height(self) -> int:
         """估算首帧渲染前正文可使用的终端行数。"""

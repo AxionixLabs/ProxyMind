@@ -284,17 +284,12 @@ def _tool_blocks(
     if entry.event == "tool.started":
         view = build_tool_start_view(name, arguments, call_id=call_id)
     elif coding_trace_tool(name):
-        duration = payload.get("duration_ms")
-        cost_ms = duration if isinstance(duration, int) and not isinstance(
-            duration,
-            bool,
-        ) else None
         view = build_native_tool_result_view(
             name,
             arguments,
-            ok=entry.event == "tool.completed",
+            ok=_tool_succeeded(entry),
             data=payload.get("result"),
-            cost_ms=cost_ms,
+            cost_ms=_duration_ms(payload),
             call_id=call_id,
         )
     else:
@@ -305,7 +300,7 @@ def _tool_blocks(
         view = build_generic_tool_result_view(
             name,
             _stable_text(result),
-            ok=entry.event == "tool.completed",
+            ok=_tool_succeeded(entry),
             call_id=call_id,
         )
 
@@ -369,6 +364,22 @@ def _stable_text(value: typing.Any) -> str:
         sort_keys=True,
         default=str,
     )
+
+
+def _duration_ms(payload: dict[str, typing.Any]) -> int | None:
+    """读取工具记录中的非负毫秒耗时。"""
+    value = payload.get("duration_ms")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return max(0, value)
+
+
+def _tool_succeeded(entry: TranscriptEntry) -> bool:
+    """读取工具记录中的稳定成功状态。"""
+    value = entry.payload.get("ok")
+    if isinstance(value, bool):
+        return value
+    return entry.event == "tool.completed"
 
 
 def _record_detail(
