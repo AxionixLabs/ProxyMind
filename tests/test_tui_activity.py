@@ -652,6 +652,118 @@ async def test_new_activity_replaces_settling_status_without_old_expiration() ->
 
 
 @pytest.mark.anyio
+async def test_frozen_only_activity_waits_without_repeated_rendering() -> None:
+    rendered = []
+    cleared = []
+    snapshot = {
+        "stage": "downloading",
+        "received_bytes": 5,
+        "total_bytes": 10,
+        "elapsed_sec": 0.1,
+        "speed_bytes_per_sec": 50,
+    }
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: cleared.append(True),
+    )
+
+    await activity.begin_download(lambda: dict(snapshot))
+    snapshot["stage"] = "done"
+    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.04):
+        await activity.stop("download")
+
+    final = rendered[-1]
+    render_count = len(rendered)
+    settle_task = activity._settle_task
+
+    assert activity.task is None
+    assert settle_task is not None
+    await asyncio.sleep(0.02)
+
+    assert rendered[-1] == final
+    assert len(rendered) == render_count
+    assert not cleared
+
+    await asyncio.sleep(0.04)
+    assert len(rendered) == render_count
+    assert cleared == [True]
+    assert settle_task.done()
+    assert activity._settle_task is None
+    await activity.clear()
+
+
+@pytest.mark.anyio
+async def test_animated_activity_continues_while_frozen_slot_settles() -> None:
+    rendered = []
+    download = {
+        "stage": "downloading",
+        "received_bytes": 5,
+        "total_bytes": 10,
+        "elapsed_sec": 0.1,
+        "speed_bytes_per_sec": 50,
+    }
+    external = {
+        "done": False,
+        "items": [{"name": "docs", "state": "linking", "tools": 0}],
+    }
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: None,
+    )
+
+    await activity.begin_download(lambda: dict(download))
+    await activity.begin_external_mcp(lambda: dict(external))
+    download["stage"] = "done"
+    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.12):
+        await activity.stop("download")
+
+    render_count = len(rendered)
+    await asyncio.sleep(0.05)
+    assert len(rendered) > render_count
+    assert "Download complete" in _block_text(rendered[-1])
+    assert "External MCP linking" in _block_text(rendered[-1])
+
+    await asyncio.sleep(0.09)
+    assert "Download complete" not in _block_text(rendered[-1])
+    assert "External MCP linking" in _block_text(rendered[-1])
+    assert activity.active
+    await activity.clear()
+
+
+@pytest.mark.anyio
+async def test_clear_cancels_pending_frozen_activity_expiry() -> None:
+    rendered = []
+    cleared = []
+    snapshot = {
+        "stage": "downloading",
+        "received_bytes": 5,
+        "total_bytes": 10,
+        "elapsed_sec": 0.1,
+        "speed_bytes_per_sec": 50,
+    }
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: cleared.append(True),
+    )
+
+    await activity.begin_download(lambda: dict(snapshot))
+    snapshot["stage"] = "done"
+    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.04):
+        await activity.stop("download")
+
+    settle_task = activity._settle_task
+    assert settle_task is not None
+
+    await activity.clear()
+    assert cleared == [True]
+    assert settle_task.done()
+    assert activity._settle_task is None
+
+    await asyncio.sleep(0.06)
+    assert cleared == [True]
+
+
+@pytest.mark.anyio
 async def test_external_mcp_status_can_clear_without_settling() -> None:
     runtime = TuiRuntime()
     snapshot = {

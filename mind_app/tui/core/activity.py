@@ -138,6 +138,7 @@ class TuiActivity(object):
 
         self.task: asyncio.Task[None] | None = None
 
+        self._settle_task: asyncio.Task[None] | None = None
         self._retired_tasks: set[asyncio.Task[None]] = set()
 
         self._generation: int = 0
@@ -305,6 +306,7 @@ class TuiActivity(object):
         """停止全部活动动画且不生成最终状态。"""
         self._slots.clear()
         self._settle_deadlines.clear()
+        self._cancel_settle_expiry()
         self._reset_wait()
         await self._cancel_task()
         retired = tuple(self._retired_tasks)
@@ -351,6 +353,7 @@ class TuiActivity(object):
         slot.frozen = True
         self._settle_deadlines.pop(slot.key, None)
         self._render_slots()
+        self._schedule_settle_expiry()
 
         if not self._needs_render_task():
             self._retire_task()
@@ -369,10 +372,12 @@ class TuiActivity(object):
 
         if not self._slots:
             self._retire_task()
+            self._cancel_settle_expiry()
             self.clear_renderable()
             return True
 
         self._render_slots()
+        self._schedule_settle_expiry()
         if self._needs_render_task():
             self._ensure_task()
         else:
@@ -435,6 +440,7 @@ class TuiActivity(object):
         self._slots[slot.key] = slot
         self._settle_deadlines.pop(slot.key, None)
         self._render_slots()
+        self._schedule_settle_expiry()
         self._ensure_task()
 
     async def _discard(self, kind: ActivityStatusKind) -> None:
@@ -449,11 +455,13 @@ class TuiActivity(object):
     async def _refresh_task(self) -> None:
         """根据剩余槽位刷新合成任务和活动区域。"""
         if not self._slots:
+            self._cancel_settle_expiry()
             await self._cancel_task()
             self.clear_renderable()
             return None
 
         self._render_slots()
+        self._schedule_settle_expiry()
 
         if self._needs_render_task():
             self._ensure_task()
@@ -478,15 +486,6 @@ class TuiActivity(object):
 
                 previous_tick = current_tick
 
-                expired = tuple(
-                    key
-                    for key, deadline in self._settle_deadlines.items()
-                    if current_tick >= deadline
-                )
-
-                for key in expired:
-                    self._slots.pop(key, None)
-                    self._settle_deadlines.pop(key, None)
                 for slot in self._slots.values():
                     slot.phase += step
 
@@ -529,11 +528,69 @@ class TuiActivity(object):
         return slot
 
     def _needs_render_task(self) -> bool:
-        """返回当前槽位是否仍需周期刷新或到期清理。"""
-        return any(
-            not slot.frozen or key in self._settle_deadlines
-            for key, slot in self._slots.items()
+        """返回当前槽位是否仍需周期刷新。"""
+        return any(not slot.frozen for slot in self._slots.values())
+
+    def _schedule_settle_expiry(self) -> None:
+        """按最近截止时间安排冻结状态清理。"""
+        self._cancel_settle_expiry()
+        if not self._settle_deadlines:
+            return None
+
+        self._settle_task = asyncio.create_task(
+            self._expire_settled_slots(),
+            name="tui activity settlement expiry",
         )
+
+    def _cancel_settle_expiry(self) -> None:
+        """取消尚未触发的冻结状态清理。"""
+        task = self._settle_task
+        self._settle_task = None
+        self._retire_owned_task(task)
+
+    async def _expire_settled_slots(self) -> None:
+        """移除已经到期的冻结状态并刷新剩余内容。"""
+        task = asyncio.current_task()
+        loop = asyncio.get_running_loop()
+
+        try:
+            deadline = min(self._settle_deadlines.values())
+            await asyncio.sleep(max(0.0, deadline - loop.time()))
+
+            if self._settle_task is not task:
+                return None
+
+            current_tick = loop.time()
+
+            expired = tuple(
+                key
+                for key, deadline in self._settle_deadlines.items()
+                if current_tick >= deadline
+            )
+
+            for key in expired:
+                self._slots.pop(key, None)
+                self._settle_deadlines.pop(key, None)
+
+            if self._slots:
+                self._render_slots()
+            else:
+                self.clear_renderable()
+
+            self._settle_task = None
+            self._schedule_settle_expiry()
+        finally:
+            if self._settle_task is task:
+                self._settle_task = None
+
+    def _retire_owned_task(self, task: asyncio.Task[None] | None) -> None:
+        """同步撤下内部任务并安排回收其结果。"""
+        if task is None:
+            return None
+        if not task.done():
+            task.cancel()
+        self._retired_tasks.add(task)
+        task.add_done_callback(self._retired_task_done)
 
     def _ensure_task(self) -> None:
         """确保需要动态刷新时存在合成任务。"""
@@ -544,12 +601,7 @@ class TuiActivity(object):
         """同步取消当前合成任务并在后台回收结果。"""
         task = self.task
         self.task = None
-        if task is None:
-            return None
-
-        task.cancel()
-        self._retired_tasks.add(task)
-        task.add_done_callback(self._retired_task_done)
+        self._retire_owned_task(task)
 
     def _retired_task_done(self, task: asyncio.Task[None]) -> None:
         """回收已同步撤下的合成任务。"""
