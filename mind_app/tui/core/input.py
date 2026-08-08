@@ -3,6 +3,7 @@
 
 import random
 import typing
+from dataclasses import dataclass
 from prompt_toolkit.auto_suggest import (
     AutoSuggest,
     Suggestion
@@ -57,13 +58,86 @@ def _deny_action() -> bool:
     return False
 
 
+@dataclass(frozen=True, slots=True)
+class TuiInputHistoryEntry(object):
+    """保存一条可恢复编辑状态的输入历史。"""
+    editable_text: str
+    paste_items: tuple[tuple[str, str], ...] = ()
+    shell_mode: bool = False
+
+    @property
+    def visible_text(self) -> str:
+        """返回历史列表使用的可见文本。"""
+        if not self.shell_mode:
+            return self.editable_text
+        command = self.editable_text.strip()
+        return f"! {command}" if command else "!"
+
+    @property
+    def paste_store(self) -> dict[str, str]:
+        """返回该历史项独立持有的粘贴映射。"""
+        return dict(self.paste_items)
+
+
 class TuiInputHistory(InMemoryHistory):
     """保存输入历史并允许撤销最近一次匹配的提交。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._entries: list[TuiInputHistoryEntry] = []
+
+    @staticmethod
+    def _plain_entry(text: str) -> TuiInputHistoryEntry:
+        """把普通历史字符串转换为结构化输入状态。"""
+        value = str(text or "")
+        if value.startswith("!"):
+            return TuiInputHistoryEntry(
+                editable_text=value[1:].lstrip(" "),
+                shell_mode=True,
+            )
+        return TuiInputHistoryEntry(editable_text=value)
+
+    def append_string(self, string: str) -> None:
+        """追加一条不带粘贴映射的普通历史。"""
+        self._append_entry(self._plain_entry(string))
+
+    def append_submission(
+        self,
+        editable_text: str,
+        paste_store: dict[str, str],
+        *,
+        shell_mode: bool,
+    ) -> bool:
+        """追加一条提交历史并保留其独立编辑状态。"""
+        paste_items = tuple(
+            (placeholder, original)
+            for placeholder, original in paste_store.items()
+        )
+        entry = TuiInputHistoryEntry(
+            editable_text=str(editable_text or ""),
+            paste_items=paste_items,
+            shell_mode=bool(shell_mode),
+        )
+        if self._entries and self._entries[-1] == entry:
+            return False
+        self._append_entry(entry)
+        return True
+
+    def entries(self) -> tuple[TuiInputHistoryEntry, ...]:
+        """返回按提交顺序排列的结构化历史。"""
+        return tuple(self._entries)
+
+    def _append_entry(self, entry: TuiInputHistoryEntry) -> None:
+        """同步追加结构化状态和终端历史字符串。"""
+        super().append_string(entry.visible_text)
+        self._entries.append(entry)
 
     def rollback_latest(self, text: str) -> None:
         """仅在最后一项匹配时撤销对应历史记录。"""
         if self._storage and self._storage[-1] == text:
             self._storage.pop()
+            if self._entries:
+                self._entries.pop()
         if self._loaded_strings and self._loaded_strings[0] == text:
             self._loaded_strings.pop(0)
 
@@ -165,11 +239,13 @@ class TuiInputModel(object):
 
         self.shell_mode: bool = False
 
-        self.history_backtrack_primed: bool    = False
-        self._history_entries: tuple[str, ...] = ()
-        self._history_index: int | None        = None
-        self._history_draft: Document | None   = None
-        self._history_draft_shell_mode: bool   = False
+        self.history_backtrack_primed: bool = False
+
+        self._history_entries: tuple[TuiInputHistoryEntry, ...] = ()
+        self._history_index: int | None                         = None
+        self._history_draft: Document | None                    = None
+        self._history_draft_shell_mode: bool                    = False
+        self._history_draft_paste_store: dict[str, str]         = {}
 
         self._dismissed_completion_query: tuple[str, int] | None = None
 
@@ -223,11 +299,11 @@ class TuiInputModel(object):
         )
 
     @staticmethod
-    def _history_entry_state(entry: str) -> tuple[str, bool]:
+    def _history_entry_state(
+        entry: TuiInputHistoryEntry
+    ) -> tuple[str, bool]:
         """把历史条目转换为输入文本和 Shell 前缀状态。"""
-        if entry.startswith("!"):
-            return entry[1:].lstrip(" "), True
-        return entry, False
+        return entry.editable_text, entry.shell_mode
 
     @staticmethod
     def _select_completion(buffer, step: int) -> bool:
@@ -446,8 +522,18 @@ class TuiInputModel(object):
         """清除等待第二次 Esc 的历史编辑状态。"""
         self.history_backtrack_primed = False
 
-    def submission_state(self) -> dict[str, str]:
+    def submission_state(self, text: str | None = None) -> dict[str, str]:
         """返回当前提交文本关联的折叠粘贴状态。"""
+        if text is not None:
+            active = {
+                placeholder
+                for _start, _end, placeholder in iter_paste_placeholders(text)
+            }
+            return {
+                placeholder: original
+                for placeholder, original in self.paste_store.items()
+                if placeholder in active
+            }
         return dict(self.paste_store)
 
     def restore_submission_state(self, state: dict[str, str]) -> None:
@@ -457,6 +543,20 @@ class TuiInputModel(object):
     def rollback_submission_history(self, text: str) -> None:
         """撤销最近一次匹配的输入历史提交。"""
         self.history.rollback_latest(text)
+
+    def record_submission_history(
+        self,
+        editable_text: str,
+        paste_store: dict[str, str],
+        *,
+        shell_mode: bool
+    ) -> bool:
+        """记录一次提交对应的完整可编辑历史。"""
+        return self.history.append_submission(
+            editable_text,
+            paste_store,
+            shell_mode=shell_mode,
+        )
 
     def restore_submission(self, text: str) -> str:
         """还原折叠粘贴内容并清理提交文本。"""
@@ -526,10 +626,11 @@ class TuiInputModel(object):
 
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
-        self._history_entries          = ()
-        self._history_index            = None
-        self._history_draft            = None
-        self._history_draft_shell_mode = False
+        self._history_entries           = ()
+        self._history_index             = None
+        self._history_draft             = None
+        self._history_draft_shell_mode  = False
+        self._history_draft_paste_store = {}
 
     def _start_history_navigation(self, buffer) -> None:
         """根据当前草稿创建输入历史导航快照。"""
@@ -537,13 +638,14 @@ class TuiInputModel(object):
         if self.shell_mode:
             prefix = f"! {prefix}" if prefix else "!"
 
-        self._history_draft            = buffer.document
-        self._history_draft_shell_mode = self.shell_mode
+        self._history_draft             = buffer.document
+        self._history_draft_shell_mode  = self.shell_mode
+        self._history_draft_paste_store = dict(self.paste_store)
 
         self._history_entries = tuple(
             entry
-            for entry in self.history.get_strings()
-            if entry.startswith(prefix)
+            for entry in self.history.entries()
+            if entry.visible_text.startswith(prefix)
         )
 
         self._history_index = len(self._history_entries)
@@ -560,11 +662,18 @@ class TuiInputModel(object):
             return (
                 buffer.text == draft.text
                 and self.shell_mode == self._history_draft_shell_mode
+                and self.paste_store == self._history_draft_paste_store
             )
 
-        text, shell_mode = self._history_entry_state(self._history_entries[index])
+        entry = self._history_entries[index]
 
-        return buffer.text == text and self.shell_mode == shell_mode
+        text, shell_mode = self._history_entry_state(entry)
+
+        return bool(
+            buffer.text == text
+            and self.shell_mode == shell_mode
+            and self.paste_store == entry.paste_store
+        )
 
     def _navigate_history(self, buffer, *, step: int, count: int) -> None:
         """在真实输入历史和当前草稿之间导航。"""
@@ -588,13 +697,17 @@ class TuiInputModel(object):
 
         if target == len(self._history_entries):
             self.set_shell_mode(self._history_draft_shell_mode)
+            self.restore_submission_state(self._history_draft_paste_store)
             buffer.document = draft
             self.dismiss_completion_menu(buffer)
             return None
 
-        text, shell_mode = self._history_entry_state(self._history_entries[target])
+        entry = self._history_entries[target]
+
+        text, shell_mode = self._history_entry_state(entry)
 
         self.set_shell_mode(shell_mode)
+        self.restore_submission_state(entry.paste_store)
 
         buffer.document = Document(text, cursor_position=len(text))
         self.dismiss_completion_menu(buffer)

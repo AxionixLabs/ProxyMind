@@ -208,7 +208,10 @@ class TuiSubmissionFlow(object):
 
         label = stream_command_label(submission.value)
 
-        self.input_model.rollback_submission_history(submission.editable_text)
+        if submission.history_recorded:
+            self.input_model.rollback_submission_history(
+                submission.visible_text
+            )
 
         self._append_notice(FragmentBlock((
             ("class:input.notice.marker", "■"),
@@ -327,7 +330,8 @@ class TuiSubmissionFlow(object):
 
         self._queued_restore_handler(item)
 
-        self.input_model.rollback_submission_history(item.visible_text)
+        if item.history_recorded:
+            self.input_model.rollback_submission_history(item.visible_text)
 
         self.queued_submission_text = None
 
@@ -452,7 +456,7 @@ class TuiSubmissionFlow(object):
         self.input_model.cancel_history_backtrack()
 
         editable_text = buffer.text
-        paste_store   = self.input_model.submission_state()
+        paste_store   = self.input_model.submission_state(editable_text)
         shell_mode    = self.input_model.shell_mode
 
         value = self.input_model.restore_submission(buffer.text)
@@ -466,11 +470,18 @@ class TuiSubmissionFlow(object):
         if shell_mode:
             value = f"! {value}" if value else "!"
 
+        history_recorded = self.input_model.record_submission_history(
+            editable_text,
+            paste_store,
+            shell_mode=shell_mode,
+        )
+
         submission = TuiSubmission(
             value=value,
             editable_text=editable_text,
             paste_store=paste_store,
             shell_mode=shell_mode,
+            history_recorded=history_recorded,
         )
 
         if self._is_submission_deferred():
@@ -581,6 +592,7 @@ class TuiSubmissionFlow(object):
             self._get_input_buffer().reset()
             if (
                 isinstance(submission, TuiSubmission)
+                and submission.history_recorded
                 and slash_command_notice_message(submission.value)
             ):
                 self.input_model.rollback_submission_history(

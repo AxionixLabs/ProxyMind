@@ -22,6 +22,7 @@ class TuiSubmission(object):
     editable_text: str
     paste_store: dict[str, str]
     shell_mode: bool = False
+    history_recorded: bool = False
     client_message_id: str = field(default_factory=lambda: short_uid(16))
     attachments: tuple[dict[str, typing.Any], ...] = ()
     extras: dict[str, typing.Any] = field(default_factory=dict)

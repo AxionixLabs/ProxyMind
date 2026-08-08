@@ -435,6 +435,24 @@ async def test_queued_pastes_keep_independent_placeholder_snapshots() -> None:
     assert (first, second) == contents
 
 
+def test_rollback_duplicate_queue_does_not_remove_previous_history() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    buffer = runtime.screen.input.buffer
+
+    for _ in range(2):
+        buffer.text = "same queued input"
+        buffer.validate_and_handle()
+
+    assert runtime.input_model.history.get_strings() == ["same queued input"]
+
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.input_model.history.get_strings() == ["same queued input"]
+
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.input_model.history.get_strings() == []
+
+
 @pytest.mark.parametrize(
     "command",
     ["/compact", "/fork", "/helix-mode", "/helix-home"],
@@ -448,6 +466,7 @@ def test_streaming_rejected_command_never_enters_message_queue(command) -> None:
 
     assert not runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
+    assert runtime.input_model.history.get_strings() == []
     assert f"'{command}' is disabled while a task is in progress." in (
         _fragments_text(runtime.document.fragments(width=100))
     )
