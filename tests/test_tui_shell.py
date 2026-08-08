@@ -190,7 +190,21 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
         frontend=SimpleNamespace(application=application),
         native_coding=native_coding,
     )
-    runtime = object()
+
+    class RuntimeStub(object):
+        def __init__(self) -> None:
+            self.started = None
+            self.task = None
+
+        def start_background_task(self, awaitable, *, name) -> None:
+            self.started = (name, awaitable)
+            self.task = asyncio.create_task(awaitable)
+
+    runtime = RuntimeStub()
+
+    async def watch_ready(*args, **kwargs) -> bool:
+        kwargs["ready_event"].set()
+        return True
 
     with (
         patch(
@@ -203,7 +217,7 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
         ),
         patch(
             "mind_app.tui.features.shell.watch_exec_session",
-            new=AsyncMock(return_value=True),
+            new=AsyncMock(side_effect=watch_ready),
         ) as watch,
     ):
         handled = await run_shell_escape(runtime, mind, "!resolved arg")
@@ -214,13 +228,57 @@ async def test_shell_escape_starts_shared_session_and_attaches_viewer() -> None:
         args=["resolved", "arg"],
         timeout_sec=3600,
     )
-    watch.assert_awaited_once_with(
-        runtime,
-        mind,
-        "exec_shell",
-        announce_detach=True,
-        viewer_mode="inline",
+    watch.assert_awaited_once()
+    assert watch.call_args.args[:3] == (runtime, mind, "exec_shell")
+    assert watch.call_args.kwargs["announce_detach"] is True
+    assert watch.call_args.kwargs["viewer_mode"] == "inline"
+    assert runtime.started[0] == "shell viewer exec_shell"
+    await runtime.task
+
+
+@pytest.mark.anyio
+async def test_shell_escape_background_task_preserves_modal_viewer() -> None:
+    snapshot = {
+        "ok": True,
+        "session_id": "exec_shell",
+        "command": "adb devices",
+        "status": "running",
+        "origin": "tui_shell",
+        "output_lines": ["List of devices attached"],
+    }
+    application = _ApplicationStub()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=SimpleNamespace(
+            start_user_shell_session=AsyncMock(return_value=snapshot),
+            exec_session_output_snapshot=AsyncMock(return_value=snapshot),
+        ),
     )
+    runtime = TuiRuntime()
+
+    with (
+        patch(
+            "mind_app.tui.features.shell.default_shell_executable",
+            return_value="shell",
+        ),
+        patch(
+            "mind_app.tui.features.shell.direct_command_args",
+            return_value=["adb", "devices"],
+        ),
+    ):
+        handled = await run_shell_escape(runtime, mind, "!adb devices")
+
+    assert handled
+    assert runtime.screen.process_viewer.active
+    assert not runtime.screen.input_area.filter()
+    assert runtime._background_tasks
+
+    tasks = tuple(runtime._background_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert not runtime.screen.process_viewer.active
 
 
 @pytest.mark.anyio

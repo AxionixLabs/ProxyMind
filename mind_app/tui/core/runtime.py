@@ -1408,14 +1408,23 @@ class TuiRuntime(object):
         request: ProcessViewerRequest,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        ready_event: asyncio.Event | None = None
     ) -> typing.Any:
         """显示动态进程正文并等待查看器动作。"""
-        future = self.begin_process_viewer(
-            request,
-            block,
-            transcript_block=transcript_block,
-        )
+        try:
+            future = self.begin_process_viewer(
+                request,
+                block,
+                transcript_block=transcript_block,
+            )
+        except BaseException:
+            if ready_event is not None:
+                ready_event.set()
+            raise
+
+        if ready_event is not None:
+            ready_event.set()
 
         try:
             return await future

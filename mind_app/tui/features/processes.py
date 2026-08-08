@@ -427,7 +427,8 @@ async def watch_exec_session(
     announce_detach: bool = False,
     initial_snapshot: dict[str, typing.Any] | None = None,
     activate_immediately: bool = False,
-    viewer_mode: ProcessViewerMode = "process"
+    viewer_mode: ProcessViewerMode = "process",
+    ready_event: asyncio.Event | None = None
 ) -> bool | str:
     """按指定展示模式持续查看命令会话输出。"""
     sid = str(session_id or "").strip()
@@ -450,12 +451,16 @@ async def watch_exec_session(
     runtime.cancel_background_session_task(sid)
 
     if initial.get("ok") is False:
+        if ready_event is not None:
+            ready_event.set()
         return False
     if str(initial.get("status") or "").strip() == "exited":
         runtime.commit_process_result(exec_session_summary_block(
             initial,
             terminal_width=application.viewport.width,
         ), transcript_block=exec_session_transcript_block(initial))
+        if ready_event is not None:
+            ready_event.set()
         return "exited"
 
     state: dict[str, typing.Any] = {
@@ -471,6 +476,7 @@ async def watch_exec_session(
         announce_detach=announce_detach,
         activate_immediately=activate_immediately,
         viewer_mode=viewer_mode,
+        ready_event=ready_event,
     )
 
 
@@ -482,7 +488,8 @@ async def _watch_exec_session(
     runtime: "TuiRuntime",
     announce_detach: bool,
     activate_immediately: bool,
-    viewer_mode: ProcessViewerMode
+    viewer_mode: ProcessViewerMode,
+    ready_event: asyncio.Event | None
 ) -> bool | str:
     """轮询并更新主 TUI 中的命令会话面板。"""
     application = mind.frontend.application
@@ -501,11 +508,14 @@ async def _watch_exec_session(
             transcript_block=transcript_block,
             gap_before=2,
         )
+        if ready_event is not None:
+            ready_event.set()
     else:
         viewer_task = asyncio.create_task(runtime.view_process(
             PROCESS_VIEWER_FOCUS_REQUEST,
             live_block,
             transcript_block=transcript_block,
+            ready_event=ready_event,
         ))
 
     async def poll() -> None:

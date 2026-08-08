@@ -6,6 +6,7 @@ import shlex
 import shutil
 import ctypes
 import typing
+import asyncio
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -105,13 +106,21 @@ async def run_shell_escape(
         )
         return True
 
-    await watch_exec_session(
-        runtime,
-        mind,
-        str(snapshot.get("session_id") or ""),
-        announce_detach=True,
-        viewer_mode="inline",
+    session_id = str(snapshot.get("session_id") or "").strip()
+    viewer_ready = asyncio.Event()
+    runtime.start_background_task(
+        watch_exec_session(
+            runtime,
+            mind,
+            session_id,
+            announce_detach=True,
+            initial_snapshot=snapshot,
+            viewer_mode="inline",
+            ready_event=viewer_ready,
+        ),
+        name=f"shell viewer {session_id}",
     )
+    await viewer_ready.wait()
     return True
 
 
