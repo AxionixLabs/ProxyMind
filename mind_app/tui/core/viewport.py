@@ -899,6 +899,8 @@ class TuiTranscriptViewport(object):
         completed: bool    = False
 
         try:
+            synchronized = self._begin_synchronized_output()
+
             async with in_terminal(render_cli_done=False):
                 if (
                     generation != self._reflow_generation
@@ -906,8 +908,6 @@ class TuiTranscriptViewport(object):
                     or self._should_defer_scrollback()
                 ):
                     return None
-
-                synchronized = self._begin_synchronized_output()
 
                 previous_scrollback_position = (
                     self.document.scrollback_line_count

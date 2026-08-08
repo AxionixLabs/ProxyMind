@@ -2626,6 +2626,79 @@ async def test_height_only_resize_reflows_native_scrollback() -> None:
 
 
 @pytest.mark.anyio
+async def test_resize_reflow_vt_transaction_wraps_erase_and_replay() -> None:
+    stream = io.StringIO()
+    terminal_size = Size(rows=8, columns=40)
+    output = Vt100_Output(
+        stream,
+        lambda: terminal_size,
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        await runtime.open()
+        try:
+            runtime.append_block(
+                _block("\n".join(f"entry {index:02d}" for index in range(60))),
+                kind="assistant",
+            )
+            for _ in range(100):
+                await asyncio.sleep(0.002)
+                if (
+                    runtime.document.scrollback_line_count > 0
+                    and runtime.viewport.scrollback_task is None
+                ):
+                    break
+
+            assert runtime.document.scrollback_line_count > 0
+            stream.seek(0)
+            stream.truncate(0)
+
+            terminal_size = Size(rows=8, columns=24)
+            runtime.viewport.observe_terminal_geometry(24, 8)
+            for _ in range(200):
+                await asyncio.sleep(0.002)
+                if (
+                    runtime.viewport._reflowed_geometry == (24, 8)
+                    and runtime.viewport._scrollback_reflow_task is None
+                ):
+                    break
+
+            payload = stream.getvalue()
+            synchronized_begin = payload.find("\x1b[?2026h")
+            synchronized_end = payload.find(
+                "\x1b[?2026l",
+                synchronized_begin + 1,
+            )
+            erased = payload.find("\x1b[J", synchronized_begin)
+            cleared = payload.find(
+                "\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H",
+                synchronized_begin,
+            )
+            replayed = payload.find("entry 00", synchronized_begin)
+
+            assert runtime.viewport._reflowed_geometry == (24, 8)
+            assert -1 not in (
+                synchronized_begin,
+                erased,
+                cleared,
+                replayed,
+                synchronized_end,
+            )
+            assert (
+                synchronized_begin
+                < erased
+                < cleared
+                < replayed
+                < synchronized_end
+            )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_resize_rechecks_settled_geometry_before_reflow() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -2745,9 +2818,9 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                 end.assert_called_once_with()
                 renderer_clear.assert_not_called()
                 assert events == [
+                    "begin",
                     "wait",
                     "acquired",
-                    "begin",
                     "clear",
                     "replay",
                     "settle",
@@ -2755,6 +2828,89 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                     "end",
                 ]
                 assert runtime.viewport._reflowed_geometry == (36, 12)
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_resize_reflow_releases_sync_when_terminal_wait_is_cancelled(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=8, columns=40)
+        waiting = asyncio.Event()
+        blocked = asyncio.Event()
+        events: list[str] = []
+
+        @asynccontextmanager
+        async def blocked_terminal(render_cli_done: bool = False):
+            _ = render_cli_done
+            events.append("wait")
+            waiting.set()
+            await blocked.wait()
+            yield
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            side_effect=lambda: terminal_size,
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(
+                        f"entry {index}" for index in range(60)
+                    )),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+                previous_position = runtime.document.scrollback_line_count
+                assert previous_position > 0
+
+                terminal_size = Size(rows=8, columns=24)
+                runtime.viewport.observe_terminal_geometry(24, 8)
+                runtime.viewport._cancel_scrollback_reflow()
+                generation = runtime.viewport._reflow_generation
+
+                with (
+                    patch(
+                        "mind_app.tui.core.viewport.in_terminal",
+                        blocked_terminal,
+                    ),
+                    patch.object(
+                        runtime.viewport,
+                        "_schedule_scrollback_reflow",
+                    ),
+                    patch.object(
+                        runtime.screen,
+                        "begin_synchronized_output",
+                        side_effect=lambda: events.append("begin") or True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                        side_effect=lambda: events.append("end"),
+                    ) as end,
+                    patch.object(
+                        runtime.screen,
+                        "clear_terminal_for_resize_replay",
+                    ) as clear,
+                ):
+                    task = asyncio.create_task(runtime.viewport._reflow_scrollback(
+                        (24, 8),
+                        generation,
+                    ))
+                    await asyncio.wait_for(waiting.wait(), timeout=1.0)
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
+                clear.assert_not_called()
+                assert events == ["begin", "wait", "end"]
+                assert runtime.document.scrollback_line_count == previous_position
+                assert runtime.viewport._reflow_required is True
             finally:
                 await runtime.close()
 
@@ -2802,6 +2958,15 @@ async def test_resize_invalidated_while_acquiring_terminal_keeps_position() -> N
                     ),
                     patch.object(
                         runtime.screen,
+                        "begin_synchronized_output",
+                        return_value=True,
+                    ) as begin,
+                    patch.object(
+                        runtime.screen,
+                        "end_synchronized_output",
+                    ) as end,
+                    patch.object(
+                        runtime.screen,
                         "clear_terminal_for_resize_replay",
                     ) as clear,
                 ):
@@ -2810,6 +2975,8 @@ async def test_resize_invalidated_while_acquiring_terminal_keeps_position() -> N
                         generation,
                     )
 
+                begin.assert_called_once_with()
+                end.assert_called_once_with()
                 clear.assert_not_called()
                 assert runtime.document.scrollback_line_count == previous_position
                 assert runtime.viewport._observed_geometry == (40, 8)
@@ -2860,7 +3027,7 @@ async def test_resize_replay_failure_restores_scrollback_position() -> None:
                         runtime.screen,
                         "begin_synchronized_output",
                         return_value=True,
-                    ),
+                    ) as begin,
                     patch.object(
                         runtime.screen,
                         "end_synchronized_output",
@@ -2877,6 +3044,7 @@ async def test_resize_replay_failure_restores_scrollback_position() -> None:
                             generation,
                         )
 
+                begin.assert_called_once_with()
                 end.assert_called_once_with()
                 assert runtime.document.scrollback_line_count == previous_position
                 assert runtime.viewport._reflow_required is True
