@@ -40,7 +40,7 @@ _OPERATION_VIEWS = (
     ProgressView
 )
 
-_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)(?! \([^)]*transcript\))")
+_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)$")
 
 
 def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
@@ -65,16 +65,17 @@ class TuiPresentationSink(PresentationSink):
 
     async def emit(self, view: PresentationView) -> None:
         """渲染并发送一项结构化展示数据。"""
-        block_kind = _presentation_block_kind(view)
+        block_kind     = _presentation_block_kind(view)
+        terminal_width = self.output.terminal_width
 
         blocks = render_presentation_view(
             view,
-            terminal_width=self.output.terminal_width,
+            terminal_width=terminal_width,
             measure_width=get_cwidth,
         )
         transcript_blocks = render_presentation_transcript_view(
             view,
-            terminal_width=self.output.terminal_width,
+            terminal_width=terminal_width,
             measure_width=get_cwidth,
         )
         raw_blocks = render_presentation_raw_view(view)
@@ -93,7 +94,11 @@ class TuiPresentationSink(PresentationSink):
             strict=True,
         ):
             await self.output.append_presentation_block(
-                _with_transcript_hint(block, transcript_key),
+                _with_transcript_hint(
+                    block,
+                    transcript_key,
+                    terminal_width=terminal_width,
+                ),
                 block_kind=block_kind,
                 transcript_block=transcript_block,
                 source=view,
@@ -101,14 +106,20 @@ class TuiPresentationSink(PresentationSink):
             )
 
 
-def _with_transcript_hint(block: StyledBlock, key_label: str) -> StyledBlock:
+def _with_transcript_hint(
+    block: StyledBlock,
+    key_label: str,
+    *,
+    terminal_width: int | None = None
+) -> StyledBlock:
     """给 TUI 中的省略行追加完整记录入口提示。"""
-    hint = f" ({key_label} to view transcript)" if key_label else ""
-
     spans: list[TextSpan] = []
     for index, span in enumerate(block.spans):
         text = _OMITTED_LINES_PATTERN.sub(
-            rf"\1{hint}",
+            lambda match: (
+                f"{match.group(1)}"
+                f"{_transcript_hint(match.group(1), key_label, terminal_width)}"
+            ),
             span.text,
         )
         if (
@@ -118,7 +129,12 @@ def _with_transcript_hint(block: StyledBlock, key_label: str) -> StyledBlock:
             and block.spans[index - 1].text.isdigit()
             and block.spans[index - 2].text.endswith("… +")
         ):
-            text = f"{text}{hint}"
+            marker = (
+                f"{block.spans[index - 2].text}"
+                f"{block.spans[index - 1].text}"
+                f"{span.text}"
+            )
+            text = f"{text}{_transcript_hint(marker, key_label, terminal_width)}"
         spans.append(TextSpan(text, span.style, span.hyperlink))
 
     rendered_spans = tuple(spans)
@@ -131,6 +147,31 @@ def _with_transcript_hint(block: StyledBlock, key_label: str) -> StyledBlock:
         preserve_spans=block.preserve_spans,
         direct=block.direct,
     )
+
+
+def _transcript_hint(
+    marker: str,
+    key_label: str,
+    terminal_width: int | None
+) -> str:
+    """返回当前省略行能够完整容纳的记录入口提示。"""
+    key = str(key_label or "").strip()
+    if not key:
+        return ""
+
+    full = f" ({key} to view transcript)"
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return full
+
+    prefix = "  "
+    if get_cwidth(f"{prefix}{marker}{full}") <= terminal_width:
+        return full
+
+    compact = f" {key}"
+    if get_cwidth(f"{prefix}{marker}{compact}") <= terminal_width:
+        return compact
+
+    return ""
 
 
 if __name__ == '__main__':

@@ -6988,6 +6988,47 @@ async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> Non
     assert "(F12 to view transcript)" not in transcript
 
 
+@pytest.mark.parametrize(
+    ("width", "expected_hint"),
+    (
+        (20, "… +3 lines Ctrl+T"),
+        (39, "… +3 lines Ctrl+T"),
+        (40, "… +3 lines (Ctrl+T to view transcript)"),
+    ),
+)
+@pytest.mark.anyio
+async def test_shell_transcript_hint_uses_one_visual_row(
+    width: int,
+    expected_hint: str,
+) -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (width, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    output_lines = [f"output line {index}" for index in range(8)]
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "printf output"},
+        ok=True,
+        data={
+            "command": "printf output",
+            "output_lines": output_lines,
+        },
+        call_id="transcript-hint-width",
+    ))
+
+    display = _document_text(runtime.document)
+    display_lines = display.splitlines()
+    transcript = _transcript_text(runtime.document)
+
+    assert display_lines[-1] == f"  {expected_hint}"
+    assert all(get_cwidth(line) <= width for line in display_lines)
+    assert display_line_count(display, width=width) == len(display_lines)
+    assert output_lines[-1] in transcript
+    assert expected_hint not in transcript
+
+
 @pytest.mark.anyio
 async def test_native_shell_result_transcript_keeps_command_and_output() -> None:
     runtime = TuiRuntime()
