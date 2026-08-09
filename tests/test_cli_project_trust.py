@@ -145,6 +145,34 @@ async def test_accepting_unknown_project_reloads_all_project_automation(
 
 
 @pytest.mark.anyio
+async def test_accepting_home_directory_does_not_reclassify_user_config(
+    tmp_path,
+) -> None:
+    workspace = tmp_path / "home"
+    store = ConfigStore(workspace / PROJECT_CONFIG_DIR / "config.toml")
+    session = ConfigSession(store, workspace=workspace)
+    initial = session.resolve()
+    runtime = _TrustRuntime(True)
+
+    result = await _confirm_tui_project_trust(
+        runtime=runtime,
+        config_session=session,
+        resolution=initial,
+        workspace=workspace,
+    )
+
+    assert result is not None
+    assert result.project_trust is not None
+    assert result.project_trust.level == "trusted"
+    assert [layer.scope for layer in result.layers] == ["user"]
+    assert store.read_raw()["projects"][str(workspace.resolve())] == {
+        "trust_level": "trusted",
+    }
+    assert runtime.errors == []
+    assert runtime.finish_count == 1
+
+
+@pytest.mark.anyio
 async def test_declining_unknown_project_does_not_persist_a_decision(
     tmp_path,
 ) -> None:

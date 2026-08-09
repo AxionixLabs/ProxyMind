@@ -196,6 +196,8 @@ class ConfigResolver(object):
                     project_root,
                     effective_workspace,
                 ):
+                    if _path_key(path) == _path_key(self.store.path):
+                        continue
                     if not path.is_file():
                         continue
 

@@ -231,6 +231,27 @@ def test_config_session_persists_project_trust_decisions(tmp_path) -> None:
     assert untrusted_config["model"]["primary"]["model"] != "project-model"
 
 
+def test_user_config_is_not_reloaded_as_home_project_config(tmp_path) -> None:
+    workspace = tmp_path / "home"
+    store = ConfigStore(workspace / PROJECT_CONFIG_DIR / "config.toml")
+    session = ConfigSession(store, workspace=workspace)
+
+    initial = session.resolve()
+    assert initial.project_trust is not None
+    assert initial.project_trust.root == workspace.resolve()
+    assert initial.project_trust.level is None
+
+    session.update_user({
+        ("projects", str(workspace), "trust_level"): "trusted",
+    })
+    resolution = session.resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level == "trusted"
+    assert [layer.scope for layer in resolution.layers] == ["user"]
+    assert resolution.layers[0].path == store.path
+
+
 def test_project_trust_update_rejects_invalid_state(tmp_path) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
