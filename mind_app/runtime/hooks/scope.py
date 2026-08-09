@@ -15,6 +15,7 @@ from .protocol import (
 )
 from .runtime import (
     HookDispatcher,
+    HookStatusPort,
     HookRuntime
 )
 
@@ -126,6 +127,16 @@ class HookExecutionScope:
             match_value=match_value,
             diagnostics=dict(diagnostics or {}),
         ))
+
+    def with_default_status_port(
+        self,
+        status_port: HookStatusPort
+    ) -> "HookExecutionScope":
+        """在分发器尚未配置展示端时绑定单轮状态端口。"""
+        dispatcher = self.dispatcher.with_default_status_port(status_port)
+        if dispatcher is self.dispatcher:
+            return self
+        return type(self)(context=self.context, dispatcher=dispatcher)
 
     def require_turn(self, turn: TurnContext) -> None:
         """验证模型轮次属于当前固定作用域。"""

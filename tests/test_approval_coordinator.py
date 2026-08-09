@@ -14,6 +14,8 @@ async def test_approval_coordinator_serializes_concurrent_requests() -> None:
     calls = []
 
     class Interaction:
+        approval_source = "user"
+
         async def request_approval(self, approval):
             calls.append(approval["id"])
             if approval["id"] == "first":
@@ -39,6 +41,8 @@ async def test_approval_cancellation_releases_next_request() -> None:
     started = asyncio.Event()
 
     class Interaction:
+        approval_source = "user"
+
         async def request_approval(self, approval):
             if approval["id"] == "first":
                 started.set()
@@ -55,3 +59,11 @@ async def test_approval_cancellation_releases_next_request() -> None:
         await first
 
     assert await asyncio.wait_for(second, timeout=1) == "decline"
+
+
+def test_approval_coordinator_exposes_interaction_decision_source() -> None:
+    coordinator = ApprovalCoordinator(type("Interaction", (), {
+        "approval_source": "policy",
+    })())
+
+    assert coordinator.decision_source == "policy"

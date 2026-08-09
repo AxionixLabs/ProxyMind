@@ -99,6 +99,13 @@ class HookDispatcher(typing.Protocol):
         """分发一次生命周期事件。"""
         ...
 
+    def with_default_status_port(
+        self,
+        status_port: HookStatusPort,
+    ) -> "HookDispatcher":
+        """在尚未绑定展示端时返回带状态端口的分发器。"""
+        ...
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class HookRuntime:
@@ -183,6 +190,21 @@ class HookRuntime:
     def status(self) -> HookRuntimeStatus:
         """返回当前不可变运行时状态视图。"""
         return self._status
+
+    def with_default_status_port(
+        self,
+        status_port: HookStatusPort,
+    ) -> "HookRuntime":
+        """在尚未绑定展示端时返回共享配置的新运行时。"""
+        if self.status_port is not None:
+            return self
+        return type(self)(
+            self._definitions,
+            command_runner=self.command_runner,
+            context_spiller=self.context_spiller,
+            status_port=status_port,
+            status=self._status,
+        )
 
     def has_matching(
         self,

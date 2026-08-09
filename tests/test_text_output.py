@@ -32,7 +32,10 @@ from mind_app.output.content import (
     AssistantTextDelta,
 )
 from mind_app.presentation.models import (
+    ApprovalView,
     GenericToolResultView,
+    HookOutputView,
+    HookRunView,
     ProgressView,
     TracePreview,
 )
@@ -247,6 +250,52 @@ async def test_text_tool_events_color_only_the_tool_name() -> None:
         "loading\n"
     )
     assert "mcp:" not in stderr.getvalue()
+
+
+@pytest.mark.anyio
+async def test_text_hook_and_policy_approval_are_progress_on_stderr() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=stdout,
+        stderr=stderr,
+    )
+    sink = TextPresentationSink(state)
+
+    await sink.emit(HookRunView(
+        id="hook-1",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="started",
+        status="running",
+        status_message="Checking prompt",
+    ))
+    await sink.emit(HookRunView(
+        id="hook-1",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="completed",
+        status="completed",
+        status_message="Checking prompt",
+        duration_ms=25,
+        entries=(HookOutputView("context", "safe context"),),
+    ))
+    await sink.emit(ApprovalView(
+        approval={"tool": "shell_command", "command": "pytest -q"},
+        decision="decline",
+        state="denied",
+        source="policy",
+    ))
+
+    assert stdout.getvalue() == ""
+    assert stderr.getvalue() == (
+        "• Running UserPromptSubmit hook: Checking prompt\n"
+        "• UserPromptSubmit hook: Checking prompt\n"
+        "└ completed · 25ms\n"
+        "  hook context: safe context\n"
+        "• Approval policy denied pytest -q\n"
+    )
 
 
 @pytest.mark.anyio

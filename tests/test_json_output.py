@@ -15,7 +15,10 @@ from mind_app.output.jsonl import (
     JsonOutputState,
 )
 from mind_app.presentation.models import (
+    ApprovalView,
     FailureView,
+    HookOutputView,
+    HookRunView,
     RunCompletedView,
     RunIncompleteView,
 )
@@ -130,3 +133,111 @@ async def test_json_output_emits_terminal_status_and_metadata() -> None:
             "stop_reason": "pause_turn",
         },
     ]
+
+
+@pytest.mark.anyio
+async def test_json_output_emits_structured_hook_and_approval_items() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    presentation = JsonPresentationSink(state)
+
+    await presentation.emit(HookRunView(
+        id="hook-1",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="started",
+        status="running",
+        status_message="Checking prompt",
+    ))
+    await presentation.emit(HookRunView(
+        id="hook-1",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="completed",
+        status="completed",
+        status_message="Checking prompt",
+        duration_ms=25,
+        entries=(HookOutputView("context", "safe context"),),
+    ))
+    await presentation.emit(ApprovalView(
+        approval={
+            "id": "approval-1",
+            "tool": "shell_command",
+            "command": "pytest -q",
+        },
+        decision="decline",
+        state="denied",
+        source="policy",
+    ))
+
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert events == [
+        {
+            "type": "item.started",
+            "item": {
+                "id": "hook-1",
+                "type": "hook",
+                "hook_key": "project:prompt",
+                "event": "UserPromptSubmit",
+                "status": "in_progress",
+                "status_message": "Checking prompt",
+            },
+        },
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "hook-1",
+                "type": "hook",
+                "hook_key": "project:prompt",
+                "event": "UserPromptSubmit",
+                "status": "completed",
+                "status_message": "Checking prompt",
+                "duration_ms": 25,
+                "entries": [{"kind": "context", "text": "safe context"}],
+            },
+        },
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "approval-1",
+                "type": "approval",
+                "tool": "shell_command",
+                "approval": {
+                    "id": "approval-1",
+                    "tool": "shell_command",
+                    "command": "pytest -q",
+                },
+                "decision": "decline",
+                "status": "denied",
+                "source": "policy",
+            },
+        },
+    ]
+
+
+@pytest.mark.anyio
+async def test_json_hook_item_id_uses_shared_collision_registry() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    presentation = JsonPresentationSink(state)
+
+    assert state.item_id() == "item_0"
+
+    await presentation.emit(HookRunView(
+        id="item_0",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="started",
+        status="running",
+    ))
+    await presentation.emit(HookRunView(
+        id="item_0",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="completed",
+        status="completed",
+        duration_ms=1,
+    ))
+
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert [event["item"]["id"] for event in events] == ["item_1", "item_1"]

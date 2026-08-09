@@ -18,8 +18,13 @@ from .contracts import (
 class ConsoleApplicationSink(ApplicationSink):
     """通过指定终端控制台输出应用级展示数据。"""
 
-    def __init__(self, console: Console | None = None) -> None:
-        self.console = console or Console()
+    def __init__(
+        self,
+        console: Console | None = None,
+        error_console: Console | None = None
+    ) -> None:
+        self.console       = console or Console()
+        self.error_console = error_console or Console(stderr=True)
 
     @property
     def viewport(self) -> Viewport:
@@ -40,11 +45,16 @@ class ConsoleApplicationSink(ApplicationSink):
         if view.type == "startup_logo":
             Design.startup_logo(self.console)
             return None
+        console = (
+            self.error_console
+            if view.payload.get("stream") == "stderr"
+            else self.console
+        )
         if view.type == "error":
-            self.console.print(const.PRINT_HEAD, f"{const.ERR}{view.renderable}")
+            console.print(const.PRINT_HEAD, f"{const.ERR}{view.renderable}")
             return None
         if view.type == "json" and isinstance(view.renderable, dict):
-            self.console.print_json(data=view.renderable)
+            console.print_json(data=view.renderable)
             return None
         if isinstance(view.renderable, StyledBlock):
             from rich.text import Text
@@ -55,9 +65,9 @@ class ConsoleApplicationSink(ApplicationSink):
                     out.append(span.text, style=rich_style(span.style))
             else:
                 out.append(view.renderable.plain_text)
-            self.console.print(out, end=view.end)
+            console.print(out, end=view.end)
             return None
-        self.console.print(view.renderable or "", end=view.end)
+        console.print(view.renderable or "", end=view.end)
 
 
 class JsonApplicationSink(ApplicationSink):
@@ -73,10 +83,21 @@ class JsonApplicationSink(ApplicationSink):
 
     def emit(self, view: ApplicationView) -> None:
         """写出 JSON 事件并忽略其他应用展示。"""
+        if view.type == "config.warning":
+            for warning in view.payload.get("warnings", ()):
+                self._write({
+                    "type": "config.warning",
+                    "message": str(warning),
+                })
+            return None
         if view.type != "json" or not isinstance(view.renderable, dict):
             return None
+        self._write(view.renderable)
+
+    def _write(self, payload: dict[str, typing.Any]) -> None:
+        """写出单个入口级 JSONL 事件。"""
         line = json.dumps(
-            view.renderable,
+            payload,
             ensure_ascii=False,
             separators=(",", ":"),
             default=str,

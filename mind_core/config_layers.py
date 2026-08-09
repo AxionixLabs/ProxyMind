@@ -86,6 +86,7 @@ class ConfigResolution(object):
     hook_states: HookStateTable = field(default_factory=dict)
     hook_warnings: tuple[str, ...] = ()
     startup_warnings: tuple[str, ...] = ()
+    project_trust_warnings: tuple[str, ...] = ()
     project_trust: ProjectTrustDecision | None = None
 
 
@@ -132,8 +133,9 @@ class ConfigResolver(object):
         merged      = copy.deepcopy(user)
         hook_states = _effective_hook_states(user, self.overrides)
 
-        hook_warnings: list[str]    = []
-        startup_warnings: list[str] = []
+        hook_warnings: list[str]           = []
+        startup_warnings: list[str]        = []
+        project_trust_warnings: list[str]  = []
         visited_hook_directories: set[str] = set()
 
         effective_workspace = (
@@ -226,6 +228,10 @@ class ConfigResolver(object):
                     disabled_reason=disabled_reason,
                 ))
                 if not decision.trusted:
+                    if disabled_reason is not None:
+                        project_trust_warnings.append(
+                            f"Skipped {config_dir}: {disabled_reason}"
+                        )
                     continue
 
                 if _config_path_is_present(path):
@@ -282,6 +288,7 @@ class ConfigResolver(object):
             hook_states=hook_states,
             hook_warnings=tuple(hook_warnings),
             startup_warnings=tuple(startup_warnings),
+            project_trust_warnings=tuple(project_trust_warnings),
             project_trust=project_trust,
         )
 

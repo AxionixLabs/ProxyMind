@@ -1,14 +1,25 @@
 # -*- coding: utf-8 -*-
 
+import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from rich.console import Console
 
 from mind_app.cli import bootstrap
-from mind_app.cli.commands import ExecCommand, InteractiveCommand
+from mind_app.cli.commands import (
+    AgentListenCommand,
+    ExecCommand,
+    InteractiveCommand,
+)
 from mind_app.cli.bootstrap import _confirm_tui_project_trust
+from mind_app.frontend.sinks import (
+    ConsoleApplicationSink,
+    JsonApplicationSink,
+)
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime
@@ -413,6 +424,7 @@ async def test_bootstrap_forwards_hook_warnings_outside_config_resolution(
     arguments = run_controller.await_args.kwargs
     resolution = arguments["config_session"].resolve()
     assert resolution.startup_warnings == ()
+    assert resolution.project_trust_warnings == ()
     assert len(resolution.hook_warnings) == 1
     assert arguments["startup_warnings"] == resolution.hook_warnings
 
@@ -612,6 +624,131 @@ async def test_noninteractive_exec_never_requests_directory_trust(
     assert "project" not in (
         arguments["config_session"].resolve().config["mcp_servers"]
     )
+    assert len(arguments["startup_warnings"]) == 1
+    warning = arguments["startup_warnings"][0]
+    assert "Skipped" in warning
+    assert str(project_config.parent.resolve()) in warning
+    assert str(_project_root.resolve()) in warning
+
+
+@pytest.mark.anyio
+async def test_agent_listen_does_not_receive_exec_project_trust_warning(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _project_root, workspace, project_config = _project(tmp_path)
+    project_config.write_text(
+        '[mcp_servers.project]\ncommand = "project-server"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    frontend = SimpleNamespace(
+        application=SimpleNamespace(emit=Mock()),
+        runtime=SimpleNamespace(),
+    )
+    _report, run_controller = _patch_application_bootstrap(
+        monkeypatch,
+        tmp_path,
+        frontend=frontend,
+        config_path=tmp_path / "home" / "config.toml",
+    )
+
+    result = await bootstrap._run_application(
+        AgentListenCommand(),
+        str(tmp_path / "mind.py"),
+        SimpleNamespace(),
+        (),
+        None,
+    )
+
+    assert result == 0
+    arguments = run_controller.await_args.kwargs
+    assert arguments["startup_warnings"] == ()
+    resolution = arguments["config_session"].resolve()
+    assert len(resolution.project_trust_warnings) == 1
+
+
+@pytest.mark.parametrize("trust_level", (None, "untrusted"))
+def test_untrusted_project_automation_is_skipped_with_warning(
+    tmp_path,
+    trust_level: str | None,
+) -> None:
+    project_root, workspace, project_config = _project(tmp_path)
+    project_config.write_text("[broken\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    if trust_level is not None:
+        store.update({
+            ("projects", str(project_root)): {"trust_level": trust_level},
+        })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.hooks == ()
+    project_layer = next(
+        layer for layer in resolution.layers if layer.scope == "project"
+    )
+    assert not project_layer.enabled
+    assert resolution.startup_warnings == ()
+    assert len(resolution.project_trust_warnings) == 1
+    warning = resolution.project_trust_warnings[0]
+    assert str(project_config.parent.resolve()) in warning
+    assert "project-local config, hooks, and exec policies" in warning
+    if trust_level == "untrusted":
+        assert "marked as untrusted" in warning
+    else:
+        assert "add" in warning
+
+
+def test_trusted_project_automation_has_no_skip_warning(tmp_path) -> None:
+    project_root, workspace, project_config = _project(tmp_path)
+    project_config.write_text(
+        '[mcp_servers.project]\ncommand = "project-server"\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.startup_warnings == ()
+    assert resolution.project_trust_warnings == ()
+    assert resolution.config["mcp_servers"]["project"]["command"] == (
+        "project-server"
+    )
+
+
+def test_startup_warning_uses_stderr_and_structured_json() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    human = ConsoleApplicationSink(
+        Console(file=stdout, force_terminal=False),
+        Console(file=stderr, force_terminal=False),
+    )
+
+    bootstrap._emit_startup_warnings(
+        SimpleNamespace(application=human),
+        ("project automation was skipped",),
+        process_output=True,
+    )
+
+    assert stdout.getvalue() == ""
+    assert "Warning: project automation was skipped" in stderr.getvalue()
+
+    output = io.StringIO()
+    structured = JsonApplicationSink(output)
+    bootstrap._emit_startup_warnings(
+        SimpleNamespace(application=structured),
+        ("project automation was skipped",),
+        process_output=True,
+    )
+
+    assert json.loads(output.getvalue()) == {
+        "type": "config.warning",
+        "message": "project automation was skipped",
+    }
 
 
 if __name__ == '__main__':

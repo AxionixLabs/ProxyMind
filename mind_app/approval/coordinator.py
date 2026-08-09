@@ -4,7 +4,10 @@
 import typing
 import asyncio
 from mind_app.approval.models import ApprovalDecisionValue
-from mind_app.interaction.contracts import InteractionPort
+from mind_app.interaction.contracts import (
+    ApprovalDecisionSource,
+    InteractionPort
+)
 
 
 class ApprovalCoordinator:
@@ -13,6 +16,11 @@ class ApprovalCoordinator:
     def __init__(self, interaction: InteractionPort) -> None:
         self._interaction = interaction
         self._lock        = asyncio.Lock()
+
+    @property
+    def decision_source(self) -> ApprovalDecisionSource:
+        """返回当前交互端产生审批决策时使用的来源。"""
+        return self._interaction.approval_source
 
     async def request(
         self,

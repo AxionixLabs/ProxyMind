@@ -14,6 +14,7 @@ from mind_app.presentation.models import (
     BatchStartView,
     FailureView,
     GenericToolResultView,
+    HookRunView,
     LifecycleView,
     NativeToolResultView,
     PlanStepsStartView,
@@ -43,6 +44,7 @@ _OPERATION_VIEWS = (
     NativeToolResultView,
     BatchStartView,
     BatchCompletedView,
+    HookRunView,
     ProgressView
 )
 

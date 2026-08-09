@@ -15,6 +15,7 @@ from mind_app.presentation.models import (
     BatchStartView,
     FailureView,
     GenericToolResultView,
+    HookRunView,
     LifecycleView,
     NativeToolResultView,
     PlanStepsStartView,
@@ -377,13 +378,17 @@ class JsonPresentationSink(PresentationSink):
             self._message_completed(view.text)
             return None
         if isinstance(view, ApprovalView):
-            self._item_completed("", {
-                "type": "mcp_tool_call",
-                "name": "approval",
+            self._item_completed(str(view.approval.get("id") or ""), {
+                "type": "approval",
+                "tool": str(view.approval.get("tool") or ""),
+                "approval": _plain(view.approval),
                 "decision": view.decision,
                 "status": view.state,
                 "source": view.source,
             })
+            return None
+        if isinstance(view, HookRunView):
+            self._hook_event(view)
             return None
         if isinstance(view, PlanStepsStartView):
             self._item_completed("", {
@@ -436,6 +441,33 @@ class JsonPresentationSink(PresentationSink):
         """写出过程消息项目。"""
         self._item_completed("", {"type": "agent_message", "text": str(text or "")})
 
+    def _hook_event(self, view: HookRunView) -> None:
+        """编码 Hook 生命周期事件。"""
+        item = {
+            "id": self.state.item_id(view.id),
+            "type": "hook",
+            "hook_key": view.hook_key,
+            "event": view.event,
+            "status": (
+                "in_progress" if view.phase == "started" else view.status
+            ),
+        }
+        if view.status_message:
+            item["status_message"] = view.status_message
+        if view.duration_ms is not None:
+            item["duration_ms"] = view.duration_ms
+        if view.entries:
+            item["entries"] = [
+                {"kind": entry.kind, "text": entry.text}
+                for entry in view.entries
+            ]
+        self.state.emit({
+            "type": (
+                "item.started" if view.phase == "started" else "item.completed"
+            ),
+            "item": item,
+        })
+
     def _native_result(self, view: NativeToolResultView) -> None:
         """编码原生 coding 工具结果。"""
         data = _data_payload(view.data)
@@ -474,6 +506,7 @@ def create_json_output_session(
         status=control,
         content=JsonContentSink(state),
         presentation=JsonPresentationSink(state),
+        show_hook_lifecycle=True,
     )
 
 

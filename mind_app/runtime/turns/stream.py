@@ -48,6 +48,7 @@ from ...output import (
     SourcesOutput
 )
 from ...output.session import OutputSession
+from ..hooks.presentation import HookPresentationAdapter
 from .result import (
     RunResult,
     RunStatus
@@ -367,6 +368,11 @@ async def stream_turn(
     status_control = output_session.status
     presentation   = output_session.presentation
     content        = output_session.content
+
+    if output_session.show_hook_lifecycle:
+        hook_scope = hook_scope.with_default_status_port(
+            HookPresentationAdapter(presentation)
+        )
 
     interrupted: bool     = False
     first_frame: bool     = True
@@ -698,6 +704,7 @@ async def stream_turn(
                     decision_source = "policy"
                 else:
                     decision = await mind.approval_coordinator.request(approval)
+                    decision_source = mind.approval_coordinator.decision_source
 
                 observe(
                     "approval.decided",

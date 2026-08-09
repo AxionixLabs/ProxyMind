@@ -4,6 +4,7 @@
 import typing
 from mind_app.approval.models import ApprovalDecisionValue
 from .contracts import (
+    ApprovalDecisionSource,
     InteractionPort,
     PromptContext
 )
@@ -11,6 +12,11 @@ from .contracts import (
 
 class NonInteractiveInteraction(InteractionPort):
     """为非交互运行提供安全的输入决策。"""
+
+    @property
+    def approval_source(self) -> ApprovalDecisionSource:
+        """把自动拒绝归因于非交互安全策略。"""
+        return "policy"
 
     async def read_message(self, context: PromptContext) -> str:
         """拒绝在非交互运行中读取主输入。"""

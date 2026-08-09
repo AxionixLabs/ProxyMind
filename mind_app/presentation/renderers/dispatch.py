@@ -9,6 +9,7 @@ from ..models import (
     BatchStartView,
     FailureView,
     GenericToolResultView,
+    HookRunView,
     LifecycleView,
     NativeToolResultView,
     PlanStepsStartView,
@@ -31,6 +32,7 @@ from .lifecycle import (
     render_incomplete_view,
     render_lifecycle_view
 )
+from .hook import render_hook_run_view
 from .plan import (
     render_plan_steps_start_view,
     render_plan_update_view
@@ -141,6 +143,8 @@ def _render_presentation_view(
         ),)
     if isinstance(view, ApprovalView):
         return (render_approval_view(view),)
+    if isinstance(view, HookRunView):
+        return (render_hook_run_view(view),)
     if isinstance(view, ToolStartView):
         return (render_tool_start_view(
             view,

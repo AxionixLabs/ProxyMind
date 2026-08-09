@@ -8,6 +8,7 @@ from .models import (
     BatchStartView,
     FailureView,
     GenericToolResultView,
+    HookRunView,
     LifecycleView,
     NativeToolResultView,
     PlanStepsStartView,
@@ -24,6 +25,7 @@ PresentationView: typing.TypeAlias = (
     | RunCompletedView
     | RunIncompleteView
     | ApprovalView
+    | HookRunView
     | ToolStartView
     | GenericToolResultView
     | NativeToolResultView

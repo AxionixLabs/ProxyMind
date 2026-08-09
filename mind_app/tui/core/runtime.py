@@ -1588,6 +1588,11 @@ class TuiRuntime(object):
 
         return decision
 
+    @property
+    def approval_source(self) -> typing.Literal["user"]:
+        """声明审批决策来自当前交互用户。"""
+        return "user"
+
     async def view_process(
         self,
         request: ProcessViewerRequest,

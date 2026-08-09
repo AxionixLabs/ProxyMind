@@ -13,6 +13,7 @@ import pytest
 
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.approval.coordinator import ApprovalCoordinator
+from mind_app.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.runtime.turns import stream
 from mind_app.runtime.turns.result import RunResult
 from mind_app.output.content import (
@@ -25,6 +26,7 @@ from mind_app.output.session import OutputSession
 from mind_app.presentation.models import (
     ApprovalView,
     FailureView,
+    HookRunView,
     RunIncompleteView,
 )
 from mind_app.runtime.mcp import tool_runtime
@@ -120,12 +122,13 @@ class _TranscriptStore(object):
         return _TranscriptWriter(self.entries)
 
 
-def _output_session() -> OutputSession:
+def _output_session(*, show_hook_lifecycle: bool = False) -> OutputSession:
     return OutputSession(
         control=_OutputControl(),
         status=_OutputStatus(),
         content=_Sink(),
         presentation=_Sink(),
+        show_hook_lifecycle=show_hook_lifecycle,
     )
 
 
@@ -146,6 +149,7 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         await awaitable
 
     interaction = SimpleNamespace(
+        approval_source="user",
         request_approval=AsyncMock(return_value="accept"),
     )
     transcripts = _TranscriptStore()
@@ -193,6 +197,7 @@ async def _run_stream(
     on_turn_input_event: typing.Callable[[typing.Any], typing.Any] | None = None,
     on_turn_stream_end: typing.Callable[[str], None] | None = None,
     mind_state: SimpleNamespace | None = None,
+    show_hook_lifecycle: bool = False,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -203,7 +208,9 @@ async def _run_stream(
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
     mind = mind_state or _mind(frontend_active=frontend_active)
-    output_session = _output_session()
+    output_session = _output_session(
+        show_hook_lifecycle=show_hook_lifecycle
+    )
     mind.output_session = output_session
     permissions = preset_permissions("auto")
     root_agent = AgentContext.root("sid_test")
@@ -717,6 +724,48 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
     )
 
     assert result.status == "completed"
+
+
+@pytest.mark.anyio
+async def test_exec_output_session_receives_hook_lifecycle_views(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return SimpleNamespace(data={})
+
+    definitions = resolve_hook_definitions(
+        {
+            "SessionStart": [_hook("start", matcher="startup")],
+            "UserPromptSubmit": [_hook("prompt")],
+            "Stop": [_hook("stop")],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [{"type": "turn.done"}],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        session_started=True,
+        show_hook_lifecycle=True,
+    )
+
+    assert result.status == "completed"
+    hook_views = [
+        item
+        for item in mind.output_session.presentation.items
+        if isinstance(item, HookRunView)
+    ]
+    assert [(view.event, view.phase, view.status) for view in hook_views] == [
+        ("SessionStart", "started", "running"),
+        ("SessionStart", "completed", "completed"),
+        ("UserPromptSubmit", "started", "running"),
+        ("UserPromptSubmit", "completed", "completed"),
+        ("Stop", "started", "running"),
+        ("Stop", "completed", "completed"),
+    ]
 
 
 @pytest.mark.anyio
@@ -1800,6 +1849,45 @@ async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> No
     ]
     assert [view.decision for view in approval_views] == ["decline"]
     assert len(mind.output_session.presentation.items) == 3
+
+
+@pytest.mark.anyio
+async def test_noninteractive_approval_decline_is_attributed_to_policy(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(stream, "post_tool_approval", AsyncMock())
+    mind_state = _mind(frontend_active=False)
+    mind_state.approval_coordinator = ApprovalCoordinator(
+        NonInteractiveInteraction()
+    )
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_required",
+                "call_id": "call-policy",
+                "name": "shell_command",
+                "approval": {
+                    "id": "approval-policy",
+                    "tool": "shell_command",
+                    "command": "pytest -q",
+                },
+            },
+            {"type": "turn.done", "status": "completed"},
+        ],
+        frontend_active=False,
+        mind_state=mind_state,
+    )
+
+    assert result.status == "completed"
+    approval_view = next(
+        item
+        for item in mind.output_session.presentation.items
+        if isinstance(item, ApprovalView)
+    )
+    assert approval_view.decision == "decline"
+    assert approval_view.source == "policy"
 
 
 @pytest.mark.anyio

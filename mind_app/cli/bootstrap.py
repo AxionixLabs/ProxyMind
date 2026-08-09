@@ -59,6 +59,7 @@ from ..runtime.tools.mode_policy import ToolFilterMode
 from .commands import (
     AgentListenCommand,
     ApplicationCommand,
+    ExecCommand,
     HelixUpgradeCommand,
     RuntimeCommand,
     command_helix_profile,
@@ -125,7 +126,9 @@ async def _confirm_tui_project_trust(
 
 def _emit_startup_warnings(
     frontend: Frontend,
-    warnings: typing.Iterable[str]
+    warnings: typing.Iterable[str],
+    *,
+    process_output: bool = False
 ) -> None:
     """输出配置解析阶段产生的可恢复告警。"""
     items = tuple(warnings)
@@ -154,6 +157,10 @@ def _emit_startup_warnings(
             plain_text="".join(plain_parts),
             spans=tuple(spans),
         ),
+        payload={
+            "warnings": items,
+            **({"stream": "stderr"} if process_output else {}),
+        },
     ))
 
 
@@ -388,6 +395,11 @@ async def _run_application(
             agent_settings=agent_settings,
             startup_warnings=(
                 *config_resolution.startup_warnings,
+                *(
+                    config_resolution.project_trust_warnings
+                    if isinstance(command, ExecCommand)
+                    else ()
+                ),
                 *config_resolution.hook_warnings,
             ),
         )
@@ -470,7 +482,11 @@ async def _run_controller(
 
             await preload_tui_prompt_context(controller)
 
-        _emit_startup_warnings(frontend, startup_warnings)
+        _emit_startup_warnings(
+            frontend,
+            startup_warnings,
+            process_output=output_mode in {"text", "json"},
+        )
 
         await controller.frontend.runtime.open()
         observe("frontend.opened", output_mode=output_mode)

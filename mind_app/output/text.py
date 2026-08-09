@@ -19,6 +19,7 @@ from mind_app.presentation.models import (
     BatchStartView,
     FailureView,
     GenericToolResultView,
+    HookRunView,
     LifecycleView,
     NativeToolResultView,
     PlanStepsStartView,
@@ -43,6 +44,8 @@ from .contracts import (
     OutputStatusPort
 )
 from .session import OutputSession
+from mind_app.presentation.renderers.hook import render_hook_run_view
+from mind_app.presentation.renderers.approval import render_approval_view
 
 ANSI_RESET   = "\x1b[0m"
 ANSI_BOLD    = "\x1b[1m"
@@ -373,7 +376,10 @@ class TextPresentationSink(PresentationSink):
             self.state.process(f"\n{view.text}\n")
             return None
         if isinstance(view, ApprovalView):
-            self.state.process(f"warning:\n{view.decision}\n")
+            self.state.process(f"{render_approval_view(view).plain_text}\n")
+            return None
+        if isinstance(view, HookRunView):
+            self.state.process(f"{render_hook_run_view(view).plain_text}\n")
             return None
         if isinstance(view, PlanStepsStartView):
             self.state.process(f"todo: {view.step_count} steps\n")
@@ -443,6 +449,7 @@ def create_text_output_session(
         status=control,
         content=TextContentSink(state),
         presentation=TextPresentationSink(state),
+        show_hook_lifecycle=True,
     )
 
 
