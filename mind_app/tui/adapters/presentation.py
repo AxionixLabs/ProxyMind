@@ -174,7 +174,7 @@ def _with_transcript_hint(
         text = _OMITTED_LINES_PATTERN.sub(
             lambda match: (
                 f"{match.group(1)}"
-                f"{_transcript_hint(match.group(1), key_label, terminal_width)}"
+                f"{transcript_hint(match.group(1), key_label, terminal_width)}"
             ),
             span.text,
         )
@@ -190,7 +190,7 @@ def _with_transcript_hint(
                 f"{block.spans[index - 1].text}"
                 f"{span.text}"
             )
-            text = f"{text}{_transcript_hint(marker, key_label, terminal_width)}"
+            text = f"{text}{transcript_hint(marker, key_label, terminal_width)}"
         spans.append(TextSpan(text, span.style, span.hyperlink))
 
     rendered_spans = tuple(spans)
@@ -205,10 +205,12 @@ def _with_transcript_hint(
     )
 
 
-def _transcript_hint(
+def transcript_hint(
     marker: str,
     key_label: str,
-    terminal_width: int | None
+    terminal_width: int | None,
+    *,
+    prefix: str = "  ",
 ) -> str:
     """返回当前省略行能够完整容纳的记录入口提示。"""
     key = str(key_label or "").strip()
@@ -219,7 +221,6 @@ def _transcript_hint(
     if not isinstance(terminal_width, int) or terminal_width <= 0:
         return full
 
-    prefix = "  "
     if get_cwidth(f"{prefix}{marker}{full}") <= terminal_width:
         return full
 

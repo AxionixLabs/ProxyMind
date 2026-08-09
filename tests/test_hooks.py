@@ -23,6 +23,7 @@ from mind_app.runtime.hooks.command import (
 from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
 from mind_app.runtime.hooks.models import (
     HookEventRequest,
+    HookOutputEntry,
     ToolOperationResult,
     ToolResultSnapshot
 )
@@ -34,7 +35,6 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope
 )
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
-from mind_app.runtime.hooks.status import HookStatusCoordinator
 from mind_app.runtime.hooks.tool import (
     CommandHookSessionStore,
     ToolCallCoordinator,
@@ -66,6 +66,18 @@ class _CommandRunner:
             definition.event,
             self.outputs.get(definition.key),
         ))
+
+
+class _RecordingHookStatus:
+    def __init__(self) -> None:
+        self.started_runs = []
+        self.completed_runs = []
+
+    async def started(self, run):
+        self.started_runs.append(run)
+
+    async def completed(self, run):
+        self.completed_runs.append(run)
 
 
 def _wire_output(event, output):
@@ -555,32 +567,141 @@ async def test_stop_continuation_limit_spills_before_aggregation() -> None:
 
 
 @pytest.mark.anyio
-async def test_hook_status_coordinator_tracks_concurrent_messages() -> None:
-    class FrontendRuntime(object):
+async def test_runtime_publishes_successful_hook_lifecycle() -> None:
+    definitions = _definitions({
+        "SessionStart": [_hook("check")],
+    })
+    status = _RecordingHookStatus()
+
+    result = await HookRuntime(
+        definitions,
+        command_runner=_CommandRunner(),
+        status_port=status,
+    ).dispatch(HookEventRequest(
+        event="SessionStart",
+        match_value="startup",
+        payload={},
+    ))
+
+    assert result.records[0].ok
+    assert len(status.started_runs) == 1
+    assert len(status.completed_runs) == 1
+
+    started = status.started_runs[0]
+    completed = status.completed_runs[0]
+    assert started.status == "running"
+    assert started.status_message == ""
+    assert started.completed_at is None
+    assert started.duration_ms is None
+    assert completed.id == started.id
+    assert completed.hook_key == definitions[0].key
+    assert completed.event == "SessionStart"
+    assert completed.status == "completed"
+    assert completed.completed_at is not None
+    assert completed.completed_at >= completed.started_at
+    assert completed.duration_ms is not None
+    assert completed.duration_ms >= 0
+    assert completed.entries == ()
+
+
+@pytest.mark.anyio
+async def test_runtime_assigns_unique_ids_to_concurrent_hook_invocations() -> None:
+    definitions = _definitions({
+        "PostToolUse": [_hook("audit", status_message="Auditing")],
+    })
+
+    class ConcurrentRunner:
         def __init__(self) -> None:
-            self.started = []
-            self.completed = []
+            self.count = 0
+            self.all_started = asyncio.Event()
+            self.release = asyncio.Event()
 
-        async def begin_operation_status(self, snapshot):
-            self.started.append(snapshot)
+        async def execute(self, _definition, _payload):
+            self.count += 1
+            if self.count == 2:
+                self.all_started.set()
+            await self.release.wait()
+            return SimpleNamespace(data={})
 
-        async def end_activity_status(self, kind, *, settle=True):
-            self.completed.append((kind, settle))
+    runner = ConcurrentRunner()
+    status = _RecordingHookStatus()
+    runtime = HookRuntime(
+        definitions,
+        command_runner=runner,
+        status_port=status,
+    )
+    request = HookEventRequest(
+        event="PostToolUse",
+        match_value="shell_command",
+        payload={},
+    )
+    first = asyncio.create_task(runtime.dispatch(request))
+    second = asyncio.create_task(runtime.dispatch(request))
 
-    frontend = FrontendRuntime()
-    status = HookStatusCoordinator(frontend)
+    await asyncio.wait_for(runner.all_started.wait(), timeout=1)
+    assert len(status.started_runs) == 2
+    assert len({run.id for run in status.started_runs}) == 2
+    assert {run.hook_key for run in status.started_runs} == {
+        definitions[0].key,
+    }
 
-    await status.started("first", "First check")
-    await status.started("second", "Second check")
+    runner.release.set()
+    await asyncio.gather(first, second)
 
-    assert len(frontend.started) == 1
-    assert frontend.started[0]() == {"summary": "Second check"}
+    assert {run.id for run in status.completed_runs} == {
+        run.id for run in status.started_runs
+    }
+    assert all(run.status == "completed" for run in status.completed_runs)
 
-    await status.completed("first")
-    assert frontend.completed == []
 
-    await status.completed("second")
-    assert frontend.completed == [("operation", False)]
+@pytest.mark.anyio
+async def test_runtime_publishes_failed_and_blocked_hook_results() -> None:
+    failed_definition = _definitions({
+        "SessionStart": [_hook("fail")],
+    })[0]
+    failed_status = _RecordingHookStatus()
+
+    await HookRuntime(
+        (failed_definition,),
+        command_runner=_CommandRunner(errors={
+            failed_definition.key: RuntimeError("hook failed"),
+        }),
+        status_port=failed_status,
+    ).dispatch(HookEventRequest(
+        event="SessionStart",
+        match_value="startup",
+        payload={},
+    ))
+
+    failed = failed_status.completed_runs[0]
+    assert failed.status == "failed"
+    assert failed.entries == (HookOutputEntry("error", "hook failed"),)
+
+    blocked_definition = _definitions({
+        "PreToolUse": [_hook("deny")],
+    })[0]
+    blocked_status = _RecordingHookStatus()
+
+    await HookRuntime(
+        (blocked_definition,),
+        command_runner=_CommandRunner(outputs={
+            blocked_definition.key: {
+                "decision": "deny",
+                "reason": "protected path",
+            },
+        }),
+        status_port=blocked_status,
+    ).dispatch(HookEventRequest(
+        event="PreToolUse",
+        match_value="shell_command",
+        payload={},
+    ))
+
+    blocked = blocked_status.completed_runs[0]
+    assert blocked.status == "blocked"
+    assert blocked.entries == (
+        HookOutputEntry("feedback", "protected path"),
+    )
 
 
 @pytest.mark.anyio
@@ -814,9 +935,11 @@ async def test_runtime_cancellation_stops_all_matching_hooks() -> None:
                 raise
 
     runner = BlockingRunner()
+    status = _RecordingHookStatus()
     dispatch = asyncio.create_task(HookRuntime(
         definitions,
         command_runner=runner,
+        status_port=status,
     ).dispatch(HookEventRequest(
         event="PostToolUse",
         match_value="shell_command",
@@ -833,6 +956,10 @@ async def test_runtime_cancellation_stops_all_matching_hooks() -> None:
         definitions[0].key,
         definitions[1].key,
     }
+    assert {run.id for run in status.completed_runs} == {
+        run.id for run in status.started_runs
+    }
+    assert all(run.status == "stopped" for run in status.completed_runs)
 
 
 @pytest.mark.anyio

@@ -62,7 +62,6 @@ from .runtime.hooks.scope import (
     HookExecutionScope
 )
 from .runtime.hooks.session import SessionLifecycleGateway
-from .runtime.hooks.status import HookStatusCoordinator
 from .runtime.hooks.tool import CommandHookSessionStore
 from .runtime.hooks.catalog import (
     HookCatalogSnapshot,
@@ -124,7 +123,9 @@ class Mind(object):
         self.hook_registry: HookRegistry = (
             kwargs.get("hook_registry") or HookRegistry()
         )
-        self.hook_status = HookStatusCoordinator(self.frontend.runtime)
+
+        self.hook_status = kwargs.get("hook_status")
+
         self.command_hook_sessions = CommandHookSessionStore()
 
         self.pref_refreshed_at: float    = time.monotonic()

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
+import uuid
 import typing
 import asyncio
 import itertools
@@ -29,6 +31,9 @@ from .models import (
     HookEventRequest,
     HookExecutionRecord,
     HookNormalizedOutput,
+    HookOutputEntry,
+    HookRunStatus,
+    HookRunSummary,
     HookRuntimeStatus
 )
 
@@ -63,12 +68,12 @@ class HookContextSpiller(typing.Protocol):
 class HookStatusPort(typing.Protocol):
     """定义 Hook 命令状态消息的展示生命周期。"""
 
-    async def started(self, key: str, message: str) -> None:
-        """显示一个 Hook 命令已经开始。"""
+    async def started(self, run: HookRunSummary) -> None:
+        """发布一个 Hook 命令已经开始。"""
         ...
 
-    async def completed(self, key: str) -> None:
-        """结束一个 Hook 命令的状态展示。"""
+    async def completed(self, run: HookRunSummary) -> None:
+        """发布一个 Hook 命令已经完成。"""
         ...
 
 
@@ -257,7 +262,17 @@ class HookRuntime:
                 completion_order=next(self._completion_order),
             )
 
-        await self._status_started(definition)
+        run = HookRunSummary(
+            id=uuid.uuid4().hex,
+            hook_key=definition.key,
+            event=definition.event,
+            status="running",
+            status_message=str(
+                definition.handler.status_message or ""
+            ).strip(),
+            started_at=time.monotonic(),
+        )
+        await self._status_started(run)
 
         try:
             record = await self._execute_hook_wait(
@@ -267,13 +282,98 @@ class HookRuntime:
                 normalize_output,
             )
 
-            return replace(
+            completed_record = replace(
                 record,
                 completion_order=next(self._completion_order),
             )
+        except asyncio.CancelledError:
+            await self._status_completed(
+                self._complete_run(run, status="stopped"),
+            )
+            raise
+        except BaseException as error:
+            error_text = str(error).strip() or type(error).__name__
+            await self._status_completed(
+                self._complete_run(
+                    run,
+                    status="failed",
+                    entries=(HookOutputEntry("error", error_text),),
+                ),
+            )
+            raise
+        else:
+            await self._status_completed(
+                self._complete_run_from_record(run, completed_record),
+            )
+            return completed_record
 
-        finally:
-            await self._status_completed(definition)
+    @staticmethod
+    def _complete_run_from_record(
+        run: HookRunSummary,
+        record: HookExecutionRecord,
+    ) -> HookRunSummary:
+        """把执行记录转换为完成生命周期快照。"""
+        if record.error:
+            status: HookRunStatus = "failed"
+        elif record.effect.stop_requested:
+            status = "stopped"
+        elif record.effect.decision in {"deny", "block"}:
+            status = "blocked"
+        elif not record.effect.continue_execution:
+            status = "stopped"
+        else:
+            status = "completed"
+
+        return HookRuntime._complete_run(
+            run,
+            status=status,
+            entries=HookRuntime._output_entries(record, status),
+        )
+
+    @staticmethod
+    def _complete_run(
+        run: HookRunSummary,
+        *,
+        status: HookRunStatus,
+        entries: tuple[HookOutputEntry, ...] = ()
+    ) -> HookRunSummary:
+        """完成生命周期快照并计算单调时钟耗时。"""
+        completed_at = time.monotonic()
+        duration_ms  = max(0, int((completed_at - run.started_at) * 1000))
+
+        return replace(
+            run,
+            status=status,
+            completed_at=completed_at,
+            duration_ms=duration_ms,
+            entries=entries,
+        )
+
+    @staticmethod
+    def _output_entries(
+        record: HookExecutionRecord,
+        status: HookRunStatus
+    ) -> tuple[HookOutputEntry, ...]:
+        """把执行影响转换为与展示无关的结构化条目。"""
+        entries: list[HookOutputEntry] = []
+
+        effect = record.effect
+
+        if effect.warning:
+            entries.append(HookOutputEntry("warning", effect.warning))
+        entries.extend(
+            HookOutputEntry("context", context)
+            for context in effect.additional_context
+        )
+        if effect.reason:
+            if status == "blocked":
+                entries.append(HookOutputEntry("feedback", effect.reason))
+            elif status == "stopped":
+                entries.append(HookOutputEntry("stop", effect.reason))
+        if record.error:
+            entries.append(HookOutputEntry("error", record.error))
+
+        return tuple(entries)
 
     async def _execute_hook_wait(
         self,
@@ -346,44 +446,43 @@ class HookRuntime:
 
     async def _status_started(
         self,
-        definition: HookDefinitionConfig
+        run: HookRunSummary
     ) -> None:
-        """显示处理器配置的非空状态消息。"""
-        status  = self.status_port
-        message = definition.handler.status_message
+        """发布开始快照且不影响 Hook 主流程。"""
+        status = self.status_port
 
-        if status is None or not message:
+        if status is None:
             return None
 
         try:
-            await status.started(definition.key, message)
+            await status.started(run)
         except Exception as error:
             observe_exception(
                 "hook.status.failed",
                 error,
                 level="WARNING",
-                hook_key=definition.key,
-                hook_event=definition.event,
+                hook_key=run.hook_key,
+                hook_event=run.event,
             )
 
     async def _status_completed(
         self,
-        definition: HookDefinitionConfig
+        run: HookRunSummary
     ) -> None:
-        """结束处理器状态消息且不影响 Hook 主结果。"""
+        """发布完成快照且不影响 Hook 主流程。"""
         status = self.status_port
-        if status is None or not definition.handler.status_message:
+        if status is None:
             return None
 
         try:
-            await status.completed(definition.key)
+            await status.completed(run)
         except Exception as error:
             observe_exception(
                 "hook.status.failed",
                 error,
                 level="WARNING",
-                hook_key=definition.key,
-                hook_event=definition.event,
+                hook_key=run.hook_key,
+                hook_event=run.event,
             )
 
     async def _limit_model_output(

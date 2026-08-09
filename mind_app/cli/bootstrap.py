@@ -419,6 +419,15 @@ async def _run_controller(
     startup_warnings: tuple[str, ...] = ()
 ) -> int:
     """创建 Controller 并运行用户命令。"""
+    hook_status = None
+    if output_mode == "tui":
+        from ..tui.adapters.hooks import TuiHookStatusAdapter
+        from ..tui.core.runtime import require_tui_runtime
+
+        hook_status = TuiHookStatusAdapter(
+            require_tui_runtime(frontend.runtime)
+        )
+
     try:
         server = ServerManage(
             runtime_spec.launch_command,
@@ -441,6 +450,7 @@ async def _run_controller(
             report=report,
             permissions=permissions,
             hook_registry=hook_registry or HookRegistry(),
+            hook_status=hook_status,
             agent_settings=agent_settings or AgentSettings(),
         )
 

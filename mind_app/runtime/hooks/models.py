@@ -20,6 +20,52 @@ HookPermissionAction = typing.Literal[
     "abstain",
 ]
 
+HookRunStatus = typing.Literal[
+    "running",
+    "completed",
+    "failed",
+    "blocked",
+    "stopped",
+]
+
+HookOutputEntryKind = typing.Literal[
+    "warning",
+    "stop",
+    "feedback",
+    "context",
+    "error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class HookOutputEntry:
+    """保存一次 Hook 运行产生的展示条目。"""
+    kind: HookOutputEntryKind
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class HookRunSummary:
+    """保存一次 Hook 调用的不可变生命周期快照。"""
+    id: str
+    hook_key: str
+    event: HookEventName
+    status: HookRunStatus
+    status_message: str = ""
+    started_at: float = 0.0
+    completed_at: float | None = None
+    duration_ms: int | None = None
+    entries: tuple[HookOutputEntry, ...] = ()
+
+    def __post_init__(self) -> None:
+        """规范化展示文本并冻结输出条目。"""
+        object.__setattr__(
+            self,
+            "status_message",
+            str(self.status_message or "").strip(),
+        )
+        object.__setattr__(self, "entries", tuple(self.entries))
+
 
 @dataclass(frozen=True, slots=True)
 class HookRuntimeEntry:

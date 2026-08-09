@@ -10,6 +10,7 @@ from mind_app.cli import bootstrap
 from mind_app.cli.commands import ExecCommand, InteractiveCommand
 from mind_app.cli.bootstrap import _confirm_tui_project_trust
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
+from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.application_paths import ApplicationLayout
 from mind_core.config_layers import PROJECT_CONFIG_DIR
@@ -439,6 +440,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     tmp_path,
 ) -> None:
     events = []
+    controller_arguments = {}
     runtime = TuiRuntime()
     runtime.open = AsyncMock(side_effect=lambda: events.append("open"))
     frontend = SimpleNamespace(
@@ -460,7 +462,11 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
 
-    monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
+    def build_controller(*_args, **kwargs):
+        controller_arguments.update(kwargs)
+        return controller
+
+    monkeypatch.setattr(bootstrap, "Mind", build_controller)
     monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
     monkeypatch.setattr(
@@ -510,6 +516,10 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
 
     assert events[:3] == ["preload", "warning", "open"]
+    assert isinstance(
+        controller_arguments["hook_status"],
+        TuiHookStatusAdapter,
+    )
 
 
 @pytest.mark.anyio
