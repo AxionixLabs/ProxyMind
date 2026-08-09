@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -84,7 +85,7 @@ def _catalog(
     )
 
 
-def test_hook_event_menu_localizes_descriptions_and_aligns_large_counts(
+def test_hook_event_menu_localizes_descriptions_and_summarizes_counts(
     tmp_path,
 ) -> None:
     catalog = HookCatalogSnapshot(
@@ -113,15 +114,8 @@ def test_hook_event_menu_localizes_descriptions_and_aligns_large_counts(
 
     menu = hook_event_menu(catalog)
 
-    assert menu.options[0].detail == (
-        "installed=9999 active=9999 | gate | "
-        "coverage=client-full/server-approval-only | "
-        "match=tool_name | 工具执行前"
-    )
-    assert menu.options[1].detail == (
-        "installed=   0 active=   0 | notify | "
-        "coverage=client-only | match=tool_name | 工具执行后"
-    )
+    assert menu.options[0].detail == "9999/9999 active · 工具执行前"
+    assert menu.options[1].detail == "0/0 active · 工具执行后"
 
 
 def test_hook_event_menu_shows_discovery_warnings(tmp_path) -> None:
@@ -167,18 +161,19 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     )
     assert runtime.requests[0].title == "Hooks"
     assert runtime.requests[0].status == "installed=1 active=0"
-    assert (
-        "gate | coverage=client-full/server-approval-only | match=tool_name"
-        in runtime.requests[0].options[0].detail
+    assert runtime.requests[0].options[0].detail == (
+        "0/1 active · 工具执行前"
     )
     assert runtime.requests[1].title == "PreToolUse"
     assert runtime.requests[2].body[0] == "Command: python check_hook.py"
     assert runtime.requests[1].options[0].detail.endswith(
         "matcher[tool_name]=shell_command"
     )
-    assert runtime.requests[2].body[3] == "Matcher (tool_name): shell_command"
-    assert runtime.requests[2].body[4] == (
-        "Coverage: client-full/server-approval-only"
+    assert runtime.requests[2].body == (
+        "Command: python check_hook.py",
+        "Matcher: shell_command",
+        f"Source: project · {tmp_path / '.codex' / 'config.toml'}",
+        "Timeout: 5s",
     )
     assert [view.type for view in views] == ["tui.hooks.status", "tui.gap"]
 
@@ -238,4 +233,23 @@ def test_hook_detail_menu_separates_trust_enabled_and_managed_states(
     assert hook_detail_menu(disabled).options[1].label == "Enable hook"
     assert hook_detail_menu(disabled).status == "PreToolUse | disabled"
     assert hook_detail_menu(managed).options == ()
-    assert "Enabled: true" in hook_detail_menu(managed).body
+    assert hook_detail_menu(managed).status == "PreToolUse | managed"
+    assert len(hook_detail_menu(managed).body) == 4
+
+
+def test_hook_detail_menu_only_shows_actionable_configuration(tmp_path) -> None:
+    entry = replace(
+        _catalog(tmp_path, trust_state="trusted").hooks[0],
+        command_windows="py -3 check_hook.py",
+        status_message="Checking shell command display",
+        timeout_sec=10,
+    )
+
+    assert hook_detail_menu(entry).body == (
+        "Command: python check_hook.py",
+        "Windows command: py -3 check_hook.py",
+        "Message: Checking shell command display",
+        "Matcher: shell_command",
+        f"Source: project · {tmp_path / '.codex' / 'config.toml'}",
+        "Timeout: 10s",
+    )

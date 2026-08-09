@@ -72,8 +72,6 @@ from .bottom_pane import (
 )
 from .document import (
     TranscriptBlock,
-    TranscriptLiveTail,
-    TranscriptSnapshot,
     TuiDocument
 )
 from .directory_trust import TuiDirectoryTrust
@@ -422,18 +420,7 @@ class TuiScreen(object):
 
         self._bottom_anchor = _BottomAnchorState()
 
-        self.activity_block: FragmentBlock | None            = None
-        self.activity_transcript_block: FragmentBlock | None = None
-
-        self._activity_transcript_revision: int = 0
-
-        self._transcript_live_source_key: tuple[
-            int | None,
-            int,
-            bool,
-        ] | None = None
-
-        self._transcript_live_revision: int = 0
+        self.activity_block: FragmentBlock | None = None
 
         self.process_status = TuiProcessStatus(
             invalidate=self.invalidate,
@@ -559,7 +546,7 @@ class TuiScreen(object):
             document=self.document,
             get_width=lambda: self.terminal_width,
             get_height=lambda: self._transcript_overlay_height(),
-            get_snapshot=self._transcript_snapshot,
+            get_snapshot=self.document.transcript_snapshot,
             invalidate=self.invalidate,
         )
         self.transcript_overlay_control = FormattedTextControl(
@@ -1182,65 +1169,6 @@ class TuiScreen(object):
         self.activity_block = None
         if changed and not self.transcript_overlay.active:
             self.invalidate()
-
-    def set_activity_transcript_projection(
-        self,
-        block: FragmentBlock | None,
-    ) -> None:
-        """替换只供完整记录实时尾部使用的活动投影。"""
-        if block == self.activity_transcript_block:
-            return None
-
-        self.activity_transcript_block = block
-        self._activity_transcript_revision += 1
-        self.transcript_overlay.content_changed()
-
-    def _transcript_snapshot(self) -> TranscriptSnapshot:
-        """把正文快照与临时活动投影组合为只读记录快照。"""
-        snapshot   = self.document.transcript_snapshot()
-        projection = self.activity_transcript_block
-
-        document_live_tail = snapshot.live_tail
-
-        if projection is None and document_live_tail is None:
-            self._transcript_live_source_key = None
-            return snapshot
-
-        source_key = (
-            (
-                document_live_tail.revision
-                if document_live_tail is not None
-                else None
-            ),
-            self._activity_transcript_revision,
-            projection is not None,
-        )
-        if source_key != self._transcript_live_source_key:
-            self._transcript_live_source_key = source_key
-            self._transcript_live_revision += 1
-
-        cells = document_live_tail.cells if document_live_tail is not None else ()
-        if projection is not None:
-            cells = (*cells, TranscriptBlock(
-                display_block=projection,
-                transcript_block=projection,
-                kind="operation",
-                raw_text=fragments_text(projection.fragments),
-                transcript_stable=False,
-            ))
-        return TranscriptSnapshot(
-            committed_cells=snapshot.committed_cells,
-            live_tail=TranscriptLiveTail(
-                cells=cells,
-                revision=self._transcript_live_revision,
-                stream_continuation=(
-                    document_live_tail.stream_continuation
-                    if document_live_tail is not None
-                    else False
-                ),
-            ),
-            committed_revision=snapshot.committed_revision,
-        )
 
     def clear_terminal_scrollback(self) -> None:
         """清除当前画布及终端滚屏缓冲区。"""

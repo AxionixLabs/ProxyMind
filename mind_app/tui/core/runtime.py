@@ -293,13 +293,6 @@ class TuiRuntime(object):
                 sanitize_fragment_block(block)
             ),
             clear_renderable=self.screen.clear_activity_renderable,
-            set_transcript_projection=(
-                lambda block: self.screen.set_activity_transcript_projection(
-                    sanitize_fragment_block(block)
-                    if block is not None
-                    else None
-                )
-            ),
             get_width=lambda: self.terminal_width,
             color_level=terminal_capabilities.color_level,
         )
@@ -1669,44 +1662,6 @@ class TuiRuntime(object):
     ) -> None:
         """启动通用前台操作动画。"""
         await self.activity.begin_operation(snapshot)
-
-    async def transition_hook_status(
-        self,
-        *,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-        visible: bool,
-        completed_block: FragmentBlock | None = None,
-        transcript_block: FragmentBlock | None = None,
-        raw_text: str | None = None,
-        display_renderer: WidthBlockRenderer | None = None,
-        display_render_width: int | None = None
-    ) -> None:
-        """原子更新 Hook 活动状态并提交可持久结果。"""
-        with self.screen.visual_update():
-            lease = self.activity.lease("hook")
-            if visible:
-                if lease is None:
-                    await self.activity.begin_hook(snapshot)
-                else:
-                    self.activity.refresh("hook")
-            elif lease is not None:
-                self.activity.release(lease)
-
-            if completed_block is not None:
-                self._append_block(
-                    completed_block,
-                    kind="operation",
-                    transcript_block=transcript_block,
-                    raw_text=raw_text,
-                    display_renderer=display_renderer,
-                    display_render_width=display_render_width,
-                )
-
-    def clear_hook_status(self) -> None:
-        """同步清除 Hook 活动槽位并保留其他活动状态。"""
-        lease = self.activity.lease("hook")
-        if lease is not None:
-            self.activity.release(lease)
 
     async def hold_activity_status(
         self,

@@ -25,11 +25,7 @@ from mind_core.mcp_status import (
 )
 from mind_core.design.terminal_capabilities import TerminalColorLevel
 from .models import FragmentBlock
-from .render import (
-    clip_fragments,
-    join_formatted_lines,
-    split_formatted_lines
-)
+from .render import clip_fragments
 from .styles import (
     BODY_STYLE,
     SUCCESS_STYLE,
@@ -57,7 +53,6 @@ ActivitySlotKey = typing.Literal[
     "external_mcp",
     "compact",
     "operation",
-    "hook",
 ]
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
@@ -68,7 +63,6 @@ _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
     "external_mcp" : "external_mcp",
     "compact"      : "compact",
     "operation"    : "operation",
-    "hook"         : "hook",
 }
 
 
@@ -88,8 +82,6 @@ class _ActivitySlot(object):
         "phase",
         "generation",
         "frozen",
-        "multiline",
-        "transcript_visible",
     )
 
     key: ActivitySlotKey
@@ -109,9 +101,7 @@ class _ActivitySlot(object):
         finalize: typing.Callable[
             [], FragmentBlock | None
         ] = _no_final_block,
-        phase: float = 0.0,
-        multiline: bool = False,
-        transcript_visible: bool = False
+        phase: float = 0.0
     ) -> None:
         self.key        = key
         self.kind       = kind
@@ -120,9 +110,6 @@ class _ActivitySlot(object):
         self.phase      = phase
         self.generation = 0
         self.frozen     = False
-        self.multiline  = bool(multiline)
-
-        self.transcript_visible = bool(transcript_visible)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,17 +128,11 @@ class TuiActivity(object):
         *,
         set_renderable: typing.Callable[[FragmentBlock], None],
         clear_renderable: typing.Callable[[], None],
-        set_transcript_projection: typing.Callable[
-            [FragmentBlock | None],
-            None,
-        ] = lambda _block: None,
         get_width: typing.Callable[[], int] = lambda: 80,
         color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
     ) -> None:
         self.set_renderable   = set_renderable
         self.clear_renderable = clear_renderable
-
-        self.set_transcript_projection = set_transcript_projection
 
         self.get_width   = get_width
         self.color_level = color_level
@@ -289,22 +270,6 @@ class TuiActivity(object):
             ),
         ))
 
-    async def begin_hook(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]]
-    ) -> None:
-        """启动 Hook 调用使用的专属活动状态。"""
-        await self._set_slot(_ActivitySlot(
-            key="hook",
-            kind="hook",
-            render=lambda phase: _hook_activity_block(
-                snapshot() or {},
-                phase=phase,
-            ),
-            multiline=True,
-            transcript_visible=True,
-        ))
-
     async def stop(
         self,
         kind: ActivityStatusKind | None = None,
@@ -351,7 +316,6 @@ class TuiActivity(object):
         if retired:
             await asyncio.gather(*retired, return_exceptions=True)
         self.clear_renderable()
-        self.set_transcript_projection(None)
 
     async def hold(self, kind: ActivityStatusKind) -> None:
         """把指定活动槽位保持在最终状态直至后续替换或清除。"""
@@ -411,7 +375,6 @@ class TuiActivity(object):
             self._retire_task()
             self._cancel_settle_expiry()
             self.clear_renderable()
-            self.set_transcript_projection(None)
             return True
 
         self._render_slots()
@@ -510,7 +473,6 @@ class TuiActivity(object):
             self._cancel_settle_expiry()
             await self._cancel_task()
             self.clear_renderable()
-            self.set_transcript_projection(None)
             return None
 
         self._render_slots()
@@ -552,38 +514,24 @@ class TuiActivity(object):
         """把全部活动槽位合成为一个多行展示块。"""
         fragments: list[tuple[str, str]] = []
 
-        transcript_fragments: list[tuple[str, str]] = []
-
         for slot in self._slots.values():
             block = slot.render(slot.phase)
             if not block.fragments:
                 continue
 
-            clipped = _clip_activity_fragments(
+            clipped = _clip_activity_line(
                 list(block.fragments),
                 width=max(1, int(self.get_width())),
-                multiline=slot.multiline,
             )
 
             if fragments:
                 fragments.append(("", "\n"))
             fragments.extend(clipped)
 
-            if slot.transcript_visible:
-                if transcript_fragments:
-                    transcript_fragments.append(("", "\n"))
-                transcript_fragments.extend(clipped)
-
         if fragments:
             self.set_renderable(FragmentBlock(tuple(fragments)))
         else:
             self.clear_renderable()
-
-        self.set_transcript_projection(
-            FragmentBlock(tuple(transcript_fragments))
-            if transcript_fragments
-            else None
-        )
 
     def _leased_slot(self, lease: ActivityLease) -> _ActivitySlot | None:
         """返回仍与租约匹配的活动槽位。"""
@@ -783,57 +731,11 @@ def _operation_activity_block(
     )
 
 
-def _hook_activity_block(
-    data: dict[str, typing.Any],
-    *,
-    phase: float
-) -> FragmentBlock:
-    """生成并发 Hook 调用使用的活动状态行。"""
-    fragments: list[tuple[str, str]] = []
-
-    groups = data.get("groups")
-    if not isinstance(groups, (list, tuple)):
-        return FragmentBlock(())
-
-    for value in groups:
-        if not isinstance(value, dict):
-            continue
-
-        event   = str(value.get("event") or "Hook").strip() or "Hook"
-        message = str(value.get("status_message") or "").strip()
-        count   = max(1, int(value.get("count") or 1))
-
-        label = (
-            f"Running {event} hook"
-            if count == 1
-            else f"Running {count} {event} hooks"
-        )
-
-        line = render_status_fragments(
-            label,
-            family="wait",
-            phase=phase,
-            animated=True,
-        )
-        line[0] = spinner_indicator_fragment(phase, family="wait")
-        if message:
-            line.extend((
-                (prompt_style(BODY_STYLE), ": "),
-                (prompt_style(STATUS_MUTED), message),
-            ))
-
-        if fragments:
-            fragments.append(("", "\n"))
-        fragments.extend(line)
-
-    return FragmentBlock(tuple(fragments))
-
-
 def _mcp_activity_block(
     view: McpStatusView,
     *,
     phase: float,
-    width: int,
+    width: int
 ) -> FragmentBlock:
     """生成 MCP 活动区域使用的单行状态。"""
     if view.done:
@@ -964,35 +866,27 @@ def _truncate_display_text(text: str, *, limit: int) -> str:
     return f"{out.rstrip()}…"
 
 
-def _clip_activity_fragments(
+def _clip_activity_line(
     fragments: list[tuple[str, str]],
     *,
-    width: int,
-    multiline: bool = False
+    width: int
 ) -> list[tuple[str, str]]:
-    """按槽位行策略裁剪活动状态并补充省略符。"""
+    """把活动状态裁剪为单行并补充省略符。"""
     limit = max(1, int(width))
 
-    lines = (
-        split_formatted_lines(fragments)
-        if multiline
-        else [[
-            (style, str(text).replace("\n", " "))
-            for style, text in fragments
-            if text
-        ]]
-    )
-    clipped_lines: list[list[tuple[str, str]]] = []
+    line = [
+        (style, str(text).replace("\n", " "))
+        for style, text in fragments
+        if text
+    ]
 
-    for line in lines:
-        if get_cwidth("".join(text for _, text in line)) <= limit:
-            clipped_lines.append(line)
-            continue
-        clipped = clip_fragments(line, width=max(0, limit - 1))
-        ellipsis_style = clipped[-1][0] if clipped else ""
-        clipped_lines.append([*clipped, (ellipsis_style, "…")])
+    if get_cwidth("".join(text for _, text in line)) <= limit:
+        return line
 
-    return join_formatted_lines(clipped_lines)
+    clipped        = clip_fragments(line, width=max(0, limit - 1))
+    ellipsis_style = clipped[-1][0] if clipped else ""
+
+    return [*clipped, (ellipsis_style, "…")]
 
 
 if __name__ == '__main__':

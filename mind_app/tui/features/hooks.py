@@ -48,13 +48,6 @@ _EVENT_DESCRIPTIONS = {
     "SessionEnd"        : "根会话结束时",
 }
 
-_TOOL_EVENT_COVERAGE = {
-    "PreToolUse"        : "client-full/server-approval-only",
-    "PermissionRequest" : "approval-events",
-    "PostToolUse"       : "client-only",
-}
-
-
 async def manage_hooks(
     runtime: "TuiRuntime",
     mind: "Mind"
@@ -82,15 +75,6 @@ async def manage_hooks(
 
 def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
     """生成 Hook 事件汇总菜单。"""
-    installed_width = max(
-        (len(str(item.installed_count)) for item in catalog.events),
-        default=1,
-    )
-    active_width = max(
-        (len(str(item.active_count)) for item in catalog.events),
-        default=1,
-    )
-
     return MenuRequest(
         title="Hooks",
         status=(
@@ -107,11 +91,7 @@ def hook_event_menu(catalog: HookCatalogSnapshot) -> MenuRequest:
                 value=item.event,
                 label=item.event,
                 detail=(
-                    f"installed={item.installed_count:>{installed_width}} "
-                    f"active={item.active_count:>{active_width}} | "
-                    f"{item.control_policy} | "
-                    f"{_coverage_summary(item.event)}"
-                    f"match={item.matcher_subject or '-'} | "
+                    f"{item.active_count}/{item.installed_count} active · "
                     f"{_EVENT_DESCRIPTIONS.get(item.event, item.description)}"
                 ),
             )
@@ -231,22 +211,7 @@ async def _manage_hook_entry(
 
 def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
     """生成单个 Hook 的详情和信任操作菜单。"""
-    body = (
-        f"Command: {entry.command}",
-        f"Windows command: {entry.command_windows or '-'}",
-        f"Status message: {entry.status_message or '-'}",
-        _matcher_detail(entry),
-        f"Coverage: {_TOOL_EVENT_COVERAGE.get(entry.event, 'lifecycle')}",
-        f"Source: {entry.source_scope}",
-        f"Path: {entry.source_path or '-'}",
-        f"Trust: {entry.trust_state}",
-        f"Enabled: {str(entry.enabled).lower()}",
-        f"Active: {str(entry.active).lower()}",
-        f"Timeout: {entry.timeout_sec:g}s",
-        f"Async: {str(entry.run_async).lower()}",
-        f"Additional context limit: {entry.additional_context_limit}",
-        f"Content hash: {entry.content_hash[:12]}",
-    )
+    body = _hook_detail_body(entry)
 
     if entry.trust_policy == "managed":
         return MenuRequest(
@@ -314,12 +279,6 @@ def _hook_state(entry: HookCatalogEntry) -> str:
     return entry.trust_state
 
 
-def _coverage_summary(event: str) -> str:
-    """返回工具事件的执行位置覆盖摘要。"""
-    coverage = _TOOL_EVENT_COVERAGE.get(event)
-    return f"coverage={coverage} | " if coverage else ""
-
-
 def _matcher_summary(entry: HookCatalogEntry) -> str:
     """返回带匹配对象的简短匹配规则。"""
     if entry.matcher_subject is None:
@@ -327,11 +286,27 @@ def _matcher_summary(entry: HookCatalogEntry) -> str:
     return f"matcher[{entry.matcher_subject}]={entry.matcher or '*'}"
 
 
-def _matcher_detail(entry: HookCatalogEntry) -> str:
-    """返回带匹配对象的匹配规则详情。"""
-    if entry.matcher_subject is None:
-        return "Matcher: -"
-    return f"Matcher ({entry.matcher_subject}): {entry.matcher or '*'}"
+def _hook_detail_body(entry: HookCatalogEntry) -> tuple[str, ...]:
+    """生成审查和控制 Hook 所需的紧凑详情。"""
+    lines = [f"Command: {entry.command}"]
+
+    if entry.command_windows:
+        lines.append(f"Windows command: {entry.command_windows}")
+    if entry.status_message:
+        lines.append(f"Message: {entry.status_message}")
+    if entry.matcher_subject is not None:
+        lines.append(f"Matcher: {entry.matcher or '*'}")
+
+    source = entry.source_scope
+
+    if entry.source_path:
+        source = f"{source} · {entry.source_path}"
+    lines.extend((
+        f"Source: {source}",
+        f"Timeout: {entry.timeout_sec:g}s",
+    ))
+
+    return tuple(lines)
 
 
 def render_hook_state_status(

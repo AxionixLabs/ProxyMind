@@ -21,7 +21,6 @@ ActivityStatusKind = typing.Literal[
     "external_mcp",
     "compact",
     "operation",
-    "hook",
 ]
 
 
