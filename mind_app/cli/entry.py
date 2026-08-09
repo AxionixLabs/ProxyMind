@@ -10,7 +10,6 @@ from types import FrameType
 from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from .commands import (
-    AgentListenCommand,
     CompletionCommand,
     DoctorCommand,
     ExecCommand,
@@ -122,7 +121,7 @@ def command_requests_outro(
     output_stream: object | None = None
 ) -> bool:
     """判断命令是否需要 Rich 退场展示。"""
-    if not isinstance(command, (AgentListenCommand, HelixUpgradeCommand)):
+    if not isinstance(command, HelixUpgradeCommand):
         return False
 
     from .frontend import stream_is_interactive

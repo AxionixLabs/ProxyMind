@@ -9,7 +9,6 @@ from ..runtime.agent.client import AgentClient
 from .forwarding import (
     AgentExecutor,
     AgentInbox,
-    AutoForwardHandler,
     InboxForwardHandler
 )
 from .loop import (
@@ -123,7 +122,14 @@ class AgentRuntime(object):
             self.supervisor.run(),
             name="agent-runtime"
         )
+        self.task.add_done_callback(self._task_done)
         return self.task
+
+    @staticmethod
+    def _task_done(task: asyncio.Task[None]) -> None:
+        """取回后台监听任务结果，避免异常泄漏到事件循环。"""
+        if not task.cancelled():
+            task.exception()
 
     async def stop(self) -> None:
         """停止后台订阅任务。"""
@@ -177,47 +183,6 @@ class AgentRuntime(object):
         item = self.inbox.decline(message_id, reason=reason)
         self.contexts.pop(message_id, None)
         return item
-
-
-class AgentWorkerRuntime(object):
-    """面向无人值守入口的订阅 worker。"""
-
-    def __init__(
-        self,
-        mind: "Mind",
-        *,
-        config: AgentConfig | None = None,
-        client: AgentClient | None = None,
-        executor: AgentExecutor | None = None,
-        live_status: AgentLiveStatus | None = None,
-        supervisor: AgentSupervisor | None = None
-    ) -> None:
-        """装配自动执行订阅链路。"""
-        self.mind = mind
-
-        self.config      = config or build_default_agent_config()
-        self.client      = client or AgentClient(base_url=self.config.base_url)
-        self.executor    = executor or AgentExecutor()
-        self.live_status = live_status or AgentLiveStatus()
-        self.handler     = AutoForwardHandler(self.executor)
-
-        self.connection = AgentConnection(
-            mind,
-            self.client,
-            self.config,
-            self.live_status,
-            self.handler
-        )
-
-        self.supervisor = supervisor or AgentSupervisor(
-            mind,
-            self.connection,
-            self.live_status
-        )
-
-    async def run(self) -> None:
-        """运行无人值守订阅 worker。"""
-        return await self.supervisor.run()
 
 
 if __name__ == '__main__':

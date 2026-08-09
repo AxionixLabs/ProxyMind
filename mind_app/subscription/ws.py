@@ -12,10 +12,7 @@ from .models import (
     AgentSessionRuntime,
     AgentLiveStatus
 )
-from .forwarding import (
-    AgentForwardHandler,
-    AutoForwardHandler
-)
+from .forwarding import AgentForwardHandler
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -65,22 +62,6 @@ def update_last_acked_seq(runtime: AgentSessionRuntime, seq: int | None) -> None
     """仅在消息被成功处理后推进恢复水位。"""
     if isinstance(seq, int) and seq > runtime.last_acked_seq:
         runtime.last_acked_seq = seq
-
-
-async def cancel_runtime_tasks(runtime: AgentSessionRuntime) -> None:
-    """取消并回收当前订阅会话中的后台任务。"""
-    tasks = runtime.pending_tasks
-    if not tasks:
-        return None
-
-    for task in list(tasks):
-        task.cancel()
-
-    for task in list(tasks):
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-    tasks.clear()
 
 
 async def recv_json_or_stop(
@@ -260,7 +241,6 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "ping":
-        live_status.update("Link Heartbeat", "Ping received, replying with pong")
         await client.send_pong(connection, session_id=runtime.session_id)
         observe("agent.ws.pong_sent", session_id=runtime.session_id)
         return current_seq
@@ -317,8 +297,9 @@ async def handle_server_message(
         if request is None:
             return current_seq
 
-        handler = forward_handler or AutoForwardHandler()
-        await handler.handle(
+        if forward_handler is None:
+            raise RuntimeError("agent forward handler is required")
+        await forward_handler.handle(
             mind,
             client,
             connection,

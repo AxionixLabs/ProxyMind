@@ -632,7 +632,7 @@ async def test_noninteractive_exec_never_requests_directory_trust(
 
 
 @pytest.mark.anyio
-async def test_agent_listen_does_not_receive_exec_project_trust_warning(
+async def test_agent_listen_uses_tui_directory_trust(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -645,7 +645,7 @@ async def test_agent_listen_does_not_receive_exec_project_trust_warning(
 
     frontend = SimpleNamespace(
         application=SimpleNamespace(emit=Mock()),
-        runtime=SimpleNamespace(),
+        runtime=TuiRuntime(),
     )
     _report, run_controller = _patch_application_bootstrap(
         monkeypatch,
@@ -653,6 +653,16 @@ async def test_agent_listen_does_not_receive_exec_project_trust_warning(
         frontend=frontend,
         config_path=tmp_path / "home" / "config.toml",
     )
+
+    async def accept_project(**kwargs):
+        resolution = kwargs["resolution"]
+        return kwargs["config_session"].set_project_trust(
+            resolution.project_trust,
+            "trusted",
+        )
+
+    confirm = AsyncMock(side_effect=accept_project)
+    monkeypatch.setattr(bootstrap, "_confirm_tui_project_trust", confirm)
 
     result = await bootstrap._run_application(
         AgentListenCommand(),
@@ -663,10 +673,15 @@ async def test_agent_listen_does_not_receive_exec_project_trust_warning(
     )
 
     assert result == 0
+    confirm.assert_awaited_once()
     arguments = run_controller.await_args.kwargs
     assert arguments["startup_warnings"] == ()
     resolution = arguments["config_session"].resolve()
-    assert len(resolution.project_trust_warnings) == 1
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level == "trusted"
+    assert resolution.config["mcp_servers"]["project"]["command"] == (
+        "project-server"
+    )
 
 
 @pytest.mark.parametrize("trust_level", (None, "untrusted"))

@@ -5,10 +5,7 @@ import time
 import typing
 import asyncio
 from engine.errors import AppError
-from engine.observability import (
-    observe,
-    observe_exception
-)
+from engine.observability import observe
 from ..runtime.agent.client import AgentClient
 from .models import (
     AgentInboxItem,
@@ -16,7 +13,6 @@ from .models import (
     AgentLiveStatus,
     AgentSessionRuntime
 )
-from .ui import start_status_animation
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -118,6 +114,7 @@ class AgentExecutor(object):
         metadata = dict(forward_metadata)
         metadata["cid"] = request.cid
         metadata["sid"] = request.sid
+
         if intent_summary is not None:
             metadata["intent_summary"] = intent_summary
 
@@ -167,68 +164,6 @@ class AgentExecutor(object):
             call_id=request.call_id,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
-
-    def spawn(
-        self,
-        mind: "Mind",
-        client: AgentClient,
-        connection: typing.Any,
-        runtime: AgentSessionRuntime,
-        request: AgentForwardRequest,
-        live_status: AgentLiveStatus | None = None
-    ) -> None:
-        """以后台任务方式执行服务端请求，避免阻塞 WS 心跳处理。"""
-        tasks = runtime.pending_tasks if runtime.pending_tasks is not None else set()
-
-        runtime.pending_tasks = tasks
-
-        async def runner() -> None:
-            try:
-                await self.execute(
-                    mind,
-                    client,
-                    connection,
-                    runtime,
-                    request,
-                    live_status
-                )
-            except asyncio.CancelledError:
-                observe(
-                    "agent.forward.interrupted",
-                    level="WARNING",
-                    call_id=request.call_id,
-                )
-                if live_status is not None:
-                    live_status.update(
-                        "Exiting Subscription", "Canceled in-flight local task"
-                    )
-                raise
-            except Exception as exc:
-                observe_exception("agent.forward.failed", exc, call_id=request.call_id)
-                await client.send_mind_failed(
-                    connection,
-                    session_id=runtime.session_id,
-                    cid=request.cid,
-                    sid=request.sid,
-                    call_id=request.call_id,
-                    error_type=type(exc).__name__,
-                    error_message=str(exc)
-                )
-                if live_status is not None:
-                    live_status.update(
-                        "Task Execution Failed", f"{request.call_id} · {type(exc).__name__}"
-                    )
-            finally:
-                if live_status is not None and not mind.task_event.is_set():
-                    live_status.update(
-                        "Waiting for Server Tasks", "Long link established and listening"
-                    )
-                    await start_status_animation(mind, live_status)
-
-        task = asyncio.create_task(runner(), name=f"agent-forward-{request.call_id or 'unknown'}")
-        tasks.add(task)
-        task.add_done_callback(tasks.discard)
-
 
 class AgentInbox(object):
     """保存等待用户处理的服务端请求。"""
@@ -333,62 +268,6 @@ class AgentInbox(object):
         )
 
 
-class AutoForwardHandler(object):
-    """收到服务端请求后立即执行本地任务。"""
-
-    def __init__(self, executor: AgentExecutor | None = None) -> None:
-        """保存服务端任务执行器。"""
-        self.executor = executor or AgentExecutor()
-
-    async def handle(
-        self,
-        mind: "Mind",
-        client: AgentClient,
-        connection: typing.Any,
-        runtime: AgentSessionRuntime,
-        request: AgentForwardRequest,
-        live_status: AgentLiveStatus
-    ) -> None:
-        """确认收到请求并启动本地任务。"""
-        live_status.update(
-            "Task Accepted", f"Validated {request.call_id}, stopping live status"
-        )
-        await mind.await_cleanup(mind.stop_anim())
-
-        await client.send_mind_received(
-            connection,
-            session_id=runtime.session_id,
-            cid=request.cid,
-            sid=request.sid,
-            call_id=request.call_id,
-            acked_message_id=request.message_id
-        )
-        observe(
-            "agent.forward.received",
-            call_id=request.call_id,
-            message_id=request.message_id,
-        )
-
-        seen = get_runtime_message_cache(runtime)
-        if request.message_id in seen:
-            observe(
-                "agent.forward.skipped",
-                message_id=request.message_id,
-                reason="replay",
-            )
-            return None
-
-        seen.add(request.message_id)
-        self.executor.spawn(
-            mind,
-            client,
-            connection,
-            runtime,
-            request,
-            live_status
-        )
-
-
 InboxContextCallback = typing.Callable[
     [
         AgentInboxItem,
@@ -427,6 +306,28 @@ class InboxForwardHandler(object):
         live_status.update(
             "Task Received", f"Queued {request.call_id}"
         )
+        seen = get_runtime_message_cache(runtime)
+        if request.message_id in seen:
+            await client.send_mind_received(
+                connection,
+                session_id=runtime.session_id,
+                cid=request.cid,
+                sid=request.sid,
+                call_id=request.call_id,
+                acked_message_id=request.message_id
+            )
+            observe(
+                "agent.forward.skipped",
+                message_id=request.message_id,
+                reason="replay",
+            )
+            return None
+
+        seen.add(request.message_id)
+        item = self.inbox.add(request)
+        if self.context_callback is not None:
+            self.context_callback(item, client, connection, runtime, live_status)
+
         await client.send_mind_received(
             connection,
             session_id=runtime.session_id,
@@ -440,20 +341,6 @@ class InboxForwardHandler(object):
             call_id=request.call_id,
             message_id=request.message_id,
         )
-
-        seen = get_runtime_message_cache(runtime)
-        if request.message_id in seen:
-            observe(
-                "agent.forward.skipped",
-                message_id=request.message_id,
-                reason="replay",
-            )
-            return None
-
-        seen.add(request.message_id)
-        item = self.inbox.add(request)
-        if self.context_callback is not None:
-            self.context_callback(item, client, connection, runtime, live_status)
 
 
 if __name__ == '__main__':

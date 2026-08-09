@@ -32,11 +32,11 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
             return output_command.output_format
         case McpAddCommand() | McpRemoveCommand() | McpSetEnabledCommand():
             return "text"
-        case HelixUpgradeCommand() | AgentListenCommand():
+        case HelixUpgradeCommand():
             return "rich"
         case ExecCommand() as output_command:
             return output_command.output_format
-        case InteractiveCommand() | ResumeCommand():
+        case AgentListenCommand() | InteractiveCommand() | ResumeCommand():
             return "tui"
         case _ as unreachable:
             typing.assert_never(unreachable)

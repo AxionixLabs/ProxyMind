@@ -1276,12 +1276,6 @@ class Mind(object):
             **kwargs
         )
 
-    async def agent_loop(self) -> None:
-        """启动远程代理订阅循环。"""
-        from .subscription import run_agent_loop
-
-        return await run_agent_loop(self)
-
 
 if __name__ == '__main__':
     pass

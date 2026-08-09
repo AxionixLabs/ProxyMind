@@ -608,6 +608,65 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
+    listener = SimpleNamespace(
+        start_background=Mock(),
+        stop=AsyncMock(),
+    )
+    listener_factory = Mock(return_value=listener)
+    run_tui_loop = AsyncMock()
+    mind = SimpleNamespace(
+        attach=SimpleNamespace(add_pending_attachments=Mock()),
+        permissions=preset_permissions("auto"),
+    )
+    monkeypatch.setattr(
+        "mind_app.subscription.runtime.AgentRuntime",
+        listener_factory,
+    )
+    monkeypatch.setattr(
+        "mind_app.tui.session.loop.run_tui_loop",
+        run_tui_loop,
+    )
+
+    result = await run_selected_command(mind, AgentListenCommand())
+
+    assert result is None
+    listener_factory.assert_called_once_with(mind)
+    listener.start_background.assert_called_once_with()
+    run_tui_loop.assert_awaited_once_with(
+        mind,
+        initial_prompt=None,
+        initial_images=(),
+        initial_model=None,
+    )
+    listener.stop.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
+    listener = SimpleNamespace(
+        start_background=Mock(),
+        stop=AsyncMock(),
+    )
+    mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
+    )
+    monkeypatch.setattr(
+        "mind_app.subscription.runtime.AgentRuntime",
+        Mock(return_value=listener),
+    )
+    monkeypatch.setattr(
+        "mind_app.tui.session.loop.run_tui_loop",
+        AsyncMock(side_effect=RuntimeError("TUI failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="TUI failed"):
+        await run_selected_command(mind, AgentListenCommand())
+
+    listener.stop.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
 async def test_failed_exec_sets_nonzero_exit_code() -> None:
     run_result = RunResult(status="failed", error="request failed")
     mind = SimpleNamespace(
@@ -642,7 +701,7 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
         (ResumeCommand(), "tui"),
         (ExecCommand(prompt="inspect"), "text"),
         (ExecCommand(prompt="inspect", output_format="json"), "json"),
-        (AgentListenCommand(), "rich"),
+        (AgentListenCommand(), "tui"),
         (HelixUpgradeCommand(), "rich"),
         (DoctorCommand(), "text"),
         (DoctorCommand(output_format="json"), "json"),
@@ -664,13 +723,17 @@ def test_each_cli_command_resolves_its_output_mode(
 
 @pytest.mark.anyio
 async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None:
-    frontend = SimpleNamespace(runtime=SimpleNamespace(open=AsyncMock()))
+    tui_runtime = TuiRuntime()
+    tui_runtime.open = AsyncMock()
+    frontend = SimpleNamespace(
+        application=SimpleNamespace(emit=Mock()),
+        runtime=tui_runtime,
+    )
     controller = SimpleNamespace(
         frontend=frontend,
         bind_server_manager=Mock(),
         bind_service_runtime_context=Mock(),
         start_config_service=AsyncMock(),
-        start_external_mcp_runtime=AsyncMock(),
         external_mcp=None,
         is_service_mcp_linked=lambda: False,
         set_history_workspace=Mock(),
@@ -701,11 +764,15 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
     monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
     monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
-    start_helix = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        bootstrap,
-        "prepare_and_start_service_runtime",
-        start_helix,
+        "mind_app.tui.session.state.preload_tui_prompt_context",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(bootstrap, "start_tui_external_mcp", AsyncMock())
+    confirm_helix = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        "mind_app.tui.features.helix.confirm_tui_service_runtime_startup",
+        confirm_helix,
     )
 
     await bootstrap._run_controller(
@@ -724,12 +791,12 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         ),
         service_context=SimpleNamespace(),
         power=1,
-        output_mode="rich",
+        output_mode="tui",
         permissions=preset_permissions("auto"),
     )
 
     controller.start_config_service.assert_awaited_once_with()
-    start_helix.assert_awaited_once_with(controller, tool_profile="api")
+    confirm_helix.assert_awaited_once_with(controller)
     assert server_calls == [
         (([],), {"env": {}, "cwd": str(tmp_path)}),
     ]

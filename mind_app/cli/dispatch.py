@@ -54,7 +54,7 @@ async def run_selected_command(
 
     try:
         if isinstance(command, AgentListenCommand):
-            await mind.agent_loop()
+            await _run_agent_listener_session(mind)
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
             if command.images:
@@ -123,6 +123,24 @@ async def run_selected_command(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
     return run_result
+
+
+async def _run_agent_listener_session(mind: "Mind") -> None:
+    """在普通 TUI 生命周期内运行临时远端请求监听器。"""
+    from ..subscription.runtime import AgentRuntime
+
+    listener = AgentRuntime(mind)
+    listener.start_background()
+
+    try:
+        await _run_tui_session(
+            mind,
+            prompt=None,
+            images=(),
+            model=None,
+        )
+    finally:
+        await listener.stop()
 
 
 async def _run_tui_session(

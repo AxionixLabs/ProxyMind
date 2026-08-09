@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-import asyncio
 from dataclasses import dataclass
 
 
@@ -32,7 +31,6 @@ class AgentSessionRuntime:
     ready_received: bool = False
     pre_ready_connect_failures: int = 0
     forwarded_message_ids: set[str] | None = None
-    pending_tasks: set[asyncio.Task[None]] | None = None
 
 
 @dataclass(slots=True)
@@ -84,9 +82,9 @@ class AgentInboxItem:
 
 @dataclass
 class AgentLiveStatus:
-    """订阅模式等待动画的共享状态。"""
-    title: str = "Entering Fold Mode"
-    detail: str = "Preparing subscription link"
+    """保存订阅生命周期的当前状态摘要。"""
+    title: str = "Listener Idle"
+    detail: str = "Not connected"
 
     def snapshot(self) -> tuple[str, str]:
         return self.title, self.detail

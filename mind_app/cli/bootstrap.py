@@ -57,7 +57,6 @@ from ..runtime.design import TerminalDesign
 from ..runtime.hooks.registry import HookRegistry
 from ..runtime.tools.mode_policy import ToolFilterMode
 from .commands import (
-    AgentListenCommand,
     ApplicationCommand,
     ExecCommand,
     HelixUpgradeCommand,
@@ -501,7 +500,7 @@ async def _run_controller(
             if not helix_linked:
                 _emit_helix_skipped(controller)
 
-        if output_mode == "tui" or isinstance(command, AgentListenCommand):
+        if output_mode == "tui":
             await controller.start_config_service()
 
         runtime_workspace_root = await fetch_runtime_workspace_root()

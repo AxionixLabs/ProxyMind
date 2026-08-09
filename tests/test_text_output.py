@@ -337,7 +337,10 @@ async def test_text_hidden_output_is_safe_for_display_logs() -> None:
 def test_only_interactive_rich_commands_request_entry_outro() -> None:
     terminal = SimpleNamespace(isatty=lambda: True)
 
-    assert command_requests_outro(AgentListenCommand(), output_stream=terminal)
+    assert not command_requests_outro(
+        AgentListenCommand(),
+        output_stream=terminal,
+    )
     assert command_requests_outro(HelixUpgradeCommand(), output_stream=terminal)
     assert not command_requests_outro(
         ExecCommand(prompt="hello"),
@@ -371,14 +374,14 @@ def test_non_interactive_rich_mode_disables_entry_outro() -> None:
     )
 
 
-def test_entry_outro_uses_typed_command(monkeypatch) -> None:
+def test_tui_agent_listen_does_not_emit_rich_outro(monkeypatch) -> None:
     application = _Application()
     terminal = SimpleNamespace(isatty=lambda: True)
     monkeypatch.setattr(entry, "_entry_application", lambda _command: application)
 
     emit_entry_outro(AgentListenCommand(), output_stream=terminal)
 
-    assert [view.type for view in application.views] == ["outro"]
+    assert application.views == []
 
 
 @pytest.mark.anyio

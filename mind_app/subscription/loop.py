@@ -19,12 +19,7 @@ from .models import (
     AgentSessionRuntime,
     AgentLiveStatus
 )
-from .ui import (
-    start_connect_animation,
-    start_status_animation,
-    publish_external_access,
-    show_external_access_link
-)
+from .external_access import publish_external_access
 from .opening import (
     normalize_open_payload,
     open_runtime,
@@ -33,7 +28,6 @@ from .opening import (
 )
 from .ws import (
     AgentWsProtocolError,
-    cancel_runtime_tasks,
     sleep_or_stop,
     connect_once
 )
@@ -141,7 +135,6 @@ class AgentConnection(object):
             device_id=device_id,
             client_version=self.config.client_version,
             forwarded_message_ids=None if previous is None else previous.forwarded_message_ids,
-            pending_tasks=None if previous is None else previous.pending_tasks
         )
         observe(
             "agent.session.opened",
@@ -201,7 +194,6 @@ class AgentConnection(object):
                 ready_received=runtime.ready_received,
                 pre_ready_connect_failures=runtime.pre_ready_connect_failures,
                 forwarded_message_ids=runtime.forwarded_message_ids,
-                pending_tasks=runtime.pending_tasks
             )
 
         self.live_status.update(
@@ -248,8 +240,6 @@ class AgentSupervisor(object):
 
         try:
             observe("agent.supervisor.start")
-            await start_connect_animation(self.mind, self.live_status)
-
             self.live_status.update(
                 "Opening Session", "Requesting /agents/open"
             )
@@ -261,16 +251,10 @@ class AgentSupervisor(object):
                 "Subscription Ready", "Rendering external call example"
             )
 
-            await self.mind.await_cleanup(self.mind.stop_anim())
             await publish_external_access(runtime)
-
-            show_external_access_link(self.mind)
-
-            if not self.mind.task_event.is_set():
-                await start_status_animation(self.mind, self.live_status)
-                self.live_status.update(
-                    "Waiting for Server Tasks", "Long link established and listening"
-                )
+            self.live_status.update(
+                "Waiting for Server Tasks", "Long link established and listening"
+            )
 
             while not self.mind.task_event.is_set():
                 try:
@@ -301,11 +285,8 @@ class AgentSupervisor(object):
                 session_id=runtime.session_id if runtime is not None else None,
             )
             self.live_status.update(
-                "Exiting Subscription", "Cleaning tasks and stopping animation"
+                "Exiting Subscription", "Closing listener resources"
             )
-            if runtime is not None:
-                await cancel_runtime_tasks(runtime)
-            await self.mind.await_cleanup(self.mind.stop_anim())
 
     async def handle_protocol_error(
         self,
@@ -362,16 +343,10 @@ class AgentSupervisor(object):
                 await sleep_or_stop(2.0, self.mind.task_event)
                 return runtime
 
-            await self.mind.await_cleanup(self.mind.stop_anim())
             await publish_external_access(runtime)
-
-            show_external_access_link(self.mind)
-
-            if not self.mind.task_event.is_set():
-                await start_status_animation(self.mind, self.live_status)
-                self.live_status.update(
-                    "Reopened and Waiting", "Returning to listening state in 1s"
-                )
+            self.live_status.update(
+                "Reopened and Waiting", "Returning to listening state in 1s"
+            )
             await sleep_or_stop(1.0, self.mind.task_event)
             return runtime
 
@@ -497,16 +472,10 @@ class AgentSupervisor(object):
             await sleep_or_stop(2.0, self.mind.task_event)
             return runtime
 
-        await self.mind.await_cleanup(self.mind.stop_anim())
         await publish_external_access(runtime)
-
-        show_external_access_link(self.mind)
-
-        if not self.mind.task_event.is_set():
-            await start_status_animation(self.mind, self.live_status)
-            self.live_status.update(
-                "Reopened and Waiting", "Returning to listening state in 1s"
-            )
+        self.live_status.update(
+            "Reopened and Waiting", "Returning to listening state in 1s"
+        )
         await sleep_or_stop(1.0, self.mind.task_event)
 
         return runtime
@@ -567,16 +536,6 @@ class AgentSupervisor(object):
         await publish_external_access(runtime)
         await sleep_or_stop(1.0, self.mind.task_event)
         return runtime
-
-
-async def agent_loop(mind: "Mind") -> None:
-    """运行无人值守订阅 worker。"""
-    from .runtime import AgentWorkerRuntime
-    return await AgentWorkerRuntime(mind).run()
-
-
-async def run_agent_loop(mind: "Mind") -> None:
-    return await agent_loop(mind)
 
 
 if __name__ == '__main__':
