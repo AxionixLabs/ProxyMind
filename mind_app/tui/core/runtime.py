@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import contextvars
 from dataclasses import dataclass
+from pathlib import Path
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.application import in_terminal
 from prompt_toolkit.input.base import Input
@@ -602,6 +603,33 @@ class TuiRuntime(object):
     def finish_menu(self, value: typing.Any = None) -> None:
         """结束主画布中的菜单或只读面板。"""
         self.screen.menu.finish(value)
+
+    async def begin_directory_trust(
+        self,
+        cwd: Path,
+        trust_target: Path
+    ) -> None:
+        """在主 Application 中打开启动阶段的目录信任界面。"""
+        self.screen.directory_trust.begin(cwd, trust_target)
+        try:
+            await self.open()
+        except BaseException:
+            self.screen.directory_trust.close()
+            raise
+
+    async def wait_directory_trust(self) -> bool:
+        """等待目录信任界面的下一次选择。"""
+        return await self.screen.directory_trust.wait() == "trust"
+
+    def show_directory_trust_error(self, message: str) -> None:
+        """显示目录信任状态保存失败信息。"""
+        self.screen.directory_trust.show_error(message)
+
+    async def finish_directory_trust(self) -> None:
+        """关闭目录信任界面并播放延后的启动动画。"""
+        self.screen.directory_trust.close()
+        await self._play_startup_animation()
+        self.viewport.refresh_geometry()
 
     def begin_process_viewer(
         self,
@@ -1403,7 +1431,8 @@ class TuiRuntime(object):
         if application_error is not None:
             raise application_error
 
-        await self._play_startup_animation()
+        if not self.screen.directory_trust.active:
+            await self._play_startup_animation()
 
         self.viewport.refresh_geometry()
 
@@ -1457,6 +1486,8 @@ class TuiRuntime(object):
 
         await self.viewport.close()
         await self._exit_application(erase=not preserve_transcript)
+
+        self.screen.directory_trust.close()
 
     async def read_message(self, context: PromptContext) -> str:
         """更新输入上下文并按提交顺序读取下一条消息。"""

@@ -9,6 +9,7 @@ from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.errors import AppError
 from mind_core.config import ConfigOverride
+from mind_core.config_layers import ConfigResolution
 from mind_core.agent_config import AgentSettings
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
@@ -77,6 +78,58 @@ from .selection import (
 CleanupResult = typing.TypeVar("CleanupResult")
 
 
+class _DirectoryTrustRuntime(typing.Protocol):
+    """描述启动阶段目录信任界面需要的运行时能力。"""
+
+    async def begin_directory_trust(
+        self,
+        cwd: Path,
+        trust_target: Path
+    ) -> None: ...
+
+    async def wait_directory_trust(self) -> bool: ...
+
+    def show_directory_trust_error(self, message: str) -> None: ...
+
+    async def finish_directory_trust(self) -> None: ...
+
+
+async def _confirm_tui_project_trust(
+    *,
+    runtime: _DirectoryTrustRuntime,
+    config_session: ConfigSession,
+    resolution: ConfigResolution,
+    workspace: Path,
+) -> ConfigResolution | None:
+    """确认未知项目目录，并返回确认后的完整配置快照。"""
+    project_trust = resolution.project_trust
+    if project_trust is None or project_trust.level is not None:
+        return resolution
+
+    await runtime.begin_directory_trust(workspace, project_trust.root)
+
+    while await runtime.wait_directory_trust():
+        try:
+            config_session.update_user({
+                (
+                    "projects",
+                    str(project_trust.root),
+                    "trust_level",
+                ): "trusted",
+            })
+            trusted_resolution = config_session.resolve()
+        except (OSError, TypeError, ValueError) as error:
+            runtime.show_directory_trust_error(
+                f"Failed to set trust for {project_trust.root}: {error}"
+            )
+            continue
+
+        await runtime.finish_directory_trust()
+        return trusted_resolution
+
+    return None
+
+
 def _emit_helix_skipped(controller: Mind) -> None:
     """输出 Helix 启动被跳过的状态。"""
     controller.frontend.application.emit(ApplicationView(
@@ -121,6 +174,7 @@ async def _run_application(
     output_mode = resolve_cli_output_mode(command)
     frontend    = resolve_cli_frontend(output_mode)
     design      = resolve_cli_design(frontend, output_mode)
+    tui_runtime = None
 
     if output_mode_uses_animation(output_mode):
         frontend.application.emit(ApplicationView(type="intro"))
@@ -151,11 +205,13 @@ async def _run_application(
     reports = mind_reports_dir()
 
     try:
+        workspace = Path.cwd()
+
         config_session = ConfigSession(
             ConfigStore(mind_config_path()),
             config_overrides,
             profile=config_profile,
-            workspace=Path.cwd(),
+            workspace=workspace,
         )
 
         config_resolution = config_session.resolve()
@@ -200,11 +256,6 @@ async def _run_application(
     try:
         preference = Preferences(config_session)
 
-        permissions = resolve_permissions(
-            config_resolution.config,
-            interactive=output_mode == "tui",
-        )
-
         service_context = ServiceRuntimeContext(
             spec=runtime_spec,
             platform=platform,
@@ -243,26 +294,77 @@ async def _run_application(
         finally:
             report.close()
 
-    hook_registry = HookRegistry()
+    if tui_runtime is not None:
+        try:
+            trusted_resolution = await _confirm_tui_project_trust(
+                runtime=tui_runtime,
+                config_session=config_session,
+                resolution=config_resolution,
+                workspace=workspace,
+            )
+        except BaseException:
+            report.close()
+            if tui_runtime.active:
+                await tui_runtime.close()
+            raise
 
-    return await _run_controller(
-        command,
-        frontend=frontend,
-        design=design,
-        animation=animation,
-        home=home,
-        reports=reports,
-        preference=preference,
-        config_session=config_session,
-        report=report,
-        runtime_spec=runtime_spec,
-        service_context=service_context,
-        power=power,
-        output_mode=output_mode,
-        permissions=permissions,
-        hook_registry=hook_registry,
-        agent_settings=AgentSettings.from_config(config_resolution.config),
-    )
+        if trusted_resolution is None:
+            observe("app.trust_declined")
+            report.close()
+            await tui_runtime.close()
+            return 0
+
+        config_resolution = trusted_resolution
+
+    try:
+        permissions = resolve_permissions(
+            config_resolution.config,
+            interactive=output_mode == "tui",
+        )
+    except BaseException as error:
+        observe_exception("app.bootstrap.failed", error)
+        report.close()
+        if tui_runtime is not None:
+            if tui_runtime.active:
+                await tui_runtime.close()
+        raise
+
+    try:
+        hook_registry  = HookRegistry()
+        agent_settings = AgentSettings.from_config(config_resolution.config)
+
+    except BaseException as error:
+        observe_exception("app.bootstrap.failed", error)
+        report.close()
+        if tui_runtime is not None:
+            if tui_runtime.active:
+                await tui_runtime.close()
+        raise
+
+    try:
+        return await _run_controller(
+            command,
+            frontend=frontend,
+            design=design,
+            animation=animation,
+            home=home,
+            reports=reports,
+            preference=preference,
+            config_session=config_session,
+            report=report,
+            runtime_spec=runtime_spec,
+            service_context=service_context,
+            power=power,
+            output_mode=output_mode,
+            permissions=permissions,
+            hook_registry=hook_registry,
+            agent_settings=agent_settings,
+        )
+    except BaseException:
+        if tui_runtime is not None:
+            if tui_runtime.active:
+                await tui_runtime.close()
+        raise
 
 
 async def _run_controller(

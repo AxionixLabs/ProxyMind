@@ -74,6 +74,7 @@ from .document import (
     TranscriptBlock,
     TuiDocument
 )
+from .directory_trust import TuiDirectoryTrust
 from .input import (
     INPUT_BUFFER_NAME,
     TuiInputModel
@@ -486,6 +487,20 @@ class TuiScreen(object):
             invalidate=self.invalidate,
         )
 
+        self.directory_trust = TuiDirectoryTrust(
+            invalidate=self.invalidate,
+            focus_prompt=self._focus_directory_trust,
+            focus_input=self._focus_input,
+            get_width=lambda: self.terminal_width,
+            get_max_height=lambda: self.terminal_height,
+        )
+        self.directory_trust_control = FormattedTextControl(
+            self.directory_trust.fragments,
+            focusable=True,
+            modal=True,
+            key_bindings=self.directory_trust.key_bindings,
+        )
+
         self.approval = TuiApproval(
             invalidate=self.invalidate,
             focus_card=lambda: self._activate_bottom_surface("approval"),
@@ -663,6 +678,13 @@ class TuiScreen(object):
             always_hide_cursor=True,
             dont_extend_height=True,
         )
+        self.directory_trust_window = Window(
+            content=self.directory_trust_control,
+            height=self._directory_trust_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
         self.input_top_padding = Window(
             height=Dimension.exact(self.INPUT_SURFACE_PADDING_HEIGHT),
             char=" ",
@@ -835,15 +857,31 @@ class TuiScreen(object):
             height=self._transcript_overlay_canvas_dimension,
             window_too_small=Window(),
         )
+        self.directory_trust_canvas = HSplit(
+            [self.directory_trust_window],
+            align=VerticalAlign.TOP,
+            height=self._directory_trust_dimension,
+            window_too_small=Window(),
+        )
         self.root = HSplit(
             [
                 ConditionalContainer(
                     self.canvas,
-                    filter=Condition(lambda: not self.transcript_overlay.active),
+                    filter=Condition(lambda: (
+                        not self.transcript_overlay.active
+                        and not self.directory_trust.active
+                    )),
                 ),
                 ConditionalContainer(
                     self.transcript_overlay_canvas,
-                    filter=Condition(lambda: self.transcript_overlay.active),
+                    filter=Condition(lambda: (
+                        self.transcript_overlay.active
+                        and not self.directory_trust.active
+                    )),
+                ),
+                ConditionalContainer(
+                    self.directory_trust_canvas,
+                    filter=Condition(lambda: self.directory_trust.active),
                 ),
             ],
             align=VerticalAlign.TOP,
@@ -1298,14 +1336,20 @@ class TuiScreen(object):
         if geometry_changed:
             self._reset_completion_layout(reset_canvas_floor=True)
 
-        previous_release_height = self._bottom_release_height()
-        completion_visible = self._update_bottom_anchor()
-        release_consumed = (
-            self._bottom_release_height() < previous_release_height
-        )
+        if (
+            not self.directory_trust.active
+            and not self.transcript_overlay.active
+            and not self._transcript_only
+        ):
+            previous_release_height = self._bottom_release_height()
+            completion_visible      = self._update_bottom_anchor()
 
-        if not self.transcript_overlay.active and not self._transcript_only:
+            release_consumed = (
+                self._bottom_release_height() < previous_release_height
+            )
+
             natural_height = self._natural_visible_height()
+
             if (
                 self._input_height() > 1
                 and self._input_canvas_floor_baseline is None
@@ -1488,6 +1532,10 @@ class TuiScreen(object):
         """把焦点切换到指定的底部临时交互表面。"""
         self._clear_exit_confirmation()
 
+        if self.directory_trust.active:
+            self._focus_directory_trust()
+            return None
+
         if (
             hasattr(self, "transcript_overlay")
             and self.transcript_overlay.active
@@ -1534,6 +1582,10 @@ class TuiScreen(object):
 
     def _focus_input(self) -> None:
         """把焦点路由到当前顶层记录或主输入控件。"""
+        if self.directory_trust.active:
+            self._focus_directory_trust()
+            return None
+
         if (
             hasattr(self, "transcript_overlay")
             and self.transcript_overlay.active
@@ -1542,6 +1594,12 @@ class TuiScreen(object):
             return None
 
         self.application.layout.focus(self.input)
+
+    def _focus_directory_trust(self) -> None:
+        """把焦点路由到启动阶段的目录信任界面。"""
+        application = getattr(self, "application", None)
+        if application is not None:
+            application.layout.focus(self.directory_trust_control)
 
     def _input_line_prefix(
         self,
@@ -1982,9 +2040,16 @@ class TuiScreen(object):
 
     def _root_dimension(self) -> Dimension:
         """返回当前主画布或完整记录画布所需高度。"""
+        if self.directory_trust.active:
+            return self._directory_trust_dimension()
         if self.transcript_overlay.active:
             return self._transcript_overlay_canvas_dimension()
+
         return self._canvas_dimension()
+
+    def _directory_trust_dimension(self) -> Dimension:
+        """返回启动阶段目录信任界面的显示高度。"""
+        return Dimension.exact(self.directory_trust.height())
 
     def _transcript_overlay_height(self) -> int:
         """返回完整记录正文区域可用高度。"""
@@ -2287,7 +2352,11 @@ class TuiScreen(object):
 
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""
-        return bool(self.bottom_pane.transient_active or self._completion_visible())
+        return bool(
+            self.directory_trust.active
+            or self.bottom_pane.transient_active
+            or self._completion_visible()
+        )
 
     def scrollback_interaction_active(self) -> bool:
         """判断底部交互状态是否要求暂停原生滚屏提交。"""
@@ -2301,7 +2370,8 @@ class TuiScreen(object):
     def _transcript_overlay_blocked(self) -> bool:
         """判断当前临时表面是否禁止打开完整会话记录。"""
         return bool(
-            self.bottom_pane.is_active("approval")
+            self.directory_trust.active
+            or self.bottom_pane.is_active("approval")
             or self.bottom_pane.is_active("menu")
             or self._completion_visible()
         )
