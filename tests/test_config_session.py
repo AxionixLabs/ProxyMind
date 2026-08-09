@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import os
 
 import pytest
@@ -11,8 +12,9 @@ from mind_core.config import (
     parse_config_override,
 )
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
+from mind_core.config_store import ConfigStore, ConfigStoreError
 from mind_core.config_layers import PROJECT_CONFIG_DIR
+from mind_core.hook_discovery import HOOKS_FILE_NAME
 from mind_core.hooks import HOOK_EVENT_CONFIG_SPECS
 
 
@@ -21,6 +23,31 @@ def _command_handler(command, *, timeout=None):
     if timeout is not None:
         handler["timeout"] = timeout
     return handler
+
+
+def _write_hook_file(
+    directory,
+    command,
+    *,
+    event="PreToolUse",
+):
+    path = directory / HOOKS_FILE_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "description": "Lifecycle checks",
+            "hooks": {
+                event: [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": command,
+                    }],
+                }],
+            },
+        }),
+        encoding="utf-8",
+    )
+    return path
 
 
 def _linked_worktree(
@@ -267,15 +294,24 @@ def test_repository_trust_enables_linked_worktree_automation(
     )
     workspace = worktree_root / "src"
     workspace.mkdir()
-    project_config = worktree_root / PROJECT_CONFIG_DIR / "config.toml"
-    project_config.parent.mkdir()
-    project_config.write_text(
+    worktree_config = worktree_root / PROJECT_CONFIG_DIR / "config.toml"
+    worktree_config.parent.mkdir()
+    worktree_config.write_text(
         "[agents]\n"
         "max_depth = 3\n"
         "[mcp_servers.project]\n"
         'command = "project-server"\n'
         "[[hooks.PreToolUse]]\n"
-        'hooks = [{ type = "command", command = "project-hook" }]\n',
+        'hooks = [{ type = "command", command = "worktree-hook" }]\n',
+        encoding="utf-8",
+    )
+    repository_config = repository_root / PROJECT_CONFIG_DIR / "config.toml"
+    repository_config.parent.mkdir()
+    repository_config.write_text(
+        "[agents]\n"
+        "max_depth = 8\n"
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "repository-hook" }]\n',
         encoding="utf-8",
     )
     store = ConfigStore(tmp_path / "home" / "config.toml")
@@ -294,7 +330,206 @@ def test_repository_trust_enables_linked_worktree_automation(
         "project-server"
     )
     assert len(resolution.hooks) == 1
-    assert resolution.hooks[0].source_path == str(project_config.resolve())
+    assert resolution.hooks[0].handler.command == "repository-hook"
+    assert resolution.hooks[0].source_path == str(repository_config.resolve())
+
+    main_resolution = ConfigSession(
+        store,
+        workspace=repository_root,
+    ).resolve()
+    assert resolution.hooks[0].key == main_resolution.hooks[0].key
+
+
+def test_linked_worktree_hook_is_removed_when_root_source_is_missing(
+    tmp_path,
+) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    worktree_config = worktree_root / PROJECT_CONFIG_DIR / "config.toml"
+    worktree_config.parent.mkdir()
+    worktree_config.write_text(
+        "[agents]\n"
+        "max_depth = 3\n"
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "worktree-hook" }]\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=worktree_root).resolve()
+
+    assert resolution.config["agents"]["max_depth"] == 3
+    assert resolution.hooks == ()
+    assert "PreToolUse" not in resolution.config["hooks"]
+
+
+def test_linked_worktree_uses_root_hooks_without_local_config_file(
+    tmp_path,
+) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    worktree_config_dir = worktree_root / PROJECT_CONFIG_DIR
+    worktree_config_dir.mkdir()
+    repository_config = repository_root / PROJECT_CONFIG_DIR / "config.toml"
+    repository_config.parent.mkdir()
+    repository_config.write_text(
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "repository-hook" }]\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=worktree_root).resolve()
+
+    project_layers = tuple(
+        layer for layer in resolution.layers
+        if layer.scope == "project"
+    )
+    assert len(project_layers) == 1
+    assert project_layers[0].path == worktree_config_dir / "config.toml"
+    assert not project_layers[0].path.exists()
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "repository-hook",
+    ]
+    assert resolution.hooks[0].source_path == str(repository_config.resolve())
+
+
+def test_linked_worktree_requires_local_project_config_directory(
+    tmp_path,
+) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    repository_config = repository_root / PROJECT_CONFIG_DIR / "config.toml"
+    repository_config.parent.mkdir()
+    repository_config.write_text(
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "repository-hook" }]\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=worktree_root).resolve()
+
+    assert resolution.hooks == ()
+    assert [layer.scope for layer in resolution.layers] == ["user"]
+
+
+def test_linked_worktree_maps_nested_project_hook_layers(tmp_path) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    worktree_child = worktree_root / "child"
+    worktree_child.mkdir()
+
+    for directory, depth, command in (
+        (worktree_root, 2, "worktree-root"),
+        (worktree_child, 4, "worktree-child"),
+    ):
+        config_path = directory / PROJECT_CONFIG_DIR / "config.toml"
+        config_path.parent.mkdir()
+        config_path.write_text(
+            f"[agents]\nmax_depth = {depth}\n"
+            "[[hooks.PreToolUse]]\n"
+            f'hooks = [{{ type = "command", command = "{command}" }}]\n',
+            encoding="utf-8",
+        )
+
+    repository_configs = (
+        repository_root / PROJECT_CONFIG_DIR / "config.toml",
+        repository_root / "child" / PROJECT_CONFIG_DIR / "config.toml",
+    )
+    for config_path, command in zip(
+        repository_configs,
+        ("repository-root", "repository-child"),
+        strict=True,
+    ):
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            "[[hooks.PreToolUse]]\n"
+            f'hooks = [{{ type = "command", command = "{command}" }}]\n',
+            encoding="utf-8",
+        )
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=worktree_child).resolve()
+
+    assert resolution.config["agents"]["max_depth"] == 4
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "repository-root",
+        "repository-child",
+    ]
+    assert [hook.source_path for hook in resolution.hooks] == [
+        str(config_path.resolve())
+        for config_path in repository_configs
+    ]
+
+
+def test_invalid_trusted_root_hook_config_fails_linked_worktree_load(
+    tmp_path,
+) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    (worktree_root / PROJECT_CONFIG_DIR).mkdir()
+    repository_config = repository_root / PROJECT_CONFIG_DIR / "config.toml"
+    repository_config.parent.mkdir()
+    repository_config.write_text("[hooks\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    with pytest.raises(ConfigStoreError, match="config is invalid"):
+        ConfigSession(store, workspace=worktree_root).resolve()
+
+
+def test_untrusted_worktree_does_not_parse_invalid_root_hook_config(
+    tmp_path,
+) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    (worktree_root / PROJECT_CONFIG_DIR).mkdir()
+    repository_config = repository_root / PROJECT_CONFIG_DIR / "config.toml"
+    repository_config.parent.mkdir()
+    repository_config.write_text("[hooks\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+        ("projects", str(worktree_root)): {"trust_level": "untrusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=worktree_root).resolve()
+
+    project_layers = tuple(
+        layer for layer in resolution.layers
+        if layer.scope == "project"
+    )
+    assert len(project_layers) == 1
+    assert not project_layers[0].enabled
+    assert resolution.hooks == ()
 
 
 def test_linked_worktree_decision_precedes_repository_decision(tmp_path) -> None:
@@ -329,7 +564,23 @@ def test_linked_worktree_keeps_custom_project_config_root(tmp_path) -> None:
     project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
     project_config.parent.mkdir()
     project_config.write_text(
-        "[agents]\nmax_depth = 4\n",
+        "[agents]\n"
+        "max_depth = 4\n"
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "worktree-hook" }]\n',
+        encoding="utf-8",
+    )
+    repository_config = (
+        repository_root
+        / "packages"
+        / "sample"
+        / PROJECT_CONFIG_DIR
+        / "config.toml"
+    )
+    repository_config.parent.mkdir(parents=True)
+    repository_config.write_text(
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "repository-hook" }]\n',
         encoding="utf-8",
     )
     store = ConfigStore(tmp_path / "home" / "config.toml")
@@ -346,6 +597,10 @@ def test_linked_worktree_keeps_custom_project_config_root(tmp_path) -> None:
     assert resolution.project_trust.level == "trusted"
     assert resolution.config["agents"]["max_depth"] == 4
     assert any(layer.path == project_config for layer in resolution.layers)
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "repository-hook",
+    ]
+    assert resolution.hooks[0].source_path == str(repository_config.resolve())
 
 
 @pytest.mark.parametrize(
@@ -916,6 +1171,256 @@ def test_cli_override_does_not_modify_user_document(tmp_path) -> None:
     assert store.path.read_text(encoding="utf-8") == original
 
 
+def test_user_hooks_json_keeps_file_source_identity(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    hook_file = _write_hook_file(tmp_path, "check-json")
+
+    resolution = ConfigSession(store).resolve()
+
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "check-json",
+    ]
+    assert resolution.hooks[0].source_scope == "user"
+    assert resolution.hooks[0].source_path == str(hook_file.resolve())
+    assert resolution.hooks[0].key.startswith(f"{hook_file.resolve()}:")
+
+
+def test_hook_layer_loads_json_before_inline_and_warns(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.update({
+        ("hooks", "PreToolUse"): [{
+            "hooks": [_command_handler("check-inline")],
+        }],
+    })
+    hook_file = _write_hook_file(tmp_path, "check-json")
+
+    resolution = ConfigSession(store).resolve()
+
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "check-json",
+        "check-inline",
+    ]
+    assert [hook.source_path for hook in resolution.hooks] == [
+        str(hook_file.resolve()),
+        str(store.path.resolve()),
+    ]
+    warning = "\n".join(resolution.hook_warnings)
+    assert "loading hooks from both" in warning
+    assert str(hook_file.resolve()) in warning
+    assert str(store.path.resolve()) in warning
+
+
+def test_profile_does_not_reload_user_hooks_json(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    hook_file = _write_hook_file(tmp_path, "check-json")
+    (tmp_path / "review.config.toml").write_text(
+        "[[hooks.PostToolUse]]\n"
+        'hooks = [{ type = "command", command = "audit-profile" }]\n',
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store, profile="review").resolve()
+
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "check-json",
+        "audit-profile",
+    ]
+    assert [hook.source_scope for hook in resolution.hooks] == [
+        "user",
+        "profile",
+    ]
+    assert sum(
+        hook.source_path == str(hook_file.resolve())
+        for hook in resolution.hooks
+    ) == 1
+
+
+def test_invalid_hooks_json_warns_and_preserves_inline_hooks(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.update({
+        ("hooks", "PreToolUse"): [{
+            "hooks": [_command_handler("check-inline")],
+        }],
+    })
+    hook_file = tmp_path / HOOKS_FILE_NAME
+    hook_file.write_text("{broken", encoding="utf-8")
+
+    resolution = ConfigSession(store).resolve()
+
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "check-inline",
+    ]
+    assert len(resolution.hook_warnings) == 1
+    assert f"failed to parse hooks config {hook_file}" in (
+        resolution.hook_warnings[0]
+    )
+    assert resolution.startup_warnings == ()
+
+
+def test_hooks_json_schema_failure_rejects_entire_file(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    hook_file = tmp_path / HOOKS_FILE_NAME
+    hook_file.write_text(
+        json.dumps({
+            "hooks": {
+                "PreToolUse": [{
+                    "hooks": [{"type": "command"}],
+                }],
+                "PostToolUse": [{
+                    "hooks": [_command_handler("valid-post")],
+                }],
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store).resolve()
+
+    assert resolution.hooks == ()
+    assert len(resolution.hook_warnings) == 1
+    assert (
+        "hooks.PreToolUse[0].hooks[0].command must be a string"
+        in resolution.hook_warnings[0]
+    )
+    assert resolution.startup_warnings == ()
+
+
+def test_hooks_json_rejects_events_outside_hooks_object(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    hook_file = tmp_path / HOOKS_FILE_NAME
+    hook_file.write_text(
+        json.dumps({
+            "SessionStart": [{
+                "hooks": [_command_handler("prepare-session")],
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store).resolve()
+
+    assert resolution.hooks == ()
+    assert len(resolution.hook_warnings) == 1
+    assert "unknown field 'SessionStart'" in resolution.hook_warnings[0]
+
+
+def test_empty_hooks_json_is_ignored_without_warning(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    (tmp_path / HOOKS_FILE_NAME).write_text(
+        json.dumps({"description": "No lifecycle handlers"}),
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store).resolve()
+
+    assert resolution.hooks == ()
+    assert resolution.hook_warnings == ()
+    assert resolution.startup_warnings == ()
+
+
+def test_dual_source_warning_uses_nonempty_event_sources(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.update({
+        ("hooks", "PreToolUse"): [{
+            "hooks": [_command_handler("check-inline")],
+        }],
+    })
+    (tmp_path / HOOKS_FILE_NAME).write_text(
+        json.dumps({
+            "hooks": {
+                "PreToolUse": [{
+                    "hooks": [{"type": "prompt"}],
+                }],
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store).resolve()
+
+    assert [hook.handler.command for hook in resolution.hooks] == [
+        "check-inline",
+    ]
+    warnings = "\n".join(resolution.hook_warnings)
+    assert "skipping prompt hook" in warnings
+    assert "loading hooks from both" in warnings
+
+
+def test_project_hooks_json_respects_directory_trust(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    (project_root / ".git").mkdir(parents=True)
+    hook_file = _write_hook_file(
+        project_root / PROJECT_CONFIG_DIR,
+        "check-project-json",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    session = ConfigSession(store, workspace=project_root)
+
+    untrusted = session.resolve()
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    trusted = session.resolve()
+
+    assert untrusted.hooks == ()
+    assert [hook.handler.command for hook in trusted.hooks] == [
+        "check-project-json",
+    ]
+    assert trusted.hooks[0].source_scope == "project"
+    assert trusted.hooks[0].source_path == str(hook_file.resolve())
+
+
+def test_untrusted_project_does_not_parse_invalid_hooks_json(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    (project_root / ".git").mkdir(parents=True)
+    hook_file = project_root / PROJECT_CONFIG_DIR / HOOKS_FILE_NAME
+    hook_file.parent.mkdir()
+    hook_file.write_text("{broken", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    session = ConfigSession(store, workspace=project_root)
+
+    untrusted = session.resolve()
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    trusted = session.resolve()
+
+    assert untrusted.hooks == ()
+    assert untrusted.hook_warnings == ()
+    assert len(trusted.hook_warnings) == 1
+    assert f"failed to parse hooks config {hook_file}" in (
+        trusted.hook_warnings[0]
+    )
+
+
+def test_linked_worktree_uses_root_hooks_json(tmp_path) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    _write_hook_file(
+        worktree_root / PROJECT_CONFIG_DIR,
+        "worktree-json",
+    )
+    repository_hook_file = _write_hook_file(
+        repository_root / PROJECT_CONFIG_DIR,
+        "repository-json",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    worktree = ConfigSession(store, workspace=worktree_root).resolve()
+    main = ConfigSession(store, workspace=repository_root).resolve()
+
+    assert [hook.handler.command for hook in worktree.hooks] == [
+        "repository-json",
+    ]
+    assert worktree.hooks[0].source_path == str(repository_hook_file.resolve())
+    assert worktree.hooks[0].key == main.hooks[0].key
+
+
 def test_user_and_profile_hooks_keep_source_identity(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.update({
@@ -940,6 +1445,10 @@ def test_user_and_profile_hooks_keep_source_identity(tmp_path) -> None:
     assert [hook.source_scope for hook in resolution.hooks] == [
         "user",
         "profile",
+    ]
+    assert [hook.trust_policy for hook in resolution.hooks] == [
+        "content_hash",
+        "content_hash",
     ]
     assert all(
         hook.content_hash.startswith("sha256:")
@@ -1040,6 +1549,7 @@ def test_cli_hook_override_replaces_runtime_definitions(tmp_path) -> None:
             "hooks": [_command_handler("check-user")],
         }],
     })
+    _write_hook_file(tmp_path, "check-json")
     override = parse_config_override(
         "hooks={ PreToolUse = [{ hooks = [{ type = \"command\", "
         "command = \"check-cli\" }] }] }"
@@ -1051,6 +1561,9 @@ def test_cli_hook_override_replaces_runtime_definitions(tmp_path) -> None:
         "check-cli",
     ]
     assert [definition.source_scope for definition in resolution.hooks] == ["cli"]
+    assert [definition.trust_policy for definition in resolution.hooks] == [
+        "content_hash",
+    ]
 
 
 def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
@@ -1082,6 +1595,7 @@ def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
     assert resolution.project_trust.trusted
     assert len(resolution.hooks) == 1
     assert resolution.hooks[0].source_scope == "project"
+    assert resolution.hooks[0].trust_policy == "content_hash"
     assert resolution.hooks[0].source_path == str(project_config.resolve())
 
 

@@ -379,6 +379,43 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
     )
 
 
+@pytest.mark.anyio
+async def test_bootstrap_forwards_hook_warnings_outside_config_resolution(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    frontend = SimpleNamespace(application=SimpleNamespace(emit=Mock()))
+    config_path = tmp_path / "home" / "config.toml"
+    ConfigStore(config_path).ensure()
+    (config_path.parent / "hooks.json").write_text(
+        "{broken",
+        encoding="utf-8",
+    )
+    _report, run_controller = _patch_application_bootstrap(
+        monkeypatch,
+        tmp_path,
+        frontend=frontend,
+        config_path=config_path,
+    )
+
+    result = await bootstrap._run_application(
+        ExecCommand("check hooks"),
+        str(tmp_path / "mind.py"),
+        SimpleNamespace(),
+        (),
+        None,
+    )
+
+    assert result == 0
+    run_controller.assert_awaited_once()
+    arguments = run_controller.await_args.kwargs
+    resolution = arguments["config_session"].resolve()
+    assert resolution.startup_warnings == ()
+    assert len(resolution.hook_warnings) == 1
+    assert arguments["startup_warnings"] == resolution.hook_warnings
+
+
 def test_startup_config_warnings_are_emitted_as_styled_application_views() -> None:
     emit = Mock()
     frontend = SimpleNamespace(application=SimpleNamespace(emit=emit))

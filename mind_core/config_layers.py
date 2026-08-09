@@ -21,8 +21,12 @@ from mind_core.config_store import (
     ConfigStoreError
 )
 from mind_core.hook_discovery import (
+    HOOKS_FILE_NAME,
+    HookSourceResolution,
     normalize_hook_table,
-    resolve_hook_definitions
+    resolve_hook_definitions,
+    resolve_hook_file_source,
+    resolve_hook_source
 )
 from mind_core.hooks import (
     HookDefinitionConfig,
@@ -130,6 +134,7 @@ class ConfigResolver(object):
 
         hook_warnings: list[str]    = []
         startup_warnings: list[str] = []
+        visited_hook_directories: set[str] = set()
 
         effective_workspace = (
             Path(workspace).expanduser().resolve()
@@ -141,10 +146,12 @@ class ConfigResolver(object):
 
         active_user_config_file = self.store.path
 
-        hooks: list[HookDefinitionConfig] = list(resolve_hook_definitions(
+        hooks: list[HookDefinitionConfig] = list(_resolve_layer_hooks(
             user.get("hooks"),
             source_scope="user",
             source_path=self.store.path,
+            hook_directory=self.store.path.parent,
+            visited_directories=visited_hook_directories,
             warnings=hook_warnings,
         ))
 
@@ -168,10 +175,12 @@ class ConfigResolver(object):
 
             layers.append(ConfigLayer("profile", profile_store.path))
 
-            hooks.extend(resolve_hook_definitions(
+            hooks.extend(_resolve_layer_hooks(
                 profile.get("hooks"),
                 source_scope="profile",
                 source_path=profile_store.path,
+                hook_directory=profile_store.path.parent,
+                visited_directories=visited_hook_directories,
                 warnings=hook_warnings,
             ))
 
@@ -194,11 +203,18 @@ class ConfigResolver(object):
             project_trust = trust_context.active_decision
 
             for directory in trust_context.config_directories():
-                path = directory / PROJECT_CONFIG_DIR / "config.toml"
+                config_dir = directory / PROJECT_CONFIG_DIR
+                path       = config_dir / "config.toml"
+
                 if _path_key(path) == _path_key(self.store.path):
                     continue
-                if not path.is_file():
+                if not config_dir.is_dir():
                     continue
+
+                hook_source_path = (
+                    trust_context.root_checkout_path_for(path)
+                    or path
+                )
 
                 decision        = trust_context.decision_for_directory(directory)
                 disabled_reason = trust_context.disabled_reason(decision)
@@ -212,7 +228,16 @@ class ConfigResolver(object):
                 if not decision.trusted:
                     continue
 
-                project_config, ignored = _read_project_config(path)
+                if _config_path_is_present(path):
+                    project_config, ignored = _read_project_config(path)
+                else:
+                    project_config, ignored = {}, ()
+
+                if hook_source_path != path:
+                    project_config = _replace_project_hooks(
+                        project_config,
+                        hook_source_path,
+                    )
 
                 if ignored:
                     startup_warnings.append(
@@ -221,10 +246,12 @@ class ConfigResolver(object):
 
                 merged = _merge_config(merged, project_config)
 
-                hooks.extend(resolve_hook_definitions(
+                hooks.extend(_resolve_layer_hooks(
                     project_config.get("hooks"),
                     source_scope="project",
-                    source_path=path,
+                    source_path=hook_source_path,
+                    hook_directory=hook_source_path.parent,
+                    visited_directories=visited_hook_directories,
                     warnings=hook_warnings,
                 ))
 
@@ -236,6 +263,7 @@ class ConfigResolver(object):
                     merged.get("hooks"),
                     source_scope="cli",
                     source_path=None,
+                    trust_policy="content_hash",
                     warnings=hook_warnings,
                 ))
             layers.append(ConfigLayer("cli", None))
@@ -312,6 +340,47 @@ def normalize_profile_name(value: str | None) -> str | None:
         )
 
     return name
+
+
+def _resolve_layer_hooks(
+    inline_hooks: typing.Any,
+    *,
+    source_scope: str,
+    source_path: Path,
+    hook_directory: Path,
+    visited_directories: set[str],
+    warnings: list[str]
+) -> tuple[HookDefinitionConfig, ...]:
+    """按稳定顺序解析配置层的独立文件和内联 Hook。"""
+    directory_key = _path_key(hook_directory)
+    file_path     = hook_directory / HOOKS_FILE_NAME
+
+    file_source = HookSourceResolution()
+    if directory_key not in visited_directories:
+        visited_directories.add(directory_key)
+        file_source = resolve_hook_file_source(
+            file_path,
+            source_scope=source_scope,
+            trust_policy="content_hash",
+            warnings=warnings,
+        )
+
+    inline_source = resolve_hook_source(
+        inline_hooks,
+        source_scope=source_scope,
+        source_path=source_path,
+        trust_policy="content_hash",
+        warnings=warnings,
+    )
+
+    if file_source.has_events and inline_source.has_events:
+        warnings.append(
+            f"loading hooks from both {file_path.resolve()} and "
+            f"{source_path.resolve()}; prefer a single representation for "
+            "this layer"
+        )
+
+    return *file_source.definitions, *inline_source.definitions
 
 
 def _read_config(
@@ -422,6 +491,39 @@ def _read_project_config(
     validate_config(config)
 
     return config, ignored
+
+
+def _replace_project_hooks(
+    config: dict[str, typing.Any],
+    source_path: Path
+) -> dict[str, typing.Any]:
+    """使用指定配置文件中的 Hook 表替换项目层声明。"""
+    result = copy.deepcopy(config)
+    result.pop("hooks", None)
+
+    if not _config_path_is_present(source_path):
+        return result
+
+    source_config = typing.cast(
+        dict[str, typing.Any],
+        ConfigStore(source_path).read_raw(create=False),
+    )
+    if "hooks" in source_config:
+        result["hooks"] = copy.deepcopy(source_config["hooks"])
+    return result
+
+
+def _config_path_is_present(path: Path) -> bool:
+    """判断配置路径是否存在，并保留不可访问错误。"""
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise ConfigStoreError(
+            f"config is not readable: {path}"
+        ) from error
+    return True
 
 
 def _project_ignored_config_keys_warning(

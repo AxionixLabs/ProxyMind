@@ -7,7 +7,10 @@ from dataclasses import (
     field
 )
 from mind_core.hook_trust import HookTrustState
-from mind_core.hooks import HookEventName
+from mind_core.hooks import (
+    HookEventName,
+    HookTrustPolicy
+)
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -25,6 +28,7 @@ class HookRuntimeEntry:
     event: HookEventName
     source_scope: str
     source_path: str | None
+    trust_policy: HookTrustPolicy
     content_hash: str
     trust_state: HookTrustState
     enabled: bool

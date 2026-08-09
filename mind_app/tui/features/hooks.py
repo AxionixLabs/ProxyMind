@@ -248,7 +248,7 @@ def hook_detail_menu(entry: HookCatalogEntry) -> MenuRequest:
         f"Content hash: {entry.content_hash[:12]}",
     )
 
-    if entry.trust_state == "managed":
+    if entry.trust_policy == "managed":
         return MenuRequest(
             title="Hook Details",
             status=f"{entry.event} | managed",

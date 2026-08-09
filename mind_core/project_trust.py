@@ -172,6 +172,22 @@ class ProjectTrustContext(object):
 
         return tuple(directories)
 
+    def root_checkout_path_for(self, path: Path) -> Path | None:
+        """返回 linked worktree 路径在主 checkout 中的对应位置。"""
+        if (
+            self.checkout_root is None
+            or self.repository_root is None
+            or self.checkout_root == self.repository_root
+        ):
+            return None
+
+        try:
+            relative = Path(path).relative_to(self.checkout_root)
+        except ValueError:
+            return None
+
+        return self.repository_root / relative
+
     def disabled_reason(self, decision: ProjectTrustDecision) -> str | None:
         """返回未启用项目层的可操作诊断信息。"""
         if decision.trusted:

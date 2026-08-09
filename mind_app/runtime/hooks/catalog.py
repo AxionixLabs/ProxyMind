@@ -6,7 +6,8 @@ from mind_core.hook_trust import HookTrustState
 from mind_core.hooks import (
     HookControlPolicy,
     HookEventName,
-    HookMatcherSubject
+    HookMatcherSubject,
+    HookTrustPolicy
 )
 
 
@@ -29,6 +30,7 @@ class HookCatalogEntry:
     additional_context_limit: int
     source_scope: str
     source_path: str | None
+    trust_policy: HookTrustPolicy
     trust_state: HookTrustState
     enabled: bool
     active: bool

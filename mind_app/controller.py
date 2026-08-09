@@ -882,9 +882,12 @@ class Mind(object):
         target_workspace, definition = self._resolve_hook_state_target(
             hook_key,
             expected_content_hash=expected_content_hash,
-            state_label="trust",
             workspace=workspace,
         )
+        if definition.trust_policy != "content_hash":
+            raise ValueError(
+                f"{definition.trust_policy} hook trust cannot be changed"
+            )
 
         self.config_session.update_user({
             (
@@ -908,9 +911,12 @@ class Mind(object):
         target_workspace, definition = self._resolve_hook_state_target(
             hook_key,
             expected_content_hash=expected_content_hash,
-            state_label="enabled state",
             workspace=workspace,
         )
+        if definition.trust_policy == "managed":
+            raise ValueError(
+                "managed hook enabled state cannot be changed"
+            )
 
         self.config_session.update_user({
             (
@@ -928,7 +934,6 @@ class Mind(object):
         hook_key: str,
         *,
         expected_content_hash: str,
-        state_label: str,
         workspace: Path | None,
     ) -> tuple[Path, HookDefinitionConfig]:
         """解析并校验允许修改用户状态的 Hook。"""
@@ -951,10 +956,6 @@ class Mind(object):
         if definition.content_hash != expected_hash:
             raise HookCatalogStaleError(
                 f"hook content changed: {hook_key}"
-            )
-        if definition.source_scope == "managed":
-            raise ValueError(
-                f"managed hook {state_label} cannot be changed"
             )
         return target_workspace, definition
 

@@ -29,7 +29,7 @@ def resolve_hook_state(
     states: HookStateTable
 ) -> HookResolvedState:
     """根据用户配置状态解析单个 Hook 是否可以运行。"""
-    if definition.source_scope == "managed":
+    if definition.trust_policy == "managed":
         return HookResolvedState(
             trust_state="managed",
             enabled=True,

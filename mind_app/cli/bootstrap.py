@@ -386,7 +386,10 @@ async def _run_application(
             permissions=permissions,
             hook_registry=hook_registry,
             agent_settings=agent_settings,
-            startup_warnings=config_resolution.startup_warnings,
+            startup_warnings=(
+                *config_resolution.startup_warnings,
+                *config_resolution.hook_warnings,
+            ),
         )
     except BaseException:
         if tui_runtime is not None:

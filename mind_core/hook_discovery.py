@@ -15,7 +15,8 @@ from mind_core.hooks import (
     HookDefinitionConfig,
     HookEventName,
     HookHandlerConfig,
-    HookStateTable
+    HookStateTable,
+    HookTrustPolicy
 )
 from mind_nova import const
 
@@ -40,6 +41,13 @@ _DEFAULT_SESSION_END_TIMEOUT_SEC        = 1
 _MAX_SESSION_END_TIMEOUT_SEC            = 3
 _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT = 2500
 
+HOOKS_FILE_NAME = "hooks.json"
+
+_HOOK_FILE_FIELDS = frozenset({
+    "description",
+    "hooks",
+})
+
 
 @dataclass(frozen=True, slots=True)
 class _NormalizedHandler:
@@ -54,6 +62,13 @@ class _NormalizedMatcherGroup:
     source_index: int
     matcher: str
     handlers: tuple[_NormalizedHandler, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class HookSourceResolution:
+    """保存单个 Hook 来源的发现结果。"""
+    definitions: tuple[HookDefinitionConfig, ...] = ()
+    has_events: bool = False
 
 
 def normalize_hook_table(
@@ -97,9 +112,28 @@ def resolve_hook_definitions(
     *,
     source_scope: str,
     source_path: Path | None,
+    trust_policy: HookTrustPolicy = "content_hash",
     warnings: list[str] | None = None
 ) -> tuple[HookDefinitionConfig, ...]:
     """把单个配置层中的 Hook 表转换为来源化定义。"""
+    return resolve_hook_source(
+        raw,
+        source_scope=source_scope,
+        source_path=source_path,
+        trust_policy=trust_policy,
+        warnings=warnings,
+    ).definitions
+
+
+def resolve_hook_source(
+    raw: typing.Any,
+    *,
+    source_scope: str,
+    source_path: Path | None,
+    trust_policy: HookTrustPolicy = "content_hash",
+    warnings: list[str] | None = None
+) -> HookSourceResolution:
+    """解析单个 Hook 来源并保留事件存在信息。"""
     path_text  = str(source_path.resolve()) if source_path is not None else None
     source_key = path_text or source_scope
     source     = path_text or source_scope
@@ -140,9 +174,197 @@ def resolve_hook_definitions(
                     matcher=group.matcher,
                     source_scope=source_scope,
                     source_path=path_text,
+                    trust_policy=trust_policy,
                     content_hash=content_hash,
                 ))
-    return tuple(definitions)
+    return HookSourceResolution(
+        definitions=tuple(definitions),
+        has_events=_has_hook_events(raw),
+    )
+
+
+def resolve_hook_file_source(
+    path: Path,
+    *,
+    source_scope: str,
+    trust_policy: HookTrustPolicy = "content_hash",
+    warnings: list[str] | None = None
+) -> HookSourceResolution:
+    """读取独立 Hook 配置文件并返回发现结果。"""
+    source_path = Path(path).expanduser()
+    if not source_path.is_file():
+        return HookSourceResolution()
+
+    try:
+        contents = source_path.read_text(encoding=const.CHARSET)
+    except (OSError, UnicodeError) as error:
+        _append_warning(
+            warnings,
+            f"failed to read hooks config {source_path}: {error}",
+        )
+        return HookSourceResolution()
+
+    try:
+        document = json.loads(
+            contents,
+            parse_constant=_reject_json_constant,
+        )
+        hooks = _hook_file_events(document)
+    except (TypeError, ValueError) as error:
+        _append_warning(
+            warnings,
+            f"failed to parse hooks config {source_path}: {error}",
+        )
+        return HookSourceResolution()
+
+    return resolve_hook_source(
+        hooks,
+        source_scope=source_scope,
+        source_path=source_path,
+        trust_policy=trust_policy,
+        warnings=warnings,
+    )
+
+
+def _hook_file_events(document: typing.Any) -> dict[str, typing.Any]:
+    """原子校验独立 Hook 文件并返回事件表。"""
+    if not isinstance(document, dict):
+        raise HookConfigError("expected an object")
+
+    unknown = sorted(set(document).difference(_HOOK_FILE_FIELDS))
+    if unknown:
+        raise HookConfigError(f"unknown field {unknown[0]!r}")
+
+    description = document.get("description")
+    if description is not None and not isinstance(description, str):
+        raise HookConfigError("description must be a string")
+
+    hooks = document.get("hooks", {})
+    if not isinstance(hooks, dict):
+        raise HookConfigError("hooks must be an object")
+
+    _validate_hook_file_events(hooks)
+
+    return hooks
+
+
+def _validate_hook_file_events(hooks: dict[str, typing.Any]) -> None:
+    """校验独立 Hook 文件中受支持事件的嵌套结构。"""
+    for event in HOOK_EVENT_NAMES:
+        if event not in hooks:
+            continue
+
+        groups = hooks[event]
+        dotted = f"hooks.{event}"
+        if not isinstance(groups, list):
+            raise HookConfigError(f"{dotted} must be an array")
+
+        for group_index, group in enumerate(groups):
+            group_dotted = f"{dotted}[{group_index}]"
+            if not isinstance(group, dict):
+                raise HookConfigError(f"{group_dotted} must be an object")
+
+            matcher = group.get("matcher")
+            if matcher is not None and not isinstance(matcher, str):
+                raise HookConfigError(
+                    f"{group_dotted}.matcher must be a string"
+                )
+
+            handlers = group.get("hooks", [])
+            if not isinstance(handlers, list):
+                raise HookConfigError(
+                    f"{group_dotted}.hooks must be an array"
+                )
+
+            for handler_index, handler in enumerate(handlers):
+                _validate_hook_file_handler(
+                    handler,
+                    dotted=f"{group_dotted}.hooks[{handler_index}]",
+                )
+
+
+def _validate_hook_file_handler(
+    handler: typing.Any,
+    *,
+    dotted: str
+) -> None:
+    """校验独立 Hook 文件中的单个处理器结构。"""
+    if not isinstance(handler, dict):
+        raise HookConfigError(f"{dotted} must be an object")
+
+    handler_type = handler.get("type")
+    if handler_type not in ("command", "prompt", "agent"):
+        raise HookConfigError(
+            f"{dotted}.type must be command, prompt, or agent"
+        )
+    if handler_type != "command":
+        return
+
+    command = handler.get("command")
+    if not isinstance(command, str):
+        raise HookConfigError(f"{dotted}.command must be a string")
+
+    if "commandWindows" in handler and "command_windows" in handler:
+        raise HookConfigError(
+            f"{dotted}.commandWindows and command_windows cannot both be set"
+        )
+
+    command_windows = handler.get(
+        "commandWindows",
+        handler.get("command_windows"),
+    )
+    if command_windows is not None and not isinstance(command_windows, str):
+        raise HookConfigError(
+            f"{dotted}.commandWindows must be a string"
+        )
+
+    timeout = handler.get("timeout")
+    if timeout is not None and not _is_non_negative_integer(timeout):
+        raise HookConfigError(
+            f"{dotted}.timeout must be a non-negative integer"
+        )
+
+    if "async" in handler and not isinstance(handler["async"], bool):
+        raise HookConfigError(f"{dotted}.async must be a boolean")
+
+    status_message = handler.get("statusMessage")
+    if status_message is not None and not isinstance(status_message, str):
+        raise HookConfigError(
+            f"{dotted}.statusMessage must be a string"
+        )
+
+    context_limit = handler.get("additionalContextLimit")
+    if (
+        context_limit is not None
+        and not _is_non_negative_integer(context_limit)
+    ):
+        raise HookConfigError(
+            f"{dotted}.additionalContextLimit must be a non-negative integer"
+        )
+
+
+def _is_non_negative_integer(value: typing.Any) -> bool:
+    """判断值是否为非负整数且不是布尔值。"""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int)
+        and value >= 0
+    )
+
+
+def _reject_json_constant(value: str) -> typing.NoReturn:
+    """拒绝 JSON 标准之外的数值常量。"""
+    raise ValueError(f"invalid JSON value {value}")
+
+
+def _has_hook_events(raw: typing.Any) -> bool:
+    """判断已解析来源是否包含非空的受支持事件。"""
+    if not isinstance(raw, dict):
+        return False
+    return any(
+        isinstance(raw.get(event), list) and bool(raw[event])
+        for event in HOOK_EVENT_NAMES
+    )
 
 
 def _discover_hook_state_table(raw: typing.Any) -> HookStateTable:

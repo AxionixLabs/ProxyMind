@@ -15,6 +15,7 @@ from mind_app.cli.doctor import (
 )
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_core.application_paths import ApplicationLayout
+from mind_core.hook_discovery import HOOKS_FILE_NAME
 from mind_core.config_store import ConfigStore
 from mind_core.config_layers import PROJECT_CONFIG_DIR
 
@@ -113,6 +114,27 @@ def test_doctor_reports_disabled_project_config_layer(
     assert "layers=user > project(disabled)" in check.detail
     assert "trust_level=unknown" in check.detail
     assert "disabled_layers=1" in check.detail
+
+
+def test_doctor_does_not_report_hook_warning_as_project_config_issue(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    context = _doctor_context(tmp_path)
+    ConfigStore(context.config_path).update({
+        ("model",): "test-model",
+    })
+    (context.home / HOOKS_FILE_NAME).write_text(
+        "{broken",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    check = doctor._config_check(context)
+
+    assert check.status == "pass"
+    assert "ignored user-level settings" not in check.summary
+    assert "config_warnings=" not in check.detail
 
 
 def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:

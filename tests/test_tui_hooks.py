@@ -33,6 +33,7 @@ def _catalog(
     tmp_path: Path,
     *,
     trust_state: str,
+    trust_policy: str = "content_hash",
     enabled: bool = True,
     warnings: tuple[str, ...] = (),
 ) -> HookCatalogSnapshot:
@@ -50,6 +51,7 @@ def _catalog(
         additional_context_limit=2500,
         source_scope="project",
         source_path=str(tmp_path / ".codex" / "config.toml"),
+        trust_policy=trust_policy,
         trust_state=trust_state,
         enabled=enabled,
         active=active,
@@ -225,7 +227,11 @@ def test_hook_detail_menu_separates_trust_enabled_and_managed_states(
         trust_state="trusted",
         enabled=False,
     ).hooks[0]
-    managed = _catalog(tmp_path, trust_state="managed").hooks[0]
+    managed = _catalog(
+        tmp_path,
+        trust_state="managed",
+        trust_policy="managed",
+    ).hooks[0]
 
     assert hook_detail_menu(untrusted).options[1].label == "Trust hook"
     assert hook_detail_menu(trusted).options[1].label == "Disable hook"

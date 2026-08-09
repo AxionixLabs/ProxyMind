@@ -32,7 +32,13 @@ HookControlPolicy = typing.Literal[
     "notify",
 ]
 
+HookTrustPolicy = typing.Literal[
+    "managed",
+    "content_hash",
+]
+
 HookHandlerType = typing.Literal["command"]
+
 HookStateTable = dict[str, dict[str, bool | str]]
 
 SessionEndReason = typing.Literal[
@@ -217,6 +223,7 @@ class HookDefinitionConfig:
     matcher: str
     source_scope: str
     source_path: str | None
+    trust_policy: HookTrustPolicy
     content_hash: str
 
 

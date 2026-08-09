@@ -10,6 +10,7 @@ from mind_app.controller import Mind
 from mind_app.runtime.hooks.catalog import HookCatalogStaleError
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.scope import HookExecutionContext
+from mind_core.config_layers import PROJECT_CONFIG_DIR
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.hook_discovery import resolve_hook_definitions
@@ -99,6 +100,7 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
     ]
     assert catalog.hooks[0].command == "check-project"
     assert catalog.hooks[0].matcher == "shell_command"
+    assert catalog.hooks[0].trust_policy == "content_hash"
     assert catalog.hooks[0].trust_state == "untrusted"
     assert catalog.hooks[0].enabled
     assert catalog.hooks[1].trust_state == "trusted"
@@ -151,6 +153,38 @@ def test_controller_rejects_stale_hash_then_persists_trust(tmp_path) -> None:
     assert state == {"trusted_hash": changed.content_hash}
 
 
+def test_controller_trusts_json_and_inline_hooks_independently(tmp_path) -> None:
+    controller, store = _user_controller(tmp_path)
+    hook_file = tmp_path / "hooks.json"
+    hook_file.write_text(
+        '{"hooks":{"PreToolUse":[{"hooks":['
+        '{"type":"command","command":"check-json"}]}]}}',
+        encoding="utf-8",
+    )
+
+    initial = controller.inspect_hooks()
+    json_hook, inline_hook = initial.hooks
+    updated = controller.trust_hook(
+        json_hook.key,
+        expected_content_hash=json_hook.content_hash,
+    )
+
+    assert [hook.command for hook in initial.hooks] == [
+        "check-json",
+        "check-user",
+    ]
+    assert json_hook.source_path == str(hook_file.resolve())
+    assert json_hook.key != inline_hook.key
+    assert updated.active_count == 1
+    assert [hook.trust_state for hook in updated.hooks] == [
+        "trusted",
+        "untrusted",
+    ]
+    assert store.read_raw()["hooks"]["state"] == {
+        json_hook.key: {"trusted_hash": json_hook.content_hash},
+    }
+
+
 def test_controller_preserves_disabled_state_when_retrusting_modified_hook(
     tmp_path,
 ) -> None:
@@ -193,6 +227,7 @@ def test_controller_rejects_managed_hook_state_changes(tmp_path) -> None:
         {"PreToolUse": [_hook("managed-check")]},
         source_scope="managed",
         source_path=tmp_path / "managed.toml",
+        trust_policy="managed",
     )[0]
     config_session = SimpleNamespace(
         resolve=Mock(return_value=SimpleNamespace(
@@ -216,6 +251,83 @@ def test_controller_rejects_managed_hook_state_changes(tmp_path) -> None:
         )
 
     config_session.update_user.assert_not_called()
+
+
+def test_trusted_project_layer_does_not_bypass_hook_content_trust(
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "project"
+    (project_root / ".git").mkdir(parents=True)
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "project-check" }]\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=project_root).resolve()
+    status = HookRegistry().build(
+        resolution.hooks,
+        hook_states=resolution.hook_states,
+    ).status()
+
+    assert status.installed_count == 1
+    assert status.active_count == 0
+    assert status.hooks[0].source_scope == "project"
+    assert status.hooks[0].trust_policy == "content_hash"
+    assert status.hooks[0].trust_state == "untrusted"
+
+
+def test_controller_reuses_root_hook_trust_across_linked_worktree(
+    tmp_path,
+) -> None:
+    repository_root = tmp_path / "repository"
+    git_dir = repository_root / ".git" / "worktrees" / "feature"
+    git_dir.mkdir(parents=True)
+    worktree_root = tmp_path / "worktree"
+    worktree_root.mkdir()
+    (worktree_root / ".git").write_text(
+        f"gitdir: {git_dir}\n",
+        encoding="utf-8",
+    )
+    (worktree_root / PROJECT_CONFIG_DIR).mkdir()
+
+    repository_config = repository_root / PROJECT_CONFIG_DIR / "config.toml"
+    repository_config.parent.mkdir()
+    repository_config.write_text(
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "project-check" }]\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+    controller = _controller(
+        worktree_root,
+        ConfigSession(store, workspace=worktree_root),
+    )
+
+    initial = controller.inspect_hooks().hooks[0]
+    trusted = controller.trust_hook(
+        initial.key,
+        expected_content_hash=initial.content_hash,
+    ).hooks[0]
+    main = controller.inspect_hooks(workspace=repository_root).hooks[0]
+
+    assert initial.source_path == str(repository_config.resolve())
+    assert initial.trust_state == "untrusted"
+    assert trusted.key == main.key == initial.key
+    assert trusted.trust_state == main.trust_state == "trusted"
+    assert trusted.active and main.active
+    assert store.read_raw()["hooks"]["state"][initial.key] == {
+        "trusted_hash": initial.content_hash,
+    }
 
 
 def test_controller_builds_isolated_hook_scopes_for_config_snapshots(tmp_path) -> None:
