@@ -133,6 +133,118 @@ def test_project_trust_state_controls_project_automation(
     ) is project_enabled
 
 
+@pytest.mark.parametrize(
+    (
+        "root_level",
+        "nested_level",
+        "loaded_names",
+        "expected_depth",
+    ),
+    (
+        ("trusted", None, ("root", "nested"), 4),
+        ("trusted", "untrusted", ("root",), 2),
+        ("untrusted", "trusted", ("nested",), 4),
+    ),
+)
+def test_project_config_layers_apply_directory_trust_decisions(
+    tmp_path,
+    root_level,
+    nested_level,
+    loaded_names,
+    expected_depth,
+) -> None:
+    project_root = tmp_path / "project"
+    nested_root = project_root / "packages" / "sample"
+    nested_root.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+    config_paths = {}
+
+    for name, directory, depth in (
+        ("root", project_root, 2),
+        ("nested", nested_root, 4),
+    ):
+        config_path = directory / PROJECT_CONFIG_DIR / "config.toml"
+        config_path.parent.mkdir()
+        config_path.write_text(
+            "[agents]\n"
+            f"max_depth = {depth}\n"
+            f"[mcp_servers.{name}]\n"
+            f'command = "{name}-server"\n'
+            "[[hooks.PreToolUse]]\n"
+            f'hooks = [{{ type = "command", command = "{name}-hook" }}]\n',
+            encoding="utf-8",
+        )
+        config_paths[name] = config_path
+
+    updates = {
+        ("projects", str(project_root)): {"trust_level": root_level},
+    }
+    if nested_level is not None:
+        updates[("projects", str(nested_root))] = {
+            "trust_level": nested_level,
+        }
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update(updates)
+
+    resolution = ConfigSession(store, workspace=nested_root).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level == root_level
+    assert resolution.config["agents"]["max_depth"] == expected_depth
+    assert tuple(
+        name
+        for name in ("root", "nested")
+        if name in resolution.config["mcp_servers"]
+    ) == loaded_names
+    assert tuple(
+        definition.handler.command for definition in resolution.hooks
+    ) == tuple(f"{name}-hook" for name in loaded_names)
+    assert tuple(
+        layer.path for layer in resolution.layers if layer.scope == "project"
+    ) == tuple(config_paths[name] for name in loaded_names)
+
+
+def test_untrusted_nested_project_config_does_not_block_parent(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    nested_root = project_root / "packages" / "sample"
+    nested_root.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+    root_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    root_config.parent.mkdir()
+    root_config.write_text(
+        "[agents]\nmax_depth = 2\n",
+        encoding="utf-8",
+    )
+    nested_config = nested_root / PROJECT_CONFIG_DIR / "config.toml"
+    nested_config.parent.mkdir()
+    nested_config.write_text(
+        '[tui.keymap.global]\nopen_transcript = "f12"\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    session = ConfigSession(store, workspace=nested_root)
+
+    with pytest.raises(ValueError, match="cannot override tui"):
+        session.resolve()
+
+    session.update_user({
+        ("projects", str(nested_root), "trust_level"): "untrusted",
+    })
+
+    resolution = session.resolve()
+
+    assert resolution.config["agents"]["max_depth"] == 2
+    assert store.read_raw()["projects"][str(nested_root)] == {
+        "trust_level": "untrusted",
+    }
+    assert [
+        layer.path for layer in resolution.layers if layer.scope == "project"
+    ] == [root_config]
+
+
 @pytest.mark.parametrize("relative_pointer", (False, True))
 def test_repository_trust_enables_linked_worktree_automation(
     tmp_path,

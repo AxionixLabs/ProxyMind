@@ -193,32 +193,38 @@ class ConfigResolver(object):
                 project_root,
                 effective_workspace,
             )
-            if project_trust.trusted:
-                for path in _project_config_paths(
-                    project_root,
-                    effective_workspace,
+            for directory in _project_config_directories(
+                project_root,
+                effective_workspace,
+            ):
+                path = directory / PROJECT_CONFIG_DIR / "config.toml"
+                if _path_key(path) == _path_key(self.store.path):
+                    continue
+                if not path.is_file():
+                    continue
+                if not _project_directory_trusted(
+                    user,
+                    directory,
+                    project_trust,
                 ):
-                    if _path_key(path) == _path_key(self.store.path):
-                        continue
-                    if not path.is_file():
-                        continue
+                    continue
 
-                    project_config = _read_config(
-                        ConfigStore(path),
-                        create=False,
-                    )
-                    _validate_project_config(project_config, path)
+                project_config = _read_config(
+                    ConfigStore(path),
+                    create=False,
+                )
+                _validate_project_config(project_config, path)
 
-                    merged = _merge_config(merged, project_config)
+                merged = _merge_config(merged, project_config)
 
-                    layers.append(ConfigLayer("project", path))
+                layers.append(ConfigLayer("project", path))
 
-                    hooks.extend(resolve_hook_definitions(
-                        project_config.get("hooks"),
-                        source_scope="project",
-                        source_path=path,
-                        warnings=hook_warnings,
-                    ))
+                hooks.extend(resolve_hook_definitions(
+                    project_config.get("hooks"),
+                    source_scope="project",
+                    source_path=path,
+                    warnings=hook_warnings,
+                ))
 
         if self.overrides:
             merged = apply_config_overrides(merged, self.overrides)
@@ -485,16 +491,28 @@ def _project_trust_level(
     return None
 
 
+def _project_directory_trusted(
+    user_config: dict[str, typing.Any],
+    directory: Path,
+    project_trust: ProjectTrust,
+) -> bool:
+    """返回项目配置目录自己的决定或继承后的信任状态。"""
+    level = _project_trust_level(user_config, directory)
+    if level is None:
+        return project_trust.trusted
+    return level == "trusted"
+
+
 def _path_key(path: Path) -> str:
     """返回适合当前平台比较的绝对路径键。"""
     return os.path.normcase(str(path.resolve()))
 
 
-def _project_config_paths(
+def _project_config_directories(
     project_root: Path,
     workspace: Path
 ) -> tuple[Path, ...]:
-    """返回从项目根到工作目录的项目配置路径。"""
+    """返回从项目根到工作目录的配置目录。"""
     try:
         relative = workspace.relative_to(project_root)
     except ValueError:
@@ -506,10 +524,7 @@ def _project_config_paths(
     for component in relative.parts:
         current /= component
         directories.append(current)
-    return tuple(
-        directory / PROJECT_CONFIG_DIR / "config.toml"
-        for directory in directories
-    )
+    return tuple(directories)
 
 
 def _validate_project_config(
