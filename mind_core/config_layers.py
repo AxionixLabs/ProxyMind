@@ -32,6 +32,8 @@ from mind_nova import const
 
 ConfigScope = typing.Literal["user", "profile", "project", "cli"]
 
+ProjectTrustLevel = typing.Literal["trusted", "untrusted"]
+
 PROFILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 PROJECT_CONFIG_DIR = f".{const.APP_NAME}"
@@ -70,6 +72,18 @@ class ConfigLayer(object):
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectTrust(object):
+    """描述项目根及其用户信任决定。"""
+    root: Path
+    level: ProjectTrustLevel | None
+
+    @property
+    def trusted(self) -> bool:
+        """返回项目是否已被明确标记为可信。"""
+        return self.level == "trusted"
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigResolution(object):
     """保存有效配置及其来源信息。"""
     config: dict[str, typing.Any]
@@ -77,8 +91,7 @@ class ConfigResolution(object):
     hooks: tuple[HookDefinitionConfig, ...] = ()
     hook_states: HookStateTable = field(default_factory=dict)
     hook_warnings: tuple[str, ...] = ()
-    project_root: Path | None = None
-    project_trusted: bool = False
+    project_trust: ProjectTrust | None = None
 
 
 class ConfigResolver(object):
@@ -166,8 +179,7 @@ class ConfigResolver(object):
                 warnings=hook_warnings,
             ))
 
-        project_root: Path | None = None
-        project_trusted: bool     = False
+        project_trust: ProjectTrust | None = None
 
         if effective_workspace is not None:
             project_root = _find_project_root(
@@ -175,8 +187,11 @@ class ConfigResolver(object):
                 _project_root_markers(merged),
             )
 
-            project_trusted = _project_is_trusted(user, project_root)
-            if project_trusted:
+            project_trust = ProjectTrust(
+                root=project_root,
+                level=_project_trust_level(user, project_root),
+            )
+            if project_trust.trusted:
                 for path in _project_config_paths(
                     project_root,
                     effective_workspace,
@@ -184,18 +199,18 @@ class ConfigResolver(object):
                     if not path.is_file():
                         continue
 
-                    project = _read_config(
+                    project_config = _read_config(
                         ConfigStore(path),
                         create=False,
                     )
-                    _validate_project_config(project, path)
+                    _validate_project_config(project_config, path)
 
-                    merged = _merge_config(merged, project)
+                    merged = _merge_config(merged, project_config)
 
                     layers.append(ConfigLayer("project", path))
 
                     hooks.extend(resolve_hook_definitions(
-                        project.get("hooks"),
+                        project_config.get("hooks"),
                         source_scope="project",
                         source_path=path,
                         warnings=hook_warnings,
@@ -226,8 +241,7 @@ class ConfigResolver(object):
             hooks=tuple(hooks),
             hook_states=hook_states,
             hook_warnings=tuple(hook_warnings),
-            project_root=project_root,
-            project_trusted=project_trusted,
+            project_trust=project_trust,
         )
 
 
@@ -369,14 +383,14 @@ def _find_project_root(workspace: Path, markers: tuple[str, ...]) -> Path:
     return workspace
 
 
-def _project_is_trusted(
+def _project_trust_level(
     user_config: dict[str, typing.Any],
     project_root: Path
-) -> bool:
-    """判断用户配置是否把项目根标记为可信。"""
+) -> ProjectTrustLevel | None:
+    """返回用户对项目根保存的信任决定。"""
     projects = user_config.get("projects")
     if not isinstance(projects, dict):
-        return False
+        return None
 
     root_key = _path_key(project_root)
 
@@ -388,9 +402,12 @@ def _project_is_trusted(
         except (OSError, RuntimeError, ValueError):
             continue
         if _path_key(configured) == root_key:
-            return value.get("trust_level") == "trusted"
+            level = value.get("trust_level")
+            if level in {"trusted", "untrusted"}:
+                return typing.cast(ProjectTrustLevel, level)
+            return None
 
-    return False
+    return None
 
 
 def _path_key(path: Path) -> str:

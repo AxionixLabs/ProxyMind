@@ -264,10 +264,10 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
 
     detail = f"{target}; layers={layer_summary}"
 
-    if resolution.project_root is not None:
+    if resolution.project_trust is not None:
         detail += (
-            f"; project={resolution.project_root}; "
-            f"trusted={str(resolution.project_trusted).lower()}"
+            f"; project={resolution.project_trust.root}; "
+            f"trusted={str(resolution.project_trust.trusted).lower()}"
         )
 
     model_value = config.get("model", {})

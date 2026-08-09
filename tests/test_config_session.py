@@ -60,6 +60,217 @@ def test_unknown_config_field_is_rejected() -> None:
         normalize_config({"typo": True})
 
 
+@pytest.mark.parametrize(
+    ("trust_level", "project_enabled"),
+    [
+        (None, False),
+        ("untrusted", False),
+        ("trusted", True),
+    ],
+)
+def test_project_trust_state_controls_project_automation(
+    tmp_path,
+    trust_level,
+    project_enabled,
+) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        "[mcp_servers.project]\n"
+        'command = "project-server"\n'
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "project-hook" }]\n',
+        encoding="utf-8",
+    )
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.ensure()
+    if trust_level is not None:
+        store.update({
+            ("projects", str(project_root)): {"trust_level": trust_level},
+        })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.root == project_root.resolve()
+    assert resolution.project_trust.level == trust_level
+    assert resolution.project_trust.trusted is project_enabled
+    assert ("project" in resolution.config["mcp_servers"]) is project_enabled
+    assert bool(resolution.hooks) is project_enabled
+    assert any(
+        layer.scope == "project" for layer in resolution.layers
+    ) is project_enabled
+
+
+@pytest.mark.parametrize(
+    ("markers", "expected_root_name"),
+    [
+        (["pyproject.toml"], "project"),
+        ([], "src"),
+    ],
+)
+def test_project_root_markers_define_the_trust_target(
+    tmp_path,
+    markers,
+    expected_root_name,
+) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / "pyproject.toml").write_text("", encoding="utf-8")
+
+    expected_root = project_root if expected_root_name == "project" else workspace
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("project_root_markers",): markers,
+        ("projects", str(expected_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.root == expected_root.resolve()
+    assert resolution.project_trust.level == "trusted"
+
+
+def test_profile_cannot_mark_a_project_as_trusted(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text('model = "project-model"\n', encoding="utf-8")
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.ensure()
+    ConfigStore(store.path.parent / "review.config.toml").update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(
+        store,
+        profile="review",
+        workspace=workspace,
+    ).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level is None
+    assert not resolution.project_trust.trusted
+    assert resolution.config["model"]["primary"]["model"] != "project-model"
+    assert all(layer.scope != "project" for layer in resolution.layers)
+
+
+def test_invalid_project_config_prevents_persisting_trust(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        '[tui.keymap.global]\nopen_transcript = "f12"\n',
+        encoding="utf-8",
+    )
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    session = ConfigSession(store, workspace=workspace)
+    session.resolve()
+    original = store.path.read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cannot override tui"):
+        session.update_user({
+            ("projects", str(project_root), "trust_level"): "trusted",
+        })
+
+    assert store.path.read_text(encoding="utf-8") == original
+    assert session.resolve().project_trust is not None
+    assert session.resolve().project_trust.level is None
+
+
+def test_config_session_persists_project_trust_decisions(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text('model = "project-model"\n', encoding="utf-8")
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    session = ConfigSession(store, workspace=workspace)
+
+    trusted_config = session.update_user({
+        ("projects", str(project_root), "trust_level"): "trusted",
+    })
+
+    trusted = session.resolve().project_trust
+    assert trusted is not None
+    assert trusted.level == "trusted"
+    assert trusted_config["model"]["primary"]["model"] == "project-model"
+    assert store.read_raw()["projects"][str(project_root)] == {
+        "trust_level": "trusted",
+    }
+
+    untrusted_config = session.update_user({
+        ("projects", str(project_root), "trust_level"): "untrusted",
+    })
+
+    untrusted = session.resolve().project_trust
+    assert untrusted is not None
+    assert untrusted.level == "untrusted"
+    assert untrusted_config["model"]["primary"]["model"] != "project-model"
+
+
+def test_project_trust_update_rejects_invalid_state(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    session = ConfigSession(ConfigStore(tmp_path / "home" / "config.toml"))
+
+    with pytest.raises(ConfigValidationError, match="trusted or untrusted"):
+        session.update_user({
+            ("projects", str(project_root), "trust_level"): "unknown",
+        })
+
+    with pytest.raises(ConfigValidationError, match="unknown config key"):
+        session.update_user({
+            ("projects", str(project_root), "enabled"): True,
+        })
+
+
+def test_project_trust_matches_a_resolved_path_alias(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    alias = tmp_path / "project-alias"
+    try:
+        alias.symlink_to(project_root, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink is unavailable: {error}")
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(alias)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.root == project_root.resolve()
+    assert resolution.project_trust.level == "trusted"
+
+
 def test_project_config_cannot_override_tui_keymap(tmp_path) -> None:
     project_root = tmp_path / "project"
     workspace = project_root / "src"
@@ -256,7 +467,10 @@ def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
 
     resolution = ConfigSession(store, workspace=workspace).resolve()
 
-    assert resolution.project_trusted
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.root == project_root.resolve()
+    assert resolution.project_trust.level == "trusted"
+    assert resolution.project_trust.trusted
     assert len(resolution.hooks) == 1
     assert resolution.hooks[0].source_scope == "project"
     assert resolution.hooks[0].source_path == str(project_config.resolve())

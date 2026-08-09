@@ -421,6 +421,18 @@ def validate_config_value(
             raise ConfigValidationError(str(error)) from error
         return None
 
+    if path == ("projects",):
+        validate_config({"projects": value})
+        return None
+
+    if len(path) == 2 and path[0] == "projects" and path[1]:
+        validate_config({"projects": {path[1]: value}})
+        return None
+
+    if len(path) == 3 and path[0] == "projects" and path[1] and path[2]:
+        validate_config({"projects": {path[1]: {path[2]: value}}})
+        return None
+
     if path in STRING_CONFIG_PATHS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
