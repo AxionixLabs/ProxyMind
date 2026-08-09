@@ -259,7 +259,8 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
     config = resolution.config
 
     layer_summary = " > ".join(
-        layer.scope for layer in resolution.layers
+        layer.scope if layer.enabled else f"{layer.scope}(disabled)"
+        for layer in resolution.layers
     )
 
     detail = f"{target}; layers={layer_summary}"
@@ -269,7 +270,14 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
         detail += f"; project={project_trust.project_root}"
         if project_trust.trust_root != project_trust.project_root:
             detail += f"; trust={project_trust.trust_root}"
-        detail += f"; trusted={str(project_trust.trusted).lower()}"
+        detail += f"; trust_level={project_trust.level or 'unknown'}"
+
+    if resolution.startup_warnings:
+        detail += f"; config_warnings={len(resolution.startup_warnings)}"
+
+    disabled_layers = sum(not layer.enabled for layer in resolution.layers)
+    if disabled_layers:
+        detail += f"; disabled_layers={disabled_layers}"
 
     model_value = config.get("model", {})
 
@@ -287,7 +295,8 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
     model_name = str(primary.get("model") or "").strip()
     enabled    = bool(primary.get("enabled"))
 
-    if enabled and provider and model_name:
+    model_ready = enabled and bool(provider) and bool(model_name)
+    if model_ready and not resolution.startup_warnings:
         return DoctorCheck(
             "config",
             "Config",
@@ -295,11 +304,16 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
             f"primary model enabled ({provider}/{model_name})",
             detail,
         )
+    issues: list[str] = []
+    if not model_ready:
+        issues.append("primary model is disabled or incomplete")
+    if resolution.startup_warnings:
+        issues.append("project config contains ignored user-level settings")
     return DoctorCheck(
         "config",
         "Config",
         "warn",
-        "primary model is disabled or incomplete",
+        "; ".join(issues),
         detail,
     )
 
@@ -336,7 +350,10 @@ def _mcp_config_check(context: DoctorContext) -> DoctorCheck:
         )
 
     enabled = sum(server.get("enabled", True) is not False for server in servers)
-    layers  = " > ".join(layer.scope for layer in resolution.layers)
+    layers = " > ".join(
+        layer.scope if layer.enabled else f"{layer.scope}(disabled)"
+        for layer in resolution.layers
+    )
 
     return DoctorCheck(
         "external_mcp",

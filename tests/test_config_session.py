@@ -6,6 +6,7 @@ import pytest
 
 from mind_core.config import (
     ConfigValidationError,
+    config_override,
     normalize_config,
     parse_config_override,
 )
@@ -128,9 +129,12 @@ def test_project_trust_state_controls_project_automation(
     assert resolution.project_trust.trusted is project_enabled
     assert ("project" in resolution.config["mcp_servers"]) is project_enabled
     assert bool(resolution.hooks) is project_enabled
-    assert any(
-        layer.scope == "project" for layer in resolution.layers
-    ) is project_enabled
+    project_layers = [
+        layer for layer in resolution.layers if layer.scope == "project"
+    ]
+    assert len(project_layers) == 1
+    assert project_layers[0].enabled is project_enabled
+    assert bool(project_layers[0].disabled_reason) is not project_enabled
 
 
 @pytest.mark.parametrize(
@@ -189,7 +193,10 @@ def test_project_config_layers_apply_directory_trust_decisions(
     resolution = ConfigSession(store, workspace=nested_root).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.level == root_level
+    assert resolution.project_trust.level == (nested_level or root_level)
+    assert resolution.project_trust.trust_root == (
+        nested_root.resolve() if nested_level is not None else project_root.resolve()
+    )
     assert resolution.config["agents"]["max_depth"] == expected_depth
     assert tuple(
         name
@@ -200,7 +207,9 @@ def test_project_config_layers_apply_directory_trust_decisions(
         definition.handler.command for definition in resolution.hooks
     ) == tuple(f"{name}-hook" for name in loaded_names)
     assert tuple(
-        layer.path for layer in resolution.layers if layer.scope == "project"
+        layer.path
+        for layer in resolution.layers
+        if layer.scope == "project" and layer.enabled
     ) == tuple(config_paths[name] for name in loaded_names)
 
 
@@ -218,7 +227,7 @@ def test_untrusted_nested_project_config_does_not_block_parent(tmp_path) -> None
     nested_config = nested_root / PROJECT_CONFIG_DIR / "config.toml"
     nested_config.parent.mkdir()
     nested_config.write_text(
-        '[tui.keymap.global]\nopen_transcript = "f12"\n',
+        'unknown_project_field = true\n',
         encoding="utf-8",
     )
     store = ConfigStore(tmp_path / "home" / "config.toml")
@@ -227,7 +236,7 @@ def test_untrusted_nested_project_config_does_not_block_parent(tmp_path) -> None
     })
     session = ConfigSession(store, workspace=nested_root)
 
-    with pytest.raises(ValueError, match="cannot override tui"):
+    with pytest.raises(ConfigValidationError, match="unknown_project_field"):
         session.resolve()
 
     session.update_user({
@@ -241,7 +250,9 @@ def test_untrusted_nested_project_config_does_not_block_parent(tmp_path) -> None
         "trust_level": "untrusted",
     }
     assert [
-        layer.path for layer in resolution.layers if layer.scope == "project"
+        layer.path
+        for layer in resolution.layers
+        if layer.scope == "project" and layer.enabled
     ] == [root_config]
 
 
@@ -377,39 +388,80 @@ def test_invalid_worktree_pointer_falls_back_to_project_root(
     assert resolution.project_trust.level == "trusted"
 
 
+def test_invalid_worktree_pointer_does_not_override_custom_project_root(
+    tmp_path,
+) -> None:
+    checkout_root = tmp_path / "checkout"
+    project_root = checkout_root / "packages" / "sample"
+    project_root.mkdir(parents=True)
+    (checkout_root / ".git").write_text(
+        f"gitdir: {tmp_path / 'metadata' / 'feature'}\n",
+        encoding="utf-8",
+    )
+    (project_root / "pyproject.toml").write_text("", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("project_root_markers",): ["pyproject.toml"],
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=project_root).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.project_trust.trust_root == project_root.resolve()
+    assert resolution.project_trust.level == "trusted"
+
+
 @pytest.mark.parametrize(
-    ("markers", "expected_root_name"),
+    (
+        "markers",
+        "expected_project_root_name",
+        "expected_trust_root_name",
+        "expected_level",
+    ),
     [
-        (["pyproject.toml"], "project"),
-        ([], "src"),
+        (["pyproject.toml"], "project", "src", None),
+        ([], "src", "src", "trusted"),
     ],
 )
-def test_project_root_markers_define_the_trust_target(
+def test_project_root_markers_do_not_expand_the_active_trust_target(
     tmp_path,
     markers,
-    expected_root_name,
+    expected_project_root_name,
+    expected_trust_root_name,
+    expected_level,
 ) -> None:
     project_root = tmp_path / "project"
     workspace = project_root / "src"
     workspace.mkdir(parents=True)
     (project_root / "pyproject.toml").write_text("", encoding="utf-8")
 
-    expected_root = project_root if expected_root_name == "project" else workspace
+    expected_project_root = (
+        project_root
+        if expected_project_root_name == "project"
+        else workspace
+    )
+    expected_trust_root = (
+        project_root
+        if expected_trust_root_name == "project"
+        else workspace
+    )
     store = ConfigStore(tmp_path / "home" / "config.toml")
     store.update({
         ("project_root_markers",): markers,
-        ("projects", str(expected_root)): {"trust_level": "trusted"},
+        ("projects", str(expected_project_root)): {"trust_level": "trusted"},
     })
 
     resolution = ConfigSession(store, workspace=workspace).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.project_root == expected_root.resolve()
-    assert resolution.project_trust.trust_root == expected_root.resolve()
-    assert resolution.project_trust.level == "trusted"
+    assert resolution.project_trust.project_root == expected_project_root.resolve()
+    assert resolution.project_trust.trust_root == expected_trust_root.resolve()
+    assert resolution.project_trust.level == expected_level
 
 
-def test_profile_cannot_mark_a_project_as_trusted(tmp_path) -> None:
+def test_profile_project_trust_participates_in_the_active_snapshot(tmp_path) -> None:
     project_root = tmp_path / "project"
     workspace = project_root / "src"
     workspace.mkdir(parents=True)
@@ -432,10 +484,153 @@ def test_profile_cannot_mark_a_project_as_trusted(tmp_path) -> None:
     ).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.level is None
-    assert not resolution.project_trust.trusted
-    assert resolution.config["model"]["primary"]["model"] != "project-model"
-    assert all(layer.scope != "project" for layer in resolution.layers)
+    assert resolution.project_trust.level == "trusted"
+    assert resolution.project_trust.trusted
+    assert resolution.config["model"]["primary"]["model"] == "project-model"
+    assert any(
+        layer.scope == "project" and layer.enabled
+        for layer in resolution.layers
+    )
+
+
+def test_profile_project_decision_overrides_the_user_registry(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("[agents]\nmax_depth = 3\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    ConfigStore(store.path.parent / "review.config.toml").update({
+        ("projects", str(project_root)): {"trust_level": "untrusted"},
+    })
+
+    resolution = ConfigSession(
+        store,
+        profile="review",
+        workspace=project_root,
+    ).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level == "untrusted"
+    assert resolution.config["agents"]["max_depth"] == 1
+    assert all(
+        layer.scope != "project" or not layer.enabled
+        for layer in resolution.layers
+    )
+
+
+def test_cli_project_trust_is_ephemeral_and_enables_project_config(
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("[agents]\nmax_depth = 3\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.ensure()
+    original = store.path.read_text(encoding="utf-8")
+    override = config_override(
+        ("projects", str(project_root), "trust_level"),
+        "trusted",
+    )
+
+    resolution = ConfigSession(
+        store,
+        (override,),
+        workspace=project_root,
+    ).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level == "trusted"
+    assert resolution.config["agents"]["max_depth"] == 3
+    assert store.path.read_text(encoding="utf-8") == original
+
+
+def test_cli_project_decision_overrides_persistent_trust(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("[agents]\nmax_depth = 3\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    override = config_override(
+        ("projects", str(project_root), "trust_level"),
+        "untrusted",
+    )
+
+    resolution = ConfigSession(
+        store,
+        (override,),
+        workspace=project_root,
+    ).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.level == "untrusted"
+    assert resolution.config["agents"]["max_depth"] == 1
+    assert store.read_raw()["projects"][str(project_root)] == {
+        "trust_level": "trusted",
+    }
+
+
+def test_shadowed_project_trust_update_does_not_modify_user_config(
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.ensure()
+    original = store.path.read_text(encoding="utf-8")
+    session = ConfigSession(
+        store,
+        (config_override(("projects",), {}),),
+        workspace=project_root,
+    )
+    resolution = session.resolve()
+
+    assert resolution.project_trust is not None
+    with pytest.raises(ValueError, match="shadowed"):
+        session.set_project_trust(resolution.project_trust, "trusted")
+
+    assert store.path.read_text(encoding="utf-8") == original
+
+
+def test_cli_project_root_markers_apply_before_project_discovery(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / "pyproject.toml").write_text("", encoding="utf-8")
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("[agents]\nmax_depth = 3\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    override = config_override(
+        ("project_root_markers",),
+        ["pyproject.toml"],
+    )
+
+    resolution = ConfigSession(
+        store,
+        (override,),
+        workspace=workspace,
+    ).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.config["agents"]["max_depth"] == 3
 
 
 def test_invalid_project_config_prevents_persisting_trust(tmp_path) -> None:
@@ -447,7 +642,7 @@ def test_invalid_project_config_prevents_persisting_trust(tmp_path) -> None:
     project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
     project_config.parent.mkdir()
     project_config.write_text(
-        '[tui.keymap.global]\nopen_transcript = "f12"\n',
+        'unknown_project_field = true\n',
         encoding="utf-8",
     )
 
@@ -456,7 +651,7 @@ def test_invalid_project_config_prevents_persisting_trust(tmp_path) -> None:
     session.resolve()
     original = store.path.read_text(encoding="utf-8")
 
-    with pytest.raises(ValueError, match="cannot override tui"):
+    with pytest.raises(ConfigValidationError, match="unknown_project_field"):
         session.update_user({
             ("projects", str(project_root), "trust_level"): "trusted",
         })
@@ -539,7 +734,7 @@ def test_project_trust_update_rejects_invalid_state(tmp_path) -> None:
         })
 
 
-def test_project_trust_matches_a_resolved_path_alias(tmp_path) -> None:
+def test_project_trust_does_not_follow_a_configured_path_alias(tmp_path) -> None:
     project_root = tmp_path / "project"
     workspace = project_root / "src"
     workspace.mkdir(parents=True)
@@ -561,10 +756,38 @@ def test_project_trust_matches_a_resolved_path_alias(tmp_path) -> None:
     assert resolution.project_trust is not None
     assert resolution.project_trust.project_root == project_root.resolve()
     assert resolution.project_trust.trust_root == project_root.resolve()
+    assert resolution.project_trust.level is None
+    assert not resolution.project_trust.trusted
+
+
+def test_exact_project_trust_key_precedes_equivalent_path_alias(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    alias = tmp_path / "aaa-project-alias"
+    try:
+        alias.symlink_to(project_root, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink is unavailable: {error}")
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(alias)): {"trust_level": "untrusted"},
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trust is not None
     assert resolution.project_trust.level == "trusted"
+    assert resolution.project_trust.registry_key == str(project_root)
 
 
-def test_project_config_cannot_override_tui_keymap(tmp_path) -> None:
+def test_trusted_project_config_ignores_ui_but_applies_exec_policy(
+    tmp_path,
+) -> None:
     project_root = tmp_path / "project"
     workspace = project_root / "src"
     workspace.mkdir(parents=True)
@@ -577,13 +800,105 @@ def test_project_config_cannot_override_tui_keymap(tmp_path) -> None:
     project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
     project_config.parent.mkdir()
     project_config.write_text(
+        'sandbox_mode = "read-only"\n'
         "[tui.keymap.global]\n"
         'open_transcript = "f12"\n',
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="cannot override tui"):
-        ConfigSession(store, workspace=workspace).resolve()
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.config["tui"]["keymap"]["global"] == {}
+    assert resolution.config["sandbox_mode"] == "read-only"
+    assert "tui" in resolution.startup_warnings[0]
+
+
+def test_project_config_ignores_user_only_fields_with_startup_warning(
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "project"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("service", "domain"): "https://user.example",
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        'model_provider = "project-provider"\n'
+        'project_root_markers = ["unsafe.marker"]\n'
+        '[service]\n'
+        'domain = "https://project.example"\n'
+        '[agents]\n'
+        'max_depth = 3\n',
+        encoding="utf-8",
+    )
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.config["service"]["domain"] == "https://user.example"
+    assert resolution.config["agents"]["max_depth"] == 3
+    assert len(resolution.startup_warnings) == 1
+    warning = resolution.startup_warnings[0]
+    assert str(project_config) in warning
+    assert "model_provider, project_root_markers, service" in warning
+
+
+def test_project_config_sanitizes_restricted_fields_before_validation(
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        'model_providers = "invalid-but-ignored"\n'
+        'service = "invalid-but-ignored"\n'
+        '[agents]\n'
+        'max_depth = 2\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=project_root).resolve()
+
+    assert resolution.config["agents"]["max_depth"] == 2
+    assert "model_providers, service" in resolution.startup_warnings[0]
+
+
+def test_untrusted_malformed_project_config_is_disabled_without_parsing(
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("[broken\n", encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    session = ConfigSession(store, workspace=project_root)
+
+    resolution = session.resolve()
+
+    project_layer = next(
+        layer for layer in resolution.layers if layer.scope == "project"
+    )
+    assert not project_layer.enabled
+    assert project_layer.disabled_reason
+
+    original = store.path.read_text(encoding="utf-8")
+    assert resolution.project_trust is not None
+    with pytest.raises(ValueError, match="config is invalid"):
+        session.set_project_trust(resolution.project_trust, "trusted")
+    assert store.path.read_text(encoding="utf-8") == original
 
 
 def test_cli_override_does_not_modify_user_document(tmp_path) -> None:

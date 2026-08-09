@@ -102,6 +102,10 @@ async def test_accepting_unknown_project_reloads_all_project_automation(
 ) -> None:
     project_root, workspace, project_config = _project(tmp_path)
     project_config.write_text(
+        'sandbox_mode = "read-only"\n'
+        'approval_policy = "never"\n'
+        "[tui.keymap.global]\n"
+        'open_transcript = "f12"\n'
         "[agents]\n"
         "max_depth = 3\n"
         "[mcp_servers.project]\n"
@@ -118,6 +122,7 @@ async def test_accepting_unknown_project_reloads_all_project_automation(
     assert "project" not in initial.config["mcp_servers"]
     assert initial.hooks == ()
     assert initial.config["agents"]["max_depth"] == 1
+    assert initial.config["sandbox_mode"] == ""
 
     result = await _confirm_tui_project_trust(
         runtime=runtime,
@@ -131,6 +136,9 @@ async def test_accepting_unknown_project_reloads_all_project_automation(
     assert result.project_trust.level == "trusted"
     assert result.config["mcp_servers"]["project"]["command"] == "project-server"
     assert result.config["agents"]["max_depth"] == 3
+    assert result.config["sandbox_mode"] == "read-only"
+    assert result.config["approval_policy"] == "never"
+    assert "tui" in result.startup_warnings[0]
     assert len(result.hooks) == 1
     assert store.read_raw()["projects"][str(project_root.resolve())] == {
         "trust_level": "trusted",
@@ -251,7 +259,7 @@ async def test_invalid_project_config_stays_untrusted_and_keeps_prompt_open(
 ) -> None:
     project_root, workspace, project_config = _project(tmp_path)
     project_config.write_text(
-        '[tui.keymap.global]\nopen_transcript = "f12"\n',
+        'unknown_project_field = true\n',
         encoding="utf-8",
     )
     store = ConfigStore(tmp_path / "home" / "config.toml")
@@ -272,7 +280,7 @@ async def test_invalid_project_config_stays_untrusted_and_keeps_prompt_open(
     assert session.resolve().project_trust is not None
     assert session.resolve().project_trust.level is None
     assert len(runtime.errors) == 1
-    assert "cannot override tui" in runtime.errors[0]
+    assert "unknown_project_field" in runtime.errors[0]
     assert str(project_root.resolve()) in runtime.errors[0]
 
 
@@ -309,6 +317,10 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
 ) -> None:
     project_root, workspace, project_config = _project(tmp_path)
     project_config.write_text(
+        'sandbox_mode = "read-only"\n'
+        'approval_policy = "never"\n'
+        "[tui.keymap.global]\n"
+        'open_transcript = "f12"\n'
         "[agents]\n"
         "max_depth = 4\n"
         "[mcp_servers.project]\n"
@@ -358,10 +370,109 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
     run_controller.assert_awaited_once()
     arguments = run_controller.await_args.kwargs
     assert arguments["agent_settings"].max_depth == 4
+    assert arguments["permissions"].sandbox_mode == "read-only"
+    assert arguments["permissions"].approval_policy == "never"
+    assert "tui" in arguments["startup_warnings"][0]
     resolution = arguments["config_session"].resolve()
     assert resolution.config["mcp_servers"]["project"]["command"] == (
         "project-server"
     )
+
+
+def test_startup_config_warnings_are_emitted_as_styled_application_views() -> None:
+    emit = Mock()
+    frontend = SimpleNamespace(application=SimpleNamespace(emit=emit))
+    bootstrap._emit_startup_warnings(frontend, (
+        "ignored first project setting",
+        "ignored second project setting",
+    ))
+
+    emit.assert_called_once()
+    view = emit.call_args.args[0]
+    assert view.type == "config.warning"
+    assert view.renderable.plain_text == (
+        "Warning: ignored first project setting\n"
+        "Warning: ignored second project setting"
+    )
+
+
+@pytest.mark.anyio
+async def test_tui_startup_warning_is_emitted_after_context_preload(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    events = []
+    runtime = TuiRuntime()
+    runtime.open = AsyncMock(side_effect=lambda: events.append("open"))
+    frontend = SimpleNamespace(
+        application=SimpleNamespace(
+            emit=lambda _view: events.append("warning"),
+        ),
+        runtime=runtime,
+    )
+    controller = SimpleNamespace(
+        frontend=frontend,
+        bind_server_manager=Mock(),
+        bind_service_runtime_context=Mock(),
+        start_config_service=AsyncMock(),
+        start_external_mcp_runtime=AsyncMock(),
+        external_mcp=None,
+        is_service_mcp_linked=lambda: False,
+        set_history_workspace=Mock(),
+        exit_code=0,
+    )
+    preference = SimpleNamespace(load_pref=AsyncMock())
+
+    monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
+    monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(bootstrap, "process_env", lambda: {})
+    monkeypatch.setattr(
+        bootstrap,
+        "fetch_runtime_workspace_root",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ServiceConfig",
+        lambda _session: SimpleNamespace(
+            load_domain=AsyncMock(return_value=""),
+        ),
+    )
+    monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
+    monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
+    monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
+    monkeypatch.setattr(bootstrap, "start_tui_external_mcp", AsyncMock())
+
+    from mind_app.tui.session import state as tui_state
+
+    monkeypatch.setattr(
+        tui_state,
+        "preload_tui_prompt_context",
+        AsyncMock(side_effect=lambda _controller: events.append("preload")),
+    )
+
+    await bootstrap._run_controller(
+        InteractiveCommand(),
+        frontend=frontend,
+        design=None,
+        animation=SimpleNamespace(),
+        home=tmp_path,
+        reports=tmp_path,
+        preference=preference,
+        config_session=SimpleNamespace(),
+        report=SimpleNamespace(close=Mock()),
+        runtime_spec=SimpleNamespace(
+            launch_command=[],
+            working_directory=str(tmp_path),
+        ),
+        service_context=SimpleNamespace(),
+        power=1,
+        output_mode="tui",
+        permissions=SimpleNamespace(),
+        startup_warnings=("ignored project setting",),
+    )
+
+    assert events[:3] == ["preload", "warning", "open"]
 
 
 @pytest.mark.anyio

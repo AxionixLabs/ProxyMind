@@ -28,24 +28,24 @@ from mind_core.hooks import (
     HookDefinitionConfig,
     HookStateTable
 )
+from mind_core.project_trust import (
+    ProjectTrustContext,
+    ProjectTrustDecision
+)
 from mind_nova import const
 
 ConfigScope = typing.Literal["user", "profile", "project", "cli"]
-
-ProjectTrustLevel = typing.Literal["trusted", "untrusted"]
 
 PROFILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 PROJECT_CONFIG_DIR = f".{const.APP_NAME}"
 
-PROJECT_RESTRICTED_ROOTS = frozenset({
+PROJECT_USER_ONLY_ROOTS = frozenset({
     "model_provider",
     "model_providers",
     "project_root_markers",
     "projects",
     "service",
-    "sandbox_mode",
-    "approval_policy",
     "tui",
 })
 
@@ -66,22 +66,11 @@ MCP_REMOTE_FIELDS = frozenset({
 
 @dataclass(frozen=True, slots=True)
 class ConfigLayer(object):
-    """描述一个已经参与解析的配置来源。"""
+    """描述一个已发现配置来源及其启用状态。"""
     scope: ConfigScope
     path: Path | None
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectTrust(object):
-    """描述项目配置根、信任登记根及其用户决定。"""
-    project_root: Path
-    trust_root: Path
-    level: ProjectTrustLevel | None
-
-    @property
-    def trusted(self) -> bool:
-        """返回项目是否已被明确标记为可信。"""
-        return self.level == "trusted"
+    enabled: bool = True
+    disabled_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +81,8 @@ class ConfigResolution(object):
     hooks: tuple[HookDefinitionConfig, ...] = ()
     hook_states: HookStateTable = field(default_factory=dict)
     hook_warnings: tuple[str, ...] = ()
-    project_trust: ProjectTrust | None = None
+    startup_warnings: tuple[str, ...] = ()
+    project_trust: ProjectTrustDecision | None = None
 
 
 class ConfigResolver(object):
@@ -138,7 +128,8 @@ class ConfigResolver(object):
         merged      = copy.deepcopy(user)
         hook_states = _effective_hook_states(user, self.overrides)
 
-        hook_warnings: list[str] = []
+        hook_warnings: list[str]    = []
+        startup_warnings: list[str] = []
 
         effective_workspace = (
             Path(workspace).expanduser().resolve()
@@ -147,6 +138,8 @@ class ConfigResolver(object):
         )
 
         layers: list[ConfigLayer] = [ConfigLayer("user", self.store.path)]
+
+        active_user_config_file = self.store.path
 
         hooks: list[HookDefinitionConfig] = list(resolve_hook_definitions(
             user.get("hooks"),
@@ -171,6 +164,8 @@ class ConfigResolver(object):
 
             merged = _merge_config(merged, profile)
 
+            active_user_config_file = profile_store.path
+
             layers.append(ConfigLayer("profile", profile_store.path))
 
             hooks.extend(resolve_hook_definitions(
@@ -180,44 +175,51 @@ class ConfigResolver(object):
                 warnings=hook_warnings,
             ))
 
-        project_trust: ProjectTrust | None = None
+        project_trust: ProjectTrustDecision | None = None
 
         if effective_workspace is not None:
-            project_root = _find_project_root(
-                effective_workspace,
-                _project_root_markers(merged),
+            project_context_config = _project_context_config(
+                merged,
+                self.overrides,
+            )
+            trust_context = ProjectTrustContext.resolve(
+                project_context_config,
+                workspace=effective_workspace,
+                project_root_markers=_project_root_markers(
+                    project_context_config
+                ),
+                user_config_file=active_user_config_file,
             )
 
-            project_trust = _resolve_project_trust(
-                user,
-                project_root,
-                effective_workspace,
-            )
-            for directory in _project_config_directories(
-                project_root,
-                effective_workspace,
-            ):
+            project_trust = trust_context.active_decision
+
+            for directory in trust_context.config_directories():
                 path = directory / PROJECT_CONFIG_DIR / "config.toml"
                 if _path_key(path) == _path_key(self.store.path):
                     continue
                 if not path.is_file():
                     continue
-                if not _project_directory_trusted(
-                    user,
-                    directory,
-                    project_trust,
-                ):
+
+                decision        = trust_context.decision_for_directory(directory)
+                disabled_reason = trust_context.disabled_reason(decision)
+
+                layers.append(ConfigLayer(
+                    "project",
+                    path,
+                    enabled=decision.trusted,
+                    disabled_reason=disabled_reason,
+                ))
+                if not decision.trusted:
                     continue
 
-                project_config = _read_config(
-                    ConfigStore(path),
-                    create=False,
-                )
-                _validate_project_config(project_config, path)
+                project_config, ignored = _read_project_config(path)
+
+                if ignored:
+                    startup_warnings.append(
+                        _project_ignored_config_keys_warning(path, ignored)
+                    )
 
                 merged = _merge_config(merged, project_config)
-
-                layers.append(ConfigLayer("project", path))
 
                 hooks.extend(resolve_hook_definitions(
                     project_config.get("hooks"),
@@ -251,6 +253,7 @@ class ConfigResolver(object):
             hooks=tuple(hooks),
             hook_states=hook_states,
             hook_warnings=tuple(hook_warnings),
+            startup_warnings=tuple(startup_warnings),
             project_trust=project_trust,
         )
 
@@ -381,162 +384,56 @@ def _project_root_markers(config: dict[str, typing.Any]) -> tuple[str, ...]:
     )
 
 
-def _find_project_root(workspace: Path, markers: tuple[str, ...]) -> Path:
-    """从工作目录向上查找最近的项目根。"""
-    if not markers:
-        return workspace
-
-    for candidate in (workspace, *workspace.parents):
-        if any((candidate / marker).exists() for marker in markers):
-            return candidate
-
-    return workspace
-
-
-def _resolve_project_trust(
-    user_config: dict[str, typing.Any],
-    project_root: Path,
-    workspace: Path
-) -> ProjectTrust:
-    """解析项目配置根对应的信任登记位置和已有决定。"""
-    checkout_root = _find_git_checkout_root(workspace)
-
-    default_trust_root = (
-        _resolve_git_trust_root(checkout_root)
-        if checkout_root is not None
-        else project_root
+def _project_context_config(
+    config: dict[str, typing.Any],
+    overrides: tuple[ConfigOverride, ...]
+) -> dict[str, typing.Any]:
+    """构造只影响项目发现与信任判断的启动配置快照。"""
+    context_overrides = tuple(
+        override
+        for override in overrides
+        if (
+            override.path
+            and override.path[0] in {"project_root_markers", "projects"}
+        )
     )
-
-    decision_roots = (
-        (project_root,)
-        if project_root == default_trust_root
-        else (project_root, default_trust_root)
-    )
-
-    for trust_root in decision_roots:
-        level = _project_trust_level(user_config, trust_root)
-        if level is not None:
-            return ProjectTrust(project_root, trust_root, level)
-
-    return ProjectTrust(project_root, default_trust_root, None)
-
-
-def _find_git_checkout_root(workspace: Path) -> Path | None:
-    """返回工作目录所属的最近 Git checkout 根。"""
-    for candidate in (workspace, *workspace.parents):
-        if (candidate / ".git").exists():
-            return candidate
-    return None
-
-
-def _resolve_git_trust_root(checkout_root: Path) -> Path:
-    """通过 linked worktree 指针解析用于信任登记的主仓库根。"""
-    dot_git = checkout_root / ".git"
-    if dot_git.is_dir():
-        return checkout_root
-
-    try:
-        pointer = dot_git.read_text(encoding=const.CHARSET).strip()
-    except (OSError, UnicodeError):
-        return checkout_root
-
-    if "\n" in pointer or "\r" in pointer or not pointer.startswith("gitdir:"):
-        return checkout_root
-
-    raw_git_dir = pointer[len("gitdir:"):].strip()
-    if not raw_git_dir:
-        return checkout_root
-
-    try:
-        git_dir = Path(raw_git_dir)
-        if not git_dir.is_absolute():
-            git_dir = checkout_root / git_dir
-        git_dir = git_dir.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return checkout_root
-
-    worktrees_dir = git_dir.parent
-    common_dir    = worktrees_dir.parent
-
-    if worktrees_dir.name != "worktrees" or common_dir.name != ".git":
-        return checkout_root
-
-    return common_dir.parent
-
-
-def _project_trust_level(
-    user_config: dict[str, typing.Any],
-    project_root: Path
-) -> ProjectTrustLevel | None:
-    """返回用户对项目根保存的信任决定。"""
-    projects = user_config.get("projects")
-    if not isinstance(projects, dict):
-        return None
-
-    root_key = _path_key(project_root)
-
-    for raw_path, value in projects.items():
-        if not isinstance(value, dict):
-            continue
-        try:
-            configured = Path(str(raw_path)).expanduser().resolve()
-        except (OSError, RuntimeError, ValueError):
-            continue
-        if _path_key(configured) == root_key:
-            level = value.get("trust_level")
-            if level in {"trusted", "untrusted"}:
-                return typing.cast(ProjectTrustLevel, level)
-            return None
-
-    return None
-
-
-def _project_directory_trusted(
-    user_config: dict[str, typing.Any],
-    directory: Path,
-    project_trust: ProjectTrust,
-) -> bool:
-    """返回项目配置目录自己的决定或继承后的信任状态。"""
-    level = _project_trust_level(user_config, directory)
-    if level is None:
-        return project_trust.trusted
-    return level == "trusted"
+    if not context_overrides:
+        return config
+    return apply_config_overrides(config, context_overrides)
 
 
 def _path_key(path: Path) -> str:
     """返回适合当前平台比较的绝对路径键。"""
-    return os.path.normcase(str(path.resolve()))
+    return os.path.normcase(str(path.expanduser().resolve()))
 
 
-def _project_config_directories(
-    project_root: Path,
-    workspace: Path
-) -> tuple[Path, ...]:
-    """返回从项目根到工作目录的配置目录。"""
-    try:
-        relative = workspace.relative_to(project_root)
-    except ValueError:
-        return ()
-
-    directories = [project_root]
-    current     = project_root
-
-    for component in relative.parts:
-        current /= component
-        directories.append(current)
-    return tuple(directories)
-
-
-def _validate_project_config(
-    config: dict[str, typing.Any],
+def _read_project_config(
     path: Path
-) -> None:
-    """拒绝项目层覆盖机器级配置。"""
-    blocked = sorted(PROJECT_RESTRICTED_ROOTS.intersection(config))
-    if blocked:
-        raise ValueError(
-            f"project config cannot override {', '.join(blocked)}: {path}"
-        )
+) -> tuple[dict[str, typing.Any], tuple[str, ...]]:
+    """读取项目配置并移除只能由用户层设置的根字段。"""
+    config = typing.cast(
+        dict[str, typing.Any],
+        ConfigStore(path).read_raw(create=False),
+    )
+
+    ignored = tuple(sorted(PROJECT_USER_ONLY_ROOTS.intersection(config)))
+    for key in ignored:
+        config.pop(key, None)
+    validate_config(config)
+
+    return config, ignored
+
+
+def _project_ignored_config_keys_warning(
+    path: Path,
+    ignored: tuple[str, ...]
+) -> str:
+    """生成项目层受限字段被忽略时的启动告警。"""
+    return (
+        f"Ignored unsupported project-local config keys in {path}: "
+        f"{', '.join(ignored)}. Configure these settings in the user-level "
+        "config.toml instead."
+    )
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ async def test_directory_trust_prompt_matches_startup_layout() -> None:
         "\n"
         "  Do you trust the contents of this directory? Working with untrusted\n"
         "  contents comes with higher risk of prompt injection. Trusting the\n"
-        "  directory allows project-local config, MCP servers, and hooks to\n"
+        "  directory allows project-local config, hooks, and exec policies to\n"
         "  load.\n"
         "\n"
         "› 1. Yes, continue\n"
@@ -63,9 +63,10 @@ async def test_directory_trust_prompt_wraps_and_reports_root_at_narrow_width() -
     prompt.begin(Path("/repo/src"), Path("/repo"))
 
     text = _text(prompt)
+    flattened = text.replace("\n  ", " ")
 
-    assert "You're in a subdirectory" in text
-    assert "apply to the project root: /repo" in text.replace("\n  ", " ")
+    assert "You're in a subdirectory of a Git project" in flattened
+    assert "apply to the repository root: /repo" in flattened
     assert all(get_cwidth(line) <= width for line in text.splitlines())
     assert prompt.height() == len(text.splitlines())
 

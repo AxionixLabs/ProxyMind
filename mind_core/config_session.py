@@ -12,7 +12,14 @@ from mind_core.config_layers import (
     ConfigResolution,
     ConfigResolver
 )
-from mind_core.config_store import ConfigStore
+from mind_core.config_store import (
+    ConfigStore,
+    ConfigStoreError
+)
+from mind_core.project_trust import (
+    ProjectTrustDecision,
+    ProjectTrustLevel
+)
 
 
 class ConfigSession(object):
@@ -51,7 +58,7 @@ class ConfigSession(object):
         return self.resolve(create=create).config
 
     def layers(self, *, create: bool = True) -> tuple[ConfigLayer, ...]:
-        """返回当前参与解析的配置来源。"""
+        """返回当前发现的配置来源及其启用状态。"""
         return self.resolve(create=create).layers
 
     def update_user(
@@ -79,6 +86,48 @@ class ConfigSession(object):
             validate=self._validate_user_candidate,
         )
         return self.load()
+
+    def set_project_trust(
+        self,
+        decision: ProjectTrustDecision,
+        level: ProjectTrustLevel
+    ) -> ConfigResolution:
+        """原子保存指定项目决定并返回重新解析后的配置。"""
+        self.store.update(
+            {
+                (
+                    "projects",
+                    decision.registry_key,
+                    "trust_level",
+                ): level,
+            },
+            validate=lambda candidate: self._validate_project_trust_candidate(
+                candidate,
+                decision,
+                level,
+            ),
+        )
+        return self.resolve()
+
+    def _validate_project_trust_candidate(
+        self,
+        candidate: dict[str, object],
+        decision: ProjectTrustDecision,
+        level: ProjectTrustLevel
+    ) -> None:
+        """验证持久化决定未被当前 Profile 或 CLI 覆盖遮蔽。"""
+        resolution = self.resolver.resolve_user_config(dict(candidate))
+        effective  = resolution.project_trust
+
+        if (
+            effective is None
+            or effective.trust_root != decision.trust_root
+            or effective.level != level
+        ):
+            raise ConfigStoreError(
+                "project trust update is shadowed by the active profile or "
+                f"CLI overrides: {decision.trust_root}"
+            )
 
     def _validate_user_candidate(
         self,

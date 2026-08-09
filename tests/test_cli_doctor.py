@@ -16,6 +16,7 @@ from mind_app.cli.doctor import (
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_core.application_paths import ApplicationLayout
 from mind_core.config_store import ConfigStore
+from mind_core.config_layers import PROJECT_CONFIG_DIR
 
 
 def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:
@@ -90,7 +91,28 @@ def test_doctor_reports_linked_worktree_trust_root(
 
     assert f"project={worktree_root.resolve()}" in check.detail
     assert f"trust={repository_root.resolve()}" in check.detail
-    assert "trusted=true" in check.detail
+    assert "trust_level=trusted" in check.detail
+
+
+def test_doctor_reports_disabled_project_config_layer(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    context = _doctor_context(tmp_path)
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("[agents]\nmax_depth = 2\n", encoding="utf-8")
+    ConfigStore(context.config_path).ensure()
+    monkeypatch.chdir(project_root)
+
+    check = doctor._config_check(context)
+
+    assert "layers=user > project(disabled)" in check.detail
+    assert "trust_level=unknown" in check.detail
+    assert "disabled_layers=1" in check.detail
 
 
 def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:

@@ -108,14 +108,10 @@ async def _confirm_tui_project_trust(
 
     while await runtime.wait_directory_trust():
         try:
-            config_session.update_user({
-                (
-                    "projects",
-                    str(project_trust.trust_root),
-                    "trust_level",
-                ): "trusted",
-            })
-            trusted_resolution = config_session.resolve()
+            trusted_resolution = config_session.set_project_trust(
+                project_trust,
+                "trusted",
+            )
         except (OSError, TypeError, ValueError) as error:
             runtime.show_directory_trust_error(
                 f"Failed to set trust for {project_trust.trust_root}: {error}"
@@ -125,6 +121,40 @@ async def _confirm_tui_project_trust(
         return trusted_resolution
 
     return None
+
+
+def _emit_startup_warnings(
+    frontend: Frontend,
+    warnings: typing.Iterable[str]
+) -> None:
+    """输出配置解析阶段产生的可恢复告警。"""
+    items = tuple(warnings)
+    if not items:
+        return None
+
+    plain_parts: list[str] = []
+    spans: list[TextSpan]  = []
+
+    for index, warning in enumerate(items):
+        if index:
+            plain_parts.append("\n")
+            spans.append(TextSpan("\n"))
+        plain_parts.append(f"Warning: {warning}")
+        spans.extend((
+            TextSpan(
+                "Warning: ",
+                TextStyle(foreground="#FFD75F", bold=True),
+            ),
+            TextSpan(warning),
+        ))
+
+    frontend.application.emit(ApplicationView(
+        type="config.warning",
+        renderable=StyledBlock(
+            plain_text="".join(plain_parts),
+            spans=tuple(spans),
+        ),
+    ))
 
 
 def _emit_helix_skipped(controller: Mind) -> None:
@@ -356,6 +386,7 @@ async def _run_application(
             permissions=permissions,
             hook_registry=hook_registry,
             agent_settings=agent_settings,
+            startup_warnings=config_resolution.startup_warnings,
         )
     except BaseException:
         if tui_runtime is not None:
@@ -381,7 +412,8 @@ async def _run_controller(
     output_mode: OutputMode,
     permissions: PermissionSettings,
     hook_registry: HookRegistry | None = None,
-    agent_settings: AgentSettings | None = None
+    agent_settings: AgentSettings | None = None,
+    startup_warnings: tuple[str, ...] = ()
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     try:
@@ -424,6 +456,9 @@ async def _run_controller(
             from ..tui.session.state import preload_tui_prompt_context
 
             await preload_tui_prompt_context(controller)
+
+        _emit_startup_warnings(frontend, startup_warnings)
+
         await controller.frontend.runtime.open()
         observe("frontend.opened", output_mode=output_mode)
 

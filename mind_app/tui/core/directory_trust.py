@@ -116,8 +116,8 @@ class TuiDirectoryTrust(object):
 
         if state.cwd != state.trust_target:
             warning = (
-                "Note: You're in a subdirectory of a project. Trusting will "
-                f"apply to the project root: {state.trust_target}"
+                "Note: You're in a subdirectory of a Git project. Trusting "
+                f"will apply to the repository root: {state.trust_target}"
             )
             out.extend(_paragraph_fragments(
                 warning,
@@ -129,8 +129,8 @@ class TuiDirectoryTrust(object):
         body = (
             "Do you trust the contents of this directory? Working with "
             "untrusted contents comes with higher risk of prompt injection. "
-            "Trusting the directory allows project-local config, MCP servers, "
-            "and hooks to load."
+            "Trusting the directory allows project-local config, hooks, and "
+            "exec policies to load."
         )
         out.extend(_paragraph_fragments(
             body,
@@ -289,7 +289,6 @@ def _wrap_words(text: str, *, width: int) -> list[str]:
 
         if current:
             rows.append(current)
-            current = ""
 
         while get_cwidth(word) > limit:
             prefix = ""
