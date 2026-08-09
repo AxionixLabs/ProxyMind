@@ -28,6 +28,9 @@ from .opening import (
 )
 from .ws import (
     AgentWsProtocolError,
+    ConnectedCallback,
+    DisconnectedCallback,
+    ReadyCallback,
     sleep_or_stop,
     connect_once
 )
@@ -103,7 +106,11 @@ class AgentConnection(object):
         client: AgentClient,
         config: AgentConfig,
         live_status: AgentLiveStatus,
-        forward_handler: AgentForwardHandler | None = None
+        forward_handler: AgentForwardHandler | None = None,
+        *,
+        on_ready: ReadyCallback | None = None,
+        on_connected: ConnectedCallback | None = None,
+        on_disconnected: DisconnectedCallback | None = None,
     ) -> None:
         """保存连接控制所需依赖。"""
         self.mind = mind
@@ -112,6 +119,9 @@ class AgentConnection(object):
         self.config          = config
         self.live_status     = live_status
         self.forward_handler = forward_handler
+        self.on_ready        = on_ready
+        self.on_connected    = on_connected
+        self.on_disconnected = on_disconnected
 
     async def open_session_runtime(
         self,
@@ -215,7 +225,10 @@ class AgentConnection(object):
             self.client,
             runtime,
             self.live_status,
-            self.forward_handler
+            self.forward_handler,
+            on_ready=self.on_ready,
+            on_connected=self.on_connected,
+            on_disconnected=self.on_disconnected,
         )
 
 
@@ -233,10 +246,11 @@ class AgentSupervisor(object):
 
         self.connection  = connection
         self.live_status = live_status
+        self.runtime: AgentSessionRuntime | None = None
 
     async def run(self) -> None:
         """运行订阅会话并处理连接恢复。"""
-        runtime: AgentSessionRuntime | None = None
+        runtime = self.runtime
 
         try:
             observe("agent.supervisor.start")
@@ -244,7 +258,15 @@ class AgentSupervisor(object):
                 "Opening Session", "Requesting /agents/open"
             )
 
-            runtime = await self.connection.open_session_runtime()
+            if runtime is None:
+                runtime = await self.connection.open_session_runtime()
+            elif runtime.resume_token:
+                runtime = await self.connection.resume_or_open(runtime)
+            else:
+                runtime = await self.connection.open_session_runtime(
+                    previous=runtime,
+                )
+            self.runtime = runtime
 
             observe("agent.subscription.ready", session_id=runtime.session_id)
             self.live_status.update(
@@ -267,6 +289,7 @@ class AgentSupervisor(object):
                     raise
                 except AgentWsProtocolError as exc:
                     runtime = await self.handle_protocol_error(runtime, exc)
+                    self.runtime = runtime
                     continue
                 except (
                         ConnectionClosed,
@@ -277,9 +300,11 @@ class AgentSupervisor(object):
                         asyncio.TimeoutError
                 ) as exc:
                     runtime = await self.handle_disconnect(runtime, exc)
+                    self.runtime = runtime
                     continue
 
         finally:
+            self.runtime = runtime
             observe(
                 "agent.supervisor.stop",
                 session_id=runtime.session_id if runtime is not None else None,

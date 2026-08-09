@@ -567,6 +567,13 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
     assert not run_task.done()
     cancel_startup.assert_awaited_once_with()
     assert any(view.type == "tui.helix.interrupted" for view in views)
+    interrupted = next(
+        view for view in views
+        if view.type == "tui.helix.interrupted"
+    )
+    assert fragments_text(interrupted.renderable.fragments) == (
+        "• Helix MCP · interrupted"
+    )
 
     runtime.submissions.message_queue.put_nowait("/quit")
     await asyncio.wait_for(run_task, timeout=1.0)

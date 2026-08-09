@@ -193,6 +193,14 @@ class AgentInbox(object):
                 return item
         return None
 
+    def remove(self, message_id: str) -> AgentInboxItem:
+        """从当前进程中移除一条收件箱消息。"""
+        item = self.find(message_id)
+        if item is None:
+            raise KeyError(message_id)
+        self.items.remove(item)
+        return item
+
     def next_pending(self) -> AgentInboxItem | None:
         """返回最早的待处理请求。"""
         pending = self.pending_items()
@@ -218,13 +226,16 @@ class AgentInbox(object):
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
-        live_status: AgentLiveStatus
+        live_status: AgentLiveStatus,
+        status_changed: typing.Callable[[], None] | None = None
     ) -> AgentInboxItem:
         """执行一条待处理请求并调整收件箱状态。"""
         if item.status != "pending":
             raise ValueError(f"agent inbox item is not pending: {item.request.message_id}")
 
         item.status = "running"
+        if status_changed is not None:
+            status_changed()
         try:
             await executor.execute(
                 mind,
@@ -234,13 +245,22 @@ class AgentInbox(object):
                 item.request,
                 live_status
             )
+        except asyncio.CancelledError:
+            item.status = "pending"
+            if status_changed is not None:
+                status_changed()
+            raise
         except Exception as exc:
             item.status = "failed"
             item.error = f"{type(exc).__name__}: {exc}"
+            if status_changed is not None:
+                status_changed()
             raise
 
         item.status = "completed"
         item.error = None
+        if status_changed is not None:
+            status_changed()
         return item
 
     async def accept_next(
@@ -279,6 +299,8 @@ InboxContextCallback = typing.Callable[
     None
 ]
 
+InboxChangedCallback = typing.Callable[[], None]
+
 
 class InboxForwardHandler(object):
     """收到服务端请求后放入本地收件箱。"""
@@ -286,11 +308,13 @@ class InboxForwardHandler(object):
     def __init__(
         self,
         inbox: AgentInbox,
-        context_callback: InboxContextCallback | None = None
+        context_callback: InboxContextCallback | None = None,
+        changed_callback: InboxChangedCallback | None = None,
     ) -> None:
         """保存服务端请求收件箱。"""
         self.inbox = inbox
         self.context_callback = context_callback
+        self.changed_callback = changed_callback
 
     async def handle(
         self,
@@ -328,14 +352,18 @@ class InboxForwardHandler(object):
         if self.context_callback is not None:
             self.context_callback(item, client, connection, runtime, live_status)
 
-        await client.send_mind_received(
-            connection,
-            session_id=runtime.session_id,
-            cid=request.cid,
-            sid=request.sid,
-            call_id=request.call_id,
-            acked_message_id=request.message_id
-        )
+        try:
+            await client.send_mind_received(
+                connection,
+                session_id=runtime.session_id,
+                cid=request.cid,
+                sid=request.sid,
+                call_id=request.call_id,
+                acked_message_id=request.message_id
+            )
+        finally:
+            if self.changed_callback is not None:
+                self.changed_callback()
         observe(
             "agent.forward.received",
             call_id=request.call_id,

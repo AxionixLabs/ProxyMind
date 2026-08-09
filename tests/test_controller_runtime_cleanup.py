@@ -40,6 +40,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     async def step(name):
         timeline.append(name)
 
+    controller.stop_subscription_listener = lambda: step("subscription")
     controller.cancel_service_runtime_startup = (
         lambda: step("service_startup")
     )
@@ -69,6 +70,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     await Mind.close_runtime_resources(controller)
 
     assert timeline == [
+        "subscription",
         "service_startup",
         "subagents",
         "command_hooks",

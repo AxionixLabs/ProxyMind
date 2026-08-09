@@ -32,13 +32,11 @@ from ...runtime.conversation import (
 
 from ..core.models import FragmentBlock
 from ..core.styles import (
-    ACCENT_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    WARNING_STYLE,
     command_result_block,
-    fragment_block
+    interrupted_status_block
 )
 
 if typing.TYPE_CHECKING:
@@ -49,7 +47,7 @@ def _present(
     mind: "Mind",
     renderable: FragmentBlock | StyledBlock | None = None,
     *,
-    view_type: str = "tui.command",
+    view_type: str = "tui.command"
 ) -> None:
     """发送一项会话功能展示。"""
     mind.frontend.application.emit(ApplicationView(
@@ -494,10 +492,7 @@ def render_fork_interrupted(mind: "Mind") -> None:
     """展示会话分支操作被中断的状态。"""
     _present(
         mind,
-        fragment_block(
-            TextSpan("Conversation fork ", ACCENT_STYLE),
-            TextSpan("· interrupted", WARNING_STYLE),
-        ),
+        interrupted_status_block("Conversation fork"),
         view_type="tui.fork.interrupted",
     )
     _present(mind, view_type="tui.gap")
@@ -523,10 +518,7 @@ def render_compact_interrupted(mind: "Mind") -> None:
     """展示上下文压缩被用户中断的状态。"""
     _present(
         mind,
-        fragment_block(
-            TextSpan("Context compaction ", ACCENT_STYLE),
-            TextSpan("· interrupted", WARNING_STYLE),
-        ),
+        interrupted_status_block("Context compaction"),
         view_type="tui.compact.interrupted",
     )
     _present(mind, view_type="tui.gap")

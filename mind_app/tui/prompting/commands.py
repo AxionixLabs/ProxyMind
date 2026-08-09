@@ -89,6 +89,15 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
+        "listen", "/listen", "管理远端请求监听器",
+        subcommands=("start", "stop", "status"),
+        surface_on_bare=True,
+    ),
+    TuiCommandSpec(
+        "mailbox", "/mailbox", "查看和处理远端请求消息",
+        surface_on_bare=True,
+    ),
+    TuiCommandSpec(
         "diff", "/diff", "查看本轮补丁净差异",
     ),
     TuiCommandSpec(

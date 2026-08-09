@@ -10,9 +10,13 @@ from ..core.runtime import (
     TuiRuntime,
     require_tui_runtime
 )
-from ..core.models import TranscriptBacktrackRequest
+from ..core.models import (
+    MailboxRunRequest,
+    TranscriptBacktrackRequest
+)
 from ..core.submission import (
     TuiInterruptRequested,
+    TuiMailboxRunRequested,
     TuiTranscriptBacktrackRequested
 )
 from ..features.conversation import (
@@ -23,6 +27,7 @@ from ..features.conversation import (
     render_fork_result
 )
 from ..features.processes import monitor_exec_status
+from ..features.mailbox import render_mailbox_failure
 from .barriers import TuiForegroundTasks
 from .dispatch import (
     DispatchAction,
@@ -82,7 +87,6 @@ async def run_tui_loop(
     runtime.bind_pending_attachment_check(
         attachment_check if callable(attachment_check) else None
     )
-
     runtime.start_background_task(
         monitor_exec_status(runtime, mind),
         name="process status",
@@ -101,6 +105,7 @@ async def run_tui_loop(
         state,
         foreground_tasks,
     )
+    dispatcher.mailbox.bind_listener()
     if initial_prompt is not None:
         runtime.submissions.enqueue_message(initial_prompt)
     attachment_start_pending = initial_prompt is None and bool(initial_images)
@@ -140,6 +145,14 @@ async def run_tui_loop(
                     runtime,
                     state,
                     foreground_tasks,
+                    requested.request,
+                )
+                continue
+            except TuiMailboxRunRequested as requested:
+                await _handle_mailbox_run(
+                    mind,
+                    runtime,
+                    dispatcher,
                     requested.request,
                 )
                 continue
@@ -246,6 +259,35 @@ async def run_tui_loop(
                 mind.exit_code = 130
             mind.task_event.set()
             break
+
+
+async def _handle_mailbox_run(
+    mind: "Mind",
+    runtime: TuiRuntime,
+    dispatcher: TuiCommandDispatcher,
+    request: MailboxRunRequest
+) -> None:
+    """在主 TUI 轮次边界串行执行一条收件箱消息。"""
+    listener = dispatcher.mailbox.prepare_run(request)
+    try:
+        if listener is None:
+            return None
+        try:
+            await execute_tui_model_turn(
+                dispatcher.application,
+                runtime,
+                listener.run_message(request.message_id),
+                stream_command_handler=dispatcher.handle_stream_command,
+                show_interrupt_notice=lambda: not mind.task_event.is_set(),
+            )
+        except Exception as error:
+            render_mailbox_failure(
+                mind,
+                "Mailbox run failed",
+                error,
+            )
+    finally:
+        dispatcher.mailbox.finish_run(request)
 
 
 async def _handle_transcript_backtrack(

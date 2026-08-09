@@ -5630,7 +5630,7 @@ def test_transcript_leave_restores_state_after_output_failure() -> None:
     renderer = screen.application.renderer
     original_cursor = renderer._cursor_pos
 
-    screen._enter_transcript_screen()
+    screen._enter_full_screen_overlay()
     renderer._in_alternate_screen = True
 
     with patch.object(
@@ -5638,7 +5638,7 @@ def test_transcript_leave_restores_state_after_output_failure() -> None:
         "quit_alternate_screen",
         side_effect=OSError("terminal unavailable"),
     ), pytest.raises(OSError, match="terminal unavailable"):
-        screen._leave_transcript_screen()
+        screen._leave_full_screen_overlay()
 
     assert not screen.application.full_screen
     assert not renderer.full_screen

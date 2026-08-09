@@ -86,6 +86,10 @@ from .keymap import (
     binding_labels,
     primary_binding_label
 )
+from .mailbox import (
+    TuiMailboxOverlay,
+    format_mailbox_count,
+)
 from .menu import (
     TUI_MENU_STYLE,
     TuiMenu
@@ -93,6 +97,7 @@ from .menu import (
 from .models import (
     FormattedText,
     FragmentBlock,
+    MailboxEntry,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
     TranscriptExportResult
@@ -105,6 +110,7 @@ from .queued import (
 )
 from .render import (
     clip_fragments,
+    clip_text,
     cursor_point,
     cursor_point_for_display_row,
     display_line_count,
@@ -337,6 +343,7 @@ class TuiScreen(object):
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
         toggle_transcript_overlay: typing.Callable[[], None],
+        close_mailbox_overlay: typing.Callable[[], None],
         request_transcript_backtrack: typing.Callable[
             [TranscriptBacktrackRequest],
             None,
@@ -377,6 +384,7 @@ class TuiScreen(object):
         self._clear_visible_transcript     = clear_visible_transcript
         self._scroll_transcript_page       = scroll_transcript_page
         self._toggle_transcript_overlay    = toggle_transcript_overlay
+        self._close_mailbox_overlay        = close_mailbox_overlay
         self._request_transcript_backtrack = request_transcript_backtrack
 
         self._report_missing_transcript_backtrack = (
@@ -549,11 +557,22 @@ class TuiScreen(object):
             get_snapshot=self.document.transcript_snapshot,
             invalidate=self.invalidate,
         )
+        self.mailbox_overlay = TuiMailboxOverlay(
+            get_width=lambda: self.terminal_width,
+            get_height=lambda: self._mailbox_overlay_height(),
+            invalidate=self.invalidate,
+        )
         self.transcript_overlay_control = FormattedTextControl(
             self.transcript_overlay.visible_fragments,
             focusable=True,
             modal=True,
             key_bindings=self._transcript_overlay_key_bindings(),
+        )
+        self.mailbox_overlay_control = FormattedTextControl(
+            self.mailbox_overlay.visible_fragments,
+            focusable=True,
+            modal=True,
+            key_bindings=self._mailbox_overlay_key_bindings(),
         )
 
         self.transcript_window = Window(
@@ -608,6 +627,52 @@ class TuiScreen(object):
                 ),
             ],
             height=self._transcript_overlay_footer_dimension,
+            window_too_small=Window(),
+        )
+        self.mailbox_overlay_window = Window(
+            content=self.mailbox_overlay_control,
+            height=self._mailbox_overlay_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+            char=" ",
+        )
+        self.mailbox_overlay_header = Window(
+            content=FormattedTextControl(
+                self._mailbox_overlay_header_fragments
+            ),
+            height=self._mailbox_overlay_header_dimension,
+            dont_extend_height=True,
+            char=" ",
+        )
+        self.mailbox_overlay_footer = HSplit(
+            [
+                Window(
+                    content=FormattedTextControl(
+                        self._mailbox_overlay_separator_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    content=FormattedTextControl(
+                        self._mailbox_overlay_primary_help_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    content=FormattedTextControl(
+                        self._mailbox_overlay_secondary_help_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+            ],
+            height=self._mailbox_overlay_footer_dimension,
             window_too_small=Window(),
         )
         self.status_window = Window(
@@ -857,6 +922,16 @@ class TuiScreen(object):
             height=self._transcript_overlay_canvas_dimension,
             window_too_small=Window(),
         )
+        self.mailbox_overlay_canvas = HSplit(
+            [
+                self.mailbox_overlay_header,
+                self.mailbox_overlay_window,
+                self.mailbox_overlay_footer,
+            ],
+            align=VerticalAlign.TOP,
+            height=self._mailbox_overlay_canvas_dimension,
+            window_too_small=Window(),
+        )
         self.directory_trust_canvas = HSplit(
             [self.directory_trust_window],
             align=VerticalAlign.TOP,
@@ -869,6 +944,7 @@ class TuiScreen(object):
                     self.canvas,
                     filter=Condition(lambda: (
                         not self.transcript_overlay.active
+                        and not self.mailbox_overlay.active
                         and not self.directory_trust.active
                     )),
                 ),
@@ -876,6 +952,15 @@ class TuiScreen(object):
                     self.transcript_overlay_canvas,
                     filter=Condition(lambda: (
                         self.transcript_overlay.active
+                        and not self.mailbox_overlay.active
+                        and not self.directory_trust.active
+                    )),
+                ),
+                ConditionalContainer(
+                    self.mailbox_overlay_canvas,
+                    filter=Condition(lambda: (
+                        self.mailbox_overlay.active
+                        and not self.transcript_overlay.active
                         and not self.directory_trust.active
                     )),
                 ),
@@ -1131,43 +1216,108 @@ class TuiScreen(object):
         active = bool(active)
         if active == self.transcript_overlay.active:
             return False
-        if active and self._transcript_overlay_blocked():
+        if active and (
+            self.mailbox_overlay.active
+            or self._full_screen_overlay_blocked()
+        ):
             return False
 
         if active:
             try:
-                self._enter_transcript_screen()
+                self._enter_full_screen_overlay()
                 self.transcript_overlay.open()
                 self.application.layout.focus(self.transcript_overlay_control)
             except BaseException:
                 self.transcript_overlay.active = False
                 try:
-                    self._leave_transcript_screen()
+                    self._leave_full_screen_overlay()
                 finally:
-                    self._restore_transcript_focus()
+                    self._restore_overlay_focus()
                 raise
         else:
             try:
                 self.transcript_overlay.close()
             finally:
                 try:
-                    self._leave_transcript_screen()
+                    self._leave_full_screen_overlay()
                 finally:
-                    self._restore_transcript_focus()
+                    self._restore_overlay_focus()
+        self.invalidate()
+        return True
+
+    def set_mailbox_entries(
+        self,
+        entries: typing.Iterable[MailboxEntry],
+        *,
+        listener_active: bool,
+    ) -> bool:
+        """更新收件箱快照并在内容变化时刷新当前画面。"""
+        previous_count = self.mailbox_overlay.pending_count
+        changed = self.mailbox_overlay.update(
+            entries,
+            listener_active=listener_active,
+        )
+        if (
+            changed
+            and not self.mailbox_overlay.active
+            and previous_count != self.mailbox_overlay.pending_count
+        ):
+            self.invalidate()
+        return changed
+
+    def set_mailbox_overlay(
+        self,
+        active: bool,
+        *,
+        entry_key: str = "",
+    ) -> bool:
+        """切换全屏收件箱、终端画面和键盘焦点。"""
+        active = bool(active)
+        if active == self.mailbox_overlay.active:
+            return False
+        if active and (
+            self.transcript_overlay.active
+            or self._full_screen_overlay_blocked()
+        ):
+            return False
+
+        if active:
+            try:
+                self._enter_full_screen_overlay()
+                if not self.mailbox_overlay.open(entry_key):
+                    self._leave_full_screen_overlay()
+                    self._restore_overlay_focus()
+                    return False
+                self.application.layout.focus(self.mailbox_overlay_control)
+            except BaseException:
+                self.mailbox_overlay.abort()
+                try:
+                    self._leave_full_screen_overlay()
+                finally:
+                    self._restore_overlay_focus()
+                raise
+        else:
+            try:
+                self.mailbox_overlay.close()
+            finally:
+                try:
+                    self._leave_full_screen_overlay()
+                finally:
+                    self._restore_overlay_focus()
         self.invalidate()
         return True
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
         self.activity_block = block
-        if not self.transcript_overlay.active:
+        if not self._full_screen_overlay_active():
             self.invalidate()
 
     def clear_activity_renderable(self) -> None:
         """清空活动状态区域的展示内容。"""
         changed = self.activity_block is not None
         self.activity_block = None
-        if changed and not self.transcript_overlay.active:
+        if changed and not self._full_screen_overlay_active():
             self.invalidate()
 
     def clear_terminal_scrollback(self) -> None:
@@ -1339,6 +1489,7 @@ class TuiScreen(object):
         if (
             not self.directory_trust.active
             and not self.transcript_overlay.active
+            and not self.mailbox_overlay.active
             and not self._transcript_only
         ):
             previous_release_height = self._bottom_release_height()
@@ -1422,16 +1573,16 @@ class TuiScreen(object):
         available_height = height - renderer.rows_above_layout
         return min(height, max(1, available_height))
 
-    def _restore_transcript_focus(self) -> None:
-        """把完整记录关闭后的焦点恢复到当前交互表面。"""
+    def _restore_overlay_focus(self) -> None:
+        """把全屏覆盖层关闭后的焦点恢复到当前交互表面。"""
         surface = self.bottom_pane.active_surface
         if surface is None:
             self._focus_input()
         else:
             self._focus_bottom_surface(surface)
 
-    def _enter_transcript_screen(self) -> None:
-        """保存 inline 渲染状态并准备完整终端画面。"""
+    def _enter_full_screen_overlay(self) -> None:
+        """保存 inline 渲染状态并准备全屏覆盖画面。"""
         renderer = self.application.renderer
         if self._inline_renderer_state is not None:
             return None
@@ -1468,8 +1619,8 @@ class TuiScreen(object):
 
         renderer._min_available_height = terminal_height
 
-    def _leave_transcript_screen(self) -> None:
-        """退出完整终端画面并恢复 inline 渲染状态。"""
+    def _leave_full_screen_overlay(self) -> None:
+        """退出全屏覆盖画面并恢复 inline 渲染状态。"""
         renderer = self.application.renderer
         state    = self._inline_renderer_state
 
@@ -1542,6 +1693,12 @@ class TuiScreen(object):
         ):
             self.application.layout.focus(self.transcript_overlay_control)
             return None
+        if (
+            hasattr(self, "mailbox_overlay")
+            and self.mailbox_overlay.active
+        ):
+            self.application.layout.focus(self.mailbox_overlay_control)
+            return None
 
         controls = {
             "approval": self.approval_control,
@@ -1591,6 +1748,12 @@ class TuiScreen(object):
             and self.transcript_overlay.active
         ):
             self.application.layout.focus(self.transcript_overlay_control)
+            return None
+        if (
+            hasattr(self, "mailbox_overlay")
+            and self.mailbox_overlay.active
+        ):
+            self.application.layout.focus(self.mailbox_overlay_control)
             return None
 
         self.application.layout.focus(self.input)
@@ -1715,6 +1878,14 @@ class TuiScreen(object):
             else "class:footer.access"
         )
         values = [
+            (
+                "class:footer.mailbox",
+                (
+                    f"Mailbox {format_mailbox_count(self.mailbox_overlay.pending_count)}"
+                    if self.mailbox_overlay.pending_count
+                    else ""
+                ),
+            ),
             ("class:footer.model", context.model or "-"),
             (access_style, permissions_label),
             ("class:footer.workspace", context.workspace_label),
@@ -1754,7 +1925,8 @@ class TuiScreen(object):
         overlay_available = Condition(
             lambda: (
                 not self.transcript_overlay.active
-                and not self._transcript_overlay_blocked()
+                and not self.mailbox_overlay.active
+                and not self._full_screen_overlay_blocked()
             )
         )
 
@@ -2034,16 +2206,93 @@ class TuiScreen(object):
 
         return bindings
 
+    def _mailbox_overlay_key_bindings(self) -> KeyBindings:
+        """创建只读消息详情的滚动、翻页和退出按键。"""
+        bindings = KeyBindings()
+        pager = self.keymap.pager
+
+        @bindings.add("escape", eager=True)
+        def _(event) -> None:
+            _ = event
+            self._close_mailbox_overlay()
+
+        def close(event) -> None:
+            _ = event
+            self._close_mailbox_overlay()
+        self._add_configured_bindings(
+            bindings,
+            pager.close,
+            close,
+        )
+
+        def scroll_up(event) -> None:
+            _ = event
+            self.mailbox_overlay.scroll_lines(-1)
+        self._add_configured_bindings(
+            bindings,
+            pager.scroll_up,
+            scroll_up,
+        )
+
+        def scroll_down(event) -> None:
+            _ = event
+            self.mailbox_overlay.scroll_lines(1)
+        self._add_configured_bindings(
+            bindings,
+            pager.scroll_down,
+            scroll_down,
+        )
+
+        def page_up(event) -> None:
+            _ = event
+            self.mailbox_overlay.scroll_page(-1)
+        self._add_configured_bindings(
+            bindings,
+            pager.page_up,
+            page_up,
+        )
+
+        def page_down(event) -> None:
+            _ = event
+            self.mailbox_overlay.scroll_page(1)
+        self._add_configured_bindings(
+            bindings,
+            pager.page_down,
+            page_down,
+        )
+
+        def jump_top(event) -> None:
+            _ = event
+            self.mailbox_overlay.jump_message(to_end=False)
+        self._add_configured_bindings(
+            bindings,
+            pager.jump_top,
+            jump_top,
+        )
+
+        def jump_bottom(event) -> None:
+            _ = event
+            self.mailbox_overlay.jump_message(to_end=True)
+        self._add_configured_bindings(
+            bindings,
+            pager.jump_bottom,
+            jump_bottom,
+        )
+
+        return bindings
+
     def _canvas_dimension(self) -> Dimension:
         """返回随内容自然增长并受终端高度限制的画布高度。"""
         return Dimension.exact(self._visible_height())
 
     def _root_dimension(self) -> Dimension:
-        """返回当前主画布或完整记录画布所需高度。"""
+        """返回当前主画布或全屏覆盖画布所需高度。"""
         if self.directory_trust.active:
             return self._directory_trust_dimension()
         if self.transcript_overlay.active:
             return self._transcript_overlay_canvas_dimension()
+        if self.mailbox_overlay.active:
+            return self._mailbox_overlay_canvas_dimension()
 
         return self._canvas_dimension()
 
@@ -2233,6 +2482,120 @@ class TuiScreen(object):
 
         return [("class:transcript.overlay.help", self._help_line(hints))]
 
+    def _mailbox_overlay_height(self) -> int:
+        """返回收件箱正文区域可用高度。"""
+        return max(
+            0,
+            self.terminal_height
+            - self._mailbox_overlay_header_height()
+            - self._mailbox_overlay_footer_height(),
+        )
+
+    def _mailbox_overlay_header_height(self) -> int:
+        """返回收件箱标题区域高度。"""
+        return min(1, self.terminal_height)
+
+    def _mailbox_overlay_footer_height(self) -> int:
+        """返回收件箱底栏高度。"""
+        return min(3, max(0, self.terminal_height - 1))
+
+    def _mailbox_overlay_header_dimension(self) -> Dimension:
+        """返回收件箱标题区域尺寸。"""
+        return Dimension.exact(self._mailbox_overlay_header_height())
+
+    def _mailbox_overlay_footer_dimension(self) -> Dimension:
+        """返回收件箱底栏尺寸。"""
+        return Dimension.exact(self._mailbox_overlay_footer_height())
+
+    def _mailbox_overlay_dimension(self) -> Dimension:
+        """返回收件箱正文区域尺寸。"""
+        return Dimension.exact(self._mailbox_overlay_height())
+
+    def _mailbox_overlay_canvas_dimension(self) -> Dimension:
+        """返回收件箱全屏画布尺寸。"""
+        return Dimension.exact(self.terminal_height)
+
+    def _mailbox_overlay_header_fragments(self) -> FormattedText:
+        """生成收件箱标题、数量和监听状态。"""
+        width = self.terminal_width
+        count = format_mailbox_count(self.mailbox_overlay.pending_count)
+        state = (
+            "listening"
+            if self.mailbox_overlay.listener_active
+            else "stopped"
+        )
+        status = f" {count} pending · {state} "
+        title = "/ M A I L B O X "
+        pattern = ("/ " * ((width + 1) // 2))[:width]
+
+        available = max(0, width - get_cwidth(status))
+        heading = clip_text(title, width=available)
+        fill_width = max(0, available - get_cwidth(heading))
+
+        return [
+            ("class:mailbox.title", heading),
+            ("class:mailbox.rule", pattern[:fill_width]),
+            (
+                "class:mailbox.status",
+                clip_text(
+                    status,
+                    width=width - get_cwidth(heading) - fill_width,
+                ),
+            ),
+        ]
+
+    def _mailbox_overlay_separator_fragments(self) -> FormattedText:
+        """生成包含消息正文页码的底栏分隔线。"""
+        width = self.terminal_width
+        current, total = self.mailbox_overlay.message_progress()
+        progress = (
+            f" {format_mailbox_count(current)}/"
+            f"{format_mailbox_count(total)} "
+            if total > 1
+            else ""
+        )
+        progress_width = get_cwidth(progress)
+        prefix_width = max(0, width - progress_width - int(bool(progress)))
+        return [
+            ("class:mailbox.filler", "─" * prefix_width),
+            ("class:mailbox.progress", progress),
+            (
+                "class:mailbox.filler",
+                "─" * max(0, width - prefix_width - progress_width),
+            ),
+        ]
+
+    def _mailbox_overlay_primary_help_fragments(self) -> FormattedText:
+        """生成消息正文滚动和翻页提示。"""
+        pager = self.keymap.pager
+        hints = (
+            self._paired_key_hint(
+                pager.scroll_up,
+                pager.scroll_down,
+                "to scroll",
+            ),
+            self._paired_key_hint(
+                pager.page_up,
+                pager.page_down,
+                "message page",
+            ),
+            self._paired_key_hint(
+                pager.jump_top,
+                pager.jump_bottom,
+                "to jump",
+            ),
+        )
+        return [("class:mailbox.help", self._help_line(hints))]
+
+    def _mailbox_overlay_secondary_help_fragments(self) -> FormattedText:
+        """生成消息只读状态和返回提示。"""
+        close = binding_labels(self.keymap.pager.close)
+        close_hint = f"Esc/{close} to go back" if close else "Esc to go back"
+        return [(
+            "class:mailbox.help",
+            self._help_line(("Read only", close_hint)),
+        )]
+
     def _transcript_dimension(self) -> Dimension:
         """返回正文当前内容在画布中占用的高度。"""
         _continuation_widths, rows = self._transcript_display_metrics()
@@ -2367,8 +2730,15 @@ class TuiScreen(object):
             or self._queued_content_visible()
         )
 
-    def _transcript_overlay_blocked(self) -> bool:
-        """判断当前临时表面是否禁止打开完整会话记录。"""
+    def _full_screen_overlay_active(self) -> bool:
+        """判断当前是否显示由主 Application 管理的全屏覆盖层。"""
+        return bool(
+            self.transcript_overlay.active
+            or self.mailbox_overlay.active
+        )
+
+    def _full_screen_overlay_blocked(self) -> bool:
+        """判断当前临时表面是否禁止打开全屏覆盖层。"""
         return bool(
             self.directory_trust.active
             or self.bottom_pane.is_active("approval")

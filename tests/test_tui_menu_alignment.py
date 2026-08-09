@@ -206,6 +206,37 @@ async def test_menu_filters_controls_before_width_calculation() -> None:
 
 
 @pytest.mark.anyio
+async def test_menu_normalizes_external_fields_to_single_rows() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Remote\ntitle",
+        status="listener\nactive",
+        body=("first\nsecond",),
+        help_text="Enter\nto view",
+        options=(
+            MenuOption("message", "Summary\ncontinued", "call\n1"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    text = _fragments_text(menu.fragments())
+    menu.finish(None)
+    await task
+
+    assert text.splitlines() == [
+        "Remote title · listener active",
+        "Enter to view",
+        "  first second",
+        "  › 1. Summary continued · call 1",
+    ]
+
+
+@pytest.mark.anyio
 async def test_menu_selection_wraps_across_first_and_last_options() -> None:
     menu = TuiMenu(
         invalidate=lambda: None,

@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -12,9 +12,16 @@ from mind_app.subscription.forwarding import (
     InboxForwardHandler,
     normalize_forward_request,
 )
-from mind_app.subscription.models import AgentForwardRequest
-from mind_app.subscription.models import AgentLiveStatus
-from mind_app.subscription.ws import handle_server_message, recv_json_or_stop
+from mind_app.subscription.models import (
+    AgentForwardRequest,
+    AgentLiveStatus,
+    AgentSessionRuntime,
+)
+from mind_app.subscription.ws import (
+    connect_once,
+    handle_server_message,
+    recv_json_or_stop,
+)
 from mind_app.runtime.turns.result import RunResult
 
 
@@ -191,10 +198,13 @@ async def test_agent_ws_adds_message_before_acknowledging_it() -> None:
         runtime,
         _forward_message(),
         AgentLiveStatus(),
-        InboxForwardHandler(RecordingInbox()),
+        InboxForwardHandler(
+            RecordingInbox(),
+            changed_callback=lambda: events.append("changed"),
+        ),
     )
 
-    assert events == ["added", "received"]
+    assert events == ["added", "received", "changed"]
 
 
 @pytest.mark.anyio
@@ -228,6 +238,86 @@ async def test_agent_heartbeat_does_not_change_visible_listener_status() -> None
 
 
 @pytest.mark.anyio
+async def test_agent_ready_notifies_listener_readiness() -> None:
+    ready = Mock()
+    runtime = SimpleNamespace(
+        session_id="agent-session",
+        ready_received=False,
+        pre_ready_connect_failures=3,
+    )
+    status = AgentLiveStatus()
+
+    seq = await handle_server_message(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        object(),
+        runtime,
+        {"type": "ready", "seq": 9, "payload": {}},
+        status,
+        on_ready=ready,
+    )
+
+    assert seq == 9
+    assert runtime.ready_received
+    assert runtime.pre_ready_connect_failures == 0
+    assert status.snapshot() == (
+        "Subscription Online",
+        "Handshake complete, waiting for tasks",
+    )
+    ready.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_agent_non_ready_messages_do_not_notify_readiness() -> None:
+    ready = Mock()
+    client = SimpleNamespace(send_pong=AsyncMock())
+    runtime = SimpleNamespace(session_id="agent-session")
+
+    await handle_server_message(
+        SimpleNamespace(),
+        client,
+        object(),
+        runtime,
+        {"type": "ping", "seq": 10},
+        AgentLiveStatus(),
+        on_ready=ready,
+    )
+
+    ready.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_agent_replay_propagates_ready_notification() -> None:
+    ready = Mock()
+    runtime = SimpleNamespace(
+        session_id="agent-session",
+        ready_received=False,
+        pre_ready_connect_failures=1,
+    )
+
+    seq = await handle_server_message(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        object(),
+        runtime,
+        {
+            "type": "replay.batch",
+            "seq": 10,
+            "payload": {
+                "messages": [
+                    {"type": "ready", "seq": 11, "payload": {}},
+                ],
+            },
+        },
+        AgentLiveStatus(),
+        on_ready=ready,
+    )
+
+    assert seq == 11
+    ready.assert_called_once_with()
+
+
+@pytest.mark.anyio
 async def test_agent_receive_stops_cleanly_when_listener_is_closed() -> None:
     stop_event = asyncio.Event()
     stop_event.set()
@@ -235,3 +325,91 @@ async def test_agent_receive_stops_cleanly_when_listener_is_closed() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await recv_json_or_stop(client, object(), stop_event)
+
+
+class _WsContext(object):
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.exited = asyncio.Event()
+
+    async def __aenter__(self):
+        self.entered.set()
+        return self
+
+    async def __aexit__(self, _error_type, _error, _traceback) -> None:
+        self.exited.set()
+
+
+def _ws_runtime() -> AgentSessionRuntime:
+    return AgentSessionRuntime(
+        session_id="agent-session",
+        ws_token="token",
+        resume_token=None,
+        credential=None,
+        mind_call_example=None,
+        ws_url=None,
+        device_id="device-1",
+        client_version="1.0.0",
+    )
+
+
+def _waiting_ws_client(context: _WsContext, receive_started: asyncio.Event):
+    async def recv_json(_connection):
+        receive_started.set()
+        await asyncio.Event().wait()
+
+    return SimpleNamespace(
+        connect_ws=AsyncMock(return_value=context),
+        send_hello=AsyncMock(),
+        send_runtime_bind=AsyncMock(),
+        recv_json=recv_json,
+    )
+
+
+def _ws_mind() -> SimpleNamespace:
+    return SimpleNamespace(
+        task_event=asyncio.Event(),
+        fresh_pref_config=AsyncMock(return_value={"primary": {}}),
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_ready_timeout_closes_websocket_context() -> None:
+    context = _WsContext()
+    receive_started = asyncio.Event()
+    client = _waiting_ws_client(context, receive_started)
+
+    with pytest.raises(TimeoutError, match="did not send ready"):
+        await connect_once(
+            _ws_mind(),
+            client,
+            _ws_runtime(),
+            AgentLiveStatus(),
+            ready_timeout_sec=0.01,
+        )
+
+    assert receive_started.is_set()
+    assert context.exited.is_set()
+
+
+@pytest.mark.anyio
+async def test_agent_listener_cancellation_closes_websocket_context() -> None:
+    context = _WsContext()
+    receive_started = asyncio.Event()
+    client = _waiting_ws_client(context, receive_started)
+    disconnected = Mock()
+    task = asyncio.create_task(connect_once(
+        _ws_mind(),
+        client,
+        _ws_runtime(),
+        AgentLiveStatus(),
+        on_disconnected=disconnected,
+    ))
+    await receive_started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert context.exited.is_set()
+    disconnected.assert_called_once_with()

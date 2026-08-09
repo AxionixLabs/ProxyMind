@@ -51,7 +51,7 @@ class TuiTranscriptViewport(object):
         document: TuiDocument,
         is_application_active: typing.Callable[[], bool],
         is_scrollback_deferred: typing.Callable[[], bool],
-        is_transcript_overlay_active: typing.Callable[[], bool],
+        is_full_screen_overlay_active: typing.Callable[[], bool],
         is_closing: typing.Callable[[], bool],
         get_application: typing.Callable[[], Application[None]],
         get_terminal_geometry: typing.Callable[[], tuple[int, int]],
@@ -74,7 +74,7 @@ class TuiTranscriptViewport(object):
 
         self._is_application_active        = is_application_active
         self._is_scrollback_deferred       = is_scrollback_deferred
-        self._is_transcript_overlay_active = is_transcript_overlay_active
+        self._is_full_screen_overlay_active = is_full_screen_overlay_active
         self._is_closing                   = is_closing
 
         self._get_application          = get_application
@@ -304,7 +304,7 @@ class TuiTranscriptViewport(object):
         """判断当前交互状态是否要求延迟原生滚屏提交。"""
         return bool(
             self._is_scrollback_deferred()
-            or self._is_transcript_overlay_active()
+            or self._is_full_screen_overlay_active()
             or (
                 self.document.active_block is not None
                 and not self.document.active_stream_continuation

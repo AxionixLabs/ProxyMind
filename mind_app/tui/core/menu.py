@@ -9,7 +9,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from mind_app.presentation.terminal_text import sanitize_terminal_line
 from .models import (
     MenuOption,
     MenuRequest
@@ -369,19 +369,19 @@ class TuiMenu(object):
 def _sanitize_menu_request(request: MenuRequest) -> MenuRequest:
     """复制菜单请求并清理其中的显示字段。"""
     return MenuRequest(
-        title=sanitize_terminal_text(request.title),
+        title=sanitize_terminal_line(request.title),
         options=tuple(
             MenuOption(
                 value=option.value,
-                label=sanitize_terminal_text(option.label),
-                detail=sanitize_terminal_text(option.detail),
+                label=sanitize_terminal_line(option.label),
+                detail=sanitize_terminal_line(option.detail),
             )
             for option in request.options
         ),
-        body=tuple(sanitize_terminal_text(line) for line in request.body),
+        body=tuple(sanitize_terminal_line(line) for line in request.body),
         selected=request.selected,
-        status=sanitize_terminal_text(request.status),
-        help_text=sanitize_terminal_text(request.help_text),
+        status=sanitize_terminal_line(request.status),
+        help_text=sanitize_terminal_line(request.help_text),
     )
 
 

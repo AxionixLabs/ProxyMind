@@ -61,6 +61,12 @@ from ..features.history import (
     load_history_transcript
 )
 from ..features.hooks import manage_hooks
+from ..features.listener import (
+    choose_listener_action,
+    parse_listener_command,
+    render_listener_status
+)
+from ..features.mailbox import TuiMailboxFeature
 from ..features.mcp import (
     McpAction,
     choose_mcp_action,
@@ -125,6 +131,7 @@ class TuiCommandDispatcher(object):
 
         self.foreground_tasks = foreground_tasks
         self.application      = mind.frontend.application
+        self.mailbox          = TuiMailboxFeature(runtime, mind)
 
         self._process_snapshot_task: asyncio.Task[None] | None = None
         self._agent_menu_task: asyncio.Task[None] | None       = None
@@ -211,6 +218,28 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "agent"):
             await manage_agents(self.runtime, self.mind)
+            return DispatchAction.HANDLED
+
+        is_listener_command, listener_action = parse_listener_command(command)
+
+        if is_listener_command:
+            if listener_action is None:
+                listener_action = await choose_listener_action(
+                    self.runtime,
+                    self.mind,
+                )
+                if listener_action is None:
+                    return DispatchAction.HANDLED
+            if listener_action == "status":
+                render_listener_status(self.mind)
+            else:
+                self.foreground_tasks.start_listener(listener_action)
+                await self.foreground_tasks.wait()
+                self.mailbox.bind_listener()
+            return DispatchAction.HANDLED
+
+        if matches_command(command, "mailbox"):
+            await self.mailbox.open()
             return DispatchAction.HANDLED
 
         if matches_command(command, "diff"):

@@ -127,20 +127,13 @@ async def run_selected_command(
 
 async def _run_agent_listener_session(mind: "Mind") -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
-    from ..subscription.runtime import AgentRuntime
-
-    listener = AgentRuntime(mind)
-    listener.start_background()
-
-    try:
-        await _run_tui_session(
-            mind,
-            prompt=None,
-            images=(),
-            model=None,
-        )
-    finally:
-        await listener.stop()
+    mind.start_subscription_listener()
+    await _run_tui_session(
+        mind,
+        prompt=None,
+        images=(),
+        model=None,
+    )
 
 
 async def _run_tui_session(
@@ -155,12 +148,16 @@ async def _run_tui_session(
 
     for image in images:
         mind.attach.add_pending_attachments(image)
-    await run_tui_loop(
-        mind,
-        initial_prompt=prompt,
-        initial_images=images,
-        initial_model=model,
-    )
+
+    try:
+        await run_tui_loop(
+            mind,
+            initial_prompt=prompt,
+            initial_images=images,
+            initial_model=model,
+        )
+    finally:
+        await mind.stop_subscription_listener()
 
 
 async def _select_resume_session(

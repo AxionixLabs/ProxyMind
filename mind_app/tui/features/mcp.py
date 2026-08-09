@@ -22,11 +22,10 @@ from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    WARNING_STYLE,
     command_result_block,
     failure_text_block,
     fragment_block,
-    text_block
+    interrupted_status_block
 )
 from ..core.runtime import TuiRuntime, require_tui_runtime
 
@@ -322,10 +321,7 @@ def render_mcp_action_interrupted(mind: typing.Any, action: McpAction) -> None:
     """展示外部 MCP 操作被用户中断的状态。"""
     _present(
         mind,
-        fragment_block(
-            TextSpan("External MCP ", ACCENT_STYLE),
-            TextSpan(f"· {action} interrupted", WARNING_STYLE),
-        ),
+        interrupted_status_block("External MCP", action=action),
         view_type="tui.external_mcp.interrupted",
     )
     _present(mind, view_type="tui.gap")

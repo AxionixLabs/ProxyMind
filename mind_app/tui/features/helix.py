@@ -38,10 +38,10 @@ from ..core.styles import (
     BODY_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    WARNING_STYLE,
     BRIGHT_STYLE,
     command_result_block,
-    fragment_block
+    fragment_block,
+    interrupted_status_block
 )
 
 if typing.TYPE_CHECKING:
@@ -359,10 +359,7 @@ def render_helix_interrupted(
     """展示 Helix 前台操作被用户中断的状态。"""
     _present(
         mind,
-        fragment_block(
-            TextSpan(f"{label} ", ACCENT_STYLE),
-            TextSpan("· interrupted", WARNING_STYLE),
-        ),
+        interrupted_status_block(label),
         view_type="tui.helix.interrupted",
     )
     _present(mind, view_type="tui.gap")

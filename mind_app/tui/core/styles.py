@@ -77,6 +77,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "footer.access": "fg:#8FC7EA",
     "footer.access.full": "fg:#D8B26E",
     "footer.workspace": "fg:#8A929C",
+    "footer.mailbox": "fg:#8FC7EA bold",
     "footer.queue-hint": "fg:#7B838E dim",
     "footer.exit-key": "fg:#C9A86A",
     "footer.exit-hint": "fg:#8A929C",
@@ -110,6 +111,16 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "transcript.overlay.search-cursor": "fg:#8FC7EA",
     "transcript.overlay.export-success": "fg:#8FD5A6",
     "transcript.overlay.export-error": "fg:#FF8A8A",
+    "mailbox.title": "fg:#87919D dim",
+    "mailbox.rule": "fg:#69727D dim",
+    "mailbox.status": "fg:#DDE7EF bold",
+    "mailbox.subject": "fg:#F4F7FA bold",
+    "mailbox.detail": "fg:#87919D dim",
+    "mailbox.message": "fg:#DDE7EF",
+    "mailbox.empty": "fg:#DDE7EF",
+    "mailbox.help": "fg:#87919D",
+    "mailbox.progress": "fg:#DDE7EF bold",
+    "mailbox.filler": "fg:#69727D dim",
 })
 
 
@@ -453,6 +464,20 @@ def command_result_block(
         TextSpan(f"{canonical_command_label(command)} ", COMMAND_STYLE),
         TextSpan("· ", MUTED_STYLE),
         *parts,
+    )
+
+
+def interrupted_status_block(
+    label: str,
+    *,
+    action: str = "",
+) -> FragmentBlock:
+    """生成带中性项目符号的前台操作中断状态。"""
+    detail = f"{action} interrupted" if action else "interrupted"
+    return fragment_block(
+        TextSpan("• ", MUTED_STYLE),
+        TextSpan(f"{label} ", ACCENT_STYLE),
+        TextSpan(f"· {detail}", WARNING_STYLE),
     )
 
 

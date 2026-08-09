@@ -62,5 +62,21 @@ class MenuRequest(object):
     help_text: str = "Up/Down select · Enter apply · Esc/q cancel"
 
 
+@dataclass(frozen=True, slots=True)
+class MailboxEntry(object):
+    """描述全屏收件箱中的一条只读消息。"""
+    key: str
+    title: str
+    message: str
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MailboxRunRequest(object):
+    """描述需要由 TUI 主循环串行执行的收件箱消息。"""
+    message_id: str
+    automatic: bool = False
+
+
 if __name__ == '__main__':
     pass

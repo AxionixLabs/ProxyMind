@@ -180,7 +180,7 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
     )
     assert "".join(
         text for _style, text in status.renderable.fragments
-    ) == "External MCP · start interrupted"
+    ) == "• External MCP · start interrupted"
 
 
 @pytest.mark.anyio

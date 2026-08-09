@@ -12,6 +12,7 @@ from .interrupt import (
 )
 from .models import (
     FragmentBlock,
+    MailboxRunRequest,
     TranscriptBacktrackRequest
 )
 from .queued import (
@@ -67,6 +68,14 @@ class TuiTranscriptBacktrackRequested(Exception):
 
     def __init__(self, request: TranscriptBacktrackRequest) -> None:
         super().__init__(request.turn_id)
+        self.request = request
+
+
+class TuiMailboxRunRequested(Exception):
+    """通知会话循环执行一条收件箱消息。"""
+
+    def __init__(self, request: MailboxRunRequest) -> None:
+        super().__init__(request.message_id)
         self.request = request
 
 

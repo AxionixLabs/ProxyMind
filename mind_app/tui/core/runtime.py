@@ -29,6 +29,8 @@ from mind_app.frontend.contracts import (
 from mind_app.interaction.contracts import PromptContext
 from .models import (
     FragmentBlock,
+    MailboxEntry,
+    MailboxRunRequest,
     MenuRequest,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
@@ -67,6 +69,7 @@ from ..prompting.commands import (
 from .submission import (
     TuiInputClosed,
     TuiInterruptRequested,
+    TuiMailboxRunRequested,
     TuiTranscriptBacktrackRequested,
     TuiSubmissionFlow
 )
@@ -208,8 +211,11 @@ class TuiRuntime(object):
             document=self.document,
             is_application_active=lambda: self.active,
             is_scrollback_deferred=self._native_scrollback_deferred,
-            is_transcript_overlay_active=(
-                lambda: self.screen.transcript_overlay.active
+            is_full_screen_overlay_active=(
+                lambda: (
+                    self.screen.transcript_overlay.active
+                    or self.screen.mailbox_overlay.active
+                )
             ),
             is_closing=lambda: self._closing,
             get_application=lambda: self.screen.application,
@@ -262,6 +268,7 @@ class TuiRuntime(object):
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_transcript_overlay=self.toggle_transcript_overlay,
+            close_mailbox_overlay=self.close_mailbox_overlay,
             request_transcript_backtrack=(
                 self.submissions.enqueue_transcript_backtrack
             ),
@@ -447,6 +454,7 @@ class TuiRuntime(object):
             self.active
             and not self.submission_deferred
             and not self.screen.transcript_overlay.active
+            and not self.screen.mailbox_overlay.active
             and not self.input_model.shell_mode
             and not self.screen.input.buffer.text
             and not self.has_pending_attachments
@@ -463,6 +471,7 @@ class TuiRuntime(object):
             self.active
             and not self.submission_deferred
             and not self.screen.transcript_overlay.active
+            and not self.screen.mailbox_overlay.active
             and not self.input_model.shell_mode
             and not self.screen.input.buffer.text
             and not self.has_pending_attachments
@@ -1166,6 +1175,63 @@ class TuiRuntime(object):
         if self.screen.set_transcript_overlay(False):
             self.viewport.schedule_scrollback_flush()
 
+    def set_mailbox_entries(
+        self,
+        entries: typing.Iterable[MailboxEntry],
+        *,
+        listener_active: bool
+    ) -> None:
+        """把远端请求快照同步到静态收件箱画面。"""
+        self.screen.set_mailbox_entries(
+            entries,
+            listener_active=listener_active,
+        )
+
+    def mailbox_entries(self) -> tuple[MailboxEntry, ...]:
+        """返回已经过终端文本过滤的收件箱展示快照。"""
+        return self.screen.mailbox_overlay.entries
+
+    def enqueue_mailbox_run(
+        self,
+        message_id: str,
+        *,
+        automatic: bool,
+    ) -> None:
+        """把一条收件箱执行请求投递到 TUI 主输入事件队列。"""
+        self.submissions.message_queue.put_nowait(MailboxRunRequest(
+            message_id=str(message_id),
+            automatic=automatic,
+        ))
+
+    async def view_mailbox_entry(self, entry_key: str) -> bool:
+        """冻结原生滚屏并等待单条消息详情关闭。"""
+        self.input_model.cancel_history_backtrack()
+        self.viewport.pause_scrollback()
+        try:
+            opened = self.screen.set_mailbox_overlay(
+                True,
+                entry_key=entry_key,
+            )
+        except BaseException:
+            self.viewport.schedule_scrollback_flush()
+            raise
+
+        if not opened:
+            self.viewport.schedule_scrollback_flush()
+            return False
+
+        try:
+            await self.screen.mailbox_overlay.wait_closed()
+        finally:
+            if self.screen.mailbox_overlay.active:
+                self.screen.set_mailbox_overlay(False)
+            self.viewport.schedule_scrollback_flush()
+        return True
+
+    def close_mailbox_overlay(self) -> None:
+        """关闭全屏消息详情并恢复等待中的菜单流程。"""
+        self.screen.set_mailbox_overlay(False)
+
     def open_transcript_backtrack(self) -> None:
         """从主输入区打开完整记录并选择最近用户轮次。"""
         if not self._open_transcript_overlay():
@@ -1486,6 +1552,8 @@ class TuiRuntime(object):
 
         if self.screen.transcript_overlay.active:
             self.screen.set_transcript_overlay(False)
+        if self.screen.mailbox_overlay.active:
+            self.screen.set_mailbox_overlay(False)
 
         self.screen.set_transcript_only(preserve_transcript)
 
@@ -1521,6 +1589,9 @@ class TuiRuntime(object):
 
         if isinstance(submission, TranscriptBacktrackRequest):
             raise TuiTranscriptBacktrackRequested(submission)
+
+        if isinstance(submission, MailboxRunRequest):
+            raise TuiMailboxRunRequested(submission)
 
         if isinstance(submission, TuiSubmission):
             self._consumed_submission = submission

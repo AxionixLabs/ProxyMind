@@ -18,6 +18,16 @@ if typing.TYPE_CHECKING:
     from ..controller import Mind
 
 
+ReadyCallback = typing.Callable[[], None]
+ConnectedCallback = typing.Callable[
+    [AgentClient, typing.Any, AgentSessionRuntime, AgentLiveStatus],
+    None,
+]
+DisconnectedCallback = typing.Callable[[], None]
+
+AGENT_WS_READY_TIMEOUT_SEC: typing.Final[float] = 15.0
+
+
 _REOPEN_ERROR_CODES: typing.Final[set[str]] = {
     "AGENT_TOKEN_INVALID",
     "AGENT_CLIENT_UNAUTHORIZED",
@@ -217,7 +227,9 @@ async def handle_server_message(
     runtime: AgentSessionRuntime,
     message: dict[str, typing.Any],
     live_status: AgentLiveStatus,
-    forward_handler: AgentForwardHandler | None = None
+    forward_handler: AgentForwardHandler | None = None,
+    *,
+    on_ready: ReadyCallback | None = None,
 ) -> int | None:
     """按订阅协议处理一条服务端消息。"""
     current_seq  = extract_message_seq(message)
@@ -229,6 +241,9 @@ async def handle_server_message(
 
         runtime.ready_received = True
         runtime.pre_ready_connect_failures = 0
+
+        if on_ready is not None:
+            on_ready()
 
         live_status.update("Subscription Online", "Handshake complete, waiting for tasks")
 
@@ -265,7 +280,8 @@ async def handle_server_message(
                     runtime,
                     replay_message,
                     live_status,
-                    forward_handler
+                    forward_handler,
+                    on_ready=on_ready,
                 )
                 if isinstance(replay_seq, int):
                     handled_seq = replay_seq if handled_seq is None else max(handled_seq, replay_seq)
@@ -343,14 +359,32 @@ async def connect_once(
     client: AgentClient,
     runtime: AgentSessionRuntime,
     live_status: AgentLiveStatus,
-    forward_handler: AgentForwardHandler | None = None
+    forward_handler: AgentForwardHandler | None = None,
+    *,
+    on_ready: ReadyCallback | None = None,
+    on_connected: ConnectedCallback | None = None,
+    on_disconnected: DisconnectedCallback | None = None,
+    ready_timeout_sec: float = AGENT_WS_READY_TIMEOUT_SEC,
 ) -> None:
     """建立一次 WS 连接生命周期，并持续处理消息直到断开。"""
-    async with await client.connect_ws(
-        session_id=runtime.session_id,
-        ws_token=runtime.ws_token,
-        ws_base_url=runtime.ws_url
-    ) as connection:
+    connection_ready = asyncio.Event()
+
+    def notify_ready() -> None:
+        """记录当前连接已经完成握手并通知订阅运行时。"""
+        if connection_ready.is_set():
+            return None
+        connection_ready.set()
+        if on_ready is not None:
+            on_ready()
+
+    async with contextlib.AsyncExitStack() as stack:
+        if on_disconnected is not None:
+            stack.callback(on_disconnected)
+        connection = await stack.enter_async_context(await client.connect_ws(
+            session_id=runtime.session_id,
+            ws_token=runtime.ws_token,
+            ws_base_url=runtime.ws_url
+        ))
         live_status.update(
             "Opening Long Link", "WebSocket connected, sending hello"
         )
@@ -374,6 +408,8 @@ async def connect_once(
             last_acked_seq=runtime.last_acked_seq,
             resume_available=bool(runtime.resume_token),
         )
+        if on_connected is not None:
+            on_connected(client, connection, runtime, live_status)
 
         if runtime.last_acked_seq > 0:
             live_status.update(
@@ -396,8 +432,37 @@ async def connect_once(
                 reason="no_acked_sequence",
             )
 
+        ready_deadline = (
+            asyncio.get_running_loop().time()
+            + max(0.0, float(ready_timeout_sec))
+        )
+
         while True:
-            message = await recv_json_or_stop(client, connection, mind.task_event)
+            if ready_deadline is None:
+                message = await recv_json_or_stop(
+                    client,
+                    connection,
+                    mind.task_event,
+                )
+            else:
+                ready_remaining = ready_deadline - asyncio.get_running_loop().time()
+                if ready_remaining <= 0:
+                    raise TimeoutError(
+                        f"server did not send ready within {ready_timeout_sec:g}s"
+                    )
+                try:
+                    message = await asyncio.wait_for(
+                        recv_json_or_stop(
+                            client,
+                            connection,
+                            mind.task_event,
+                        ),
+                        timeout=ready_remaining,
+                    )
+                except TimeoutError as error:
+                    raise TimeoutError(
+                        f"server did not send ready within {ready_timeout_sec:g}s"
+                    ) from error
             payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
             observe(
                 "agent.ws.received",
@@ -407,9 +472,18 @@ async def connect_once(
                 call_id=payload.get("call_id"),
             )
             handled_seq = await handle_server_message(
-                mind, client, connection, runtime, message, live_status, forward_handler
+                mind,
+                client,
+                connection,
+                runtime,
+                message,
+                live_status,
+                forward_handler,
+                on_ready=notify_ready,
             )
             update_last_acked_seq(runtime, handled_seq)
+            if connection_ready.is_set():
+                ready_deadline = None
 
 
 if __name__ == '__main__':

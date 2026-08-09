@@ -242,7 +242,29 @@ async def test_compact_cancellation_clears_animation_without_failure(
 
     assert mind.stopped == []
     assert any(view.type == "tui.compact.interrupted" for view in mind.views)
+    interrupted = next(
+        view for view in mind.views
+        if view.type == "tui.compact.interrupted"
+    )
+    assert "".join(
+        text for _style, text in interrupted.renderable.fragments
+    ) == "• Context compaction · interrupted"
     assert not any(view.type == "tui.compact.status" for view in mind.views)
+
+
+def test_fork_interruption_uses_the_shared_neutral_prefix() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    conversation.render_fork_interrupted(mind)
+
+    assert "".join(
+        text for _style, text in views[0].renderable.fragments
+    ) == "• Conversation fork · interrupted"
 
 
 @pytest.mark.anyio

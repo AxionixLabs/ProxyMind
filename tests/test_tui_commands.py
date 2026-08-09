@@ -53,6 +53,8 @@ def test_root_command_completion_order_is_stable() -> None:
         "/tools",
         "/hooks",
         "/agent",
+        "/listen",
+        "/mailbox",
         "/diff",
         "/copy",
         "/ps",
@@ -163,6 +165,8 @@ def test_command_matching_distinguishes_empty_and_argument_states() -> None:
         "/resume",
         "/hooks",
         "/agent",
+        "/listen",
+        "/mailbox",
         "/ps",
         "/mcp",
         "/helix-link",
@@ -187,6 +191,8 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_policy("/mcp force") == "background_barrier"
     assert stream_command_policy("/ps") == "local_snapshot"
     assert stream_command_policy("/agent") == "interactive_panel"
+    assert stream_command_policy("/listen") == "reject"
+    assert stream_command_policy("/mailbox") == "reject"
     assert stream_command_policy("/compact") == "reject"
     assert stream_command_policy("/hooks") == "reject"
     assert stream_command_policy("/fork") == "reject"
@@ -200,7 +206,16 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["/permissions", "/MODEL gpt-test", "/mcp start", "/q"],
+    [
+        "/permissions",
+        "/MODEL gpt-test",
+        "/mcp start",
+        "/listen start",
+        "/listen stop",
+        "/listen status",
+        "/mailbox",
+        "/q",
+    ],
 )
 def test_registered_slash_command_inputs_are_resolved(value) -> None:
     assert resolve_slash_command(value) is not None
@@ -209,7 +224,13 @@ def test_registered_slash_command_inputs_are_resolved(value) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["/今天天气", "/compact later", "/mcp unknown", "/helix-mode app"],
+    [
+        "/今天天气",
+        "/compact later",
+        "/mcp unknown",
+        "/listen restart",
+        "/helix-mode app",
+    ],
 )
 def test_unknown_or_invalid_slash_command_inputs_are_rejected(value) -> None:
     assert resolve_slash_command(value) is None
@@ -405,12 +426,12 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
         lambda _context: False,
     )
     monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
-    runtime = SimpleNamespace()
+    runtime = TuiRuntime()
     dispatcher = TuiCommandDispatcher(
         mind,
         runtime,
         state,
-        SimpleNamespace(),
+        TuiRuntime(),
     )
 
     action = await dispatcher.dispatch("/helix-mode")
@@ -442,7 +463,7 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
     )
     dispatcher = TuiCommandDispatcher(
         mind,
-        SimpleNamespace(),
+        TuiRuntime(),
         state,
         SimpleNamespace(),
     )
@@ -741,6 +762,168 @@ async def test_dispatcher_routes_agent_to_the_management_surface(
 
     assert action is DispatchAction.HANDLED
     manage.assert_awaited_once_with(runtime, mind)
+
+
+@pytest.mark.anyio
+async def test_dispatcher_routes_listener_status_to_stable_output(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    runtime = SimpleNamespace()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+    )
+    render = Mock()
+    monkeypatch.setattr(
+        dispatch_module,
+        "render_listener_status",
+        render,
+    )
+    foreground = SimpleNamespace(
+        start_listener=Mock(),
+        wait=AsyncMock(),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch("/listen status")
+
+    assert action is DispatchAction.HANDLED
+    render.assert_called_once_with(mind)
+    foreground.start_listener.assert_not_called()
+    foreground.wait.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+    )
+    choose = AsyncMock(return_value="start")
+    monkeypatch.setattr(
+        dispatch_module,
+        "choose_listener_action",
+        choose,
+    )
+    foreground = SimpleNamespace(
+        start_listener=Mock(),
+        wait=AsyncMock(),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch("/listen")
+
+    assert action is DispatchAction.HANDLED
+    choose.assert_awaited_once_with(runtime, mind)
+    foreground.start_listener.assert_called_once_with("start")
+    foreground.wait.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_closes_listener_menu_without_starting_action(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+    )
+    choose = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        dispatch_module,
+        "choose_listener_action",
+        choose,
+    )
+    foreground = SimpleNamespace(
+        start_listener=Mock(),
+        wait=AsyncMock(),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        TuiRuntime(),
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch("/listen")
+
+    assert action is DispatchAction.HANDLED
+    foreground.start_listener.assert_not_called()
+    foreground.wait.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_routes_mailbox_to_summary_menu() -> None:
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        TuiRuntime(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+    dispatcher.mailbox.open = AsyncMock()
+
+    action = await dispatcher.dispatch("/mailbox")
+
+    assert action is DispatchAction.HANDLED
+    dispatcher.mailbox.open.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("command", "expected_action"),
+    (("/listen start", "start"), ("/listen stop", "stop")),
+)
+async def test_dispatcher_runs_listener_transition_as_foreground_task(
+    command,
+    expected_action,
+) -> None:
+    foreground = SimpleNamespace(
+        start_listener=Mock(),
+        wait=AsyncMock(),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        TuiRuntime(),
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch(command)
+
+    assert action is DispatchAction.HANDLED
+    foreground.start_listener.assert_called_once_with(expected_action)
+    foreground.wait.assert_awaited_once_with()
 
 
 @pytest.mark.anyio

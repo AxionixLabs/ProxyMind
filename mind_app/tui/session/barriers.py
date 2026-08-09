@@ -23,6 +23,13 @@ from ..features.helix import (
     render_helix_link_failure,
     render_helix_link_result
 )
+from ..features.listener import (
+    ListenerOperation,
+    render_listener_failure,
+    render_listener_interrupted,
+    render_listener_result,
+    run_listener_action
+)
 from ..features.mcp import (
     McpAction,
     parse_mcp_command,
@@ -36,7 +43,7 @@ from ..prompting.commands import matches_command
 if typing.TYPE_CHECKING:
     from ...controller import Mind
 
-CancelCleanup    = typing.Callable[[], typing.Awaitable[None]]
+CancelCleanup = typing.Callable[[], typing.Awaitable[None]]
 
 SucceededHandler = typing.Callable[
     [typing.Any],
@@ -146,6 +153,32 @@ class TuiForegroundTasks(object):
                 error,
             ),
             on_cancelled=lambda: render_mcp_action_cancelled(
+                self.mind,
+                action,
+            ),
+        )
+
+    def start_listener(self, action: ListenerOperation) -> bool:
+        """按统一生命周期启动监听器状态切换任务。"""
+        return self.start(
+            "Listener",
+            lambda: run_listener_action(self.mind, action),
+            cancel_cleanup=(
+                self.mind.pause_subscription_listener
+                if action == "start"
+                else None
+            ),
+            activity_kind="operation",
+            on_succeeded=lambda outcome: render_listener_result(
+                self.mind,
+                outcome,
+            ),
+            on_failed=lambda error: render_listener_failure(
+                self.mind,
+                action,
+                error,
+            ),
+            on_cancelled=lambda: render_listener_interrupted(
                 self.mind,
                 action,
             ),

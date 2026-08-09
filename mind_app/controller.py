@@ -94,6 +94,7 @@ if typing.TYPE_CHECKING:
     from .runtime.turns.result import RunResult
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
     from .runtime.turns.executor import TurnExecution
+    from .subscription.runtime import AgentRuntime
     from server import ConfigServiceRuntime
 
 
@@ -199,14 +200,15 @@ class Mind(object):
 
         self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
 
+        self.subscription_runtime: AgentRuntime | None = None
+
         self.client_tools: ClientToolRegistry = self._build_client_tools()
 
         self.tool_runtime: ToolRuntime = CompositeToolRuntime(self)
 
         self.exit_code: int = 0
 
-        self.service_mcp_linked: bool = False
-
+        self.service_mcp_linked: bool                    = False
         self.service_tool_profile: ToolFilterMode | None = None
 
         self.stop_runtime_on_exit: bool = False
@@ -815,6 +817,31 @@ class Mind(object):
         await config_service.stop()
         observe("config_service.stopped")
 
+    def start_subscription_listener(self) -> "AgentRuntime":
+        """启动或复用当前进程的远端请求监听器。"""
+        from .subscription.runtime import AgentRuntime
+
+        runtime = self.subscription_runtime
+        if runtime is None:
+            runtime = AgentRuntime(self)
+            self.subscription_runtime = runtime
+        runtime.start_background()
+        return runtime
+
+    async def pause_subscription_listener(self) -> None:
+        """停止远端请求传输并保留当前进程的收件箱。"""
+        runtime = self.subscription_runtime
+        if runtime is not None:
+            await runtime.stop()
+
+    async def stop_subscription_listener(self) -> None:
+        """停止并释放当前进程的远端请求监听器。"""
+        runtime = self.subscription_runtime
+        self.subscription_runtime = None
+        if runtime is not None:
+            runtime.bind_inbox_changed(None)
+            await runtime.stop()
+
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
         refresh_ttl = self.pref_refresh_ttl_sec if ttl_sec is None else max(0.0, float(ttl_sec))
@@ -1032,6 +1059,7 @@ class Mind(object):
         """关闭主控制器持有的运行时资源，并按退出策略处理本地后台进程。"""
         observe("runtime.close.start")
         try:
+            await self.stop_subscription_listener()
             await self.cancel_service_runtime_startup()
 
             await self.subagents.shutdown()
