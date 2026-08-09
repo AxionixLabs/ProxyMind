@@ -169,7 +169,7 @@ class TuiSessionState(object):
 
 
 async def preload_tui_prompt_context(mind: "Mind") -> None:
-    """在 TUI 首帧前加载输入上下文和后台进程状态。"""
+    """在主画布显示前加载输入上下文和后台进程状态。"""
     runtime = require_tui_runtime(mind.frontend.runtime)
 
     runtime.input_model.set_skills(configured_skills(
@@ -204,6 +204,9 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
         exec_snapshot,
         line_width=runtime.terminal_width,
     ))
+
+    if runtime.directory_trust_active:
+        await runtime.finish_directory_trust()
 
 
 if __name__ == '__main__':

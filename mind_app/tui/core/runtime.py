@@ -353,6 +353,12 @@ class TuiRuntime(object):
         viewer = self.screen.process_viewer
         return viewer.active_session_id if viewer.input_passthrough else ""
 
+    @property
+    def command_layout_pending(self) -> bool:
+        """返回当前任务是否仍等待命令结果收束补全锚点。"""
+        handoff = self._command_layout.get()
+        return handoff is not None and not handoff.consumed
+
     @execution_active.setter
     def execution_active(self, active: bool) -> None:
         """更新模型轮次运行状态。"""
@@ -620,6 +626,11 @@ class TuiRuntime(object):
     async def wait_directory_trust(self) -> bool:
         """等待目录信任界面的下一次选择。"""
         return await self.screen.directory_trust.wait() == "trust"
+
+    @property
+    def directory_trust_active(self) -> bool:
+        """返回启动阶段的目录信任界面是否仍在显示。"""
+        return self.screen.directory_trust.active
 
     def show_directory_trust_error(self, message: str) -> None:
         """显示目录信任状态保存失败信息。"""
@@ -909,12 +920,6 @@ class TuiRuntime(object):
         handoff.consumed = True
         self.screen.settle_completion_layout(invalidate=False)
         return True
-
-    @property
-    def command_layout_pending(self) -> bool:
-        """返回当前任务是否仍等待命令结果收束补全锚点。"""
-        handoff = self._command_layout.get()
-        return handoff is not None and not handoff.consumed
 
     def activity_handoff(
         self,

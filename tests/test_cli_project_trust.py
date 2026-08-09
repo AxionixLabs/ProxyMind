@@ -22,7 +22,6 @@ class _TrustRuntime(object):
         self.decisions = list(decisions)
         self.started: tuple[Path, Path] | None = None
         self.errors: list[str] = []
-        self.finish_count = 0
 
     async def begin_directory_trust(
         self,
@@ -36,9 +35,6 @@ class _TrustRuntime(object):
 
     def show_directory_trust_error(self, message: str) -> None:
         self.errors.append(message)
-
-    async def finish_directory_trust(self) -> None:
-        self.finish_count += 1
 
 
 def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -140,7 +136,57 @@ async def test_accepting_unknown_project_reloads_all_project_automation(
         "trust_level": "trusted",
     }
     assert runtime.started == (workspace, project_root.resolve())
-    assert runtime.finish_count == 1
+    assert runtime.errors == []
+
+
+@pytest.mark.anyio
+async def test_accepting_linked_worktree_trusts_main_repository(tmp_path) -> None:
+    repository_root = tmp_path / "repository"
+    git_dir = repository_root / ".git" / "worktrees" / "feature"
+    git_dir.mkdir(parents=True)
+    worktree_root = tmp_path / "worktree"
+    workspace = worktree_root / "src"
+    workspace.mkdir(parents=True)
+    (worktree_root / ".git").write_text(
+        f"gitdir: {git_dir}\n",
+        encoding="utf-8",
+    )
+    project_config = worktree_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        '[mcp_servers.project]\ncommand = "project-server"\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    session = ConfigSession(store, workspace=workspace)
+    initial = session.resolve()
+    runtime = _TrustRuntime(True)
+
+    assert initial.project_trust is not None
+    assert initial.project_trust.project_root == worktree_root.resolve()
+    assert initial.project_trust.trust_root == repository_root.resolve()
+
+    result = await _confirm_tui_project_trust(
+        runtime=runtime,
+        config_session=session,
+        resolution=initial,
+        workspace=workspace,
+    )
+
+    assert result is not None
+    assert result.project_trust is not None
+    assert result.project_trust.project_root == worktree_root.resolve()
+    assert result.project_trust.trust_root == repository_root.resolve()
+    assert result.project_trust.level == "trusted"
+    assert result.config["mcp_servers"]["project"]["command"] == (
+        "project-server"
+    )
+    projects = store.read_raw()["projects"]
+    assert projects[str(repository_root.resolve())] == {
+        "trust_level": "trusted",
+    }
+    assert str(worktree_root.resolve()) not in projects
+    assert runtime.started == (workspace, repository_root.resolve())
     assert runtime.errors == []
 
 
@@ -169,7 +215,6 @@ async def test_accepting_home_directory_does_not_reclassify_user_config(
         "trust_level": "trusted",
     }
     assert runtime.errors == []
-    assert runtime.finish_count == 1
 
 
 @pytest.mark.anyio
@@ -198,7 +243,6 @@ async def test_declining_unknown_project_does_not_persist_a_decision(
     assert store.path.read_text(encoding="utf-8") == before
     assert session.resolve().project_trust is not None
     assert session.resolve().project_trust.level is None
-    assert runtime.finish_count == 0
 
 
 @pytest.mark.anyio
@@ -230,7 +274,6 @@ async def test_invalid_project_config_stays_untrusted_and_keeps_prompt_open(
     assert len(runtime.errors) == 1
     assert "cannot override tui" in runtime.errors[0]
     assert str(project_root.resolve()) in runtime.errors[0]
-    assert runtime.finish_count == 0
 
 
 @pytest.mark.anyio
@@ -257,7 +300,6 @@ async def test_known_project_trust_skips_startup_prompt(
 
     assert result is resolution
     assert runtime.started is None
-    assert runtime.finish_count == 0
 
 
 @pytest.mark.anyio
@@ -278,7 +320,6 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
     runtime = TuiRuntime()
     application = runtime.screen.application
     runtime.begin_directory_trust = AsyncMock()
-    runtime.finish_directory_trust = AsyncMock()
     runtime.close = AsyncMock()
     frontend = SimpleNamespace(
         application=SimpleNamespace(emit=Mock()),
@@ -314,7 +355,6 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
         workspace.resolve(),
         project_root.resolve(),
     )
-    runtime.finish_directory_trust.assert_awaited_once_with()
     run_controller.assert_awaited_once()
     arguments = run_controller.await_args.kwargs
     assert arguments["agent_settings"].max_depth == 4
@@ -339,7 +379,6 @@ async def test_tui_bootstrap_quit_stops_before_controller_and_config_service(
     runtime = TuiRuntime()
     runtime.begin_directory_trust = AsyncMock()
     runtime.wait_directory_trust = AsyncMock(return_value=False)
-    runtime.finish_directory_trust = AsyncMock()
     runtime.close = AsyncMock()
     frontend = SimpleNamespace(
         application=SimpleNamespace(emit=Mock()),
@@ -363,7 +402,6 @@ async def test_tui_bootstrap_quit_stops_before_controller_and_config_service(
 
     assert result == 0
     run_controller.assert_not_awaited()
-    runtime.finish_directory_trust.assert_not_awaited()
     runtime.close.assert_awaited_once_with()
     report.close.assert_called_once_with()
     trust = ConfigSession(

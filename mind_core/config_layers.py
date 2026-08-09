@@ -73,8 +73,9 @@ class ConfigLayer(object):
 
 @dataclass(frozen=True, slots=True)
 class ProjectTrust(object):
-    """描述项目根及其用户信任决定。"""
-    root: Path
+    """描述项目配置根、信任登记根及其用户决定。"""
+    project_root: Path
+    trust_root: Path
     level: ProjectTrustLevel | None
 
     @property
@@ -187,9 +188,10 @@ class ConfigResolver(object):
                 _project_root_markers(merged),
             )
 
-            project_trust = ProjectTrust(
-                root=project_root,
-                level=_project_trust_level(user, project_root),
+            project_trust = _resolve_project_trust(
+                user,
+                project_root,
+                effective_workspace,
             )
             if project_trust.trusted:
                 for path in _project_config_paths(
@@ -383,6 +385,77 @@ def _find_project_root(workspace: Path, markers: tuple[str, ...]) -> Path:
             return candidate
 
     return workspace
+
+
+def _resolve_project_trust(
+    user_config: dict[str, typing.Any],
+    project_root: Path,
+    workspace: Path
+) -> ProjectTrust:
+    """解析项目配置根对应的信任登记位置和已有决定。"""
+    checkout_root = _find_git_checkout_root(workspace)
+
+    default_trust_root = (
+        _resolve_git_trust_root(checkout_root)
+        if checkout_root is not None
+        else project_root
+    )
+
+    decision_roots = (
+        (project_root,)
+        if project_root == default_trust_root
+        else (project_root, default_trust_root)
+    )
+
+    for trust_root in decision_roots:
+        level = _project_trust_level(user_config, trust_root)
+        if level is not None:
+            return ProjectTrust(project_root, trust_root, level)
+
+    return ProjectTrust(project_root, default_trust_root, None)
+
+
+def _find_git_checkout_root(workspace: Path) -> Path | None:
+    """返回工作目录所属的最近 Git checkout 根。"""
+    for candidate in (workspace, *workspace.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _resolve_git_trust_root(checkout_root: Path) -> Path:
+    """通过 linked worktree 指针解析用于信任登记的主仓库根。"""
+    dot_git = checkout_root / ".git"
+    if dot_git.is_dir():
+        return checkout_root
+
+    try:
+        pointer = dot_git.read_text(encoding=const.CHARSET).strip()
+    except (OSError, UnicodeError):
+        return checkout_root
+
+    if "\n" in pointer or "\r" in pointer or not pointer.startswith("gitdir:"):
+        return checkout_root
+
+    raw_git_dir = pointer[len("gitdir:"):].strip()
+    if not raw_git_dir:
+        return checkout_root
+
+    try:
+        git_dir = Path(raw_git_dir)
+        if not git_dir.is_absolute():
+            git_dir = checkout_root / git_dir
+        git_dir = git_dir.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return checkout_root
+
+    worktrees_dir = git_dir.parent
+    common_dir    = worktrees_dir.parent
+
+    if worktrees_dir.name != "worktrees" or common_dir.name != ".git":
+        return checkout_root
+
+    return common_dir.parent
 
 
 def _project_trust_level(

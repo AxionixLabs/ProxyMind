@@ -15,6 +15,7 @@ from mind_app.cli.doctor import (
 )
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_core.application_paths import ApplicationLayout
+from mind_core.config_store import ConfigStore
 
 
 def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:
@@ -64,6 +65,32 @@ def test_doctor_fails_for_invalid_mcp_config(tmp_path) -> None:
     assert report.exit_code == 1
     assert checks["external_mcp"].status == "fail"
     assert "invalid" in checks["external_mcp"].summary
+
+
+def test_doctor_reports_linked_worktree_trust_root(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    context = _doctor_context(tmp_path)
+    repository_root = tmp_path / "repository"
+    git_dir = repository_root / ".git" / "worktrees" / "feature"
+    git_dir.mkdir(parents=True)
+    worktree_root = tmp_path / "worktree"
+    worktree_root.mkdir()
+    (worktree_root / ".git").write_text(
+        f"gitdir: {git_dir}\n",
+        encoding="utf-8",
+    )
+    ConfigStore(context.config_path).update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+    monkeypatch.chdir(worktree_root)
+
+    check = doctor._config_check(context)
+
+    assert f"project={worktree_root.resolve()}" in check.detail
+    assert f"trust={repository_root.resolve()}" in check.detail
+    assert "trusted=true" in check.detail
 
 
 def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import os
+
 import pytest
 
 from mind_core.config import (
@@ -18,6 +20,28 @@ def _command_handler(command, *, timeout=None):
     if timeout is not None:
         handler["timeout"] = timeout
     return handler
+
+
+def _linked_worktree(
+    tmp_path,
+    *,
+    relative_pointer: bool,
+):
+    repository_root = tmp_path / "repository"
+    git_dir = repository_root / ".git" / "worktrees" / "feature"
+    git_dir.mkdir(parents=True)
+    worktree_root = tmp_path / "worktree"
+    worktree_root.mkdir()
+    pointer = (
+        os.path.relpath(git_dir, worktree_root)
+        if relative_pointer
+        else str(git_dir)
+    )
+    (worktree_root / ".git").write_text(
+        f"gitdir: {pointer}\n",
+        encoding="utf-8",
+    )
+    return repository_root, worktree_root
 
 
 def test_invalid_update_does_not_replace_user_document(tmp_path) -> None:
@@ -98,7 +122,8 @@ def test_project_trust_state_controls_project_automation(
     resolution = ConfigSession(store, workspace=workspace).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.root == project_root.resolve()
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.project_trust.trust_root == project_root.resolve()
     assert resolution.project_trust.level == trust_level
     assert resolution.project_trust.trusted is project_enabled
     assert ("project" in resolution.config["mcp_servers"]) is project_enabled
@@ -106,6 +131,138 @@ def test_project_trust_state_controls_project_automation(
     assert any(
         layer.scope == "project" for layer in resolution.layers
     ) is project_enabled
+
+
+@pytest.mark.parametrize("relative_pointer", (False, True))
+def test_repository_trust_enables_linked_worktree_automation(
+    tmp_path,
+    relative_pointer,
+) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=relative_pointer,
+    )
+    workspace = worktree_root / "src"
+    workspace.mkdir()
+    project_config = worktree_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        "[agents]\n"
+        "max_depth = 3\n"
+        "[mcp_servers.project]\n"
+        'command = "project-server"\n'
+        "[[hooks.PreToolUse]]\n"
+        'hooks = [{ type = "command", command = "project-hook" }]\n',
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.project_root == worktree_root.resolve()
+    assert resolution.project_trust.trust_root == repository_root.resolve()
+    assert resolution.project_trust.level == "trusted"
+    assert resolution.config["agents"]["max_depth"] == 3
+    assert resolution.config["mcp_servers"]["project"]["command"] == (
+        "project-server"
+    )
+    assert len(resolution.hooks) == 1
+    assert resolution.hooks[0].source_path == str(project_config.resolve())
+
+
+def test_linked_worktree_decision_precedes_repository_decision(tmp_path) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+        ("projects", str(worktree_root)): {"trust_level": "untrusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=worktree_root).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.project_root == worktree_root.resolve()
+    assert resolution.project_trust.trust_root == worktree_root.resolve()
+    assert resolution.project_trust.level == "untrusted"
+    assert not resolution.project_trust.trusted
+
+
+def test_linked_worktree_keeps_custom_project_config_root(tmp_path) -> None:
+    repository_root, worktree_root = _linked_worktree(
+        tmp_path,
+        relative_pointer=False,
+    )
+    project_root = worktree_root / "packages" / "sample"
+    workspace = project_root / "src"
+    workspace.mkdir(parents=True)
+    (project_root / "pyproject.toml").write_text("", encoding="utf-8")
+    project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text(
+        "[agents]\nmax_depth = 4\n",
+        encoding="utf-8",
+    )
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("project_root_markers",): ["pyproject.toml"],
+        ("projects", str(repository_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=workspace).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.project_trust.trust_root == repository_root.resolve()
+    assert resolution.project_trust.level == "trusted"
+    assert resolution.config["agents"]["max_depth"] == 4
+    assert any(layer.path == project_config for layer in resolution.layers)
+
+
+@pytest.mark.parametrize(
+    "pointer_case",
+    (
+        "empty",
+        "missing-prefix",
+        "non-worktree",
+        "wrong-common-dir",
+        "multiline",
+    ),
+)
+def test_invalid_worktree_pointer_falls_back_to_project_root(
+    tmp_path,
+    pointer_case,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    valid_git_dir = tmp_path / "repository" / ".git" / "worktrees" / "feature"
+    pointer = {
+        "empty": "gitdir: \n",
+        "missing-prefix": str(valid_git_dir),
+        "non-worktree": f"gitdir: {tmp_path / 'metadata' / 'feature'}\n",
+        "wrong-common-dir": (
+            f"gitdir: {tmp_path / 'repository' / 'metadata' / 'worktrees' / 'feature'}\n"
+        ),
+        "multiline": f"gitdir: {valid_git_dir}\nextra\n",
+    }[pointer_case]
+    (project_root / ".git").write_text(pointer, encoding="utf-8")
+    store = ConfigStore(tmp_path / "home" / "config.toml")
+    store.update({
+        ("projects", str(project_root)): {"trust_level": "trusted"},
+    })
+
+    resolution = ConfigSession(store, workspace=project_root).resolve()
+
+    assert resolution.project_trust is not None
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.project_trust.trust_root == project_root.resolve()
+    assert resolution.project_trust.level == "trusted"
 
 
 @pytest.mark.parametrize(
@@ -135,7 +292,8 @@ def test_project_root_markers_define_the_trust_target(
     resolution = ConfigSession(store, workspace=workspace).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.root == expected_root.resolve()
+    assert resolution.project_trust.project_root == expected_root.resolve()
+    assert resolution.project_trust.trust_root == expected_root.resolve()
     assert resolution.project_trust.level == "trusted"
 
 
@@ -238,7 +396,8 @@ def test_user_config_is_not_reloaded_as_home_project_config(tmp_path) -> None:
 
     initial = session.resolve()
     assert initial.project_trust is not None
-    assert initial.project_trust.root == workspace.resolve()
+    assert initial.project_trust.project_root == workspace.resolve()
+    assert initial.project_trust.trust_root == workspace.resolve()
     assert initial.project_trust.level is None
 
     session.update_user({
@@ -288,7 +447,8 @@ def test_project_trust_matches_a_resolved_path_alias(tmp_path) -> None:
     resolution = ConfigSession(store, workspace=workspace).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.root == project_root.resolve()
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.project_trust.trust_root == project_root.resolve()
     assert resolution.project_trust.level == "trusted"
 
 
@@ -489,7 +649,8 @@ def test_trusted_project_hooks_keep_project_source_identity(tmp_path) -> None:
     resolution = ConfigSession(store, workspace=workspace).resolve()
 
     assert resolution.project_trust is not None
-    assert resolution.project_trust.root == project_root.resolve()
+    assert resolution.project_trust.project_root == project_root.resolve()
+    assert resolution.project_trust.trust_root == project_root.resolve()
     assert resolution.project_trust.level == "trusted"
     assert resolution.project_trust.trusted
     assert len(resolution.hooks) == 1

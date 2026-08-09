@@ -91,40 +91,37 @@ class _DirectoryTrustRuntime(typing.Protocol):
 
     def show_directory_trust_error(self, message: str) -> None: ...
 
-    async def finish_directory_trust(self) -> None: ...
-
 
 async def _confirm_tui_project_trust(
     *,
     runtime: _DirectoryTrustRuntime,
     config_session: ConfigSession,
     resolution: ConfigResolution,
-    workspace: Path,
+    workspace: Path
 ) -> ConfigResolution | None:
-    """确认未知项目目录，并返回确认后的完整配置快照。"""
+    """确认未知项目并保留界面，直到主画布上下文准备完成。"""
     project_trust = resolution.project_trust
     if project_trust is None or project_trust.level is not None:
         return resolution
 
-    await runtime.begin_directory_trust(workspace, project_trust.root)
+    await runtime.begin_directory_trust(workspace, project_trust.trust_root)
 
     while await runtime.wait_directory_trust():
         try:
             config_session.update_user({
                 (
                     "projects",
-                    str(project_trust.root),
+                    str(project_trust.trust_root),
                     "trust_level",
                 ): "trusted",
             })
             trusted_resolution = config_session.resolve()
         except (OSError, TypeError, ValueError) as error:
             runtime.show_directory_trust_error(
-                f"Failed to set trust for {project_trust.root}: {error}"
+                f"Failed to set trust for {project_trust.trust_root}: {error}"
             )
             continue
 
-        await runtime.finish_directory_trust()
         return trusted_resolution
 
     return None
