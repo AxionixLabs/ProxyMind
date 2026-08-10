@@ -558,21 +558,56 @@ async def test_direct_cli_command_applies_temporary_model_override() -> None:
 
 @pytest.mark.anyio
 async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
+    from mind_app.tui.core import runtime as runtime_module
+    from mind_app.tui.features import history as history_module
+
     record = {
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
     metadata = dict(record)
-    run_tui_loop = AsyncMock()
+    events = []
+    replay_blocks = (object(),)
+    runtime = SimpleNamespace(
+        terminal_width=80,
+        hyperlinks_enabled=True,
+        replace_transcript=Mock(
+            side_effect=lambda _blocks: events.append("replace")
+        ),
+    )
+    load_history_transcript = Mock(
+        side_effect=lambda *_args, **_kwargs: (
+            events.append("load") or replay_blocks
+        ),
+    )
+    resume_conversation = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: (
+            events.append("resume") or metadata
+        ),
+    )
+    run_tui_loop = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: events.append("run")
+    )
     attachments = Mock()
     mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
         recent_conversation_sessions=Mock(return_value=[record]),
-        resume_conversation=AsyncMock(return_value=metadata),
+        resume_conversation=resume_conversation,
         attach=SimpleNamespace(add_pending_attachments=attachments),
         stop_subscription_listener=AsyncMock(),
         task_event=asyncio.Event(),
         permissions=preset_permissions("auto"),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "require_tui_runtime",
+        Mock(return_value=runtime),
+    )
+    monkeypatch.setattr(
+        history_module,
+        "load_history_transcript",
+        load_history_transcript,
     )
     monkeypatch.setattr(
         "mind_app.tui.session.loop.run_tui_loop",
@@ -595,10 +630,18 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         sources=("tui", "tui:resume"),
         limit=1,
     )
+    load_history_transcript.assert_called_once_with(
+        mind,
+        record["sid"],
+        terminal_width=80,
+        hyperlinks=True,
+        record=record,
+    )
     mind.resume_conversation.assert_called_once_with(
         record,
         source="tui:resume",
     )
+    runtime.replace_transcript.assert_called_once_with(replay_blocks)
     attachments.assert_called_once_with("screen.png")
     run_tui_loop.assert_awaited_once_with(
         mind,
@@ -607,6 +650,55 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         initial_model="review-model",
     )
     mind.stop_subscription_listener.assert_awaited_once_with()
+    assert events == ["load", "resume", "replace", "run"]
+
+
+@pytest.mark.anyio
+async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> None:
+    from mind_app.tui.core import runtime as runtime_module
+    from mind_app.tui.features import history as history_module
+
+    record = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+    runtime = SimpleNamespace(
+        terminal_width=80,
+        hyperlinks_enabled=False,
+        replace_transcript=Mock(),
+    )
+    run_tui_loop = AsyncMock()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=object()),
+        history_workspace=r"D:\workspace",
+        recent_conversation_sessions=Mock(return_value=[record]),
+        resume_conversation=AsyncMock(return_value=None),
+        task_event=asyncio.Event(),
+        permissions=preset_permissions("auto"),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "require_tui_runtime",
+        Mock(return_value=runtime),
+    )
+    monkeypatch.setattr(
+        history_module,
+        "load_history_transcript",
+        Mock(return_value=(object(),)),
+    )
+    monkeypatch.setattr(
+        "mind_app.tui.session.loop.run_tui_loop",
+        run_tui_loop,
+    )
+
+    with pytest.raises(AppError, match="Session could not be resumed"):
+        await run_selected_command(
+            mind,
+            ResumeCommand(last=True),
+        )
+
+    runtime.replace_transcript.assert_not_called()
+    run_tui_loop.assert_not_awaited()
 
 
 @pytest.mark.anyio

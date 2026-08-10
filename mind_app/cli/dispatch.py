@@ -87,18 +87,36 @@ async def run_selected_command(
             if record is None:
                 mind.task_event.set()
             else:
+                from ..tui.core.runtime import require_tui_runtime
+                from ..tui.features.history import load_history_transcript
+
+                runtime    = require_tui_runtime(mind.frontend.runtime)
+                session_id = str(record.get("sid") or "").strip()
+
+                replay_blocks = await asyncio.to_thread(
+                    load_history_transcript,
+                    mind,
+                    session_id,
+                    terminal_width=runtime.terminal_width,
+                    hyperlinks=runtime.hyperlinks_enabled,
+                    record=record,
+                )
+
                 resumed = await mind.resume_conversation(
                     record,
                     source="tui:resume",
                 )
                 if resumed is None:
                     raise AppError("Session could not be resumed.")
+                runtime.replace_transcript(replay_blocks)
+
                 await _run_tui_session(
                     mind,
                     prompt=command.prompt,
                     images=command.images,
                     model=command.model,
                 )
+
     except asyncio.CancelledError:
         observe(
             "command.interrupted",
@@ -107,6 +125,7 @@ async def run_selected_command(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
+
     except BaseException as error:
         observe_exception(
             "command.failed",
@@ -115,6 +134,7 @@ async def run_selected_command(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
+
     else:
         observe(
             "command.complete",
@@ -122,6 +142,7 @@ async def run_selected_command(
             outcome=run_result.status if run_result is not None else None,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
+
     return run_result
 
 
