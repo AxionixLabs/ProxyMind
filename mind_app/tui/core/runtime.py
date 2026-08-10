@@ -339,8 +339,9 @@ class TuiRuntime(object):
 
     @property
     def hyperlinks_enabled(self) -> bool:
-        """返回当前终端是否启用可点击文本链接。"""
-        return self.terminal_capabilities.hyperlinks
+        """返回动态终端界面是否启用可点击文本链接。"""
+        # prompt_toolkit 差量渲染可能遗漏行尾的 OSC 8 关闭序列。
+        return False
 
     @property
     def terminal_height(self) -> int:

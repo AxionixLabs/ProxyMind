@@ -6369,7 +6369,7 @@ async def test_transcript_overlay_keeps_stream_source_text_for_raw_mode() -> Non
 
 
 @pytest.mark.anyio
-async def test_markdown_hyperlink_survives_overlay_wrap_and_raw_mode() -> None:
+async def test_markdown_hyperlink_degrades_safely_in_dynamic_tui() -> None:
     capabilities = TerminalCapabilities(
         TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
         TerminalColorLevel.TRUECOLOR,
@@ -6386,12 +6386,16 @@ async def test_markdown_hyperlink_survives_overlay_wrap_and_raw_mode() -> None:
     cell_fragments = runtime.document.blocks[-1].display_block.fragments
     assert fragments_text(cell_fragments) == "• documentation-link-that-wraps"
     assert any(
-        style == "[ZeroWidthEscape]"
-        and "https://example.com/docs" in text
+        "underline" in style
+        and text == "documentation-link-that-wraps"
         for style, text in cell_fragments
     )
-    assert any(
-        style == "[ZeroWidthEscape]"
+    assert all(
+        style != "[ZeroWidthEscape]"
+        for style, _text in cell_fragments
+    )
+    assert all(
+        style != "[ZeroWidthEscape]"
         for style, _text in runtime.document.scrollback_prefix_fragments(1)
     )
 
@@ -6403,10 +6407,7 @@ async def test_markdown_hyperlink_survives_overlay_wrap_and_raw_mode() -> None:
     assert fragments_text(rich).replace("\n  ", "") == (
         "• documentation-link-that-wraps"
     )
-    assert sum(
-        style == "[ZeroWidthEscape]"
-        for style, _text in rich
-    ) == 2
+    assert all(style != "[ZeroWidthEscape]" for style, _text in rich)
 
     overlay.toggle_raw_mode()
     raw = overlay.fragments()
