@@ -268,15 +268,21 @@ async def _handle_mailbox_run(
     request: MailboxRunRequest
 ) -> None:
     """在主 TUI 轮次边界串行执行一条收件箱消息。"""
-    listener = dispatcher.mailbox.prepare_run(request)
+    prepared = dispatcher.mailbox.prepare_run(request)
     try:
-        if listener is None:
+        if prepared is None:
             return None
+        turn_id = short_uid(12)
+        runtime.append_submitted_query(prepared.prompt, turn_id)
+
         try:
             await execute_tui_model_turn(
                 dispatcher.application,
                 runtime,
-                listener.run_message(request.message_id),
+                prepared.listener.run_message(
+                    prepared.message_id,
+                    turn_id=turn_id,
+                ),
                 stream_command_handler=dispatcher.handle_stream_command,
                 show_interrupt_notice=lambda: not mind.task_event.is_set(),
             )
@@ -286,6 +292,7 @@ async def _handle_mailbox_run(
                 "Mailbox run failed",
                 error,
             )
+
     finally:
         dispatcher.mailbox.finish_run(request)
 

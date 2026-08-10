@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from dataclasses import dataclass
 from engine.errors import AppError
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
@@ -21,6 +22,14 @@ from ..core.runtime import TuiRuntime
 if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ...subscription.runtime import AgentRuntime
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedMailboxRun(object):
+    """保存已经通过主循环执行校验的收件箱请求。"""
+    listener: "AgentRuntime"
+    message_id: str
+    prompt: str
 
 
 class TuiMailboxFeature(object):
@@ -87,14 +96,15 @@ class TuiMailboxFeature(object):
 
     def prepare_run(
         self,
-        request: MailboxRunRequest,
-    ) -> "AgentRuntime | None":
-        """校验一条主循环执行请求，并返回对应监听器。"""
+        request: MailboxRunRequest
+    ) -> PreparedMailboxRun | None:
+        """校验一条主循环执行请求，并返回稳定执行参数。"""
         if request.automatic:
             if not self._automatic_message_id:
                 self._automatic_message_id = request.message_id
         else:
             self._manual_message_ids.add(request.message_id)
+
         self.bind_listener()
         listener = self._listener
 
@@ -128,7 +138,13 @@ class TuiMailboxFeature(object):
                 )
             return None
 
-        return listener
+        message = item.request.payload.get("message")
+
+        return PreparedMailboxRun(
+            listener=listener,
+            message_id=request.message_id,
+            prompt=message if isinstance(message, str) else "",
+        )
 
     def finish_run(self, request: MailboxRunRequest) -> None:
         """释放自动运行占位并继续调度下一条待处理消息。"""
@@ -146,12 +162,7 @@ class TuiMailboxFeature(object):
         while True:
             entry = self._entry(message_id)
             if entry is None:
-                render_mailbox_failure(
-                    self.controller,
-                    "Mailbox unavailable",
-                    RuntimeError("message is no longer available"),
-                )
-                return True
+                break
 
             action = await self.runtime.select_menu(MenuRequest(
                 title="Mailbox Message",
@@ -167,6 +178,7 @@ class TuiMailboxFeature(object):
                 ),
                 help_text="Up/Down select · Enter apply · Esc/q back",
             ))
+
             if action is None:
                 return False
             if action == "detail":
@@ -193,6 +205,14 @@ class TuiMailboxFeature(object):
                 else:
                     render_mailbox_deleted(self.controller)
                 return True
+
+        render_mailbox_failure(
+            self.controller,
+            "Mailbox unavailable",
+            RuntimeError("message is no longer available"),
+        )
+
+        return True
 
     def _summary_menu(self) -> MenuRequest:
         """生成当前收件箱摘要菜单。"""

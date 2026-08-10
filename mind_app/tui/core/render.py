@@ -308,6 +308,32 @@ def clip_text(text: typing.Any, *, width: int) -> str:
     return f"{''.join(chars)}{omit}"
 
 
+def transcript_hint(
+    marker: str,
+    key_label: str,
+    terminal_width: int | None,
+    *,
+    prefix: str = "  "
+) -> str:
+    """返回当前省略行能够完整容纳的记录入口提示。"""
+    key = str(key_label or "").strip()
+    if not key:
+        return ""
+
+    full = f" ({key} to view transcript)"
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return full
+
+    if get_cwidth(f"{prefix}{marker}{full}") <= terminal_width:
+        return full
+
+    compact = f" {key}"
+    if get_cwidth(f"{prefix}{marker}{compact}") <= terminal_width:
+        return compact
+
+    return ""
+
+
 def clip_fragments(parts: FormattedText, *, width: int) -> FormattedText:
     """按终端显示宽度裁剪单行格式化片段。"""
     limit = max(0, int(width))

@@ -33,6 +33,7 @@ from mind_app.presentation.renderers.dispatch import (
 from prompt_toolkit.utils import get_cwidth
 from ..core.document import TuiBlockKind
 from ..core.models import FragmentBlock
+from ..core.render import transcript_hint
 from ..core.styles import styled_block_fragments
 
 if typing.TYPE_CHECKING:
@@ -205,32 +206,6 @@ def _with_transcript_hint(
         preserve_spans=block.preserve_spans,
         direct=block.direct,
     )
-
-
-def transcript_hint(
-    marker: str,
-    key_label: str,
-    terminal_width: int | None,
-    *,
-    prefix: str = "  ",
-) -> str:
-    """返回当前省略行能够完整容纳的记录入口提示。"""
-    key = str(key_label or "").strip()
-    if not key:
-        return ""
-
-    full = f" ({key} to view transcript)"
-    if not isinstance(terminal_width, int) or terminal_width <= 0:
-        return full
-
-    if get_cwidth(f"{prefix}{marker}{full}") <= terminal_width:
-        return full
-
-    compact = f" {key}"
-    if get_cwidth(f"{prefix}{marker}{compact}") <= terminal_width:
-        return compact
-
-    return ""
 
 
 if __name__ == '__main__':

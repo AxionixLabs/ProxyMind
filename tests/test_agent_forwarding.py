@@ -107,6 +107,34 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
 
 
 @pytest.mark.anyio
+async def test_agent_executor_propagates_tui_turn_id() -> None:
+    result = RunResult(status="completed", assistant_text="done")
+    mind = SimpleNamespace(calling=AsyncMock(return_value=result))
+    client = SimpleNamespace(
+        send_mind_started=AsyncMock(),
+        send_mind_completed=AsyncMock(),
+    )
+    request = AgentForwardRequest(
+        message_id="message-1",
+        call_id="call-1",
+        cid="cid-1",
+        sid="sid-1",
+        payload={"message": "inspect workspace"},
+    )
+
+    await AgentExecutor().execute(
+        mind,
+        client,
+        object(),
+        SimpleNamespace(session_id="agent-session"),
+        request,
+        turn_id="turn_remote",
+    )
+
+    assert mind.calling.await_args.kwargs["turn_id"] == "turn_remote"
+
+
+@pytest.mark.anyio
 async def test_agent_ws_enqueues_message_without_executing_it() -> None:
     events: list[str] = []
     mind = SimpleNamespace(

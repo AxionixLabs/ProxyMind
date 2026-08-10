@@ -9,10 +9,14 @@ import pytest
 from mind_app.interaction.contracts import PromptContext
 from mind_app.subscription.forwarding import AgentInbox
 from mind_app.subscription.models import AgentForwardRequest
-from mind_app.tui.core.models import MailboxRunRequest
+from mind_app.tui.core.models import FragmentBlock, MailboxRunRequest
+from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.submission import TuiMailboxRunRequested
-from mind_app.tui.features.mailbox import TuiMailboxFeature
+from mind_app.tui.features.mailbox import (
+    PreparedMailboxRun,
+    TuiMailboxFeature
+)
 from mind_app.tui.session.loop import _handle_mailbox_run
 
 
@@ -248,7 +252,8 @@ async def test_mailbox_auto_does_not_duplicate_queued_manual_run() -> None:
 
     request = await runtime.submissions.read_submission()
     assert request == MailboxRunRequest("1", automatic=False)
-    assert feature.prepare_run(request) is listener
+    prepared = feature.prepare_run(request)
+    assert prepared == PreparedMailboxRun(listener, "1", "first")
     assert runtime.submissions.message_queue.empty()
 
 
@@ -364,15 +369,22 @@ async def test_mailbox_run_uses_main_tui_execution_lifecycle() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def run_message(message_id: str) -> None:
+    turn_ids = []
+
+    async def run_message(message_id: str, *, turn_id: str) -> None:
         assert message_id == "message-1"
+        turn_ids.append(turn_id)
         assert runtime.execution_active
         started.set()
         await release.wait()
 
     listener = SimpleNamespace(run_message=run_message)
     mailbox = SimpleNamespace(
-        prepare_run=Mock(return_value=listener),
+        prepare_run=Mock(return_value=PreparedMailboxRun(
+            listener,
+            "message-1",
+            "inspect workspace\nthen run tests",
+        )),
         finish_run=Mock(),
     )
     dispatcher = SimpleNamespace(
@@ -389,6 +401,15 @@ async def test_mailbox_run_uses_main_tui_execution_lifecycle() -> None:
     await started.wait()
 
     assert runtime.execution_active
+    assert len(runtime.document.blocks) == 1
+    query = runtime.document.blocks[0]
+    assert query.kind == "user"
+    assert query.raw_text == "inspect workspace\nthen run tests"
+    assert query.prompt == query.raw_text
+    assert query.turn_id == turn_ids[0]
+    assert "inspect workspace" in fragments_text(
+        query.transcript_block.fragments
+    )
 
     release.set()
     await task
@@ -402,13 +423,16 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
     runtime = TuiRuntime()
     views = []
 
-    async def run_message(_message_id: str) -> None:
+    async def run_message(_message_id: str, *, turn_id: str) -> None:
+        assert turn_id
         raise RuntimeError("connection closed")
 
     request = MailboxRunRequest("message-1", automatic=True)
     mailbox = SimpleNamespace(
-        prepare_run=Mock(return_value=SimpleNamespace(
-            run_message=run_message,
+        prepare_run=Mock(return_value=PreparedMailboxRun(
+            SimpleNamespace(run_message=run_message),
+            "message-1",
+            "failing remote query",
         )),
         finish_run=Mock(),
     )
@@ -430,4 +454,130 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
         "■ Mailbox run failed\n"
         "└ RuntimeError: connection closed"
     )
+    assert runtime.document.blocks[0].raw_text == "failing remote query"
+    mailbox.finish_run.assert_called_once_with(request)
+
+
+@pytest.mark.anyio
+async def test_mailbox_run_keeps_query_before_approval_tools_and_long_answer() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (28, 16)
+    runtime.append_block(
+        FragmentBlock((("", "prior answer\n" * 50),)),
+        kind="assistant",
+    )
+    prompt = "!echo remote\n" + "请分析👩‍💻" * 30
+
+    async def run_message(_message_id: str, *, turn_id: str) -> None:
+        assert runtime.document.blocks[1].turn_id == turn_id
+
+        approval = asyncio.create_task(runtime.screen.approval.request({
+            "tool": "shell_command",
+            "command": "printf mailbox-ok",
+            "show_timer": False,
+        }))
+        await asyncio.sleep(0)
+        assert runtime.screen.approval.active
+        runtime.screen.approval.finish("accept")
+        assert await approval == "accept"
+
+        runtime.append_block(
+            FragmentBlock((("", "• Running first tool"),)),
+            kind="operation",
+        )
+        runtime.append_block(
+            FragmentBlock((("", "• Ran second tool"),)),
+            kind="operation",
+        )
+        runtime.set_active_renderable(
+            FragmentBlock((("", "assistant " + "line\n" * 40),)),
+            kind="assistant",
+        )
+        runtime.commit_active_renderable(
+            FragmentBlock((("", "assistant " + "line\n" * 40),)),
+            raw_text="assistant " + "line\n" * 40,
+        )
+
+    listener = SimpleNamespace(run_message=run_message)
+    mailbox = SimpleNamespace(
+        prepare_run=Mock(return_value=PreparedMailboxRun(
+            listener,
+            "message-combined",
+            prompt,
+        )),
+        finish_run=Mock(),
+    )
+    dispatcher = SimpleNamespace(
+        mailbox=mailbox,
+        application=SimpleNamespace(emit=Mock()),
+        handle_stream_command=lambda *_args: False,
+    )
+    mind = SimpleNamespace(task_event=asyncio.Event())
+    request = MailboxRunRequest("message-combined", automatic=False)
+
+    await _handle_mailbox_run(mind, runtime, dispatcher, request)
+
+    cells = runtime.document.blocks
+    assert [cell.kind for cell in cells] == [
+        "assistant",
+        "user",
+        "operation",
+        "operation",
+        "assistant",
+    ]
+    assert cells[1].raw_text == prompt
+    assert cells[1].prompt == prompt
+    assert fragments_text(cells[1].display_block.fragments).startswith(
+        "› !echo remote"
+    )
+    assert "lines Ctrl+T" in fragments_text(cells[1].display_block.fragments)
+    assert not runtime.screen.approval.active
+    assert not runtime.execution_active
+    mailbox.finish_run.assert_called_once_with(request)
+
+
+@pytest.mark.anyio
+async def test_mailbox_interrupt_keeps_one_query_and_releases_execution() -> None:
+    runtime = TuiRuntime()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def run_message(_message_id: str, *, turn_id: str) -> None:
+        assert runtime.document.blocks[0].turn_id == turn_id
+        started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    listener = SimpleNamespace(run_message=run_message)
+    mailbox = SimpleNamespace(
+        prepare_run=Mock(return_value=PreparedMailboxRun(
+            listener,
+            "message-interrupt",
+            "remote query to interrupt",
+        )),
+        finish_run=Mock(),
+    )
+    emit = Mock()
+    dispatcher = SimpleNamespace(
+        mailbox=mailbox,
+        application=SimpleNamespace(emit=emit),
+        handle_stream_command=lambda *_args: False,
+    )
+    mind = SimpleNamespace(task_event=asyncio.Event())
+    request = MailboxRunRequest("message-interrupt", automatic=True)
+
+    task = asyncio.create_task(
+        _handle_mailbox_run(mind, runtime, dispatcher, request)
+    )
+    await started.wait()
+    runtime.submissions.interrupt_input()
+    await task
+
+    assert cancelled.is_set()
+    assert len(runtime.document.blocks) == 1
+    assert runtime.document.blocks[0].raw_text == "remote query to interrupt"
+    assert not runtime.execution_active
+    assert emit.call_args.args[0].type == "tui.interrupted"
     mailbox.finish_run.assert_called_once_with(request)

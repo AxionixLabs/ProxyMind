@@ -306,7 +306,12 @@ class AgentRuntime(object):
 
         return await self.run_message(item.request.message_id)
 
-    async def run_message(self, message_id: str) -> AgentInboxItem:
+    async def run_message(
+        self,
+        message_id: str,
+        *,
+        turn_id: str | None = None
+    ) -> AgentInboxItem:
         """执行指定待处理请求，并在终态后释放进程内消息。"""
         item = self.inbox.find(message_id)
         if item is None:
@@ -332,6 +337,7 @@ class AgentRuntime(object):
                 runtime=context.runtime,
                 live_status=context.live_status,
                 status_changed=notify_execution_change,
+                turn_id=turn_id,
             )
         finally:
             self.contexts.pop(message_id, None)

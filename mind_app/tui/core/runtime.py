@@ -6,6 +6,7 @@ import typing
 import asyncio
 import contextlib
 import contextvars
+from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
 from prompt_toolkit.application.current import create_app_session
@@ -59,6 +60,7 @@ from .queued import TuiSubmission
 from .screen import TuiScreen
 from .styles import (
     query_block,
+    query_preview_block,
     text_block
 )
 from ..prompting.commands import (
@@ -1036,6 +1038,47 @@ class TuiRuntime(object):
         if changed:
             self.screen.transcript_overlay.content_changed()
         return changed
+
+    def append_submitted_query(
+        self,
+        prompt: str,
+        turn_id: str,
+        *,
+        max_display_rows: int = 8
+    ) -> bool:
+        """把已通过命令分派的用户输入作为单次视觉事务提交。"""
+        value = str(prompt)
+        if not value.strip():
+            return False
+
+        width      = self.terminal_width
+        transcript = query_block(value, command_aware=False)
+
+        renderer = partial(
+            query_preview_block,
+            value,
+            transcript_key=self.keymap.open_transcript_label,
+            max_rows=max_display_rows,
+        )
+        display = renderer(width)
+
+        with self.screen.visual_update():
+            self.viewport.reset_view()
+            self._append_block(
+                display,
+                kind="user",
+                transcript_block=transcript,
+                raw_text=value,
+                display_renderer=renderer,
+                display_render_width=width,
+            )
+            if not self.document.bind_latest_user_turn(turn_id, value):
+                raise RuntimeError("submitted query could not be bound")
+            self.screen.synchronize_next_render()
+            self.screen.transcript_overlay.content_changed()
+            self.viewport.mark_submitted_query(display)
+
+        return True
 
     def append_turn_input(
         self,

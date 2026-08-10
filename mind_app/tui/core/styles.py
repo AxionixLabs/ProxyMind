@@ -26,8 +26,12 @@ from ..prompting.commands import (
 from .models import FragmentBlock
 from .render import (
     ZERO_WIDTH_ESCAPE_STYLE,
+    clip_fragments,
     join_formatted_lines,
-    split_formatted_lines
+    sanitize_fragment_block,
+    split_formatted_lines,
+    transcript_hint,
+    wrap_formatted_lines
 )
 
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
@@ -434,13 +438,25 @@ def failure_text_block(
     return fragment_block(*failure_parts(text, style))
 
 
-def query_block(text: str) -> FragmentBlock:
+def query_block(
+    text: str,
+    *,
+    command_aware: bool = True
+) -> FragmentBlock:
     """按普通 query 或命令类型生成用户输入块。"""
-    value         = str(text).strip()
-    lines         = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    slash_command = resolve_slash_command(value) is not None
-    command       = slash_command or value.startswith(("!", "$", "\\"))
-    text_style    = "class:prompt.command.slash" if slash_command else "class:prompt"
+    value = str(text).strip() if command_aware else str(text)
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+    slash_command = bool(
+        command_aware and resolve_slash_command(value) is not None
+    )
+
+    command = bool(
+        command_aware
+        and (slash_command or value.startswith(("!", "$", "\\")))
+    )
+
+    text_style = "class:prompt.command.slash" if slash_command else "class:prompt"
 
     fragments: list[tuple[str, str]] = []
 
@@ -453,6 +469,42 @@ def query_block(text: str) -> FragmentBlock:
         fragments.append((text_style, line))
 
     return FragmentBlock(tuple(fragments))
+
+
+def query_preview_block(
+    text: str,
+    terminal_width: int,
+    *,
+    transcript_key: str,
+    max_rows: int = 8
+) -> FragmentBlock:
+    """生成保留完整记录入口的宽度感知用户输入预览。"""
+    width = max(1, int(terminal_width))
+    limit = max(2, int(max_rows))
+    block = sanitize_fragment_block(query_block(text, command_aware=False))
+
+    rows = wrap_formatted_lines(list(block.fragments), width=width)
+    if len(rows) <= limit:
+        return block
+
+    retained = limit - 1
+    omitted  = len(rows) - retained
+    marker   = f"… +{omitted} lines"
+
+    hint = transcript_hint(
+        marker,
+        transcript_key,
+        width,
+        prefix="  ",
+    )
+    omitted_row = clip_fragments([
+        ("class:prompt.kicker", f"  {marker}{hint}"),
+    ], width=width)
+
+    return FragmentBlock(tuple(join_formatted_lines([
+        *rows[:retained],
+        omitted_row,
+    ])))
 
 
 def command_result_block(

@@ -389,11 +389,15 @@ async def test_agent_runtime_runs_named_message_and_releases_local_state() -> No
         lambda: snapshots.append(tuple(entry.status for entry in inbox.items))
     )
 
-    completed = await runtime.run_message("message-1")
+    completed = await runtime.run_message(
+        "message-1",
+        turn_id="turn_remote",
+    )
 
     assert completed is item
     assert completed.status == "completed"
     executor.execute.assert_awaited_once()
+    assert executor.execute.await_args.kwargs["turn_id"] == "turn_remote"
     assert inbox.items == []
     assert runtime.contexts == {}
     assert ("running",) in snapshots

@@ -102,7 +102,9 @@ class AgentExecutor(object):
         connection: typing.Any,
         runtime: AgentSessionRuntime,
         request: AgentForwardRequest,
-        live_status: AgentLiveStatus | None = None
+        live_status: AgentLiveStatus | None = None,
+        *,
+        turn_id: str | None = None
     ) -> None:
         """执行一条服务端下发的本地任务。"""
         message, intent_summary = normalize_forward_request(request.payload)
@@ -141,7 +143,14 @@ class AgentExecutor(object):
             call_id=request.call_id
         )
 
-        runner = mind.calling(message=message, metadata=metadata)
+        calling_kwargs: dict[str, typing.Any] = {
+            "message": message,
+            "metadata": metadata,
+        }
+        if turn_id:
+            calling_kwargs["turn_id"] = turn_id
+
+        runner = mind.calling(**calling_kwargs)
 
         if timeout_sec is not None:
             result = await asyncio.wait_for(runner, timeout=timeout_sec)
@@ -227,7 +236,8 @@ class AgentInbox(object):
         connection: typing.Any,
         runtime: AgentSessionRuntime,
         live_status: AgentLiveStatus,
-        status_changed: typing.Callable[[], None] | None = None
+        status_changed: typing.Callable[[], None] | None = None,
+        turn_id: str | None = None
     ) -> AgentInboxItem:
         """执行一条待处理请求并调整收件箱状态。"""
         if item.status != "pending":
@@ -243,7 +253,8 @@ class AgentInbox(object):
                 connection,
                 runtime,
                 item.request,
-                live_status
+                live_status,
+                turn_id=turn_id,
             )
         except asyncio.CancelledError:
             item.status = "pending"

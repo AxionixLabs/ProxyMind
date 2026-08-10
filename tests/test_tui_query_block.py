@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from unittest.mock import Mock
 import pytest
+from prompt_toolkit.utils import get_cwidth
 
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.document import TuiDocument
 from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
-from mind_app.tui.core.render import split_formatted_lines
+from mind_app.tui.core.render import (
+    fragments_text,
+    split_formatted_lines
+)
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import query_block
 
@@ -114,6 +119,107 @@ def test_unknown_slash_text_is_not_styled_as_a_command() -> None:
         ("class:prompt.kicker", "› "),
         ("class:prompt", "/今天天气"),
     )
+
+
+def test_submitted_query_bypasses_command_styling_and_preserves_source() -> None:
+    runtime = TuiRuntime()
+    prompt = "/permissions\n  !printf '你好'\n$HOME"
+
+    assert runtime.append_submitted_query(prompt, "turn_remote")
+
+    cell = runtime.document.blocks[0]
+    transcript = fragments_text(cell.transcript_block.fragments)
+
+    assert cell.kind == "user"
+    assert cell.turn_id == "turn_remote"
+    assert cell.prompt == prompt
+    assert cell.raw_text == prompt
+    assert transcript == "› /permissions\n    !printf '你好'\n  $HOME"
+    assert all(
+        style != "class:prompt.command.slash"
+        for style, _text in cell.transcript_block.fragments
+    )
+
+
+def test_submitted_query_preview_is_width_aware_and_transcript_is_complete() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 24)
+    prompt = (
+        "!python3 -c \"print('" + "界" * 18 + "')\"\n"
+        + "emoji " + "👩‍💻" * 12 + "\n"
+        + "final marker"
+    )
+
+    runtime.append_submitted_query(
+        prompt,
+        "turn_long",
+        max_display_rows=4,
+    )
+
+    cell = runtime.document.blocks[0]
+    narrow = fragments_text(cell.display_block.fragments)
+    transcript = fragments_text(cell.transcript_block.fragments)
+
+    assert len(narrow.splitlines()) == 4
+    assert narrow.startswith("› !python3")
+    assert "lines Ctrl+T" in narrow
+    assert all(get_cwidth(line) <= 20 for line in narrow.splitlines())
+    assert "final marker" not in narrow
+    assert "final marker" in transcript
+    assert cell.raw_text == prompt
+
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+    assert "final marker" in fragments_text(overlay.fragments())
+    overlay.toggle_raw_mode()
+    assert "final marker" in fragments_text(overlay.fragments())
+    overlay.begin_search()
+    overlay.append_search_text("final marker")
+    assert overlay.confirm_search()
+    assert overlay.search_result_position == (1, 1)
+    runtime.toggle_transcript_overlay()
+
+    assert runtime.document.set_display_width(48, reflow_sources=True)
+    wide = fragments_text(runtime.document.fragments(width=48))
+
+    assert wide != narrow
+    assert "(Ctrl+T to view transcript)" in wide
+    assert all(get_cwidth(line) <= 48 for line in wide.splitlines())
+    assert fragments_text(cell.transcript_block.fragments) == transcript
+    assert cell.raw_text == prompt
+
+
+def test_submitted_query_commits_with_one_visual_invalidation() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._invalidate_now = Mock()
+
+    runtime.append_submitted_query("remote query", "turn_remote")
+
+    runtime.screen._invalidate_now.assert_called_once_with()
+
+
+def test_submitted_query_reflow_keeps_terminal_controls_off_canvas() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 24)
+    prompt = "query\x1b]52;c;payload\x1b\\ " + "界" * 40
+
+    runtime.append_submitted_query(
+        prompt,
+        "turn_control",
+        max_display_rows=3,
+    )
+
+    cell = runtime.document.blocks[0]
+    narrow = fragments_text(cell.display_block.fragments)
+    assert "\x1b" not in narrow
+    assert "payload" not in narrow
+
+    runtime.document.set_display_width(60, reflow_sources=True)
+    wide = fragments_text(runtime.document.fragments(width=60))
+
+    assert "\x1b" not in wide
+    assert "payload" not in wide
+    assert cell.raw_text == prompt
 
 
 @pytest.mark.anyio

@@ -18,6 +18,7 @@ from ..core.render import (
     clip_fragments,
     fragments_text,
     join_formatted_lines,
+    transcript_hint,
     wrap_formatted_lines
 )
 from ..core.runtime import TuiRuntime
@@ -27,7 +28,6 @@ from ..core.styles import (
     SUCCESS_STYLE,
     prompt_style
 )
-from .presentation import transcript_hint
 
 HOOK_CONTEXT_MAX_DISPLAY_ROWS: typing.Final[int] = 3
 
