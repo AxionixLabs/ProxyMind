@@ -13,6 +13,8 @@ from ..core.models import (
     MenuRequest
 )
 from mind_core.provider_config import DEFAULT_REASONING_EFFORT
+from mind_core.config import config_to_preferences
+from mind_core.config_session import ConfigSession
 from .context import (
     normalize_reasoning_effort,
     save_primary_pref_field
@@ -116,7 +118,7 @@ async def persist_primary_pref(
 
 async def choose_model_effort(
     runtime: "TuiRuntime",
-    current_effort: typing.Any,
+    current_effort: typing.Any
 ) -> str | None:
     """在主 TUI 中选择模型推理强度。"""
     current = normalize_reasoning_effort(current_effort)
@@ -131,9 +133,70 @@ async def choose_model_effort(
     ))
 
 
+async def choose_provider(
+    runtime: "TuiRuntime",
+    session: ConfigSession
+) -> str | None:
+    """从当前配置中选择一个 Provider Profile。"""
+    raw       = session.store.read_raw()
+    providers = raw.get("model_providers") if isinstance(raw, dict) else {}
+    profiles  = providers if isinstance(providers, dict) else {}
+
+    if not profiles:
+        return None
+
+    primary  = config_to_preferences(session.load()).get("primary") or {}
+    active   = str(primary.get("provider") or "")
+    ids      = [key for key, value in profiles.items() if isinstance(value, dict)]
+    selected = ids.index(active) if active in ids else 0
+
+    return await runtime.select_menu(MenuRequest(
+        title="Provider",
+        status=f"current={active or '(none)'}",
+        help_text="Up/Down select · Enter use · Esc/q cancel",
+        options=tuple(
+            MenuOption(
+                value=profile_id,
+                label=str(profile.get("name") or profile_id),
+                detail=_provider_detail(profile),
+            )
+            for profile_id, profile in profiles.items()
+            if isinstance(profile, dict)
+        ),
+        selected=selected,
+    ))
+
+
+async def save_active_provider(
+    session: ConfigSession,
+    provider_id: str
+) -> dict[str, typing.Any]:
+    """持久化当前 Provider Profile 并返回运行时偏好。"""
+    normalized = str(provider_id or "").strip()
+    raw        = session.store.read_raw()
+    providers  = raw.get("model_providers") if isinstance(raw, dict) else {}
+    profile    = providers.get(normalized) if isinstance(providers, dict) else None
+
+    if not isinstance(profile, dict):
+        raise ValueError(f"provider does not exist: {normalized}")
+    if not str(profile.get("model") or "").strip():
+        raise ValueError(f"provider is incomplete: {normalized}")
+
+    config = session.update_user({("model_provider",): normalized})
+    return config_to_preferences(config)
+
+
+def _provider_detail(profile: dict[str, typing.Any]) -> str:
+    """生成 Provider 菜单项的单行摘要。"""
+    kind  = str(profile.get("kind") or "unknown")
+    model = str(profile.get("model") or "(incomplete)")
+    route = str(profile.get("route") or "")
+    return " · ".join(value for value in (kind, model, route) if value)
+
+
 def render_model_effort_status(
     application: ApplicationSink,
-    effort: typing.Any,
+    effort: typing.Any
 ) -> None:
     """展示当前模型推理强度。"""
     normalized = normalize_reasoning_effort(effort)
@@ -155,6 +218,7 @@ def _default_effort_index(current_effort: str) -> int:
     for index, (value, _label, _detail) in enumerate(MODEL_EFFORT_OPTIONS):
         if value == DEFAULT_REASONING_EFFORT:
             return index
+
     return 0
 
 

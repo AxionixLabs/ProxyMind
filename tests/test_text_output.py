@@ -90,7 +90,8 @@ def _run_view():
         pref_config={
             "primary": {
                 "model": "gpt-5.6-sol",
-                "provider": "openai",
+                "provider": "openai-main",
+                "name": "OpenAI Main",
                 "reasoning_effort": "high",
             },
         },
@@ -133,7 +134,7 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
     assert f"{ANSI_BOLD}workdir:{ANSI_RESET}" in visible
     assert f"{ANSI_CYAN}user{ANSI_RESET}\n" in visible
     assert f"{ANSI_MAGENTA}mind{ANSI_RESET}\n" in visible
-    assert "provider: OpenAI" in recorded
+    assert "provider: OpenAI Main" in recorded
     assert "approval: never" in recorded
     assert "sandbox: danger-full-access" in recorded
     assert "reasoning effort: high" in recorded

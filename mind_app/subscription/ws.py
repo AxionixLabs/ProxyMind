@@ -5,6 +5,7 @@ import typing
 import asyncio
 import contextlib
 from engine.observability import observe
+from websockets.asyncio.client import ClientConnection
 from ..runtime.agent.client import AgentClient
 from mind_nova.requests.payload import empty_primary_request_slot
 from .models import (
@@ -17,16 +18,15 @@ from .forwarding import AgentForwardHandler
 if typing.TYPE_CHECKING:
     from ..controller import Mind
 
-
 ReadyCallback = typing.Callable[[], None]
+
 ConnectedCallback = typing.Callable[
-    [AgentClient, typing.Any, AgentSessionRuntime, AgentLiveStatus],
-    None,
+    [AgentClient, ClientConnection, AgentSessionRuntime, AgentLiveStatus], None
 ]
+
 DisconnectedCallback = typing.Callable[[], None]
 
 AGENT_WS_READY_TIMEOUT_SEC: typing.Final[float] = 15.0
-
 
 _REOPEN_ERROR_CODES: typing.Final[set[str]] = {
     "AGENT_TOKEN_INVALID",
@@ -57,9 +57,10 @@ class AgentWsProtocolError(RuntimeError):
         action: typing.Literal["reconnect", "reopen", "abort"] = "reconnect"
     ) -> None:
         super().__init__(f"{code}: {message}")
-        self.code = code
+
+        self.code         = code
         self.message_text = message
-        self.action = action
+        self.action       = action
 
 
 def extract_message_seq(message: dict[str, typing.Any]) -> int | None:
@@ -76,7 +77,7 @@ def update_last_acked_seq(runtime: AgentSessionRuntime, seq: int | None) -> None
 
 async def recv_json_or_stop(
     client: AgentClient,
-    connection: typing.Any,
+    connection: ClientConnection,
     stop_event: asyncio.Event
 ) -> dict[str, typing.Any]:
     """在等待 WS 消息时同时响应退出信号。"""
@@ -107,7 +108,7 @@ async def recv_json_or_stop(
 async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
     """在退避等待期间同时响应退出信号。"""
     sleep_task = asyncio.create_task(asyncio.sleep(delay_sec))
-    stop_task = asyncio.create_task(stop_event.wait())
+    stop_task  = asyncio.create_task(stop_event.wait())
 
     try:
         done, pending = await asyncio.wait(
@@ -143,6 +144,10 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     provider = str(primary.get("provider", "") or "").strip()
     if provider:
         primary_conf["provider"] = provider
+
+    kind = str(primary.get("kind", "") or "").strip()
+    if kind:
+        primary_conf["kind"] = kind
 
     route = str(primary.get("route", "") or "").strip()
     if route:
@@ -223,13 +228,13 @@ def parse_forward_request(
 async def handle_server_message(
     mind: "Mind",
     client: AgentClient,
-    connection: typing.Any,
+    connection: ClientConnection,
     runtime: AgentSessionRuntime,
     message: dict[str, typing.Any],
     live_status: AgentLiveStatus,
     forward_handler: AgentForwardHandler | None = None,
     *,
-    on_ready: ReadyCallback | None = None,
+    on_ready: ReadyCallback | None = None
 ) -> int | None:
     """按订阅协议处理一条服务端消息。"""
     current_seq  = extract_message_seq(message)
@@ -354,6 +359,27 @@ async def handle_server_message(
     return current_seq
 
 
+@contextlib.asynccontextmanager
+async def connection_scope(
+    client: AgentClient,
+    runtime: AgentSessionRuntime,
+    *,
+    on_disconnected: DisconnectedCallback | None = None,
+) -> typing.AsyncIterator[ClientConnection]:
+    """管理单个 WS 连接及其断开通知。"""
+    try:
+        connection = await client.connect_ws(
+            session_id=runtime.session_id,
+            ws_token=runtime.ws_token,
+            ws_base_url=runtime.ws_url,
+        )
+        async with connection:
+            yield connection
+    finally:
+        if on_disconnected is not None:
+            on_disconnected()
+
+
 async def connect_once(
     mind: "Mind",
     client: AgentClient,
@@ -364,7 +390,7 @@ async def connect_once(
     on_ready: ReadyCallback | None = None,
     on_connected: ConnectedCallback | None = None,
     on_disconnected: DisconnectedCallback | None = None,
-    ready_timeout_sec: float = AGENT_WS_READY_TIMEOUT_SEC,
+    ready_timeout_sec: float = AGENT_WS_READY_TIMEOUT_SEC
 ) -> None:
     """建立一次 WS 连接生命周期，并持续处理消息直到断开。"""
     connection_ready = asyncio.Event()
@@ -377,14 +403,11 @@ async def connect_once(
         if on_ready is not None:
             on_ready()
 
-    async with contextlib.AsyncExitStack() as stack:
-        if on_disconnected is not None:
-            stack.callback(on_disconnected)
-        connection = await stack.enter_async_context(await client.connect_ws(
-            session_id=runtime.session_id,
-            ws_token=runtime.ws_token,
-            ws_base_url=runtime.ws_url
-        ))
+    async with connection_scope(
+        client,
+        runtime,
+        on_disconnected=on_disconnected,
+    ) as connection:
         live_status.update(
             "Opening Long Link", "WebSocket connected, sending hello"
         )

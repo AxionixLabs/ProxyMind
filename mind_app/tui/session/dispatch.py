@@ -75,9 +75,11 @@ from ..features.mcp import (
 )
 from ..features.model import (
     choose_model_effort,
+    choose_provider,
     exchange_pref_value,
     persist_primary_pref,
-    render_model_effort_status
+    render_model_effort_status,
+    save_active_provider
 )
 from ..features.permissions import (
     choose_permissions_mode,
@@ -105,7 +107,6 @@ MODEL_COMMAND_PATTERN = re.compile(
     rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
     re.IGNORECASE
 )
-
 
 class DispatchAction(enum.Enum):
     """描述一项输入完成命令分派后的下一步。"""
@@ -256,6 +257,10 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "effort"):
             await self._choose_effort()
+            return DispatchAction.HANDLED
+
+        if matches_command(command, "provider"):
+            await self._switch_provider()
             return DispatchAction.HANDLED
 
         if matches_command(command, "ps"):
@@ -537,6 +542,17 @@ class TuiCommandDispatcher(object):
 
     async def _save_model(self, matcher: re.Match[str]) -> None:
         """解析并持久化模型命令。"""
+        if not matcher.group(1):
+            await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+            primary = self.state.pref_config.get("primary")
+            current = primary if isinstance(primary, dict) else {}
+            self._present(command_result_block(
+                "/model",
+                TextSpan(str(current.get("model") or "(not configured)"), BRIGHT_STYLE),
+            ))
+            self._present()
+            return None
+
         model_value = await exchange_pref_value(
             self.application,
             matcher,
@@ -561,6 +577,45 @@ class TuiCommandDispatcher(object):
         self._present(command_result_block(
             "/model",
             TextSpan(model or "(empty)", BRIGHT_STYLE),
+        ))
+        self._present()
+
+    async def _switch_provider(self) -> None:
+        """选择并持久化当前 Provider Profile。"""
+        try:
+            selected = await choose_provider(
+                self.runtime,
+                self.mind.config_session,
+            )
+            if selected is None:
+                self._present()
+                return None
+            saved = await save_active_provider(
+                self.mind.config_session,
+                selected,
+            )
+            await self.mind.refresh_pref_if_stale(ttl_sec=0.0)
+        except (OSError, TypeError, ValueError) as error:
+            self._present(command_result_block(
+                "/provider",
+                TextSpan(f"Failed: {error}", FAILURE_STYLE),
+            ))
+            self._present()
+            return None
+
+        primary = saved.get("primary") if isinstance(saved, dict) else {}
+        current = primary if isinstance(primary, dict) else {}
+
+        self.state.merge_primary(current)
+        self.state.apply_prompt_context(self.runtime)
+
+        self._present(command_result_block(
+            "/provider",
+            TextSpan(str(current.get("name") or selected), BRIGHT_STYLE),
+            TextSpan(
+                f" · {current.get('kind') or ''}/{current.get('model') or ''}",
+                MUTED_STYLE,
+            ),
         ))
         self._present()
 

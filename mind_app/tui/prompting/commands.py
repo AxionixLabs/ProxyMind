@@ -67,6 +67,10 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         parameterized=True,
     ),
     TuiCommandSpec(
+        "provider", "/provider", "切换模型 Provider",
+        surface_on_bare=True,
+    ),
+    TuiCommandSpec(
         "effort", "/effort", "设置主模型推理强度",
         surface_on_bare=True,
     ),

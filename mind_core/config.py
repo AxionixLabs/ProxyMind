@@ -7,11 +7,14 @@ import typing
 import tomllib
 from dataclasses import dataclass
 from mind_core.provider_config import (
-    DEFAULT_PROVIDER_NAME,
+    DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
+    SUPPORTED_PROVIDER_KINDS,
     SUPPORTED_REASONING_EFFORTS,
-    default_route_for_provider
+    default_route_for_kind,
+    is_valid_provider_id,
+    supported_routes_for_kind
 )
 from mind_core.hook_discovery import normalize_hook_table
 from mind_core.hooks import (
@@ -87,43 +90,52 @@ def _normalize_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
 
 def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """把外部模型配置转换为稳定的 primary 槽位。"""
-    provider = (
-        _as_str(data.get("model_provider"), DEFAULT_PROVIDER_NAME).strip()
-        or DEFAULT_PROVIDER_NAME
-    )
+    provider_id = _as_str(data.get("model_provider")).strip()
 
     providers       = _as_dict(data.get("model_providers"))
-    provider_config = _as_dict(providers.get(provider))
-    model           = _as_str(data.get("model")).strip()
-    default_route   = default_route_for_provider(provider)
+    provider_config = _as_dict(providers.get(provider_id))
 
-    enabled = (
-        _as_bool(data.get("model_enabled"), bool(model))
-        if "model_enabled" in data
-        else bool(model)
+    kind = (
+        _as_str(
+            provider_config.get("kind"),
+            DEFAULT_PROVIDER_KIND,
+        ).strip().lower()
+        or DEFAULT_PROVIDER_KIND
+    )
+
+    model         = _as_str(provider_config.get("model")).strip()
+    default_route = default_route_for_kind(kind)
+
+    route = (
+        _as_str(provider_config.get("route"), default_route).strip().lower()
+        or default_route
     )
 
     return {
-        "provider": provider,
-        "route": (
-            _as_str(provider_config.get("route"), default_route).strip()
-            or default_route
+        "provider": provider_id,
+        "name": (
+            _as_str(provider_config.get("name"), provider_id).strip()
+            or provider_id
         ),
+        "kind": kind,
+        "route": route,
         "model": model,
         "apikey": _as_str(provider_config.get("api_key")).strip(),
         "base_url": _as_str(provider_config.get("base_url")).strip(),
         "reasoning_effort": _normalize_reasoning_effort(
-            data.get("model_reasoning_effort"),
+            provider_config.get("reasoning_effort"),
             default=DEFAULT_REASONING_EFFORT,
         ),
-        "enabled": enabled
+        "enabled": bool(provider_config and model and kind)
     }
 
 
 def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]:
     """返回默认模型槽位配置。"""
     slot: dict[str, typing.Any] = {
-        "provider": DEFAULT_PROVIDER_NAME,
+        "provider": "",
+        "name": "",
+        "kind": DEFAULT_PROVIDER_KIND,
         "route": DEFAULT_ROUTE_NAME,
         "model": "",
         "apikey": "",
@@ -176,6 +188,8 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     data = _as_dict(raw)
     validate_config(data)
 
+    _validate_effective_model_profiles(data)
+
     defaults    = _default_effective_config()
     service     = _as_dict(data.get("service"))
     skills      = _as_dict(data.get("skills"))
@@ -214,17 +228,46 @@ def validate_config(raw: typing.Any) -> None:
     _validate_known_config(raw)
 
 
+def _validate_effective_model_profiles(
+    config: dict[str, typing.Any]
+) -> None:
+    """校验配置层合并后的 Provider Profile 关系。"""
+    providers = _as_dict(config.get("model_providers"))
+    active_id = _as_str(config.get("model_provider")).strip()
+
+    if active_id and active_id not in providers:
+        raise ConfigValidationError(
+            f"model_provider references an unknown profile: {active_id}"
+        )
+
+    for provider_id, profile_value in providers.items():
+        profile = _as_dict(profile_value)
+        kind = (
+            _as_str(profile.get("kind"), DEFAULT_PROVIDER_KIND).strip().lower()
+            or DEFAULT_PROVIDER_KIND
+        )
+        route = (
+            _as_str(
+                profile.get("route"),
+                default_route_for_kind(kind),
+            ).strip().lower()
+            or default_route_for_kind(kind)
+        )
+        if route not in supported_routes_for_kind(kind):
+            choices = ", ".join(supported_routes_for_kind(kind))
+            raise ConfigValidationError(
+                f"model_providers.{provider_id}.route must be one of: {choices}"
+            )
+
+
 STRING_CONFIG_PATHS = frozenset({
-    ("model",),
     ("model_provider",),
-    ("model_reasoning_effort",),
     ("service", "domain"),
     ("sandbox_mode",),
     ("approval_policy",),
 })
 
 BOOL_CONFIG_PATHS = frozenset({
-    ("model_enabled",),
     ("agents", "enabled"),
     ("hosted_tools", "groups", "perf_engine"),
     ("hosted_tools", "groups", "sandbox_cloud"),
@@ -262,10 +305,7 @@ TABLE_CONFIG_PATHS = (
 ROOT_CONFIG_FIELDS = frozenset({
     "sandbox_mode",
     "approval_policy",
-    "model",
     "model_provider",
-    "model_reasoning_effort",
-    "model_enabled",
     "model_providers",
     "project_root_markers",
     "service",
@@ -326,7 +366,11 @@ TUI_KEYMAP_CONTEXT_PATHS: frozenset[tuple[str, ...]] = frozenset({
 })
 
 MODEL_PROVIDER_STRING_FIELDS = frozenset({
+    "name",
+    "kind",
+    "model",
     "route",
+    "reasoning_effort",
     "base_url",
     "api_key",
 })
@@ -436,13 +480,6 @@ def validate_config_value(
     if path in STRING_CONFIG_PATHS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
-        if path == ("model_reasoning_effort",) and (
-            value.strip().lower() not in SUPPORTED_REASONING_EFFORTS
-        ):
-            choices = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
-            raise ConfigValidationError(
-                f"{dotted} must be one of: {choices}"
-            )
         if path == ("sandbox_mode",) and value not in {
             "read-only", "workspace-write", "danger-full-access"
         }:
@@ -465,6 +502,21 @@ def validate_config_value(
     ):
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
+
+        normalized = value.strip().lower()
+
+        if path[2] == "name" and not value.strip():
+            raise ConfigValidationError(f"{dotted} must be non-empty")
+        if path[2] == "kind" and normalized not in SUPPORTED_PROVIDER_KINDS:
+            choices = ", ".join(sorted(SUPPORTED_PROVIDER_KINDS))
+            raise ConfigValidationError(f"{dotted} must be one of: {choices}")
+        if (
+            path[2] == "reasoning_effort"
+            and normalized not in SUPPORTED_REASONING_EFFORTS
+        ):
+            choices = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
+            raise ConfigValidationError(f"{dotted} must be one of: {choices}")
+
         return None
 
     if path == ("mcp_servers",):
@@ -549,9 +601,10 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
     providers = config.get("model_providers")
     if isinstance(providers, dict):
         for name, provider in providers.items():
-            if not isinstance(name, str) or not name.strip():
+            if not isinstance(name, str) or not is_valid_provider_id(name):
                 raise ConfigValidationError(
-                    "model provider name must be a non-empty string"
+                    "model provider id must use letters, numbers, "
+                    "underscores, or hyphens"
                 )
             if not isinstance(provider, dict):
                 raise ConfigValidationError(
@@ -568,6 +621,15 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
                         ("model_providers", name, field),
                         provider[field],
                     )
+
+            kind  = str(provider.get("kind") or "").strip().lower()
+            route = str(provider.get("route") or "").strip().lower()
+
+            if kind and route and route not in supported_routes_for_kind(kind):
+                choices = ", ".join(supported_routes_for_kind(kind))
+                raise ConfigValidationError(
+                    f"model_providers.{name}.route must be one of: {choices}"
+                )
 
     mcp_servers = config.get("mcp_servers")
     if mcp_servers is not None:
@@ -878,33 +940,42 @@ def apply_config_overrides(
     return result
 
 
-def model_config_values(
-    slot: dict[str, typing.Any]
+def provider_profile_values(
+    provider_id: str,
+    profile: dict[str, typing.Any]
 ) -> dict[tuple[str, ...], object]:
-    """把 primary 槽位转换为外部模型配置字段。"""
-    provider = (
-        _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME).strip()
-        or DEFAULT_PROVIDER_NAME
+    """把单个 Provider Profile 转换为配置点路径。"""
+    normalized_id = _as_str(provider_id).strip()
+    if not normalized_id:
+        raise ConfigValidationError("model provider id must be non-empty")
+
+    kind = (
+        _as_str(profile.get("kind"), DEFAULT_PROVIDER_KIND).strip().lower()
+        or DEFAULT_PROVIDER_KIND
     )
-    default_route = default_route_for_provider(provider)
+    default_route = default_route_for_kind(kind)
 
     return {
-        ("model",): _as_str(slot.get("model")).strip(),
-        ("model_provider",): provider,
-        ("model_reasoning_effort",): _normalize_reasoning_effort(
-            slot.get("reasoning_effort"),
+        ("model_providers", normalized_id, "name"): (
+            _as_str(profile.get("name"), normalized_id).strip() or normalized_id
+        ),
+        ("model_providers", normalized_id, "kind"): kind,
+        ("model_providers", normalized_id, "model"): (
+            _as_str(profile.get("model")).strip()
+        ),
+        ("model_providers", normalized_id, "reasoning_effort"): _normalize_reasoning_effort(
+            profile.get("reasoning_effort"),
             default=DEFAULT_REASONING_EFFORT,
         ),
-        ("model_enabled",): _as_bool(slot.get("enabled"), False),
-        ("model_providers", provider, "route"): (
-            _as_str(slot.get("route"), default_route).strip()
+        ("model_providers", normalized_id, "route"): (
+            _as_str(profile.get("route"), default_route).strip()
             or default_route
         ),
-        ("model_providers", provider, "api_key"): (
-            _as_str(slot.get("apikey")).strip()
+        ("model_providers", normalized_id, "api_key"): (
+            _as_str(profile.get("apikey", profile.get("api_key"))).strip()
         ),
-        ("model_providers", provider, "base_url"): (
-            _as_str(slot.get("base_url")).strip()
+        ("model_providers", normalized_id, "base_url"): (
+            _as_str(profile.get("base_url")).strip()
         ),
     }
 
@@ -922,29 +993,26 @@ def model_config_field_values(
     field: ModelConfigField
 ) -> dict[tuple[str, ...], object]:
     """把 primary 槽位的单个字段转换为外部配置字段。"""
-    provider = (
-        _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME).strip()
-        or DEFAULT_PROVIDER_NAME
-    )
-
-    values: dict[tuple[str, ...], object] = {
-        ("model_enabled",): True,
-    }
+    provider_id = _as_str(slot.get("provider")).strip()
+    if not provider_id:
+        raise ConfigValidationError("no active model provider")
 
     if field == "model":
-        values[("model",)] = _as_str(slot.get(field)).strip()
+        provider_field = "model"
     elif field == "reasoning_effort":
-        values[("model_reasoning_effort",)] = _normalize_reasoning_effort(
+        provider_field = "reasoning_effort"
+    else:
+        provider_field = "api_key" if field == "apikey" else field
+
+    value = (
+        _normalize_reasoning_effort(
             slot.get(field),
             default=DEFAULT_REASONING_EFFORT,
         )
-    else:
-        provider_field = "api_key" if field == "apikey" else field
-        values[("model_providers", provider, provider_field)] = (
-            _as_str(slot.get(field)).strip()
-        )
-
-    return values
+        if field == "reasoning_effort"
+        else _as_str(slot.get(field)).strip()
+    )
+    return {("model_providers", provider_id, provider_field): value}
 
 
 def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -955,7 +1023,9 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
 
     def convert_slot(slot: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return {
-            "provider": _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
+            "provider": _as_str(slot.get("provider")),
+            "name": _as_str(slot.get("name")),
+            "kind": _as_str(slot.get("kind"), DEFAULT_PROVIDER_KIND),
             "route": _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
             "model": _as_str(slot.get("model")),
             "apikey": _as_str(slot.get("apikey")),

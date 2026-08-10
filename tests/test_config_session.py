@@ -112,6 +112,96 @@ def test_unknown_config_field_is_rejected() -> None:
         normalize_config({"typo": True})
 
 
+def test_default_config_uses_only_provider_profiles(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+
+    raw = store.read_raw()
+
+    assert raw["model_provider"] == "openai-main"
+    assert raw["model_providers"]["openai-main"] == {
+        "name": "openai-main",
+        "kind": "openai",
+        "model": "",
+        "route": "responses",
+        "reasoning_effort": "medium",
+        "api_key": "",
+        "base_url": "",
+    }
+    assert {"model", "model_reasoning_effort", "model_enabled"}.isdisjoint(raw)
+
+
+@pytest.mark.parametrize(
+    "legacy_field",
+    ["model", "model_reasoning_effort", "model_enabled"],
+)
+def test_legacy_model_fields_are_rejected(legacy_field) -> None:
+    with pytest.raises(ConfigValidationError, match=legacy_field):
+        normalize_config({legacy_field: "unsupported"})
+
+
+def test_active_provider_must_reference_a_profile() -> None:
+    with pytest.raises(ConfigValidationError, match="unknown profile"):
+        normalize_config({
+            "model_provider": "missing",
+            "model_providers": {},
+        })
+
+
+def test_provider_ids_and_routes_follow_the_new_schema() -> None:
+    with pytest.raises(ConfigValidationError, match="provider id"):
+        normalize_config({
+            "model_provider": "invalid.profile",
+            "model_providers": {"invalid.profile": {}},
+        })
+
+    config = normalize_config({
+        "model_provider": "openai-main",
+        "model_providers": {
+            "openai-main": {
+                "kind": "OpenAI",
+                "route": "Responses",
+            },
+        },
+    })
+    assert config["model"]["primary"]["kind"] == "openai"
+    assert config["model"]["primary"]["route"] == "responses"
+
+    with pytest.raises(ConfigValidationError, match="route must be one of"):
+        normalize_config({
+            "model_provider": "openai-main",
+            "model_providers": {
+                "openai-main": {},
+                "custom": {"route": "messages"},
+            },
+        })
+
+
+def test_profile_overlay_can_select_and_partially_override_provider(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.ensure()
+    store.update({
+        ("model_providers", "claude-main", "name"): "Claude",
+        ("model_providers", "claude-main", "kind"): "anthropic",
+        ("model_providers", "claude-main", "model"): "claude-test",
+        ("model_providers", "claude-main", "route"): "messages",
+        ("model_providers", "claude-main", "reasoning_effort"): "high",
+        ("model_providers", "claude-main", "api_key"): "",
+        ("model_providers", "claude-main", "base_url"): "",
+    })
+    (tmp_path / "work.config.toml").write_text(
+        'model_provider = "claude-main"\n'
+        '[model_providers.claude-main]\n'
+        'route = "messages"\n',
+        encoding="utf-8",
+    )
+
+    config = ConfigSession(store, profile="work").load()
+
+    assert config["model"]["primary"]["provider"] == "claude-main"
+    assert config["model"]["primary"]["kind"] == "anthropic"
+    assert config["model"]["primary"]["route"] == "messages"
+
+
 @pytest.mark.parametrize(
     ("trust_level", "project_enabled"),
     [
@@ -724,7 +814,7 @@ def test_profile_project_trust_participates_in_the_active_snapshot(tmp_path) -> 
 
     project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
     project_config.parent.mkdir()
-    project_config.write_text('model = "project-model"\n', encoding="utf-8")
+    project_config.write_text('[agents]\nmax_depth = 2\n', encoding="utf-8")
 
     store = ConfigStore(tmp_path / "home" / "config.toml")
     store.ensure()
@@ -741,7 +831,7 @@ def test_profile_project_trust_participates_in_the_active_snapshot(tmp_path) -> 
     assert resolution.project_trust is not None
     assert resolution.project_trust.level == "trusted"
     assert resolution.project_trust.trusted
-    assert resolution.config["model"]["primary"]["model"] == "project-model"
+    assert resolution.config["agents"]["max_depth"] == 2
     assert any(
         layer.scope == "project" and layer.enabled
         for layer in resolution.layers
@@ -924,7 +1014,7 @@ def test_config_session_persists_project_trust_decisions(tmp_path) -> None:
 
     project_config = project_root / PROJECT_CONFIG_DIR / "config.toml"
     project_config.parent.mkdir()
-    project_config.write_text('model = "project-model"\n', encoding="utf-8")
+    project_config.write_text('[agents]\nmax_depth = 2\n', encoding="utf-8")
 
     store = ConfigStore(tmp_path / "home" / "config.toml")
     session = ConfigSession(store, workspace=workspace)
@@ -936,7 +1026,7 @@ def test_config_session_persists_project_trust_decisions(tmp_path) -> None:
     trusted = session.resolve().project_trust
     assert trusted is not None
     assert trusted.level == "trusted"
-    assert trusted_config["model"]["primary"]["model"] == "project-model"
+    assert trusted_config["agents"]["max_depth"] == 2
     assert store.read_raw()["projects"][str(project_root)] == {
         "trust_level": "trusted",
     }
@@ -948,7 +1038,7 @@ def test_config_session_persists_project_trust_decisions(tmp_path) -> None:
     untrusted = session.resolve().project_trust
     assert untrusted is not None
     assert untrusted.level == "untrusted"
-    assert untrusted_config["model"]["primary"]["model"] != "project-model"
+    assert untrusted_config["agents"]["max_depth"] != 2
 
 
 def test_user_config_is_not_reloaded_as_home_project_config(tmp_path) -> None:
@@ -1162,7 +1252,12 @@ def test_cli_override_does_not_modify_user_document(tmp_path) -> None:
     original = store.path.read_text(encoding="utf-8")
     session = ConfigSession(
         store,
-        (parse_config_override('model="temporary-model"'),),
+        (
+            parse_config_override('model_provider="openai-main"'),
+            parse_config_override(
+                'model_providers.openai-main.model="temporary-model"'
+            ),
+        ),
     )
 
     config = session.load()

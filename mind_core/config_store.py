@@ -15,18 +15,21 @@ from tomlkit.toml_document import TOMLDocument
 from mind_nova import const
 from mind_core.application_paths import default_application_home
 from mind_core.provider_config import (
-    DEFAULT_PROVIDER_NAME,
+    DEFAULT_PROVIDER_ID,
+    DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME
 )
 
-DEFAULT_CONFIG_TEXT = f"""model = ""
-model_provider = "{DEFAULT_PROVIDER_NAME}"
-model_reasoning_effort = "{DEFAULT_REASONING_EFFORT}"
+DEFAULT_CONFIG_TEXT = f"""model_provider = "{DEFAULT_PROVIDER_ID}"
 project_root_markers = [".git"]
 
-[model_providers.{DEFAULT_PROVIDER_NAME}]
+[model_providers.{DEFAULT_PROVIDER_ID}]
+name = "{DEFAULT_PROVIDER_ID}"
+kind = "{DEFAULT_PROVIDER_KIND}"
+model = ""
 route = "{DEFAULT_ROUTE_NAME}"
+reasoning_effort = "{DEFAULT_REASONING_EFFORT}"
 api_key = ""
 base_url = ""
 

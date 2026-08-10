@@ -122,7 +122,8 @@ def test_doctor_does_not_report_hook_warning_as_project_config_issue(
 ) -> None:
     context = _doctor_context(tmp_path)
     ConfigStore(context.config_path).update({
-        ("model",): "test-model",
+        ("model_provider",): "openai-main",
+        ("model_providers", "openai-main", "model"): "test-model",
     })
     (context.home / HOOKS_FILE_NAME).write_text(
         "{broken",

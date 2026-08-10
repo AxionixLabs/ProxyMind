@@ -13,6 +13,7 @@ def empty_primary_request_slot() -> dict[str, str]:
     """返回请求协议要求的空 primary 配置。"""
     return {
         "provider"         : "",
+        "kind"             : "",
         "route"            : "",
         "model"            : "",
         "apikey"           : "",
@@ -121,12 +122,12 @@ async def build_chat_payload(
     permissions = permission_payload(kwargs.pop("permissions", None))
 
     payload: dict[str, typing.Any] = {
-        "turn_id"      : turn_id,
-        "llm_conf"     : request_llm_conf(pref_config),
-        "message"      : message,
-        "tools"        : tools,
-        "hosted_tools" : request_hosted_tools(pref_config),
-        "exec_env"     : runtime_exec_env,
+        "turn_id": turn_id,
+        "llm_conf": request_llm_conf(pref_config),
+        "message": message,
+        "tools": tools,
+        "hosted_tools": request_hosted_tools(pref_config),
+        "exec_env": runtime_exec_env,
         **permissions,
         **kwargs
     }

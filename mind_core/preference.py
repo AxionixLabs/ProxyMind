@@ -11,12 +11,11 @@ from engine.observability import (
 from mind_core.config import config_to_preferences
 from mind_core.config_session import ConfigSession
 from mind_core.provider_config import (
-    DEFAULT_PROVIDER_NAME,
+    DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
     SUPPORTED_REASONING_EFFORTS,
-    default_route_for_provider
-
+    default_route_for_kind
 )
 from mind_nova import const
 
@@ -24,7 +23,9 @@ from mind_nova import const
 def _default_slot() -> dict[str, typing.Any]:
     """返回单个模型槽位的默认配置。"""
     return {
-        "provider"         : DEFAULT_PROVIDER_NAME,
+        "provider"         : "",
+        "name"             : "",
+        "kind"             : DEFAULT_PROVIDER_KIND,
         "route"            : DEFAULT_ROUTE_NAME,
         "model"            : "",
         "apikey"           : "",
@@ -139,9 +140,6 @@ class Preferences(object):
 
         if provider:
             primary["provider"] = provider
-            primary["enabled"]  = True
-            if not route:
-                primary["route"] = default_route_for_provider(provider)
         if route:
             primary["route"]   = route
             primary["enabled"] = True
@@ -173,7 +171,10 @@ class Preferences(object):
         """使用补充配置填充空字段，不覆盖已有值。"""
         merged = dict(base or {})
 
-        for key in ("provider", "route", "model", "apikey", "base_url", "reasoning_effort"):
+        for key in (
+            "provider", "name", "kind", "route", "model", "apikey",
+            "base_url", "reasoning_effort",
+        ):
             current  = str(merged.get(key) or "").strip()
             incoming = str(supplement.get(key) or "").strip()
 
@@ -190,15 +191,19 @@ class Preferences(object):
         """规范化单个模型槽位配置。"""
         slot = raw if isinstance(raw, dict) else {}
 
-        provider = str(
-            slot.get("provider", DEFAULT_PROVIDER_NAME)
-            or DEFAULT_PROVIDER_NAME
+        provider_id = str(slot.get("provider") or "")
+
+        kind = str(
+            slot.get("kind", DEFAULT_PROVIDER_KIND)
+            or DEFAULT_PROVIDER_KIND
         )
 
-        default_route = default_route_for_provider(provider)
+        default_route = default_route_for_kind(kind)
 
         return {
-            "provider": provider,
+            "provider": provider_id,
+            "name": str(slot.get("name", provider_id) or provider_id),
+            "kind": kind,
             "route": str(
                 slot.get("route", default_route) or default_route
             ),

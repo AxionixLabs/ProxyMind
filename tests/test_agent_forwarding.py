@@ -18,6 +18,7 @@ from mind_app.subscription.models import (
     AgentSessionRuntime,
 )
 from mind_app.subscription.ws import (
+    build_runtime_llm_conf,
     connect_once,
     handle_server_message,
     recv_json_or_stop,
@@ -47,6 +48,28 @@ def _recording_mock(events: list[str], name: str, result=None) -> AsyncMock:
         return result
 
     return AsyncMock(side_effect=record)
+
+
+@pytest.mark.anyio
+async def test_runtime_bind_forwards_provider_id_and_kind() -> None:
+    mind = SimpleNamespace(fresh_pref_config=AsyncMock(return_value={
+        "primary": {
+            "provider": "claude-main",
+            "kind": "anthropic",
+            "route": "messages",
+            "model": "claude-test",
+            "enabled": True,
+        },
+    }))
+
+    config = await build_runtime_llm_conf(mind)
+
+    assert config["primary"] == {
+        "provider": "claude-main",
+        "kind": "anthropic",
+        "route": "messages",
+        "model": "claude-test",
+    }
 
 
 def test_normalize_forward_request_requires_message() -> None:

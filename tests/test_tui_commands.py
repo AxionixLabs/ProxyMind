@@ -13,11 +13,18 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from engine.errors import AppError
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from mind_core.skills import SkillSpec
 from mind_app.history.transcript import TranscriptEntry
 from mind_app.tui.core.models import TranscriptBacktrackRequest
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
+from mind_app.tui.features.model import (
+    choose_provider,
+    save_active_provider,
+)
+from mind_app.tui.features.context import save_primary_pref_field
 from mind_app.tui.features.transcript_export import TranscriptExporter
 from mind_app.tui.features.skills import choose_skill
 from mind_app.tui.features.conversation import ForkLiveStatus
@@ -47,6 +54,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/fork",
         "/permissions",
         "/model",
+        "/provider",
         "/effort",
         "/preferences",
         "/compact",
@@ -125,6 +133,56 @@ async def test_cancelled_skills_menu_keeps_input_empty() -> None:
     assert runtime.screen.input.buffer.text == ""
 
 
+@pytest.mark.anyio
+async def test_provider_selection_persists_active_profile(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.ensure()
+    store.update({
+        ("model_providers", "claude-main", "name"): "Claude",
+        ("model_providers", "claude-main", "kind"): "anthropic",
+        ("model_providers", "claude-main", "model"): "claude-test",
+        ("model_providers", "claude-main", "route"): "messages",
+        ("model_providers", "claude-main", "reasoning_effort"): "high",
+        ("model_providers", "claude-main", "api_key"): "",
+        ("model_providers", "claude-main", "base_url"): "",
+    })
+    session = ConfigSession(store)
+    runtime = TuiRuntime()
+    runtime.select_menu = AsyncMock(return_value="claude-main")
+
+    selected = await choose_provider(runtime, session)
+    saved = await save_active_provider(session, selected or "")
+
+    assert store.read_raw()["model_provider"] == "claude-main"
+    assert saved["primary"]["name"] == "Claude"
+    assert saved["primary"]["kind"] == "anthropic"
+    request = runtime.select_menu.await_args.args[0]
+    assert [option.value for option in request.options] == [
+        "openai-main",
+        "claude-main",
+    ]
+    assert request.options[-1].detail == "anthropic · claude-test · messages"
+
+
+@pytest.mark.anyio
+async def test_model_commands_update_the_active_provider_profile(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    session = ConfigSession(store)
+
+    model_pref = await save_primary_pref_field(session, "model", "gpt-test")
+    effort_pref = await save_primary_pref_field(
+        session,
+        "reasoning_effort",
+        "high",
+    )
+
+    profile = store.read_raw()["model_providers"]["openai-main"]
+    assert profile["model"] == "gpt-test"
+    assert profile["reasoning_effort"] == "high"
+    assert model_pref["primary"]["enabled"] is True
+    assert effort_pref["primary"]["reasoning_effort"] == "high"
+
+
 def test_helix_prefix_keeps_command_order() -> None:
     completions = _completions("/h")
 
@@ -136,6 +194,13 @@ def test_helix_prefix_keeps_command_order() -> None:
         "/helix-home",
         "/helix-stop",
     ]
+
+
+def test_provider_completion_opens_bare_secondary_menu() -> None:
+    completion = _completions("/pro")[0]
+
+    assert completion.display_text == "/provider"
+    assert completion.text == "/provider"
 
 
 def test_complete_command_remains_available_to_the_menu() -> None:
@@ -161,6 +226,7 @@ def test_command_matching_distinguishes_empty_and_argument_states() -> None:
     "value",
     [
         "/permissions",
+        "/provider",
         "/effort",
         "/resume",
         "/hooks",
@@ -209,6 +275,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     [
         "/permissions",
         "/MODEL gpt-test",
+        "/provider",
         "/mcp start",
         "/listen start",
         "/listen stop",
@@ -227,6 +294,7 @@ def test_registered_slash_command_inputs_are_resolved(value) -> None:
     [
         "/今天天气",
         "/compact later",
+        "/provider openai-main",
         "/mcp unknown",
         "/listen restart",
         "/helix-mode app",
@@ -240,6 +308,37 @@ def test_unknown_or_invalid_slash_command_inputs_are_rejected(value) -> None:
 def test_root_slash_only_opens_completion() -> None:
     assert resolve_slash_command("/") is None
     assert not is_unrecognized_slash_command("/")
+
+
+@pytest.mark.anyio
+async def test_provider_menu_reports_config_load_failure(monkeypatch) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        config_session=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "choose_provider",
+        AsyncMock(side_effect=ValueError("config is invalid")),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/provider")
+
+    assert action is DispatchAction.HANDLED
+    assert "Failed: config is invalid" in "".join(
+        text for _style, text in views[-2].renderable.fragments
+    )
 
 
 @pytest.mark.anyio

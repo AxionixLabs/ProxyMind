@@ -4,7 +4,6 @@
 import re
 import copy
 import typing
-from mind_core.provider_config import SUPPORTED_PROVIDER_OPTIONS
 from mind_core.permissions import PermissionSettings
 from .models import (
     RunCompletedView,
@@ -34,7 +33,12 @@ def build_run_started_view(
     primary  = pref_config.get("primary") if isinstance(pref_config, dict) else None
     primary  = primary if isinstance(primary, dict) else {}
     model    = primary.get("model")
-    provider = _provider_label(primary.get("provider"))
+
+    provider = str(
+        primary.get("name")
+        or primary.get("provider")
+        or "-"
+    )
 
     return RunStartedView(
         thread_id=str(metadata.get("cid") or metadata.get("sid") or ""),
@@ -53,16 +57,6 @@ def build_run_started_view(
             or "none"
         ),
     )
-
-
-def _provider_label(value: typing.Any) -> str:
-    """返回配置中的 provider 展示名称。"""
-    normalized = str(value or "").strip()
-    for option in SUPPORTED_PROVIDER_OPTIONS:
-        if option.get("value") == normalized:
-            return str(option.get("label") or normalized)
-    return normalized or "-"
-
 
 def build_run_completed_view(
     usage: dict[str, typing.Any] | None,
