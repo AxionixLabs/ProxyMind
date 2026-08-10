@@ -390,6 +390,7 @@ class TuiInputModel(object):
             return None
 
         self.interrupt_handler()
+        self.input_resize_handler()
 
     def completion_menu_completions(
         self,
