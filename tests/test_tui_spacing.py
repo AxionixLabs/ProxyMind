@@ -146,6 +146,17 @@ async def _render_next_frame(runtime: TuiRuntime):
     raise AssertionError("next frame was not rendered")
 
 
+def _rendered_screen_text(screen) -> str:
+    """返回渲染屏幕中的逐行文本。"""
+    return "\n".join(
+        "".join(
+            cells[column].char
+            for column in sorted(cells)
+        ).rstrip()
+        for _row, cells in sorted(screen.data_buffer.items())
+    )
+
+
 async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     """等待管道输入被主输入框完整消费。"""
     loop = asyncio.get_running_loop()
@@ -277,6 +288,41 @@ class _KnownInlineHeightOutput(_AlternateScreenOutput):
 
     def get_rows_below_cursor_position(self) -> int:
         return self.available_rows
+
+
+async def _prepare_scrolled_turn_footer(
+    runtime: TuiRuntime,
+    output: _KnownInlineHeightOutput,
+) -> None:
+    """构造已经产生原生滚屏且保留结束线的轮次尾部。"""
+    original_print_text = runtime.screen.application.print_text
+
+    def print_at_settled_cursor(value) -> None:
+        original_print_text(value)
+        output.available_rows = 7
+
+    with patch.object(
+        runtime.screen.application,
+        "print_text",
+        side_effect=print_at_settled_cursor,
+    ):
+        runtime.append_block(
+            _block("\n".join(
+                f"first answer {index}" for index in range(35)
+            )),
+            kind="assistant",
+        )
+        await _wait_for_scrollback_advance(runtime)
+
+    runtime.append_block(
+        FragmentBlock(
+            (("class:rule", "─ Finished in 36s "),),
+            line_fill=LineFill(character="─"),
+        ),
+        kind="system",
+    )
+    screen = await _render_next_frame(runtime)
+    assert "Finished in 36s" in _rendered_screen_text(screen)
 
 
 def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
@@ -896,6 +942,244 @@ async def test_known_inline_viewport_does_not_expand_renderer_height() -> None:
             assert runtime.screen._visible_height() == 14
             assert expanded_screen.height == initial_screen.height
         finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_reply_wait_preserves_turn_boundary_through_activity_frames() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, output)
+
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+                wraps=runtime.screen.application.print_text,
+            ) as print_text:
+                runtime.submissions.enqueue_message("second question")
+                assert await runtime.read_message(
+                    PromptContext(model="test")
+                ) == "second question"
+                runtime.set_execution_active(True)
+                query_screen = await _render_next_frame(runtime)
+
+                await runtime.begin_wait_status()
+                thinking_screen = await _render_next_frame(runtime)
+                repeated_screen = await _render_next_frame(runtime)
+
+            query_text = _rendered_screen_text(query_screen)
+            assert "Finished in 36s" in query_text
+            assert "second question" in query_text
+
+            for screen in (thinking_screen, repeated_screen):
+                frame_text = _rendered_screen_text(screen)
+                assert "Finished in 36s" in frame_text
+                assert "second question" in frame_text
+                assert "Thinking" in frame_text
+            print_text.assert_not_called()
+        finally:
+            await runtime.activity.clear()
+            runtime.set_execution_active(False)
+            await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("animate", (False, True))
+async def test_markdown_stream_retires_stable_prefix_while_running(
+    animate: bool,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+        output = TuiOutputControl("", runtime=runtime, animate=animate)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            initial_scrollback = runtime.document.scrollback_line_count
+
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+                wraps=runtime.screen.application.print_text,
+            ) as print_text:
+                runtime.submissions.enqueue_message("second question")
+                assert await runtime.read_message(
+                    PromptContext(model="test")
+                ) == "second question"
+                runtime.set_execution_active(True)
+                await runtime.begin_wait_status()
+
+                source = ""
+                for index in range(16):
+                    content_options = (
+                        f"Paragraph {index} with **bold** text.",
+                        f"- list item {index}.1\n- list item {index}.2",
+                        f"> quoted section {index}",
+                        "```python\n"
+                        f"value_{index} = items[index]\n"
+                        "```",
+                    )
+                    content = content_options[index % len(content_options)]
+                    chunk = f"## Section {index}\n\n{content}\n\n"
+                    source += chunk
+                    await output.append_assistant_delta(chunk)
+                    await _render_next_frame(runtime)
+
+                await _wait_for_scrollback_advance(
+                    runtime,
+                    after=initial_scrollback,
+                )
+
+            printed = "".join(
+                fragments_text(call_args.args[0])
+                for call_args in print_text.call_args_list
+            )
+
+            assert runtime.document.active_stream_continuation
+            assert runtime.document.scrollback_line_count > initial_scrollback
+            assert "Section 0" in printed
+
+            cells = [
+                cell
+                for cell in runtime.document.blocks
+                if cell.kind == "assistant" and cell.raw_text is not None
+            ]
+            streamed_source = "".join(
+                str(cell.raw_text or "") for cell in cells
+            ) + str(runtime.document.active_raw_text or "")
+            assert streamed_source == source
+
+            await output.stop()
+            final_cells = [
+                cell
+                for cell in runtime.document.blocks
+                if cell.kind == "assistant" and cell.raw_text is not None
+            ]
+            assert "".join(
+                str(cell.raw_text or "") for cell in final_cells
+            ).endswith(source)
+            stream_cells = final_cells
+            assert not stream_cells[0].stream_continuation
+            assert all(
+                cell.stream_continuation
+                for cell in stream_cells[1:]
+            )
+            assert all(cell.source_renderer for cell in stream_cells)
+
+            stream_document = TuiDocument()
+            stream_document.replace_blocks(stream_cells)
+            expected = tui_markdown.render_tui_assistant_markdown(
+                source,
+                width=80,
+            )
+            assert fragments_text(
+                stream_document.all_fragments(width=80)
+            ) == fragments_text(expected.fragments)
+            assert fragments_text(
+                stream_document.transcript_fragments(width=80)
+            ) == fragments_text(expected.fragments)
+
+            resized_expected = tui_markdown.render_tui_assistant_markdown(
+                source,
+                width=40,
+            )
+            assert fragments_text(
+                stream_document.all_fragments(width=40)
+            ) == fragments_text(resized_expected.fragments)
+
+            transcript = _transcript_text(runtime.document)
+            assert transcript.count("Section 0") == 1
+            assert transcript.count("Section 15") == 1
+
+            resized = fragments_text(
+                runtime.document.all_fragments(width=40)
+            )
+            assert resized.count("Section 0") == 1
+            assert resized.count("Section 15") == 1
+            assert resized.count("• ") == 1
+        finally:
+            await runtime.activity.clear()
+            runtime.set_execution_active(False)
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_reference_stream_commits_only_parser_safe_prefix() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        initial = (
+            "## Safe 0\n"
+            "## Safe 1\n"
+            "## Safe 2\n"
+            "## [docs][reference]\n\n"
+            "following paragraph\n"
+        )
+        definition = "\n[reference]: https://example.com/reference\n"
+
+        await runtime.open()
+        try:
+            runtime.set_execution_active(True)
+            await output.append_assistant_delta(initial)
+
+            assert runtime.document.active_stream_continuation
+            committed_source = "".join(
+                str(cell.raw_text or "")
+                for cell in runtime.document.blocks
+                if cell.kind == "assistant" and cell.raw_text is not None
+            )
+            assert committed_source == (
+                "## Safe 0\n## Safe 1\n## Safe 2\n"
+            )
+            assert "[docs][reference]" in str(
+                runtime.document.active_raw_text or ""
+            )
+
+            await output.append_assistant_delta(definition)
+            active = runtime.document.active_block
+
+            assert active is not None
+            assert any(
+                "underline" in style
+                for style, text in active.fragments
+                if text == "docs"
+            )
+
+            source = initial + definition
+            await output.stop()
+            cells = [
+                cell
+                for cell in runtime.document.blocks
+                if cell.kind == "assistant" and cell.raw_text is not None
+            ]
+            assert "".join(
+                str(cell.raw_text or "") for cell in cells
+            ) == source
+
+            document = TuiDocument()
+            document.replace_blocks(cells)
+            expected = tui_markdown.render_tui_assistant_markdown(
+                source,
+                width=80,
+            )
+            assert fragments_text(
+                document.all_fragments(width=80)
+            ) == fragments_text(expected.fragments)
+        finally:
+            runtime.set_execution_active(False)
             await runtime.close()
 
 
@@ -2292,6 +2576,115 @@ def test_reference_link_definition_recomputes_the_stable_prefix() -> None:
         for style, text in resolved.fragments
         if text == "docs"
     )
+
+
+def test_streaming_markdown_exposes_only_source_compatible_stable_prefix() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+
+    renderer.render("# one\nparagraph", width=40)
+    source_len, block = renderer.stable_prefix()
+
+    assert source_len == len("# one\n")
+    assert fragments_text(block.fragments) == "# one"
+
+    renderer.reset()
+    renderer.render(
+        "```markdown\n| A | B |\n|---|---|\n| 1 | 2 |\n```",
+        width=40,
+    )
+
+    assert renderer.stable_prefix() == (0, FragmentBlock(()))
+
+
+@pytest.mark.parametrize(
+    ("source", "stable_source"),
+    (
+        (
+            "## [docs](https://example.com)\nparagraph",
+            "## [docs](https://example.com)\n",
+        ),
+        ("## `[items[index]]`\nparagraph", "## `[items[index]]`\n"),
+        ("## \\[literal] text\nparagraph", "## \\[literal] text\n"),
+        (
+            "```python\nvalue = items[index]\n```\nparagraph",
+            "```python\nvalue = items[index]\n```\n",
+        ),
+        (
+            "```\n[reference]: https://example.com\n```\nparagraph",
+            "```\n[reference]: https://example.com\n```\n",
+        ),
+    ),
+)
+def test_streaming_markdown_parser_allows_reference_safe_syntax(
+    source: str,
+    stable_source: str,
+) -> None:
+    renderer = TuiMarkdownStreamRenderer()
+
+    renderer.render(source, width=40)
+    source_len, _block = renderer.stable_prefix()
+
+    assert source_len == len(stable_source)
+
+
+@pytest.mark.parametrize(
+    "reference_source",
+    (
+        "## [docs][reference]\n\nfollowing paragraph\n",
+        "## ![preview][image]\n\nfollowing paragraph\n",
+        "- [x] task\n\nfollowing paragraph\n",
+    ),
+)
+def test_streaming_markdown_keeps_reference_syntax_mutable(
+    reference_source: str,
+) -> None:
+    renderer = TuiMarkdownStreamRenderer()
+
+    renderer.render(reference_source, width=40)
+
+    assert renderer.stable_prefix() == (0, FragmentBlock(()))
+
+
+def test_reference_definition_preserves_prior_committable_prefix() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    initial = (
+        "## safe heading\n\n"
+        "## [docs][reference]\n\n"
+        "following paragraph\n"
+    )
+
+    renderer.render(initial, width=40)
+    initial_end, initial_block = renderer.stable_prefix()
+
+    assert initial_end == len("## safe heading\n\n")
+    assert fragments_text(initial_block.fragments) == "## safe heading"
+
+    extended = initial + "\n[reference]: https://example.com/reference\n"
+    rendered = renderer.render(extended, width=40)
+    resolved_end, resolved_block = renderer.stable_prefix()
+
+    assert resolved_end == initial_end
+    assert resolved_block == initial_block
+    assert "[docs][reference]" not in fragments_text(rendered.fragments)
+    assert any(
+        "underline" in style
+        for style, text in rendered.fragments
+        if text == "docs"
+    )
+
+
+def test_final_markdown_makes_remaining_reference_source_committable() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    source = "## [docs][reference]\n\nfollowing paragraph\n"
+
+    renderer.render(source, width=40)
+    assert renderer.stable_prefix() == (0, FragmentBlock(()))
+
+    renderer.render(source, final=True, width=40)
+    source_len, block = renderer.stable_prefix()
+
+    assert source_len == len(source)
+    assert "[docs][reference]" in fragments_text(block.fragments)
 
 
 @pytest.mark.anyio

@@ -1328,10 +1328,17 @@ class TuiRuntime(object):
         self,
         block: FragmentBlock,
         *,
-        raw_text: str
+        raw_text: str,
+        source_renderer: SourceBlockRenderer | None = None,
+        source_render_width: int | None = None
     ) -> None:
         """提交流式正文的稳定前缀并继续保留当前执行周期。"""
-        self.document.commit_active(block, raw_text=raw_text)
+        self.document.commit_active(
+            block,
+            raw_text=raw_text,
+            source_renderer=source_renderer,
+            source_render_width=source_render_width,
+        )
         self.screen.transcript_overlay.content_changed()
         self.viewport.stream_content_changed()
 

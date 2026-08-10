@@ -33,6 +33,7 @@ from ..core.models import FragmentBlock
 from ..core.render import iter_text_units
 from ..core.styles import (
     assistant_block,
+    assistant_continuation_block,
     styled_block_fragments
 )
 
@@ -61,14 +62,14 @@ TABLE_RECORD_FIELD_GAP             = 2
 TABLE_RECORD_VALUE_INDENT          = 2
 
 _MARKDOWN = MarkdownIt("commonmark").enable(("table", "strikethrough"))
+_REFERENCE_PROBE = MarkdownIt(
+    "commonmark",
+    {"store_labels": True},
+).enable(("table", "strikethrough"))
 
 _MARKDOWN_TABLE_FENCE_OPEN = re.compile(
     r"^ {0,3}(?P<fence>`{3,}|~{3,})[ \t]*(?:md|markdown)[ \t]*$",
     re.IGNORECASE,
-)
-
-_MARKDOWN_REFERENCE_DEFINITION = re.compile(
-    r"(?m)^ {0,3}\[[^]\r\n]+]:",
 )
 
 _PLAIN_STREAM_UNSAFE = re.compile(
@@ -78,6 +79,20 @@ _PLAIN_STREAM_UNSAFE = re.compile(
 )
 
 _RenderedTableRow = tuple[bool, list[list[TextSpan]], list[str]]
+
+
+class _ReferenceProbeDefinitions(dict[str, dict[str, str]]):
+    """为引用语法探测提供任意标签的虚拟定义。"""
+
+    def get(
+        self,
+        _key: str,
+        _default: typing.Any = None,
+    ) -> dict[str, str]:
+        return {"href": "reference", "title": ""}
+
+
+_REFERENCE_PROBE_DEFINITIONS = _ReferenceProbeDefinitions()
 
 
 @dataclass
@@ -102,17 +117,40 @@ class TuiMarkdownStreamRenderer(object):
         self._width: int | None = None
         self._source: str       = ""
 
-        self._stable_source_len: int             = 0
-        self._stable_lines: list[list[TextSpan]] = []
+        self._stable_source_len: int                  = 0
+        self._stable_lines: list[list[TextSpan]]      = []
+        self._committable_source_len: int             = 0
+        self._committable_lines: list[list[TextSpan]] = []
+        self._stable_source_compatible: bool          = True
+        self._has_reference_definitions: bool         = False
 
         self._streaming_table: _StreamingTableState | None = None
 
     def reset(self) -> None:
         """清空稳定块缓存。"""
-        self._stable_source_len = 0
-        self._stable_lines      = []
-        self._source            = ""
-        self._streaming_table   = None
+        self._stable_source_len         = 0
+        self._stable_lines              = []
+        self._committable_source_len    = 0
+        self._committable_lines         = []
+        self._stable_source_compatible  = True
+        self._has_reference_definitions = False
+        self._source                    = ""
+        self._streaming_table           = None
+
+    def stable_prefix(self) -> tuple[int, FragmentBlock]:
+        """返回可独立提交的稳定源码长度和渲染块。"""
+        if (
+            not self._stable_source_compatible
+            or self._committable_source_len <= 0
+            or not self._committable_lines
+        ):
+            return 0, FragmentBlock(())
+
+        return self._committable_source_len, _fragment_block_from_lines(
+            [list(line) for line in self._committable_lines],
+            hyperlinks=False,
+            sanitize=False,
+        )
 
     def render(
         self,
@@ -123,7 +161,10 @@ class TuiMarkdownStreamRenderer(object):
         width: int | None = None
     ) -> FragmentBlock:
         """渲染完整源码行，并只重复处理仍可能变化的末尾块。"""
-        source = _normalize_markdown_table_fences(str(text or ""))
+        original_source = str(text or "")
+        source          = _normalize_markdown_table_fences(original_source)
+
+        source_compatible = source == original_source
 
         render_width = max(1, int(width)) if width is not None else None
         if render_width != self._width:
@@ -135,17 +176,14 @@ class TuiMarkdownStreamRenderer(object):
             self._width = render_width
         self._source = source
 
-        if _MARKDOWN_REFERENCE_DEFINITION.search(source):
-            self.reset()
-            self._width  = render_width
-            self._source = source
-            return _fragment_block_from_lines(
-                _render_blocks(
-                    SyntaxTreeNode(_MARKDOWN.parse(source)).children,
-                    width=render_width,
-                ),
+        self._stable_source_compatible = source_compatible
+
+        if final or self._has_reference_definitions:
+            return self._render_full_document(
+                source,
+                final=final,
                 hyperlinks=hyperlinks,
-                sanitize=False,
+                width=render_width,
             )
 
         tail = source[self._stable_source_len:]
@@ -175,8 +213,15 @@ class TuiMarkdownStreamRenderer(object):
                 sanitize=False,
             )
 
-        root  = SyntaxTreeNode(_MARKDOWN.parse(tail))
-        nodes = root.children
+        nodes, env = _parse_markdown_nodes(tail)
+
+        if env.get("references"):
+            return self._render_full_document(
+                source,
+                final=final,
+                hyperlinks=hyperlinks,
+                width=render_width,
+            )
 
         if not final and len(nodes) == 1 and nodes[0].type == "table":
             table = nodes[0]
@@ -221,6 +266,7 @@ class TuiMarkdownStreamRenderer(object):
         stable_end   = _stable_source_end(tail, nodes, stable_count)
 
         if stable_end:
+            previous_stable_end = self._stable_source_len
             newly_stable = _render_blocks(
                 nodes[:stable_count],
                 width=render_width,
@@ -228,7 +274,33 @@ class TuiMarkdownStreamRenderer(object):
             _extend_rendered_lines(self._stable_lines, newly_stable)
             self._stable_source_len += stable_end
 
+            if self._committable_source_len == previous_stable_end:
+                committable_count, committable_end = (
+                    _committable_prefix_boundary(
+                        tail,
+                        nodes,
+                        stable_count,
+                        env=env,
+                        final=final,
+                    )
+                )
+                if committable_count:
+                    committable_lines = (
+                        newly_stable
+                        if committable_count == stable_count
+                        else _render_blocks(
+                            nodes[:committable_count],
+                            width=render_width,
+                        )
+                    )
+                    _extend_rendered_lines(
+                        self._committable_lines,
+                        committable_lines,
+                    )
+                self._committable_source_len += committable_end
+
         lines = [list(line) for line in self._stable_lines]
+
         _extend_rendered_lines(
             lines,
             _render_blocks(
@@ -236,8 +308,48 @@ class TuiMarkdownStreamRenderer(object):
                 width=render_width,
             ),
         )
+
         return _fragment_block_from_lines(
             lines,
+            hyperlinks=hyperlinks,
+            sanitize=False,
+        )
+
+    def _render_full_document(
+        self,
+        source: str,
+        *,
+        final: bool,
+        hyperlinks: bool,
+        width: int | None
+    ) -> FragmentBlock:
+        """完整渲染源码并重建不可逆的终端提交边界。"""
+        nodes, env = _parse_markdown_nodes(source)
+
+        stable_count = _stable_node_count(source, nodes, final=final)
+
+        committable_count, committable_end = _committable_prefix_boundary(
+            source,
+            nodes,
+            stable_count,
+            env=env,
+            final=final,
+        )
+
+        self._stable_source_len      = 0
+        self._stable_lines           = []
+        self._committable_source_len = committable_end
+
+        self._committable_lines = _render_blocks(
+            nodes[:committable_count],
+            width=width,
+        )
+
+        self._streaming_table           = None
+        self._has_reference_definitions = bool(env.get("references"))
+
+        return _fragment_block_from_lines(
+            _render_blocks(nodes, width=width),
             hyperlinks=hyperlinks,
             sanitize=False,
         )
@@ -264,6 +376,7 @@ class TuiMarkdownStreamRenderer(object):
                 self._streaming_table = None
                 return None
             had_body = any(not header for header, _cells, _alignments in state.rows)
+
             state.rows.extend(appended)
             state.source = source
 
@@ -411,9 +524,10 @@ def render_tui_assistant_markdown(
     text: str,
     width: int,
     *,
-    hyperlinks: bool = False
+    hyperlinks: bool = False,
+    continuation: bool = False
 ) -> FragmentBlock:
-    """按完整终端宽度渲染可重排的助手 Markdown 正文。"""
+    """按完整终端宽度渲染可重排的助手 Markdown 正文或续块。"""
     try:
         rendered = render_tui_markdown(
             text,
@@ -424,7 +538,14 @@ def render_tui_assistant_markdown(
         rendered = FragmentBlock(styled_block_fragments(
             StyledBlock(plain_text=str(text or "")),
         ))
-    return assistant_block(rendered)
+
+    renderer = (
+        assistant_continuation_block
+        if continuation
+        else assistant_block
+    )
+
+    return renderer(rendered)
 
 
 def _normalize_markdown_table_fences(source: str) -> str:
@@ -592,6 +713,116 @@ def _markdown_spans(
         _extend_spans(spans, line)
 
     return spans
+
+
+def _parse_markdown_nodes(
+    source: str
+) -> tuple[list[SyntaxTreeNode], dict[str, typing.Any]]:
+    """解析 Markdown 顶层节点并返回解析环境。"""
+    env: dict[str, typing.Any] = {}
+    root = SyntaxTreeNode(_MARKDOWN.parse(source, env))
+    return root.children, env
+
+
+def _committable_prefix_boundary(
+    source: str,
+    nodes: list[SyntaxTreeNode],
+    stable_count: int,
+    *,
+    env: dict[str, typing.Any],
+    final: bool
+) -> tuple[int, int]:
+    """返回允许写入终端历史的稳定节点数量和源码边界。"""
+    stable_count = max(0, min(int(stable_count), len(nodes)))
+    stable_end   = _stable_source_end(source, nodes, stable_count)
+
+    if final or stable_count <= 0:
+        return stable_count, stable_end
+
+    offsets           = _line_start_offsets(source)
+    definition_start  = _reference_definition_start(env, offsets)
+    committable_count = 0
+    boundary          = definition_start
+
+    for node in nodes[:stable_count]:
+        node_start = _node_source_start(node, offsets)
+        if boundary is not None and (
+            node_start is None or node_start >= boundary
+        ):
+            break
+        if _node_has_reference_syntax(node):
+            boundary = 0 if node_start is None else node_start
+            break
+        committable_count += 1
+
+    committable_end = _stable_source_end(
+        source,
+        nodes,
+        committable_count,
+    )
+    if boundary is not None:
+        committable_end = min(committable_end, boundary)
+
+    return committable_count, committable_end
+
+
+def _reference_definition_start(
+    env: dict[str, typing.Any],
+    offsets: list[int]
+) -> int | None:
+    """返回解析环境中最早引用定义的源码位置。"""
+    references = env.get("references")
+    if not isinstance(references, dict):
+        return None
+
+    starts: list[int] = []
+
+    for reference in references.values():
+        if not isinstance(reference, dict):
+            continue
+        source_map = reference.get("map")
+        if (
+            not isinstance(source_map, (list, tuple))
+            or not source_map
+            or not isinstance(source_map[0], int)
+        ):
+            continue
+        line = source_map[0]
+        if 0 <= line < len(offsets):
+            starts.append(offsets[line])
+
+    return min(starts) if starts else None
+
+
+def _node_source_start(
+    node: SyntaxTreeNode,
+    offsets: list[int]
+) -> int | None:
+    """返回顶层节点的源码起始位置。"""
+    source_map = node.map
+    if source_map is None:
+        return None
+    line = source_map[0]
+    if line < 0 or line >= len(offsets):
+        return None
+    return offsets[line]
+
+
+def _node_has_reference_syntax(node: SyntaxTreeNode) -> bool:
+    """判断节点是否包含 CommonMark 引用链接或引用图片语法。"""
+    for child in node.walk(include_self=True):
+        if child.type != "inline":
+            continue
+        # 由解析器识别语法有效的任意引用，避免复制 CommonMark 括号规则。
+        probe_env: dict[str, typing.Any] = {
+            "references": _REFERENCE_PROBE_DEFINITIONS,
+        }
+        tokens = _REFERENCE_PROBE.parseInline(child.content, probe_env)
+        for token in tokens:
+            for inline in token.children or ():
+                if inline.meta.get("label"):
+                    return True
+    return False
 
 
 def _stable_node_count(

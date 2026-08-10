@@ -264,7 +264,7 @@ class TuiDocument(object):
 
         if out or leading_content:
             gap_height = (
-                0
+                max(0, int(item.gap_before))
                 if transcript and item.stream_continuation
                 else (
                     max(1, int(item.gap_before))
@@ -607,8 +607,10 @@ class TuiDocument(object):
                 transcript_block=sanitize_fragment_block(
                     item.transcript_block
                 ),
-                gap_before=bool(
-                    normalized and not item.stream_continuation
+                gap_before=(
+                    int(bool(item.gap_before))
+                    if normalized and item.stream_continuation
+                    else int(bool(normalized))
                 ),
                 transcript_stable=True,
                 attachments=deepcopy(tuple(item.attachments)),

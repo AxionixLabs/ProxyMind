@@ -33,6 +33,7 @@ from ..core.render import (
 )
 from ..core.styles import (
     assistant_block,
+    assistant_continuation_block,
     styled_block_fragments
 )
 from .markdown import (
@@ -40,15 +41,16 @@ from .markdown import (
     render_tui_assistant_markdown,
 )
 
-STREAM_RENDER_REGULAR_SEC    = 1 / 20
-STREAM_RENDER_SLOW_SEC       = 1 / 12
-STREAM_RENDER_VERY_SLOW_SEC  = 1 / 8
-STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
-STREAM_RENDER_LONG_TEXT_SIZE = 2000
-STREAM_RENDER_HUGE_TEXT_SIZE = 50_000
-STREAM_CATCH_UP_LINES        = 8
-STREAM_CATCH_UP_SEC          = 0.12
-STREAM_RESIZE_DEBOUNCE_SEC   = 0.08
+STREAM_RENDER_REGULAR_SEC     = 1 / 20
+STREAM_RENDER_SLOW_SEC        = 1 / 12
+STREAM_RENDER_VERY_SLOW_SEC   = 1 / 8
+STREAM_RENDER_COST_LIMIT_SEC  = STREAM_RENDER_REGULAR_SEC / 4
+STREAM_RENDER_LONG_TEXT_SIZE  = 2000
+STREAM_RENDER_HUGE_TEXT_SIZE  = 50_000
+STREAM_CATCH_UP_LINES         = 8
+STREAM_CATCH_UP_SEC           = 0.12
+STREAM_STABLE_PREFIX_MIN_ROWS = 4
+STREAM_RESIZE_DEBOUNCE_SEC    = 0.08
 
 
 class TuiOutputControl(OutputControlPort):
@@ -74,14 +76,19 @@ class TuiOutputControl(OutputControlPort):
         self._stream_render_handle: asyncio.TimerHandle | None = None
         self._stream_resize_handle: asyncio.TimerHandle | None = None
 
-        self._stream_rendered_at: float     = 0.0
-        self._stream_render_cost_sec: float = 0.0
-        self._stream_source_end: int           = 0
-        self._stream_width: int                = 0
-        self._stream_block                     = FragmentBlock(())
-        self._stream_rows: list[FormattedText] = []
-        self._stream_visible_rows: int         = 0
+        self._stream_rendered_at: float         = 0.0
+        self._stream_render_cost_sec: float     = 0.0
+        self._stream_source_end: int            = 0
+        self._stream_committed_source_end: int  = 0
+        self._stream_stable_source_len: int     = 0
+        self._stream_stable_row_count: int      = 0
+        self._stream_width: int                 = 0
+        self._stream_block                      = FragmentBlock(())
+        self._stream_rows: list[FormattedText]  = []
+        self._stream_visible_rows: int          = 0
+
         self._stream_oldest_pending_at: float | None = None
+
         self._before_render_registered = True
 
         self.runtime.screen.application.before_render += (
@@ -255,22 +262,32 @@ class TuiOutputControl(OutputControlPort):
             self.runtime.clear_active_renderable()
             return False
 
-        block = self._render_final_block()
+        text = self._pending_stream_text()
+        if not text:
+            self.runtime.clear_active_renderable()
+            self.assistant.clear()
+            self._assistant_filter.reset()
+            self._reset_stream_state()
+            return True
+
+        block        = self._render_final_block()
+        continuation = self._stream_committed_source_end > 0
 
         with self.runtime.screen.visual_update():
             if self.runtime.document.active_block is None:
                 self.runtime.set_active_renderable(
                     block,
                     kind="assistant",
-                    raw_text=self._active_stream_text(),
+                    raw_text=text,
+                    stream_continuation=continuation,
+                    gap_before=1 if continuation else None,
                 )
 
             self.runtime.commit_active_renderable(
                 block,
-                raw_text=self._active_stream_text(),
-                source_renderer=partial(
-                    render_tui_assistant_markdown,
-                    hyperlinks=self.runtime.hyperlinks_enabled,
+                raw_text=text,
+                source_renderer=self._source_renderer(
+                    continuation=continuation,
                 ),
                 source_render_width=self.terminal_width,
             )
@@ -281,20 +298,38 @@ class TuiOutputControl(OutputControlPort):
         return True
 
     def _render_final_block(self) -> FragmentBlock:
-        """把当前完整正文渲染为可直接提交的最终块。"""
-        text = self._active_stream_text()
+        """把当前尚未提交的正文渲染为最终块。"""
+        text = self._pending_stream_text()
 
-        return self._render_markdown_block(text)
+        return self._render_markdown_block(
+            text,
+            continuation=self._stream_committed_source_end > 0,
+        )
 
     def _render_markdown_block(
         self,
         text: str,
+        *,
+        continuation: bool = False
     ) -> FragmentBlock:
         """把一段稳定 Markdown 正文渲染为助手展示块。"""
         return render_tui_assistant_markdown(
             text,
             self.terminal_width,
             hyperlinks=self.runtime.hyperlinks_enabled,
+            continuation=continuation,
+        )
+
+    def _source_renderer(
+        self,
+        *,
+        continuation: bool
+    ) -> typing.Callable[[str, int], FragmentBlock]:
+        """返回与助手正文块类型一致的源码重排函数。"""
+        return partial(
+            render_tui_assistant_markdown,
+            hyperlinks=self.runtime.hyperlinks_enabled,
+            continuation=continuation,
         )
 
     def _finish_assistant_filter(self, *, render: bool) -> None:
@@ -448,11 +483,16 @@ class TuiOutputControl(OutputControlPort):
             self._rewrap_stream_rows(width)
             return True
 
-        source = self.assistant.text[:end]
+        source = self.assistant.text[
+            self._stream_committed_source_end:end
+        ]
         block = self._render_stream_block(source, width=width)
 
         self._stream_source_end = end
         self._stream_block      = block
+
+        self._capture_stable_stream_prefix(width)
+
         self._replace_stream_rows(
             wrap_formatted_lines(list(block.fragments), width=width),
             width=width,
@@ -468,15 +508,22 @@ class TuiOutputControl(OutputControlPort):
     def _rewrap_stream_rows(self, width: int) -> None:
         """在终端宽度变化时从完整源码重建活动显示行。"""
         block = self._render_stream_block(
-            self.assistant.text[:self._stream_source_end],
+            self.assistant.text[
+                self._stream_committed_source_end:self._stream_source_end
+            ],
             width=max(1, int(width)),
         )
         self._stream_block = block
+
+        self._capture_stable_stream_prefix(width)
+
         rows = wrap_formatted_lines(
             list(block.fragments),
             width=max(1, int(width)),
         )
+
         had_visible_rows = self._stream_visible_rows > 0
+
         self._replace_stream_rows(
             rows,
             width=max(1, int(width)),
@@ -505,6 +552,21 @@ class TuiOutputControl(OutputControlPort):
             return FragmentBlock(styled_block_fragments(
                 StyledBlock(plain_text=source),
             ))
+
+    def _capture_stable_stream_prefix(self, width: int) -> None:
+        """记录当前增量快照中可独立提交的稳定前缀。"""
+        source_len, block = self._markdown_stream.stable_prefix()
+
+        if not self.runtime.active or source_len <= 0:
+            source_len = 0
+            block = FragmentBlock(())
+
+        self._stream_stable_source_len = source_len
+
+        self._stream_stable_row_count = len(wrap_formatted_lines(
+            list(block.fragments),
+            width=max(1, int(width)),
+        )) if block.fragments else 0
 
     def _replace_stream_rows(
         self,
@@ -586,16 +648,36 @@ class TuiOutputControl(OutputControlPort):
 
     def _render_visible_stream_rows(self) -> bool:
         """把变化后的完整显示行作为一个动态正文快照上屏。"""
+        changed    = self._set_visible_stream_block()
+        stabilized = self._commit_visible_stream_prefix()
+
+        return changed or stabilized
+
+    def _set_visible_stream_block(self) -> bool:
+        """把当前可见行设置为活动助手正文。"""
         visible = join_formatted_lines(
             self._stream_rows[:self._stream_visible_rows]
         )
-        block = assistant_block(FragmentBlock(tuple(visible)))
-        raw_text = self.assistant.text[:self._stream_source_end]
+        continuation = self._stream_committed_source_end > 0
+
+        renderer = (
+            assistant_continuation_block
+            if continuation
+            else assistant_block
+        )
+
+        block = renderer(FragmentBlock(tuple(visible)))
+
+        raw_text = self._pending_stream_text(
+            end=self._stream_source_end,
+        )
 
         if (
             self.runtime.document.active_kind == "assistant"
             and self.runtime.document.active_block == block
             and self.runtime.document.active_raw_text == raw_text
+            and self.runtime.document.active_stream_continuation
+            == continuation
         ):
             return False
 
@@ -603,24 +685,114 @@ class TuiOutputControl(OutputControlPort):
             block,
             kind="assistant",
             raw_text=raw_text,
+            stream_continuation=continuation,
+            gap_before=1 if continuation else None,
         )
         return True
+
+    def _commit_visible_stream_prefix(self) -> bool:
+        """提交已经完整显示且不再变化的 Markdown 前缀。"""
+        source_len = self._stream_stable_source_len
+        row_count  = self._stream_stable_row_count
+
+        if (
+            source_len <= 0
+            or row_count < STREAM_STABLE_PREFIX_MIN_ROWS
+            or self._stream_visible_rows < row_count
+        ):
+            return False
+
+        start = self._stream_committed_source_end
+        end   = min(self._stream_source_end, start + source_len)
+
+        if end <= start:
+            return False
+
+        continuation = start > 0
+
+        raw_text = self.assistant.text[start:end]
+
+        block = self._render_markdown_block(
+            raw_text,
+            continuation=continuation,
+        )
+
+        remaining_visible_rows = max(
+            0,
+            self._stream_visible_rows - row_count,
+        )
+
+        with self.runtime.screen.visual_update():
+            self.runtime.commit_active_stream_prefix(
+                block,
+                raw_text=raw_text,
+                source_renderer=self._source_renderer(
+                    continuation=continuation,
+                ),
+                source_render_width=self.terminal_width,
+            )
+            self._stream_committed_source_end = end
+            self._rebuild_stream_tail(
+                visible_rows=remaining_visible_rows,
+            )
+            self._set_visible_stream_block()
+
+        return True
+
+    def _rebuild_stream_tail(self, *, visible_rows: int) -> None:
+        """在稳定前缀提交后从剩余源码重建活动尾部。"""
+        width  = max(1, int(self._stream_width))
+        source = self._pending_stream_text(end=self._stream_source_end)
+
+        self._markdown_stream.reset()
+        block = self._render_stream_block(source, width=width)
+        rows = wrap_formatted_lines(
+            list(block.fragments),
+            width=width,
+        )
+
+        self._stream_block = block
+        self._capture_stable_stream_prefix(width)
+        self._replace_stream_rows(
+            rows,
+            width=width,
+            render_visible=False,
+        )
+        self._stream_visible_rows = min(
+            max(0, int(visible_rows)),
+            len(rows),
+        )
+        self._stream_oldest_pending_at = (
+            time.monotonic()
+            if self._stream_visible_rows < len(rows)
+            else None
+        )
 
     def _reset_stream_state(self) -> None:
         """清空当前增量渲染和显示行队列。"""
         self._cancel_stream_resize()
         self._markdown_stream.reset()
 
-        self._stream_source_end        = 0
-        self._stream_width             = 0
-        self._stream_block             = FragmentBlock(())
-        self._stream_rows              = []
-        self._stream_visible_rows      = 0
-        self._stream_oldest_pending_at = None
+        self._stream_source_end           = 0
+        self._stream_committed_source_end = 0
+        self._stream_stable_source_len    = 0
+        self._stream_stable_row_count     = 0
+        self._stream_width                = 0
+        self._stream_block                = FragmentBlock(())
+        self._stream_rows                 = []
+        self._stream_visible_rows         = 0
+        self._stream_oldest_pending_at    = None
 
     def _active_stream_text(self) -> str:
         """返回当前完整流式正文。"""
         return self.assistant.text
+
+    def _pending_stream_text(self, *, end: int | None = None) -> str:
+        """返回尚未提交为稳定块的流式源码。"""
+        source_end = len(self.assistant.text) if end is None else int(end)
+        return self.assistant.text[
+            self._stream_committed_source_end:source_end
+        ]
 
     @staticmethod
     def _audit_payload(arguments: dict[str, typing.Any]) -> str:

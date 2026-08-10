@@ -1554,7 +1554,8 @@ class TuiScreen(object):
         if application is None or application.full_screen:
             return height
         if (
-            self._inline_assistant_growth_active()
+            self._inline_reply_handoff_growth_active()
+            or self._inline_assistant_growth_active()
             or self._inline_process_growth_active()
         ):
             return height
@@ -3268,6 +3269,15 @@ class TuiScreen(object):
             self.bottom_pane.input_visible
             and self.process_viewer.input_passthrough
             and self.document.active_kind == "operation"
+        )
+
+    def _inline_reply_handoff_growth_active(self) -> bool:
+        """判断回复建立正文前是否需要为轮次交接扩展画布。"""
+        return bool(
+            self._get_submission_deferred()
+            and self.bottom_pane.input_visible
+            and self.document.active_block is None
+            and self.document.visible_tail_kind == "user"
         )
 
     def _inline_assistant_growth_active(self) -> bool:
