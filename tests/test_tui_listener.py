@@ -37,6 +37,7 @@ class _Listener(object):
             self.inbox.add(request)
         self.callback = None
         self.running = True
+        self.receipt_disposition_resolver = None
 
     def is_running(self) -> bool:
         return self.running
@@ -45,6 +46,9 @@ class _Listener(object):
         self.callback = callback
         if callback is not None:
             callback()
+
+    def bind_receipt_disposition(self, resolver) -> None:
+        self.receipt_disposition_resolver = resolver
 
 
 class _OperationListener(object):

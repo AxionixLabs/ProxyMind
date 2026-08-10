@@ -47,6 +47,7 @@ class _Listener(object):
         self.running = running
         self.ready = ready
         self.callback = None
+        self.receipt_disposition_resolver = None
 
     def is_running(self) -> bool:
         return self.running
@@ -58,6 +59,9 @@ class _Listener(object):
         self.callback = callback
         if callback is not None:
             callback()
+
+    def bind_receipt_disposition(self, resolver) -> None:
+        self.receipt_disposition_resolver = resolver
 
     def discard(self, message_id: str):
         item = self.inbox.remove(message_id)
@@ -349,6 +353,7 @@ async def test_mailbox_auto_toggle_is_process_local_and_visible() -> None:
     await feature.open()
 
     assert feature.auto_run
+    assert listener.receipt_disposition_resolver() == "auto_run"
     assert views[0].renderable.plain_text == "■ Mailbox auto-run enabled"
     assert runtime.submissions.message_queue.empty()
 

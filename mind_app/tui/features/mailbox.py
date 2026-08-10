@@ -48,11 +48,13 @@ class TuiMailboxFeature(object):
         self._listener = listener
         if previous is not None:
             previous.bind_inbox_changed(None)
+            previous.bind_receipt_disposition(None)
 
         if listener is None:
             self.runtime.set_mailbox_entries((), listener_active=False)
             return None
 
+        listener.bind_receipt_disposition(self._receipt_disposition)
         listener.bind_inbox_changed(self._refresh)
 
     async def open(self) -> None:
@@ -78,6 +80,10 @@ class TuiMailboxFeature(object):
         """切换当前 TUI 会话的自动运行策略。"""
         self.auto_run = bool(enabled)
         self._refresh()
+
+    def _receipt_disposition(self) -> typing.Literal["queued", "auto_run"]:
+        """把会话级自动运行策略映射为收件回执意图。"""
+        return "auto_run" if self.auto_run else "queued"
 
     def prepare_run(
         self,

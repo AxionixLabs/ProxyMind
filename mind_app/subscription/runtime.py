@@ -10,7 +10,9 @@ from ..runtime.agent.client import AgentClient
 from .forwarding import (
     AgentExecutor,
     AgentInbox,
-    InboxForwardHandler
+    InboxForwardHandler,
+    ReceiptDisposition,
+    ReceiptDispositionResolver
 )
 from .loop import (
     AgentConnection,
@@ -83,12 +85,15 @@ class AgentRuntime(object):
 
         self._inbox_changed: InboxChangedCallback | None = None
 
+        self._receipt_disposition_resolver: ReceiptDispositionResolver | None = None
+
         self._ready: asyncio.Event = asyncio.Event()
 
         self.handler = InboxForwardHandler(
             self.inbox,
             self.remember_context,
             self._notify_inbox_changed,
+            self._resolve_receipt_disposition,
         )
         self.connection = AgentConnection(
             mind,
@@ -130,6 +135,20 @@ class AgentRuntime(object):
         """绑定收件箱快照变化通知，并立即同步当前状态。"""
         self._inbox_changed = callback
         self._notify_inbox_changed()
+
+    def bind_receipt_disposition(
+        self,
+        resolver: ReceiptDispositionResolver | None
+    ) -> None:
+        """绑定收件回执所使用的处理意图解析器。"""
+        self._receipt_disposition_resolver = resolver
+
+    def _resolve_receipt_disposition(self) -> ReceiptDisposition:
+        """读取当前处理意图，未绑定交互策略时只入箱。"""
+        resolver = self._receipt_disposition_resolver
+        if resolver is None:
+            return "queued"
+        return resolver()
 
     def _notify_inbox_changed(self) -> None:
         """通知当前展示层重新读取收件箱快照。"""

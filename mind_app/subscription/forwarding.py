@@ -301,6 +301,9 @@ InboxContextCallback = typing.Callable[
 
 InboxChangedCallback = typing.Callable[[], None]
 
+ReceiptDisposition         = typing.Literal["queued", "auto_run"]
+ReceiptDispositionResolver = typing.Callable[[], ReceiptDisposition]
+
 
 class InboxForwardHandler(object):
     """收到服务端请求后放入本地收件箱。"""
@@ -310,11 +313,20 @@ class InboxForwardHandler(object):
         inbox: AgentInbox,
         context_callback: InboxContextCallback | None = None,
         changed_callback: InboxChangedCallback | None = None,
+        disposition_resolver: ReceiptDispositionResolver | None = None
     ) -> None:
         """保存服务端请求收件箱。"""
-        self.inbox = inbox
-        self.context_callback = context_callback
-        self.changed_callback = changed_callback
+        self.inbox                = inbox
+        self.context_callback     = context_callback
+        self.changed_callback     = changed_callback
+        self.disposition_resolver = disposition_resolver
+
+    def _receipt_disposition(self) -> ReceiptDisposition:
+        """返回当前请求入箱后的处理意图。"""
+        resolver = self.disposition_resolver
+        if resolver is None:
+            return "queued"
+        return resolver()
 
     async def handle(
         self,
@@ -330,6 +342,8 @@ class InboxForwardHandler(object):
         live_status.update(
             "Task Received", f"Queued {request.call_id}"
         )
+        disposition = self._receipt_disposition()
+
         seen = get_runtime_message_cache(runtime)
         if request.message_id in seen:
             await client.send_mind_received(
@@ -338,7 +352,8 @@ class InboxForwardHandler(object):
                 cid=request.cid,
                 sid=request.sid,
                 call_id=request.call_id,
-                acked_message_id=request.message_id
+                acked_message_id=request.message_id,
+                disposition=disposition,
             )
             observe(
                 "agent.forward.skipped",
@@ -359,7 +374,8 @@ class InboxForwardHandler(object):
                 cid=request.cid,
                 sid=request.sid,
                 call_id=request.call_id,
-                acked_message_id=request.message_id
+                acked_message_id=request.message_id,
+                disposition=disposition,
             )
         finally:
             if self.changed_callback is not None:
@@ -368,6 +384,7 @@ class InboxForwardHandler(object):
             "agent.forward.received",
             call_id=request.call_id,
             message_id=request.message_id,
+            disposition=disposition,
         )
 
 

@@ -22,6 +22,7 @@ from mind_app.subscription.ws import (
     handle_server_message,
     recv_json_or_stop,
 )
+from mind_app.runtime.agent.client import AgentClient
 from mind_app.runtime.turns.result import RunResult
 
 
@@ -137,6 +138,7 @@ async def test_agent_ws_enqueues_message_without_executing_it() -> None:
     assert seq == 7
     mind.calling.assert_not_awaited()
     assert events == ["received"]
+    assert client.send_mind_received.await_args.kwargs["disposition"] == "queued"
     assert [item.request.message_id for item in inbox.pending_items()] == [
         "message-1"
     ]
@@ -172,6 +174,55 @@ async def test_agent_ws_replay_acknowledges_without_duplicate_inbox_item() -> No
     assert client.send_mind_received.await_count == 2
     mind.calling.assert_not_awaited()
     assert len(inbox.items) == 1
+
+
+@pytest.mark.anyio
+async def test_agent_ws_marks_auto_run_receipt_intent() -> None:
+    client = SimpleNamespace(send_mind_received=AsyncMock())
+    runtime = SimpleNamespace(
+        session_id="agent-session",
+        forwarded_message_ids=None,
+    )
+
+    await handle_server_message(
+        SimpleNamespace(),
+        client,
+        object(),
+        runtime,
+        _forward_message(),
+        AgentLiveStatus(),
+        InboxForwardHandler(
+            AgentInbox(),
+            disposition_resolver=lambda: "auto_run",
+        ),
+    )
+
+    assert client.send_mind_received.await_args.kwargs["disposition"] == "auto_run"
+
+
+@pytest.mark.anyio
+async def test_agent_client_serializes_receipt_disposition() -> None:
+    client = AgentClient(base_url="https://example.test")
+    client.send_json = AsyncMock()
+    connection = object()
+
+    await client.send_mind_received(
+        connection,
+        session_id="agent-session",
+        cid="cid-1",
+        sid="sid-1",
+        call_id="call-1",
+        acked_message_id="message-1",
+        disposition="auto_run",
+    )
+
+    envelope = client.send_json.await_args.args[1]
+    assert envelope["type"] == "mind.received"
+    assert envelope["payload"] == {
+        "call_id": "call-1",
+        "acked_message_id": "message-1",
+        "disposition": "auto_run",
+    }
 
 
 @pytest.mark.anyio

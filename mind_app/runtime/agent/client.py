@@ -303,7 +303,8 @@ class AgentClient(object):
         cid: str,
         sid: str,
         call_id: str,
-        acked_message_id: str
+        acked_message_id: str,
+        disposition: typing.Literal["queued", "auto_run"]
     ) -> None:
         """发送 `mind.received`，确认已收到指定 `mind.forward`。"""
         await self.send_json(
@@ -314,8 +315,9 @@ class AgentClient(object):
                 cid=cid,
                 sid=sid,
                 payload={
-                    "call_id"           : call_id,
-                    "acked_message_id"  : acked_message_id,
+                    "call_id": call_id,
+                    "acked_message_id": acked_message_id,
+                    "disposition": disposition
                 }
             )
         )
