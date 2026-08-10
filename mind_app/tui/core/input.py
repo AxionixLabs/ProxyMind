@@ -21,6 +21,7 @@ from prompt_toolkit.filters import (
 )
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from mind_core.skills import SkillSpec
@@ -239,6 +240,8 @@ class TuiInputModel(object):
 
         self.shell_mode: bool = False
 
+        self._shell_mode_undo_transition: tuple[str, str] | None = None
+
         self.history_backtrack_primed: bool = False
 
         self._history_entries: tuple[TuiInputHistoryEntry, ...] = ()
@@ -371,6 +374,72 @@ class TuiInputModel(object):
         """更新输入框的 Shell 前缀模式。"""
         self.shell_mode = bool(active)
         self.auto_suggest.shell_mode = self.shell_mode
+        self._shell_mode_undo_transition = None
+
+    def _promote_shell_prefix(
+        self,
+        buffer,
+        *,
+        previous_text: str,
+    ) -> bool:
+        """把编辑后暴露的 Shell 前缀提升为独立输入状态。"""
+        document = buffer.document
+        if self.shell_mode or not document.text.startswith("!"):
+            return False
+
+        remainder = document.text[1:]
+        command   = remainder.lstrip(" ")
+        removed   = 1 + len(remainder) - len(command)
+
+        cursor = max(
+            0,
+            min(len(command), document.cursor_position - removed),
+        )
+
+        buffer.cancel_completion()
+        self.set_shell_mode(True)
+        buffer.document = Document(command, cursor_position=cursor)
+        self._shell_mode_undo_transition = previous_text, command
+        return True
+
+    def _restore_shell_mode_after_undo(
+        self,
+        buffer,
+        *,
+        previous_text: str,
+    ) -> bool:
+        """在文本撤销跨过模式转换边界时恢复普通输入状态。"""
+        transition = self._shell_mode_undo_transition
+        if not self.shell_mode or transition is None:
+            return False
+
+        target, source = transition
+        if previous_text != source or buffer.text != target:
+            return False
+
+        self.set_shell_mode(False)
+        return True
+
+    def _finish_destructive_edit(
+        self,
+        buffer,
+        selected_text: str | None = None,
+        *,
+        previous_text: str,
+    ) -> None:
+        """收束删除后的输入模式、联想和补全状态。"""
+        self._promote_shell_prefix(buffer, previous_text=previous_text)
+
+        buffer.suggestion = self.auto_suggest.get_suggestion(
+            buffer,
+            buffer.document,
+        )
+        buffer.on_suggestion_set.fire()
+
+        if buffer.completer and buffer.complete_while_typing():
+            self.refresh_completion_menu(buffer, selected_text)
+
+        self.input_resize_handler()
 
     def bind_interrupt(self, handler: typing.Callable[[], None]) -> None:
         """绑定主运行时提供的输入中断处理函数。"""
@@ -787,6 +856,7 @@ class TuiInputModel(object):
         def _(event) -> None:
             buffer = event.app.current_buffer
             state  = buffer.complete_state
+            previous_text = buffer.text
 
             selected_text = (
                 state.current_completion.text
@@ -803,21 +873,62 @@ class TuiInputModel(object):
                 event.app.output.bell()
                 return None
 
-            buffer.suggestion = self.auto_suggest.get_suggestion(
+            self._finish_destructive_edit(
                 buffer,
-                buffer.document,
+                selected_text,
+                previous_text=previous_text,
             )
 
-            buffer.on_suggestion_set.fire()
+        @bindings.add(
+            "delete",
+            eager=True,
+            filter=has_focus(INPUT_BUFFER_NAME),
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            previous_text = buffer.text
+            deleted = buffer.delete(count=event.arg)
 
-            if buffer.completer and buffer.complete_while_typing():
-                self.refresh_completion_menu(buffer, selected_text)
+            if not deleted:
+                event.app.output.bell()
+                return None
 
-            self.input_resize_handler()
+            self._finish_destructive_edit(
+                buffer,
+                previous_text=previous_text,
+            )
+
+        @bindings.add(
+            "c-w",
+            eager=True,
+            filter=has_focus(INPUT_BUFFER_NAME),
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            previous_text = buffer.text
+
+            if buffer.selection_state:
+                event.app.clipboard.set_data(buffer.cut_selection())
+            else:
+                get_by_name("unix-word-rubout").call(event)
+
+            if buffer.text == previous_text:
+                return None
+
+            self._finish_destructive_edit(
+                buffer,
+                previous_text=previous_text,
+            )
 
         @bindings.add("c-z", eager=True, save_before=lambda event: False)
         def _(event) -> None:
-            event.app.current_buffer.undo()
+            buffer = event.app.current_buffer
+            previous_text = buffer.text
+            buffer.undo()
+            self._restore_shell_mode_after_undo(
+                buffer,
+                previous_text=previous_text,
+            )
             self.input_resize_handler()
 
         @bindings.add(
@@ -1013,6 +1124,30 @@ class TuiInputModel(object):
                     step=1,
                     count=max(1, event.arg),
                 )
+
+        @bindings.add(
+            Keys.ControlUp,
+            eager=True,
+            filter=has_focus(INPUT_BUFFER_NAME),
+        )
+        def _(event) -> None:
+            self._navigate_history(
+                event.app.current_buffer,
+                step=-1,
+                count=max(1, event.arg),
+            )
+
+        @bindings.add(
+            Keys.ControlDown,
+            eager=True,
+            filter=has_focus(INPUT_BUFFER_NAME),
+        )
+        def _(event) -> None:
+            self._navigate_history(
+                event.app.current_buffer,
+                step=1,
+                count=max(1, event.arg),
+            )
 
         return bindings
 
