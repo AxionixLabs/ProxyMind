@@ -314,7 +314,6 @@ class _BottomAnchorState(object):
 class TuiScreen(object):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
-    INPUT_MAX_LINES: typing.Final[int]               = 8
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
     COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
@@ -857,6 +856,17 @@ class TuiScreen(object):
             height=self._input_surface_dimension,
             window_too_small=Window(),
         )
+        self.compact_input_surface = ConditionalContainer(
+            HSplit(
+                [self.input],
+                align=VerticalAlign.BOTTOM,
+                window_too_small=self.input.window,
+            ),
+            filter=Condition(lambda: bool(
+                getattr(self, "application", None)
+                and self.application.is_running
+            )),
+        )
         self.input_footer = ConditionalContainer(
             self.footer_window,
             filter=Condition(self._footer_visible),
@@ -871,7 +881,7 @@ class TuiScreen(object):
             ],
             align=VerticalAlign.TOP,
             height=self._input_stack_dimension,
-            window_too_small=Window(),
+            window_too_small=self.compact_input_surface,
         )
         self.input_area = ConditionalContainer(
             self.input_stack,
@@ -1564,6 +1574,7 @@ class TuiScreen(object):
             self._inline_reply_handoff_growth_active()
             or self._inline_assistant_growth_active()
             or self._inline_process_growth_active()
+            or self._inline_input_growth_active(width=width)
         ):
             return height
 
@@ -2623,7 +2634,8 @@ class TuiScreen(object):
 
     def _input_dimension(self) -> Dimension:
         """返回输入框当前显示高度。"""
-        return Dimension.exact(self._input_height())
+        height = self._input_height()
+        return Dimension(min=1, preferred=height, max=height)
 
     def _input_surface_dimension(self) -> Dimension:
         """返回包含上下留白的输入表面高度。"""
@@ -2631,7 +2643,8 @@ class TuiScreen(object):
 
     def _input_stack_dimension(self) -> Dimension:
         """返回输入框、补全列表和当前可见 footer 的总高度。"""
-        return Dimension.exact(self._input_stack_height())
+        height = self._input_stack_height()
+        return Dimension(min=1, preferred=height, max=height)
 
     def _bottom_release_dimension(self) -> Dimension:
         """返回底部临时区域收起后保留的输入框下方高度。"""
@@ -3051,12 +3064,16 @@ class TuiScreen(object):
 
     def _input_height(self) -> int:
         """计算输入内容占用的显示行数。"""
+        return self._input_content_height(width=self.terminal_width)
+
+    def _input_content_height(self, *, width: int) -> int:
+        """按指定终端宽度计算输入内容的自然显示行数。"""
         text = self.input.buffer.text
-        rows = display_line_count(text, width=max(1, self.terminal_width - 2))
+        rows = display_line_count(text, width=max(1, width - 2))
 
         if text.endswith("\n"):
             rows += 1
-        return max(1, min(self.INPUT_MAX_LINES, rows))
+        return max(1, rows)
 
     def _approval_height(self) -> int:
         """计算审批卡在当前画布中的显示高度。"""
@@ -3276,6 +3293,14 @@ class TuiScreen(object):
             self.bottom_pane.input_visible
             and self.process_viewer.input_passthrough
             and self.document.active_kind == "operation"
+        )
+
+    def _inline_input_growth_active(self, *, width: int) -> bool:
+        """判断多行输入是否允许推动 inline 画布增长。"""
+        return bool(
+            self.bottom_pane.input_visible
+            and not self._transcript_only
+            and self._input_content_height(width=width) > 1
         )
 
     def _inline_reply_handoff_growth_active(self) -> bool:

@@ -493,13 +493,16 @@ class TuiSubmissionFlow(object):
             history_recorded=history_recorded,
         )
 
-        if self._is_submission_deferred():
+        submission_deferred = self._is_submission_deferred()
+
+        if submission_deferred:
             policy = stream_command_policy(value)
             if policy is not None:
                 self._dispatch_stream_command(submission, policy=policy)
                 buffer.text = ""
                 buffer.cursor_position = 0
                 self.input_model.clear_submission_state()
+                self.input_model.input_resize_handler()
                 self._invalidate()
                 return False
 
@@ -528,6 +531,12 @@ class TuiSubmissionFlow(object):
 
         self.input_model.clear_submission_state()
         if self._input_handoff_pending:
+            return True
+
+        if submission_deferred:
+            buffer.reset()
+            self.input_model.input_resize_handler()
+            self._invalidate()
             return True
 
         self._invalidate()
@@ -599,6 +608,7 @@ class TuiSubmissionFlow(object):
         if self._input_handoff_pending:
             self._input_handoff_pending = False
             self._get_input_buffer().reset()
+            self.input_model.input_resize_handler()
             if (
                 isinstance(submission, TuiSubmission)
                 and submission.history_recorded

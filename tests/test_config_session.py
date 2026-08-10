@@ -852,6 +852,7 @@ def test_project_root_markers_do_not_expand_the_active_trust_target(
     project_root = tmp_path / "project"
     workspace = project_root / "src"
     workspace.mkdir(parents=True)
+    (workspace / ".git").mkdir()
     (project_root / "pyproject.toml").write_text("", encoding="utf-8")
 
     expected_project_root = (
@@ -1115,6 +1116,7 @@ def test_config_session_persists_project_trust_decisions(tmp_path) -> None:
 
 def test_user_config_is_not_reloaded_as_home_project_config(tmp_path) -> None:
     workspace = tmp_path / "home"
+    (workspace / ".git").mkdir(parents=True)
     store = ConfigStore(workspace / PROJECT_CONFIG_DIR / "config.toml")
     session = ConfigSession(store, workspace=workspace)
 

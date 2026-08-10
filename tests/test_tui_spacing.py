@@ -157,6 +157,18 @@ def _rendered_screen_text(screen) -> str:
     )
 
 
+def _first_nonblank_screen_row(screen) -> int:
+    """返回渲染屏幕首个包含可见文本的行号。"""
+    return min(
+        row
+        for row, cells in screen.data_buffer.items()
+        if "".join(
+            cells[column].char
+            for column in sorted(cells)
+        ).strip()
+    )
+
+
 async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     """等待管道输入被主输入框完整消费。"""
     loop = asyncio.get_running_loop()
@@ -189,6 +201,22 @@ async def _wait_for_scrollback_advance(
         await asyncio.sleep(0.001)
 
     raise AssertionError("scrollback did not advance")
+
+
+async def _wait_for_scrollback_settlement(runtime: TuiRuntime) -> None:
+    """等待待处理的原生滚屏事务完成或确认无需提交。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+
+    while loop.time() < deadline:
+        if (
+            runtime.viewport.scrollback_task is None
+            and runtime.viewport._scrollback_render_revision is None
+        ):
+            return None
+        await asyncio.sleep(0.001)
+
+    raise AssertionError("scrollback did not settle")
 
 
 @pytest.mark.anyio
@@ -5083,6 +5111,194 @@ async def test_multiline_history_toggle_after_scrollback_keeps_top_aligned(
                     reflow_generation=reflow_generation,
                 )
         finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("line_count", (3, 4, 5, 17))
+async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
+    line_count: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            await _wait_for_scrollback_settlement(runtime)
+            settled = await _render_next_frame(runtime)
+            settled_height = settled.height
+            settled_top_row = _first_nonblank_screen_row(settled)
+
+            assert settled_height == 7
+            assert (
+                runtime.screen.application.renderer.rows_above_layout == 11
+            )
+
+            pasted = "\n".join(
+                f"pasted line {index}" for index in range(line_count)
+            ) + "\n"
+            pipe_input.send_text(f"\x1b[200~{pasted}\x1b[201~")
+            await _wait_for_input_text(runtime, pasted)
+
+            screen = await _render_next_frame(runtime)
+            positions = screen.visible_windows_to_write_positions
+            input_position = positions[runtime.screen.input.window]
+            render_info = runtime.screen.input.window.render_info
+            expected_height = min(
+                terminal.size.rows,
+                settled_height + line_count,
+            )
+
+            assert screen.height == expected_height
+            assert (
+                runtime.screen.application.renderer.rows_above_layout
+                == terminal.size.rows - expected_height
+            )
+            assert render_info is not None
+            assert runtime.screen.canvas_spacer not in positions
+
+            if line_count < 17:
+                assert input_position.height == line_count + 1
+                assert render_info.vertical_scroll == 0
+                footer = positions[runtime.screen.footer_window]
+                assert footer.ypos + footer.height == expected_height
+            else:
+                assert runtime.screen.footer_window not in positions
+                assert input_position.ypos + input_position.height == 18
+                assert input_position.height == 17
+                assert render_info.vertical_scroll == 1
+
+            pipe_input.send_text("\x15")
+            await _wait_for_input_text(runtime, "")
+            restored = await _render_next_frame(runtime)
+            restored_positions = restored.visible_windows_to_write_positions
+            restored_footer = restored_positions[runtime.screen.footer_window]
+
+            assert runtime.screen.canvas_spacer not in restored_positions
+            assert _first_nonblank_screen_row(restored) == settled_top_row
+            assert (
+                restored_footer.ypos + restored_footer.height
+                == settled_height
+            )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_multiline_submission_after_scrollback_keeps_top_offset() -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            await _wait_for_scrollback_settlement(runtime)
+            settled = await _render_next_frame(runtime)
+            settled_top_row = _first_nonblank_screen_row(settled)
+
+            prompt_task = asyncio.create_task(runtime.read_message(
+                PromptContext(model="test")
+            ))
+            pasted = "first line\nsecond line\nthird line\nfourth line"
+            pipe_input.send_text(f"\x1b[200~{pasted}\x1b[201~")
+            await _wait_for_input_text(runtime, pasted)
+            await _render_next_frame(runtime)
+
+            runtime.screen.input.buffer.validate_and_handle()
+
+            assert await prompt_task == pasted
+            await _wait_for_input_text(runtime, "")
+
+            submitted = await _render_next_frame(runtime)
+            positions = submitted.visible_windows_to_write_positions
+
+            assert runtime.screen.canvas_spacer not in positions
+            assert _first_nonblank_screen_row(submitted) <= settled_top_row
+            assert runtime.screen.input.window in positions
+            assert "fourth line" in _rendered_screen_text(submitted)
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("queue_mode", ("pending", "follow_up"))
+async def test_consecutive_multiline_queue_submissions_do_not_leave_top_spacer(
+    queue_mode: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=30,
+            available_rows=30,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            runtime.append_block(_block(">_ App (v1.0)"), kind="system")
+            prompt_task = asyncio.create_task(runtime.read_message(
+                PromptContext(model="test")
+            ))
+            first = "\n".join(f"first line {index}" for index in range(8))
+            pipe_input.send_text(f"\x1b[200~{first}\x1b[201~")
+            await _wait_for_input_text(runtime, first)
+            await _render_next_frame(runtime)
+
+            runtime.screen.input.buffer.validate_and_handle()
+            assert await prompt_task == first
+            await _wait_for_input_text(runtime, "")
+
+            runtime.set_execution_active(True)
+            runtime.screen.set_activity_renderable(_block("• Thinking · 5.9s"))
+
+            def track_pending(submission, queue_only) -> bool:
+                if queue_only:
+                    runtime.defer_submission(submission)
+                else:
+                    runtime.track_pending_steer(submission)
+                return True
+
+            runtime.bind_turn_input_handler(track_pending)
+            for submission_index in range(2):
+                queued_text = "\n".join(
+                    f"queued {submission_index} line {line_index}"
+                    for line_index in range(8)
+                )
+                pipe_input.send_text(
+                    f"\x1b[200~{queued_text}\x1b[201~"
+                )
+                await _wait_for_input_text(runtime, queued_text)
+                await _render_next_frame(runtime)
+
+                if queue_mode == "pending":
+                    runtime.screen.input.buffer.validate_and_handle()
+                else:
+                    runtime.submissions.queue_input(
+                        runtime.screen.input.buffer
+                    )
+                await _wait_for_input_text(runtime, "")
+                queued = await _render_next_frame(runtime)
+                positions = queued.visible_windows_to_write_positions
+
+                if queue_mode == "pending":
+                    assert runtime.submissions.pending_steers.active
+                else:
+                    assert runtime.submissions.queued_messages.active
+                assert runtime.screen.canvas_spacer not in positions
+                assert _first_nonblank_screen_row(queued) == 0
+        finally:
+            runtime.set_execution_active(False)
             await runtime.close()
 
 

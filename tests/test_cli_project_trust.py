@@ -215,6 +215,7 @@ async def test_accepting_home_directory_does_not_reclassify_user_config(
     tmp_path,
 ) -> None:
     workspace = tmp_path / "home"
+    (workspace / ".git").mkdir(parents=True)
     store = ConfigStore(workspace / PROJECT_CONFIG_DIR / "config.toml")
     session = ConfigSession(store, workspace=workspace)
     initial = session.resolve()
@@ -397,6 +398,7 @@ async def test_bootstrap_forwards_hook_warnings_outside_config_resolution(
     tmp_path,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".git").mkdir()
     frontend = SimpleNamespace(application=SimpleNamespace(emit=Mock()))
     config_path = tmp_path / "home" / "config.toml"
     ConfigStore(config_path).ensure()
