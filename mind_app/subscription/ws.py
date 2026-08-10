@@ -26,6 +26,8 @@ ConnectedCallback = typing.Callable[
 
 DisconnectedCallback = typing.Callable[[], None]
 
+AckCallback = typing.Callable[[str], None]
+
 AGENT_WS_READY_TIMEOUT_SEC: typing.Final[float] = 15.0
 
 _REOPEN_ERROR_CODES: typing.Final[set[str]] = {
@@ -217,7 +219,8 @@ async def handle_server_message(
     live_status: AgentLiveStatus,
     forward_handler: AgentForwardHandler | None = None,
     *,
-    on_ready: ReadyCallback | None = None
+    on_ready: ReadyCallback | None = None,
+    on_ack: AckCallback | None = None
 ) -> int | None:
     """按订阅协议处理一条服务端消息。"""
     current_seq  = extract_message_seq(message)
@@ -270,6 +273,7 @@ async def handle_server_message(
                     live_status,
                     forward_handler,
                     on_ready=on_ready,
+                    on_ack=on_ack,
                 )
                 if isinstance(replay_seq, int):
                     handled_seq = replay_seq if handled_seq is None else max(handled_seq, replay_seq)
@@ -314,6 +318,12 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "ack":
+        payload_raw      = message.get("payload")
+        payload          = payload_raw if isinstance(payload_raw, dict) else {}
+        acked_message_id = str(payload.get("acked_message_id") or "").strip()
+
+        if acked_message_id and on_ack is not None:
+            on_ack(acked_message_id)
         return current_seq
 
     if message_type == "error":
@@ -347,7 +357,7 @@ async def connection_scope(
     client: AgentClient,
     runtime: AgentSessionRuntime,
     *,
-    on_disconnected: DisconnectedCallback | None = None,
+    on_disconnected: DisconnectedCallback | None = None
 ) -> typing.AsyncIterator[ClientConnection]:
     """管理单个 WS 连接及其断开通知。"""
     try:
@@ -373,6 +383,7 @@ async def connect_once(
     on_ready: ReadyCallback | None = None,
     on_connected: ConnectedCallback | None = None,
     on_disconnected: DisconnectedCallback | None = None,
+    on_ack: AckCallback | None = None,
     ready_timeout_sec: float = AGENT_WS_READY_TIMEOUT_SEC
 ) -> None:
     """建立一次 WS 连接生命周期，并持续处理消息直到断开。"""
@@ -469,7 +480,9 @@ async def connect_once(
                     raise TimeoutError(
                         f"server did not send ready within {ready_timeout_sec:g}s"
                     ) from error
+
             payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+
             observe(
                 "agent.ws.received",
                 message_type=message.get("type"),
@@ -477,6 +490,7 @@ async def connect_once(
                 message_id=message.get("message_id"),
                 call_id=payload.get("call_id"),
             )
+
             handled_seq = await handle_server_message(
                 mind,
                 client,
@@ -486,8 +500,11 @@ async def connect_once(
                 live_status,
                 forward_handler,
                 on_ready=notify_ready,
+                on_ack=on_ack,
             )
+
             update_last_acked_seq(runtime, handled_seq)
+
             if connection_ready.is_set():
                 ready_deadline = None
 

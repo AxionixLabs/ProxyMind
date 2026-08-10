@@ -27,6 +27,7 @@ from .opening import (
     summarize_tls_certificate_error
 )
 from .ws import (
+    AckCallback,
     AgentWsProtocolError,
     ConnectedCallback,
     DisconnectedCallback,
@@ -111,6 +112,7 @@ class AgentConnection(object):
         on_ready: ReadyCallback | None = None,
         on_connected: ConnectedCallback | None = None,
         on_disconnected: DisconnectedCallback | None = None,
+        on_ack: AckCallback | None = None
     ) -> None:
         """保存连接控制所需依赖。"""
         self.mind = mind
@@ -122,6 +124,7 @@ class AgentConnection(object):
         self.on_ready        = on_ready
         self.on_connected    = on_connected
         self.on_disconnected = on_disconnected
+        self.on_ack          = on_ack
 
     async def open_session_runtime(
         self,
@@ -229,6 +232,7 @@ class AgentConnection(object):
             on_ready=self.on_ready,
             on_connected=self.on_connected,
             on_disconnected=self.on_disconnected,
+            on_ack=self.on_ack,
         )
 
 

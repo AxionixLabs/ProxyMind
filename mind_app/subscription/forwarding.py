@@ -13,6 +13,7 @@ from .models import (
     AgentLiveStatus,
     AgentSessionRuntime
 )
+from .status import AgentStatusOutbox
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -104,7 +105,8 @@ class AgentExecutor(object):
         request: AgentForwardRequest,
         live_status: AgentLiveStatus | None = None,
         *,
-        turn_id: str | None = None
+        turn_id: str | None = None,
+        status_outbox: AgentStatusOutbox | None = None
     ) -> None:
         """执行一条服务端下发的本地任务。"""
         message, intent_summary = normalize_forward_request(request.payload)
@@ -135,44 +137,118 @@ class AgentExecutor(object):
                 "Server Task Received", request.call_id
             )
 
-        await client.send_mind_started(
-            connection,
-            session_id=runtime.session_id,
-            cid=request.cid,
-            sid=request.sid,
-            call_id=request.call_id
-        )
+        try:
+            await client.send_mind_started(
+                connection,
+                session_id=runtime.session_id,
+                cid=request.cid,
+                sid=request.sid,
+                call_id=request.call_id
+            )
 
-        calling_kwargs: dict[str, typing.Any] = {
-            "message": message,
-            "metadata": metadata,
-        }
-        if turn_id:
-            calling_kwargs["turn_id"] = turn_id
+            calling_kwargs: dict[str, typing.Any] = {
+                "message": message,
+                "metadata": metadata,
+            }
+            if turn_id:
+                calling_kwargs["turn_id"] = turn_id
 
-        runner = mind.calling(**calling_kwargs)
+            runner = mind.calling(**calling_kwargs)
 
-        if timeout_sec is not None:
-            result = await asyncio.wait_for(runner, timeout=timeout_sec)
-        else:
-            result = await runner
+            if timeout_sec is not None:
+                result = await asyncio.wait_for(runner, timeout=timeout_sec)
+            else:
+                result = await runner
 
-        if not result.ok:
-            raise AppError(result.error or f"run {result.status}")
+            if str(result.status or "").strip().lower() == "interrupted":
+                await self._send_cancelled(
+                    client,
+                    connection,
+                    runtime,
+                    request,
+                    status_outbox=status_outbox,
+                    reason="user_interrupted",
+                )
+                return None
 
-        await client.send_mind_completed(
-            connection,
-            session_id=runtime.session_id,
-            cid=request.cid,
-            sid=request.sid,
-            call_id=request.call_id
-        )
+            if not result.ok:
+                raise AppError(result.error or f"run {result.status}")
+
+            if status_outbox is not None:
+                await status_outbox.completed(request, session_id=runtime.session_id)
+            else:
+                await client.send_mind_completed(
+                    connection,
+                    session_id=runtime.session_id,
+                    cid=request.cid,
+                    sid=request.sid,
+                    call_id=request.call_id
+                )
+        except asyncio.CancelledError:
+            await asyncio.shield(self._send_cancelled(
+                client,
+                connection,
+                runtime,
+                request,
+                status_outbox=status_outbox,
+                reason="user_interrupted",
+            ))
+            raise
+        except Exception as error:
+            if status_outbox is not None:
+                await status_outbox.failed(
+                    request,
+                    session_id=runtime.session_id,
+                    error=error,
+                )
+            else:
+                await client.send_mind_failed(
+                    connection,
+                    session_id=runtime.session_id,
+                    cid=request.cid,
+                    sid=request.sid,
+                    call_id=request.call_id,
+                    error_type=type(error).__name__,
+                    error_message=str(error),
+                )
+            raise
 
         observe(
             "agent.forward.complete",
             call_id=request.call_id,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
+
+    @staticmethod
+    async def _send_cancelled(
+        client: AgentClient,
+        connection: typing.Any,
+        runtime: AgentSessionRuntime,
+        request: AgentForwardRequest,
+        *,
+        status_outbox: AgentStatusOutbox | None,
+        reason: typing.Literal[
+            "user_interrupted",
+            "message_deleted",
+            "client_shutdown"
+        ]
+    ) -> None:
+        if status_outbox is not None:
+            await status_outbox.cancelled(
+                request,
+                session_id=runtime.session_id,
+                reason=reason,
+            )
+            return None
+        await client.send_mind_cancelled(
+            connection,
+            session_id=runtime.session_id,
+            cid=request.cid,
+            sid=request.sid,
+            call_id=request.call_id,
+            reason=reason,
+        )
+
 
 class AgentInbox(object):
     """保存等待用户处理的服务端请求。"""
@@ -215,17 +291,6 @@ class AgentInbox(object):
         pending = self.pending_items()
         return pending[0] if pending else None
 
-    def decline(self, message_id: str, *, reason: str = "") -> AgentInboxItem:
-        """标记一条请求为已拒绝。"""
-        item = self.find(message_id)
-        if item is None:
-            raise KeyError(message_id)
-        if item.status != "pending":
-            raise ValueError(f"agent inbox item is not pending: {message_id}")
-        item.status = "declined"
-        item.error = reason or None
-        return item
-
     @staticmethod
     async def accept(
         item: AgentInboxItem,
@@ -237,7 +302,8 @@ class AgentInbox(object):
         runtime: AgentSessionRuntime,
         live_status: AgentLiveStatus,
         status_changed: typing.Callable[[], None] | None = None,
-        turn_id: str | None = None
+        turn_id: str | None = None,
+        status_outbox: AgentStatusOutbox | None = None
     ) -> AgentInboxItem:
         """执行一条待处理请求并调整收件箱状态。"""
         if item.status != "pending":
@@ -255,6 +321,7 @@ class AgentInbox(object):
                 item.request,
                 live_status,
                 turn_id=turn_id,
+                status_outbox=status_outbox,
             )
         except asyncio.CancelledError:
             item.status = "pending"
@@ -269,7 +336,8 @@ class AgentInbox(object):
             raise
 
         item.status = "completed"
-        item.error = None
+        item.error  = None
+
         if status_changed is not None:
             status_changed()
         return item
@@ -288,6 +356,7 @@ class AgentInbox(object):
         item = self.next_pending()
         if item is None:
             return None
+
         return await self.accept(
             item,
             executor=executor,

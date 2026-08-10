@@ -393,6 +393,35 @@ class AgentClient(object):
             )
         )
 
+    async def send_mind_cancelled(
+        self,
+        connection: ClientConnection,
+        *,
+        session_id: str,
+        cid: str,
+        sid: str,
+        call_id: str,
+        reason: typing.Literal[
+            "user_interrupted",
+            "message_deleted",
+            "client_shutdown"
+        ]
+    ) -> None:
+        """发送 `mind.cancelled`，告知服务端任务已被本地取消。"""
+        await self.send_json(
+            connection,
+            build_envelope(
+                message_type="mind.cancelled",
+                session_id=session_id,
+                cid=cid,
+                sid=sid,
+                payload={
+                    "call_id": call_id,
+                    "reason": reason
+                }
+            )
+        )
+
     async def get_status(
         self,
         *,

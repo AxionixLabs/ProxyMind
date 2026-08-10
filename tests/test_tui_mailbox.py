@@ -67,7 +67,7 @@ class _Listener(object):
     def bind_receipt_disposition(self, resolver) -> None:
         self.receipt_disposition_resolver = resolver
 
-    def discard(self, message_id: str):
+    async def discard(self, message_id: str):
         item = self.inbox.remove(message_id)
         if self.callback is not None:
             self.callback()
@@ -184,7 +184,7 @@ async def test_mailbox_real_menu_detail_returns_to_same_application() -> None:
 
 
 @pytest.mark.anyio
-async def test_mailbox_delete_is_local_and_removes_summary() -> None:
+async def test_mailbox_delete_cancels_and_removes_summary() -> None:
     listener = _Listener(_request("1", "inspect workspace"))
     feature, runtime, views = _feature(listener)
     runtime.select_menu = AsyncMock(side_effect=[

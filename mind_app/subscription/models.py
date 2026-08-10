@@ -46,7 +46,7 @@ class AgentForwardRequest:
 class AgentInboxItem:
     """本地收件箱中的服务端请求。"""
     request: AgentForwardRequest
-    status: typing.Literal["pending", "running", "completed", "declined", "failed"]
+    status: typing.Literal["pending", "running", "completed", "failed"]
     error: str | None
 
     __slots__ = ("request", "status", "error")
@@ -54,7 +54,7 @@ class AgentInboxItem:
     def __init__(
         self,
         request: AgentForwardRequest,
-        status: typing.Literal["pending", "running", "completed", "declined", "failed"] = "pending",
+        status: typing.Literal["pending", "running", "completed", "failed"] = "pending",
         error: str | None = None
     ) -> None:
         """初始化收件箱请求条目。"""

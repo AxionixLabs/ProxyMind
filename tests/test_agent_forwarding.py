@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
@@ -17,6 +17,7 @@ from mind_app.subscription.models import (
     AgentLiveStatus,
     AgentSessionRuntime,
 )
+from mind_app.subscription.status import AgentStatusOutbox
 from mind_app.subscription.ws import (
     build_runtime_llm_conf,
     connect_once,
@@ -154,6 +155,161 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
     )
 
     assert mind.calling.await_args.kwargs["turn_id"] == "turn_remote"
+
+
+@pytest.mark.anyio
+async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
+    mind = SimpleNamespace(calling=AsyncMock(return_value=RunResult(status="interrupted")))
+    client = SimpleNamespace(
+        send_mind_started=AsyncMock(),
+        send_mind_cancelled=AsyncMock(),
+    )
+    request = AgentForwardRequest(
+        message_id="message-1",
+        call_id="call-1",
+        cid="cid-1",
+        sid="sid-1",
+        payload={"message": "inspect workspace"},
+    )
+
+    await AgentExecutor().execute(
+        mind,
+        client,
+        object(),
+        SimpleNamespace(session_id="agent-session"),
+        request,
+    )
+
+    client.send_mind_cancelled.assert_awaited_once_with(
+        ANY,
+        session_id="agent-session",
+        cid="cid-1",
+        sid="sid-1",
+        call_id="call-1",
+        reason="user_interrupted",
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
+    started = asyncio.Event()
+
+    async def calling(**_kwargs):
+        started.set()
+        await asyncio.Future()
+
+    mind = SimpleNamespace(calling=calling)
+    client = SimpleNamespace(
+        send_mind_started=AsyncMock(),
+        send_mind_cancelled=AsyncMock(),
+    )
+    request = AgentForwardRequest(
+        message_id="message-1",
+        call_id="call-1",
+        cid="cid-1",
+        sid="sid-1",
+        payload={"message": "inspect workspace"},
+    )
+
+    task = asyncio.create_task(AgentExecutor().execute(
+        mind,
+        client,
+        object(),
+        SimpleNamespace(session_id="agent-session"),
+        request,
+    ))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.send_mind_cancelled.assert_awaited_once()
+    assert client.send_mind_cancelled.await_args.kwargs["reason"] == "user_interrupted"
+
+
+@pytest.mark.anyio
+async def test_agent_executor_reports_execution_failure() -> None:
+    error = RuntimeError("execution failed")
+    mind = SimpleNamespace(calling=AsyncMock(side_effect=error))
+    client = SimpleNamespace(
+        send_mind_started=AsyncMock(),
+        send_mind_failed=AsyncMock(),
+    )
+    request = AgentForwardRequest(
+        message_id="message-1",
+        call_id="call-1",
+        cid="cid-1",
+        sid="sid-1",
+        payload={"message": "inspect workspace"},
+    )
+
+    with pytest.raises(RuntimeError, match="execution failed"):
+        await AgentExecutor().execute(
+            mind,
+            client,
+            object(),
+            SimpleNamespace(session_id="agent-session"),
+            request,
+        )
+
+    client.send_mind_failed.assert_awaited_once_with(
+        ANY,
+        session_id="agent-session",
+        cid="cid-1",
+        sid="sid-1",
+        call_id="call-1",
+        error_type="RuntimeError",
+        error_message="execution failed",
+    )
+
+
+@pytest.mark.anyio
+async def test_terminal_outbox_resends_stable_envelope_until_ack() -> None:
+    outbox = AgentStatusOutbox()
+    client = SimpleNamespace(send_json=AsyncMock())
+    runtime = _ws_runtime()
+    request = AgentForwardRequest(
+        message_id="message-1",
+        call_id="call-1",
+        cid="cid-1",
+        sid="sid-1",
+        payload={"message": "inspect workspace"},
+    )
+    first_connection = object()
+    second_connection = object()
+
+    outbox.bind(client, first_connection, runtime)
+    await outbox.cancelled(
+        request,
+        session_id=runtime.session_id,
+        reason="message_deleted",
+    )
+    first_envelope = client.send_json.await_args.args[1]
+
+    outbox.unbind()
+    outbox.bind(client, second_connection, runtime)
+    await outbox.flush()
+    resent_envelope = client.send_json.await_args.args[1]
+
+    assert resent_envelope == first_envelope
+    assert first_envelope["type"] == "mind.cancelled"
+    assert first_envelope["payload"]["reason"] == "message_deleted"
+
+    await handle_server_message(
+        SimpleNamespace(),
+        client,
+        second_connection,
+        runtime,
+        {
+            "type": "ack",
+            "payload": {"acked_message_id": first_envelope["message_id"]},
+        },
+        AgentLiveStatus(),
+        on_ack=outbox.acknowledge,
+    )
+
+    assert outbox.pending == {}
 
 
 @pytest.mark.anyio

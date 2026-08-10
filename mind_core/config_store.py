@@ -11,7 +11,12 @@ from collections.abc import (
     MutableMapping
 )
 from pathlib import Path
-from tomlkit.items import AoT, Comment, Table, Whitespace
+from tomlkit.items import (
+    AoT,
+    Comment,
+    Table,
+    Whitespace
+)
 from tomlkit.toml_document import TOMLDocument
 from mind_nova import const
 from mind_core.application_paths import default_application_home
@@ -23,6 +28,7 @@ from mind_core.provider_config import (
 )
 
 ConfigBody = list[tuple[typing.Any, typing.Any]]
+
 TableLocation = tuple[Table, ConfigBody | None]
 
 DEFAULT_CONFIG_TEXT = f"""model_provider = "{DEFAULT_PROVIDER_ID}"
@@ -109,7 +115,7 @@ class ConfigStore(object):
         self,
         values: dict[tuple[str, ...], object],
         *,
-        validate: Callable[[dict[str, object]], None] | None = None,
+        validate: Callable[[dict[str, object]], None] | None = None
     ) -> dict[str, object]:
         """校验候选文档后更新指定点路径并保留其他格式。"""
         document = self.read_document()
@@ -131,7 +137,7 @@ class ConfigStore(object):
         self,
         paths: typing.Iterable[tuple[str, ...]],
         *,
-        validate: Callable[[dict[str, object]], None] | None = None,
+        validate: Callable[[dict[str, object]], None] | None = None
     ) -> dict[str, object]:
         """校验候选文档后删除指定点路径并保留其他格式。"""
         document = self.read_document()
@@ -152,7 +158,7 @@ class ConfigStore(object):
     def _set_path(
         document: TOMLDocument,
         path: tuple[str, ...],
-        value: object,
+        value: object
     ) -> None:
         """在 TOML 文档中设置一个非空点路径。"""
         if not path or any(not component for component in path):
@@ -210,7 +216,7 @@ class ConfigStore(object):
         cls,
         body: ConfigBody,
         table_index: int,
-        table: Table,
+        table: Table
     ) -> None:
         """在顶层字段与第一个配置表之间保留一个空行。"""
         insert_at = table_index
@@ -234,7 +240,7 @@ class ConfigStore(object):
     def _rendered_tables(
         cls,
         item: object,
-        body: ConfigBody | None,
+        body: ConfigBody | None
     ) -> typing.Iterator[TableLocation]:
         """按序返回配置组中实际输出的表及其所在容器。"""
         if isinstance(item, AoT):
@@ -263,7 +269,7 @@ class ConfigStore(object):
         cls,
         previous: Table,
         following: Table,
-        body: ConfigBody | None,
+        body: ConfigBody | None
     ) -> bool:
         """分隔相邻表之间的连续注释并识别已有空行。"""
         if body is not None:
@@ -301,10 +307,7 @@ class ConfigStore(object):
         return False
 
     @staticmethod
-    def _ensure_blank_line_at(
-        body: ConfigBody,
-        index: int,
-    ) -> None:
+    def _ensure_blank_line_at(body: ConfigBody, index: int) -> None:
         """在容器指定位置之前保留一个空行。"""
         following = body[index][1]
         if "\n" in following.trivia.indent:
@@ -323,10 +326,7 @@ class ConfigStore(object):
         )
 
     @staticmethod
-    def _delete_path(
-        document: TOMLDocument,
-        path: tuple[str, ...],
-    ) -> None:
+    def _delete_path(document: TOMLDocument, path: tuple[str, ...]) -> None:
         """从 TOML 文档中删除一个已经存在的点路径。"""
         if not path or any(not component for component in path):
             raise ConfigStoreError("config path is empty")

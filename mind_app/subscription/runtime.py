@@ -25,12 +25,12 @@ from .models import (
     AgentSessionRuntime
 )
 from .opening import build_device_id
+from .status import AgentStatusOutbox
 from mind_nova import const
 from mind_nova.services import service_endpoints
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
-
 
 InboxChangedCallback = typing.Callable[[], None]
 
@@ -80,6 +80,7 @@ class AgentRuntime(object):
         self.inbox       = inbox or AgentInbox()
         self.executor    = executor or AgentExecutor()
         self.live_status = live_status or AgentLiveStatus()
+        self.status_outbox = AgentStatusOutbox()
 
         self.contexts: dict[str, AgentRuntimeContext] = {}
 
@@ -104,6 +105,7 @@ class AgentRuntime(object):
             on_ready=self._mark_ready,
             on_connected=self._rebind_pending_contexts,
             on_disconnected=self._mark_disconnected,
+            on_ack=self.status_outbox.acknowledge,
         )
         self.supervisor = supervisor or AgentSupervisor(
             mind,
@@ -180,6 +182,7 @@ class AgentRuntime(object):
 
     def _mark_disconnected(self) -> None:
         """清除当前连接的握手状态并同步监听器展示。"""
+        self.status_outbox.unbind()
         if self._ready.is_set():
             self._ready.clear()
             self._notify_inbox_changed()
@@ -192,6 +195,7 @@ class AgentRuntime(object):
         live_status: AgentLiveStatus,
     ) -> None:
         """把保留的待处理消息重新绑定到当前订阅连接。"""
+        self.status_outbox.bind(client, connection, runtime)
         for item in self.inbox.pending_items():
             self.remember_context(
                 item,
@@ -338,6 +342,7 @@ class AgentRuntime(object):
                 live_status=context.live_status,
                 status_changed=notify_execution_change,
                 turn_id=turn_id,
+                status_outbox=self.status_outbox,
             )
         finally:
             self.contexts.pop(message_id, None)
@@ -345,25 +350,38 @@ class AgentRuntime(object):
                 self.inbox.remove(message_id)
             self._notify_inbox_changed()
 
-    def discard(self, message_id: str) -> AgentInboxItem:
-        """仅从当前进程中删除一条待处理请求。"""
+    async def discard(self, message_id: str) -> AgentInboxItem:
+        """取消服务端任务并从当前进程中删除待处理请求。"""
         item = self.inbox.find(message_id)
         if item is None:
             raise KeyError(message_id)
         if item.status != "pending":
             raise ValueError(f"agent inbox item is not pending: {message_id}")
+        context = self.contexts.get(message_id)
+        if context is None:
+            raise RuntimeError("agent inbox item context missing")
+        await self.status_outbox.cancelled(
+            item.request,
+            session_id=context.runtime.session_id,
+            reason="message_deleted",
+        )
         self.contexts.pop(message_id, None)
         removed = self.inbox.remove(message_id)
         self._notify_inbox_changed()
         return removed
 
-    def decline(self, message_id: str, *, reason: str = "") -> AgentInboxItem:
-        """拒绝一条待处理请求。"""
-        item = self.inbox.decline(message_id, reason=reason)
-        self.contexts.pop(message_id, None)
-        self._notify_inbox_changed()
-        return item
-
+    async def shutdown(self) -> None:
+        """取消尚未处理的远端任务并停止订阅运行时。"""
+        for item in list(self.inbox.pending_items()):
+            context = self.contexts.get(item.request.message_id)
+            if context is None:
+                continue
+            await self.status_outbox.cancelled(
+                item.request,
+                session_id=context.runtime.session_id,
+                reason="client_shutdown",
+            )
+        await self.stop()
 
 if __name__ == '__main__':
     pass

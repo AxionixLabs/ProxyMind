@@ -423,7 +423,8 @@ async def test_agent_runtime_discards_message_when_execution_context_is_missing(
     assert runtime.contexts == {}
 
 
-def test_agent_runtime_discards_message_without_remote_execution() -> None:
+@pytest.mark.anyio
+async def test_agent_runtime_discards_message_without_remote_execution() -> None:
     inbox = AgentInbox()
     item = inbox.add(_request())
     runtime = AgentRuntime(
@@ -441,11 +442,18 @@ def test_agent_runtime_discards_message_without_remote_execution() -> None:
         runtime.live_status,
     )
 
-    removed = runtime.discard("message-1")
+    runtime.status_outbox.cancelled = AsyncMock()
+
+    removed = await runtime.discard("message-1")
 
     assert removed is item
     assert inbox.items == []
     assert runtime.contexts == {}
+    runtime.status_outbox.cancelled.assert_awaited_once_with(
+        item.request,
+        session_id="agent-session",
+        reason="message_deleted",
+    )
 
 
 @pytest.mark.anyio
@@ -495,6 +503,7 @@ async def test_controller_pauses_then_reuses_and_releases_subscription_listener(
         start_background=Mock(),
         bind_inbox_changed=Mock(),
         stop=AsyncMock(),
+        shutdown=AsyncMock(),
     )
     factory = Mock(return_value=listener)
     monkeypatch.setattr(
@@ -523,4 +532,4 @@ async def test_controller_pauses_then_reuses_and_releases_subscription_listener(
 
     assert controller.subscription_runtime is None
     listener.bind_inbox_changed.assert_called_once_with(None)
-    assert listener.stop.await_count == 2
+    listener.shutdown.assert_awaited_once_with()

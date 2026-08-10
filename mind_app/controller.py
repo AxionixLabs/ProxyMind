@@ -840,7 +840,7 @@ class Mind(object):
         self.subscription_runtime = None
         if runtime is not None:
             runtime.bind_inbox_changed(None)
-            await runtime.stop()
+            await runtime.shutdown()
 
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""

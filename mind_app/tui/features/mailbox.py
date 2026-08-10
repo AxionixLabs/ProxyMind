@@ -172,7 +172,7 @@ class TuiMailboxFeature(object):
                     MenuOption(
                         "delete",
                         "Delete",
-                        "Remove it from this process without notifying the server.",
+                        "Cancel this task and remove it from the mailbox.",
                     ),
                     MenuOption("detail", "Detail", "Open the full message."),
                 ),
@@ -195,7 +195,7 @@ class TuiMailboxFeature(object):
                 try:
                     if listener is None:
                         raise RuntimeError("listener is not running")
-                    listener.discard(message_id)
+                    await listener.discard(message_id)
                 except (KeyError, RuntimeError, ValueError) as error:
                     render_mailbox_failure(
                         self.controller,
