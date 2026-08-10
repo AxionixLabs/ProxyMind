@@ -770,6 +770,7 @@ class TuiInputModel(object):
             self.restore_submission_state(self._history_draft_paste_store)
             buffer.document = draft
             self.dismiss_completion_menu(buffer)
+            self.input_resize_handler()
             return None
 
         entry = self._history_entries[target]
@@ -781,6 +782,7 @@ class TuiInputModel(object):
 
         buffer.document = Document(text, cursor_position=len(text))
         self.dismiss_completion_menu(buffer)
+        self.input_resize_handler()
 
     def _build_key_bindings(self) -> KeyBindings:
         """创建 TUI 输入区按键绑定。"""

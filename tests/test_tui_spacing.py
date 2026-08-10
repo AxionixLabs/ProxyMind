@@ -4987,6 +4987,176 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
                 await runtime.close()
 
 
+def _assert_scrolled_input_frame_stable(
+    runtime: TuiRuntime,
+    screen,
+    *,
+    reflow_generation: int,
+) -> None:
+    """校验输入编辑没有被识别为终端尺寸变化。"""
+    positions = screen.visible_windows_to_write_positions
+
+    assert runtime.viewport._observed_geometry == (80, 18)
+    assert runtime.viewport._reflow_generation == reflow_generation
+    assert runtime.viewport._scrollback_render_revision is None
+    assert runtime.viewport.scrollback_task is None
+    assert runtime.viewport._scrollback_reflow_handle is None
+    assert runtime.viewport._scrollback_reflow_task is None
+    assert runtime.screen.canvas_spacer not in positions
+    assert min(
+        position.ypos
+        for position in positions.values()
+        if position.height > 0
+    ) == 0
+
+
+@pytest.mark.anyio
+async def test_input_defers_scrollback_until_editing_finishes() -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("draft")
+            await _wait_for_input_text(runtime, "draft")
+            await _render_next_frame(runtime)
+
+            runtime.append_block(
+                _block("\n".join(
+                    f"answer line {index}" for index in range(35)
+                )),
+                kind="assistant",
+            )
+            await _render_next_frame(runtime)
+
+            assert runtime.document.scrollback_line_count == 0
+            assert runtime.viewport._scrollback_render_revision is not None
+
+            pipe_input.send_text("\x15")
+            await _wait_for_input_text(runtime, "")
+            await _wait_for_scrollback_advance(runtime)
+
+            assert runtime.viewport._scrollback_render_revision is None
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_multiline_history_toggle_after_scrollback_keeps_top_aligned(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            history = "first line\nsecond line\nthird line\nfourth line"
+            runtime.input_model.history.append_string(history)
+            reflow_generation = runtime.viewport._reflow_generation
+
+            for _ in range(2):
+                pipe_input.send_text("\x1b[A")
+                await _wait_for_input_text(runtime, history)
+                expanded = await _render_next_frame(runtime)
+                _assert_scrolled_input_frame_stable(
+                    runtime,
+                    expanded,
+                    reflow_generation=reflow_generation,
+                )
+
+                pipe_input.send_text("\x1b[B")
+                await _wait_for_input_text(runtime, "")
+                collapsed = await _render_next_frame(runtime)
+                _assert_scrolled_input_frame_stable(
+                    runtime,
+                    collapsed,
+                    reflow_generation=reflow_generation,
+                )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_ctrl_w_shrinking_input_after_scrollback_keeps_top_aligned(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            buffer = runtime.screen.input.buffer
+            buffer.text = "one\ntwo\nthree\nfour"
+            buffer.cursor_position = len(buffer.text)
+            await _render_next_frame(runtime)
+            reflow_generation = runtime.viewport._reflow_generation
+
+            for expected in (
+                "one\ntwo\nthree\n",
+                "one\ntwo\n",
+                "one\n",
+                "",
+            ):
+                pipe_input.send_text("\x17")
+                await _wait_for_input_text(runtime, expected)
+                screen = await _render_next_frame(runtime)
+                _assert_scrolled_input_frame_stable(
+                    runtime,
+                    screen,
+                    reflow_generation=reflow_generation,
+                )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_delete_shrinking_input_after_scrollback_keeps_top_aligned(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=18,
+            available_rows=18,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            buffer = runtime.screen.input.buffer
+            buffer.text = "a\nb\nc\nd"
+            buffer.cursor_position = 0
+            await _render_next_frame(runtime)
+            reflow_generation = runtime.viewport._reflow_generation
+
+            for expected in ("b\nc\nd", "c\nd", "d"):
+                pipe_input.send_text("\x1b[3~\x1b[3~")
+                await _wait_for_input_text(runtime, expected)
+                screen = await _render_next_frame(runtime)
+                _assert_scrolled_input_frame_stable(
+                    runtime,
+                    screen,
+                    reflow_generation=reflow_generation,
+                )
+        finally:
+            await runtime.close()
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("render_each_key", (False, True))
 async def test_multiline_input_backspace_shrinks_without_top_spacer(

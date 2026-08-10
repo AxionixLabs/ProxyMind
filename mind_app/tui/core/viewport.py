@@ -115,7 +115,7 @@ class TuiTranscriptViewport(object):
 
         self._rendered_revision: int = 0
 
-        self._scrollback_render_revision: int                       = 0
+        self._scrollback_render_revision: int | None                = None
         self._scrollback_reflow_handle: asyncio.TimerHandle | None  = None
         self._scrollback_recheck_handle: asyncio.TimerHandle | None = None
         self._stream_scrollback_handle: asyncio.TimerHandle | None  = None
@@ -457,7 +457,11 @@ class TuiTranscriptViewport(object):
 
     def _scrollback_state_ready(self) -> bool:
         """判断当前状态是否允许准备原生滚屏批次。"""
-        if self._rendered_revision < self._scrollback_render_revision:
+        required_revision = self._scrollback_render_revision
+        if (
+            required_revision is not None
+            and self._rendered_revision < required_revision
+        ):
             return False
 
         if self._scrollback_reflow_pending():
@@ -545,12 +549,14 @@ class TuiTranscriptViewport(object):
 
         candidate = self._prepare_scrollback_candidate()
         if candidate is None:
+            self._scrollback_render_revision = None
             return None
 
         context = self._get_application().context
         if context is None:
             return None
 
+        self._scrollback_render_revision = None
         self._scrollback_task = asyncio.create_task(
             self._flush_scrollback(candidate),
             name="tui scrollback flush",
@@ -566,7 +572,7 @@ class TuiTranscriptViewport(object):
             revision += 1
 
         self._scrollback_render_revision = max(
-            self._scrollback_render_revision,
+            self._scrollback_render_revision or 0,
             revision,
         )
 
@@ -617,7 +623,8 @@ class TuiTranscriptViewport(object):
             self._rendered_revision,
             max(0, int(revision)),
         )
-        self.schedule_scrollback_flush()
+        if self._scrollback_render_revision is not None:
+            self.schedule_scrollback_flush()
 
     def configure_scrollback_reflow_line_limit(self, value: int) -> None:
         """设置恢复和几何重排允许回放的最大逻辑行数。"""
@@ -682,6 +689,9 @@ class TuiTranscriptViewport(object):
 
     def schedule_scrollback_flush(self) -> None:
         """在稳定正文超出实时视口时安排原生滚屏提交。"""
+        if self._scrollback_render_revision is None:
+            self._scrollback_render_revision = self._rendered_revision
+
         if self.document.active_stream_continuation:
             self._schedule_stream_scrollback_flush()
             return None
@@ -828,7 +838,10 @@ class TuiTranscriptViewport(object):
         finally:
             if self._scrollback_task is current_task:
                 self._scrollback_task = None
-                if reschedule:
+                if (
+                    reschedule
+                    or self._scrollback_render_revision is not None
+                ):
                     self.schedule_scrollback_flush()
             self._invalidate()
 

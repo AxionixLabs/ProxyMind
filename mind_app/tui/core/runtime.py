@@ -376,20 +376,22 @@ class TuiRuntime(object):
         self.task_state.set_turn_running(active)
 
     def _terminal_geometry(self) -> tuple[int, int]:
-        """通过单次尺寸快照返回当前终端宽高。"""
-        geometry = self.screen.frame_geometry
-        return geometry.width, geometry.height
+        """通过单次尺寸快照返回物理终端宽高。"""
+        return self.screen.output_geometry()
 
     def _native_scrollback_deferred(self) -> bool:
         """判断当前运行状态是否禁止提交原生终端滚屏。"""
-        if self._modal_depth > 0 or self.foreground_active:
+        if (
+            self._modal_depth > 0
+            or self.foreground_active
+            or self.screen.scrollback_interaction_active()
+        ):
             return True
         if not self.execution_active:
             return False
         return not (
             self.document.active_kind == "assistant"
             and self.document.active_stream_continuation
-            and not self.screen.scrollback_interaction_active()
         )
 
     def _settle_scrollback_layout(self) -> None:

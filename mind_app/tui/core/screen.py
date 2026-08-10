@@ -411,7 +411,7 @@ class TuiScreen(object):
         self._frame_geometry: FrameGeometry | None     = None
         self._frame_output_size: Size | None           = None
         self._rendered_output_size: Size | None        = None
-        self._layout_geometry: tuple[int, int] | None  = None
+        self._physical_geometry: tuple[int, int] | None = None
 
         self._transcript_cache_key: tuple[int, int, int] | None     = None
         self._transcript_cache_fragments: FormattedText             = []
@@ -1027,6 +1027,19 @@ class TuiScreen(object):
             return geometry
         return self._read_frame_geometry(revision=0)
 
+    def output_geometry(self) -> tuple[int, int]:
+        """返回物理输出使用的终端列数和行数。"""
+        size = (
+            self._frame_output_size
+            if self._frame_geometry is not None
+            else None
+        )
+        if size is None:
+            width, height = self._output_size()
+        else:
+            width, height = size.columns, size.rows
+        return max(20, width), max(1, height)
+
     @staticmethod
     def _transcript_continuation_widths(
         fragments: FormattedText
@@ -1468,15 +1481,12 @@ class TuiScreen(object):
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
-        geometry = (
-            self._frame_geometry.width,
-            self._frame_geometry.height,
-        )
+        geometry = self.output_geometry()
         geometry_changed = (
-            self._layout_geometry is not None
-            and geometry != self._layout_geometry
+            self._physical_geometry is not None
+            and geometry != self._physical_geometry
         )
-        self._layout_geometry = geometry
+        self._physical_geometry = geometry
 
         self.document.set_display_width(
             self._frame_geometry.width,
@@ -1520,10 +1530,7 @@ class TuiScreen(object):
 
             self._canvas_height_floor = canvas_height
 
-        self._observe_terminal_geometry(
-            self._frame_geometry.width,
-            self._frame_geometry.height,
-        )
+        self._observe_terminal_geometry(*geometry)
 
     def _release_frame_geometry(self, application: Application[None]) -> None:
         """在渲染结束后恢复终端尺寸的实时读取。"""
