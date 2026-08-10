@@ -63,6 +63,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
 @pytest.mark.anyio
 async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
     with create_pipe_input() as pipe_input:
+        workspace = Path("/workspace/project")
         runtime = TuiRuntime(
             input_obj=pipe_input,
             output_obj=DummyOutput(),
@@ -74,8 +75,8 @@ async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
 
         runtime.set_startup_animation(startup_animation)
         await runtime.begin_directory_trust(
-            Path("/workspace/project"),
-            Path("/workspace/project"),
+            workspace,
+            workspace,
         )
         try:
             pipe_input.send_text("1")
@@ -103,7 +104,7 @@ async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
 
             with patch(
                 "mind_app.tui.session.state.fetch_runtime_workspace_root",
-                AsyncMock(return_value=Path("/workspace/project")),
+                AsyncMock(return_value=workspace),
             ):
                 await preload_tui_prompt_context(mind)
 
@@ -114,7 +115,7 @@ async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
             assert runtime.context.model == "gpt-test high"
             assert "gpt-test high" in footer
             assert "Auto" in footer
-            assert "/workspace/project" in footer
+            assert str(workspace.resolve()) in footer
             assert " · -" not in footer
             assert played == ["intro"]
         finally:

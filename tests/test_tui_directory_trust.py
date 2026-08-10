@@ -18,6 +18,7 @@ def _text(prompt: TuiDirectoryTrust) -> str:
 
 @pytest.mark.anyio
 async def test_directory_trust_prompt_matches_startup_layout() -> None:
+    workspace = Path("/workspace/project")
     prompt = TuiDirectoryTrust(
         invalidate=lambda: None,
         focus_prompt=lambda: None,
@@ -25,10 +26,10 @@ async def test_directory_trust_prompt_matches_startup_layout() -> None:
         get_width=lambda: 70,
         get_max_height=lambda: 24,
     )
-    prompt.begin(Path("/workspace/project"), Path("/workspace/project"))
+    prompt.begin(workspace, workspace)
 
     assert _text(prompt) == (
-        "> You are in /workspace/project\n"
+        f"> You are in {workspace}\n"
         "\n"
         "  Do you trust the contents of this directory? Working with untrusted\n"
         "  contents comes with higher risk of prompt injection. Trusting the\n"
@@ -53,6 +54,8 @@ async def test_directory_trust_prompt_matches_startup_layout() -> None:
 @pytest.mark.anyio
 async def test_directory_trust_prompt_wraps_and_reports_root_at_narrow_width() -> None:
     width = 32
+    workspace = Path("/repo/src")
+    trust_target = Path("/repo")
     prompt = TuiDirectoryTrust(
         invalidate=lambda: None,
         focus_prompt=lambda: None,
@@ -60,13 +63,13 @@ async def test_directory_trust_prompt_wraps_and_reports_root_at_narrow_width() -
         get_width=lambda: width,
         get_max_height=lambda: 40,
     )
-    prompt.begin(Path("/repo/src"), Path("/repo"))
+    prompt.begin(workspace, trust_target)
 
     text = _text(prompt)
     flattened = text.replace("\n  ", " ")
 
     assert "You're in a subdirectory of a Git project" in flattened
-    assert "apply to the repository root: /repo" in flattened
+    assert f"apply to the repository root: {trust_target}" in flattened
     assert all(get_cwidth(line) <= width for line in text.splitlines())
     assert prompt.height() == len(text.splitlines())
 

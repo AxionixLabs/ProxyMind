@@ -585,14 +585,15 @@ class TuiActivity(object):
                 if current_tick >= deadline
             )
 
-            for key in expired:
-                self._slots.pop(key, None)
-                self._settle_deadlines.pop(key, None)
+            if expired:
+                for key in expired:
+                    self._slots.pop(key, None)
+                    self._settle_deadlines.pop(key, None)
 
-            if self._slots:
-                self._render_slots()
-            else:
-                self.clear_renderable()
+                if self._slots:
+                    self._render_slots()
+                else:
+                    self.clear_renderable()
 
             self._settle_task = None
             self._schedule_settle_expiry()
