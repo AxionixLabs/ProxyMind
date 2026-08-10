@@ -527,120 +527,179 @@
       display:grid;
       gap:18px;
     }
-    .provider-grid{
+    .provider-toolbar{
       display:grid;
-      grid-template-columns:repeat(3, minmax(0, 1fr));
-      gap:14px;
-    }
-    .provider-card,
-    .provider-add-card{
-      min-height:168px;
-      border:1px solid var(--surface-border-faint);
-      border-radius:16px;
-      background:
-        linear-gradient(150deg, rgba(142,202,230,.07), transparent 52%),
-        rgba(4,10,16,.58);
-      color:var(--fg);
-      padding:16px;
-    }
-    .provider-card{
-      display:flex;
-      flex-direction:column;
+      grid-template-columns:minmax(240px, 1fr) minmax(170px, 220px) minmax(150px, 190px);
       gap:12px;
-      transition:border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+      align-items:center;
     }
-    .provider-card:hover{
-      transform:translateY(-2px);
-      border-color:rgba(111,255,209,.26);
-      box-shadow:0 16px 32px rgba(0,0,0,.18);
+    .provider-search input,
+    .provider-filter select{
+      min-height:42px;
+      border-radius:10px;
+      padding-top:9px;
+      padding-bottom:9px;
     }
-    .provider-card[data-active="true"]{
-      border-color:rgba(111,255,209,.48);
-      box-shadow:0 0 0 1px rgba(111,255,209,.08) inset, 0 0 24px rgba(111,255,209,.08);
+    .provider-filter::before{
+      top:6px;
+      bottom:6px;
     }
-    .provider-card-head,
-    .provider-card-actions,
-    .dialog-actions,
-    .dialog-secret-row{
+    .provider-list{
+      overflow:hidden;
+      border:1px solid var(--surface-border-faint);
+      border-radius:14px;
+      background:rgba(4,10,16,.48);
+    }
+    .provider-list-head,
+    .provider-row{
+      display:grid;
+      grid-template-columns:96px minmax(170px, 230px) minmax(200px, 270px) 190px 120px minmax(112px, 1fr);
+      gap:18px;
+      align-items:center;
+    }
+    .provider-list-head span:last-child{
+      text-align:right;
+    }
+    .provider-list-head{
+      min-height:44px;
+      padding:10px 16px;
+      border-bottom:1px solid var(--surface-border-faint);
+      background:rgba(255,255,255,.025);
+      color:var(--muted);
+      font-size:10px;
+      letter-spacing:0;
+      text-transform:uppercase;
+    }
+    .provider-grid{
+      display:block;
+      max-height:min(60vh, 680px);
+      overflow:auto;
+      scrollbar-width:thin;
+      scrollbar-color:rgba(255,255,255,.14) transparent;
+    }
+    .provider-row{
+      min-height:82px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--surface-border-faint);
+      color:var(--fg);
+      transition:background .14s ease, box-shadow .14s ease;
+    }
+    .provider-row:last-child{
+      border-bottom:0;
+    }
+    .provider-row:hover{
+      background:rgba(255,255,255,.025);
+    }
+    .provider-row[data-active="true"]{
+      background:rgba(142,202,230,.11);
+      box-shadow:4px 0 0 var(--accent) inset, 0 0 22px rgba(142,202,230,.06) inset;
+    }
+    .provider-row[data-active="true"] .provider-identity strong,
+    .provider-row[data-active="true"] .provider-model strong{
+      color:#d8f3ff;
+      text-shadow:0 0 14px rgba(142,202,230,.24);
+    }
+    .provider-row[data-active="true"] .provider-subtext,
+    .provider-row[data-active="true"] .provider-key-status{
+      color:#9ed8ef;
+    }
+    .provider-row[data-active="true"] .provider-route-stack span{
+      color:#c9efff;
+      border:1px solid rgba(142,202,230,.22);
+      background:rgba(142,202,230,.15);
+    }
+    .provider-cell{
+      min-width:0;
+    }
+    .provider-identity strong,
+    .provider-model strong{
+      display:block;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .provider-identity strong{
+      font-size:14px;
+    }
+    .provider-model strong{
+      font-size:13px;
+      font-weight:600;
+    }
+    .provider-subtext{
+      display:block;
+      margin-top:3px;
+      overflow:hidden;
+      color:var(--muted);
+      font-size:11px;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .provider-route-stack{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:nowrap;
+      white-space:nowrap;
+    }
+    .provider-route-stack span{
+      flex:0 0 auto;
+      padding:3px 6px;
+      border-radius:6px;
+      background:rgba(142,202,230,.07);
+      color:var(--muted);
+      font-size:10px;
+    }
+    .provider-key-status{
+      color:var(--muted);
+      font-size:11px;
+    }
+    .provider-key-status.configured{
+      color:var(--accent2);
+    }
+    @media (min-width: 1201px){
+      .provider-list-head span:nth-child(5),
+      .provider-key-status{
+        padding-left:12px;
+      }
+    }
+    .provider-row-actions,
+    .dialog-actions{
       display:flex;
       align-items:center;
       gap:8px;
     }
-    .provider-card-head{
-      justify-content:space-between;
-      align-items:flex-start;
-    }
-    .provider-card-title{
-      min-width:0;
-    }
-    .provider-card-title strong{
-      display:block;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      font-size:15px;
-      letter-spacing:.02em;
-    }
-    .provider-card-title span,
-    .provider-card-endpoint{
-      display:block;
-      margin-top:4px;
-      color:var(--muted);
-      font-size:12px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
+    .provider-row-actions{
+      justify-content:flex-end;
     }
     .provider-badge{
-      flex:0 0 auto;
+      display:inline-flex;
+      justify-content:center;
+      width:84px;
+      box-sizing:border-box;
       padding:4px 8px;
       border:1px solid var(--surface-border-faint);
       border-radius:999px;
       color:var(--muted);
       font-size:10px;
-      letter-spacing:.08em;
+      letter-spacing:0;
       text-transform:uppercase;
     }
     .provider-badge.active{
-      color:var(--accent);
-      border-color:rgba(111,255,209,.34);
-      background:rgba(111,255,209,.08);
+      color:#041017;
+      border-color:#d8f3ff;
+      background:#8ecae6;
+      box-shadow:0 0 16px rgba(142,202,230,.36);
+      font-weight:700;
     }
     .provider-badge.incomplete{
       color:#e7bd84;
       border-color:rgba(231,189,132,.28);
       background:rgba(231,189,132,.06);
     }
-    .provider-model{
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      font-size:16px;
-      font-weight:600;
-    }
-    .provider-meta{
-      display:flex;
-      gap:6px;
-      flex-wrap:wrap;
-    }
-    .provider-meta span{
-      padding:4px 7px;
-      border-radius:7px;
-      background:rgba(142,202,230,.07);
-      color:var(--muted);
-      font-size:11px;
-    }
-    .provider-card-actions{
-      justify-content:flex-end;
-      margin-top:auto;
-    }
-    .provider-button,
-    .provider-add-card{
+    .provider-button{
       appearance:none;
       cursor:pointer;
       font:inherit;
-    }
-    .provider-button{
       min-height:32px;
       padding:6px 10px;
       border:1px solid var(--surface-border-faint);
@@ -659,6 +718,20 @@
       color:var(--accent);
       border-color:rgba(111,255,209,.28);
     }
+    .provider-use-button.active{
+      color:#041017;
+      border-color:#d8f3ff;
+      background:#8ecae6;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.42) inset,
+        0 0 0 3px rgba(142,202,230,.16),
+        0 0 26px rgba(142,202,230,.52);
+      font-weight:800;
+    }
+    .provider-use-button.active:disabled{
+      opacity:1;
+      cursor:default;
+    }
     .provider-button.danger{
       color:#e99696;
       border-color:rgba(224,122,122,.24);
@@ -667,30 +740,14 @@
       opacity:.42;
       cursor:not-allowed;
     }
-    .provider-add-card{
-      display:grid;
-      place-items:center;
-      border-style:dashed;
-      color:var(--muted);
-      letter-spacing:.04em;
-    }
-    .provider-add-card:hover,
-    .provider-add-card:focus-visible{
-      color:var(--accent);
-      border-color:rgba(111,255,209,.38);
-      background:rgba(111,255,209,.045);
-      outline:none;
-    }
     .provider-empty{
-      grid-column:1 / -1;
-      padding:24px;
-      border:1px dashed var(--surface-border-faint);
-      border-radius:14px;
+      padding:32px 20px;
       color:var(--muted);
       text-align:center;
     }
     .provider-dialog{
-      width:min(680px, calc(100vw - 32px));
+      width:max(80vw, 680px);
+      max-width:calc(100vw - 32px);
       max-height:min(820px, calc(100vh - 32px));
       padding:0;
       border:1px solid rgba(142,202,230,.22);
@@ -703,6 +760,38 @@
     .provider-dialog::backdrop{
       background:rgba(1,5,9,.78);
       backdrop-filter:blur(6px);
+    }
+    .confirm-dialog{
+      width:min(480px, calc(100vw - 32px));
+      max-width:calc(100vw - 32px);
+      overflow:hidden;
+    }
+    .confirm-dialog-shell{
+      display:grid;
+    }
+    .confirm-dialog-body{
+      display:grid;
+      gap:14px;
+      padding:22px;
+    }
+    .confirm-dialog-message{
+      margin:0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.6;
+    }
+    .confirm-dialog-target{
+      min-width:0;
+      padding:12px 0;
+      border-top:1px solid var(--line);
+      border-bottom:1px solid var(--line);
+      color:var(--fg);
+      font-size:14px;
+      font-weight:650;
+      overflow-wrap:anywhere;
+    }
+    .confirm-dialog .dialog-actions{
+      position:static;
     }
     .provider-dialog-form{
       display:grid;
@@ -739,8 +828,44 @@
       grid-template-columns:1fr 1fr;
       gap:14px;
     }
-    .dialog-secret-row input{
-      flex:1 1 auto;
+    .clearable-input{
+      position:relative;
+    }
+    .clearable-input input{
+      padding-right:54px;
+    }
+    .field-clear-button{
+      position:absolute;
+      top:50%;
+      right:8px;
+      display:grid;
+      place-items:center;
+      width:32px;
+      height:32px;
+      padding:0;
+      border:1px solid transparent;
+      border-radius:8px;
+      background:transparent;
+      color:var(--muted);
+      font:700 20px/1 ui-sans-serif, system-ui, sans-serif;
+      cursor:pointer;
+      opacity:0;
+      pointer-events:none;
+      transform:translateY(-50%);
+      visibility:hidden;
+      transition:border-color .12s ease, background .12s ease, color .12s ease, opacity .12s ease;
+    }
+    .clearable-input[data-filled="true"] .field-clear-button{
+      opacity:1;
+      pointer-events:auto;
+      visibility:visible;
+    }
+    .field-clear-button:hover,
+    .field-clear-button:focus-visible{
+      border-color:var(--accent-border-soft);
+      background:var(--accent-fill);
+      color:var(--accent);
+      outline:none;
     }
     .dialog-secret-status{
       color:var(--muted);
@@ -759,6 +884,15 @@
       display:flex;
       gap:8px;
       margin-left:auto;
+    }
+    .provider-button.danger.confirm-action{
+      color:#180707;
+      border-color:#f2a2a2;
+      background:#e99696;
+      font-weight:750;
+    }
+    #save-provider{
+      min-width:122px;
     }
     .model-copy{
       display:grid;
@@ -1333,6 +1467,33 @@
       background:var(--accent);
       box-shadow:0 0 0 3px rgba(111,255,209,.12), 0 0 16px rgba(111,255,209,.44);
     }
+    @media (max-width: 1200px){
+      .provider-toolbar{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
+      .provider-search{
+        grid-column:1 / -1;
+      }
+      .provider-list-head{
+        display:none;
+      }
+      .provider-row{
+        grid-template-columns:minmax(0, 1.3fr) minmax(0, 1fr) auto;
+        grid-template-areas:
+          "identity model status"
+          "identity route actions"
+          "identity key actions";
+        column-gap:16px;
+        row-gap:8px;
+        min-height:104px;
+      }
+      .provider-row-status{grid-area:status; justify-self:end}
+      .provider-identity{grid-area:identity}
+      .provider-model{grid-area:model}
+      .provider-route-stack{grid-area:route}
+      .provider-key-status{grid-area:key}
+      .provider-row-actions{grid-area:actions; align-self:center}
+    }
     @media (max-width: 980px){
       .hero-tools{grid-template-columns:1fr}
       .hero-tools-group--status{justify-content:flex-start}
@@ -1345,12 +1506,25 @@
       .inline-triplet{
         grid-template-columns:1fr;
       }
-      .provider-grid{grid-template-columns:repeat(2, minmax(0, 1fr))}
     }
     @media (max-width: 720px){
       .section-head{
         flex-direction:column;
         align-items:stretch;
+      }
+      .provider-row{
+        grid-template-columns:minmax(0, 1fr) auto;
+        grid-template-areas:
+          "identity status"
+          "model actions"
+          "route key";
+        min-height:116px;
+      }
+      .provider-row-actions{
+        align-self:end;
+      }
+      .provider-key-status{
+        justify-self:end;
       }
     }
     @media (max-width: 640px){
@@ -1362,14 +1536,27 @@
       .section-shell{
         width:100%;
       }
-      .provider-grid,
+      .provider-toolbar,
       .dialog-grid{grid-template-columns:1fr}
+      .provider-search{
+        grid-column:auto;
+      }
+      .provider-grid{
+        max-height:70vh;
+      }
       .provider-dialog{
         width:100vw;
         max-width:none;
         max-height:100vh;
         height:100vh;
         border-radius:0;
+      }
+      .confirm-dialog{
+        width:calc(100vw - 32px);
+        max-width:480px;
+        height:auto;
+        max-height:calc(100vh - 32px);
+        border-radius:14px;
       }
     }
     @media (prefers-reduced-motion: reduce){
@@ -1436,7 +1623,10 @@
                 <label for="service-domain">Domain</label>
                 <span class="hint">http or https</span>
               </div>
-              <input id="service-domain" name="service_domain" placeholder="https://api.example.com" />
+              <div class="clearable-input">
+                <input id="service-domain" name="service_domain" placeholder="https://api.example.com" />
+                <button class="field-clear-button" type="button" data-clear-target="service-domain" aria-label="Clear domain" title="Clear domain"><span aria-hidden="true">&times;</span></button>
+              </div>
             </div>
           </div>
         </section>
@@ -1500,7 +1690,35 @@
                 </div>
                 <button class="provider-button primary" type="button" id="add-provider">+ Add Provider</button>
               </div>
-              <div class="provider-grid" id="provider-grid"></div>
+              <div class="provider-toolbar">
+                <div class="provider-search">
+                  <input id="provider-search" type="search" autocomplete="off" aria-label="Search providers" placeholder="Search name, ID, model, or endpoint" />
+                </div>
+                <div class="select-wrap provider-filter">
+                  <select id="provider-kind-filter" aria-label="Filter by provider type">
+                    <option value="">All provider types</option>
+                  </select>
+                </div>
+                <div class="select-wrap provider-filter">
+                  <select id="provider-status-filter" aria-label="Filter by provider status">
+                    <option value="">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="ready">Ready</option>
+                    <option value="incomplete">Incomplete</option>
+                  </select>
+                </div>
+              </div>
+              <div class="provider-list" role="table" aria-label="Model providers">
+                <div class="provider-list-head" role="row">
+                  <span role="columnheader">Status</span>
+                  <span role="columnheader">Provider</span>
+                  <span role="columnheader">Model / Endpoint</span>
+                  <span role="columnheader">Route</span>
+                  <span role="columnheader">API Key</span>
+                  <span role="columnheader">Actions</span>
+                </div>
+                <div class="provider-grid" id="provider-grid" role="rowgroup"></div>
+              </div>
             </div>
           </section>
 
@@ -1546,19 +1764,22 @@
       <div class="provider-dialog-head">
         <div>
           <h2 id="provider-dialog-title">Add Provider</h2>
-          <p>配置名称用于卡片和 Slash 菜单，Profile ID 创建后保持稳定。</p>
+          <p>名称用于列表和 Slash 菜单，Profile ID 对应稳定的 TOML 配置键。</p>
         </div>
-        <button class="provider-button" type="button" id="close-provider-dialog" aria-label="Close">Close</button>
+        <button class="provider-button" type="button" id="close-provider-dialog" aria-label="Close provider editor" title="Close">&times;</button>
       </div>
       <div class="provider-dialog-body">
         <div class="dialog-grid">
           <div class="pair-item">
-            <div class="label-row"><label for="provider-id">Profile ID</label><span class="hint">letters, numbers, _ or -</span></div>
-            <input id="provider-id" required placeholder="openai-main" />
+            <div class="label-row"><label for="provider-name">Name</label><span class="hint">menu label</span></div>
+            <div class="clearable-input">
+              <input id="provider-name" required placeholder="OpenAI Main" />
+              <button class="field-clear-button" type="button" data-clear-target="provider-name" aria-label="Clear provider name" title="Clear provider name"><span aria-hidden="true">&times;</span></button>
+            </div>
           </div>
           <div class="pair-item">
-            <div class="label-row"><label for="provider-name">Name</label><span class="hint">menu label</span></div>
-            <input id="provider-name" required placeholder="openai-main" />
+            <div class="label-row"><label for="provider-id">Profile ID</label><span class="hint">stable config key</span></div>
+            <input id="provider-id" required placeholder="openai-main" />
           </div>
         </div>
         <div class="dialog-grid">
@@ -1573,7 +1794,10 @@
         </div>
         <div class="field">
           <div class="label-row"><label for="provider-model">Model</label><span class="hint">required before activation</span></div>
-          <input id="provider-model" placeholder="model-id" />
+          <div class="clearable-input">
+            <input id="provider-model" placeholder="model-id" />
+            <button class="field-clear-button" type="button" data-clear-target="provider-model" aria-label="Clear model" title="Clear model"><span aria-hidden="true">&times;</span></button>
+          </div>
         </div>
         <div class="pair-item">
           <div class="label-row"><label for="provider-effort">Reasoning Effort</label><span class="hint">profile default</span></div>
@@ -1588,14 +1812,17 @@
         </div>
         <div class="field">
           <div class="label-row"><label for="provider-api-key">API Key</label><span class="dialog-secret-status" id="provider-api-key-status">Not configured</span></div>
-          <div class="dialog-secret-row">
-            <input id="provider-api-key" type="password" autocomplete="new-password" placeholder="Leave blank to keep the current key" />
-            <button class="provider-button danger" type="button" id="clear-provider-api-key">Clear</button>
+          <div class="clearable-input">
+            <input id="provider-api-key" type="password" autocomplete="new-password" placeholder="Enter API key" />
+            <button class="field-clear-button" type="button" data-clear-target="provider-api-key" aria-label="Clear API key input" title="Clear API key input"><span aria-hidden="true">&times;</span></button>
           </div>
         </div>
         <div class="field">
           <div class="label-row"><label for="provider-base-url">Base URL</label><span class="hint">optional override</span></div>
-          <input id="provider-base-url" placeholder="https://api.example.com/v1" />
+          <div class="clearable-input">
+            <input id="provider-base-url" placeholder="https://api.example.com/v1" />
+            <button class="field-clear-button" type="button" data-clear-target="provider-base-url" aria-label="Clear base URL" title="Clear base URL"><span aria-hidden="true">&times;</span></button>
+          </div>
         </div>
       </div>
       <div class="dialog-actions">
@@ -1607,16 +1834,60 @@
       </div>
     </form>
   </dialog>
+  <dialog class="provider-dialog confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title">
+    <div class="confirm-dialog-shell">
+      <div class="provider-dialog-head">
+        <div>
+          <h2 id="confirm-dialog-title">Confirm action</h2>
+        </div>
+        <button class="provider-button" type="button" id="close-confirm-dialog" aria-label="Close confirmation" title="Close">&times;</button>
+      </div>
+      <div class="confirm-dialog-body">
+        <p class="confirm-dialog-message" id="confirm-dialog-message"></p>
+        <div class="confirm-dialog-target" id="confirm-dialog-target"></div>
+      </div>
+      <div class="dialog-actions">
+        <div class="dialog-actions-end">
+          <button class="provider-button" type="button" id="cancel-confirm-dialog">Cancel</button>
+          <button class="provider-button danger confirm-action" type="button" id="accept-confirm-dialog">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
   <script>
-    const form = document.getElementById("pref-form");
-    const saveButton = document.getElementById("save-pref");
-    const reloadButton = document.getElementById("reload-pref");
-    const note = document.getElementById("pref-note");
-    const status = document.getElementById("pref-status");
-    const toastStage = document.getElementById("toast-stage");
-    const providerGrid = document.getElementById("provider-grid");
-    const providerDialog = document.getElementById("provider-dialog");
-    const providerDialogForm = document.getElementById("provider-dialog-form");
+    const byId = (id) => document.getElementById(id);
+    const ui = Object.freeze({
+      saveButton: byId("save-pref"),
+      reloadButton: byId("reload-pref"),
+      note: byId("pref-note"),
+      status: byId("pref-status"),
+      toastStage: byId("toast-stage"),
+      providerCount: byId("provider-count"),
+      providerGrid: byId("provider-grid"),
+      providerSearch: byId("provider-search"),
+      providerKindFilter: byId("provider-kind-filter"),
+      providerStatusFilter: byId("provider-status-filter"),
+      providerDialog: byId("provider-dialog"),
+      providerDialogForm: byId("provider-dialog-form"),
+      providerDialogTitle: byId("provider-dialog-title"),
+      providerId: byId("provider-id"),
+      providerName: byId("provider-name"),
+      providerKind: byId("provider-kind"),
+      providerRoute: byId("provider-route"),
+      providerApiKey: byId("provider-api-key"),
+      providerApiKeyStatus: byId("provider-api-key-status"),
+      saveProviderButton: byId("save-provider"),
+      deleteProviderButton: byId("delete-provider"),
+      closeProviderDialogButton: byId("close-provider-dialog"),
+      cancelProviderDialogButton: byId("cancel-provider-dialog"),
+      confirmDialog: byId("confirm-dialog"),
+      confirmDialogTitle: byId("confirm-dialog-title"),
+      confirmDialogMessage: byId("confirm-dialog-message"),
+      confirmDialogTarget: byId("confirm-dialog-target"),
+      acceptConfirmButton: byId("accept-confirm-dialog"),
+      closeConfirmDialogButton: byId("close-confirm-dialog"),
+      cancelConfirmDialogButton: byId("cancel-confirm-dialog"),
+    });
     const previewMode = location.protocol === "file:";
     const previewPref = {
       active_provider: "openai-main",
@@ -1635,12 +1906,16 @@
       }
     };
     let prefState = previewPref;
-    let editingProviderId = "";
-    let clearProviderApiKey = false;
-    let providerNameTouched = false;
+    const providerEditor = {
+      id: "",
+      clearApiKey: false,
+      apiKeyMaskActive: false,
+      idTouched: false,
+      pending: false,
+    };
+    let confirmationResolver = null;
     const previewServiceConfig = {
-      domain     : "",
-      configured : false
+      domain: ""
     };
 
     function escapeHtml(value){
@@ -1653,7 +1928,7 @@
     }
 
     function mountNav(targetId, nav, activeHref){
-      const root = document.getElementById(targetId);
+      const root = byId(targetId);
       if(!root) return;
       root.innerHTML = `
         <nav class="shell-nav" aria-label="workspace">
@@ -1667,7 +1942,7 @@
     }
 
     function mountFooter(targetId, text){
-      const root = document.getElementById(targetId);
+      const root = byId(targetId);
       if(!root) return;
       root.innerHTML = `<div class="shell-footer">${escapeHtml(text)}</div>`;
     }
@@ -1683,19 +1958,19 @@
     }
 
     mountNav("page-nav", [
-      {title: "Workspace", href: "/", tag: "home"},
-      {title: "Preferences", href: "/pref", tag: "config"},
-      {title: "Agent", href: "/agent", tag: "agent"}
+      {title: "Workspace", href: "/"},
+      {title: "Preferences", href: "/pref"},
+      {title: "Agent", href: "/agent"}
     ], "/pref");
     mountFooter("page-footer", "__APP_NAME__ · local server · v__APP_VERSION__");
 
     function setMessage(text, kind = "") {
-      note.textContent = text;
-      note.className = kind ? `note ${kind}` : "note";
+      ui.note.textContent = text;
+      ui.note.className = kind ? `note ${kind}` : "note";
     }
 
     function showToast(title, detail, kind = "") {
-      toastStage.innerHTML = "";
+      ui.toastStage.innerHTML = "";
       const toast = document.createElement("div");
       toast.className = kind ? `toast ${kind}` : "toast";
       toast.innerHTML = `
@@ -1706,7 +1981,7 @@
         <strong class="toast-title">${escapeHtml(title)}</strong>
         <span class="toast-body">${escapeHtml(detail)}</span>
       `;
-      toastStage.appendChild(toast);
+      ui.toastStage.appendChild(toast);
 
       requestAnimationFrame(() => {
         toast.classList.add("show");
@@ -1719,34 +1994,83 @@
     }
 
     function setBusy(busy) {
-      saveButton.disabled = busy;
-      saveButton.classList.toggle("is-busy", busy);
-      saveButton.setAttribute("aria-busy", busy ? "true" : "false");
+      ui.saveButton.disabled = busy;
+      ui.saveButton.classList.toggle("is-busy", busy);
+      ui.saveButton.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+
+    function setProviderPending(busy, action = "save") {
+      providerEditor.pending = busy;
+      ui.saveProviderButton.disabled = busy;
+      ui.saveProviderButton.classList.toggle("is-busy", busy);
+      ui.saveProviderButton.setAttribute("aria-busy", busy ? "true" : "false");
+      ui.saveProviderButton.textContent = busy && action === "save" ? "Saving..." : "Save Provider";
+      ui.deleteProviderButton.disabled = busy;
+      ui.deleteProviderButton.textContent = busy && action === "delete" ? "Deleting..." : "Delete";
+      ui.closeProviderDialogButton.disabled = busy;
+      ui.cancelProviderDialogButton.disabled = busy;
+    }
+
+    function resetProviderEditor() {
+      providerEditor.id = "";
+      providerEditor.clearApiKey = false;
+      providerEditor.apiKeyMaskActive = false;
+      providerEditor.idTouched = false;
+      providerEditor.pending = false;
+    }
+
+    function settleConfirmation(confirmed) {
+      const resolve = confirmationResolver;
+      if (!resolve) return;
+      confirmationResolver = null;
+      if (ui.confirmDialog.open) ui.confirmDialog.close();
+      resolve(confirmed);
+    }
+
+    function requestConfirmation({title, message, target, confirmLabel = "Confirm"}) {
+      if (confirmationResolver) settleConfirmation(false);
+      ui.confirmDialogTitle.textContent = title;
+      ui.confirmDialogMessage.textContent = message;
+      ui.confirmDialogTarget.textContent = target;
+      ui.acceptConfirmButton.textContent = confirmLabel;
+      return new Promise((resolve) => {
+        confirmationResolver = resolve;
+        ui.confirmDialog.showModal();
+      });
     }
 
     function fieldValue(id, value) {
-      const target = document.getElementById(id);
+      const target = byId(id);
       if (target) target.value = value || "";
     }
 
     function fieldInputValue(id) {
-      const target = document.getElementById(id);
+      const target = byId(id);
       return target ? target.value.trim() : "";
     }
 
     function fieldSelectValue(id, fallback = "") {
-      const target = document.getElementById(id);
+      const target = byId(id);
       return target ? target.value : fallback;
     }
 
     function checkboxValue(id) {
-      const target = document.getElementById(id);
+      const target = byId(id);
       return Boolean(target && target.checked);
     }
 
     function setCheckboxValue(id, value) {
-      const target = document.getElementById(id);
+      const target = byId(id);
       if (target) target.checked = Boolean(value);
+    }
+
+    function providerIdFromName(value) {
+      return String(value || "")
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
     }
 
     function routeLabel(route) {
@@ -1776,43 +2100,79 @@
 
     function renderProviders() {
       const providers = Array.isArray(prefState.providers) ? prefState.providers : [];
-      document.getElementById("provider-count").textContent = `${providers.length} ${providers.length === 1 ? "profile" : "profiles"}`;
-      providerGrid.innerHTML = providers.map((provider) => {
+      const query = ui.providerSearch.value.trim().toLocaleLowerCase();
+      const kind = ui.providerKindFilter.value;
+      const status = ui.providerStatusFilter.value;
+      const visibleProviders = providers.filter((provider) => {
+        const meta = kindMeta(provider.kind);
+        const searchText = [
+          provider.name,
+          provider.id,
+          provider.model,
+          provider.base_url,
+          provider.route,
+          meta.label,
+        ].join(" ").toLocaleLowerCase();
+        const kindMatches = !kind || provider.kind === kind;
+        const statusMatches = (
+          !status
+          || (status === "active" && provider.active)
+          || (status === "ready" && provider.ready && !provider.active)
+          || (status === "incomplete" && !provider.ready)
+        );
+        return kindMatches && statusMatches && (!query || searchText.includes(query));
+      }).sort((left, right) => {
+        const leftName = left.name || left.id || "";
+        const rightName = right.name || right.id || "";
+        return leftName.localeCompare(rightName, undefined, {numeric: true, sensitivity: "base"});
+      });
+
+      const filtered = visibleProviders.length !== providers.length;
+      ui.providerCount.textContent = filtered
+        ? `${visibleProviders.length} / ${providers.length} profiles`
+        : `${providers.length} ${providers.length === 1 ? "profile" : "profiles"}`;
+
+      if (!visibleProviders.length) {
+        ui.providerGrid.innerHTML = `<div class="provider-empty">${providers.length ? "No providers match the current filters." : "No providers configured."}</div>`;
+        return;
+      }
+
+      ui.providerGrid.innerHTML = visibleProviders.map((provider) => {
         const meta = kindMeta(provider.kind);
         const badgeClass = provider.active && provider.ready ? "active" : (provider.ready ? "" : "incomplete");
-        const badgeText = provider.active ? (provider.ready ? "Active" : "Active · Incomplete") : (provider.ready ? meta.label : "Incomplete");
+        const badgeText = provider.active ? "Active" : (provider.ready ? "Ready" : "Incomplete");
+        const displayName = provider.name || provider.id;
+        const repeatedId = String(displayName).toLocaleLowerCase() === String(provider.id).toLocaleLowerCase();
+        const identityDetail = repeatedId ? meta.label : `${provider.id} · ${meta.label}`;
         return `
-          <article class="provider-card" data-active="${provider.active ? "true" : "false"}">
-            <div class="provider-card-head">
-              <div class="provider-card-title">
-                <strong>${escapeHtml(provider.name || provider.id)}</strong>
-                <span>${escapeHtml(provider.id)} · ${escapeHtml(meta.label)}</span>
-              </div>
+          <article class="provider-row" data-active="${provider.active ? "true" : "false"}" role="row">
+            <div class="provider-cell provider-row-status" role="cell">
               <span class="provider-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
             </div>
-            <div class="provider-model">${escapeHtml(provider.model || "Model not configured")}</div>
-            <div class="provider-meta">
+            <div class="provider-cell provider-identity" role="cell">
+              <strong title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</strong>
+              <span class="provider-subtext" title="${escapeHtml(identityDetail)}">${escapeHtml(identityDetail)}</span>
+            </div>
+            <div class="provider-cell provider-model" role="cell">
+              <strong title="${escapeHtml(provider.model || "Model not configured")}">${escapeHtml(provider.model || "Model not configured")}</strong>
+              <span class="provider-subtext" title="${escapeHtml(endpointLabel(provider.base_url))}">${escapeHtml(endpointLabel(provider.base_url))}</span>
+            </div>
+            <div class="provider-cell provider-route-stack" role="cell">
               <span>${escapeHtml(routeLabel(provider.route))}</span>
               <span>${escapeHtml(provider.reasoning_effort || "medium")}</span>
-              <span>${provider.api_key_configured ? "Key configured" : "No key"}</span>
             </div>
-            <span class="provider-card-endpoint">${escapeHtml(endpointLabel(provider.base_url))}</span>
-            <div class="provider-card-actions">
-              ${provider.active ? "" : `<button class="provider-button primary" type="button" data-provider-action="activate" data-provider-id="${escapeHtml(provider.id)}" ${provider.ready ? "" : "disabled"}>Use</button>`}
+            <div class="provider-cell provider-key-status ${provider.api_key_configured ? "configured" : ""}" role="cell">${provider.api_key_configured ? "Configured" : "Not configured"}</div>
+            <div class="provider-cell provider-row-actions" role="cell">
+              <button class="provider-button provider-use-button ${provider.active ? "active" : ""}" type="button" data-provider-action="activate" data-provider-id="${escapeHtml(provider.id)}" aria-pressed="${provider.active ? "true" : "false"}" ${provider.active || !provider.ready ? "disabled" : ""}>Use</button>
               <button class="provider-button" type="button" data-provider-action="edit" data-provider-id="${escapeHtml(provider.id)}">Edit</button>
             </div>
           </article>
         `;
-      }).join("") + `
-        <button class="provider-add-card" type="button" data-provider-action="add">
-          <span>+ Add provider</span>
-        </button>
-      `;
+      }).join("");
     }
 
     function hostedToolsConfig(data) {
-      const hosted = data && data.hosted_tools && typeof data.hosted_tools === "object" ? data.hosted_tools : {};
-      const groups = hosted.groups && typeof hosted.groups === "object" ? hosted.groups : {};
+      const groups = data?.hosted_tools?.groups || {};
       return {
         groups  : {
           perf_engine   : groups.perf_engine === true,
@@ -1838,13 +2198,16 @@
 
     function syncFieldState(input) {
       if (!input) return;
+      const filled = Boolean(input.value && String(input.value).trim());
+      const clearable = input.closest(".clearable-input");
+      if (clearable) clearable.dataset.filled = filled ? "true" : "false";
       const field = input.closest(".field");
       if (!field) return;
-      field.dataset.filled = input.value && String(input.value).trim() ? "true" : "false";
+      field.dataset.filled = filled ? "true" : "false";
     }
 
     function syncFieldStates() {
-      document.querySelectorAll(".field input, .field textarea").forEach((input) => {
+      document.querySelectorAll(".field input, .field textarea, .pair-item input").forEach((input) => {
         syncFieldState(input);
       });
     }
@@ -1855,6 +2218,7 @@
 
       setCheckboxValue("hosted-tools-perf-engine", hostedTools.groups.perf_engine);
       setCheckboxValue("hosted-tools-sandbox-cloud", hostedTools.groups.sandbox_cloud);
+      populateProviderFilters();
       renderProviders();
       syncSelectStates();
       syncFieldStates();
@@ -1883,51 +2247,74 @@
     }
 
     function populateProviderKinds(selectedKind = "openai") {
-      const target = document.getElementById("provider-kind");
       const kinds = Array.isArray(prefState.provider_kinds) ? prefState.provider_kinds : [];
-      target.innerHTML = kinds.map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
-      target.value = kinds.some((item) => item.value === selectedKind) ? selectedKind : (kinds[0]?.value || "openai");
-      populateProviderRoutes();
+      ui.providerKind.innerHTML = kinds.map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
+      ui.providerKind.value = kinds.some((item) => item.value === selectedKind) ? selectedKind : (kinds[0]?.value || "openai");
+    }
+
+    function populateProviderFilters() {
+      const current = ui.providerKindFilter.value;
+      const kinds = Array.isArray(prefState.provider_kinds) ? prefState.provider_kinds : [];
+      ui.providerKindFilter.innerHTML = [
+        `<option value="">All provider types</option>`,
+        ...kinds.map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`),
+      ].join("");
+      ui.providerKindFilter.value = kinds.some((item) => item.value === current) ? current : "";
     }
 
     function populateProviderRoutes(selectedRoute = "") {
       const kind = fieldSelectValue("provider-kind", "openai");
-      const target = document.getElementById("provider-route");
       const routes = kindMeta(kind).routes || ["responses"];
-      const current = selectedRoute || target.value;
-      target.innerHTML = routes.map((route) => `<option value="${escapeHtml(route)}">${escapeHtml(routeLabel(route))}</option>`).join("");
-      target.value = routes.includes(current) ? current : routes[0];
+      const current = selectedRoute || ui.providerRoute.value;
+      ui.providerRoute.innerHTML = routes.map((route) => `<option value="${escapeHtml(route)}">${escapeHtml(routeLabel(route))}</option>`).join("");
+      ui.providerRoute.value = routes.includes(current) ? current : routes[0];
       syncSelectStates();
+    }
+
+    function currentProvider() {
+      return (prefState.providers || []).find((item) => item.id === providerEditor.id) || null;
+    }
+
+    function syncApiKeyInputState() {
+      const hasInput = Boolean(ui.providerApiKey.value.trim() && !providerEditor.apiKeyMaskActive);
+      ui.providerApiKey.placeholder = providerEditor.apiKeyMaskActive ? "" : "Enter API key";
+      if (providerEditor.apiKeyMaskActive) {
+        ui.providerApiKeyStatus.textContent = "Configured · enter to replace";
+      } else if (hasInput) {
+        ui.providerApiKeyStatus.textContent = currentProvider() ? "Will replace current key" : "Will be configured";
+      } else if (providerEditor.clearApiKey) {
+        ui.providerApiKeyStatus.textContent = "Will be cleared on save";
+      } else {
+        ui.providerApiKeyStatus.textContent = "Not configured";
+      }
+      syncFieldState(ui.providerApiKey);
     }
 
     function openProviderDialog(providerId = "") {
       const provider = (prefState.providers || []).find((item) => item.id === providerId) || null;
-      editingProviderId = provider ? provider.id : "";
-      clearProviderApiKey = false;
-      providerNameTouched = false;
-      document.getElementById("provider-dialog-title").textContent = provider ? "Edit Provider" : "Add Provider";
+      resetProviderEditor();
+      setProviderPending(false);
+      providerEditor.id = provider?.id || "";
+      providerEditor.apiKeyMaskActive = Boolean(provider?.api_key_configured);
+      ui.providerDialogTitle.textContent = provider ? "Edit Provider" : "Add Provider";
       fieldValue("provider-id", provider?.id || "");
-      document.getElementById("provider-id").disabled = Boolean(provider);
+      ui.providerId.disabled = Boolean(provider);
       fieldValue("provider-name", provider?.name || "");
       populateProviderKinds(provider?.kind || "openai");
       populateProviderRoutes(provider?.route || "");
       fieldValue("provider-model", provider?.model || "");
       fieldValue("provider-effort", provider?.reasoning_effort || "medium");
-      fieldValue("provider-api-key", "");
+      fieldValue("provider-api-key", providerEditor.apiKeyMaskActive ? "********" : "");
       fieldValue("provider-base-url", provider?.base_url || "");
-      document.getElementById("provider-api-key-status").textContent = provider?.api_key_configured ? "Configured · blank keeps current" : "Not configured";
-      document.getElementById("clear-provider-api-key").disabled = !provider?.api_key_configured;
-      document.getElementById("delete-provider").hidden = !provider;
-      providerDialog.showModal();
+      ui.deleteProviderButton.hidden = !provider;
+      ui.providerDialog.showModal();
       syncSelectStates();
       syncFieldStates();
+      syncApiKeyInputState();
     }
 
     function closeProviderDialog() {
-      providerDialog.close();
-      editingProviderId = "";
-      clearProviderApiKey = false;
-      providerNameTouched = false;
+      if (ui.providerDialog.open) ui.providerDialog.close();
     }
 
     function collectProvider() {
@@ -1938,26 +2325,33 @@
         model: fieldInputValue("provider-model"),
         route: fieldSelectValue("provider-route", "responses"),
         reasoning_effort: fieldSelectValue("provider-effort", "medium"),
-        api_key: fieldInputValue("provider-api-key"),
-        clear_api_key: clearProviderApiKey,
+        api_key: providerEditor.apiKeyMaskActive ? "" : fieldInputValue("provider-api-key"),
+        clear_api_key: providerEditor.clearApiKey,
         base_url: fieldInputValue("provider-base-url")
       };
     }
 
     async function providerRequest(url, options) {
       if (previewMode) throw new Error("Start the application to update Provider Profiles.");
+      const data = await requestData(url, options, "Provider update failed.");
+      applyPref(data);
+      return data;
+    }
+
+    async function requestData(url, options = {}, fallbackMessage = "Request failed.") {
       const response = await fetch(url, options);
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || "Provider update failed.");
-      applyPref(payload.data || {});
+      if (!response.ok) throw new Error(payload.detail || fallbackMessage);
       return payload.data || {};
     }
 
     async function saveProvider(event) {
       event.preventDefault();
+      if (providerEditor.pending) return;
       const data = collectProvider();
-      const creating = !editingProviderId;
-      const url = creating ? "/api/pref/providers" : `/api/pref/providers/${encodeURIComponent(editingProviderId)}`;
+      const creating = !providerEditor.id;
+      const url = creating ? "/api/pref/providers" : `/api/pref/providers/${encodeURIComponent(providerEditor.id)}`;
+      setProviderPending(true, "save");
       try {
         await providerRequest(url, {
           method: creating ? "POST" : "PATCH",
@@ -1970,6 +2364,8 @@
       } catch (error) {
         setMessage(error.message || "Unable to save Provider Profile.", "err");
         showToast("Save Failed", error.message || "Unable to save Provider Profile.", "err");
+      } finally {
+        setProviderPending(false);
       }
     }
 
@@ -1989,16 +2385,29 @@
     }
 
     async function deleteProvider() {
-      if (!editingProviderId) return;
-      if (!confirm(`Delete Provider Profile "${editingProviderId}"?`)) return;
+      if (!providerEditor.id || providerEditor.pending) return;
+      const providerId = providerEditor.id;
+      const provider = currentProvider();
+      const confirmed = await requestConfirmation({
+        title: "Delete provider?",
+        message: "This removes the Provider Profile from local configuration. This action cannot be undone.",
+        target: provider?.name && provider.name !== providerId
+          ? `${provider.name} · ${providerId}`
+          : providerId,
+        confirmLabel: "Delete Provider",
+      });
+      if (!confirmed || providerEditor.id !== providerId) return;
+      setProviderPending(true, "delete");
       try {
-        await providerRequest(`/api/pref/providers/${encodeURIComponent(editingProviderId)}`, {method: "DELETE"});
+        await providerRequest(`/api/pref/providers/${encodeURIComponent(providerId)}`, {method: "DELETE"});
         closeProviderDialog();
         setMessage("Provider Profile deleted.", "ok");
         showToast("Provider Deleted", "Local configuration updated.", "ok");
       } catch (error) {
         setMessage(error.message || "Unable to delete Provider Profile.", "err");
         showToast("Delete Failed", error.message || "Unable to delete Provider Profile.", "err");
+      } finally {
+        setProviderPending(false);
       }
     }
 
@@ -2007,30 +2416,33 @@
       if (previewMode) {
         applyPref(previewPref);
         applyServiceConfig(previewServiceConfig);
-        status.textContent = "Preview mode active.";
+        ui.status.textContent = "Preview mode active.";
         setMessage("Preview mode active. Start the application to load local configuration.", "");
         return;
       }
       setMessage("Loading local preferences...");
       try {
-        const resp = await fetch("/api/pref", {cache: "no-store"});
-        if (!resp.ok) throw new Error("load failed");
-        const payload = await resp.json();
-        applyPref(payload.data || {});
+        const pref = await requestData(
+          "/api/pref",
+          {cache: "no-store"},
+          "Unable to load preferences.",
+        );
+        const service = await requestData(
+          "/api/service-config",
+          {cache: "no-store"},
+          "Unable to load service configuration.",
+        );
+        applyPref(pref);
+        applyServiceConfig(service);
 
-        const serviceResp = await fetch("/api/service-config", {cache: "no-store"});
-        if (!serviceResp.ok) throw new Error("service config load failed");
-        const servicePayload = await serviceResp.json();
-        applyServiceConfig(servicePayload.data || {});
-
-        status.textContent = "Local configuration loaded.";
+        ui.status.textContent = "Local configuration loaded.";
         setMessage("Local configuration loaded.", "ok");
         if (!silent) {
           const [title, detail] = shellMessage("reloaded");
           showToast(title, detail, "ok");
         }
       } catch (_err) {
-        status.textContent = silent ? "Local configuration pending." : "Local configuration unavailable.";
+        ui.status.textContent = silent ? "Local configuration pending." : "Local configuration unavailable.";
         setMessage(
           silent ? "Local configuration will appear after the first successful save." : "Unable to load local configuration.",
           silent ? "" : "err"
@@ -2051,30 +2463,26 @@
       setBusy(true);
       setMessage("Saving local configuration...");
       try {
-        const resp = await fetch("/api/pref", {
+        const pref = await requestData("/api/pref", {
           method  : "PUT",
           headers : {"Content-Type": "application/json"},
           body    : JSON.stringify(collectPref())
-        });
-        if (!resp.ok) throw new Error("save failed");
-        const payload = await resp.json();
-        applyPref(payload.data || {});
+        }, "Unable to save preferences.");
+        applyPref(pref);
 
-        const serviceResp = await fetch("/api/service-config", {
+        const service = await requestData("/api/service-config", {
           method  : "PUT",
           headers : {"Content-Type": "application/json"},
           body    : JSON.stringify(collectServiceConfig())
-        });
-        if (!serviceResp.ok) throw new Error("service config save failed");
-        const servicePayload = await serviceResp.json();
-        applyServiceConfig(servicePayload.data || {});
+        }, "Unable to save service configuration.");
+        applyServiceConfig(service);
 
-        status.textContent = "Local configuration saved.";
+        ui.status.textContent = "Local configuration saved.";
         setMessage("Local configuration saved.", "ok");
         const [title, detail] = shellMessage("saved");
         showToast(title, detail, "ok");
       } catch (_err) {
-        status.textContent = "Local configuration save failed.";
+        ui.status.textContent = "Local configuration save failed.";
         setMessage("Unable to save local configuration.", "err");
         const [title, detail] = shellMessage("save_failed");
         showToast(title, detail, "err");
@@ -2083,57 +2491,94 @@
       }
     }
 
-    saveButton.addEventListener("click", savePref);
-    reloadButton.addEventListener("click", () => loadPref());
-    document.getElementById("add-provider").addEventListener("click", () => openProviderDialog());
-    providerGrid.addEventListener("click", (event) => {
+    ui.saveButton.addEventListener("click", savePref);
+    ui.reloadButton.addEventListener("click", () => loadPref());
+    byId("add-provider").addEventListener("click", () => openProviderDialog());
+    ui.providerSearch.addEventListener("input", renderProviders);
+    ui.providerKindFilter.addEventListener("change", renderProviders);
+    ui.providerStatusFilter.addEventListener("change", renderProviders);
+    ui.providerGrid.addEventListener("click", (event) => {
       const action = event.target.closest("[data-provider-action]");
       if (!action) return;
       const providerId = action.dataset.providerId || "";
-      if (action.dataset.providerAction === "add") openProviderDialog();
       if (action.dataset.providerAction === "edit") openProviderDialog(providerId);
       if (action.dataset.providerAction === "activate") activateProvider(providerId);
     });
-    providerDialogForm.addEventListener("submit", saveProvider);
-    document.getElementById("provider-kind").addEventListener("change", () => populateProviderRoutes());
-    document.getElementById("provider-id").addEventListener("input", (event) => {
-      if (!editingProviderId && !providerNameTouched) {
-        fieldValue("provider-name", event.target.value);
+    ui.providerDialogForm.addEventListener("submit", saveProvider);
+    ui.providerDialogForm.addEventListener("invalid", (event) => {
+      const label = event.target.labels?.[0]?.textContent?.trim() || "Required field";
+      showToast("Check Provider", `${label} needs a value before saving.`, "err");
+    }, true);
+    ui.providerKind.addEventListener("change", () => populateProviderRoutes());
+    ui.providerName.addEventListener("input", (event) => {
+      if (!providerEditor.id && !providerEditor.idTouched) {
+        fieldValue("provider-id", providerIdFromName(event.target.value));
+        syncFieldState(ui.providerId);
       }
     });
-    document.getElementById("provider-name").addEventListener("input", () => {
-      providerNameTouched = true;
+    ui.providerId.addEventListener("input", () => {
+      providerEditor.idTouched = true;
     });
-    document.getElementById("provider-api-key").addEventListener("input", (event) => {
-      const current = (prefState.providers || []).find((item) => item.id === editingProviderId);
-      clearProviderApiKey = false;
-      if (!event.target.value.trim()) {
-        document.getElementById("provider-api-key-status").textContent = current?.api_key_configured ? "Configured · blank keeps current" : "Not configured";
-        document.getElementById("clear-provider-api-key").disabled = !current?.api_key_configured;
-        return;
+    ui.providerApiKey.addEventListener("focus", () => {
+      if (providerEditor.apiKeyMaskActive) ui.providerApiKey.select();
+    });
+    ui.providerApiKey.addEventListener("pointerup", (event) => {
+      if (!providerEditor.apiKeyMaskActive) return;
+      event.preventDefault();
+      ui.providerApiKey.select();
+    });
+    ui.providerApiKey.addEventListener("beforeinput", () => {
+      if (providerEditor.apiKeyMaskActive) ui.providerApiKey.select();
+    });
+    ui.providerApiKey.addEventListener("input", (event) => {
+      if (providerEditor.apiKeyMaskActive) {
+        providerEditor.apiKeyMaskActive = false;
+        providerEditor.clearApiKey = !event.target.value.trim();
+      } else if (event.target.value.trim()) {
+        providerEditor.clearApiKey = false;
+      } else {
+        providerEditor.clearApiKey = Boolean(currentProvider()?.api_key_configured);
       }
-      document.getElementById("provider-api-key-status").textContent = current ? "Will replace current key" : "Will be configured";
-      document.getElementById("clear-provider-api-key").disabled = false;
+      syncApiKeyInputState();
     });
-    document.getElementById("clear-provider-api-key").addEventListener("click", () => {
-      clearProviderApiKey = true;
-      fieldValue("provider-api-key", "");
-      document.getElementById("provider-api-key-status").textContent = "Will be cleared on save";
-      document.getElementById("clear-provider-api-key").disabled = true;
+    document.querySelectorAll("[data-clear-target]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = byId(button.dataset.clearTarget || "");
+        if (!input) return;
+        input.value = "";
+        if (input === ui.providerApiKey) {
+          providerEditor.apiKeyMaskActive = false;
+          providerEditor.clearApiKey = Boolean(currentProvider()?.api_key_configured);
+          syncApiKeyInputState();
+        } else {
+          input.dispatchEvent(new Event("input", {bubbles: true}));
+        }
+        input.focus();
+      });
     });
-    document.getElementById("delete-provider").addEventListener("click", deleteProvider);
-    document.getElementById("close-provider-dialog").addEventListener("click", closeProviderDialog);
-    document.getElementById("cancel-provider-dialog").addEventListener("click", closeProviderDialog);
-    providerDialog.addEventListener("close", () => {
-      editingProviderId = "";
-      clearProviderApiKey = false;
-      providerNameTouched = false;
+    ui.deleteProviderButton.addEventListener("click", deleteProvider);
+    ui.closeProviderDialogButton.addEventListener("click", closeProviderDialog);
+    ui.cancelProviderDialogButton.addEventListener("click", closeProviderDialog);
+    ui.providerDialog.addEventListener("cancel", (event) => {
+      if (providerEditor.pending) event.preventDefault();
     });
+    ui.providerDialog.addEventListener("close", resetProviderEditor);
+    ui.closeConfirmDialogButton.addEventListener("click", () => settleConfirmation(false));
+    ui.cancelConfirmDialogButton.addEventListener("click", () => settleConfirmation(false));
+    ui.acceptConfirmButton.addEventListener("click", () => settleConfirmation(true));
+    ui.confirmDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      settleConfirmation(false);
+    });
+    ui.confirmDialog.addEventListener("click", (event) => {
+      if (event.target === ui.confirmDialog) settleConfirmation(false);
+    });
+    ui.confirmDialog.addEventListener("close", () => settleConfirmation(false));
     document.querySelectorAll(".select-wrap select").forEach((select) => {
       select.addEventListener("change", () => syncSelectWrapState(select));
       select.addEventListener("blur", () => syncSelectWrapState(select));
     });
-    document.querySelectorAll(".field input, .field textarea").forEach((input) => {
+    document.querySelectorAll(".field input, .field textarea, .pair-item input").forEach((input) => {
       input.addEventListener("input", () => syncFieldState(input));
       input.addEventListener("blur", () => syncFieldState(input));
     });
