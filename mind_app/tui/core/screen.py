@@ -1217,13 +1217,16 @@ class TuiScreen(object):
         if baseline is None:
             return None
 
-        self._cap_canvas_height_floor(max(
-            baseline,
-            self._natural_visible_height(),
-        ))
-        if not self.input.buffer.text:
+        input_empty = not self.input.buffer.text
+        if input_empty:
             self._bottom_anchor.clear()
             self._input_canvas_floor_baseline = None
+
+        natural_height = self._natural_visible_height()
+
+        self._cap_canvas_height_floor(
+            natural_height if input_empty else max(baseline, natural_height)
+        )
         self.invalidate()
 
     def settle_scrollback_layout(self) -> None:
@@ -1924,6 +1927,20 @@ class TuiScreen(object):
         view_row = self._get_transcript_view_row()
 
         if view_row is None:
+            tail_layout = self.document.visible_stable_tail_layout()
+            if tail_layout is not None:
+                offset, kind, fragments = tail_layout
+                if kind == "operation":
+                    rows = display_line_count(
+                        fragments_text(fragments),
+                        width=self.terminal_width,
+                        continuation_widths=(
+                            self._transcript_continuation_widths(fragments)
+                        ),
+                    )
+                    if rows >= self.transcript_available_height():
+                        return Point(x=0, y=offset)
+
             x, y = cursor_point(text, width=self.terminal_width)
         else:
             continuation_widths, _rows = self._transcript_display_metrics()

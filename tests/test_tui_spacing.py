@@ -5534,6 +5534,78 @@ async def test_ctrl_u_clears_multiline_input_without_top_canvas_spacer() -> None
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "clear_mode",
+    ("ctrl_u", "ctrl_w", "delete", "history", "undo"),
+)
+async def test_multiline_clear_discards_stale_floor_after_oversized_stream(
+    clear_mode: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                for index in range(16):
+                    await output.append_assistant_delta(
+                        f"## Section {index}\n\nParagraph {index}.\n\n"
+                    )
+                    await _render_next_frame(runtime)
+
+                await _wait_for_scrollback_advance(runtime)
+                runtime.screen.set_activity_renderable(_block("Thinking"))
+                await _render_next_frame(runtime)
+                assert runtime.screen._visible_height() == 16
+
+                pasted = "\n".join(f"draft {index}" for index in range(8))
+                buffer = runtime.screen.input.buffer
+                if clear_mode == "history":
+                    runtime.input_model.history.append_string(pasted)
+                    pipe_input.send_text("\x1b[A")
+                elif clear_mode == "undo":
+                    buffer.save_to_undo_stack()
+                    buffer.text = pasted
+                    buffer.cursor_position = len(pasted)
+                else:
+                    pipe_input.send_text(f"\x1b[200~{pasted}\x1b[201~")
+                await _wait_for_input_text(runtime, pasted)
+                await _render_next_frame(runtime)
+
+                runtime.screen.clear_activity_renderable()
+                if clear_mode == "ctrl_u":
+                    pipe_input.send_text("\x15")
+                elif clear_mode == "ctrl_w":
+                    pipe_input.send_text("\x17" * 16)
+                elif clear_mode == "delete":
+                    buffer.cursor_position = 0
+                    pipe_input.send_text("\x1b[3~" * len(pasted))
+                elif clear_mode == "history":
+                    pipe_input.send_text("\x1b[B")
+                else:
+                    pipe_input.send_text("\x1a")
+                await _wait_for_input_text(runtime, "")
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                runtime.screen.clear_activity_renderable()
+                runtime.set_execution_active(False)
+                await output.stop()
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_folded_multiline_paste_keeps_input_at_canvas_bottom() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -8174,6 +8246,63 @@ async def test_js_repl_query_padding_and_two_stage_display() -> None:
 
     final_text = _document_text(runtime.document)
     assert "JavaScript cell completed.\n\n• 已执行完成。" in final_text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("terminal_rows", (8, 12, 24))
+async def test_oversized_javascript_tool_keeps_latest_title_visible(
+    terminal_rows: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        presentation = TuiPresentationSink(output)
+        arguments = {
+            "code": "\n".join(
+                f"const value{index} = {index};" for index in range(30)
+            ),
+            "timeout_ms": 30000,
+        }
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=terminal_rows, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                runtime.append_submitted_query(
+                    "run javascript",
+                    "turn-javascript",
+                )
+                await _render_next_frame(runtime)
+
+                await presentation.emit(build_tool_start_view(
+                    "js_repl",
+                    arguments,
+                    call_id="call-javascript",
+                ))
+                running_screen = await _render_next_frame(runtime)
+                assert "• JavaScript" in _rendered_screen_text(running_screen)
+
+                await presentation.emit(build_native_tool_result_view(
+                    "js_repl",
+                    arguments,
+                    ok=True,
+                    data={
+                        "output": "\n".join(
+                            f"result {index}" for index in range(30)
+                        ),
+                    },
+                    call_id="call-javascript",
+                ))
+                completed_screen = await _render_next_frame(runtime)
+                assert "• JavaScript" in _rendered_screen_text(completed_screen)
+            finally:
+                runtime.set_execution_active(False)
+                await output.stop()
+                await runtime.close()
 
 
 @pytest.mark.anyio
