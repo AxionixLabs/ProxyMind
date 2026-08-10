@@ -86,6 +86,78 @@ def test_invalid_update_does_not_replace_user_document(tmp_path) -> None:
     assert store.path.read_text(encoding="utf-8") == original
 
 
+def test_config_store_keeps_blank_lines_between_table_sections(
+    tmp_path,
+) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.path.write_text(
+        'model_provider = "main"\n'
+        '[model_providers.main]\nname = "main"\n'
+        '[mcp_servers.playwright]\ncommand = "npx"\n'
+        '[service]\ndomain = ""\n'
+        '[skills]\nenabled = []\n'
+        '[projects]\n',
+        encoding="utf-8",
+    )
+
+    store.update({
+        ("model_providers", "aaa", "name"): "aaa",
+        ("model_providers", "aaa", "base_url"): "",
+        ("mcp_servers", "review", "command"): "review-server",
+        ("projects", "workspace", "trust_level"): "trusted",
+    })
+
+    text = store.path.read_text(encoding="utf-8")
+    assert 'model_provider = "main"\n\n[model_providers.main]' in text
+    assert 'name = "main"\n\n[model_providers.aaa]' in text
+    assert 'base_url = ""\n\n[mcp_servers.playwright]' in text
+    assert 'command = "npx"\n\n[mcp_servers.review]' in text
+    assert (
+        'command = "review-server"\n\n'
+        '[service]\n'
+        'domain = ""\n\n'
+        '[skills]\n'
+        'enabled = []\n\n'
+        '[projects]\n\n'
+        '[projects.workspace]'
+    ) in text
+    assert text.endswith('trust_level = "trusted"\n')
+    assert not text.endswith("\n\n")
+
+    store.update({("model_providers", "aaa", "name"): "aaa"})
+    assert store.path.read_text(encoding="utf-8") == text
+
+
+def test_config_store_keeps_heading_comments_with_the_next_table(
+    tmp_path,
+) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.path.write_text(
+        '[model_providers.main]\nname = "main"\n'
+        '# Playwright settings\n'
+        '[mcp_servers.playwright]\ncommand = "npx"\n'
+        '[projects]\n'
+        '# Workspace settings\n'
+        '[projects.workspace]\ntrust_level = "trusted"\n',
+        encoding="utf-8",
+    )
+
+    store.update({("model_providers", "main", "name"): "main"})
+
+    text = store.path.read_text(encoding="utf-8")
+    assert (
+        'name = "main"\n\n'
+        '# Playwright settings\n'
+        '[mcp_servers.playwright]'
+    ) in text
+    assert '# Playwright settings\n\n[mcp_servers.playwright]' not in text
+    assert (
+        '[projects]\n\n'
+        '# Workspace settings\n'
+        '[projects.workspace]'
+    ) in text
+
+
 def test_profile_can_switch_mcp_transport(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.update({

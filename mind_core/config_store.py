@@ -11,6 +11,7 @@ from collections.abc import (
     MutableMapping
 )
 from pathlib import Path
+from tomlkit.items import AoT, Comment, Table, Whitespace
 from tomlkit.toml_document import TOMLDocument
 from mind_nova import const
 from mind_core.application_paths import default_application_home
@@ -20,6 +21,9 @@ from mind_core.provider_config import (
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME
 )
+
+ConfigBody = list[tuple[typing.Any, typing.Any]]
+TableLocation = tuple[Table, ConfigBody | None]
 
 DEFAULT_CONFIG_TEXT = f"""model_provider = "{DEFAULT_PROVIDER_ID}"
 project_root_markers = [".git"]
@@ -113,6 +117,8 @@ class ConfigStore(object):
         for path, value in values.items():
             self._set_path(document, path, value)
 
+        self._ensure_table_group_spacing(document)
+
         candidate = dict(document.unwrap())
 
         if validate is not None:
@@ -133,6 +139,7 @@ class ConfigStore(object):
         for path in paths:
             self._delete_path(document, path)
 
+        self._ensure_table_group_spacing(document)
         candidate = dict(document.unwrap())
 
         if validate is not None:
@@ -159,6 +166,161 @@ class ConfigStore(object):
                 target[component] = child
             target = child
         target[path[-1]] = tomlkit.item(value)
+
+    @classmethod
+    def _ensure_table_group_spacing(cls, document: TOMLDocument) -> None:
+        """在相邻配置表之间保留一个空行。"""
+        root_tables = [
+            (index, item)
+            for index, (key, item) in enumerate(document.body)
+            if key is not None and isinstance(item, (AoT, Table))
+        ]
+        tables = [
+            table
+            for _index, item in root_tables
+            for table in cls._rendered_tables(item, document.body)
+        ]
+        if root_tables and tables:
+            cls._separate_first_table(
+                document.body,
+                root_tables[0][0],
+                tables[0][0],
+            )
+        for (previous, _body), (following, body) in zip(
+            tables,
+            tables[1:],
+        ):
+            if cls._separate_boundary_comments(
+                previous,
+                following,
+                body,
+            ):
+                continue
+            previous_body = previous.value.body
+            if (
+                previous_body
+                and isinstance(previous_body[-1][1], Whitespace)
+            ):
+                continue
+            if "\n" not in following.trivia.indent:
+                following.trivia.indent = f"\n{following.trivia.indent}"
+
+    @classmethod
+    def _separate_first_table(
+        cls,
+        body: ConfigBody,
+        table_index: int,
+        table: Table,
+    ) -> None:
+        """在顶层字段与第一个配置表之间保留一个空行。"""
+        insert_at = table_index
+        while (
+            insert_at > 0
+            and isinstance(body[insert_at - 1][1], Comment)
+        ):
+            insert_at -= 1
+        if insert_at == 0:
+            return
+        if insert_at < table_index:
+            cls._ensure_blank_line_at(body, insert_at)
+            return
+        if (
+            not isinstance(body[insert_at - 1][1], Whitespace)
+            and "\n" not in table.trivia.indent
+        ):
+            table.trivia.indent = f"\n{table.trivia.indent}"
+
+    @classmethod
+    def _rendered_tables(
+        cls,
+        item: object,
+        body: ConfigBody | None,
+    ) -> typing.Iterator[TableLocation]:
+        """按序返回配置组中实际输出的表及其所在容器。"""
+        if isinstance(item, AoT):
+            for table in item.body:
+                yield table, None
+                for child_key, child in table.value.body:
+                    if child_key is not None and isinstance(
+                        child,
+                        (AoT, Table),
+                    ):
+                        yield from cls._rendered_tables(
+                            child,
+                            table.value.body,
+                        )
+            return
+        if not isinstance(item, Table):
+            return
+        if not item.is_super_table():
+            yield item, body
+        for child_key, child in item.value.body:
+            if child_key is not None and isinstance(child, (AoT, Table)):
+                yield from cls._rendered_tables(child, item.value.body)
+
+    @classmethod
+    def _separate_boundary_comments(
+        cls,
+        previous: Table,
+        following: Table,
+        body: ConfigBody | None,
+    ) -> bool:
+        """分隔相邻表之间的连续注释并识别已有空行。"""
+        if body is not None:
+            table_index = next(
+                (
+                    index
+                    for index, (_key, item) in enumerate(body)
+                    if item is following
+                ),
+                None,
+            )
+            if table_index:
+                insert_at = table_index
+                while (
+                    insert_at > 0
+                    and isinstance(body[insert_at - 1][1], Comment)
+                ):
+                    insert_at -= 1
+                if insert_at < table_index:
+                    cls._ensure_blank_line_at(body, insert_at)
+                    return True
+                if isinstance(body[insert_at - 1][1], Whitespace):
+                    return True
+
+        previous_body = previous.value.body
+        if previous_body and isinstance(previous_body[-1][1], Comment):
+            insert_at = len(previous_body)
+            while (
+                insert_at > 0
+                and isinstance(previous_body[insert_at - 1][1], Comment)
+            ):
+                insert_at -= 1
+            cls._ensure_blank_line_at(previous_body, insert_at)
+            return True
+        return False
+
+    @staticmethod
+    def _ensure_blank_line_at(
+        body: ConfigBody,
+        index: int,
+    ) -> None:
+        """在容器指定位置之前保留一个空行。"""
+        following = body[index][1]
+        if "\n" in following.trivia.indent:
+            return
+        if index == 0:
+            following.trivia.indent = f"\n{following.trivia.indent}"
+            return
+        previous = body[index - 1][1]
+        if isinstance(previous, Whitespace):
+            return
+        trail = previous.trivia.trail
+        if trail.endswith("\n\n"):
+            return
+        previous.trivia.trail = (
+            f"{trail}\n" if trail.endswith("\n") else f"{trail}\n\n"
+        )
 
     @staticmethod
     def _delete_path(

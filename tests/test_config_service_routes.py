@@ -52,7 +52,12 @@ def test_anthropic_provider_is_available_in_config_and_page() -> None:
     assert 'id="provider-search"' in page
     assert 'id="provider-kind-filter"' in page
     assert 'id="provider-status-filter"' in page
+    assert 'id="confirm-dialog"' in page
     assert "provider-add-card" not in page
+    assert "static/pref.css" not in page
+    assert "static/pref.js" not in page
+    assert "requestConfirmation" in page
+    assert "if (!confirm(" not in page
 
 
 def test_provider_profiles_are_independent_and_secrets_are_redacted(tmp_path) -> None:
