@@ -51,7 +51,7 @@ def _recording_mock(events: list[str], name: str, result=None) -> AsyncMock:
 
 
 @pytest.mark.anyio
-async def test_runtime_bind_forwards_provider_id_and_kind() -> None:
+async def test_runtime_bind_maps_provider_kind_to_remote_provider() -> None:
     mind = SimpleNamespace(fresh_pref_config=AsyncMock(return_value={
         "primary": {
             "provider": "claude-main",
@@ -65,8 +65,7 @@ async def test_runtime_bind_forwards_provider_id_and_kind() -> None:
     config = await build_runtime_llm_conf(mind)
 
     assert config["primary"] == {
-        "provider": "claude-main",
-        "kind": "anthropic",
+        "provider": "anthropic",
         "route": "messages",
         "model": "claude-test",
     }

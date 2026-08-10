@@ -49,6 +49,10 @@ def test_anthropic_provider_is_available_in_config_and_page() -> None:
     assert default_route_for_kind("anthropic") == "messages"
     assert 'id="provider-dialog"' in page
     assert 'class="provider-grid"' in page
+    assert 'id="provider-search"' in page
+    assert 'id="provider-kind-filter"' in page
+    assert 'id="provider-status-filter"' in page
+    assert "provider-add-card" not in page
 
 
 def test_provider_profiles_are_independent_and_secrets_are_redacted(tmp_path) -> None:
@@ -73,8 +77,15 @@ def test_provider_profiles_are_independent_and_secrets_are_redacted(tmp_path) ->
         "messages"
     )
     request = request_llm_conf(config_to_preferences(session.load()))["primary"]
-    assert request["provider"] == "claude-main"
-    assert request["kind"] == "anthropic"
+    assert request["provider"] == "anthropic"
+    assert set(request) == {
+        "provider",
+        "route",
+        "model",
+        "apikey",
+        "base_url",
+        "reasoning_effort",
+    }
 
     update_provider(session, "claude-main", {"model": "claude-next"})
     raw = store.read_raw()["model_providers"]

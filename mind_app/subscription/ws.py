@@ -7,7 +7,7 @@ import contextlib
 from engine.observability import observe
 from websockets.asyncio.client import ClientConnection
 from ..runtime.agent.client import AgentClient
-from mind_nova.requests.payload import empty_primary_request_slot
+from mind_nova.requests.payload import request_llm_conf
 from .models import (
     AgentForwardRequest,
     AgentSessionRuntime,
@@ -133,32 +133,15 @@ async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
 
 async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
-    payload     = await mind.fresh_pref_config(ttl_sec=0.0)
-    primary_raw = payload.get("primary")
-    primary     = primary_raw if isinstance(primary_raw, dict) else {}
-
-    primary_conf: dict[str, typing.Any] = {}
-    if primary.get("enabled") is False:
-        return {"primary": empty_primary_request_slot()}
-
-    provider = str(primary.get("provider", "") or "").strip()
-    if provider:
-        primary_conf["provider"] = provider
-
-    kind = str(primary.get("kind", "") or "").strip()
-    if kind:
-        primary_conf["kind"] = kind
-
-    route = str(primary.get("route", "") or "").strip()
-    if route:
-        primary_conf["route"] = route
-
-    for key in ("model", "apikey", "base_url", "reasoning_effort"):
-        value = str(primary.get(key, "") or "").strip()
-        if value:
-            primary_conf[key] = value
-
-    return {"primary": primary_conf}
+    payload = await mind.fresh_pref_config(ttl_sec=0.0)
+    primary = request_llm_conf(payload)["primary"]
+    return {
+        "primary": {
+            key: value
+            for key, value in primary.items()
+            if value
+        }
+    }
 
 
 def parse_forward_request(

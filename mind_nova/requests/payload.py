@@ -13,7 +13,6 @@ def empty_primary_request_slot() -> dict[str, str]:
     """返回请求协议要求的空 primary 配置。"""
     return {
         "provider"         : "",
-        "kind"             : "",
         "route"            : "",
         "model"            : "",
         "apikey"           : "",
@@ -38,6 +37,7 @@ def normalize_request_slot(
         for key, value in slot.items()
         if key != "enabled"
     }
+    result["provider"] = slot.get("kind")
     empty_slot = empty_primary_request_slot()
 
     empty_slot.update({
