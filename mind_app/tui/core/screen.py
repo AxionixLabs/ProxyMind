@@ -79,6 +79,10 @@ from .input import (
     INPUT_BUFFER_NAME,
     TuiInputModel
 )
+from .inline_layout import (
+    BottomAnchorState,
+    InlineLayoutState
+)
 from .interrupt import TuiInterruptState
 from .keymap import (
     TuiKeyBinding,
@@ -209,108 +213,6 @@ class FrameGeometry(object):
     revision: int
 
 
-class _BottomAnchorState(object):
-    """保存临时底部区域收起后的输入锚定状态。"""
-
-    __slots__ = (
-        "footprint_height",
-        "completion_visible",
-        "stable_line_baseline",
-        "live_height_baseline",
-        "consumed_height",
-        "release_active",
-    )
-
-    footprint_height: int
-    completion_visible: bool
-    stable_line_baseline: int
-    live_height_baseline: int
-    consumed_height: int
-    release_active: bool
-
-    def __init__(self) -> None:
-        self.footprint_height     = 0
-        self.completion_visible   = False
-        self.stable_line_baseline = 0
-        self.live_height_baseline = 0
-        self.consumed_height      = 0
-        self.release_active       = False
-
-    def begin(
-        self,
-        *,
-        footprint_height: int,
-        completion_visible: bool,
-        stable_line_baseline: int,
-        live_height_baseline: int,
-        release_active: bool = False
-    ) -> None:
-        """建立新的底部占位和正文增长基线。"""
-        self.footprint_height     = max(0, footprint_height)
-        self.completion_visible   = completion_visible
-        self.stable_line_baseline = max(0, stable_line_baseline)
-        self.live_height_baseline = max(0, live_height_baseline)
-        self.consumed_height      = 0
-        self.release_active       = release_active
-
-    def preserve_footprint(self, minimum_height: int) -> None:
-        """保留不小于指定值的底部占位高度。"""
-        self.footprint_height = max(
-            self.footprint_height,
-            max(0, minimum_height),
-        )
-
-    def consume(self, height: int) -> None:
-        """按正文增长量单调消费底部占位高度。"""
-        self.consumed_height = min(
-            self.footprint_height,
-            max(self.consumed_height, max(0, height)),
-        )
-
-    def begin_release(
-        self,
-        *,
-        stable_line_baseline: int,
-        live_height_baseline: int,
-    ) -> None:
-        """从临时区域关闭时的正文位置开始消费底部占位。"""
-        self.completion_visible   = False
-        self.stable_line_baseline = max(0, stable_line_baseline)
-        self.live_height_baseline = max(0, live_height_baseline)
-        self.consumed_height      = 0
-        self.release_active       = True
-
-    def clamp(self, maximum_height: int) -> None:
-        """把占位及已消费高度限制在终端可用范围内。"""
-        maximum_height = max(0, maximum_height)
-        self.footprint_height = min(
-            self.footprint_height,
-            maximum_height,
-        )
-        self.consumed_height = min(
-            self.consumed_height,
-            self.footprint_height,
-        )
-
-    def release_height(self, occupied_height: int) -> int:
-        """返回当前仍需保留在输入区下方的高度。"""
-        return max(
-            0,
-            self.footprint_height
-            - self.consumed_height
-            - max(0, occupied_height),
-        )
-
-    def clear(self) -> None:
-        """清除底部占位和正文增长基线。"""
-        self.footprint_height     = 0
-        self.completion_visible   = False
-        self.stable_line_baseline = 0
-        self.live_height_baseline = 0
-        self.consumed_height      = 0
-        self.release_active       = False
-
-
 class TuiScreen(object):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
@@ -421,13 +323,7 @@ class TuiScreen(object):
         self._transcript_cache_text: str                            = ""
         self._transcript_cache_display_rows: int                    = 0
 
-        self._canvas_height_floor: int = 0
-        self._inline_canvas_height_floor: int = 0
-
-        self._input_canvas_floor_baseline: int | None = None
-        self._input_rows_above_baseline: int | None = None
-
-        self._bottom_anchor = _BottomAnchorState()
+        self._inline_layout = InlineLayoutState()
 
         self.activity_block: FragmentBlock | None = None
 
@@ -1193,7 +1089,6 @@ class TuiScreen(object):
 
     def turn_settlement_frame_key(self) -> tuple[typing.Any, ...]:
         """返回执行周期收束时决定当前画面的状态键。"""
-        anchor = self._bottom_anchor
         return (
             self.document.transcript_revision,
             self.document.visible_prefix_line_count,
@@ -1203,62 +1098,40 @@ class TuiScreen(object):
             self._completion_section_height(),
             self._bottom_release_height(),
             self._visible_height(),
-            self._canvas_height_floor,
-            self._inline_canvas_height_floor,
-            self._input_canvas_floor_baseline,
-            self._input_rows_above_baseline,
-            anchor.footprint_height,
-            anchor.completion_visible,
-            anchor.stable_line_baseline,
-            anchor.live_height_baseline,
-            anchor.consumed_height,
-            anchor.release_active,
+            *self._inline_layout.frame_key(),
         )
 
     def settle_input_layout(self) -> None:
         """随输入内容缩短收束输入区留下的画布高度。"""
-        baseline = self._input_canvas_floor_baseline
-        if baseline is None:
+        if not self._inline_layout.input_growth_active:
+            return None
+
+        if self._input_contains_folded_paste():
+            self._inline_layout.cancel_input_growth()
+            self._inline_layout.cap_canvas_height(
+                self._natural_visible_height(),
+            )
+            self.invalidate()
             return None
 
         input_empty = not self.input.buffer.text
-        natural_height = self._natural_visible_height()
-        retained_height = (
-            natural_height
-            if input_empty
-            else max(baseline, natural_height)
+        self._inline_layout.settle_input(
+            natural_height=self._natural_visible_height(),
+            input_empty=input_empty,
         )
-
-        rows_above_baseline = self._input_rows_above_baseline
-        rows_above = self._inline_rows_above_layout()
-        if rows_above_baseline is not None and rows_above is not None:
-            consumed_rows = max(0, rows_above_baseline - rows_above)
-            if consumed_rows:
-                self._inline_canvas_height_floor = max(
-                    self._inline_canvas_height_floor,
-                    baseline + consumed_rows,
-                )
-                retained_height = max(
-                    retained_height,
-                    self._inline_canvas_height_floor,
-                )
-
-        if input_empty:
-            self._bottom_anchor.clear()
-            self._input_canvas_floor_baseline = None
-            self._input_rows_above_baseline = None
-
-        self._cap_canvas_height_floor(retained_height)
         self.invalidate()
 
     def settle_scrollback_layout(self) -> None:
         """在稳定正文移入终端历史后收束实时画布高度。"""
-        self._inline_canvas_height_floor = 0
-        self._cap_canvas_height_floor(self._natural_visible_height())
+        self._inline_layout.cap_canvas_height(
+            self._natural_visible_height(),
+        )
 
     def settle_dynamic_output_layout(self) -> None:
         """在动态正文结束后收束实时画布高度。"""
-        self._cap_canvas_height_floor(self._natural_visible_height())
+        self._inline_layout.cap_canvas_height(
+            self._natural_visible_height(),
+        )
 
     def set_transcript_overlay(self, active: bool) -> bool:
         """切换完整会话记录、终端画面和键盘焦点。"""
@@ -1545,29 +1418,29 @@ class TuiScreen(object):
                 self._bottom_release_height() < previous_release_height
             )
 
+            folded_paste = self._input_contains_folded_paste()
+            if folded_paste:
+                self._inline_layout.cancel_input_growth()
+
             natural_height = self._natural_visible_height()
 
-            if (
-                self._input_height() > 1
-                and self._input_canvas_floor_baseline is None
-            ):
-                self._input_canvas_floor_baseline = self._canvas_height_floor
-                self._input_rows_above_baseline = (
-                    self._inline_rows_above_layout()
+            if folded_paste:
+                self._inline_layout.cap_canvas_height(natural_height)
+            else:
+                self._inline_layout.observe_input_layout(
+                    input_height=self._input_height(),
+                    footprint_height=self._input_stack_height(),
+                    stable_line_baseline=self.document.stable_line_count,
+                    live_height_baseline=self._completion_live_height(),
                 )
 
             if completion_visible or release_consumed:
-                self._cap_canvas_height_floor(natural_height)
+                self._inline_layout.cap_canvas_height(natural_height)
 
-            canvas_height = min(
-                self._frame_geometry.height,
-                max(
-                    self._canvas_height_floor,
-                    natural_height,
-                ),
+            self._inline_layout.fit_canvas_height(
+                natural_height=natural_height,
+                available_height=self._frame_geometry.height,
             )
-
-            self._canvas_height_floor = canvas_height
 
         self._observe_terminal_geometry(*geometry)
 
@@ -1776,7 +1649,7 @@ class TuiScreen(object):
                 1,
                 visible_height - alignment_padding,
             )
-            self._cap_canvas_height_floor(visible_height)
+            self._inline_layout.cap_canvas_height(visible_height)
 
         self.bottom_pane.deactivate(surface)
 
@@ -2920,7 +2793,7 @@ class TuiScreen(object):
 
     def _update_bottom_anchor(self) -> bool:
         """更新输入锚定状态并返回补全菜单是否可见。"""
-        anchor = self._bottom_anchor
+        anchor = self._inline_layout.bottom_anchor
         completion_height  = self._completion_section_height()
         completion_visible = completion_height > 0
         completion_closed  = (
@@ -2948,29 +2821,37 @@ class TuiScreen(object):
                 live_height_baseline=self._completion_live_height(),
             )
 
-        if (
-            anchor.release_active
-            and anchor.footprint_height
-            and anchor.consumed_height < anchor.footprint_height
-        ):
-            stable_height = self._completion_stable_growth_height()
-            live_height   = self._completion_live_height()
-
-            growth = max(
-                0,
-                stable_height
-                + live_height
-                - anchor.live_height_baseline,
-            )
-            anchor.consume(growth)
+        self._consume_bottom_anchor(anchor)
+        self._consume_bottom_anchor(self._inline_layout.input_anchor)
 
         anchor.completion_visible = completion_visible
         anchor.clamp(self.terminal_height)
         return completion_visible
 
+    def _consume_bottom_anchor(self, anchor: BottomAnchorState) -> None:
+        """按锚点建立后的正文增长消费底部释放空间。"""
+        if (
+            not anchor.release_active
+            or not anchor.footprint_height
+            or anchor.consumed_height >= anchor.footprint_height
+        ):
+            return None
+
+        stable_height = self._stable_growth_height_since(anchor)
+        live_height = self._completion_live_height()
+        growth = max(
+            0,
+            stable_height
+            + live_height
+            - anchor.live_height_baseline,
+        )
+        anchor.consume(growth)
+
     def _begin_bottom_release(self, previous_visible_height: int) -> None:
         """保留临时区域释放的高度并建立正文增长基线。"""
-        self._bottom_anchor.clear()
+        layout = self._inline_layout
+        anchor = layout.bottom_anchor
+        anchor.clear()
 
         restored_height = self._natural_visible_height()
 
@@ -2980,7 +2861,7 @@ class TuiScreen(object):
             - restored_height,
         )
         if release_height <= 0:
-            self._cap_canvas_height_floor(restored_height)
+            layout.cap_canvas_height(restored_height)
             return None
 
         completion_height = self._completion_section_height()
@@ -2990,7 +2871,7 @@ class TuiScreen(object):
             + completion_height
             + self._footer_height()
         )
-        self._bottom_anchor.begin(
+        anchor.begin(
             footprint_height=min(
                 self.terminal_height,
                 occupied_height + release_height,
@@ -3001,39 +2882,28 @@ class TuiScreen(object):
             release_active=True,
         )
 
-        self._canvas_height_floor = max(
-            self._canvas_height_floor,
-            min(self.terminal_height, previous_visible_height),
+        layout.preserve_canvas_height(
+            previous_visible_height,
+            available_height=self.terminal_height,
         )
 
     def _reset_completion_layout(self, *, reset_canvas_floor: bool) -> None:
         """清除底部临时区域状态并同步收束画布高度下限。"""
-        self._bottom_anchor.clear()
-
         if reset_canvas_floor:
-            self._canvas_height_floor         = 0
-            self._inline_canvas_height_floor  = 0
-            self._input_canvas_floor_baseline = None
-            self._input_rows_above_baseline   = None
+            self._inline_layout.reset()
         else:
-            self._cap_canvas_height_floor(self._natural_visible_height())
+            self._inline_layout.bottom_anchor.clear()
+            self._inline_layout.cap_canvas_height(
+                self._natural_visible_height(),
+            )
             if not self.input.buffer.text:
-                self._input_canvas_floor_baseline = None
-                self._input_rows_above_baseline = None
+                self._inline_layout.release_empty_input()
 
-    def _cap_canvas_height_floor(self, maximum_height: int) -> None:
-        """降低画布高度下限并同步撤销输入区贡献的增量。"""
-        previous_height = self._canvas_height_floor
-        self._canvas_height_floor = min(
-            previous_height,
-            max(
-                self._inline_canvas_height_floor,
-                max(0, int(maximum_height)),
-            ),
-        )
-
-    def _completion_stable_growth_height(self) -> int:
-        """返回补全锚点之后新增稳定正文的显示高度。"""
+    def _stable_growth_height_since(
+        self,
+        anchor: BottomAnchorState,
+    ) -> int:
+        """返回指定底部锚点之后新增稳定正文的显示高度。"""
         return sum(
             max(
                 1,
@@ -3047,7 +2917,7 @@ class TuiScreen(object):
             )
             for line in self.document.stable_lines_since(
                 max(
-                    self._bottom_anchor.stable_line_baseline,
+                    anchor.stable_line_baseline,
                     self.document.visible_prefix_line_count,
                 )
             )
@@ -3080,7 +2950,7 @@ class TuiScreen(object):
             + self._completion_section_height()
             + self._footer_height()
         )
-        return self._bottom_anchor.release_height(occupied_height)
+        return self._inline_layout.bottom_release_height(occupied_height)
 
     def _input_stack_height(self) -> int:
         """返回当前完整输入区域占用高度。"""
@@ -3249,7 +3119,7 @@ class TuiScreen(object):
             min(
                 self.terminal_height,
                 max(
-                    self._canvas_height_floor,
+                    self._inline_layout.canvas_height_floor,
                     self._natural_visible_height(),
                 ),
             ),
@@ -3289,6 +3159,19 @@ class TuiScreen(object):
             and self._queued_content_visible()
         ):
             return False
+
+        release_height = self._bottom_release_height()
+        if release_height:
+            reserved_height = (
+                self._status_height()
+                + self._process_status_height()
+                + self._queued_height()
+                + int(self._transcript_status_gap_visible())
+                + self._interaction_height()
+                + release_height
+            )
+            if reserved_height >= self.terminal_height:
+                return False
 
         auxiliary_content = bool(
             self._status_height()
@@ -3335,17 +3218,11 @@ class TuiScreen(object):
             and self._input_content_height(width=width) > 1
         )
 
-    def _inline_rows_above_layout(self) -> int | None:
-        """返回当前内联画布上方仍可见的终端行数。"""
-        application = getattr(self, "application", None)
-        if application is None or application.full_screen:
-            return None
-
-        renderer = application.renderer
-        with contextlib.suppress(Exception):
-            if renderer.height_is_known:
-                return max(0, int(renderer.rows_above_layout))
-        return None
+    def _input_contains_folded_paste(self) -> bool:
+        """判断当前输入是否包含仍可还原的折叠粘贴内容。"""
+        return bool(
+            self.input_model.submission_state(self.input.buffer.text)
+        )
 
     def _inline_reply_handoff_growth_active(self) -> bool:
         """判断回复建立正文前是否需要为轮次交接扩展画布。"""

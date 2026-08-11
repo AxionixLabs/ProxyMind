@@ -43,7 +43,7 @@ def test_top_bottom_surface_starts_height_release(
 ) -> None:
     runtime = TuiRuntime()
     screen = runtime.screen
-    screen._canvas_height_floor = 12
+    screen._inline_layout.canvas_height_floor = 12
     screen.bottom_pane.activate(surface)
 
     with patch.object(
@@ -60,7 +60,7 @@ def test_top_bottom_surface_starts_height_release(
 def test_nested_bottom_surface_does_not_release_until_input_returns() -> None:
     runtime = TuiRuntime()
     screen = runtime.screen
-    screen._canvas_height_floor = 12
+    screen._inline_layout.canvas_height_floor = 12
     screen.bottom_pane.activate("menu")
     screen.bottom_pane.activate("approval")
 
