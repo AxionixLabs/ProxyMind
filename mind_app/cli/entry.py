@@ -13,14 +13,14 @@ from .commands import (
     CompletionCommand,
     DoctorCommand,
     ExecCommand,
-    HelixUpgradeCommand,
     McpAddCommand,
     McpGetCommand,
     McpListCommand,
     McpRemoveCommand,
     McpServerCommand,
     McpSetEnabledCommand,
-    ParsedCommand
+    ParsedCommand,
+    RuntimeUpgradeCommand
 )
 from .parser import parse_cli_invocation
 
@@ -121,7 +121,7 @@ def command_requests_outro(
     output_stream: object | None = None
 ) -> bool:
     """判断命令是否需要 Rich 退场展示。"""
-    if not isinstance(command, HelixUpgradeCommand):
+    if not isinstance(command, RuntimeUpgradeCommand):
         return False
 
     from .frontend import stream_is_interactive

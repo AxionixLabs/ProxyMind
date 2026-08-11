@@ -59,8 +59,8 @@ from ..runtime.tools.mode_policy import ToolFilterMode
 from .commands import (
     ApplicationCommand,
     ExecCommand,
-    HelixUpgradeCommand,
     RuntimeCommand,
+    RuntimeUpgradeCommand,
     command_helix_profile,
     command_uses_helix
 )
@@ -270,7 +270,7 @@ async def _run_application(
     report = RunReport(str(reports))
     power  = os.cpu_count() or 1
 
-    is_upgrade = isinstance(command, HelixUpgradeCommand)
+    is_upgrade = isinstance(command, RuntimeUpgradeCommand)
 
     observe(
         "app.start",
@@ -280,7 +280,7 @@ async def _run_application(
         cpu_count=power,
         helix_requested=(
             False
-            if isinstance(command, HelixUpgradeCommand)
+            if isinstance(command, RuntimeUpgradeCommand)
             else command_uses_helix(command)
         ),
         upgrade=is_upgrade,
@@ -311,7 +311,7 @@ async def _run_application(
         report.close()
         raise
 
-    if isinstance(command, HelixUpgradeCommand):
+    if isinstance(command, RuntimeUpgradeCommand):
         try:
             await ensure_service_runtime_asset(
                 service_context,

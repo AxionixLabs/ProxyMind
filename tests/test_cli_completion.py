@@ -21,8 +21,10 @@ def test_completion_scripts_follow_the_registered_command_tree(shell) -> None:
 
     assert script.endswith("\n")
     assert "resume" in script
+    assert "upgrade" in script
     assert "mcp" in script
     assert "--config" in script
+    assert "-H" in script
     assert all(candidate in script for candidate in COMPLETION_SHELLS)
 
 

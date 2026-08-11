@@ -69,8 +69,8 @@ class AgentListenCommand(object):
 
 
 @dataclass(frozen=True, slots=True)
-class HelixUpgradeCommand(object):
-    """描述 Helix 运行组件升级入口。"""
+class RuntimeUpgradeCommand(object):
+    """描述运行组件升级入口。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +142,7 @@ RuntimeCommand: typing.TypeAlias = (
     | AgentListenCommand
 )
 
-ApplicationCommand: typing.TypeAlias = RuntimeCommand | HelixUpgradeCommand
+ApplicationCommand: typing.TypeAlias = RuntimeCommand | RuntimeUpgradeCommand
 
 McpRegistryCommand: typing.TypeAlias = (
     McpListCommand

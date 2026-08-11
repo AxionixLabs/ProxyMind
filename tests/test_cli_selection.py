@@ -19,7 +19,6 @@ from mind_app.cli.commands import (
     CompletionCommand,
     DoctorCommand,
     ExecCommand,
-    HelixUpgradeCommand,
     InteractiveCommand,
     McpAddCommand,
     McpGetCommand,
@@ -28,6 +27,7 @@ from mind_app.cli.commands import (
     McpSetEnabledCommand,
     McpServerCommand,
     ResumeCommand,
+    RuntimeUpgradeCommand,
 )
 from mind_app.cli.frontend import (
     resolve_cli_design,
@@ -130,9 +130,15 @@ def test_cli_parser_returns_typed_commands() -> None:
     ("arguments", "expected"),
     (
         (["--helix"], InteractiveCommand(helix_profile="app")),
+        (["-H"], InteractiveCommand(helix_profile="app")),
         (["--helix", "api"], InteractiveCommand(helix_profile="api")),
+        (["-H", "api"], InteractiveCommand(helix_profile="api")),
         (
             ["--helix", "initial task"],
+            InteractiveCommand(prompt="initial task", helix_profile="app"),
+        ),
+        (
+            ["-H", "initial task"],
             InteractiveCommand(prompt="initial task", helix_profile="app"),
         ),
         (
@@ -175,6 +181,8 @@ def test_helix_profile_is_parsed_across_runtime_commands(
 def test_helix_profile_rejects_unknown_explicit_value() -> None:
     with pytest.raises(SystemExit):
         parse_cli_command(["exec", "inspect", "--helix=other"])
+    with pytest.raises(SystemExit):
+        parse_cli_command(["exec", "inspect", "-H=other"])
 
 
 def test_permission_options_are_process_level_config_overrides() -> None:
@@ -198,12 +206,17 @@ def test_legacy_access_option_is_removed() -> None:
     with pytest.raises(SystemExit):
         parse_cli_command(["exec", "hello", "--access", "full"])
     assert parse_cli_command(["agent", "listen"]) == AgentListenCommand()
-    assert parse_cli_command(["helix", "upgrade"]) == HelixUpgradeCommand()
+    assert parse_cli_command(["upgrade", "helix"]) == RuntimeUpgradeCommand()
     assert parse_cli_command(["doctor"]) == DoctorCommand()
     assert parse_cli_command(["doctor", "--json"]) == DoctorCommand(
         output_format="json"
     )
     assert parse_cli_command(["mcp-server"]) == McpServerCommand()
+
+
+def test_old_helix_upgrade_path_is_removed() -> None:
+    with pytest.raises(SystemExit):
+        parse_cli_command(["helix", "upgrade"])
 
 
 def test_batch_command_is_removed() -> None:
@@ -272,8 +285,9 @@ def test_cli_help_uses_unified_plain_layout(monkeypatch) -> None:
     )
     assert "\nCommands:\n  exec" in help_text
     assert "\n  help            Print this message or the help" in help_text
+    assert "\n  upgrade         Manage runtime component upgrades" in help_text
     assert "\n    listen" not in help_text
-    assert "\n    upgrade" not in help_text
+    assert "\n    helix" not in help_text
     assert "\nOptions:\n  -c, --config <key=value>" in help_text
     assert "\n          Print version\n" in help_text
     assert "-V, --version" in help_text
@@ -317,7 +331,7 @@ def test_cli_help_separates_argument_and_option_blocks(
         "immediately returned to the model"
     ) in normalized_root_help
     assert "Possible values:\n          - untrusted:" in root_help
-    assert "--helix [<PROFILE>]" in root_help
+    assert "-H, --helix [<PROFILE>]" in root_help
     assert "When PROFILE is omitted, app is used" in root_help
 
 
@@ -371,8 +385,8 @@ def test_root_help_does_not_expose_removed_flow_command(monkeypatch, capsys) -> 
         ),
         (("agent", "--help"), "Usage: mind agent <COMMAND> [ARGS]"),
         (("agent", "listen", "--help"), "Usage: mind agent listen [OPTIONS]"),
-        (("helix", "--help"), "Usage: mind helix <COMMAND> [ARGS]"),
-        (("helix", "upgrade", "--help"), "Usage: mind helix upgrade [OPTIONS]"),
+        (("upgrade", "--help"), "Usage: mind upgrade <COMPONENT> [ARGS]"),
+        (("upgrade", "helix", "--help"), "Usage: mind upgrade helix [OPTIONS]"),
         (("doctor", "--help"), "Usage: mind doctor [OPTIONS]"),
         (
             ("completion", "--help"),
@@ -408,8 +422,8 @@ def test_subcommand_help_uses_stable_usage(
             "Usage: mind agent listen [OPTIONS]",
         ),
         (
-            ("help", "helix", "upgrade"),
-            "Usage: mind helix upgrade [OPTIONS]",
+            ("help", "upgrade", "helix"),
+            "Usage: mind upgrade helix [OPTIONS]",
         ),
     ),
 )
@@ -763,7 +777,7 @@ async def test_failed_exec_sets_nonzero_exit_code() -> None:
 
 
 def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
-    command = HelixUpgradeCommand()
+    command = RuntimeUpgradeCommand()
 
     output_mode = resolve_cli_output_mode(command)
     frontend = resolve_cli_frontend(output_mode)
@@ -783,7 +797,7 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
         (ExecCommand(prompt="inspect"), "text"),
         (ExecCommand(prompt="inspect", output_format="json"), "json"),
         (AgentListenCommand(), "tui"),
-        (HelixUpgradeCommand(), "rich"),
+        (RuntimeUpgradeCommand(), "rich"),
         (DoctorCommand(), "text"),
         (DoctorCommand(output_format="json"), "json"),
         (McpListCommand(), "text"),
@@ -923,7 +937,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch,
     tmp_path,
 ) -> None:
-    command = HelixUpgradeCommand()
+    command = RuntimeUpgradeCommand()
     application_views = []
     upgrade_calls = []
     design = object()

@@ -6,6 +6,7 @@ import typing
 import argparse
 from mind_nova import const
 from .arguments import (
+    HELIX_FLAGS,
     PROMPT_SHORT_VALUE_PREFIXES,
     PROMPT_VALUE_OPTIONS,
     PROMPT_VALUE_PREFIXES,
@@ -22,12 +23,12 @@ from .commands import (
     DoctorCommand,
     ExecCommand,
     HELIX_PROFILES,
-    HelixUpgradeCommand,
     InteractiveCommand,
     McpServerCommand,
     OutputFormat,
     ParsedCommand,
-    ResumeCommand
+    ResumeCommand,
+    RuntimeUpgradeCommand
 )
 from .help import CliArgumentParser
 from .invocation import extract_invocation_options
@@ -166,7 +167,7 @@ def _normalize_helix_arguments(
         if token == "--":
             normalized.extend(arguments[index:])
             break
-        if token != "--helix":
+        if token not in HELIX_FLAGS:
             normalized.append(token)
             index += 1
             continue
@@ -361,8 +362,8 @@ def _parse_cli_command(
             helix_profile=_selected_helix_profile(parser, values),
         )
 
-    if command == "helix" and values.get("helix_command") == "upgrade":
-        return HelixUpgradeCommand()
+    if command == "upgrade" and values.get("upgrade_component") == "helix":
+        return RuntimeUpgradeCommand()
 
     if command == "doctor":
         output_format: OutputFormat = "json" if bool(values["json"]) else "text"

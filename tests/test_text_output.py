@@ -10,7 +10,7 @@ from mind_app.cli import entry
 from mind_app.cli.commands import (
     AgentListenCommand,
     ExecCommand,
-    HelixUpgradeCommand,
+    RuntimeUpgradeCommand,
 )
 from mind_app.cli.entry import (
     command_requests_outro,
@@ -342,7 +342,7 @@ def test_only_interactive_rich_commands_request_entry_outro() -> None:
         AgentListenCommand(),
         output_stream=terminal,
     )
-    assert command_requests_outro(HelixUpgradeCommand(), output_stream=terminal)
+    assert command_requests_outro(RuntimeUpgradeCommand(), output_stream=terminal)
     assert not command_requests_outro(
         ExecCommand(prompt="hello"),
         output_stream=terminal,

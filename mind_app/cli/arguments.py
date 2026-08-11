@@ -19,8 +19,8 @@ RESUME_HELP        = "Resume a previous interactive session"
 COMPLETION_HELP    = "Generate shell completion scripts"
 AGENT_HELP         = "Manage remote task subscriptions"
 AGENT_LISTEN_HELP  = "Listen for remotely dispatched tasks"
-HELIX_HELP         = "Manage the Helix provider"
-HELIX_UPGRADE_HELP = "Update Helix runtime components"
+UPGRADE_HELP       = "Manage runtime component upgrades"
+UPGRADE_HELIX_HELP = "Update Helix runtime components"
 DOCTOR_HELP        = "Diagnose the local runtime environment"
 MCP_HELP           = "Manage external MCP servers"
 MCP_SERVER_HELP    = "Start the MCP server over stdio"
@@ -29,6 +29,7 @@ OPTION_HELP        = "Print help (see a summary with '-h')"
 
 IMAGE_FLAGS = ("-i", "--image")
 MODEL_FLAGS = ("-m", "--model")
+HELIX_FLAGS = ("-H", "--helix")
 
 PROMPT_VALUE_OPTIONS        = frozenset((*IMAGE_FLAGS, *MODEL_FLAGS))
 PROMPT_VALUE_PREFIXES       = ("--image=", "--model=")
@@ -65,7 +66,7 @@ def _add_helix_option(
 ) -> None:
     """登记可选工具过滤配置的 Helix 接入参数。"""
     container.add_argument(
-        "--helix",
+        *HELIX_FLAGS,
         nargs="?",
         const="app",
         default=None,
@@ -230,41 +231,41 @@ def create_cli_parser() -> CliArgumentParser:
         help=OPTION_HELP,
     )
 
-    helix_parser = subparsers.add_parser(
-        "helix",
-        prog=f"{const.APP_NAME} helix",
-        help=HELIX_HELP,
-        description="Manage Helix provider runtime components.",
-        help_title=f"{const.APP_DESC} Helix",
-        usage="%(prog)s <COMMAND> [ARGS]",
+    upgrade_parser = subparsers.add_parser(
+        "upgrade",
+        prog=f"{const.APP_NAME} upgrade",
+        help=UPGRADE_HELP,
+        description="Manage runtime component upgrades.",
+        help_title=f"{const.APP_DESC} Upgrade",
+        usage="%(prog)s <COMPONENT> [ARGS]",
         add_help=False,
     )
-    helix_subparsers = helix_parser.add_subparsers(
-        title="Commands",
-        dest="helix_command",
+    upgrade_subparsers = upgrade_parser.add_subparsers(
+        title="Components",
+        dest="upgrade_component",
         metavar="",
         required=True,
     )
-    upgrade_parser = helix_subparsers.add_parser(
-        "upgrade",
-        prog=f"{const.APP_NAME} helix upgrade",
-        help=HELIX_UPGRADE_HELP,
+    upgrade_helix_parser = upgrade_subparsers.add_parser(
+        "helix",
+        prog=f"{const.APP_NAME} upgrade helix",
+        help=UPGRADE_HELIX_HELP,
         description=(
             "Download or update Helix runtime components for this platform."
         ),
-        help_title=f"{const.APP_DESC} Helix Upgrade",
+        help_title=f"{const.APP_DESC} Upgrade Helix",
         usage="%(prog)s [OPTIONS]",
         add_help=False,
     )
-    upgrade_options = upgrade_parser.add_argument_group("Options")
-    upgrade_options.add_argument(
+    upgrade_helix_options = upgrade_helix_parser.add_argument_group("Options")
+    upgrade_helix_options.add_argument(
         "-h",
         "--help",
         action="help",
         help=OPTION_HELP,
     )
-    helix_options = helix_parser.add_argument_group("Options")
-    helix_options.add_argument(
+    upgrade_options = upgrade_parser.add_argument_group("Options")
+    upgrade_options.add_argument(
         "-h",
         "--help",
         action="help",
@@ -682,8 +683,8 @@ def create_cli_parser() -> CliArgumentParser:
         ("resume",): resume_parser,
         ("agent",): agent_parser,
         ("agent", "listen"): listen_parser,
-        ("helix",): helix_parser,
-        ("helix", "upgrade"): upgrade_parser,
+        ("upgrade",): upgrade_parser,
+        ("upgrade", "helix"): upgrade_helix_parser,
         ("doctor",): doctor_parser,
         ("mcp",): mcp_parser,
         ("mcp", "list"): mcp_list_parser,

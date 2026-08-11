@@ -7,14 +7,14 @@ from .commands import (
     CliCommand,
     DoctorCommand,
     ExecCommand,
-    HelixUpgradeCommand,
     InteractiveCommand,
     McpAddCommand,
     McpGetCommand,
     McpListCommand,
     McpRemoveCommand,
     McpSetEnabledCommand,
-    ResumeCommand
+    ResumeCommand,
+    RuntimeUpgradeCommand
 )
 
 OutputMode = typing.Literal[
@@ -32,7 +32,7 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
             return output_command.output_format
         case McpAddCommand() | McpRemoveCommand() | McpSetEnabledCommand():
             return "text"
-        case HelixUpgradeCommand():
+        case RuntimeUpgradeCommand():
             return "rich"
         case ExecCommand() as output_command:
             return output_command.output_format
