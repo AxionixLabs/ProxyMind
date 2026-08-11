@@ -7,6 +7,7 @@ from mind_app.history.transcript import TranscriptEntry
 from mind_app.tui.core.document import TuiDocument
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.features import history
+from mind_app.tui.core.hyperlinks import terminal_hyperlink_from_style
 
 
 @pytest.mark.anyio
@@ -282,7 +283,7 @@ def test_history_transcript_restores_markdown_hyperlink_metadata() -> None:
 
     assert linked[0].raw_text == "[docs](https://example.com/docs)"
     assert any(
-        style == "[ZeroWidthEscape]"
+        terminal_hyperlink_from_style(style) == "https://example.com/docs"
         for style, _text in linked[0].transcript_block.fragments
     )
     assert all(

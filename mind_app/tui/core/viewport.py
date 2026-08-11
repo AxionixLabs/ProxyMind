@@ -21,6 +21,7 @@ from .render import (
     fragment_continuation_widths,
     fragments_text
 )
+from .hyperlinks import decorate_scrollback_hyperlinks
 from .styles import ASSISTANT_PREFIX_CLASS
 
 
@@ -768,7 +769,7 @@ class TuiTranscriptViewport(object):
     def _print_scrollback_fragments(self, fragments: FormattedText) -> None:
         """打印滚屏批次并把物理光标推进到下一行行首。"""
         self._get_application().print_text([
-            *fragments,
+            *decorate_scrollback_hyperlinks(fragments),
             ("", "\n"),
         ])
 

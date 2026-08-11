@@ -12,7 +12,6 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
-from mind_app.presentation.terminal_text import sanitize_terminal_hyperlink
 from mind_nova import const
 from prompt_toolkit.styles import (
     BaseStyle,
@@ -24,6 +23,7 @@ from ..prompting.commands import (
     resolve_slash_command
 )
 from .models import FragmentBlock
+from .hyperlinks import terminal_hyperlink_style
 from .render import (
     ZERO_WIDTH_ESCAPE_STYLE,
     clip_fragments,
@@ -294,19 +294,9 @@ def styled_block_fragments(
             if span.style != TextStyle() or fallback_style is None
             else fallback_style
         )
-        hyperlink = (
-            sanitize_terminal_hyperlink(span.hyperlink)
-            if hyperlinks
-            else None
-        )
-        if hyperlink:
-            fragments.append((
-                "[ZeroWidthEscape]",
-                f"\x1b]8;;{hyperlink}\x1b\\",
-            ))
+        if hyperlinks:
+            style = terminal_hyperlink_style(style, span.hyperlink)
         fragments.append((style, span.text))
-        if hyperlink:
-            fragments.append(("[ZeroWidthEscape]", "\x1b]8;;\x1b\\"))
 
     return tuple(fragments)
 

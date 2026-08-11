@@ -79,6 +79,10 @@ from .input import (
     INPUT_BUFFER_NAME,
     TuiInputModel
 )
+from .hyperlinks import (
+    TerminalHyperlinkOutput,
+    TerminalHyperlinkWindow
+)
 from .inline_layout import (
     BottomAnchorState,
     InlineLayoutState
@@ -472,7 +476,7 @@ class TuiScreen(object):
             key_bindings=self._mailbox_overlay_key_bindings(),
         )
 
-        self.transcript_window = Window(
+        self.transcript_window = TerminalHyperlinkWindow(
             content=self.transcript_control,
             height=self._transcript_dimension,
             wrap_lines=True,
@@ -480,7 +484,7 @@ class TuiScreen(object):
             dont_extend_height=True,
             get_line_prefix=self._transcript_line_prefix,
         )
-        self.transcript_overlay_window = Window(
+        self.transcript_overlay_window = TerminalHyperlinkWindow(
             content=self.transcript_overlay_control,
             height=self._transcript_overlay_dimension,
             wrap_lines=False,
@@ -912,6 +916,17 @@ class TuiScreen(object):
             input=application_input,
             output=application_output,
         )
+
+        self.hyperlinks_enabled = bool(
+            terminal_capabilities.hyperlinks
+            and _supports_vt_control(self.application.output)
+        )
+        if self.hyperlinks_enabled:
+            hyperlink_output = TerminalHyperlinkOutput(
+                self.application.output
+            )
+            self.application.output = hyperlink_output
+            self.application.renderer.output = hyperlink_output
 
         self.application.ttimeoutlen = self.ESCAPE_SEQUENCE_TIMEOUT_SEC
 

@@ -236,7 +236,10 @@ def sanitize_terminal_hyperlink(value: typing.Any) -> str | None:
     url = value.strip()
     if not url or len(url) > 4096:
         return None
-    if any(ord(char) < 32 or ord(char) == 127 for char in url):
+    if any(
+        ord(char) < 32 or 127 <= ord(char) <= 159
+        for char in url
+    ):
         return None
 
     try:

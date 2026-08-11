@@ -4,6 +4,7 @@ import asyncio
 import io
 import typing
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import (
@@ -60,6 +61,7 @@ from mind_app.tui.adapters.content import TuiContentSink
 from mind_app.tui.adapters import markdown as tui_markdown
 from mind_app.tui.adapters.markdown import (
     TuiMarkdownStreamRenderer,
+    render_tui_assistant_markdown,
     render_tui_markdown,
 )
 from mind_app.tui.adapters.output import TuiOutputControl
@@ -77,6 +79,11 @@ from mind_app.tui.core.models import (
     TranscriptBacktrackRequest,
 )
 from mind_app.tui.core.keymap import TuiRuntimeKeymap
+from mind_app.tui.core.hyperlinks import (
+    OSC8_CLOSE,
+    decorate_scrollback_hyperlinks,
+    terminal_hyperlink_from_style,
+)
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
@@ -7375,6 +7382,180 @@ async def test_markdown_hyperlink_degrades_safely_in_dynamic_tui() -> None:
         "[documentation-link-that-wraps](https://example.com/docs)"
     )
     assert all(style != "[ZeroWidthEscape]" for style, _text in raw)
+
+
+def test_markdown_hyperlink_metadata_survives_wrap_and_clip() -> None:
+    block = render_tui_assistant_markdown(
+        "[中文链接](https://example.com/docs) plain",
+        8,
+        hyperlinks=True,
+    )
+
+    rows = wrap_formatted_lines(list(block.fragments), width=4)
+    linked = [
+        (style, text)
+        for row in rows
+        for style, text in row
+        if terminal_hyperlink_from_style(style)
+    ]
+
+    assert fragments_text(block.fragments) == "• 中文链接 plain"
+    assert "".join(text for _style, text in linked) == "中文链接"
+    assert {
+        terminal_hyperlink_from_style(style)
+        for style, _text in linked
+    } == {"https://example.com/docs"}
+    assert all(
+        terminal_hyperlink_from_style(style) is None
+        for row in rows
+        for style, text in row
+        if "plain" in text
+    )
+    assert all(
+        style != "[ZeroWidthEscape]"
+        for style, _text in block.fragments
+    )
+    assert [
+        terminal_hyperlink_from_style(style)
+        for style, _text in deepcopy(block).fragments
+        if terminal_hyperlink_from_style(style)
+    ] == ["https://example.com/docs"]
+
+
+def test_scrollback_hyperlinks_close_each_visible_fragment() -> None:
+    block = render_tui_markdown(
+        "[docs](https://example.com/docs) tail",
+        hyperlinks=True,
+    )
+
+    decorated = decorate_scrollback_hyperlinks(list(block.fragments))
+    opens = [
+        text
+        for style, text in decorated
+        if style == "[ZeroWidthEscape]" and text != OSC8_CLOSE
+    ]
+    closes = [
+        text
+        for style, text in decorated
+        if style == "[ZeroWidthEscape]" and text == OSC8_CLOSE
+    ]
+
+    assert len(opens) == len(closes) == 1
+    assert fragments_text(decorated) == "docs tail"
+    assert terminal_hyperlink_from_style(decorated[-1][0]) is None
+
+
+def test_scrollback_hyperlink_output_is_balanced() -> None:
+    stream = io.StringIO()
+    output = Vt100_Output(
+        stream,
+        lambda: Size(rows=12, columns=20),
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+    runtime = TuiRuntime(output_obj=output)
+    block = render_tui_markdown(
+        "[docs](https://example.com/docs) tail",
+        hyperlinks=True,
+    )
+
+    runtime.viewport._print_scrollback_fragments(list(block.fragments))
+
+    payload = stream.getvalue()
+    opening = "\x1b]8;;https://example.com/docs\x1b\\"
+    assert payload.count(opening) == payload.count(OSC8_CLOSE) == 1
+    assert sanitize_terminal_text(payload) == "docs tail\n"
+
+
+def test_markdown_link_style_does_not_extend_to_following_text() -> None:
+    block = render_tui_markdown(
+        "终点：[回到家乡](home)\n\n"
+        "[回到家乡](https://www.aila-town.com)\n\n"
+        "门亮了。她一步跨过去，回到了链接镇。",
+        hyperlinks=True,
+    )
+
+    tail_styles = [
+        style
+        for style, text in block.fragments
+        if "门亮了" in text
+    ]
+
+    assert tail_styles == [""]
+    assert terminal_hyperlink_from_style(tail_styles[0]) is None
+
+
+@pytest.mark.anyio
+async def test_dynamic_tui_hyperlink_cells_are_self_contained() -> None:
+    stream = io.StringIO()
+    output = Vt100_Output(
+        stream,
+        lambda: Size(rows=10, columns=20),
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+    capabilities = TerminalCapabilities(
+        TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+        TerminalColorLevel.TRUECOLOR,
+    )
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=output,
+            terminal_capabilities=capabilities,
+        )
+        await runtime.open()
+        try:
+            assert runtime.hyperlinks_enabled
+            await _render_next_frame(runtime)
+            stream.seek(0)
+            stream.truncate(0)
+
+            runtime.set_active_renderable(
+                render_tui_assistant_markdown(
+                    "[abcdefghijklmnopqr](https://example.com/docs)"
+                    "\n\nplain tail",
+                    20,
+                    hyperlinks=runtime.hyperlinks_enabled,
+                ),
+                kind="assistant",
+            )
+            await _render_next_frame(runtime)
+
+            payload = stream.getvalue()
+            open_sequence = "\x1b]8;;https://example.com/docs\x1b\\"
+
+            assert open_sequence in payload
+            assert payload.count(open_sequence) == payload.count(OSC8_CLOSE)
+            assert "?]8;;" not in payload
+            assert all(
+                cell.char.count(open_sequence) == cell.char.count(OSC8_CLOSE)
+                for row in runtime.screen.application.renderer
+                .last_rendered_screen.data_buffer.values()
+                for cell in row.values()
+            )
+
+            stream.seek(0)
+            stream.truncate(0)
+            runtime.set_active_renderable(
+                render_tui_assistant_markdown(
+                    "[abcdefghijklmnopqr](https://example.com/new)"
+                    "\n\nplain tail",
+                    20,
+                    hyperlinks=runtime.hyperlinks_enabled,
+                ),
+                kind="assistant",
+            )
+            await _render_next_frame(runtime)
+
+            update = stream.getvalue()
+            updated_open = "\x1b]8;;https://example.com/new\x1b\\"
+
+            assert updated_open in update
+            assert update.count(updated_open) == update.count(OSC8_CLOSE)
+        finally:
+            await runtime.close()
 
 
 @pytest.mark.anyio

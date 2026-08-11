@@ -93,6 +93,7 @@ def test_terminal_hyperlink_accepts_absolute_urls_and_rejects_controls() -> None
     )
     assert sanitize_terminal_hyperlink("relative/path") is None
     assert sanitize_terminal_hyperlink("https://example.com/\x1b\\") is None
+    assert sanitize_terminal_hyperlink("https://example.com/\x9ctail") is None
 
 
 def test_terminal_line_filters_controls_and_flattens_whitespace() -> None:
