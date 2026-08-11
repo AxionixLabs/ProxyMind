@@ -83,6 +83,7 @@ from mind_app.tui.core.hyperlinks import (
     OSC8_CLOSE,
     decorate_scrollback_hyperlinks,
     terminal_hyperlink_from_style,
+    terminal_hyperlink_style
 )
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
@@ -7422,6 +7423,20 @@ def test_markdown_hyperlink_metadata_survives_wrap_and_clip() -> None:
     ] == ["https://example.com/docs"]
 
 
+def test_terminal_hyperlink_style_is_an_immutable_cache_key() -> None:
+    style = terminal_hyperlink_style(
+        "class:markdown.link",
+        "https://example.com/docs",
+    )
+    cache = {style: "cached"}
+
+    with pytest.raises(AttributeError):
+        setattr(style, "destination", "https://example.com/changed")
+
+    assert cache[style] == "cached"
+    assert terminal_hyperlink_from_style(style) == "https://example.com/docs"
+
+
 def test_scrollback_hyperlinks_close_each_visible_fragment() -> None:
     block = render_tui_markdown(
         "[docs](https://example.com/docs) tail",
@@ -7950,6 +7965,40 @@ def test_transcript_overlay_search_uses_raw_text_and_survives_reflow() -> None:
 
     runtime.commit_active_renderable(_block("committed live needle"))
     assert overlay.search_result_position == (1, 4)
+
+
+def test_transcript_overlay_search_keeps_hyperlink_metadata() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(
+        render_tui_assistant_markdown(
+            "[docs](https://example.com/docs)",
+            40,
+            hyperlinks=True,
+        ),
+        kind="assistant",
+        raw_text="[docs](https://example.com/docs)",
+    )
+    runtime.toggle_transcript_overlay()
+    overlay = runtime.screen.transcript_overlay
+
+    overlay.begin_search()
+    overlay.append_search_text("docs")
+    assert overlay.confirm_search()
+
+    linked_styles = [
+        style
+        for style, text in overlay.visible_fragments()
+        if "docs" in text
+    ]
+    assert linked_styles
+    assert all(
+        "class:transcript.overlay.search-match" in style
+        for style in linked_styles
+    )
+    assert {
+        terminal_hyperlink_from_style(style)
+        for style in linked_styles
+    } == {"https://example.com/docs"}
 
 
 def test_transcript_search_recovers_when_backtrack_removes_current_match() -> None:

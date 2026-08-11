@@ -13,6 +13,7 @@ from .document import (
     TranscriptSnapshot,
     TuiDocument
 )
+from .hyperlinks import append_style_preserving_hyperlink
 from .models import (
     FormattedText,
     TranscriptBacktrackRequest
@@ -517,7 +518,10 @@ class TuiTranscriptOverlay(object):
                 (
                     style
                     if "class:prompt.kicker" in style.split()
-                    else f"{style} {highlight_class}".strip(),
+                    else append_style_preserving_hyperlink(
+                        style,
+                        highlight_class,
+                    ),
                     text,
                 )
                 for style, text in line

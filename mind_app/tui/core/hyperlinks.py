@@ -33,7 +33,7 @@ class _ScreenWritePosition(typing.Protocol):
 class TerminalHyperlinkStyle(str):
     """保存视觉样式及其独立的终端链接目标。"""
 
-    destination: str
+    _destination: str
 
     def __new__(
         cls,
@@ -44,8 +44,18 @@ class TerminalHyperlinkStyle(str):
             TerminalHyperlinkStyle,
             super().__new__(cls, str(style or "")),
         )
-        value.destination = destination
+        object.__setattr__(value, "_destination", destination)
         return value
+
+    @property
+    def destination(self) -> str:
+        """返回不可变的终端链接目标。"""
+        return self._destination
+
+    def __setattr__(self, name: str, value: typing.Any) -> None:
+        raise AttributeError(
+            f"{type(self).__name__} attributes are immutable"
+        )
 
     def __hash__(self) -> int:
         return hash((str(self), self.destination))
@@ -80,6 +90,15 @@ def terminal_hyperlink_from_style(style: str) -> str | None:
     if not isinstance(style, TerminalHyperlinkStyle):
         return None
     return sanitize_terminal_hyperlink(style.destination)
+
+
+def append_style_preserving_hyperlink(style: str, extra_style: str) -> str:
+    """追加视觉样式并保留已有的终端链接目标。"""
+    combined = f"{str(style or '')} {extra_style}".strip()
+    return terminal_hyperlink_style(
+        combined,
+        terminal_hyperlink_from_style(style),
+    )
 
 
 def strip_terminal_hyperlink_style(style: str) -> str:
