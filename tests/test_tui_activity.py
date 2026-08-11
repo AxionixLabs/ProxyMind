@@ -27,6 +27,7 @@ from mind_app.tui.core.activity import (
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.status_frames import SPINNER_FRAMES
+from mind_app.tui.core.styles import text_block
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.helix import TuiUpgradeProgress
 from mind_app.tui.session.barriers import TuiForegroundTasks

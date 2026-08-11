@@ -28,6 +28,7 @@ from mind_app.frontend.contracts import (
     FrontendRuntime
 )
 from mind_app.interaction.contracts import PromptContext
+from mind_app.presentation.terminal_text import sanitize_terminal_line
 from .models import (
     FragmentBlock,
     MailboxEntry,
@@ -40,7 +41,7 @@ from .models import (
 from .terminal_input import clear_pending_input
 from .activity import (
     ActivityLease,
-    TuiActivity,
+    TuiActivity
 )
 from .document import (
     SourceBlockRenderer,
@@ -59,6 +60,7 @@ from .render import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
 from .styles import (
+    failure_text_block,
     query_block,
     query_preview_block,
     text_block
@@ -166,8 +168,7 @@ class TuiRuntime(object):
 
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
-
-        self._background_blocks: list[_DeferredBlock] = []
+        self._background_blocks: list[_DeferredBlock]                 = []
 
         self._running_process_status_label: str = ""
 
@@ -189,7 +190,8 @@ class TuiRuntime(object):
         self._turn_finished_callbacks: list[typing.Callable[[], None]] = []
         self._startup_animations: list[StartupAnimation]               = []
 
-        self._closing: bool    = False
+        self._closing: bool = False
+
         self._modal_depth: int = 0
 
         self._turn_progress_active: bool = False
@@ -244,6 +246,7 @@ class TuiRuntime(object):
                 lambda: self.screen.end_synchronized_output()
             ),
             settle_canvas_height=self._settle_scrollback_layout,
+            report_error=self._report_display_error,
             invalidate=self.invalidate,
         )
 
@@ -442,8 +445,50 @@ class TuiRuntime(object):
         ):
             if session_task is task:
                 self._background_session_tasks.pop(session_id, None)
-        if not task.cancelled():
-            task.exception()
+        if task.cancelled():
+            return None
+
+        error = task.exception()
+        if error is not None:
+            self._fail_application(error)
+
+    def _report_display_error(self, error: BaseException) -> None:
+        """把可恢复的终端展示错误追加为稳定提示。"""
+        if self._closing:
+            return None
+
+        error_type = type(error).__name__
+        detail = sanitize_terminal_line(str(error))
+
+        description = error_type if not detail else f"{error_type}: {detail}"
+        self.queue_background_block(failure_text_block(
+            f"Display refresh failed: {description}"[:280]
+        ))
+
+    def _fail_application(self, error: BaseException) -> None:
+        """记录首个致命异步错误并结束当前输入应用。"""
+        if self._closing or self._application_error is not None:
+            return None
+
+        self._application_error = error
+        application = self.screen.application
+        if not application.is_running or application.is_done:
+            self.submissions.finish_input()
+            return None
+
+        application.exit(exception=error)
+
+    def _handle_event_loop_exception(
+        self,
+        _loop: asyncio.AbstractEventLoop,
+        context: dict[str, typing.Any],
+    ) -> None:
+        """把应用运行期间的事件循环异常收束到单一终止边界。"""
+        error = context.get("exception")
+        if not isinstance(error, BaseException):
+            message = str(context.get("message") or "Event loop callback failed")
+            error = RuntimeError(message)
+        self._fail_application(error)
 
     def _can_backtrack_history(self) -> bool:
         """返回主输入区是否可以开始历史编辑选择。"""
@@ -1471,6 +1516,10 @@ class TuiRuntime(object):
     async def _run_application(self) -> None:
         """运行输入应用并传播终端结束状态。"""
         application = self.screen.application
+        loop = asyncio.get_running_loop()
+        previous_exception_handler = loop.get_exception_handler()
+        exception_handler = self._handle_event_loop_exception
+        loop.set_exception_handler(exception_handler)
         try:
             with create_app_session(
                 input=application.input,
@@ -1478,11 +1527,14 @@ class TuiRuntime(object):
             ):
                 with patch_stdout(raw=True):
                     await application.run_async(
-                        pre_run=lambda: clear_pending_input(application.input)
+                        pre_run=lambda: clear_pending_input(application.input),
+                        set_exception_handler=False,
                     )
         except (EOFError, KeyboardInterrupt) as exc:
             self._application_error = exc
         finally:
+            if loop.get_exception_handler() is exception_handler:
+                loop.set_exception_handler(previous_exception_handler)
             if not self._closing:
                 self.submissions.finish_input()
 

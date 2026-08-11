@@ -4,6 +4,7 @@
 import typing
 import asyncio
 import contextlib
+from functools import partial
 from dataclasses import dataclass
 from prompt_toolkit.application import (
     Application,
@@ -66,6 +67,7 @@ class TuiTranscriptViewport(object):
         begin_synchronized_output: typing.Callable[[], bool],
         end_synchronized_output: typing.Callable[[], None],
         settle_canvas_height: typing.Callable[[], None],
+        report_error: typing.Callable[[BaseException], None],
         invalidate: typing.Callable[[], None],
         scrollback_reflow_line_limit: int = (
             DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
@@ -73,10 +75,10 @@ class TuiTranscriptViewport(object):
     ) -> None:
         self.document = document
 
-        self._is_application_active        = is_application_active
-        self._is_scrollback_deferred       = is_scrollback_deferred
+        self._is_application_active         = is_application_active
+        self._is_scrollback_deferred        = is_scrollback_deferred
         self._is_full_screen_overlay_active = is_full_screen_overlay_active
-        self._is_closing                   = is_closing
+        self._is_closing                    = is_closing
 
         self._get_application          = get_application
         self._get_terminal_geometry    = get_terminal_geometry
@@ -93,6 +95,7 @@ class TuiTranscriptViewport(object):
         self._begin_synchronized_output = begin_synchronized_output
         self._end_synchronized_output   = end_synchronized_output
         self._settle_canvas_height      = settle_canvas_height
+        self._report_error              = report_error
 
         self._invalidate = invalidate
 
@@ -114,6 +117,8 @@ class TuiTranscriptViewport(object):
         self._reflow_required: bool      = False
         self._resize_during_stream: bool = False
 
+        self._failed_scrollback_generation: int | None = None
+
         self._rendered_revision: int = 0
 
         self._scrollback_render_revision: int | None                = None
@@ -121,7 +126,8 @@ class TuiTranscriptViewport(object):
         self._scrollback_recheck_handle: asyncio.TimerHandle | None = None
         self._stream_scrollback_handle: asyncio.TimerHandle | None  = None
         self._scrollback_reflow_task: asyncio.Task[None] | None     = None
-        self._reflow_reschedule_after_task: bool                    = False
+
+        self._reflow_reschedule_after_task: bool = False
 
     @property
     def scrollback_task(self) -> asyncio.Task[None] | None:
@@ -152,6 +158,8 @@ class TuiTranscriptViewport(object):
             self._reflowed_geometry = self._observed_geometry
             self._reflow_required = False
             return None
+        if self._scrollback_generation_failed():
+            return None
 
         target_geometry = self._observed_geometry
         if target_geometry is None:
@@ -176,6 +184,9 @@ class TuiTranscriptViewport(object):
 
     def _scrollback_reflow_pending(self) -> bool:
         """判断观测尺寸是否尚未应用到原生滚屏。"""
+        if self._scrollback_generation_failed():
+            return False
+
         return bool(
             self._reflow_required
             or self._scrollback_reflow_handle is not None
@@ -213,6 +224,11 @@ class TuiTranscriptViewport(object):
     ) -> None:
         """为稳定尺寸启动唯一的原生滚屏重排任务。"""
         self._scrollback_reflow_handle = None
+        if (
+            generation != self._reflow_generation
+            or self._scrollback_generation_failed()
+        ):
+            return None
 
         task = self._scrollback_reflow_task
         if task is not None and not task.done():
@@ -224,30 +240,37 @@ class TuiTranscriptViewport(object):
         if context is None:
             return None
 
-        self._scrollback_reflow_task = asyncio.create_task(
+        task = asyncio.create_task(
             self._reflow_scrollback(target_geometry, generation),
             name="tui scrollback resize reflow",
             context=context.copy(),
         )
-        self._scrollback_reflow_task.add_done_callback(
-            self._scrollback_reflow_done
+        self._scrollback_reflow_task = task
+        task.add_done_callback(
+            partial(self._scrollback_reflow_done, generation=generation)
         )
 
-    def _scrollback_reflow_done(self, task: asyncio.Task[None]) -> None:
+    def _scrollback_reflow_done(
+        self,
+        task: asyncio.Task[None],
+        *,
+        generation: int
+    ) -> None:
         """回收尺寸重排任务并继续处理仍待应用的最终尺寸。"""
         if self._scrollback_reflow_task is task:
             self._scrollback_reflow_task = None
 
+        error: BaseException | None = None
         try:
             task.result()
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            asyncio.get_running_loop().call_exception_handler({
-                "message": "TUI scrollback resize reflow failed",
-                "exception": exc,
-                "task": task,
-            })
+            error = exc
+
+        if error is not None and generation == self._reflow_generation:
+            self._block_scrollback_generation(generation, error)
+            return None
 
         reschedule = self._reflow_reschedule_after_task
         self._reflow_reschedule_after_task = False
@@ -262,15 +285,39 @@ class TuiTranscriptViewport(object):
 
     def _complete_scrollback_reflow(
         self,
-        target_geometry: tuple[int, int],
+        target_geometry: tuple[int, int]
     ) -> None:
         """提交一次尺寸重排状态。"""
         self._reflowed_geometry = target_geometry
         self._reflow_required   = False
 
+        self._failed_scrollback_generation = None
+
+    def _scrollback_generation_failed(self) -> bool:
+        """判断当前尺寸代是否已经停止原生滚屏提交。"""
+        return self._failed_scrollback_generation == self._reflow_generation
+
+    def _block_scrollback_generation(
+        self,
+        generation: int,
+        error: BaseException
+    ) -> None:
+        """停止失败尺寸代的原生滚屏任务并报告一次错误。"""
+        if generation != self._reflow_generation:
+            return None
+
+        already_failed = self._scrollback_generation_failed()
+        self._failed_scrollback_generation = generation
+        self._reflow_reschedule_after_task = False
+        self._cancel_scrollback_reflow()
+        self._cancel_stream_scrollback()
+
+        if not already_failed and not self._is_closing():
+            self._report_error(error)
+
     def _schedule_scrollback_recheck(
         self,
-        target_geometry: tuple[int, int],
+        target_geometry: tuple[int, int]
     ) -> None:
         """在一次重排后延迟复查终端最终尺寸。"""
         self._cancel_scrollback_recheck()
@@ -465,6 +512,9 @@ class TuiTranscriptViewport(object):
         ):
             return False
 
+        if self._scrollback_generation_failed():
+            return False
+
         if self._scrollback_reflow_pending():
             if self._scrollback_reflow_handle is None:
                 self._schedule_scrollback_reflow(delay=0)
@@ -558,11 +608,31 @@ class TuiTranscriptViewport(object):
             return None
 
         self._scrollback_render_revision = None
-        self._scrollback_task = asyncio.create_task(
+
+        task = asyncio.create_task(
             self._flush_scrollback(candidate),
             name="tui scrollback flush",
             context=context.copy(),
         )
+        self._scrollback_task = task
+        task.add_done_callback(partial(
+            self._scrollback_flush_done,
+            generation=candidate.reflow_generation,
+        ))
+
+    def _scrollback_flush_done(
+        self,
+        task: asyncio.Task[None],
+        *,
+        generation: int
+    ) -> None:
+        """回收原生滚屏提交任务并停止失败的尺寸代。"""
+        if task.cancelled():
+            return None
+
+        error = task.exception()
+        if error is not None:
+            self._block_scrollback_generation(generation, error)
 
     def _require_stable_render(self) -> None:
         """记录包含最新稳定正文的下一次应用渲染。"""
@@ -648,12 +718,16 @@ class TuiTranscriptViewport(object):
             return None
 
         self._cancel_scrollback_recheck()
+
         self._observed_geometry = current
         if self._reflowed_geometry is None:
             self._reflowed_geometry = current
             return None
 
         self._reflow_generation += 1
+
+        self._failed_scrollback_generation = None
+
         if current == self._reflowed_geometry:
             self._cancel_scrollback_reflow()
             self._reflow_required = False
@@ -672,6 +746,7 @@ class TuiTranscriptViewport(object):
             return None
 
         self._reflow_generation += 1
+        self._failed_scrollback_generation = None
         self._reflow_required = True
         self._schedule_scrollback_reflow(delay=0)
 
@@ -781,6 +856,7 @@ class TuiTranscriptViewport(object):
         current_task = asyncio.current_task()
 
         reschedule: bool = False
+        failed: bool     = False
 
         try:
             if not self._scrollback_candidate_still_valid(candidate):
@@ -833,15 +909,19 @@ class TuiTranscriptViewport(object):
             reschedule = True
             raise
 
-        except (EOFError, OSError, RuntimeError):
-            return None
+        except BaseException:
+            failed = True
+            raise
 
         finally:
             if self._scrollback_task is current_task:
                 self._scrollback_task = None
                 if (
-                    reschedule
-                    or self._scrollback_render_revision is not None
+                    not failed
+                    and (
+                        reschedule
+                        or self._scrollback_render_revision is not None
+                    )
                 ):
                     self.schedule_scrollback_flush()
             self._invalidate()
@@ -995,9 +1075,9 @@ class TuiTranscriptViewport(object):
         for task in tasks:
             if not task.done():
                 task.cancel()
-        for task in tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == '__main__':
