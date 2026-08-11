@@ -1423,6 +1423,11 @@ class TuiScreen(object):
                 self._inline_layout.cancel_input_growth()
 
             natural_height = self._natural_visible_height()
+            self._inline_layout.observe_auxiliary_layout(
+                height=self._input_auxiliary_height(),
+                queued_height=self._queued_height(),
+                natural_height=natural_height,
+            )
 
             if folded_paste:
                 self._inline_layout.cap_canvas_height(natural_height)
@@ -1476,6 +1481,7 @@ class TuiScreen(object):
             self._inline_reply_handoff_growth_active()
             or self._inline_assistant_growth_active()
             or self._inline_process_growth_active()
+            or self._inline_auxiliary_growth_active(width=width)
             or self._inline_input_growth_active(width=width)
         ):
             return height
@@ -1729,10 +1735,11 @@ class TuiScreen(object):
         block = self.activity_block
         return list(block.fragments) if block is not None else []
 
-    def _queued_fragments(self) -> FormattedText:
+    def _queued_fragments(self, *, width: int | None = None) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
         pending_active = self.pending_steers.active
         queued_active  = self.queued_messages.active
+        render_width = self.terminal_width if width is None else max(1, width)
 
         if pending_active and queued_active:
             pending_rows = 3
@@ -1742,11 +1749,11 @@ class TuiScreen(object):
             queued_rows  = self.QUEUED_MAX_HEIGHT
 
         pending = self.pending_steers.fragments(
-            width=self.terminal_width,
+            width=render_width,
             max_rows=pending_rows,
         )
         queued = self.queued_messages.fragments(
-            width=self.terminal_width,
+            width=render_width,
             max_rows=queued_rows,
             edit_binding=self._queued_message_edit_binding,
         )
@@ -1756,7 +1763,7 @@ class TuiScreen(object):
         else:
             fragments = pending or queued
 
-        if fragments and self._activity_queue_gap_visible():
+        if fragments and self._activity_queue_gap_visible(width=render_width):
             return [("", "\n"), *fragments]
         return fragments
 
@@ -2576,29 +2583,31 @@ class TuiScreen(object):
         """返回进程查看器顶部对齐留白的显示高度。"""
         return Dimension.exact(self._process_viewer_top_padding_height())
 
-    def _status_height(self) -> int:
+    def _status_height(self, *, width: int | None = None) -> int:
         """计算动画区域占用行数。"""
         if self.bottom_pane.is_active("approval"):
             return 0
         text = fragments_text(self._status_fragments())
         if not text:
             return 0
-        return min(5, max(1, display_line_count(text, width=self.terminal_width)))
+        render_width = self.terminal_width if width is None else max(1, width)
+        return min(5, max(1, display_line_count(text, width=render_width)))
 
-    def _queued_height(self) -> int:
+    def _queued_height(self, *, width: int | None = None) -> int:
         """计算待提交消息区域占用行数。"""
         if self._transcript_only or self.bottom_pane.is_active("approval"):
             return 0
 
-        text = fragments_text(self._queued_fragments())
+        render_width = self.terminal_width if width is None else max(1, width)
+        text = fragments_text(self._queued_fragments(width=render_width))
         if not text:
             return 0
 
-        rows = display_line_count(text, width=self.terminal_width)
+        rows = display_line_count(text, width=render_width)
 
         max_rows = (
             self.QUEUED_MAX_HEIGHT
-            + int(self._activity_queue_gap_visible())
+            + int(self._activity_queue_gap_visible(width=render_width))
         )
 
         return min(max_rows, max(1, rows))
@@ -2986,13 +2995,13 @@ class TuiScreen(object):
         )
         return max(1, self.terminal_height - reserved_height)
 
-    def _input_auxiliary_height(self) -> int:
+    def _input_auxiliary_height(self, *, width: int | None = None) -> int:
         """返回输入区之外仍需固定展示的辅助区域高度。"""
         return (
-            self._status_height()
+            self._status_height(width=width)
             + self._process_status_height()
-            + self._queued_height()
-            + int(self._transcript_status_gap_visible())
+            + self._queued_height(width=width)
+            + int(self._transcript_status_gap_visible(width=width))
         )
 
     def _input_content_height(self, *, width: int) -> int:
@@ -3218,10 +3227,10 @@ class TuiScreen(object):
             )
         )
 
-    def _activity_queue_gap_visible(self) -> bool:
+    def _activity_queue_gap_visible(self, *, width: int | None = None) -> bool:
         """判断活动状态与待提交消息之间是否保留空行。"""
         return bool(
-            self._status_height()
+            self._status_height(width=width)
             and self._queued_content_visible()
         )
 
@@ -3231,6 +3240,12 @@ class TuiScreen(object):
             self.bottom_pane.input_visible
             and self.process_viewer.input_passthrough
             and self.document.active_kind == "operation"
+        )
+
+    def _inline_auxiliary_growth_active(self, *, width: int) -> bool:
+        """判断正文下方的辅助区域是否需要推动 inline 画布增长。"""
+        return self._inline_layout.auxiliary_growth_active(
+            self._input_auxiliary_height(width=width)
         )
 
     def _inline_input_growth_active(self, *, width: int) -> bool:
@@ -3264,12 +3279,19 @@ class TuiScreen(object):
             and self.document.active_kind == "assistant"
         )
 
-    def _transcript_status_gap_visible(self) -> bool:
+    def _transcript_status_gap_visible(
+        self,
+        *,
+        width: int | None = None,
+    ) -> bool:
         """判断正文与活动状态之间是否保留空行。"""
         return bool(
             self.document.has_visible_content
             and self.document.visible_tail_kind != "user"
-            and (self._status_height() or self._process_status_height())
+            and (
+                self._status_height(width=width)
+                or self._process_status_height()
+            )
             and not self.bottom_pane.is_active("menu")
         )
 

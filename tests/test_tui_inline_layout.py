@@ -3,6 +3,49 @@
 from mind_app.tui.core.inline_layout import InlineLayoutState
 
 
+def test_auxiliary_growth_is_reported_only_above_observed_height() -> None:
+    state = InlineLayoutState(canvas_height_floor=7)
+
+    assert state.auxiliary_growth_active(3)
+
+    state.observe_auxiliary_layout(
+        height=3,
+        queued_height=3,
+        natural_height=10,
+    )
+
+    assert state.auxiliary_height == 3
+    assert state.queued_height == 3
+    assert not state.auxiliary_growth_active(3)
+    assert state.auxiliary_growth_active(4)
+
+
+def test_queue_reduction_caps_canvas_without_settling_activity_height() -> None:
+    state = InlineLayoutState(
+        canvas_height_floor=13,
+        auxiliary_height=6,
+        queued_height=3,
+    )
+
+    state.observe_auxiliary_layout(
+        height=4,
+        queued_height=3,
+        natural_height=10,
+    )
+    assert state.canvas_height_floor == 13
+
+    state.observe_auxiliary_layout(
+        height=1,
+        queued_height=0,
+        natural_height=7,
+    )
+    assert state.canvas_height_floor == 7
+
+    state.reset()
+    assert state.auxiliary_height == 0
+    assert state.queued_height == 0
+
+
 def test_single_line_input_does_not_start_growth_settlement() -> None:
     state = InlineLayoutState(canvas_height_floor=8)
 

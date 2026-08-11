@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+
 class BottomAnchorState(object):
     """保存底部区域的占位、增长基线和释放状态。"""
 
@@ -21,12 +22,12 @@ class BottomAnchorState(object):
     release_active: bool
 
     def __init__(self) -> None:
-        self.footprint_height = 0
-        self.completion_visible = False
+        self.footprint_height     = 0
+        self.completion_visible   = False
         self.stable_line_baseline = 0
         self.live_height_baseline = 0
-        self.consumed_height = 0
-        self.release_active = False
+        self.consumed_height      = 0
+        self.release_active       = False
 
     def frame_key(self) -> tuple[int | bool, ...]:
         """返回影响底部释放空间的状态键。"""
@@ -46,15 +47,15 @@ class BottomAnchorState(object):
         completion_visible: bool,
         stable_line_baseline: int,
         live_height_baseline: int,
-        release_active: bool = False,
+        release_active: bool = False
     ) -> None:
         """建立新的底部占位和正文增长基线。"""
-        self.footprint_height = max(0, footprint_height)
-        self.completion_visible = completion_visible
+        self.footprint_height     = max(0, footprint_height)
+        self.completion_visible   = completion_visible
         self.stable_line_baseline = max(0, stable_line_baseline)
         self.live_height_baseline = max(0, live_height_baseline)
-        self.consumed_height = 0
-        self.release_active = release_active
+        self.consumed_height      = 0
+        self.release_active       = release_active
 
     def preserve_footprint(self, minimum_height: int) -> None:
         """保留不小于指定值的底部占位高度。"""
@@ -74,14 +75,14 @@ class BottomAnchorState(object):
         self,
         *,
         stable_line_baseline: int,
-        live_height_baseline: int,
+        live_height_baseline: int
     ) -> None:
         """从临时区域关闭时的正文位置开始消费底部占位。"""
-        self.completion_visible = False
+        self.completion_visible   = False
         self.stable_line_baseline = max(0, stable_line_baseline)
         self.live_height_baseline = max(0, live_height_baseline)
-        self.consumed_height = 0
-        self.release_active = True
+        self.consumed_height      = 0
+        self.release_active       = True
 
     def clamp(self, maximum_height: int) -> None:
         """把占位及已消费高度限制在终端可用范围内。"""
@@ -106,12 +107,12 @@ class BottomAnchorState(object):
 
     def clear(self) -> None:
         """清除底部占位和正文增长基线。"""
-        self.footprint_height = 0
-        self.completion_visible = False
+        self.footprint_height     = 0
+        self.completion_visible   = False
         self.stable_line_baseline = 0
         self.live_height_baseline = 0
-        self.consumed_height = 0
-        self.release_active = False
+        self.consumed_height      = 0
+        self.release_active       = False
 
 
 class InlineLayoutState(object):
@@ -120,6 +121,8 @@ class InlineLayoutState(object):
     __slots__ = (
         "canvas_height_floor",
         "input_growth_baseline",
+        "auxiliary_height",
+        "queued_height",
         "bottom_anchor",
         "input_anchor",
         "input_canvas_saturated",
@@ -127,6 +130,8 @@ class InlineLayoutState(object):
 
     canvas_height_floor: int
     input_growth_baseline: int | None
+    auxiliary_height: int
+    queued_height: int
     bottom_anchor: BottomAnchorState
     input_anchor: BottomAnchorState
     input_canvas_saturated: bool
@@ -135,18 +140,25 @@ class InlineLayoutState(object):
         self,
         canvas_height_floor: int = 0,
         input_growth_baseline: int | None = None,
+        auxiliary_height: int = 0,
+        queued_height: int = 0,
         bottom_anchor: BottomAnchorState | None = None,
         input_anchor: BottomAnchorState | None = None,
-        input_canvas_saturated: bool = False,
+        input_canvas_saturated: bool = False
     ) -> None:
-        self.canvas_height_floor = canvas_height_floor
+        self.canvas_height_floor   = canvas_height_floor
         self.input_growth_baseline = input_growth_baseline
+        self.auxiliary_height      = max(0, auxiliary_height)
+        self.queued_height         = max(0, queued_height)
+
         self.bottom_anchor = (
             bottom_anchor if bottom_anchor is not None else BottomAnchorState()
         )
+
         self.input_anchor = (
             input_anchor if input_anchor is not None else BottomAnchorState()
         )
+
         self.input_canvas_saturated = input_canvas_saturated
 
     @property
@@ -159,10 +171,33 @@ class InlineLayoutState(object):
         return (
             self.canvas_height_floor,
             self.input_growth_baseline,
+            self.auxiliary_height,
+            self.queued_height,
             self.input_canvas_saturated,
             *self.bottom_anchor.frame_key(),
             *self.input_anchor.frame_key(),
         )
+
+    def auxiliary_growth_active(self, height: int) -> bool:
+        """判断正文下方的辅助区域是否正在增高。"""
+        return max(0, int(height)) > self.auxiliary_height
+
+    def observe_auxiliary_layout(
+        self,
+        *,
+        height: int,
+        queued_height: int,
+        natural_height: int,
+    ) -> None:
+        """记录辅助区域高度，并在队列收缩时降低画布下限。"""
+        height = max(0, int(height))
+
+        queued_height = max(0, int(queued_height))
+        if queued_height < self.queued_height:
+            self.cap_canvas_height(natural_height)
+
+        self.auxiliary_height = height
+        self.queued_height = queued_height
 
     def observe_input_layout(
         self,
@@ -170,7 +205,7 @@ class InlineLayoutState(object):
         input_height: int,
         footprint_height: int,
         stable_line_baseline: int,
-        live_height_baseline: int,
+        live_height_baseline: int
     ) -> None:
         """记录多行输入增长前的画布和输入区峰值。"""
         if input_height > 1 and self.input_growth_baseline is None:
@@ -224,7 +259,7 @@ class InlineLayoutState(object):
         self,
         *,
         natural_height: int,
-        available_height: int,
+        available_height: int
     ) -> int:
         """按自然高度、既有下限和可用高度确定画布高度。"""
         available_height = max(1, int(available_height))
@@ -248,7 +283,7 @@ class InlineLayoutState(object):
         self,
         minimum_height: int,
         *,
-        available_height: int,
+        available_height: int
     ) -> None:
         """在可用范围内保留不低于指定值的画布高度。"""
         available_height = max(1, int(available_height))
@@ -278,15 +313,23 @@ class InlineLayoutState(object):
     def reset(self) -> None:
         """清除画布高度、输入增长基线和底部锚点。"""
         self.canvas_height_floor = 0
+        self.auxiliary_height    = 0
+        self.queued_height       = 0
+
         self.bottom_anchor.clear()
         self.cancel_input_growth()
 
     def cancel_input_growth(self) -> None:
         """取消输入增长周期及其底部释放空间。"""
-        self.input_growth_baseline = None
+        self.input_growth_baseline  = None
         self.input_canvas_saturated = False
+
         self.input_anchor.clear()
 
     def release_empty_input(self) -> None:
         """在输入为空时清除输入增长基线。"""
         self.input_growth_baseline = None
+
+
+if __name__ == '__main__':
+    pass

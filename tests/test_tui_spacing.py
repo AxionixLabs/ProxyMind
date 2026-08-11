@@ -5445,6 +5445,82 @@ async def test_consecutive_multiline_queue_submissions_do_not_leave_top_spacer(
 
 
 @pytest.mark.anyio
+async def test_single_line_queues_grow_scrolled_canvas_without_clipping_top(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=24,
+            available_rows=24,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+            await _wait_for_scrollback_settlement(runtime)
+            initial = await _render_next_frame(runtime)
+            initial_rows_above = (
+                runtime.screen.application.renderer.rows_above_layout
+            )
+            initial_top_row = _first_nonblank_screen_row(initial)
+
+            runtime.set_execution_active(True)
+            submissions = []
+
+            def track_pending(submission, queue_only) -> bool:
+                submissions.append(submission)
+                if queue_only:
+                    runtime.defer_submission(submission)
+                else:
+                    runtime.track_pending_steer(submission)
+                return True
+
+            runtime.bind_turn_input_handler(track_pending)
+
+            pipe_input.send_text("follow-up")
+            await _wait_for_input_text(runtime, "follow-up")
+            pipe_input.send_text("\t")
+            await _wait_for_input_text(runtime, "")
+            follow_up = await _render_next_frame(runtime)
+            follow_up_rows_above = (
+                runtime.screen.application.renderer.rows_above_layout
+            )
+
+            pipe_input.send_text("steer")
+            await _wait_for_input_text(runtime, "steer")
+            pipe_input.send_text("\r")
+            await _wait_for_input_text(runtime, "")
+            steer = await _render_next_frame(runtime)
+            steer_rows_above = (
+                runtime.screen.application.renderer.rows_above_layout
+            )
+
+            assert initial.height < follow_up.height < steer.height
+            assert (
+                initial_rows_above
+                > follow_up_rows_above
+                > steer_rows_above
+            )
+            assert "Finished in 36s" in _rendered_screen_text(follow_up)
+            assert "Finished in 36s" in _rendered_screen_text(steer)
+
+            runtime.resolve_pending_steer(submissions[-1].client_message_id)
+            contracted = await _render_next_frame(runtime)
+            contracted_positions = (
+                contracted.visible_windows_to_write_positions
+            )
+
+            assert runtime.screen._visible_height() < steer.height
+            assert _first_nonblank_screen_row(contracted) <= initial_top_row
+            assert runtime.screen.canvas_spacer not in contracted_positions
+            assert "Finished in 36s" in _rendered_screen_text(contracted)
+        finally:
+            runtime.set_execution_active(False)
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_ctrl_w_shrinking_input_after_scrollback_keeps_top_aligned(
 ) -> None:
     with create_pipe_input() as pipe_input:
