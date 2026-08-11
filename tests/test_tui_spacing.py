@@ -1786,6 +1786,74 @@ async def test_replace_transcript_replays_only_configured_tail() -> None:
 
 
 @pytest.mark.anyio
+async def test_restored_scrollback_expands_canvas_for_slash_completion() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=40,
+            rows=18,
+            available_rows=7,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.configure_scrollback_reflow_line_limit(1)
+        restored = tuple(
+            TranscriptBlock(
+                display_block=_block(f"history {index:02d}"),
+                transcript_block=_block(f"history {index:02d}"),
+                kind="assistant",
+            )
+            for index in range(20)
+        )
+
+        await runtime.open()
+        try:
+            runtime.replace_transcript(restored)
+            await _wait_for_scrollback_settlement(runtime)
+
+            before = await _render_next_frame(runtime)
+            renderer = runtime.screen.application.renderer
+            before_position = before.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+            before_rows_above = renderer.rows_above_layout
+            before_input_row = before_rows_above + before_position.ypos
+
+            assert runtime.document.scrollback_line_count > 0
+            assert before_rows_above > 0
+
+            pipe_input.send_text("/")
+            await _wait_for_input_text(runtime, "/")
+            opened = await _render_next_frame(runtime)
+            opened_position = opened.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+            opened_input_row = renderer.rows_above_layout + opened_position.ypos
+
+            assert runtime.screen._completion_section_height() == (
+                runtime.screen.COMPLETION_MAX_HEIGHT
+            )
+            assert opened.height > before.height
+            assert renderer.rows_above_layout < before_rows_above
+            assert opened_input_row < before_input_row
+
+            runtime.input_model.dismiss_completion_menu(
+                runtime.screen.input.buffer
+            )
+            dismissed = await _render_next_frame(runtime)
+            dismissed_position = dismissed.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+
+            assert runtime.screen._completion_section_height() == 0
+            assert (
+                renderer.rows_above_layout + dismissed_position.ypos
+                == opened_input_row
+            )
+            assert runtime.screen._bottom_release_height() > 0
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_foreground_state_defers_scrollback_until_idle() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

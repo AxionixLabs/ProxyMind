@@ -1497,6 +1497,7 @@ class TuiScreen(object):
             or self._inline_assistant_growth_active()
             or self._inline_process_growth_active()
             or self._inline_auxiliary_growth_active(width=width)
+            or self._inline_completion_growth_active()
             or self._inline_input_growth_active(width=width)
         ):
             return height
@@ -3261,6 +3262,13 @@ class TuiScreen(object):
         """判断正文下方的辅助区域是否需要推动 inline 画布增长。"""
         return self._inline_layout.auxiliary_growth_active(
             self._input_auxiliary_height(width=width)
+        )
+
+    def _inline_completion_growth_active(self) -> bool:
+        """判断补全候选是否允许推动 inline 画布增长。"""
+        return bool(
+            not self._transcript_only
+            and self._completion_visible()
         )
 
     def _inline_input_growth_active(self, *, width: int) -> bool:
