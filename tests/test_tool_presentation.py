@@ -11,7 +11,10 @@ from mind_app.presentation.renderers.tool import (
     render_native_tool_result_view,
     render_tool_start_view,
 )
-from mind_app.presentation.batch_views import build_batch_start_view
+from mind_app.presentation.batch_views import (
+    build_batch_completed_view,
+    build_batch_start_view,
+)
 from mind_app.presentation.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
@@ -65,6 +68,53 @@ def test_batch_start_transcript_keeps_full_nested_arguments() -> None:
     assert command not in display
     assert command in transcript
     assert '"target": "nested-value"' in transcript
+
+
+def test_batch_views_bound_display_and_keep_complete_transcript() -> None:
+    start = build_batch_start_view(
+        (
+            (
+                f"tool_{index}",
+                {
+                    **{f"argument_{item}": item for item in range(5)},
+                    "tail": f"start-tail-{index}",
+                },
+            )
+            for index in range(6)
+        )
+    )
+    completed = build_batch_completed_view(
+        (
+            (
+                f"tool_{index}",
+                True,
+                "\n".join(
+                    f"result-{index}-{line}" for line in range(8)
+                ),
+            )
+            for index in range(6)
+        )
+    )
+
+    start_display = render_presentation_view(start)[0].plain_text
+    start_transcript = render_presentation_transcript_view(start)[0].plain_text
+    completed_display = render_presentation_view(completed)[0].plain_text
+    completed_transcript = render_presentation_transcript_view(
+        completed
+    )[0].plain_text
+
+    assert "tool_3" in start_display
+    assert "tool_4" not in start_display
+    assert "… +2 tools" in start_display
+    assert "… +3 args" in start_display
+    assert "start-tail-5" in start_transcript
+
+    assert "result-0-4" in completed_display
+    assert "result-0-5" not in completed_display
+    assert "… +3 lines" in completed_display
+    assert "tool_4" not in completed_display
+    assert "… +2 tools" in completed_display
+    assert "result-5-7" in completed_transcript
 
 
 def test_tool_start_uses_calling_copy_and_pending_colors() -> None:

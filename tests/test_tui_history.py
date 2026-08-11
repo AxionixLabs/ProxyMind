@@ -385,6 +385,11 @@ def test_history_shell_display_reflows_without_changing_transcript() -> None:
     assert get_cwidth(wide.splitlines()[0]) > get_cwidth(
         narrow.splitlines()[0]
     )
+    assert "output 0" in narrow
+    assert output_lines[-1] not in narrow
+    assert output_lines[-1] not in wide
+    assert "… +3 lines" in narrow
+    assert "… +3 lines" in wide
     assert fragments_text(document.transcript_fragments(width=80)) == transcript
     assert command in transcript
     assert output_lines[-1] in transcript

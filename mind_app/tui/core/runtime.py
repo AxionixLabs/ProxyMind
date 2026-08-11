@@ -381,17 +381,10 @@ class TuiRuntime(object):
 
     def _native_scrollback_deferred(self) -> bool:
         """判断当前运行状态是否禁止提交原生终端滚屏。"""
-        if (
+        return bool(
             self._modal_depth > 0
             or self.foreground_active
             or self.screen.scrollback_interaction_active()
-        ):
-            return True
-        if not self.execution_active:
-            return False
-        return not (
-            self.document.active_kind == "assistant"
-            and self.document.active_stream_continuation
         )
 
     def _settle_scrollback_layout(self) -> None:

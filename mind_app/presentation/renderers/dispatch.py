@@ -23,6 +23,7 @@ from ..models import (
 )
 from .approval import render_approval_view
 from .batch import (
+    render_batch_completed_transcript_view,
     render_batch_completed_view,
     render_batch_start_transcript_view,
     render_batch_start_view
@@ -90,6 +91,8 @@ def render_presentation_transcript_view(
         blocks = render_native_tool_result_transcript_view(view)
     elif isinstance(view, BatchStartView):
         blocks = (render_batch_start_transcript_view(view),)
+    elif isinstance(view, BatchCompletedView):
+        blocks = (render_batch_completed_transcript_view(view),)
     else:
         # Transcript 保存逻辑内容，折行只由具体前端在显示时决定。
         blocks = _render_presentation_view(

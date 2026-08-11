@@ -1025,26 +1025,6 @@ class TuiDocument(object):
             return None
         return line - self.visible_prefix_line_count
 
-    def visible_stable_tail_layout(
-        self,
-    ) -> tuple[int, TuiBlockKind, FormattedText] | None:
-        """返回实时正文最后一个稳定块的位置、类型和展示片段。"""
-        if self.active_block is not None or self._active_tail:
-            return None
-
-        for item in reversed(self.blocks):
-            lines = self._block_lines(item)
-            if not lines:
-                continue
-
-            offset = self.visible_line_offset_for_block(item.display_block)
-            if offset is None:
-                return None
-
-            return offset, item.kind, join_formatted_lines(lines)
-
-        return None
-
     def scrollback_prefix_fragments(self, line_count: int) -> FormattedText:
         """生成下一批待写入终端滚屏区的稳定逻辑行。"""
         start = self.visible_prefix_line_count
@@ -1058,8 +1038,9 @@ class TuiDocument(object):
         maximum_line_count: int
     ) -> int:
         """返回满足目标且不拆分稳定块的滚屏前缀行数。"""
-        start = self.visible_prefix_line_count
+        start    = self.visible_prefix_line_count
         required = max(1, int(required_line_count))
+
         maximum = max(
             0,
             min(

@@ -22,12 +22,14 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.approval.models import ApprovalDecisionValue
+from mind_app.frontend.contracts import ApplicationView
 from mind_core.design.terminal_capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,
-    TerminalKind,
+    TerminalKind
 )
+from mind_nova import const
 from mind_app.interaction.contracts import PromptContext
 from mind_app.output.content import (
     AssistantOutputBoundary,
@@ -36,6 +38,10 @@ from mind_app.output.content import (
     SourcesOutput,
 )
 from mind_app.presentation.approval_views import build_approval_view
+from mind_app.presentation.batch_views import (
+    build_batch_completed_view,
+    build_batch_start_view,
+)
 from mind_app.presentation.lifecycle_views import build_failure_view
 from mind_app.presentation.models import (
     NativeToolResultView,
@@ -49,6 +55,7 @@ from mind_app.presentation.tool_views import (
     build_native_tool_result_view,
     build_tool_start_view,
 )
+from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.adapters.content import TuiContentSink
 from mind_app.tui.adapters import markdown as tui_markdown
 from mind_app.tui.adapters.markdown import (
@@ -1770,11 +1777,7 @@ async def test_replace_transcript_replays_only_configured_tail() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "state_setter",
-    ["set_execution_active", "set_foreground_active"],
-)
-async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
+async def test_foreground_state_defers_scrollback_until_idle() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -1790,8 +1793,7 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
                     "print_text",
                     wraps=runtime.screen.application.print_text,
                 ) as print_text:
-                    set_busy = getattr(runtime, state_setter)
-                    set_busy(True)
+                    runtime.set_foreground_active(True)
                     for index in range(6):
                         runtime.append_block(
                             _block(f"block {index}\n" + "line\n" * 3),
@@ -1802,7 +1804,7 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
                     assert runtime.document.scrollback_line_count == 0
                     assert not print_text.called
 
-                    set_busy(False)
+                    runtime.set_foreground_active(False)
                     await asyncio.sleep(0.02)
 
                 assert len(runtime.document.blocks) == 6
@@ -1819,6 +1821,82 @@ async def test_busy_state_defers_scrollback_until_idle(state_setter) -> None:
                     for _style, text in runtime.document.all_fragments(width=40)
                 )
             finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("block_kind", get_args(TuiBlockKind))
+async def test_execution_pushes_every_stable_block_kind_to_scrollback(
+    block_kind: TuiBlockKind,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=10, columns=40),
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    runtime.set_execution_active(True)
+                    runtime.screen.set_activity_renderable(_block("Thinking"))
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"{block_kind} line {index}" for index in range(30)
+                        )),
+                        kind=block_kind,
+                    )
+                    await _render_next_frame(runtime)
+                    await _wait_for_scrollback_advance(runtime)
+                    screen = await _render_next_frame(runtime)
+
+                printed = "".join(
+                    text
+                    for call_args in print_text.call_args_list
+                    for _style, text in call_args.args[0]
+                )
+                positions = screen.visible_windows_to_write_positions
+                bottom_windows = (
+                    runtime.screen.input_top_padding,
+                    runtime.screen.input.window,
+                    runtime.screen.input_bottom_padding,
+                    runtime.screen.footer_window,
+                )
+                bottom_positions = [
+                    positions[window]
+                    for window in bottom_windows
+                    if window in positions
+                ]
+                status_position = positions[runtime.screen.status_window]
+
+                assert f"{block_kind} line 0" in printed
+                assert f"{block_kind} line 29" in printed
+                assert runtime.document.scrollback_line_count > 0
+                assert runtime.screen.canvas_spacer not in positions
+                assert (
+                    status_position.ypos + status_position.height
+                    <= bottom_positions[0].ypos
+                )
+                assert all(
+                    current.ypos + current.height == following.ypos
+                    for current, following in zip(
+                        bottom_positions,
+                        bottom_positions[1:],
+                    )
+                )
+                assert (
+                    bottom_positions[-1].ypos + bottom_positions[-1].height
+                    <= 10
+                )
+            finally:
+                runtime.screen.clear_activity_renderable()
+                runtime.set_execution_active(False)
                 await runtime.close()
 
 
@@ -2005,7 +2083,7 @@ async def test_scrollback_releases_sync_when_terminal_wait_is_cancelled() -> Non
                     )
                     await asyncio.wait_for(waiting.wait(), timeout=1.0)
 
-                    runtime.set_execution_active(True)
+                    runtime.set_foreground_active(True)
                     await runtime.viewport._cancel_scrollback_task()
 
                 begin.assert_called_once_with()
@@ -2014,6 +2092,7 @@ async def test_scrollback_releases_sync_when_terminal_wait_is_cancelled() -> Non
                 assert events == ["begin", "wait", "end"]
                 assert runtime.document.scrollback_line_count == 0
             finally:
+                runtime.set_foreground_active(False)
                 await runtime.close()
 
 
@@ -3161,11 +3240,8 @@ async def test_single_oversized_block_retires_as_one_complete_block() -> None:
                     await output.append_assistant_delta(source)
                     await output.settle_stream()
                     await output.prepare_external_output()
-
-                    assert not print_text.called
-
-                    runtime.set_execution_active(False)
-                    await asyncio.sleep(0.02)
+                    await _render_next_frame(runtime)
+                    await _wait_for_scrollback_advance(runtime)
 
                 assert print_text.call_count == 1
 
@@ -4079,7 +4155,8 @@ def test_scrollback_reflow_keeps_clear_boundary_and_caps_replay() -> None:
 
 
 @pytest.mark.anyio
-async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
+async def test_queued_scrollback_rechecks_foreground_state_before_flushing(
+) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -4090,7 +4167,7 @@ async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
         ):
             await runtime.open()
             try:
-                runtime.set_execution_active(True)
+                runtime.set_foreground_active(True)
                 render_count = runtime.screen.application.render_counter
                 for index in range(6):
                     runtime.append_block(
@@ -4103,15 +4180,15 @@ async def test_queued_scrollback_rechecks_busy_state_before_flushing() -> None:
                     if runtime.screen.application.render_counter > render_count:
                         break
 
-                runtime.set_execution_active(False)
+                runtime.set_foreground_active(False)
                 assert runtime.viewport.scrollback_task is not None
-                runtime.set_execution_active(True)
+                runtime.set_foreground_active(True)
 
                 await asyncio.sleep(0.02)
 
                 assert runtime.document.scrollback_line_count == 0
 
-                runtime.set_execution_active(False)
+                runtime.set_foreground_active(False)
                 await asyncio.sleep(0.02)
 
                 assert runtime.document.scrollback_line_count > 0
@@ -5544,6 +5621,7 @@ async def test_multiline_clear_discards_stale_floor_after_oversized_stream(
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
+        presentation = TuiPresentationSink(output)
 
         with patch.object(
             runtime.screen.application.output,
@@ -5561,8 +5639,54 @@ async def test_multiline_clear_discards_stale_floor_after_oversized_stream(
 
                 await _wait_for_scrollback_advance(runtime)
                 runtime.screen.set_activity_renderable(_block("Thinking"))
+                await presentation.emit(build_native_tool_result_view(
+                    "js_repl",
+                    {"code": "const value = 1;"},
+                    ok=True,
+                    data={
+                        "output": "\n".join(
+                            f"tool output {index}" for index in range(30)
+                        ),
+                    },
+                    call_id="input-clear-tool",
+                ))
                 await _render_next_frame(runtime)
-                assert runtime.screen._visible_height() == 16
+                await _wait_for_scrollback_settlement(runtime)
+                settled_screen = await _render_next_frame(runtime)
+                settled_height = runtime.screen._visible_height()
+                settled_positions = (
+                    settled_screen.visible_windows_to_write_positions
+                )
+                settled_footer = settled_positions[
+                    runtime.screen.footer_window
+                ]
+
+                assert settled_height == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert (
+                    settled_footer.ypos + settled_footer.height
+                    == settled_height
+                )
+                assert runtime.screen.canvas_spacer not in settled_positions
+                assert "tool output 29" not in _document_text(runtime.document)
+                assert "tool output 29" in _transcript_text(runtime.document)
+
+                runtime.screen.clear_activity_renderable()
+                idle_screen = await _render_next_frame(runtime)
+                idle_height = runtime.screen._visible_height()
+                idle_natural_height = runtime.screen._natural_visible_height()
+                idle_positions = idle_screen.visible_windows_to_write_positions
+                idle_footer = idle_positions[runtime.screen.footer_window]
+
+                assert idle_height == settled_height
+                assert idle_natural_height < idle_height
+                assert idle_footer.ypos + idle_footer.height == idle_height
+                idle_spacer = idle_positions[runtime.screen.canvas_spacer]
+                assert idle_spacer.height == idle_height - idle_natural_height
+
+                runtime.screen.set_activity_renderable(_block("Thinking"))
+                await _render_next_frame(runtime)
 
                 pasted = "\n".join(f"draft {index}" for index in range(8))
                 buffer = runtime.screen.input.buffer
@@ -5597,6 +5721,7 @@ async def test_multiline_clear_discards_stale_floor_after_oversized_stream(
                 assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
+                assert runtime.screen._visible_height() == idle_natural_height
                 assert runtime.screen.canvas_spacer not in positions
             finally:
                 runtime.screen.clear_activity_renderable()
@@ -7831,6 +7956,360 @@ async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
     assert _document_text(runtime.document).count("\n\n") == 2
 
 
+def _oversized_patch_text() -> str:
+    return "\n".join((
+        "*** Begin Patch",
+        "*** Update File: sample.py",
+        "@@ -1 +1,31 @@",
+        "-old value",
+        *(f"+new value {index}" for index in range(30)),
+        "+patch-final-token",
+        "*** End Patch",
+    ))
+
+
+@pytest.mark.anyio
+async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (32, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    patch_text = _oversized_patch_text()
+    views_and_hidden_markers = (
+        (build_tool_start_view(
+            "remote_tool",
+            {
+                **{f"argument_{index}": index for index in range(8)},
+                "nested": {"value": "generic-start-final-token"},
+            },
+        ), "generic-start-final-token"),
+        (build_generic_tool_result_view(
+            "remote_tool",
+            "\n".join(f"generic result {index}" for index in range(12)),
+            ok=True,
+        ), "generic result 11"),
+        (build_tool_start_view(
+            "shell_command",
+            {"command": "printf " + "value-" * 40 + "shell-final-token"},
+        ), "shell-final-token"),
+        (build_native_tool_result_view(
+            "shell_command",
+            {"command": "printf output"},
+            ok=True,
+            data={
+                "command": "printf output",
+                "output_lines": [
+                    f"shell output {index}" for index in range(12)
+                ],
+            },
+        ), "shell output 11"),
+        (build_native_tool_result_view(
+            "exec_command",
+            {"command": "run background"},
+            ok=True,
+            data={
+                "command": "run background",
+                "status": "running",
+                "output_lines": [
+                    f"exec output {index}" for index in range(12)
+                ],
+            },
+        ), "exec output 11"),
+        (build_native_tool_result_view(
+            "write_stdin",
+            {"session_id": "session-1", "chars": "input"},
+            ok=True,
+            data={
+                "output_lines": [
+                    f"stdin output {index}" for index in range(12)
+                ],
+            },
+        ), "stdin output 11"),
+        (build_tool_start_view(
+            "apply_patch",
+            {"patch": patch_text},
+        ), "patch-final-token"),
+        (build_native_tool_result_view(
+            "apply_patch",
+            {"patch": patch_text},
+            ok=True,
+            data={"output": "Done!"},
+        ), "patch-final-token"),
+        (build_tool_start_view(
+            "js_repl",
+            {"code": "\n".join(
+                f"const value{index} = {index};" for index in range(30)
+            )},
+        ), "const value29 = 29;"),
+        (build_native_tool_result_view(
+            "js_repl",
+            {"code": "const value = 1;"},
+            ok=True,
+            data={
+                "output": "\n".join(
+                    f"javascript output {index}" for index in range(30)
+                ),
+            },
+        ), "javascript output 29"),
+        (build_batch_start_view((
+            ("remote_tool", {
+                **{f"argument_{index}": index for index in range(8)},
+                "nested": {"value": "batch-start-final-token"},
+            }),
+        )), "batch-start-final-token"),
+        (build_batch_completed_view((
+            (
+                "remote_tool",
+                True,
+                "\n".join(f"batch output {index}" for index in range(12)),
+            ),
+        )), "batch output 11"),
+    )
+
+    for view, _marker in views_and_hidden_markers:
+        await presentation.emit(view)
+
+    display = _document_text(runtime.document)
+    transcript = _transcript_text(runtime.document)
+
+    assert all(
+        marker not in display
+        for _view, marker in views_and_hidden_markers
+    )
+    assert all(
+        marker in transcript
+        for _view, marker in views_and_hidden_markers
+    )
+    assert "… +" in display
+    assert "to view transcript" in display
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("rows", "columns"),
+    ((8, 20), (12, 40), (24, 80)),
+)
+@pytest.mark.parametrize(
+    ("view", "visible_marker", "hidden_marker", "omission_marker"),
+    (
+        (
+            build_generic_tool_result_view(
+                "remote_tool",
+                "\n".join(f"generic result {index}" for index in range(20)),
+                ok=True,
+            ),
+            "generic result 0",
+            "generic result 19",
+            "… +15 lines",
+        ),
+        (
+            build_native_tool_result_view(
+                "shell_command",
+                {"command": "printf output"},
+                ok=True,
+                data={
+                    "command": "printf output",
+                    "output_lines": [
+                        f"shell output {index}" for index in range(20)
+                    ],
+                },
+            ),
+            "shell output 0",
+            "shell output 19",
+            "… +15 lines",
+        ),
+        (
+            build_native_tool_result_view(
+                "apply_patch",
+                {"patch": _oversized_patch_text()},
+                ok=True,
+                data={"output": "Done!"},
+            ),
+            "new value 0",
+            "patch-final-token",
+            "… +",
+        ),
+        (
+            build_tool_start_view(
+                "js_repl",
+                {"code": "\n".join(
+                    f"const value{index} = {index};" for index in range(30)
+                )},
+            ),
+            "const value0 = 0;",
+            "const value29 = 29;",
+            "… +12 lines",
+        ),
+        (
+            build_native_tool_result_view(
+                "js_repl",
+                {"code": "const value = 1;"},
+                ok=True,
+                data={
+                    "output": "\n".join(
+                        f"javascript output {index}" for index in range(30)
+                    ),
+                },
+            ),
+            "javascript output 0",
+            "javascript output 29",
+            "… +25 lines",
+        ),
+        (
+            build_batch_start_view(
+                (
+                    (
+                        f"batch_tool_{index}",
+                        {
+                            **{
+                                f"argument_{item}": item
+                                for item in range(5)
+                            },
+                            "tail": f"batch-start-tail-{index}",
+                        },
+                    )
+                    for index in range(6)
+                )
+            ),
+            "batch_tool_0",
+            "batch-start-tail-5",
+            "… +2 tools",
+        ),
+        (
+            build_batch_completed_view(
+                (
+                    (
+                        f"batch_tool_{index}",
+                        True,
+                        "\n".join(
+                            f"batch result {index}-{line}"
+                            for line in range(8)
+                        ),
+                    )
+                    for index in range(6)
+                )
+            ),
+            "batch result 0-0",
+            "batch result 5-7",
+            "… +2 tools",
+        ),
+    ),
+    ids=(
+        "generic-result",
+        "shell-result",
+        "patch-result",
+        "javascript-start",
+        "javascript-result",
+        "batch-start",
+        "batch-result",
+    ),
+)
+async def test_bounded_tool_blocks_keep_real_terminal_layout_stable(
+    rows: int,
+    columns: int,
+    view,
+    visible_marker: str,
+    hidden_marker: str,
+    omission_marker: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        presentation = TuiPresentationSink(output)
+        application = TuiApplicationSink(runtime)
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=rows, columns=columns),
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    application.emit(ApplicationView(type="intro"))
+                    runtime.append_submitted_query(
+                        "exercise bounded tool layout",
+                        "turn-tool-layout",
+                    )
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"assistant line {index}" for index in range(24)
+                        )),
+                        kind="assistant",
+                    )
+                    runtime.set_execution_active(True)
+                    runtime.screen.set_activity_renderable(_block("Thinking"))
+                    await _render_next_frame(runtime)
+                    await _wait_for_scrollback_advance(runtime)
+
+                    await presentation.emit(view)
+                    await _render_next_frame(runtime)
+                    await _wait_for_scrollback_settlement(runtime)
+                    screen = await _render_next_frame(runtime)
+
+                printed = "".join(
+                    text
+                    for call_args in print_text.call_args_list
+                    for _style, text in call_args.args[0]
+                )
+                visible = f"{printed}\n{_rendered_screen_text(screen)}"
+                transcript = _transcript_text(runtime.document)
+                positions = screen.visible_windows_to_write_positions
+                bottom_windows = (
+                    runtime.screen.input_top_padding,
+                    runtime.screen.input.window,
+                    runtime.screen.input_bottom_padding,
+                    runtime.screen.footer_window,
+                )
+                bottom_positions = [
+                    positions[window]
+                    for window in bottom_windows
+                    if window in positions
+                ]
+                status_position = positions[runtime.screen.status_window]
+
+                assert f">_ {const.APP_DESC}" in printed
+                assert "exercise bounded tool layout" in printed
+                assert "assistant line 0" in printed
+                assert "assistant line 23" in printed
+                assert visible_marker in visible
+                assert hidden_marker not in visible
+                assert hidden_marker in transcript
+                assert omission_marker in visible
+                assert runtime.document.scrollback_line_count > 0
+                assert runtime.screen.canvas_spacer not in positions
+                assert (
+                    status_position.ypos + status_position.height
+                    <= bottom_positions[0].ypos
+                )
+                assert all(
+                    current.ypos + current.height == following.ypos
+                    for current, following in zip(
+                        bottom_positions,
+                        bottom_positions[1:],
+                    )
+                )
+                assert (
+                    bottom_positions[-1].ypos
+                    + bottom_positions[-1].height
+                    <= rows
+                )
+                assert all(
+                    0 <= row < rows
+                    and all(0 <= column < columns for column in cells)
+                    for row, cells in screen.data_buffer.items()
+                )
+            finally:
+                runtime.screen.clear_activity_renderable()
+                runtime.set_execution_active(False)
+                await output.stop()
+                await runtime.close()
+
+
 @pytest.mark.anyio
 async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> None:
     runtime = TuiRuntime(keymap=TuiRuntimeKeymap.from_config({
@@ -7854,6 +8333,7 @@ async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> Non
     display = _document_text(runtime.document)
     transcript = _transcript_text(runtime.document)
     assert "(F12 to view transcript)" in display
+    assert "result line 79" not in display
     assert "result line 0" in transcript
     assert "result line 79" in transcript
     assert "(F12 to view transcript)" not in transcript
@@ -8054,6 +8534,7 @@ async def test_native_shell_result_transcript_keeps_command_and_output() -> None
     display = _document_text(runtime.document)
     transcript = _transcript_text(runtime.document)
     assert "(Ctrl+T to view transcript)" in display
+    assert output_lines[-1] not in display
     assert f"$ {command}" in transcript
     assert output_lines[0] in transcript
     assert output_lines[-1] in transcript
@@ -8250,13 +8731,14 @@ async def test_js_repl_query_padding_and_two_stage_display() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("terminal_rows", (8, 12, 24))
-async def test_oversized_javascript_tool_keeps_latest_title_visible(
+async def test_oversized_javascript_preview_pushes_title_to_native_scrollback(
     terminal_rows: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
         presentation = TuiPresentationSink(output)
+        application = TuiApplicationSink(runtime)
         arguments = {
             "code": "\n".join(
                 f"const value{index} = {index};" for index in range(30)
@@ -8271,34 +8753,63 @@ async def test_oversized_javascript_tool_keeps_latest_title_visible(
         ):
             await runtime.open()
             try:
-                runtime.set_execution_active(True)
-                runtime.append_submitted_query(
-                    "run javascript",
-                    "turn-javascript",
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    application.emit(ApplicationView(type="intro"))
+                    runtime.append_submitted_query(
+                        "run javascript",
+                        "turn-javascript",
+                    )
+                    await _render_next_frame(runtime)
+                    before_tool = runtime.document.scrollback_line_count
+
+                    runtime.set_execution_active(True)
+                    await presentation.emit(build_tool_start_view(
+                        "js_repl",
+                        arguments,
+                        call_id="call-javascript",
+                    ))
+                    await _render_next_frame(runtime)
+                    await _wait_for_scrollback_advance(
+                        runtime,
+                        after=before_tool,
+                    )
+                    await presentation.emit(build_native_tool_result_view(
+                        "js_repl",
+                        arguments,
+                        ok=True,
+                        data={
+                            "output": "\n".join(
+                                f"result {index}" for index in range(30)
+                            ),
+                        },
+                        call_id="call-javascript",
+                    ))
+                    completed_screen = await _render_next_frame(runtime)
+                    await asyncio.sleep(0.02)
+
+                printed = "".join(
+                    text
+                    for call_args in print_text.call_args_list
+                    for _style, text in call_args.args[0]
                 )
-                await _render_next_frame(runtime)
+                visible = f"{printed}\n{_rendered_screen_text(completed_screen)}"
+                transcript = _transcript_text(runtime.document)
 
-                await presentation.emit(build_tool_start_view(
-                    "js_repl",
-                    arguments,
-                    call_id="call-javascript",
-                ))
-                running_screen = await _render_next_frame(runtime)
-                assert "• JavaScript" in _rendered_screen_text(running_screen)
-
-                await presentation.emit(build_native_tool_result_view(
-                    "js_repl",
-                    arguments,
-                    ok=True,
-                    data={
-                        "output": "\n".join(
-                            f"result {index}" for index in range(30)
-                        ),
-                    },
-                    call_id="call-javascript",
-                ))
-                completed_screen = await _render_next_frame(runtime)
-                assert "• JavaScript" in _rendered_screen_text(completed_screen)
+                assert f">_ {const.APP_DESC}" in printed
+                assert "run javascript" in printed
+                assert visible.count("• JavaScript") >= 2
+                assert "const value0 = 0;" in visible
+                assert "const value29 = 29;" not in visible
+                assert "result 0" in visible
+                assert "result 29" not in visible
+                assert "… +12 lines" in visible
+                assert "… +25 lines" in visible
+                assert "const value29 = 29;" in transcript
+                assert "result 29" in transcript
             finally:
                 runtime.set_execution_active(False)
                 await output.stop()
