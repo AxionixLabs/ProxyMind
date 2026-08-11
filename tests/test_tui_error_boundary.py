@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pytest
 from prompt_toolkit.data_structures import Size
@@ -10,6 +11,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.session.turn import execute_tui_model_turn
 
 
 def _block(text: str) -> FragmentBlock:
@@ -71,7 +73,8 @@ async def test_event_loop_error_exits_without_prompt_toolkit_exception_prompt(
 
 
 @pytest.mark.anyio
-async def test_background_task_error_uses_the_application_error_boundary() -> None:
+async def test_background_task_error_is_reported_without_stopping_application(
+) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         await runtime.open()
@@ -88,13 +91,58 @@ async def test_background_task_error_uses_the_application_error_boundary() -> No
             await asyncio.gather(task, return_exceptions=True)
 
             await _wait_until(
-                lambda: runtime._application_task is not None
-                and runtime._application_task.done(),
-                message="application did not exit after a background error",
+                lambda: "Background task failed" in _transcript_text(runtime),
+                message="background error was not reported",
             )
 
-            assert runtime._application_error is error
+            assert runtime.active
+            assert runtime._application_error is None
+            assert (
+                "Background task failed: RuntimeError: "
+                "background task boundary probe"
+            ) in _transcript_text(runtime)
         finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_event_loop_error_cancels_active_model_turn() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def turn() -> None:
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+        await runtime.open()
+        model_turn = asyncio.create_task(execute_tui_model_turn(
+            SimpleNamespace(emit=Mock()),
+            runtime,
+            turn(),
+        ))
+        try:
+            await started.wait()
+            error = RuntimeError("active turn boundary probe")
+            asyncio.get_running_loop().call_exception_handler({
+                "message": "active turn boundary probe",
+                "exception": error,
+            })
+
+            with pytest.raises(RuntimeError, match="active turn boundary probe"):
+                await asyncio.wait_for(model_turn, timeout=1.0)
+
+            assert cancelled.is_set()
+            assert runtime._application_error is error
+            assert not runtime.execution_active
+        finally:
+            if not model_turn.done():
+                model_turn.cancel()
+                await asyncio.gather(model_turn, return_exceptions=True)
             await runtime.close()
 
 

@@ -306,10 +306,14 @@ async def test_external_cancellation_is_not_swallowed() -> None:
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
     started = asyncio.Event()
+    cancelled = asyncio.Event()
 
     async def turn() -> None:
         started.set()
-        await asyncio.Future()
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
 
     task = asyncio.create_task(execute_tui_model_turn(
         application,
@@ -323,6 +327,7 @@ async def test_external_cancellation_is_not_swallowed() -> None:
         await task
 
     assert not runtime.execution_active
+    assert cancelled.is_set()
     application.emit.assert_not_called()
 
 

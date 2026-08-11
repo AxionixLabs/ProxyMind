@@ -51,7 +51,14 @@ async def execute_tui_model_turn(
     """执行可由主输入区定向取消的单个模型轮次。"""
     task = asyncio.create_task(turn, name="tui model turn")
 
+    application_failure = asyncio.create_task(
+        runtime.wait_for_application_failure(),
+        name="tui application failure",
+    )
+
     interrupted: bool = False
+
+    fatal_error: BaseException | None = None
 
     def cancel_turn() -> bool:
         """取消模型任务并记录响应中断来源。"""
@@ -64,24 +71,38 @@ async def execute_tui_model_turn(
             runtime.request_turn_interrupt()
         return cancelled
 
-    runtime.set_execution_active(True)
-    runtime.bind_interrupt_handler(cancel_turn)
-    if turn_input_control is not None:
-        runtime.bind_turn_input_handler(turn_input_control.submit)
-        runtime.bind_queued_restore_handler(turn_input_control.restore_draft)
-
-    if stream_command_handler is not None:
-        runtime.bind_stream_command_handler(
-            lambda value: stream_command_handler(value, cancel_turn)
-        )
-
     try:
-        result = await task
+        runtime.set_execution_active(True)
+        runtime.bind_interrupt_handler(cancel_turn)
+
+        if turn_input_control is not None:
+            runtime.bind_turn_input_handler(turn_input_control.submit)
+            runtime.bind_queued_restore_handler(turn_input_control.restore_draft)
+
+        if stream_command_handler is not None:
+            runtime.bind_stream_command_handler(
+                lambda value: stream_command_handler(value, cancel_turn)
+            )
+
+        completed, _pending = await asyncio.wait(
+            (task, application_failure),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if application_failure in completed:
+            fatal_error = application_failure.result()
+            result = None
+        else:
+            result = await task
+
     except asyncio.CancelledError:
+        if not task.done():
+            task.cancel()
         if not runtime.consume_turn_interrupt():
             raise
+
         interrupted = True
         result = None
+
     else:
         interrupted = bool(
             runtime.consume_turn_interrupt()
@@ -89,17 +110,34 @@ async def execute_tui_model_turn(
         )
 
     finally:
+        if not task.done():
+            task.cancel()
+        if not application_failure.done():
+            application_failure.cancel()
+
+        await asyncio.gather(
+            task,
+            application_failure,
+            return_exceptions=True,
+        )
+
         if not interrupted:
             runtime.consume_turn_interrupt()
 
         runtime.bind_stream_command_handler(None)
         runtime.bind_turn_input_handler(None)
         runtime.bind_interrupt_handler(None)
+
         if turn_input_control is not None:
             await turn_input_control.close()
+
         if not runtime.uncertain_steers_active:
             runtime.bind_queued_restore_handler(None)
+
         runtime.set_execution_active(False)
+
+    if fatal_error is not None:
+        raise fatal_error
 
     if interrupted and show_interrupt_notice():
         application.emit(ApplicationView(
@@ -129,7 +167,7 @@ async def run_tui_model_turn(
         [list[dict[str, typing.Any]]],
         None,
     ] | None = None,
-    turn_input_control: TuiTurnInputControl | None = None,
+    turn_input_control: TuiTurnInputControl | None = None
 ) -> None:
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     attachments: list[dict[str, typing.Any]] = []

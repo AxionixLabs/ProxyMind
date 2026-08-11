@@ -164,7 +164,9 @@ class TuiRuntime(object):
 
         self._application_task: asyncio.Task[None] | None = None
         self._application_error: BaseException | None     = None
-        self._consumed_submission: TuiSubmission | None   = None
+        self._application_failure: asyncio.Event          = asyncio.Event()
+
+        self._consumed_submission: TuiSubmission | None = None
 
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
@@ -410,6 +412,20 @@ class TuiRuntime(object):
             return None
         return task.exception()
 
+    def _application_task_done(self, task: asyncio.Task[None]) -> None:
+        """记录输入应用的终止状态并唤醒所有等待方。"""
+        if self._closing:
+            return None
+
+        task_error = None if task.cancelled() else task.exception()
+        if self._application_error is None:
+            self._application_error = (
+                task_error if task_error is not None else EOFError()
+            )
+
+        self._application_failure.set()
+        self.submissions.finish_input()
+
     def _flush_background_blocks(self) -> None:
         """在流式正文结束后提交已完成的后台摘要。"""
         if self.submission_deferred or self.document.active_block is not None:
@@ -450,19 +466,27 @@ class TuiRuntime(object):
 
         error = task.exception()
         if error is not None:
-            self._fail_application(error)
+            self._report_runtime_error("Background task failed", error)
 
     def _report_display_error(self, error: BaseException) -> None:
         """把可恢复的终端展示错误追加为稳定提示。"""
+        self._report_runtime_error("Display refresh failed", error)
+
+    def _report_runtime_error(
+        self,
+        label: str,
+        error: BaseException
+    ) -> None:
+        """把可恢复的运行期错误追加为稳定提示。"""
         if self._closing:
             return None
 
         error_type = type(error).__name__
-        detail = sanitize_terminal_line(str(error))
+        detail     = sanitize_terminal_line(str(error))
 
         description = error_type if not detail else f"{error_type}: {detail}"
         self.queue_background_block(failure_text_block(
-            f"Display refresh failed: {description}"[:280]
+            f"{label}: {description}"[:280]
         ))
 
     def _fail_application(self, error: BaseException) -> None:
@@ -471,6 +495,8 @@ class TuiRuntime(object):
             return None
 
         self._application_error = error
+        self._application_failure.set()
+
         application = self.screen.application
         if not application.is_running or application.is_done:
             self.submissions.finish_input()
@@ -1513,13 +1539,22 @@ class TuiRuntime(object):
         """消费并返回主输入区是否已请求退出。"""
         return self.submissions.consume_exit_request()
 
+    async def wait_for_application_failure(self) -> BaseException:
+        """等待输入应用异常停止并返回原始错误。"""
+        await self._application_failure.wait()
+        error = self._application_error
+        return error if error is not None else EOFError()
+
     async def _run_application(self) -> None:
         """运行输入应用并传播终端结束状态。"""
         application = self.screen.application
         loop = asyncio.get_running_loop()
+
         previous_exception_handler = loop.get_exception_handler()
+
         exception_handler = self._handle_event_loop_exception
         loop.set_exception_handler(exception_handler)
+
         try:
             with create_app_session(
                 input=application.input,
@@ -1535,8 +1570,6 @@ class TuiRuntime(object):
         finally:
             if loop.get_exception_handler() is exception_handler:
                 loop.set_exception_handler(previous_exception_handler)
-            if not self._closing:
-                self.submissions.finish_input()
 
     async def _exit_application(self, *, erase: bool) -> None:
         """结束当前应用任务并按需清除画布。"""
@@ -1585,6 +1618,7 @@ class TuiRuntime(object):
         self.terminal_progress.clear()
 
         self._application_error = None
+        self._application_failure.clear()
 
         self.screen.set_transcript_only(False)
 
@@ -1596,6 +1630,7 @@ class TuiRuntime(object):
             self._run_application(),
             name="tui application",
         )
+        self._application_task.add_done_callback(self._application_task_done)
 
         while (
             (
