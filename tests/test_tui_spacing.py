@@ -5107,12 +5107,13 @@ def _assert_scrolled_input_frame_stable(
     assert runtime.viewport.scrollback_task is None
     assert runtime.viewport._scrollback_reflow_handle is None
     assert runtime.viewport._scrollback_reflow_task is None
-    assert runtime.screen.canvas_spacer not in positions
-    assert min(
-        position.ypos
-        for position in positions.values()
-        if position.height > 0
-    ) == 0
+    footer = positions[runtime.screen.footer_window]
+    assert (
+        runtime.screen.application.renderer.rows_above_layout
+        + footer.ypos
+        + footer.height
+        == runtime.screen.output_geometry()[1]
+    )
 
 
 @pytest.mark.anyio
@@ -5193,7 +5194,7 @@ async def test_multiline_history_toggle_after_scrollback_keeps_top_aligned(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("line_count", (3, 4, 5, 17))
-async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
+async def test_multiline_paste_clear_preserves_physical_terminal_anchor(
     line_count: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -5211,6 +5212,9 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
             settled = await _render_next_frame(runtime)
             settled_height = settled.height
             settled_top_row = _first_nonblank_screen_row(settled)
+            settled_rows_above = (
+                runtime.screen.application.renderer.rows_above_layout
+            )
 
             assert settled_height == 7
             assert (
@@ -5256,12 +5260,21 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
             restored = await _render_next_frame(runtime)
             restored_positions = restored.visible_windows_to_write_positions
             restored_footer = restored_positions[runtime.screen.footer_window]
+            restored_rows_above = (
+                runtime.screen.application.renderer.rows_above_layout
+            )
+            restored_spacer = restored_positions[runtime.screen.canvas_spacer]
 
-            assert runtime.screen.canvas_spacer not in restored_positions
-            assert _first_nonblank_screen_row(restored) == settled_top_row
+            assert restored_spacer.height == expected_height - settled_height
             assert (
-                restored_footer.ypos + restored_footer.height
-                == settled_height
+                restored_rows_above + _first_nonblank_screen_row(restored)
+                == settled_rows_above + settled_top_row
+            )
+            assert (
+                restored_rows_above
+                + restored_footer.ypos
+                + restored_footer.height
+                == terminal.size.rows
             )
         finally:
             await runtime.close()
@@ -5608,6 +5621,61 @@ async def test_ctrl_u_clears_multiline_input_without_top_canvas_spacer() -> None
                 assert runtime.screen.canvas_spacer not in positions
             finally:
                 await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_ctrl_u_restores_input_anchor_after_multiline_terminal_scroll(
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=40,
+            rows=24,
+            available_rows=12,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+
+        await runtime.open()
+        try:
+            runtime.set_execution_active(True)
+            for index in range(8):
+                await output.append_assistant_delta(f"line {index}\n")
+                await _render_next_frame(runtime)
+
+            settled = await _render_next_frame(runtime)
+            settled_position = settled.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+            settled_row = (
+                runtime.screen.application.renderer.rows_above_layout
+                + settled_position.ypos
+            )
+
+            pipe_input.send_text("\x0f" * 10)
+            await _wait_for_input_text(runtime, "\n" * 10)
+            expanded = await _render_next_frame(runtime)
+
+            assert expanded.height == 22
+            assert runtime.screen.application.renderer.rows_above_layout == 2
+
+            pipe_input.send_text("\x15")
+            await _wait_for_input_text(runtime, "")
+            restored = await _render_next_frame(runtime)
+            positions = restored.visible_windows_to_write_positions
+            input_position = positions[runtime.screen.input.window]
+            footer_position = positions[runtime.screen.footer_window]
+            rows_above = runtime.screen.application.renderer.rows_above_layout
+
+            assert rows_above + input_position.ypos == settled_row
+            assert (
+                rows_above + footer_position.ypos + footer_position.height
+                == terminal.size.rows
+            )
+            assert positions[runtime.screen.canvas_spacer].height == 10
+        finally:
+            runtime.set_execution_active(False)
+            await output.stop()
+            await runtime.close()
 
 
 @pytest.mark.anyio

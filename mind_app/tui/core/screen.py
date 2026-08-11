@@ -422,8 +422,10 @@ class TuiScreen(object):
         self._transcript_cache_display_rows: int                    = 0
 
         self._canvas_height_floor: int = 0
+        self._inline_canvas_height_floor: int = 0
 
         self._input_canvas_floor_baseline: int | None = None
+        self._input_rows_above_baseline: int | None = None
 
         self._bottom_anchor = _BottomAnchorState()
 
@@ -1202,7 +1204,9 @@ class TuiScreen(object):
             self._bottom_release_height(),
             self._visible_height(),
             self._canvas_height_floor,
+            self._inline_canvas_height_floor,
             self._input_canvas_floor_baseline,
+            self._input_rows_above_baseline,
             anchor.footprint_height,
             anchor.completion_visible,
             anchor.stable_line_baseline,
@@ -1218,19 +1222,38 @@ class TuiScreen(object):
             return None
 
         input_empty = not self.input.buffer.text
+        natural_height = self._natural_visible_height()
+        retained_height = (
+            natural_height
+            if input_empty
+            else max(baseline, natural_height)
+        )
+
+        rows_above_baseline = self._input_rows_above_baseline
+        rows_above = self._inline_rows_above_layout()
+        if rows_above_baseline is not None and rows_above is not None:
+            consumed_rows = max(0, rows_above_baseline - rows_above)
+            if consumed_rows:
+                self._inline_canvas_height_floor = max(
+                    self._inline_canvas_height_floor,
+                    baseline + consumed_rows,
+                )
+                retained_height = max(
+                    retained_height,
+                    self._inline_canvas_height_floor,
+                )
+
         if input_empty:
             self._bottom_anchor.clear()
             self._input_canvas_floor_baseline = None
+            self._input_rows_above_baseline = None
 
-        natural_height = self._natural_visible_height()
-
-        self._cap_canvas_height_floor(
-            natural_height if input_empty else max(baseline, natural_height)
-        )
+        self._cap_canvas_height_floor(retained_height)
         self.invalidate()
 
     def settle_scrollback_layout(self) -> None:
         """在稳定正文移入终端历史后收束实时画布高度。"""
+        self._inline_canvas_height_floor = 0
         self._cap_canvas_height_floor(self._natural_visible_height())
 
     def settle_dynamic_output_layout(self) -> None:
@@ -1529,6 +1552,9 @@ class TuiScreen(object):
                 and self._input_canvas_floor_baseline is None
             ):
                 self._input_canvas_floor_baseline = self._canvas_height_floor
+                self._input_rows_above_baseline = (
+                    self._inline_rows_above_layout()
+                )
 
             if completion_visible or release_consumed:
                 self._cap_canvas_height_floor(natural_height)
@@ -2954,10 +2980,7 @@ class TuiScreen(object):
             - restored_height,
         )
         if release_height <= 0:
-            self._canvas_height_floor = min(
-                self._canvas_height_floor,
-                restored_height,
-            )
+            self._cap_canvas_height_floor(restored_height)
             return None
 
         completion_height = self._completion_section_height()
@@ -2989,18 +3012,24 @@ class TuiScreen(object):
 
         if reset_canvas_floor:
             self._canvas_height_floor         = 0
+            self._inline_canvas_height_floor  = 0
             self._input_canvas_floor_baseline = None
+            self._input_rows_above_baseline   = None
         else:
             self._cap_canvas_height_floor(self._natural_visible_height())
             if not self.input.buffer.text:
                 self._input_canvas_floor_baseline = None
+                self._input_rows_above_baseline = None
 
     def _cap_canvas_height_floor(self, maximum_height: int) -> None:
         """降低画布高度下限并同步撤销输入区贡献的增量。"""
         previous_height = self._canvas_height_floor
         self._canvas_height_floor = min(
             previous_height,
-            max(0, int(maximum_height)),
+            max(
+                self._inline_canvas_height_floor,
+                max(0, int(maximum_height)),
+            ),
         )
 
     def _completion_stable_growth_height(self) -> int:
@@ -3305,6 +3334,18 @@ class TuiScreen(object):
             and not self._transcript_only
             and self._input_content_height(width=width) > 1
         )
+
+    def _inline_rows_above_layout(self) -> int | None:
+        """返回当前内联画布上方仍可见的终端行数。"""
+        application = getattr(self, "application", None)
+        if application is None or application.full_screen:
+            return None
+
+        renderer = application.renderer
+        with contextlib.suppress(Exception):
+            if renderer.height_is_known:
+                return max(0, int(renderer.rows_above_layout))
+        return None
 
     def _inline_reply_handoff_growth_active(self) -> bool:
         """判断回复建立正文前是否需要为轮次交接扩展画布。"""
