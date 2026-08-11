@@ -1073,6 +1073,7 @@ async def test_markdown_stream_retires_stable_prefix_while_running(
                     await output.append_assistant_delta(chunk)
                     await _render_next_frame(runtime)
 
+                await output.settle_stream()
                 await _wait_for_scrollback_advance(
                     runtime,
                     after=initial_scrollback,
@@ -5248,10 +5249,11 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
                 footer = positions[runtime.screen.footer_window]
                 assert footer.ypos + footer.height == expected_height
             else:
-                assert runtime.screen.footer_window not in positions
-                assert input_position.ypos + input_position.height == 18
-                assert input_position.height == 17
-                assert render_info.vertical_scroll == 1
+                footer = positions[runtime.screen.footer_window]
+                assert footer.ypos + footer.height == 18
+                assert input_position.ypos + input_position.height == 16
+                assert input_position.height == 15
+                assert render_info.vertical_scroll == 3
 
             pipe_input.send_text("\x15")
             await _wait_for_input_text(runtime, "")
@@ -5276,6 +5278,56 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
                     release_position.ypos + release_position.height
                     == terminal.size.rows
                 )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("expansion_rows", "expected_scroll"),
+    ((20, 0), (30, 10)),
+)
+async def test_saturated_input_keeps_footer_and_scrolls_only_overflow(
+    expansion_rows: int,
+    expected_scroll: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        terminal = _KnownInlineHeightOutput(
+            columns=80,
+            rows=24,
+            available_rows=12,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=terminal)
+
+        await runtime.open()
+        try:
+            await _prepare_scrolled_turn_footer(runtime, terminal)
+
+            pipe_input.send_text("\x0f" * expansion_rows)
+            await _wait_for_input_text(runtime, "\n" * expansion_rows)
+            expanded = await _render_next_frame(runtime)
+            positions = expanded.visible_windows_to_write_positions
+            input_position = positions[runtime.screen.input.window]
+            footer_position = positions[runtime.screen.footer_window]
+            render_info = runtime.screen.input.window.render_info
+
+            assert expanded.height == terminal.size.rows
+            assert input_position.height == 21
+            assert footer_position.ypos + footer_position.height == 24
+            assert render_info is not None
+            assert render_info.vertical_scroll == expected_scroll
+            assert runtime.screen.canvas_spacer not in positions
+
+            pipe_input.send_text("\x15")
+            await _wait_for_input_text(runtime, "")
+            collapsed = await _render_next_frame(runtime)
+            positions = collapsed.visible_windows_to_write_positions
+            release = positions[runtime.screen.bottom_release_spacer]
+
+            assert release.height == 20
+            assert release.ypos + release.height == terminal.size.rows
+            assert runtime.screen.footer_window in positions
+            assert runtime.screen.canvas_spacer not in positions
         finally:
             await runtime.close()
 

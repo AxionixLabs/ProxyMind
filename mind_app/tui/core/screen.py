@@ -2618,7 +2618,8 @@ class TuiScreen(object):
         return bool(
             not self._transcript_only
             and not self._overlay_active()
-            and self.terminal_height > self._input_surface_height()
+            and self.terminal_height
+            > self.INPUT_SURFACE_PADDING_HEIGHT * 2 + 1
         )
 
     def _queue_submission_hint_visible(self) -> bool:
@@ -2783,7 +2784,12 @@ class TuiScreen(object):
         state        = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0
         count        = max(loaded_count, self._expected_completion_count())
-        available    = max(1, self.terminal_height - self._input_surface_height())
+        available = max(
+            0,
+            self.terminal_height
+            - self._input_surface_height()
+            - self._input_auxiliary_height(),
+        )
 
         return min(self.COMPLETION_MAX_HEIGHT, count, available)
 
@@ -2966,7 +2972,28 @@ class TuiScreen(object):
 
     def _input_height(self) -> int:
         """计算输入内容占用的显示行数。"""
-        return self._input_content_height(width=self.terminal_width)
+        return min(
+            self._input_content_height(width=self.terminal_width),
+            self._input_available_height(),
+        )
+
+    def _input_available_height(self) -> int:
+        """返回扣除输入表面和固定底部区域后的可用行数。"""
+        reserved_height = (
+            self.INPUT_SURFACE_PADDING_HEIGHT * 2
+            + self._footer_height()
+            + self._input_auxiliary_height()
+        )
+        return max(1, self.terminal_height - reserved_height)
+
+    def _input_auxiliary_height(self) -> int:
+        """返回输入区之外仍需固定展示的辅助区域高度。"""
+        return (
+            self._status_height()
+            + self._process_status_height()
+            + self._queued_height()
+            + int(self._transcript_status_gap_visible())
+        )
 
     def _input_content_height(self, *, width: int) -> int:
         """按指定终端宽度计算输入内容的自然显示行数。"""
@@ -3160,15 +3187,11 @@ class TuiScreen(object):
         ):
             return False
 
-        release_height = self._bottom_release_height()
-        if release_height:
+        if self.bottom_pane.input_visible:
             reserved_height = (
-                self._status_height()
-                + self._process_status_height()
-                + self._queued_height()
-                + int(self._transcript_status_gap_visible())
-                + self._interaction_height()
-                + release_height
+                self._input_auxiliary_height()
+                + self._input_stack_height()
+                + self._bottom_release_height()
             )
             if reserved_height >= self.terminal_height:
                 return False
