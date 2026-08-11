@@ -31,10 +31,6 @@ from ..prompting.commands import (
     completion_changes_input,
     parameterized_command_texts
 )
-from ..prompting.ghost import (
-    apply_ghost_prompt,
-    iter_ghost_templates
-)
 from ..prompting.paste import (
     format_paste_placeholder,
     iter_paste_placeholders,
@@ -144,7 +140,7 @@ class TuiInputHistory(InMemoryHistory):
 
 
 class TuiAutoSuggest(AutoSuggest):
-    """生成 TUI 输入区的行内命令和模板建议。"""
+    """生成 TUI 输入区的行内命令建议。"""
 
     SLASH_HINTS: typing.Final[dict[str, str]] = {
         "/model"  : " <model-id>",
@@ -153,7 +149,6 @@ class TuiAutoSuggest(AutoSuggest):
 
     def __init__(self) -> None:
         self.shell_mode: bool = False
-        self.ghost_templates  = iter_ghost_templates()
 
     def get_suggestion(self, buffer, document):
         """根据光标前文本返回一项行内建议。"""
@@ -172,11 +167,6 @@ class TuiAutoSuggest(AutoSuggest):
         if current_line.startswith("/"):
             hint = self.SLASH_HINTS.get(current_line)
             return Suggestion(hint) if hint else None
-
-        candidate = apply_ghost_prompt(current_line, self.ghost_templates)
-        if candidate != current_line:
-            return Suggestion(candidate[len(current_line):])
-
         return None
 
 

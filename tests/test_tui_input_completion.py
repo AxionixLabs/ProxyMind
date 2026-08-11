@@ -1706,25 +1706,31 @@ def test_dismissed_slash_menu_reopens_after_editing() -> None:
 
 
 @pytest.mark.anyio
-async def test_backspace_refreshes_inline_suggestion() -> None:
+async def test_plain_query_tab_does_not_expand_text() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         await runtime.open()
         try:
-            pipe_input.send_text("hiX")
-            await wait_for_input_text(runtime, "hiX")
-
             buffer = runtime.screen.input.buffer
+            pipe_input.send_text("h")
+            await wait_for_input_text(runtime, "h")
             assert buffer.suggestion is None
 
-            pipe_input.send_text("\x7f")
-            await wait_for_input_text(runtime, "hi")
-            await wait_for_suggestion(runtime)
+            with patch.object(
+                buffer,
+                "start_completion",
+                wraps=buffer.start_completion,
+            ) as start_completion:
+                pipe_input.send_text("\t")
+                for _ in range(100):
+                    if start_completion.called:
+                        break
+                    await asyncio.sleep(0.001)
 
-            assert buffer.text == "hi"
-            assert buffer.suggestion is not None
-            assert buffer.suggestion.text == "，请介绍一下你自己"
+            start_completion.assert_called_once()
+            assert buffer.text == "h"
+            assert buffer.suggestion is None
         finally:
             await runtime.close()
 
