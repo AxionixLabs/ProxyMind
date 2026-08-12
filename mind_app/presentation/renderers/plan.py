@@ -40,10 +40,10 @@ def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
     ]
 
     if explanation:
-        text_lines.append(f"  └ {explanation}")
+        text_lines.append(f"└ {explanation}")
 
         spans.extend((
-            TextSpan("\n  └ ", PLAN_SUMMARY_STYLE),
+            TextSpan("\n└ ", PLAN_SUMMARY_STYLE),
             TextSpan(explanation, PLAN_SUMMARY_STYLE),
         ))
 
@@ -51,7 +51,7 @@ def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
         step   = sanitize_terminal_text(item.step)
         icon   = "✔" if item.status == "completed" else "□"
         style  = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PLAN_INACTIVE_BODY_STYLE
-        indent = "    " if explanation or index else "  └ "
+        indent = "  " if explanation or index else "└ "
 
         text_lines.append(f"{indent}{icon} {step}")
 
@@ -74,30 +74,30 @@ def render_plan_steps_start_view(view: PlanStepsStartView) -> StyledBlock:
         f"stop_on_fail={str(view.stop_on_fail).lower()}"
     )
 
-    text_lines = ["• Plan Steps", f"  └ {summary}"]
+    text_lines = ["• Plan Steps", f"└ {summary}"]
 
     spans = [
         TextSpan("•", SUCCESS_DOT_STYLE),
         TextSpan(" Plan Steps", TITLE_STYLE),
-        TextSpan("\n  └ ", PREVIEW_MORE_STYLE),
+        TextSpan("\n└ ", PREVIEW_MORE_STYLE),
         TextSpan(summary, PREVIEW_MORE_STYLE),
     ]
 
     for tool in view.tools:
         display_tool = sanitize_terminal_text(tool)
 
-        text_lines.append(f"    - {display_tool}")
+        text_lines.append(f"  - {display_tool}")
         spans.extend((
-            TextSpan("\n    - ", PREVIEW_TEXT_STYLE),
+            TextSpan("\n  - ", PREVIEW_TEXT_STYLE),
             TextSpan(display_tool, COMMAND_HEAD_STYLE),
         ))
 
     if view.omitted_steps:
         more = f"... {view.omitted_steps} more"
 
-        text_lines.append(f"    {more}")
+        text_lines.append(f"  {more}")
         spans.extend((
-            TextSpan("\n    ", PREVIEW_MORE_STYLE),
+            TextSpan("\n  ", PREVIEW_MORE_STYLE),
             TextSpan(more, PREVIEW_MORE_STYLE),
         ))
 
