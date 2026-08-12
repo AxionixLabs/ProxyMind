@@ -530,7 +530,7 @@ def test_js_repl_renders_source_then_result_as_two_card_states() -> None:
     assert completed.plain_text.count("• JavaScript") == 1
     assert "\n└ JavaScript cell completed." in completed.plain_text
     assert completed_transcript.plain_text == (
-        "• JavaScript\n└ JavaScript cell completed."
+        "• JavaScript\nJavaScript cell completed."
     )
     assert "await host.tool" not in completed_transcript.plain_text
     assert "Start-Process" not in completed_transcript.plain_text
@@ -583,6 +583,7 @@ def test_js_repl_completed_transcript_keeps_omitted_source_and_output() -> None:
     assert "result-11" not in display.plain_text
     assert "console.log(23);" not in transcript.plain_text
     assert "result-11" in transcript.plain_text
+    assert "\n└ " not in transcript.plain_text
 
 
 def test_js_repl_display_removes_multiline_embedding_indent() -> None:
@@ -609,3 +610,4 @@ def test_js_repl_display_removes_multiline_embedding_indent() -> None:
     assert "\n  });" in display
     assert "\n        command:" not in display
     assert "\n        command:" not in transcript
+    assert transcript == "• JavaScript\nJavaScript cell completed."

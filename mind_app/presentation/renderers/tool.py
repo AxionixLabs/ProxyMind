@@ -138,35 +138,12 @@ def render_javascript_result_view(
     )
 
 
-def _native_result_title(
-    view: NativeToolResultView,
-    fallback: str,
-    *,
-    terminal_width: int | None,
-    measure_width: typing.Callable[[str], int] | None
-) -> str:
-    """返回按当前终端宽度生成的原生工具结果标题。"""
-    if tool_display_spec(view.name).kind is not ToolDisplayKind.SHELL:
-        return fallback
-    return render_tool_trace(
-        view.name,
-        view.arguments,
-        ok=view.ok,
-        data=view.data,
-        cost_ms=view.cost_ms,
-        terminal_width=terminal_width,
-        measure_width=measure_width,
-    )
-
-
 def render_javascript_result_transcript_view(view: NativeToolResultView) -> StyledBlock:
     """把 JavaScript 执行结果转换为完整记录块。"""
     title  = view.entries[0].title if view.entries else "• JavaScript"
     output = _javascript_result_text(view)
 
-    return StyledBlock(
-        plain_text=_javascript_completed_text(title, output),
-    )
+    return _transcript_block(title, output)
 
 
 def render_javascript_result_raw_text(view: NativeToolResultView) -> str:
@@ -379,6 +356,27 @@ def _native_output_text(payload: dict[str, typing.Any]) -> str:
     return f"{stdout}{stderr}"
 
 
+def _native_result_title(
+    view: NativeToolResultView,
+    fallback: str,
+    *,
+    terminal_width: int | None,
+    measure_width: typing.Callable[[str], int] | None
+) -> str:
+    """返回按当前终端宽度生成的原生工具结果标题。"""
+    if tool_display_spec(view.name).kind is not ToolDisplayKind.SHELL:
+        return fallback
+    return render_tool_trace(
+        view.name,
+        view.arguments,
+        ok=view.ok,
+        data=view.data,
+        cost_ms=view.cost_ms,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+
+
 def _javascript_result_text(view: NativeToolResultView) -> str:
     """返回 JavaScript 执行保留的完整输出。"""
     payload = _native_payload(view.data)
@@ -390,18 +388,6 @@ def _javascript_result_text(view: NativeToolResultView) -> str:
         return _json_text(value)
 
     return "JavaScript cell completed." if view.ok else "JavaScript cell failed."
-
-
-def _javascript_completed_text(title: str, output: str) -> str:
-    """生成 JavaScript 执行结果的纯文本表示。"""
-    lines = [str(title or "").rstrip()]
-    output_lines = str(output or "").split("\n") if output else []
-
-    if output_lines:
-        lines.append(f"└ {output_lines[0]}")
-        lines.extend(f"  {line}" for line in output_lines[1:])
-
-    return "\n".join(line for line in lines if line or len(lines) > 1)
 
 
 def _json_text(value: typing.Any) -> str:

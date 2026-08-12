@@ -9499,7 +9499,8 @@ async def test_js_repl_start_and_result_are_two_separated_blocks() -> None:
     assert "\n└ ready" in document_text
     assert transcript_text.count("• JavaScript") == 2
     assert "host.tool('shell_command'" in transcript_text
-    assert "\n└ ready" in transcript_text
+    assert "\nready" in transcript_text
+    assert "\n└ ready" not in transcript_text
     assert "\n\n• JavaScript\n└ ready" in document_text
     assert [item.gap_before for item in runtime.document.blocks] == [
         False,
