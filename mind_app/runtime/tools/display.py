@@ -15,12 +15,6 @@ from .run import ToolRunResult
 
 ToolDisplayResult = ToolRunResult | PlanExecutionReport
 
-TWO_STAGE_NATIVE_TOOLS = frozenset({
-    "js_repl",
-    "shell_command",
-})
-
-
 async def show_tool_start(
     presentation: PresentationSink,
     name: str,

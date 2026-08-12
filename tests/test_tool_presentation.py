@@ -529,8 +529,11 @@ def test_js_repl_renders_source_then_result_as_two_card_states() -> None:
     assert "JavaScript cell completed." in result_block.plain_text
     assert completed.plain_text.count("• JavaScript") == 1
     assert "\n└ JavaScript cell completed." in completed.plain_text
-    assert "await host.tool" in completed_transcript.plain_text
-    assert "Start-Process" in completed_transcript.plain_text
+    assert completed_transcript.plain_text == (
+        "• JavaScript\n└ JavaScript cell completed."
+    )
+    assert "await host.tool" not in completed_transcript.plain_text
+    assert "Start-Process" not in completed_transcript.plain_text
     assert "JavaScript cell completed." in completed_transcript.plain_text
 
 
@@ -552,9 +555,9 @@ def test_js_repl_result_renders_explicit_json_output() -> None:
     assert '"output": "nested-ok"' in block.plain_text
     assert "JavaScript cell completed." not in block.plain_text
     assert transcript.plain_text.count("• JavaScript") == 1
-    assert source in transcript.plain_text
+    assert source not in transcript.plain_text
     assert '"output": "nested-ok"' in transcript.plain_text
-    assert raw_text == f'{source}\n{{\n  "output": "nested-ok"\n}}'
+    assert raw_text == '{\n  "output": "nested-ok"\n}'
 
 
 def test_js_repl_completed_transcript_keeps_omitted_source_and_output() -> None:
@@ -578,7 +581,7 @@ def test_js_repl_completed_transcript_keeps_omitted_source_and_output() -> None:
     assert "… +4 lines" in display.plain_text
     assert "console.log(23);" not in display.plain_text
     assert "result-11" not in display.plain_text
-    assert "console.log(23);" in transcript.plain_text
+    assert "console.log(23);" not in transcript.plain_text
     assert "result-11" in transcript.plain_text
 
 
@@ -605,4 +608,4 @@ def test_js_repl_display_removes_multiline_embedding_indent() -> None:
     assert "\n    command:" in display
     assert "\n  });" in display
     assert "\n        command:" not in display
-    assert "\n        command:" in transcript
+    assert "\n        command:" not in transcript

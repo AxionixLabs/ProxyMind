@@ -25,8 +25,11 @@ from mind_app.runtime.hooks.models import (
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.stream_events.tool_trace import coding_trace_tool
+from mind_app.stream_events.tool_policy import (
+    is_two_stage_tool,
+    tool_status_text
+)
 from .display import (
-    TWO_STAGE_NATIVE_TOOLS,
     show_tool_result,
     show_tool_start
 )
@@ -201,7 +204,7 @@ class ClientToolCallRunner:
                     arguments,
                     call_id=call_id,
                 )
-                if not use_coding_trace or name in TWO_STAGE_NATIVE_TOOLS:
+                if not use_coding_trace or is_two_stage_tool(name):
                     await show_tool_start(
                         self.presentation,
                         name,
@@ -217,7 +220,7 @@ class ClientToolCallRunner:
                 invocation=invocation,
                 pref_config=self.pref_config,
                 enable_progress_notify=True,
-                status_text="JavaScript" if name == "js_repl" else None,
+                status_text=tool_status_text(name),
             )
 
             ok      = tool_run.ok

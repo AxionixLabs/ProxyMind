@@ -227,6 +227,42 @@ def test_replay_merges_message_updates_and_tool_outcomes() -> None:
     }
 
 
+def test_replay_keeps_javascript_start_and_result_separate() -> None:
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="tool",
+            payload=payload,
+        )
+
+    replay = TranscriptReplay((
+        entry(
+            "tool.started",
+            {
+                "call_id": "call_js",
+                "name": "js_repl",
+                "arguments": {"code": "console.log('ready');"},
+            },
+        ),
+        entry(
+            "tool.completed",
+            {
+                "call_id": "call_js",
+                "ok": True,
+                "result": {"output": "ready"},
+            },
+        ),
+    )).build()
+
+    assert [item.event for item in replay] == [
+        "tool.started",
+        "tool.completed",
+    ]
+
+
 def test_store_finds_only_existing_transcript_path(tmp_path) -> None:
     session_id = new_sid(new_cid())
     store = ConversationTranscriptStore(tmp_path / "sessions")

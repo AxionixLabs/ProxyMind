@@ -21,6 +21,11 @@ from .common import (
     _trace_preview_from_lines
 )
 from mind_app.presentation.models import TraceEntry
+from mind_app.stream_events.tool_policy import (
+    NATIVE_TOOL_NAMES,
+    ToolDisplayKind,
+    tool_display_spec
+)
 from .native_helpers import (
     _format_delta,
     _short_sha,
@@ -39,23 +44,13 @@ from .native_patch import (
     _patch_preview_lines
 )
 
-NATIVE_CODING_TRACE_TOOLS = {
-    "shell_command",
-    "exec_command",
-    "write_stdin",
-    "js_repl",
-    "js_repl_reset",
-    "apply_patch"
-}
-
-SHELL_TRACE_TITLE_PREFIX = "• Running "
+NATIVE_CODING_TRACE_TOOLS = NATIVE_TOOL_NAMES
+SHELL_TRACE_TITLE_PREFIX  = "• Running "
 
 
-def coding_trace_tool(
-    name: str
-) -> bool:
+def coding_trace_tool(name: str) -> bool:
     """判断工具是否使用原生轨迹样式。"""
-    return name in NATIVE_CODING_TRACE_TOOLS
+    return str(name or "").strip() in NATIVE_CODING_TRACE_TOOLS
 
 
 def render_tool_start_trace(
@@ -66,21 +61,22 @@ def render_tool_start_trace(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
     """生成工具开始执行时的轨迹标题。"""
-    if name == "js_repl":
+    kind = tool_display_spec(name).kind
+    if kind is ToolDisplayKind.JAVASCRIPT:
         return "• JavaScript"
-    if name == "js_repl_reset":
+    if kind is ToolDisplayKind.JAVASCRIPT_RESET:
         return "• Resetting JavaScript"
-    if name in {"shell_command", "exec_command"}:
+    if kind is ToolDisplayKind.SHELL:
         command = _shell_command_title(
             arguments.get("command"),
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
         return f"• Running {command}".rstrip()
-    if name == "write_stdin":
+    if kind is ToolDisplayKind.STDIN:
         session_id = str(arguments.get("session_id") or "").strip()
         return f"• Writing stdin {session_id}".rstrip()
-    if name == "apply_patch":
+    if kind is ToolDisplayKind.PATCH:
         return "• Applying patch"
 
     return f"• Function Calling {str(name or 'tool').strip() or 'tool'}"
@@ -95,14 +91,19 @@ def render_tool_start_preview(
     if not isinstance(arguments, dict) or not arguments:
         return _trace_preview_from_lines(["no args"])
 
-    if name == "js_repl":
-        code  = str(arguments.get("code") or "")
+    spec = tool_display_spec(name)
+
+    if spec.kind is ToolDisplayKind.JAVASCRIPT:
+
+        code  = str(arguments.get(spec.source_field or "") or "")
         lines = _javascript_preview_lines(code)
+
         if not any(line.strip() for line in lines):
             lines = ["(empty cell)"]
+
         return _trace_code_preview_from_lines(lines)
 
-    if name in NATIVE_CODING_TRACE_TOOLS:
+    if coding_trace_tool(name):
         return TracePreview()
 
     lines: list[str] = []
@@ -150,7 +151,9 @@ def render_tool_result_preview(
 
     is_error = (not ok) if isinstance(ok, bool) else data.get("ok") is False
 
-    if name == "apply_patch":
+    kind = tool_display_spec(name).kind
+
+    if kind is ToolDisplayKind.PATCH:
         if is_error:
             prefix = _patch_error_diagnostic_lines(data)
             if not prefix:
@@ -194,7 +197,7 @@ def render_tool_result_preview(
 
             return _trace_preview_from_lines(lines)
 
-    if name in {"shell_command", "exec_command", "write_stdin"}:
+    if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if is_error:
             lines = _shell_command_ordered_output_lines(data)
             if not lines:
@@ -216,7 +219,7 @@ def render_tool_result_preview(
 
         return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
 
-    if name == "js_repl":
+    if kind is ToolDisplayKind.JAVASCRIPT:
         source = data.get("error") if is_error else data.get("output")
 
         lines = shell_output_lines(source)
@@ -224,7 +227,7 @@ def render_tool_result_preview(
             lines = ["JavaScript cell failed." if is_error else "JavaScript cell completed."]
         return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
 
-    if name == "js_repl_reset":
+    if kind is ToolDisplayKind.JAVASCRIPT_RESET:
         source = data.get("error") if is_error else None
 
         lines = shell_output_lines(source)
@@ -274,8 +277,9 @@ def render_tool_trace(
 
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
+    kind    = tool_display_spec(name).kind
 
-    if name == "apply_patch":
+    if kind is ToolDisplayKind.PATCH:
         if not ok:
             return "• Patch"
 
@@ -292,10 +296,12 @@ def render_tool_trace(
         added, removed = _line_delta_from_patch_files(payload)
         return f"• {action} {target}{_format_delta(added, removed)}"
 
-    if name in {"shell_command", "exec_command", "write_stdin"}:
-        if name == "write_stdin":
+    if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
+        if kind is ToolDisplayKind.STDIN:
+
             session_id = str(payload.get("session_id") or args.get("session_id") or "").strip()
             suffix     = f" {session_id}" if session_id else ""
+
             return f"• Wrote stdin{suffix}".rstrip()
 
         command = _shell_command_title(
@@ -307,10 +313,10 @@ def render_tool_trace(
         verb = "Started" if name == "exec_command" and payload.get("status") == "running" else "Ran"
         return f"• {verb} {command}".rstrip()
 
-    if name == "js_repl":
+    if kind is ToolDisplayKind.JAVASCRIPT:
         return "• JavaScript"
 
-    if name == "js_repl_reset":
+    if kind is ToolDisplayKind.JAVASCRIPT_RESET:
         return "• Reset JavaScript"
 
     summary = _short_text(args, 100)

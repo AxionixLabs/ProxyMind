@@ -14,6 +14,7 @@ from datetime import (
     timezone
 )
 from pathlib import Path
+from mind_app.stream_events.tool_policy import merges_tool_start_event
 from engine.observability import observe_exception
 from mind_app.paths import sessions_dir
 from mind_nova import const
@@ -203,6 +204,8 @@ class TranscriptReplay(object):
         last_user_index: int | None   = None
         pending_tools: dict[str, int] = {}
 
+        pending_unmerged_tools: dict[str, dict[str, typing.Any]] = {}
+
         for entry in self.entries:
             if entry.event == "message.created":
                 content = entry.payload.get("content")
@@ -238,9 +241,18 @@ class TranscriptReplay(object):
 
             if entry.event == "tool.started":
                 replay.append(entry)
+
                 call_id = _payload_text(entry.payload, "call_id")
-                if call_id:
+                name    = _payload_text(entry.payload, "name")
+
+                if call_id and merges_tool_start_event(name):
                     pending_tools[call_id] = len(replay) - 1
+                elif call_id:
+                    pending_unmerged_tools[call_id] = {
+                        key: entry.payload[key]
+                        for key in ("name", "arguments")
+                        if key in entry.payload
+                    }
                 continue
 
             if entry.event not in {"tool.completed", "tool.failed"}:
@@ -258,6 +270,17 @@ class TranscriptReplay(object):
 
             target = pending_tools.pop(call_id, None) if call_id else None
             if target is None:
+                metadata = (
+                    pending_unmerged_tools.pop(call_id, None)
+                    if call_id
+                    else None
+                )
+                if metadata:
+                    replay.append(replace(
+                        entry,
+                        payload={**metadata, **entry.payload},
+                    ))
+                    continue
                 replay.append(entry)
                 continue
 

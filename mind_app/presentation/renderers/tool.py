@@ -9,6 +9,10 @@ from mind_app.stream_events.tool_traces.native import (
     render_tool_trace
 )
 from mind_app.stream_events.tool_traces.render import render_tool_trace_parts
+from mind_app.stream_events.tool_policy import (
+    ToolDisplayKind,
+    tool_display_spec
+)
 from ..formatting import format_duration_ms
 from ..models import (
     GenericToolResultView,
@@ -72,7 +76,7 @@ def render_native_tool_result_view(
     measure_width: typing.Callable[[str], int] | None = None,
 ) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果视图转换为中立展示块。"""
-    if view.name == "js_repl":
+    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_view(
             view,
             terminal_width=terminal_width,
@@ -151,26 +155,19 @@ def _native_result_title(
     )
 
 
-def render_javascript_result_transcript_view(
-    view: NativeToolResultView
-) -> StyledBlock:
-    """把完整 JavaScript 源码和执行结果合并为记录块。"""
+def render_javascript_result_transcript_view(view: NativeToolResultView) -> StyledBlock:
+    """把 JavaScript 执行结果转换为完整记录块。"""
     title  = view.entries[0].title if view.entries else "• JavaScript"
-    source = str(view.arguments.get("code") or "").strip("\n")
     output = _javascript_result_text(view)
 
     return StyledBlock(
-        plain_text=_javascript_completed_text(title, source, output),
+        plain_text=_javascript_completed_text(title, output),
     )
 
 
-def render_javascript_result_raw_text(
-    view: NativeToolResultView
-) -> str:
-    """返回合并完成块中不含视觉装饰的完整文本。"""
-    source = str(view.arguments.get("code") or "").strip("\n")
-    output = _javascript_result_text(view)
-    return "\n".join(part for part in (source, output) if part)
+def render_javascript_result_raw_text(view: NativeToolResultView) -> str:
+    """返回 JavaScript 执行结果的不含视觉装饰文本。"""
+    return _javascript_result_text(view)
 
 
 def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
@@ -182,24 +179,24 @@ def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
         return _transcript_block(view.title, _json_text(view.arguments))
     if view.name == "apply_patch":
         return _transcript_block(view.title, str(view.arguments.get("patch") or ""))
-    if view.name == "js_repl":
-        return _transcript_block(view.title, str(view.arguments.get("code") or ""))
+
+    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
+        source_field = tool_display_spec(view.name).source_field
+        source       = view.arguments.get(source_field) if source_field else ""
+
+        return _transcript_block(view.title, str(source or ""))
 
     return _transcript_block(view.title, _json_text(view.arguments))
 
 
-def render_generic_tool_result_transcript_view(
-    view: GenericToolResultView
-) -> StyledBlock:
+def render_generic_tool_result_transcript_view(view: GenericToolResultView) -> StyledBlock:
     """把普通工具结果转换为完整记录块。"""
     return _transcript_block(view.title, view.text)
 
 
-def render_native_tool_result_transcript_view(
-    view: NativeToolResultView
-) -> tuple[StyledBlock, ...]:
+def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果转换为完整记录块。"""
-    if view.name == "js_repl":
+    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_transcript_view(view),)
 
     payload = _native_payload(view.data)
@@ -242,24 +239,21 @@ def render_tool_start_raw_text(view: ToolStartView) -> str:
         return _command_text(view.arguments.get("command"))
     if view.name == "apply_patch":
         return str(view.arguments.get("patch") or "")
-    if view.name == "js_repl":
-        return str(view.arguments.get("code") or "")
+    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
+        source_field = tool_display_spec(view.name).source_field
+        return str(view.arguments.get(source_field) or "") if source_field else ""
 
     return _json_text(view.arguments)
 
 
-def render_generic_tool_result_raw_text(
-    view: GenericToolResultView
-) -> str:
+def render_generic_tool_result_raw_text(view: GenericToolResultView) -> str:
     """把普通工具结果转换为无装饰文本。"""
     return str(view.text or "")
 
 
-def render_native_tool_result_raw_text(
-    view: NativeToolResultView
-) -> tuple[str, ...]:
+def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str, ...]:
     """把原生工具结果转换为无装饰文本块。"""
-    if view.name == "js_repl":
+    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_raw_text(view),)
 
     payload = _native_payload(view.data)
@@ -387,13 +381,11 @@ def _javascript_result_text(view: NativeToolResultView) -> str:
     return "JavaScript cell completed." if view.ok else "JavaScript cell failed."
 
 
-def _javascript_completed_text(title: str, source: str, output: str) -> str:
-    """生成单一 JavaScript 工具块的纯文本表示。"""
+def _javascript_completed_text(title: str, output: str) -> str:
+    """生成 JavaScript 执行结果的纯文本表示。"""
     lines = [str(title or "").rstrip()]
-    source_lines = str(source or "").split("\n") if source else []
     output_lines = str(output or "").split("\n") if output else []
 
-    lines.extend(f"  {line}" for line in source_lines)
     if output_lines:
         lines.append(f"└ {output_lines[0]}")
         lines.extend(f"  {line}" for line in output_lines[1:])

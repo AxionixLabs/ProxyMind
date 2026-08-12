@@ -177,6 +177,60 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     )
 
 
+def test_history_transcript_keeps_javascript_source_out_of_result_block() -> None:
+    source = "const value = 1;"
+    entries = (
+        TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event="tool.started",
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="tool",
+            payload={
+                "call_id": "call_js",
+                "name": "js_repl",
+                "arguments": {"code": source},
+            },
+        ),
+        TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event="tool.completed",
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="tool",
+            payload={
+                "call_id": "call_js",
+                "ok": True,
+                "result": {"output": "done"},
+            },
+        ),
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return entries
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_test",
+        terminal_width=80,
+    )
+
+    assert [block.kind for block in blocks] == ["operation", "operation"]
+    assert blocks[0].raw_text == source
+    assert blocks[1].raw_text == "done"
+    first_transcript = "".join(
+        text for _style, text in blocks[0].transcript_block.fragments
+    )
+    second_transcript = "".join(
+        text for _style, text in blocks[1].transcript_block.fragments
+    )
+    assert source in first_transcript
+    assert source not in second_transcript
+    assert "done" in second_transcript
+
+
 def test_history_transcript_falls_back_to_legacy_cursor_title() -> None:
     class Controller(object):
         @staticmethod
