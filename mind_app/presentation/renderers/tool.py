@@ -133,6 +133,8 @@ def render_javascript_result_view(
             title,
             preview=result_preview,
             ok=view.ok,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
         )),
         preserve_spans=True,
     )

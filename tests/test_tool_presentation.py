@@ -560,6 +560,31 @@ def test_js_repl_result_renders_explicit_json_output() -> None:
     assert raw_text == '{\n  "output": "nested-ok"\n}'
 
 
+@pytest.mark.parametrize("terminal_width", (20, 32, 48))
+def test_js_repl_result_preview_uses_terminal_width(terminal_width: int) -> None:
+    view = build_native_tool_result_view(
+        "js_repl",
+        {"code": "console.log('ready');"},
+        ok=True,
+        data={"output": "result-" + ("x" * 120)},
+    )
+
+    block = render_presentation_view(
+        view,
+        terminal_width=terminal_width,
+        measure_width=get_cwidth,
+    )[0]
+    rendered = "".join(span.text for span in block.spans)
+
+    assert rendered.startswith("• JavaScript\n└ ")
+    assert "result-" in rendered
+    assert all(
+        get_cwidth(line) <= terminal_width
+        for line in rendered.splitlines()
+    )
+    assert "x" * 120 not in rendered
+
+
 def test_js_repl_completed_transcript_keeps_omitted_source_and_output() -> None:
     source = "\n".join(f"console.log({index});" for index in range(24))
     output = "\n".join(f"result-{index}" for index in range(12))

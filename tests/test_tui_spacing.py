@@ -9019,7 +9019,7 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     ),
                 },
             ),
-            "javascript output 0",
+            "javascript output",
             "javascript output 29",
             "… +25 lines",
         ),
