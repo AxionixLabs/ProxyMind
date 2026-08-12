@@ -235,6 +235,9 @@ class TuiRuntime(object):
             ),
             get_render_info=lambda: self.screen.transcript_window.render_info,
             get_render_revision=lambda: self.screen.application.render_counter,
+            get_open_transcript_label=(
+                lambda: self.keymap.open_transcript_label
+            ),
             clear_terminal_scrollback=(
                 lambda: self.screen.clear_terminal_scrollback()
             ),
@@ -1204,6 +1207,7 @@ class TuiRuntime(object):
             self.screen.transcript_overlay.content_changed()
             self.screen.clear_terminal_scrollback()
             self.viewport.stable_content_changed()
+            self.viewport.clear_restored_history_notice()
             return True
         except BaseException:
             self.viewport.pause_scrollback()

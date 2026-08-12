@@ -5,6 +5,7 @@ import io
 import typing
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import (
@@ -30,6 +31,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalIdentity,
     TerminalKind
 )
+from mind_core.skills import SkillSpec
 from mind_nova import const
 from mind_app.interaction.contracts import PromptContext
 from mind_app.output.content import (
@@ -1752,6 +1754,12 @@ async def test_replace_transcript_replays_only_configured_tail() -> None:
 
                 assert "history 00" not in main_text
                 assert "history 19" in main_text
+                notice = (
+                    "Earlier messages are available — press Ctrl+T "
+                    "to view the full transcript"
+                )
+                assert notice in printed.replace("\n", "")
+                assert printed.replace("\n", "").count(notice) == 1
                 assert (
                     runtime.document.stable_line_count
                     - runtime.document.cleared_line_count
@@ -1780,7 +1788,10 @@ async def test_replace_transcript_replays_only_configured_tail() -> None:
                 assert resize_print_text.called
                 assert "history 00" not in resized_main_text
                 assert "history 19" in resized_main_text
+                assert notice in replayed.replace("\n", "")
+                assert replayed.replace("\n", "").count(notice) == 1
                 assert len(resized_main_text.splitlines()) <= 7
+                assert notice not in transcript
             finally:
                 await runtime.close()
 
@@ -1806,8 +1817,19 @@ async def test_restored_scrollback_expands_canvas_for_slash_completion() -> None
 
         await runtime.open()
         try:
-            runtime.replace_transcript(restored)
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+            ) as print_text:
+                runtime.replace_transcript(restored)
             await _wait_for_scrollback_settlement(runtime)
+
+            printed = "".join(
+                text
+                for call_args in print_text.call_args_list
+                for _style, text in call_args.args[0]
+            )
+            assert "Earlier messages are available" not in printed
 
             before = await _render_next_frame(runtime)
             renderer = runtime.screen.application.renderer
@@ -1849,6 +1871,143 @@ async def test_restored_scrollback_expands_canvas_for_slash_completion() -> None
                 == opened_input_row
             )
             assert runtime.screen._bottom_release_height() > 0
+        finally:
+            await runtime.close()
+
+
+def _spacing_test_skill(name: str) -> SkillSpec:
+    """创建布局测试使用的 skill 描述。"""
+    entry = Path(f"{name}/SKILL.md")
+    return SkillSpec(
+        name=name,
+        description=f"Use {name}",
+        source="test",
+        root=entry.parent,
+        entry=entry,
+    )
+
+
+@pytest.mark.anyio
+async def test_restored_history_notice_prints_without_retiring_tail() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=24,
+            available_rows=20,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.configure_scrollback_reflow_line_limit(7)
+        restored = tuple(
+            TranscriptBlock(
+                display_block=_block(f"history {index:02d}"),
+                transcript_block=_block(f"history {index:02d}"),
+                kind="assistant",
+            )
+            for index in range(8)
+        )
+
+        await runtime.open()
+        try:
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+            ) as print_text:
+                runtime.replace_transcript(restored)
+                await _wait_for_scrollback_settlement(runtime)
+
+            printed = "".join(
+                text
+                for call_args in print_text.call_args_list
+                for _style, text in call_args.args[0]
+            )
+            assert printed.replace("\n", "") == (
+                "Earlier messages are available — press Ctrl+T "
+                "to view the full transcript"
+            )
+            assert runtime.document.scrollback_line_count == (
+                runtime.document.cleared_line_count
+            )
+            assert "history 00" not in _document_text(runtime.document)
+            assert "history 07" in _document_text(runtime.document)
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("trigger", ("/", "$"))
+async def test_restored_history_notice_keeps_completion_anchor(
+    trigger: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=40,
+            rows=18,
+            available_rows=7,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        runtime.configure_scrollback_reflow_line_limit(7)
+        runtime.input_model.set_skills((
+            _spacing_test_skill("alpha"),
+            _spacing_test_skill("beta"),
+        ))
+        restored = tuple(
+            TranscriptBlock(
+                display_block=_block(f"history {index:02d}"),
+                transcript_block=_block(f"history {index:02d}"),
+                kind="assistant",
+            )
+            for index in range(20)
+        )
+
+        await runtime.open()
+        try:
+            runtime.replace_transcript(restored)
+            await _wait_for_scrollback_settlement(runtime)
+
+            before = await _render_next_frame(runtime)
+            renderer = runtime.screen.application.renderer
+            before_position = before.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+            before_rows_above = renderer.rows_above_layout
+            before_input_row = renderer.rows_above_layout + before_position.ypos
+
+            pipe_input.send_text(trigger)
+            for _ in range(100):
+                await asyncio.sleep(0.002)
+                state = runtime.screen.input.buffer.complete_state
+                if state is not None and state.completions:
+                    break
+            else:
+                raise AssertionError("completion did not become ready")
+
+            opened = await _render_next_frame(runtime)
+            opened_position = opened.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+            opened_input_row = renderer.rows_above_layout + opened_position.ypos
+
+            assert runtime.screen._completion_section_height() > 0
+            assert opened.height > before.height
+            assert renderer.rows_above_layout < before_rows_above
+            assert opened_input_row < before_input_row
+
+            runtime.input_model.dismiss_completion_menu(
+                runtime.screen.input.buffer
+            )
+            dismissed = await _render_next_frame(runtime)
+            dismissed_position = dismissed.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+
+            assert runtime.screen._completion_section_height() == 0
+            assert (
+                renderer.rows_above_layout + dismissed_position.ypos
+                == opened_input_row
+            )
+            assert runtime.screen.canvas_spacer not in (
+                dismissed.visible_windows_to_write_positions
+            )
         finally:
             await runtime.close()
 

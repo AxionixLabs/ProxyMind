@@ -20,7 +20,9 @@ from .models import (
 from .render import (
     display_line_count,
     fragment_continuation_widths,
-    fragments_text
+    fragments_text,
+    join_formatted_lines,
+    wrap_formatted_lines
 )
 from .hyperlinks import decorate_scrollback_hyperlinks
 from .styles import ASSISTANT_PREFIX_CLASS
@@ -38,14 +40,20 @@ class ScrollbackCandidate(object):
     geometry: tuple[int, int]
     reflow_generation: int
     submitted_query_block: FragmentBlock | None
+    include_restored_history_notice: bool
 
 
 class TuiTranscriptViewport(object):
     """管理正文视口、分页位置和原生终端滚屏提交。"""
 
     SCROLLBACK_REFLOW_DEBOUNCE_SEC: typing.Final[float] = 0.08
+
     STREAM_SCROLLBACK_DEBOUNCE_SEC: typing.Final[float] = 0.08
     STREAM_SCROLLBACK_BATCH_LINES: typing.Final[int]    = 4
+
+    RESTORED_HISTORY_NOTICE: typing.Final[str] = (
+        "Earlier messages are available — press {} to view the full transcript"
+    )
 
     def __init__(
         self,
@@ -62,6 +70,7 @@ class TuiTranscriptViewport(object):
         get_transcript_fragments: typing.Callable[[], FormattedText],
         get_render_info: typing.Callable[[], WindowRenderInfo | None],
         get_render_revision: typing.Callable[[], int],
+        get_open_transcript_label: typing.Callable[[], str],
         clear_terminal_scrollback: typing.Callable[[], None],
         clear_terminal_for_resize_replay: typing.Callable[[], None],
         begin_synchronized_output: typing.Callable[[], bool],
@@ -80,13 +89,14 @@ class TuiTranscriptViewport(object):
         self._is_full_screen_overlay_active = is_full_screen_overlay_active
         self._is_closing                    = is_closing
 
-        self._get_application          = get_application
-        self._get_terminal_geometry    = get_terminal_geometry
-        self._get_terminal_width       = get_terminal_width
-        self._get_available_height     = get_available_height
-        self._get_transcript_fragments = get_transcript_fragments
-        self._get_render_info          = get_render_info
-        self._get_render_revision      = get_render_revision
+        self._get_application           = get_application
+        self._get_terminal_geometry     = get_terminal_geometry
+        self._get_terminal_width        = get_terminal_width
+        self._get_available_height      = get_available_height
+        self._get_transcript_fragments  = get_transcript_fragments
+        self._get_render_info           = get_render_info
+        self._get_render_revision       = get_render_revision
+        self._get_open_transcript_label = get_open_transcript_label
 
         self._clear_terminal_scrollback         = clear_terminal_scrollback
         self._clear_terminal_for_resize_replay = (
@@ -109,6 +119,9 @@ class TuiTranscriptViewport(object):
 
         self._scrollback_task: asyncio.Task[None] | None  = None
         self._submitted_query_block: FragmentBlock | None = None
+
+        self._restored_history_truncated: bool      = False
+        self._restored_history_notice_printed: bool = False
 
         self._observed_geometry: tuple[int, int] | None = None
         self._reflowed_geometry: tuple[int, int] | None = None
@@ -546,7 +559,13 @@ class TuiTranscriptViewport(object):
             width=display_width,
             available_height=available_height,
         )
-        if line_count <= 0:
+        include_notice = bool(
+            not self._restored_history_notice_printed
+            and self._restored_history_notice_fragments(
+                width=display_width
+            )
+        )
+        if line_count <= 0 and not include_notice:
             return None
 
         return ScrollbackCandidate(
@@ -559,6 +578,7 @@ class TuiTranscriptViewport(object):
             geometry=geometry,
             reflow_generation=self._reflow_generation,
             submitted_query_block=self._submitted_query_block,
+            include_restored_history_notice=include_notice,
         )
 
     def _scrollback_candidate_still_valid(
@@ -579,6 +599,13 @@ class TuiTranscriptViewport(object):
             or candidate.geometry != self._observed_geometry
             or candidate.submitted_query_block
             is not self._submitted_query_block
+            or candidate.include_restored_history_notice
+            != bool(
+                not self._restored_history_notice_printed
+                and self._restored_history_notice_fragments(
+                    width=candidate.display_width
+                )
+            )
         ):
             return False
 
@@ -707,9 +734,22 @@ class TuiTranscriptViewport(object):
 
     def prepare_restored_scrollback(self) -> None:
         """把恢复记录的主界面回放范围限制为最近一段。"""
-        self.document.prepare_scrollback_tail(
-            max_line_count=self.scrollback_reflow_line_limit,
+        self._restored_history_truncated = bool(
+            self.document.stable_line_count
+            > self.scrollback_reflow_line_limit
         )
+        self._restored_history_notice_printed = False
+
+        self.document.prepare_scrollback_tail(
+            max_line_count=self._restored_replay_line_limit(
+                width=self._get_terminal_width()
+            ),
+        )
+
+    def clear_restored_history_notice(self) -> None:
+        """清除只属于恢复回放的完整记录提示状态。"""
+        self._restored_history_truncated      = False
+        self._restored_history_notice_printed = False
 
     def observe_terminal_geometry(self, width: int, height: int) -> None:
         """记录终端尺寸并在稳定后安排原生滚屏重排。"""
@@ -789,6 +829,7 @@ class TuiTranscriptViewport(object):
         if task is not None and not task.done():
             task.cancel()
 
+        self.clear_restored_history_notice()
         self.document.clear_visible_prefix()
         self.view_row = None
         self._clear_terminal_scrollback()
@@ -848,6 +889,58 @@ class TuiTranscriptViewport(object):
             ("", "\n"),
         ])
 
+    def _restored_history_notice_fragments(
+        self,
+        *,
+        width: int
+    ) -> FormattedText:
+        """生成不会独占恢复回放预算的完整记录提示。"""
+        if not self._restored_history_truncated:
+            return []
+
+        key_label = str(self._get_open_transcript_label() or "").strip()
+        if not key_label:
+            return []
+
+        rows = wrap_formatted_lines(
+            [("class:scrollback.history-notice", (
+                self.RESTORED_HISTORY_NOTICE.format(key_label)
+            ))],
+            width=max(1, int(width)),
+        )
+        if len(rows) >= self.scrollback_reflow_line_limit:
+            return []
+        return join_formatted_lines(rows)
+
+    def _restored_replay_line_limit(self, *, width: int) -> int:
+        """返回为恢复提示预留显示行后的正文回放上限。"""
+        notice = self._restored_history_notice_fragments(width=width)
+        if not notice:
+            return self.scrollback_reflow_line_limit
+        notice_rows = len(wrap_formatted_lines(
+            notice,
+            width=max(1, int(width)),
+        ))
+        return max(0, self.scrollback_reflow_line_limit - notice_rows)
+
+    def _with_restored_history_notice(
+        self,
+        fragments: FormattedText,
+        *,
+        width: int,
+        include: bool
+    ) -> FormattedText:
+        """把恢复提示放在本次原生滚屏批次最前方。"""
+        if not include:
+            return fragments
+
+        notice = self._restored_history_notice_fragments(width=width)
+        if not notice:
+            return fragments
+        if not fragments:
+            return notice
+        return [*notice, ("", "\n"), *fragments]
+
     async def _flush_scrollback(
         self,
         candidate: ScrollbackCandidate
@@ -885,6 +978,14 @@ class TuiTranscriptViewport(object):
                         candidate.line_count
                     )
 
+                    fragments = self._with_restored_history_notice(
+                        fragments,
+                        width=candidate.display_width,
+                        include=(
+                            candidate.include_restored_history_notice
+                        ),
+                    )
+
                     self._print_scrollback_fragments(fragments)
 
                     if not self.document.commit_scrollback_prefix(
@@ -894,6 +995,9 @@ class TuiTranscriptViewport(object):
                         raise AssertionError(
                             "scrollback prefix changed during commit"
                         )
+
+                    if candidate.include_restored_history_notice:
+                        self._restored_history_notice_printed = True
 
                     self._settle_canvas_height()
                     self.view_row = None
@@ -967,6 +1071,7 @@ class TuiTranscriptViewport(object):
         had_native_scrollback = bool(
             self.document.scrollback_line_count
             > self.document.cleared_line_count
+            or self._restored_history_notice_printed
         )
         source_reflowed = self.document.set_display_width(
             target_geometry[0],
@@ -976,7 +1081,10 @@ class TuiTranscriptViewport(object):
             self.view_row = None
             self._invalidate()
 
-        if not had_native_scrollback:
+        notice_available = bool(self._restored_history_notice_fragments(
+            width=target_geometry[0]
+        ))
+        if not had_native_scrollback and not notice_available:
             self._complete_scrollback_reflow(target_geometry)
             self._schedule_scrollback_recheck(target_geometry)
             return None
@@ -1009,18 +1117,26 @@ class TuiTranscriptViewport(object):
 
                 try:
                     self.document.rewind_scrollback(
-                        max_line_count=self.scrollback_reflow_line_limit,
+                        max_line_count=self._restored_replay_line_limit(
+                            width=target_geometry[0]
+                        ),
                     )
                     self.view_row = None
 
                     self._clear_terminal_for_resize_replay()
 
                     line_count = self._scrollback_prefix_line_count()
-                    if line_count > 0:
+                    if line_count > 0 or notice_available:
                         start_line = self.document.visible_prefix_line_count
 
                         fragments = self.document.scrollback_prefix_fragments(
                             line_count
+                        )
+
+                        fragments = self._with_restored_history_notice(
+                            fragments,
+                            width=target_geometry[0],
+                            include=notice_available,
                         )
 
                         self._print_scrollback_fragments(fragments)
@@ -1032,6 +1148,9 @@ class TuiTranscriptViewport(object):
                             raise RuntimeError(
                                 "scrollback replay position changed"
                             )
+                        self._restored_history_notice_printed = (
+                            notice_available
+                        )
                         self._settle_canvas_height()
 
                     self._complete_scrollback_reflow(target_geometry)

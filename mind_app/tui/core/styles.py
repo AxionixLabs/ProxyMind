@@ -103,6 +103,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "ps.stream.command": "fg:#8FC7EA",
     "ps.waiting": "fg:#87919D",
     "ps.error": "fg:#FF6B6B",
+    "scrollback.history-notice": "fg:#87919D dim",
     "transcript.overlay.title": "fg:#87919D dim",
     "transcript.overlay.rule": "fg:#69727D dim",
     "transcript.overlay.help": "fg:#87919D",
