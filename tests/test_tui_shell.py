@@ -1342,7 +1342,7 @@ async def test_inline_process_viewer_keeps_input_and_footer_visible() -> None:
 
 
 @pytest.mark.anyio
-async def test_ctrl_c_interrupts_inline_shell_and_arms_exit() -> None:
+async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     runtime = TuiRuntime()
     task = asyncio.create_task(runtime.view_process(
         ProcessViewerRequest(
@@ -1357,13 +1357,18 @@ async def test_ctrl_c_interrupts_inline_shell_and_arms_exit() -> None:
     runtime.screen.input.buffer.text = "draft"
     runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
 
-    assert await task == "interrupt"
+    assert not task.done()
     assert runtime.screen.input.buffer.text == ""
-    assert runtime.submissions.interrupt_state.exit_armed
-    assert "".join(
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert "again to exit" not in "".join(
         text for _style, text in runtime.screen._footer_fragments()
-    ) == "Ctrl + C again to exit"
+    )
     assert runtime.screen.process_viewer.active
+
+    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+
+    assert await task == "interrupt"
+    assert runtime.submissions.interrupt_state.exit_armed
 
     runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
 

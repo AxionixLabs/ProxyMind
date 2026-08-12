@@ -192,17 +192,17 @@ async def test_editing_clears_exit_confirmation() -> None:
     )
 
 
-def test_first_ctrl_c_clears_idle_draft_and_arms_exit() -> None:
+def test_first_ctrl_c_clears_idle_draft_without_arming_exit() -> None:
     runtime = TuiRuntime()
     runtime.screen.input.buffer.text = "unfinished draft"
 
     runtime.submissions.interrupt_input()
 
     assert runtime.screen.input.buffer.text == ""
-    assert runtime.submissions.interrupt_state.exit_armed
-    assert (
-        _fragments_text(runtime.screen._footer_fragments())
-        == "Ctrl + C again to exit"
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert runtime.submissions.exit_expiry_task is None
+    assert "again to exit" not in _fragments_text(
+        runtime.screen._footer_fragments()
     )
 
 
@@ -237,7 +237,7 @@ async def test_ctrl_c_clears_multiline_input_without_top_canvas_spacer() -> None
                     runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
-                assert runtime.submissions.interrupt_state.exit_armed
+                assert not runtime.submissions.interrupt_state.exit_armed
             finally:
                 await runtime.close()
 
@@ -250,6 +250,44 @@ def test_finished_turn_is_not_marked_as_interrupted() -> None:
     runtime.submissions.interrupt_input()
 
     assert not runtime.consume_turn_interrupt()
+    assert runtime.submissions.interrupt_state.exit_armed
+
+
+def test_ctrl_c_during_stream_clears_draft_without_interrupt() -> None:
+    runtime = TuiRuntime()
+    interrupt = Mock(return_value=True)
+    runtime.set_execution_active(True)
+    runtime.bind_interrupt_handler(interrupt)
+    runtime.screen.input.buffer.text = "draft while streaming"
+
+    runtime.submissions.interrupt_input()
+
+    assert runtime.screen.input.buffer.text == ""
+    interrupt.assert_not_called()
+    assert not runtime.submissions.interrupt_state.exit_armed
+
+    runtime.submissions.interrupt_input()
+
+    interrupt.assert_called_once_with()
+    assert runtime.submissions.interrupt_state.exit_armed
+
+
+def test_ctrl_c_during_foreground_barrier_clears_without_interrupt() -> None:
+    runtime = TuiRuntime()
+    interrupt = Mock(return_value=True)
+    runtime.set_foreground_active(True)
+    runtime.bind_interrupt_handler(interrupt)
+    runtime.screen.input.buffer.text = "draft while waiting"
+
+    runtime.submissions.interrupt_input()
+
+    assert runtime.screen.input.buffer.text == ""
+    interrupt.assert_not_called()
+    assert not runtime.submissions.interrupt_state.exit_armed
+
+    runtime.submissions.interrupt_input()
+
+    interrupt.assert_called_once_with()
     assert runtime.submissions.interrupt_state.exit_armed
 
 

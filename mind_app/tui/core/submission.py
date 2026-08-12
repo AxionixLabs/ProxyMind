@@ -419,8 +419,29 @@ class TuiSubmissionFlow(object):
             self._exit_event.clear()
         return reason
 
+    def discard_input_draft(self) -> bool:
+        """清除当前输入草稿并关闭退出确认。"""
+        buffer = self._get_input_buffer()
+        if not buffer.text and not self.input_model.shell_mode:
+            return False
+
+        self.input_model.cancel_history_backtrack()
+
+        buffer.text = ""
+        buffer.cursor_position = 0
+
+        self.input_model.clear_submission_state()
+        self.interrupt_state.disarm_exit()
+        self._cancel_exit_expiry()
+        self._invalidate()
+
+        return True
+
     def interrupt_input(self) -> None:
-        """按当前交互状态处理中断或连续按键退出请求。"""
+        """按输入、活动和退出确认的优先级处理中断请求。"""
+        if self.discard_input_draft():
+            return None
+
         self.input_model.cancel_history_backtrack()
         if self.interrupt_state.exit_armed:
             self.interrupt_state.request_exit()
@@ -429,16 +450,8 @@ class TuiSubmissionFlow(object):
             self._invalidate()
             return None
 
-        if not self._is_submission_deferred():
-            buffer = self._get_input_buffer()
-            if buffer.text or self.input_model.shell_mode:
-                buffer.text = ""
-                buffer.cursor_position = 0
-                self.input_model.clear_submission_state()
-
         self.interrupt_state.arm_exit()
         self._schedule_exit_expiry()
-
         self._interrupt_handler()
         self._invalidate()
 

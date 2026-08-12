@@ -675,6 +675,8 @@ class TuiRuntime(object):
         """按当前前台交互状态分派输入中断。"""
         viewer = self.screen.process_viewer
         if viewer.input_passthrough:
+            if self.submissions.discard_input_draft():
+                return None
             viewer.resolve("interrupt")
             self.submissions.interrupt_input()
             return None
