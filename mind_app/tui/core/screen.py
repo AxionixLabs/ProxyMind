@@ -1116,9 +1116,14 @@ class TuiScreen(object):
             *self._inline_layout.frame_key(),
         )
 
-    def settle_input_layout(self) -> None:
+    def settle_input_layout(self, completion_closed: bool = False) -> None:
         """随输入内容缩短收束输入区留下的画布高度。"""
+        if completion_closed:
+            self._reset_completion_layout(reset_canvas_floor=False)
+
         if not self._inline_layout.input_growth_active:
+            if completion_closed:
+                self.invalidate()
             return None
 
         if self._input_contains_folded_paste():

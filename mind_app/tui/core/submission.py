@@ -350,7 +350,7 @@ class TuiSubmissionFlow(object):
 
         self.input_model.restore_submission_state(item.paste_store)
         self.input_model.set_shell_mode(item.shell_mode)
-        self.input_model.input_resize_handler()
+        self.input_model.notify_input_layout()
         self._invalidate()
 
         return True
@@ -503,7 +503,7 @@ class TuiSubmissionFlow(object):
                 buffer.text = ""
                 buffer.cursor_position = 0
                 self.input_model.clear_submission_state()
-                self.input_model.input_resize_handler()
+                self.input_model.notify_input_layout()
                 self._invalidate()
                 return False
 
@@ -536,7 +536,7 @@ class TuiSubmissionFlow(object):
 
         if submission_deferred:
             buffer.reset()
-            self.input_model.input_resize_handler()
+            self.input_model.notify_input_layout()
             self._invalidate()
             return True
 
@@ -609,7 +609,7 @@ class TuiSubmissionFlow(object):
         if self._input_handoff_pending:
             self._input_handoff_pending = False
             self._get_input_buffer().reset()
-            self.input_model.input_resize_handler()
+            self.input_model.notify_input_layout()
             if (
                 isinstance(submission, TuiSubmission)
                 and submission.history_recorded

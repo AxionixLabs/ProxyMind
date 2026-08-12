@@ -166,6 +166,11 @@ _COMMAND_BY_NAME: typing.Final[dict[str, TuiCommandSpec]] = {
 }
 
 
+def is_first_input_line(document) -> bool:
+    """判断光标是否位于输入文档首行。"""
+    return document.cursor_position_row == 0
+
+
 def command_spec(key: str) -> TuiCommandSpec:
     """返回指定标识对应的命令描述。"""
     return _COMMAND_BY_KEY[key]
@@ -404,7 +409,7 @@ class SlashCommandCompleter(Completer):
         document
     ) -> tuple[Completion, ...] | None:
         """返回命令名输入阶段的全部斜杠命令匹配项。"""
-        if document.cursor_position_row != 0:
+        if not is_first_input_line(document):
             return None
 
         text     = document.text_before_cursor

@@ -29,6 +29,7 @@ from mind_app.presentation.terminal_text import sanitize_terminal_text
 from ..prompting.commands import (
     SlashCommandCompleter,
     completion_changes_input,
+    is_first_input_line,
     parameterized_command_texts
 )
 from ..prompting.paste import (
@@ -44,6 +45,11 @@ INPUT_BUFFER_NAME = "prompt-input"
 
 def _ignore_action() -> None:
     """忽略尚未绑定的输入动作。"""
+
+
+def _ignore_input_layout(completion_closed: bool = False) -> None:
+    """忽略尚未绑定的输入布局通知。"""
+    _ = completion_closed
 
 
 def _ignore_buffer_action(_buffer: typing.Any) -> None:
@@ -154,7 +160,7 @@ class TuiAutoSuggest(AutoSuggest):
         """根据光标前文本返回一项行内建议。"""
         if self.shell_mode:
             return None
-        if document.cursor_position_row != 0:
+        if not is_first_input_line(document):
             return None
         if getattr(buffer, "complete_state", None) is not None:
             return None
@@ -214,10 +220,8 @@ class TuiInputModel(object):
 
         self.interrupt_handler: typing.Callable[[], None]    = _ignore_action
         self.exit_handler: typing.Callable[[], None]         = _ignore_action
-        self.input_resize_handler: typing.Callable[[], None] = _ignore_action
-
-        self.completion_layout_reset_handler: typing.Callable[[], None] = (
-            _ignore_action
+        self._input_layout_handler: typing.Callable[[bool], None] = (
+            _ignore_input_layout
         )
 
         self.can_exit: typing.Callable[[], bool]                     = _deny_action
@@ -435,22 +439,22 @@ class TuiInputModel(object):
         if buffer.completer and buffer.complete_while_typing():
             self.refresh_completion_menu(buffer, selected_text)
 
-        self.input_resize_handler()
+        self.notify_input_layout()
 
     def bind_interrupt(self, handler: typing.Callable[[], None]) -> None:
         """绑定主运行时提供的输入中断处理函数。"""
         self.interrupt_handler = handler
 
-    def bind_input_resize(self, handler: typing.Callable[[], None]) -> None:
-        """绑定编辑操作改变输入尺寸后执行的布局收束动作。"""
-        self.input_resize_handler = handler
-
-    def bind_completion_layout_reset(
+    def bind_input_layout(
         self,
-        handler: typing.Callable[[], None]
+        handler: typing.Callable[[bool], None],
     ) -> None:
-        """绑定换行关闭补全后执行的布局收束动作。"""
-        self.completion_layout_reset_handler = handler
+        """绑定输入内容变化后的布局收束动作。"""
+        self._input_layout_handler = handler
+
+    def notify_input_layout(self, *, completion_closed: bool = False) -> None:
+        """通知布局层收束输入内容或补全菜单变化。"""
+        self._input_layout_handler(completion_closed)
 
     def handle_interrupt(self, buffer) -> None:
         """优先关闭补全，再把取消操作交给主运行时。"""
@@ -462,7 +466,7 @@ class TuiInputModel(object):
             return None
 
         self.interrupt_handler()
-        self.input_resize_handler()
+        self.notify_input_layout()
 
     def completion_menu_completions(
         self,
@@ -807,7 +811,7 @@ class TuiInputModel(object):
             self.restore_submission_state(self._history_draft_paste_store)
             buffer.document = draft
             self.dismiss_completion_menu(buffer)
-            self.input_resize_handler()
+            self.notify_input_layout()
             return None
 
         entry = self._history_entries[target]
@@ -819,7 +823,7 @@ class TuiInputModel(object):
 
         buffer.document = Document(text, cursor_position=len(text))
         self.dismiss_completion_menu(buffer)
-        self.input_resize_handler()
+        self.notify_input_layout()
 
     def _build_key_bindings(self) -> KeyBindings:
         """创建 TUI 输入区按键绑定。"""
@@ -868,7 +872,7 @@ class TuiInputModel(object):
                     previous_text=previous_text,
                 )
             else:
-                self.input_resize_handler()
+                self.notify_input_layout()
 
         shell_mode_empty = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: self.shell_mode and not get_app().current_buffer.text
@@ -977,7 +981,7 @@ class TuiInputModel(object):
                 buffer,
                 previous_text=previous_text,
             )
-            self.input_resize_handler()
+            self.notify_input_layout()
 
         @bindings.add(
             "left",
@@ -1008,7 +1012,7 @@ class TuiInputModel(object):
                 and self.completion_menu_completions(buffer.document) is None
             ):
                 buffer.cancel_completion()
-                self.completion_layout_reset_handler()
+                self.notify_input_layout(completion_closed=True)
 
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(
