@@ -21,7 +21,7 @@ from .common import (
     _trace_preview_from_lines
 )
 from mind_app.presentation.models import TraceEntry
-from mind_app.stream_events.tool_policy import (
+from mind_app.presentation.tool_policy import (
     NATIVE_TOOL_NAMES,
     ToolDisplayKind,
     tool_display_spec

@@ -9,7 +9,7 @@ from mind_app.stream_events.tool_traces.native import (
     render_tool_trace
 )
 from mind_app.stream_events.tool_traces.render import render_tool_trace_parts
-from mind_app.stream_events.tool_policy import (
+from ..tool_policy import (
     ToolDisplayKind,
     tool_display_spec
 )
@@ -33,9 +33,11 @@ def render_tool_start_view(
     view: ToolStartView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> StyledBlock:
     """把普通工具开始视图转换为中立展示块。"""
+    spec = tool_display_spec(view.name)
+
     title = (
         render_tool_start_trace(
             view.name,
@@ -43,9 +45,10 @@ def render_tool_start_view(
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
-        if view.name in {"shell_command", "exec_command"}
+        if spec.kind is ToolDisplayKind.SHELL
         else view.title
     )
+
     return StyledBlock(
         plain_text=title,
         spans=tuple(render_tool_trace_parts(
@@ -73,10 +76,11 @@ def render_native_tool_result_view(
     view: NativeToolResultView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果视图转换为中立展示块。"""
-    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
+    spec = tool_display_spec(view.name)
+    if spec.kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_view(
             view,
             terminal_width=terminal_width,
@@ -84,6 +88,7 @@ def render_native_tool_result_view(
         ),)
 
     blocks: list[StyledBlock] = []
+
     for entry in view.entries:
         title = _native_result_title(
             view,
@@ -100,11 +105,10 @@ def render_native_tool_result_view(
                 title,
                 preview=entry.preview,
                 ok=entry.ok,
-                terminal_width=(
-                    terminal_width
-                    if view.name in {"shell_command", "exec_command", "write_stdin"}
-                    else None
-                ),
+                terminal_width=(terminal_width if spec.kind in {
+                    ToolDisplayKind.SHELL,
+                    ToolDisplayKind.STDIN,
+                } else None),
                 measure_width=measure_width,
             )),
             preserve_spans=True,
@@ -142,7 +146,7 @@ def _native_result_title(
     measure_width: typing.Callable[[str], int] | None
 ) -> str:
     """返回按当前终端宽度生成的原生工具结果标题。"""
-    if view.name not in {"shell_command", "exec_command"}:
+    if tool_display_spec(view.name).kind is not ToolDisplayKind.SHELL:
         return fallback
     return render_tool_trace(
         view.name,
@@ -172,16 +176,18 @@ def render_javascript_result_raw_text(view: NativeToolResultView) -> str:
 
 def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
     """把工具启动信息转换为完整记录块。"""
-    if view.name in {"shell_command", "exec_command"}:
+    spec = tool_display_spec(view.name)
+
+    if spec.kind is ToolDisplayKind.SHELL:
         command = _command_text(view.arguments.get("command"))
         return _transcript_block(view.title, f"$ {command}" if command else "")
-    if view.name == "write_stdin":
+    if spec.kind is ToolDisplayKind.STDIN:
         return _transcript_block(view.title, _json_text(view.arguments))
-    if view.name == "apply_patch":
+    if spec.kind is ToolDisplayKind.PATCH:
         return _transcript_block(view.title, str(view.arguments.get("patch") or ""))
 
-    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
-        source_field = tool_display_spec(view.name).source_field
+    if spec.kind is ToolDisplayKind.JAVASCRIPT:
+        source_field = spec.source_field
         source       = view.arguments.get(source_field) if source_field else ""
 
         return _transcript_block(view.title, str(source or ""))
@@ -196,13 +202,14 @@ def render_generic_tool_result_transcript_view(view: GenericToolResultView) -> S
 
 def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果转换为完整记录块。"""
-    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
+    spec = tool_display_spec(view.name)
+    if spec.kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_transcript_view(view),)
 
     payload = _native_payload(view.data)
     title   = view.entries[0].title if view.entries else f"• Ran {view.name}"
 
-    if view.name in {"shell_command", "exec_command"}:
+    if spec.kind is ToolDisplayKind.SHELL:
         command = _command_text(
             payload.get("command") or view.arguments.get("command")
         )
@@ -220,12 +227,12 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
             exit_code=payload.get("exit_code"),
         ),)
 
-    if view.name == "write_stdin":
+    if spec.kind is ToolDisplayKind.STDIN:
         output = _native_output_text(payload)
         body = output or _json_text(view.arguments)
         return (_transcript_block(title, body),)
 
-    if view.name == "apply_patch":
+    if spec.kind is ToolDisplayKind.PATCH:
         patch = str(view.arguments.get("patch") or "")
         detail = patch or _json_text(payload)
         return (_transcript_block(title, detail),)
@@ -235,12 +242,14 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
 
 def render_tool_start_raw_text(view: ToolStartView) -> str:
     """把工具启动信息转换为无装饰文本。"""
-    if view.name in {"shell_command", "exec_command"}:
+    spec = tool_display_spec(view.name)
+
+    if spec.kind is ToolDisplayKind.SHELL:
         return _command_text(view.arguments.get("command"))
-    if view.name == "apply_patch":
+    if spec.kind is ToolDisplayKind.PATCH:
         return str(view.arguments.get("patch") or "")
-    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
-        source_field = tool_display_spec(view.name).source_field
+    if spec.kind is ToolDisplayKind.JAVASCRIPT:
+        source_field = spec.source_field
         return str(view.arguments.get(source_field) or "") if source_field else ""
 
     return _json_text(view.arguments)
@@ -253,22 +262,24 @@ def render_generic_tool_result_raw_text(view: GenericToolResultView) -> str:
 
 def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str, ...]:
     """把原生工具结果转换为无装饰文本块。"""
-    if tool_display_spec(view.name).kind is ToolDisplayKind.JAVASCRIPT:
+    spec = tool_display_spec(view.name)
+
+    if spec.kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_raw_text(view),)
 
     payload = _native_payload(view.data)
 
-    if view.name in {"shell_command", "exec_command"}:
+    if spec.kind is ToolDisplayKind.SHELL:
         command = _command_text(
             payload.get("command") or view.arguments.get("command")
         )
         output = _native_output_text(payload)
         return ("\n".join(item for item in (command, output) if item),)
 
-    if view.name == "write_stdin":
+    if spec.kind is ToolDisplayKind.STDIN:
         return (_native_output_text(payload) or _json_text(view.arguments),)
 
-    if view.name == "apply_patch":
+    if spec.kind is ToolDisplayKind.PATCH:
         patch = str(view.arguments.get("patch") or "")
         return (patch or _json_text(payload),)
 

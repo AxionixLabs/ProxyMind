@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.stream_events.tool_policy import (
+from mind_app.presentation.tool_policy import (
     ToolDisplayKind,
     is_two_stage_tool,
     merges_tool_start_event,

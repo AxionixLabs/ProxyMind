@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import enum
 from dataclasses import dataclass
@@ -7,18 +8,17 @@ from dataclasses import dataclass
 class ToolDisplayKind(enum.Enum):
     """描述原生工具在共享展示层中的内容类型。"""
 
-    GENERIC = "generic"
-    SHELL = "shell"
-    STDIN = "stdin"
-    JAVASCRIPT = "javascript"
+    GENERIC          = "generic"
+    SHELL            = "shell"
+    STDIN            = "stdin"
+    JAVASCRIPT       = "javascript"
     JAVASCRIPT_RESET = "javascript_reset"
-    PATCH = "patch"
+    PATCH            = "patch"
 
 
 @dataclass(frozen=True, slots=True)
 class ToolDisplaySpec(object):
     """描述工具展示和历史记录所需的稳定策略。"""
-
     kind: ToolDisplayKind
     two_stage: bool = False
     merge_start_event: bool = True

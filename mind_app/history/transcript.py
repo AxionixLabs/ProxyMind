@@ -14,7 +14,7 @@ from datetime import (
     timezone
 )
 from pathlib import Path
-from mind_app.stream_events.tool_policy import merges_tool_start_event
+from mind_app.presentation.tool_policy import merges_tool_start_event
 from engine.observability import observe_exception
 from mind_app.paths import sessions_dir
 from mind_nova import const
