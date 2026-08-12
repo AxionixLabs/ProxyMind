@@ -1130,6 +1130,8 @@ class TuiScreen(object):
             return None
 
         input_empty = not self.input.buffer.text
+        if input_empty:
+            self._inline_layout.bottom_anchor.clear()
         self._inline_layout.settle_input(
             natural_height=self._natural_visible_height(),
             input_empty=input_empty,
@@ -1449,7 +1451,10 @@ class TuiScreen(object):
             else:
                 self._inline_layout.observe_input_layout(
                     input_height=self._input_height(),
-                    footprint_height=self._input_stack_height(),
+                    footprint_height=(
+                        self._input_surface_height()
+                        + self._footer_height()
+                    ),
                     stable_line_baseline=self.document.stable_line_count,
                     live_height_baseline=self._completion_live_height(),
                 )
@@ -1460,6 +1465,7 @@ class TuiScreen(object):
             self._inline_layout.fit_canvas_height(
                 natural_height=natural_height,
                 available_height=self._frame_geometry.height,
+                input_growth_height=max(0, self._input_height() - 1),
             )
 
         self._observe_terminal_geometry(*geometry)
@@ -1468,8 +1474,9 @@ class TuiScreen(object):
         """在渲染结束后恢复终端尺寸的实时读取。"""
         self._observe_render_revision(application.render_counter)
         self._rendered_output_size = self._frame_output_size
+
         self._frame_output_size = None
-        self._frame_geometry = None
+        self._frame_geometry    = None
 
     def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
         """读取并规范化一个终端尺寸快照。"""

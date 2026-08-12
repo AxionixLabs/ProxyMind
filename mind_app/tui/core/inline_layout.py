@@ -259,10 +259,12 @@ class InlineLayoutState(object):
         self,
         *,
         natural_height: int,
-        available_height: int
+        available_height: int,
+        input_growth_height: int | None = None
     ) -> int:
         """按自然高度、既有下限和可用高度确定画布高度。"""
         available_height = max(1, int(available_height))
+
         canvas_height = min(
             available_height,
             max(
@@ -270,12 +272,25 @@ class InlineLayoutState(object):
                 max(1, int(natural_height)),
             ),
         )
+
         self.canvas_height_floor = canvas_height
+
+        input_saturated = (
+            canvas_height >= available_height
+            if input_growth_height is None
+            else (
+                max(0, self.input_growth_baseline or 0)
+                + max(0, int(input_growth_height))
+                >= available_height
+            )
+        )
+
         if (
             self.input_growth_active
-            and canvas_height >= available_height
+            and input_saturated
         ):
             self.input_canvas_saturated = True
+
         self.input_anchor.clamp(available_height)
         return canvas_height
 

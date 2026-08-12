@@ -404,12 +404,13 @@ class SlashCommandCompleter(Completer):
         document
     ) -> tuple[Completion, ...] | None:
         """返回命令名输入阶段的全部斜杠命令匹配项。"""
+        if document.cursor_position_row != 0:
+            return None
+
         text     = document.text_before_cursor
         stripped = text.lstrip()
 
         if not stripped.startswith("/"):
-            return None
-        if "\n" in stripped:
             return None
 
         token = stripped.splitlines()[-1]

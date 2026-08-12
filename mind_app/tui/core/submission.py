@@ -350,6 +350,7 @@ class TuiSubmissionFlow(object):
 
         self.input_model.restore_submission_state(item.paste_store)
         self.input_model.set_shell_mode(item.shell_mode)
+        self.input_model.input_resize_handler()
         self._invalidate()
 
         return True

@@ -5331,7 +5331,7 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
                 assert input_position.height == 15
                 assert render_info.vertical_scroll == 3
 
-            pipe_input.send_text("\x15")
+            pipe_input.send_text("\x15" * (pasted.count("\n") + 1))
             await _wait_for_input_text(runtime, "")
             restored = await _render_next_frame(runtime)
             restored_positions = restored.visible_windows_to_write_positions
@@ -5394,7 +5394,7 @@ async def test_saturated_input_keeps_footer_and_scrolls_only_overflow(
             assert render_info.vertical_scroll == expected_scroll
             assert runtime.screen.canvas_spacer not in positions
 
-            pipe_input.send_text("\x15")
+            pipe_input.send_text("\x15" * expansion_rows)
             await _wait_for_input_text(runtime, "")
             collapsed = await _render_next_frame(runtime)
             positions = collapsed.visible_windows_to_write_positions
@@ -5788,7 +5788,42 @@ async def test_multiline_input_undo_shrinks_without_top_spacer() -> None:
 
 
 @pytest.mark.anyio
-async def test_ctrl_u_clears_multiline_input_without_top_canvas_spacer() -> None:
+async def test_programmatic_input_replacement_releases_multiline_canvas() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                initial_height = runtime.screen._visible_height()
+                value = "x" + "\n" * 8
+                runtime.screen.input.buffer.text = value
+                runtime.screen.input.buffer.cursor_position = len(value)
+                expanded = await _render_next_frame(runtime)
+
+                assert expanded.height > initial_height
+                assert runtime.screen._input_height() == 9
+
+                runtime.replace_input_text("replacement")
+                collapsed = await _render_next_frame(runtime)
+                positions = collapsed.visible_windows_to_write_positions
+
+                assert runtime.screen._input_height() == 1
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen._visible_height() < expanded.height
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_repeated_ctrl_u_clears_input_without_top_canvas_spacer() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -5810,7 +5845,7 @@ async def test_ctrl_u_clears_multiline_input_without_top_canvas_spacer() -> None
 
                 assert runtime.screen._visible_height() > initial_height
 
-                pipe_input.send_text("\x15")
+                pipe_input.send_text("\x15" * (value.count("\n") + 1))
                 await _wait_for_input_text(runtime, "")
 
                 screen = await _render_next_frame(runtime)
@@ -5875,7 +5910,7 @@ async def test_ctrl_u_restores_input_anchor_after_multiline_terminal_scroll(
                 == terminal_rows - expected_expanded_height
             )
 
-            pipe_input.send_text("\x15")
+            pipe_input.send_text("\x15" * expansion_rows)
             await _wait_for_input_text(runtime, "")
             restored = await _render_next_frame(runtime)
             positions = restored.visible_windows_to_write_positions
@@ -5943,7 +5978,7 @@ async def test_reexpanded_input_never_adds_top_canvas_spacer(
             await _wait_for_input_text(runtime, "\n" * 20)
             await _render_next_frame(runtime)
 
-            pipe_input.send_text("\x15")
+            pipe_input.send_text("\x15" * 20)
             await _wait_for_input_text(runtime, "")
             collapsed = await _render_next_frame(runtime)
             collapsed_positions = (
@@ -6016,7 +6051,7 @@ async def test_idle_destructive_edit_releases_every_expanded_input_row(
 
             remaining_rows = (
                 range(19, -1, -1)
-                if clear_mode == "delete"
+                if clear_mode in {"ctrl_u", "delete"}
                 else (0,)
             )
             for remaining_rows_count in remaining_rows:
@@ -6148,7 +6183,7 @@ async def test_multiline_clear_releases_saturated_input_after_oversized_stream(
 
                 runtime.screen.clear_activity_renderable()
                 if clear_mode == "ctrl_u":
-                    pipe_input.send_text("\x15")
+                    pipe_input.send_text("\x15" * (pasted.count("\n") + 1))
                 elif clear_mode == "ctrl_w":
                     pipe_input.send_text("\x17" * 16)
                 elif clear_mode == "delete":

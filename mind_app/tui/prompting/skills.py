@@ -194,7 +194,7 @@ def iter_prompt_tokens(
 
 def skill_query_token(text: str) -> str | None:
     """返回当前光标所在的 skill 查询 token。"""
-    current_line = text.splitlines()[-1] if text.splitlines() else text
+    current_line = text.rpartition("\n")[2]
     if not current_line or current_line[-1].isspace():
         return None
 

@@ -115,6 +115,50 @@ def test_history_navigation_suppresses_slash_menu_until_edit() -> None:
     ] == ["/skills"]
 
 
+@pytest.mark.parametrize(
+    ("text", "cursor_position", "expected_text", "expected_cursor"),
+    (
+        ("first\nsecond\nthird", 2, "second\nthird", 0),
+        ("first\nsecond\nthird", 9, "first\nthird", 6),
+        ("first\nsecond\nthird", 18, "first\nsecond", 12),
+        ("first\n\nthird", 6, "first\nthird", 6),
+    ),
+)
+def test_ctrl_u_deletes_the_current_input_line(
+    text: str,
+    cursor_position: int,
+    expected_text: str,
+    expected_cursor: int,
+) -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document(text, cursor_position=cursor_position)
+
+    press_history_key(model, Keys.ControlU, buffer)
+
+    assert buffer.text == expected_text
+    assert buffer.cursor_position == expected_cursor
+
+
+def test_ctrl_u_preserves_folded_paste_state_on_other_lines() -> None:
+    model = TuiInputModel()
+    first_text = "a" * 1200
+    second_text = "b" * 1200
+    first = model._display_paste(first_text, "")
+    second = model._display_paste(second_text, first)
+    buffer = Buffer()
+    buffer.document = Document(
+        f"{first}\n{second}",
+        cursor_position=len(first) + 1,
+    )
+
+    press_history_key(model, Keys.ControlU, buffer)
+
+    assert buffer.text == first
+    assert model.submission_state() == {first: first_text}
+    assert model.restore_submission(buffer.text) == first_text
+
+
 def test_shell_history_restores_prefix_mode() -> None:
     model = TuiInputModel()
     model.history.append_string("! rg TODO")

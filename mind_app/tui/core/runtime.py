@@ -301,6 +301,9 @@ class TuiRuntime(object):
             self._report_missing_backtrack,
         )
         self.input_model.bind_input_resize(self.screen.settle_input_layout)
+        self.input_model.bind_completion_layout_reset(
+            self.screen.settle_completion_layout
+        )
 
         self.activity = TuiActivity(
             set_renderable=lambda block: self.screen.set_activity_renderable(
@@ -1066,6 +1069,7 @@ class TuiRuntime(object):
         buffer.text = value
         buffer.cursor_position = len(value)
 
+        self.screen.settle_input_layout()
         self.invalidate()
 
     def bind_submitted_turn(

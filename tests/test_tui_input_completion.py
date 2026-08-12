@@ -209,6 +209,83 @@ async def test_slash_completion_has_no_inline_ghost_text() -> None:
 
 
 @pytest.mark.anyio
+async def test_slash_completion_only_opens_on_the_first_input_line() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/")
+            await wait_for_completion(runtime)
+
+            pipe_input.send_text("\x0f/")
+            await wait_for_input_text(runtime, "/\n/")
+            await asyncio.sleep(0)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is None
+            assert not runtime.screen._completion_visible()
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
+        finally:
+            await runtime.close()
+
+
+def test_slash_suggestion_only_appears_on_the_first_input_line() -> None:
+    runtime = TuiRuntime()
+    buffer = runtime.screen.input.buffer
+
+    buffer.document = Document("/model\ndraft", cursor_position=6)
+    assert runtime.input_model.auto_suggest.get_suggestion(
+        buffer,
+        buffer.document,
+    ) is not None
+
+    buffer.document = Document("draft\n/model", cursor_position=12)
+    assert runtime.input_model.auto_suggest.get_suggestion(
+        buffer,
+        buffer.document,
+    ) is None
+
+
+@pytest.mark.anyio
+async def test_ctrl_o_closes_skill_menu_and_releases_its_height() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills(tuple(
+            skill_spec(f"skill-{index:02d}")
+            for index in range(12)
+        ))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                pipe_input.send_text("$")
+                await wait_for_completion(runtime)
+                await render_next_frame(runtime)
+
+                assert runtime.screen._completion_section_height() == 8
+
+                pipe_input.send_text("\x0f")
+                await wait_for_input_text(runtime, "$\n")
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+
+                assert runtime.screen.input.buffer.complete_state is None
+                assert not runtime.screen._completion_visible()
+                assert runtime.screen._completion_section_height() == 0
+                assert runtime.screen._bottom_release_height() == 0
+                assert runtime.screen.canvas_spacer not in positions
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_forward_typing_never_leaves_a_blank_completion_frame() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -335,6 +412,68 @@ async def test_slash_canvas_frames_keep_raised_anchor_after_dismissal() -> None:
                         has_rendered_candidate,
                     ) in dismissed_frames
                 ), dismissed_frames
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("prefix", ("/", "$"))
+@pytest.mark.parametrize(
+    "clear_method",
+    ("ctrl_u", "ctrl_w", "backspace", "delete"),
+)
+async def test_clearing_multiline_completion_collapses_canvas(
+    prefix: str,
+    clear_method: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills(tuple(
+            skill_spec(f"skill-{index:02d}")
+            for index in range(12)
+        ))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                buffer = runtime.screen.input.buffer
+                text = prefix + "\n" * 12
+                buffer.document = Document(text, cursor_position=len(prefix))
+                runtime.input_model.refresh_completion_menu(buffer)
+                await wait_for_input_text(runtime, text)
+                await wait_for_completion(runtime)
+                expanded = await render_next_frame(runtime)
+
+                assert expanded.height == 24
+                assert runtime.screen._input_height() == 13
+                assert runtime.screen._completion_section_height() == 8
+
+                buffer.cursor_position = len(buffer.text)
+                if clear_method == "ctrl_u":
+                    pipe_input.send_text("\x15" * 13)
+                elif clear_method == "ctrl_w":
+                    pipe_input.send_text("\x17" * 13)
+                elif clear_method == "delete":
+                    runtime.screen.input.buffer.cursor_position = 0
+                    pipe_input.send_text("\x1b[3~" * 13)
+                else:
+                    pipe_input.send_text("\x7f" * 13)
+                await wait_for_input_text(runtime, "")
+                collapsed = await render_next_frame(runtime)
+                positions = collapsed.visible_windows_to_write_positions
+
+                assert runtime.screen._input_height() == 1
+                assert runtime.screen._completion_section_height() == 0
+                assert runtime.screen._bottom_release_height() == 0
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen._visible_height() < expanded.height
+                assert runtime.screen.canvas_spacer not in positions
             finally:
                 await runtime.close()
 

@@ -154,6 +154,8 @@ class TuiAutoSuggest(AutoSuggest):
         """根据光标前文本返回一项行内建议。"""
         if self.shell_mode:
             return None
+        if document.cursor_position_row != 0:
+            return None
         if getattr(buffer, "complete_state", None) is not None:
             return None
 
@@ -214,13 +216,17 @@ class TuiInputModel(object):
         self.exit_handler: typing.Callable[[], None]         = _ignore_action
         self.input_resize_handler: typing.Callable[[], None] = _ignore_action
 
+        self.completion_layout_reset_handler: typing.Callable[[], None] = (
+            _ignore_action
+        )
+
         self.can_exit: typing.Callable[[], bool]                     = _deny_action
         self.can_submit_queue: typing.Callable[[], bool]             = _deny_action
         self.can_rollback_queue: typing.Callable[[], bool]           = _deny_action
         self.can_backtrack_history: typing.Callable[[], bool]        = _deny_action
         self.can_report_missing_backtrack: typing.Callable[[], bool] = _deny_action
 
-        self.rollback_queue_handler: typing.Callable[[], bool]    = _deny_action
+        self.rollback_queue_handler: typing.Callable[[], bool] = _deny_action
 
         self.queue_submission_handler: typing.Callable[[typing.Any], None] = (
             _ignore_buffer_action
@@ -439,6 +445,13 @@ class TuiInputModel(object):
         """绑定编辑操作改变输入尺寸后执行的布局收束动作。"""
         self.input_resize_handler = handler
 
+    def bind_completion_layout_reset(
+        self,
+        handler: typing.Callable[[], None]
+    ) -> None:
+        """绑定换行关闭补全后执行的布局收束动作。"""
+        self.completion_layout_reset_handler = handler
+
     def handle_interrupt(self, buffer) -> None:
         """优先关闭补全，再把取消操作交给主运行时。"""
         if (
@@ -511,10 +524,12 @@ class TuiInputModel(object):
     ) -> None:
         """同步刷新补全菜单并尽量保留当前候选项。"""
         if self.completion_menu_completions(buffer.document) is None:
+            buffer.cancel_completion()
             return None
 
         completions = self.completer.matching_completions(buffer.document)
         if not completions:
+            buffer.cancel_completion()
             return None
 
         index = next(
@@ -684,6 +699,38 @@ class TuiInputModel(object):
         """清理粘贴内容映射。"""
         self.paste_store.clear()
 
+    @staticmethod
+    def _delete_current_line(buffer) -> bool:
+        """删除光标所在逻辑行及其分隔换行。"""
+        document = buffer.document
+        text     = document.text
+
+        line_start = (
+            document.cursor_position
+            - len(document.current_line_before_cursor)
+        )
+
+        line_end = (
+            document.cursor_position
+            + len(document.current_line_after_cursor)
+        )
+
+        if line_end < len(text):
+            delete_start, delete_end = line_start, line_end + 1
+        elif line_start > 0:
+            delete_start, delete_end = line_start - 1, line_end
+        else:
+            delete_start, delete_end = 0, len(text)
+
+        if delete_start == delete_end:
+            return False
+
+        buffer.document = Document(
+            text[:delete_start] + text[delete_end:],
+            cursor_position=delete_start,
+        )
+        return True
+
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
         self._history_entries           = ()
@@ -807,12 +854,21 @@ class TuiInputModel(object):
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
+            previous_text = buffer.text
             buffer.cancel_completion()
-            buffer.text = ""
-            buffer.cursor_position = 0
-            self._clear_paste_state()
-            self.set_shell_mode(False)
-            self.input_resize_handler()
+            deleted = self._delete_current_line(buffer)
+            self.paste_store = self.submission_state(buffer.text)
+
+            if not buffer.text:
+                self.set_shell_mode(False)
+
+            if deleted:
+                self._finish_destructive_edit(
+                    buffer,
+                    previous_text=previous_text,
+                )
+            else:
+                self.input_resize_handler()
 
         shell_mode_empty = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: self.shell_mode and not get_app().current_buffer.text
@@ -941,7 +997,18 @@ class TuiInputModel(object):
         @bindings.add("escape", "enter")
         @bindings.add("c-o")
         def _(event) -> None:
-            event.app.current_buffer.insert_text("\n")
+            buffer = event.app.current_buffer
+            completion_open = bool(
+                buffer.complete_state is not None
+                or self.completion_menu_completions(buffer.document) is not None
+            )
+            buffer.insert_text("\n")
+            if (
+                completion_open
+                and self.completion_menu_completions(buffer.document) is None
+            ):
+                buffer.cancel_completion()
+                self.completion_layout_reset_handler()
 
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(
