@@ -1,6 +1,6 @@
 {
   "name": "@craftline/mind-win32",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Mind Windows runtime package.",
   "os": [
     "win32"
