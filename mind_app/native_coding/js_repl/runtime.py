@@ -27,10 +27,12 @@ ToolCallback = typing.Callable[
 MIN_NODE_VERSION   = (22, 22, 0)
 DEFAULT_TIMEOUT_MS = 30_000
 
-STDERR_TAIL_LINE_LIMIT = 20
-STDERR_TAIL_LINE_BYTES = 512
-STDERR_TAIL_MAX_BYTES  = 4_096
-STDERR_TAIL_SEPARATOR  = " | "
+STDERR_TAIL_LINE_LIMIT  = 20
+STDERR_TAIL_LINE_BYTES  = 512
+STDERR_TAIL_MAX_BYTES   = 4_096
+STDERR_TAIL_SEPARATOR   = " | "
+STDOUT_READ_CHUNK_BYTES = 64 * 1024
+STDOUT_FRAME_MAX_BYTES  = 32 * 1024 * 1024
 
 SUPPORTED_IMAGE_TYPES = {
     "image/gif",
@@ -393,16 +395,43 @@ class JavaScriptReplManager:
         if stream is None:
             return
 
+        frame_buffer = bytearray()
+
         try:
             while True:
-                line = await stream.readline()
-                if not line:
+                chunk = await stream.read(STDOUT_READ_CHUNK_BYTES)
+                if not chunk:
                     break
-                try:
-                    message = json.loads(line)
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                await self._dispatch_message(message)
+
+                frame_buffer.extend(chunk)
+                while True:
+                    separator = frame_buffer.find(b"\n")
+                    if separator < 0:
+                        if len(frame_buffer) > STDOUT_FRAME_MAX_BYTES:
+                            await self._fail_pending(
+                                "js_repl stdout frame exceeded "
+                                f"{STDOUT_FRAME_MAX_BYTES} bytes; kernel reset"
+                            )
+                            return
+                        break
+
+                    frame = bytes(frame_buffer[:separator])
+                    del frame_buffer[:separator + 1]
+                    if not frame:
+                        continue
+
+                    if len(frame) > STDOUT_FRAME_MAX_BYTES:
+                        await self._fail_pending(
+                            "js_repl stdout frame exceeded "
+                            f"{STDOUT_FRAME_MAX_BYTES} bytes; kernel reset"
+                        )
+                        return
+
+                    try:
+                        message = json.loads(frame)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    await self._dispatch_message(message)
 
         except asyncio.CancelledError:
             raise

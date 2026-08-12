@@ -33,6 +33,7 @@ from mind_app.native_coding.js_repl import (
 )
 from mind_app.native_coding.js_repl.runtime import (
     STDERR_TAIL_MAX_BYTES,
+    STDOUT_FRAME_MAX_BYTES,
     _append_stderr_tail,
     _stderr_tail_bytes,
 )
@@ -543,6 +544,39 @@ async def test_js_repl_zero_timeout_resets_kernel(tmp_path: Path) -> None:
         await pool.close()
 
     assert recovered.output == "undefined"
+
+
+@pytest.mark.anyio
+async def test_js_repl_reads_output_frames_larger_than_default_stream_limit(
+    tmp_path: Path,
+) -> None:
+    _require_node()
+
+    async def call_tool(name, arguments, call_id):
+        raise AssertionError((name, arguments, call_id))
+
+    pool = JavaScriptReplPool(tmp_path)
+    try:
+        result = await pool.execute(
+            "sid-large-frame",
+            "console.log('x'.repeat(100000));",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+        recovered = await pool.execute(
+            "sid-large-frame",
+            "console.log('recovered');",
+            cwd=tmp_path,
+            timeout_ms=5000,
+            call_tool=call_tool,
+        )
+    finally:
+        await pool.close()
+
+    assert len(result.output) == 100000
+    assert STDOUT_FRAME_MAX_BYTES > len(result.output)
+    assert recovered.output == "recovered"
 
 
 @pytest.mark.anyio
