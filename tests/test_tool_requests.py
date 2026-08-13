@@ -64,6 +64,7 @@ def _response(status_code, body):
                 "target": "local",
             },
             {
+                "ok": True,
                 "text": "completed",
                 "attachments": [],
                 "data": {
@@ -84,6 +85,7 @@ def _response(status_code, body):
                 "target": "device-1",
             },
             {
+                "ok": True,
                 "text": "snapshot ready",
                 "attachments": [{"kind": "file", "path": "snapshot.json"}],
                 "data": {"serial": "device-1", "battery": 80},
@@ -92,6 +94,7 @@ def _response(status_code, body):
         (
             {"answer": 42, "source_url": "https://example.test/docs"},
             {
+                "ok": True,
                 "text": "",
                 "attachments": [],
                 "data": {
@@ -103,6 +106,7 @@ def _response(status_code, body):
         (
             {"approval_denied": True, "error": "approval rejected"},
             {
+                "ok": True,
                 "text": "approval rejected",
                 "attachments": [],
                 "data": {
@@ -140,6 +144,34 @@ async def test_tool_result_posts_only_transport_fields(
         "ok": True,
         "result": expected,
         "execution": {"target": "client"},
+    }
+
+
+@pytest.mark.anyio
+async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {"ok": True}), captured)
+
+    await tools.post_tool_result(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "test_tool",
+        False,
+        {
+            "ok": True,
+            "text": "failed",
+            "attachments": [],
+            "data": {"error": "failed"},
+        },
+    )
+
+    assert captured["json"]["ok"] is False
+    assert captured["json"]["result"] == {
+        "ok": False,
+        "text": "failed",
+        "attachments": [],
+        "data": {"error": "failed"},
     }
 
 

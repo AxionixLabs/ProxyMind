@@ -41,6 +41,7 @@ _TOOL_RESULT_METADATA_KEYS = frozenset({
 
 class _ServerToolResult(typing.TypedDict):
     """描述服务端接收的规范工具结果。"""
+    ok: bool
     text: str
     attachments: list[typing.Any]
     data: _ToolResultValue
@@ -101,13 +102,14 @@ async def post_tool_result(
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
+
     payload: _ToolResultPayload = {
         "cid"     : cid,
         "sid"     : sid,
         "call_id" : call_id,
         "name"    : name,
         "ok"      : ok,
-        "result"  : _tool_result_for_server(result)
+        "result"  : _tool_result_for_server(result, ok=ok)
     }
     if isinstance(execution, dict):
         payload["execution"] = execution
@@ -195,10 +197,15 @@ async def post_tool_approval(
         )
 
 
-def _tool_result_for_server(result: _ToolResultValue) -> _ServerToolResult:
+def _tool_result_for_server(
+    result: _ToolResultValue,
+    *,
+    ok: bool,
+) -> _ServerToolResult:
     """将内部工具结果投影为服务端传输结构。"""
     if not isinstance(result, dict):
         return {
+            "ok": bool(ok),
             "text": result if isinstance(result, str) else "",
             "attachments": [],
             "data": None if isinstance(result, str) else result,
@@ -224,6 +231,7 @@ def _tool_result_for_server(result: _ToolResultValue) -> _ServerToolResult:
         }
 
     return {
+        "ok": bool(ok),
         "text": text,
         "attachments": attachments,
         "data": data,
