@@ -42,9 +42,13 @@ _TOOL_RESULT_METADATA_KEYS = frozenset({
 class _ServerToolResult(typing.TypedDict):
     """描述服务端接收的规范工具结果。"""
     ok: bool
+    tool: str
+    source: str
+    args: dict[str, typing.Any]
     text: str
     attachments: list[typing.Any]
-    data: _ToolResultValue
+    data: dict[str, typing.Any]
+    target: typing.NotRequired[str]
 
 
 class _ToolResultPayload(typing.TypedDict):
@@ -98,18 +102,24 @@ async def post_tool_result(
     result: _ToolResultValue,
     execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
-    system_message: str = ""
+    system_message: str = "",
+    arguments: typing.Mapping[str, typing.Any] | None = None
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
 
     payload: _ToolResultPayload = {
-        "cid"     : cid,
-        "sid"     : sid,
-        "call_id" : call_id,
-        "name"    : name,
-        "ok"      : ok,
-        "result"  : _tool_result_for_server(result, ok=ok)
+        "cid": cid,
+        "sid": sid,
+        "call_id": call_id,
+        "name": name,
+        "ok": ok,
+        "result": _tool_result_for_server(
+            result,
+            name=name,
+            ok=ok,
+            arguments=arguments,
+        )
     }
     if isinstance(execution, dict):
         payload["execution"] = execution
@@ -200,15 +210,20 @@ async def post_tool_approval(
 def _tool_result_for_server(
     result: _ToolResultValue,
     *,
+    name: str,
     ok: bool,
+    arguments: typing.Mapping[str, typing.Any] | None
 ) -> _ServerToolResult:
     """将内部工具结果投影为服务端传输结构。"""
     if not isinstance(result, dict):
         return {
             "ok": bool(ok),
+            "tool": str(name or ""),
+            "source": "client",
+            "args": dict(arguments or {}),
             "text": result if isinstance(result, str) else "",
             "attachments": [],
-            "data": None if isinstance(result, str) else result,
+            "data": {"value": result}
         }
 
     text = str(result.get("text") or result.get("error") or "")
@@ -222,7 +237,8 @@ def _tool_result_for_server(
     )
 
     if _TOOL_RESULT_ENVELOPE_KEYS.issubset(result):
-        data = result.get("data")
+        raw_data = result.get("data")
+        data = raw_data if isinstance(raw_data, dict) else {"value": raw_data}
     else:
         data = {
             key: value
@@ -230,12 +246,24 @@ def _tool_result_for_server(
             if key not in _TOOL_RESULT_METADATA_KEYS
         }
 
-    return {
+    raw_args    = result.get("args")
+    result_args = raw_args if isinstance(raw_args, dict) else {}
+
+    payload: _ServerToolResult = {
         "ok": bool(ok),
+        "tool": str(name or ""),
+        "source": str(result.get("source") or "client"),
+        "args": dict(arguments) if arguments is not None else dict(result_args),
         "text": text,
         "attachments": attachments,
         "data": data,
     }
+
+    target = str(result.get("target") or "").strip()
+    if target:
+        payload["target"] = target
+
+    return payload
 
 
 def _tool_approval_ack(
@@ -275,6 +303,7 @@ def _tool_approval_ack(
 
     tool_status = str(body.get("tool_status") or "").strip()
     turn_status = str(body.get("turn_status") or "").strip()
+
     if not tool_status or not turn_status:
         raise ToolApprovalRequestError(
             "approval_ack_invalid",

@@ -1403,7 +1403,10 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
         True,
         {"ok": True, "text": "done"},
     )
-    assert posted_kwargs == {"execution": {"target": "client"}}
+    assert posted_kwargs == {
+        "execution": {"target": "client"},
+        "arguments": {"value": 1},
+    }
 
 
 @pytest.mark.anyio

@@ -65,6 +65,9 @@ def _response(status_code, body):
             },
             {
                 "ok": True,
+                "tool": "test_tool",
+                "source": "client",
+                "args": {"command": "echo ready"},
                 "text": "completed",
                 "attachments": [],
                 "data": {
@@ -72,6 +75,7 @@ def _response(status_code, body):
                     "exit_code": 0,
                     "stdout": "ready\n",
                 },
+                "target": "local",
             },
         ),
         (
@@ -86,15 +90,22 @@ def _response(status_code, body):
             },
             {
                 "ok": True,
+                "tool": "test_tool",
+                "source": "client",
+                "args": {},
                 "text": "snapshot ready",
                 "attachments": [{"kind": "file", "path": "snapshot.json"}],
                 "data": {"serial": "device-1", "battery": 80},
+                "target": "device-1",
             },
         ),
         (
             {"answer": 42, "source_url": "https://example.test/docs"},
             {
                 "ok": True,
+                "tool": "test_tool",
+                "source": "client",
+                "args": {},
                 "text": "",
                 "attachments": [],
                 "data": {
@@ -107,12 +118,27 @@ def _response(status_code, body):
             {"approval_denied": True, "error": "approval rejected"},
             {
                 "ok": True,
+                "tool": "test_tool",
+                "source": "client",
+                "args": {},
                 "text": "approval rejected",
                 "attachments": [],
                 "data": {
                     "approval_denied": True,
                     "error": "approval rejected",
                 },
+            },
+        ),
+        (
+            "plain output",
+            {
+                "ok": True,
+                "tool": "test_tool",
+                "source": "client",
+                "args": {},
+                "text": "plain output",
+                "attachments": [],
+                "data": {"value": "plain output"},
             },
         ),
     ),
@@ -169,9 +195,47 @@ async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
     assert captured["json"]["ok"] is False
     assert captured["json"]["result"] == {
         "ok": False,
+        "tool": "test_tool",
+        "source": "client",
+        "args": {},
         "text": "failed",
         "attachments": [],
         "data": {"error": "failed"},
+    }
+
+
+@pytest.mark.anyio
+async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {"ok": True}), captured)
+
+    await tools.post_tool_result(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "js_repl",
+        True,
+        {
+            "ok": True,
+            "tool": "js_repl",
+            "args": {"code": "stale"},
+            "text": "42",
+            "attachments": [],
+            "data": {"output": "42"},
+            "target": "native_coding",
+        },
+        arguments={"code": "6 * 7"},
+    )
+
+    assert captured["json"]["result"] == {
+        "ok": True,
+        "tool": "js_repl",
+        "source": "client",
+        "args": {"code": "6 * 7"},
+        "text": "42",
+        "attachments": [],
+        "data": {"output": "42"},
+        "target": "native_coding",
     }
 
 

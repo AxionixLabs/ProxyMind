@@ -642,8 +642,6 @@ async def stream_turn(
 
                 permission_decision = None
 
-                decision_source: ApprovalSource = "user"
-
                 if approval_tool:
                     approval_arguments = dict(event.arguments)
                     if not approval_arguments:
@@ -838,6 +836,7 @@ async def stream_turn(
                         _hook_denied_result(hook_decision.reason),
                         execution=invocation.execution,
                         additional_context=hook_decision.additional_context,
+                        arguments=invocation.arguments,
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.15)
                     continue
@@ -891,6 +890,7 @@ async def stream_turn(
 
                     post_kwargs: dict[str, typing.Any] = {
                         "execution": invocation.execution,
+                        "arguments": invocation.arguments,
                     }
 
                     if (
@@ -963,6 +963,7 @@ async def stream_turn(
                         False,
                         approval_decision.result or {},
                         execution=invocation.execution,
+                        arguments=invocation.arguments,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
@@ -987,6 +988,7 @@ async def stream_turn(
                         False,
                         execution_policy_result,
                         execution=invocation.execution,
+                        arguments=invocation.arguments,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
@@ -1009,6 +1011,7 @@ async def stream_turn(
                     tool_result.name,
                     tool_result.ok,
                     tool_result.fields,
+                    arguments=invocation.arguments,
                     **post_kwargs,
                 )
                 await status_control.begin_reply_wait_status(delay_sec=0.75)
