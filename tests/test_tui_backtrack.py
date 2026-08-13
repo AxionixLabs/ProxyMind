@@ -55,6 +55,15 @@ def test_transcript_selection_uses_explicit_background() -> None:
     assert selected.reverse is False
 
 
+def test_assistant_prefix_dot_is_bold() -> None:
+    prefix = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
+        "class:assistant.prefix"
+    )
+
+    assert prefix.bold is True
+    assert prefix.dim is False
+
+
 @pytest.mark.anyio
 async def test_transcript_selects_previous_prompt_and_emits_backtrack() -> None:
     with create_pipe_input() as pipe_input:

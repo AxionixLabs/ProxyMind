@@ -46,7 +46,7 @@ COMMAND_STYLE = TextStyle(foreground="#C4A7E7", bold=True)
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
 
 TUI_APPLICATION_OVERRIDES = Style.from_dict({
-    "assistant.prefix": "bold dim fg:#7F8C9A",
+    "assistant.prefix": "bold fg:#7F8C9A",
     "auto-suggestion": "bg:default #5A616A",
     "completion-menu": "bg:default #B8C0C9",
     "completion-menu.completion": "bg:default bold #B8C0C9",
