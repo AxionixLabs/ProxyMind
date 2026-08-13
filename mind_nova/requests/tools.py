@@ -22,6 +22,29 @@ _ToolResultValue = typing.Union[
     dict[str, typing.Any],
 ]
 
+_TOOL_RESULT_ENVELOPE_KEYS = frozenset({
+    "ok",
+    "text",
+    "data",
+})
+
+_TOOL_RESULT_METADATA_KEYS = frozenset({
+    "ok",
+    "tool",
+    "source",
+    "args",
+    "text",
+    "attachments",
+    "target",
+})
+
+
+class _ServerToolResult(typing.TypedDict):
+    """描述服务端接收的规范工具结果。"""
+    text: str
+    attachments: list[typing.Any]
+    data: _ToolResultValue
+
 
 class _ToolResultPayload(typing.TypedDict):
     """描述工具执行结果的请求载荷。"""
@@ -30,7 +53,7 @@ class _ToolResultPayload(typing.TypedDict):
     call_id: str
     name: str
     ok: bool
-    result: _ToolResultValue
+    result: _ServerToolResult
     execution: typing.NotRequired[dict[str, typing.Any]]
     additional_context: typing.NotRequired[list[str]]
     system_message: typing.NotRequired[str]
@@ -84,7 +107,7 @@ async def post_tool_result(
         "call_id" : call_id,
         "name"    : name,
         "ok"      : ok,
-        "result"  : result
+        "result"  : _tool_result_for_server(result)
     }
     if isinstance(execution, dict):
         payload["execution"] = execution
@@ -172,13 +195,48 @@ async def post_tool_approval(
         )
 
 
+def _tool_result_for_server(result: _ToolResultValue) -> _ServerToolResult:
+    """将内部工具结果投影为服务端传输结构。"""
+    if not isinstance(result, dict):
+        return {
+            "text": result if isinstance(result, str) else "",
+            "attachments": [],
+            "data": None if isinstance(result, str) else result,
+        }
+
+    text = str(result.get("text") or result.get("error") or "")
+
+    raw_attachments = result.get("attachments")
+
+    attachments = (
+        list(raw_attachments)
+        if isinstance(raw_attachments, (list, tuple))
+        else []
+    )
+
+    if _TOOL_RESULT_ENVELOPE_KEYS.issubset(result):
+        data = result.get("data")
+    else:
+        data = {
+            key: value
+            for key, value in result.items()
+            if key not in _TOOL_RESULT_METADATA_KEYS
+        }
+
+    return {
+        "text": text,
+        "attachments": attachments,
+        "data": data,
+    }
+
+
 def _tool_approval_ack(
     response: httpx.Response,
     *,
     turn_id: str,
     approval_id: str,
     call_id: str,
-    decision: ToolApprovalDecision,
+    decision: ToolApprovalDecision
 ) -> ToolApprovalAck:
     """校验审批响应与当前请求是否严格对应。"""
     try:

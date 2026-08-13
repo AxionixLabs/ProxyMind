@@ -45,6 +45,105 @@ def _response(status_code, body):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    (
+        (
+            {
+                "ok": True,
+                "tool": "shell_command",
+                "source": "client",
+                "args": {"command": "echo ready"},
+                "text": "completed",
+                "attachments": [],
+                "data": {
+                    "command": "echo ready",
+                    "exit_code": 0,
+                    "stdout": "ready\n",
+                },
+                "target": "local",
+            },
+            {
+                "text": "completed",
+                "attachments": [],
+                "data": {
+                    "command": "echo ready",
+                    "exit_code": 0,
+                    "stdout": "ready\n",
+                },
+            },
+        ),
+        (
+            {
+                "ok": True,
+                "tool": "device_snapshot",
+                "args": {},
+                "text": "snapshot ready",
+                "attachments": [{"kind": "file", "path": "snapshot.json"}],
+                "data": {"serial": "device-1", "battery": 80},
+                "target": "device-1",
+            },
+            {
+                "text": "snapshot ready",
+                "attachments": [{"kind": "file", "path": "snapshot.json"}],
+                "data": {"serial": "device-1", "battery": 80},
+            },
+        ),
+        (
+            {"answer": 42, "source_url": "https://example.test/docs"},
+            {
+                "text": "",
+                "attachments": [],
+                "data": {
+                    "answer": 42,
+                    "source_url": "https://example.test/docs",
+                },
+            },
+        ),
+        (
+            {"approval_denied": True, "error": "approval rejected"},
+            {
+                "text": "approval rejected",
+                "attachments": [],
+                "data": {
+                    "approval_denied": True,
+                    "error": "approval rejected",
+                },
+            },
+        ),
+    ),
+)
+async def test_tool_result_posts_only_transport_fields(
+    monkeypatch,
+    result,
+    expected,
+) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {"ok": True}), captured)
+
+    await tools.post_tool_result(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "test_tool",
+        True,
+        result,
+        execution={"target": "client"},
+    )
+
+    assert captured["url"] == "https://example.test/tool-result"
+    assert captured["json"] == {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "call_id": "call_1",
+        "name": "test_tool",
+        "ok": True,
+        "result": expected,
+        "execution": {"target": "client"},
+    }
+
+
+@pytest.mark.anyio
 async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
