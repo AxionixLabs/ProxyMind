@@ -26,6 +26,9 @@ def test_plan_update_without_explanation_branches_to_first_item() -> None:
         "  □ 实现修复"
     )
     assert "".join(span.text for span in block.spans) == block.plain_text
+    item_prefix, item_text = block.spans[2:4]
+    assert item_prefix.style.foreground is None
+    assert item_text.style.foreground == "#5EEAD4"
 
 
 def test_plan_steps_branches_from_title_column() -> None:

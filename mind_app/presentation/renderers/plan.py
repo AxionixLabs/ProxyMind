@@ -56,7 +56,7 @@ def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
         text_lines.append(f"{indent}{icon} {step}")
 
         spans.extend((
-            TextSpan(f"\n{indent}{icon} ", style),
+            TextSpan(f"\n{indent}{icon} ", TextStyle()),
             TextSpan(step, style),
         ))
 
