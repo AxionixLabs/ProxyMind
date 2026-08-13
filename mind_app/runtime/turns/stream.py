@@ -1022,7 +1022,7 @@ async def stream_turn(
                 arguments = dict(event.arguments)
 
                 use_coding_trace = coding_trace_tool(name)
-                tool_run         = server_tool_output_result(name, event.payload)
+                tool_run         = server_tool_output_result(event.payload)
 
                 transcript.append(
                     (

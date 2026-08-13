@@ -754,11 +754,8 @@ def _command_result_state(outcome: ToolOutcome) -> tuple[str, str]:
     data    = fields.get("data")
     payload = data if isinstance(data, dict) else {}
 
-    status = str(fields.get("status") or payload.get("status") or "").strip()
-
-    session_id = str(
-        fields.get("session_id") or payload.get("session_id") or ""
-    ).strip()
+    status     = str(payload.get("status") or "").strip()
+    session_id = str(payload.get("session_id") or "").strip()
 
     return status, session_id
 
@@ -780,7 +777,7 @@ def _post_tool_result_eligible(
     fields    = outcome.result if isinstance(outcome.result, dict) else {}
     data      = fields.get("data")
     payload   = data if isinstance(data, dict) else {}
-    exit_code = fields.get("exit_code", payload.get("exit_code"))
+    exit_code = payload.get("exit_code")
 
     return (
         isinstance(exit_code, int)

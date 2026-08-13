@@ -134,7 +134,6 @@ def test_normalize_empty_error_result_remains_visible() -> None:
 @pytest.mark.parametrize("status", ("failed", "declined", "cancelled"))
 def test_noncompleted_server_tool_status_is_not_successful(status) -> None:
     tool_run = server_tool_output_result(
-        "shell_command",
         {
             "status": status,
             "result": {"text": status},
@@ -145,12 +144,110 @@ def test_noncompleted_server_tool_status_is_not_successful(status) -> None:
     assert tool_run.ok is False
 
 
+def test_server_tool_output_keeps_business_fields_inside_data() -> None:
+    tool_run = server_tool_output_result(
+        {
+            "status": "completed",
+            "result": {
+                "ok": True,
+                "text": "completed",
+                "attachments": [],
+                "data": {
+                    "command": "echo ready",
+                    "exit_code": 0,
+                    "stdout": "ready\n",
+                },
+            },
+        },
+    )
+
+    assert tool_run.fields == {
+        "ok": True,
+        "text": "completed",
+        "attachments": [],
+        "data": {
+            "command": "echo ready",
+            "exit_code": 0,
+            "stdout": "ready\n",
+        },
+    }
+
+
 def test_server_tool_output_requires_protocol_status() -> None:
     with pytest.raises(ValueError, match="requires a supported status"):
         server_tool_output_result(
-            "shell_command",
             {"result": {"text": "missing status"}},
         )
+
+
+@pytest.mark.anyio
+async def test_client_tool_result_keeps_business_fields_inside_data() -> None:
+    class Session(object):
+        async def call_tool(self, *args, **kwargs):
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text="completed")],
+                structuredContent={
+                    "ok": True,
+                    "tool": "shell_command",
+                    "args": {"command": "echo ready"},
+                    "text": "completed",
+                    "attachments": [],
+                    "data": {
+                        "command": "echo ready",
+                        "exit_code": 0,
+                        "stdout": "ready\n",
+                    },
+                    "target": "local",
+                },
+            )
+
+    class Status(object):
+        async def begin_tool_status(self) -> None:
+            return None
+
+        async def end_status(self) -> None:
+            return None
+
+    turn_context = TurnContext.create(
+        agent=AgentContext.root("sid_test"),
+        cid="cid_test",
+        sid="sid_test",
+        source="test",
+        pref_config={},
+        cwd=".",
+        permissions=preset_permissions("auto"),
+    )
+
+    tool_run = await run_tool_step(
+        Session(),
+        status_control=Status(),
+        presentation=object(),
+        tools=[{
+            "name": "shell_command",
+            "meta": {"client_builtin": True},
+        }],
+        invocation=ToolInvocation(
+            turn=turn_context,
+            call_id="call_test",
+            name="shell_command",
+            arguments={"command": "echo ready"},
+        ),
+        pref_config={},
+    )
+
+    assert tool_run.fields == {
+        "ok": True,
+        "tool": "shell_command",
+        "args": {"command": "echo ready"},
+        "text": "completed",
+        "attachments": [],
+        "data": {
+            "command": "echo ready",
+            "exit_code": 0,
+            "stdout": "ready\n",
+        },
+        "target": "local",
+    }
 
 
 @pytest.mark.anyio

@@ -30,59 +30,6 @@ from engine.observability import (
     observe_exception
 )
 
-_COMMON_PROMOTED_RESULT_KEYS = (
-    "path",
-    "source_path",
-    "target_path",
-    "cwd",
-    "command",
-    "resolved_command",
-    "error",
-    "session_id",
-    "status",
-    "pid",
-    "exit_code",
-    "timed_out",
-    "elapsed_ms",
-    "line",
-    "target_line",
-    "hunk",
-    "expected",
-    "actual",
-    "found",
-    "expected_sha256",
-    "current_sha256",
-    "actual_sha256",
-    "sha256",
-    "sha256_before",
-    "sha256_after",
-    "size",
-    "max_bytes",
-    "changed",
-    "replacements",
-    "hunk_count",
-    "file_count",
-    "match_count",
-    "ok_count",
-    "fail_count",
-    "truncated",
-    "stdout_truncated",
-    "stderr_truncated",
-    "execution_target",
-)
-
-_OUTPUT_PROMOTED_TOOLS = {
-    "shell_command",
-    "exec_command",
-    "write_stdin"
-}
-
-_OUTPUT_PROMOTED_RESULT_KEYS = (
-    "output",
-    "stdout",
-    "stderr",
-    "output_lines"
-)
 
 @dataclass(slots=True)
 class ToolRunResult:
@@ -110,61 +57,17 @@ def _tool_result_data_map(fields: dict[str, typing.Any]) -> dict[str, typing.Any
     return data if isinstance(data, dict) else {}
 
 
-def _tool_payload(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """从单次工具结果中取出业务 payload。"""
-    return _tool_result_data_map(fields)
-
-
-def _promote_if_present(
-    normalized: dict[str, typing.Any],
-    payload: dict[str, typing.Any],
-    keys: tuple[str, ...]
-) -> None:
-    """将存在的结果字段提升到顶层结果。"""
-    for key in keys:
-        if key in payload:
-            normalized[key] = payload[key]
-
-
-def normalize_tool_result_fields(
-    name: str,
-    fields: dict[str, typing.Any]
-) -> dict[str, typing.Any]:
-    """为 synthetic 原生工具调用补充稳定的顶层结果字段。"""
-    payload = _tool_payload(fields)
-    if not payload:
-        return fields
-
-    normalized = dict(fields)
-
-    if isinstance(fields.get("ok"), bool):
-        normalized["ok"] = fields["ok"]
-
-    normalized["tool"] = str(fields.get("tool") or name)
-
-    if fields.get("target"):
-        normalized["target"] = fields["target"]
-
-    _promote_if_present(normalized, payload, _COMMON_PROMOTED_RESULT_KEYS)
-
-    if name in _OUTPUT_PROMOTED_TOOLS:
-        _promote_if_present(normalized, payload, _OUTPUT_PROMOTED_RESULT_KEYS)
-
-    return normalized
-
-
 def server_tool_output_result(
-    name: str,
     event: dict[str, typing.Any]
 ) -> ToolRunResult:
     """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
-    raw_fields = _server_output_fields(event)
+    raw_fields  = _server_output_fields(event)
     reported_ok = _server_output_ok(event, raw_fields)
     status      = _server_output_status(event)
     ok          = reported_ok if status == "completed" else False
-    normalized = normalize_tool_fields(raw_fields, ok=ok)
-    fields     = normalize_tool_result_fields(name, normalized.fields)
-    cost_ms = _server_output_cost_ms(event)
+    normalized  = normalize_tool_fields(raw_fields, ok=ok)
+    fields      = normalized.fields
+    cost_ms     = _server_output_cost_ms(event)
 
     return ToolRunResult(
         result=fields,
@@ -191,10 +94,10 @@ def _server_output_fields(event: dict[str, typing.Any]) -> typing.Union[str, dic
     if isinstance(data, dict):
         text = event.get("text")
         return {
-            "ok"          : bool(event["ok"]) if isinstance(event.get("ok"), bool) else True,
-            "text"        : str(text) if text is not None else "",
-            "attachments" : event.get("attachments") if isinstance(event.get("attachments"), list) else [],
-            "data"        : data
+            "ok": bool(event["ok"]) if isinstance(event.get("ok"), bool) else True,
+            "text": str(text) if text is not None else "",
+            "attachments": event.get("attachments") if isinstance(event.get("attachments"), list) else [],
+            "data": data
         }
 
     text = event.get("text")
@@ -202,10 +105,10 @@ def _server_output_fields(event: dict[str, typing.Any]) -> typing.Union[str, dic
         return str(text)
 
     return {
-        "ok"          : bool(event["ok"]) if isinstance(event.get("ok"), bool) else True,
-        "text"        : "tool.output received",
-        "attachments" : [],
-        "data"        : {}
+        "ok": bool(event["ok"]) if isinstance(event.get("ok"), bool) else True,
+        "text": "tool.output received",
+        "attachments": [],
+        "data": {}
     }
 
 
@@ -342,7 +245,7 @@ async def run_tool_step(
                 ok=ok,
                 display_fallback=normalized.display_text,
             )
-            fields = normalize_tool_result_fields(name, normalized.fields)
+            fields = normalized.fields
 
         finally:
             await status_control.end_status()
@@ -431,7 +334,7 @@ def hook_tool_response(
 def _shell_hook_response(
     fields: dict[str, typing.Any],
     *,
-    fallback: str,
+    fallback: str
 ) -> str:
     """从原生 Shell 结果中提取受输出上限约束的实际输出。"""
     data = _tool_result_data_map(fields)
