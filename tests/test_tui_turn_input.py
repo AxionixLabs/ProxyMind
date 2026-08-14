@@ -840,6 +840,11 @@ async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
 ) -> None:
     interrupt = AsyncMock(return_value=SimpleNamespace(status="accepted"))
     monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
+    monkeypatch.setattr(
+        turn_input_session,
+        "new_request_id",
+        lambda _prefix: "interrupt_request_1",
+    )
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         TuiRuntime(),
@@ -858,6 +863,7 @@ async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        request_id="interrupt_request_1",
     )
     fallback.assert_not_called()
 

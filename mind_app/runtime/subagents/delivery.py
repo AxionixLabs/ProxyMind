@@ -5,6 +5,7 @@ import typing
 import asyncio
 from dataclasses import dataclass
 from engine.observability import observe_exception
+from mind_nova.identifiers import new_request_id
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
     TurnControlStatus,
@@ -87,7 +88,9 @@ class SteeringMessageDelivery:
         turn_input: TurnInput,
     ) -> AgentMessageReceipt | None:
         """尝试投递输入，不可用时返回空回执。"""
-        response = None
+        response   = None
+        request_id = new_request_id("steer")
+
         for attempt in range(STEERING_ATTEMPTS):
             try:
                 response = await steer_turn(
@@ -95,6 +98,7 @@ class SteeringMessageDelivery:
                     sid=context.sid,
                     turn_id=context.turn_id,
                     turn_input=turn_input,
+                    request_id=request_id,
                 )
                 break
             except TurnControlRequestError as error:

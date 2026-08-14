@@ -23,6 +23,7 @@ class StreamEvent:
     type: str
     proto: str = ""
     turn_id: str = ""
+    event_seq: int | None = None
     round: int | None = None
     display: dict[str, typing.Any] | None = None
 
@@ -293,11 +294,12 @@ def _common_fields(
     display = payload.get("display")
 
     return {
-        "type"    : event_type,
-        "proto"   : _text(payload.get("proto")),
-        "turn_id" : _text(payload.get("turn_id")),
-        "round"   : _positive_int(payload.get("round")),
-        "display" : copy.deepcopy(display) if isinstance(display, dict) else None
+        "type"      : event_type,
+        "proto"     : _text(payload.get("proto")),
+        "turn_id"   : _text(payload.get("turn_id")),
+        "event_seq" : _event_sequence(payload),
+        "round"     : _positive_int(payload.get("round")),
+        "display"   : copy.deepcopy(display) if isinstance(display, dict) else None
     }
 
 
@@ -413,6 +415,16 @@ def _positive_int(value: typing.Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if value > 0 else None
+
+
+def _event_sequence(payload: dict[str, typing.Any]) -> int | None:
+    """读取可选事件序号，并拒绝无效的显式值。"""
+    if "event_seq" not in payload or payload.get("event_seq") is None:
+        return None
+    value = payload.get("event_seq")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("event_seq must be a positive integer")
+    return value
 
 
 def _nonnegative_int(value: typing.Any) -> int | None:

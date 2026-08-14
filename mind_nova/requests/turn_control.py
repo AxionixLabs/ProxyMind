@@ -5,10 +5,12 @@ import httpx
 import typing
 from dataclasses import dataclass
 from engine.channel import Channel
-from mind_nova.identifiers import normalize_turn_id
+from mind_nova.identifiers import (
+    normalize_turn_id,
+    resolve_request_id
+)
 from mind_nova.services import service_endpoints
 from mind_nova.turn_inputs import TurnInput
-
 
 TurnControlStatus = typing.Literal[
     "accepted",
@@ -35,8 +37,9 @@ class TurnControlRequestError(Exception):
 class TurnControlResponse(object):
     """描述服务端对轮次控制请求的处理结果。"""
     status: TurnControlStatus
+    request_id: str
     turn_id: str
-    client_message_id: str
+    client_message_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,12 +59,14 @@ async def steer_turn(
     sid: str,
     turn_id: str,
     turn_input: TurnInput,
-    timeout: float = 10.0,
+    request_id: str | None = None,
+    timeout: float = 10.0
 ) -> TurnControlResponse:
     """向活动逻辑轮次提交一项引导输入。"""
     normalized_turn_id = _turn_id(turn_id)
 
     payload = {
+        "request_id": _command_request_id(request_id, prefix="steer"),
         "turn_id": normalized_turn_id,
         "client_message_id": turn_input.client_message_id,
         "input": turn_input.request_input(),
@@ -72,6 +77,7 @@ async def steer_turn(
         cid=cid,
         sid=sid,
         payload=payload,
+        expected_request_id=payload["request_id"],
         expected_turn_id=normalized_turn_id,
         expected_message_id=turn_input.client_message_id,
         timeout=timeout,
@@ -83,18 +89,28 @@ async def interrupt_turn(
     cid: str,
     sid: str,
     turn_id: str,
+    request_id: str | None = None,
     timeout: float = 10.0
 ) -> TurnControlResponse:
     """请求服务端中断匹配的活动逻辑轮次。"""
     normalized_turn_id = _turn_id(turn_id)
 
+    normalized_request_id = _command_request_id(
+        request_id,
+        prefix="interrupt",
+    )
+
     return await _post_control(
         "/turn/interrupt",
         cid=cid,
         sid=sid,
-        payload={"turn_id": normalized_turn_id},
+        payload={
+            "request_id": normalized_request_id,
+            "turn_id": normalized_turn_id,
+        },
+        expected_request_id=normalized_request_id,
         expected_turn_id=normalized_turn_id,
-        expected_message_id="interrupt",
+        expected_message_id=None,
         timeout=timeout,
     )
 
@@ -181,20 +197,30 @@ def _turn_id(value: str) -> str:
         raise TurnControlRequestError(str(error)) from error
 
 
+def _command_request_id(value: str | None, *, prefix: str) -> str:
+    """读取或生成一项轮次控制命令的幂等标识。"""
+    try:
+        return resolve_request_id(value, prefix=prefix)
+    except ValueError as error:
+        raise TurnControlRequestError(str(error)) from error
+
+
 async def _post_control(
     path: str,
     *,
     cid: str,
     sid: str,
     payload: dict[str, typing.Any],
+    expected_request_id: str,
     expected_turn_id: str,
-    expected_message_id: str,
+    expected_message_id: str | None,
     timeout: float
 ) -> TurnControlResponse:
     """发送并校验一项轮次控制请求。"""
     if not expected_turn_id:
         raise TurnControlRequestError("turn control requires turn_id")
-    if not expected_message_id:
+
+    if expected_message_id is not None and not expected_message_id:
         raise TurnControlRequestError(
             "turn control requires client_message_id"
         )
@@ -209,11 +235,19 @@ async def _post_control(
 
     status = str(body.get("status") or "").strip()
 
+    response_request_id = str(body.get("request_id") or "").strip()
     response_turn_id    = str(body.get("turn_id") or "").strip()
-    response_message_id = str(body.get("client_message_id") or "").strip()
+    raw_message_id      = body.get("client_message_id")
+
+    response_message_id = (
+        str(raw_message_id or "").strip()
+        if raw_message_id is not None
+        else None
+    )
 
     if (
         status not in _CONTROL_STATUSES
+        or response_request_id != expected_request_id
         or response_turn_id != expected_turn_id
         or response_message_id != expected_message_id
     ):
@@ -221,6 +255,7 @@ async def _post_control(
 
     return TurnControlResponse(
         status=typing.cast(TurnControlStatus, status),
+        request_id=response_request_id,
         turn_id=response_turn_id,
         client_message_id=response_message_id,
     )
@@ -268,10 +303,7 @@ async def _post_json(
     return body
 
 
-def _response_ids(
-    body: dict[str, typing.Any],
-    field: str
-) -> tuple[str, ...]:
+def _response_ids(body: dict[str, typing.Any], field: str) -> tuple[str, ...]:
     """读取响应中的消息标识列表。"""
     raw = body.get(field)
     if not isinstance(raw, list):

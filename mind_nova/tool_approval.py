@@ -50,6 +50,7 @@ TOOL_LIFECYCLE_STATUSES: frozenset[ToolLifecycleStatus] = frozenset[
 @dataclass(frozen=True, slots=True)
 class ToolApprovalAck(object):
     """描述服务端确认后的审批与轮次状态。"""
+    request_id: str
     turn_id: str
     approval_id: str
     call_id: str

@@ -5,6 +5,7 @@ import typing
 import asyncio
 from dataclasses import replace
 from engine.observability import observe_exception
+from mind_nova.identifiers import new_request_id
 from mind_nova.requests.chat import TurnStreamEndReason
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
@@ -344,6 +345,7 @@ class TuiTurnInputControl(object):
     ) -> bool:
         """提交即时输入，并返回服务端是否已经明确响应归属。"""
         turn_input = self._input_from_submission(submission)
+        request_id = new_request_id("steer")
 
         response = None
         for attempt in range(2):
@@ -353,6 +355,7 @@ class TuiTurnInputControl(object):
                     sid=sid,
                     turn_id=turn_id,
                     turn_input=turn_input,
+                    request_id=request_id,
                 )
                 break
             except TurnControlRequestError as error:
@@ -383,13 +386,16 @@ class TuiTurnInputControl(object):
         fallback: typing.Callable[[], bool]
     ) -> None:
         """提交远端中断，并在无法匹配活动轮次时取消本地任务。"""
-        response = None
+        response   = None
+        request_id = new_request_id("interrupt")
+
         for attempt in range(2):
             try:
                 response = await interrupt_turn(
                     cid=cid,
                     sid=sid,
                     turn_id=turn_id,
+                    request_id=request_id,
                 )
                 break
             except TurnControlRequestError as error:

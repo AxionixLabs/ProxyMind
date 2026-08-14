@@ -7,7 +7,8 @@ import uuid
 import base64
 from mind_nova import const
 
-TURN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+TURN_ID_PATTERN    = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
 
 
 def _base36(number: int) -> str:
@@ -48,6 +49,14 @@ def short_uid(length: int = 8) -> str:
     )
 
 
+def new_request_id(prefix: str = "request") -> str:
+    """生成新的幂等请求标识。"""
+    normalized_prefix = str(prefix or "request").strip("_-") or "request"
+    request_id        = f"{normalized_prefix}_{short_uid(24)}"
+
+    return normalize_request_id(request_id)
+
+
 def normalize_turn_id(value: str) -> str:
     """校验并返回客户端生成的逻辑轮次标识。"""
     turn_id = str(value or "").strip()
@@ -56,6 +65,28 @@ def normalize_turn_id(value: str) -> str:
             "turn_id must be 8-128 ASCII letters, digits, underscores or hyphens"
         )
     return turn_id
+
+
+def normalize_request_id(value: str) -> str:
+    """校验并返回客户端生成的幂等请求标识。"""
+    request_id = str(value or "").strip()
+    if not REQUEST_ID_PATTERN.fullmatch(request_id):
+        raise ValueError(
+            "request_id must be 8-160 ASCII letters, digits, underscores or hyphens"
+        )
+    return request_id
+
+
+def resolve_request_id(
+    value: str | None,
+    *,
+    prefix: str = "request"
+) -> str:
+    """读取已有幂等请求标识，空值则生成新标识。"""
+    request_id = str(value or "").strip()
+    if request_id:
+        return normalize_request_id(request_id)
+    return new_request_id(prefix)
 
 
 if __name__ == '__main__':

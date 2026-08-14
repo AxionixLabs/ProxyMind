@@ -4,6 +4,7 @@
 import httpx
 import typing
 from engine.channel import Channel
+from mind_nova.identifiers import resolve_request_id
 from mind_nova.services import service_endpoints
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
@@ -53,6 +54,7 @@ class _ServerToolResult(typing.TypedDict):
 
 class _ToolResultPayload(typing.TypedDict):
     """描述工具执行结果的请求载荷。"""
+    request_id: str
     cid: str
     sid: str
     call_id: str
@@ -66,6 +68,7 @@ class _ToolResultPayload(typing.TypedDict):
 
 class _ToolApprovalPayload(typing.TypedDict):
     """描述工具审批决定的请求载荷。"""
+    request_id: str
     cid: str
     sid: str
     turn_id: str
@@ -103,12 +106,19 @@ async def post_tool_result(
     execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
     system_message: str = "",
-    arguments: typing.Mapping[str, typing.Any] | None = None
+    arguments: typing.Mapping[str, typing.Any] | None = None,
+    request_id: str | None = None
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
 
+    normalized_request_id = resolve_request_id(
+        request_id,
+        prefix="tool_result",
+    )
+
     payload: _ToolResultPayload = {
+        "request_id": normalized_request_id,
         "cid": cid,
         "sid": sid,
         "call_id": call_id,
@@ -146,16 +156,24 @@ async def post_tool_approval(
     decision: str,
     *,
     turn_id: str,
+    request_id: str | None = None,
     execpolicy_amendment_id: str | None = None,
     reason: str | None = None,
     timeout: float = 60.0,
-    additional_context: typing.Sequence[str] = (),
+    additional_context: typing.Sequence[str] = ()
 ) -> ToolApprovalAck:
     """把用户对服务端审批请求的决定回传给主循环。"""
     clean_decision = str(decision or "").strip()
-    clean_turn_id = str(turn_id or "").strip()
+    clean_turn_id  = str(turn_id or "").strip()
+
+    normalized_request_id = resolve_request_id(
+        request_id,
+        prefix="approval",
+    )
+
     amendment_id = str(execpolicy_amendment_id or "").strip()
-    reason_text = str(reason or "").strip()
+    reason_text  = str(reason or "").strip()
+
     if not clean_turn_id:
         raise ValueError("tool approval requires turn_id")
     if clean_decision not in TOOL_APPROVAL_DECISIONS:
@@ -170,7 +188,9 @@ async def post_tool_approval(
         raise ValueError("tool approval reason requires decline or cancel")
 
     headers = Channel.make_headers()
+
     payload: _ToolApprovalPayload = {
+        "request_id" : normalized_request_id,
         "cid"         : cid,
         "sid"         : sid,
         "turn_id"     : clean_turn_id,
@@ -200,6 +220,7 @@ async def post_tool_approval(
             )
         return _tool_approval_ack(
             r,
+            request_id=normalized_request_id,
             turn_id=clean_turn_id,
             approval_id=approval_id,
             call_id=call_id,
@@ -269,6 +290,7 @@ def _tool_result_for_server(
 def _tool_approval_ack(
     response: httpx.Response,
     *,
+    request_id: str,
     turn_id: str,
     approval_id: str,
     call_id: str,
@@ -285,11 +307,13 @@ def _tool_approval_ack(
         ) from error
 
     expected = {
+        "request_id": request_id,
         "turn_id": turn_id,
         "approval_id": approval_id,
         "call_id": call_id,
         "decision": decision,
     }
+
     if (
         not isinstance(body, dict)
         or body.get("ok") is not True
@@ -311,6 +335,7 @@ def _tool_approval_ack(
             status_code=response.status_code,
         )
     return ToolApprovalAck(
+        request_id=request_id,
         turn_id=turn_id,
         approval_id=approval_id,
         call_id=call_id,
@@ -326,12 +351,14 @@ def _tool_approval_error(response: httpx.Response) -> tuple[str, str]:
         body = response.json()
     except (TypeError, ValueError):
         body = None
+
     detail = body.get("detail") if isinstance(body, dict) else None
     if isinstance(detail, dict):
         code = str(detail.get("code") or "").strip()
         message = str(detail.get("message") or detail.get("detail") or "").strip()
         if code:
             return code, message or code
+
     text = _response_text(response)
     return "tool_approval_failed", text or "tool approval request failed"
 

@@ -159,10 +159,12 @@ async def test_tool_result_posts_only_transport_fields(
         True,
         result,
         execution={"target": "client"},
+        request_id="tool_result_request_1",
     )
 
     assert captured["url"] == "https://example.test/tool-result"
     assert captured["json"] == {
+        "request_id": "tool_result_request_1",
         "cid": "cid_1",
         "sid": "sid_1",
         "call_id": "call_1",
@@ -205,6 +207,20 @@ async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_tool_result_rejects_invalid_request_id() -> None:
+    with pytest.raises(ValueError, match="8-160 ASCII"):
+        await tools.post_tool_result(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "test_tool",
+            True,
+            "ready",
+            request_id="invalid request id",
+        )
+
+
+@pytest.mark.anyio
 async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {"ok": True}), captured)
@@ -244,6 +260,7 @@ async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
         "ok": True,
+        "request_id": "approval_request_1",
         "turn_id": "turn_001",
         "approval_id": "approval_1",
         "call_id": "call_1",
@@ -259,11 +276,13 @@ async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
         "approval_1",
         "acceptWithExecpolicyAmendment",
         turn_id="turn_001",
+        request_id="approval_request_1",
         execpolicy_amendment_id="amendment_1",
         timeout=4.0,
     )
 
     assert ack == ToolApprovalAck(
+        request_id="approval_request_1",
         turn_id="turn_001",
         approval_id="approval_1",
         call_id="call_1",
@@ -275,6 +294,7 @@ async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
     assert captured["headers"] == {"authorization": "test"}
     assert captured["timeout"] == 4.0
     assert captured["json"] == {
+        "request_id": "approval_request_1",
         "cid": "cid_1",
         "sid": "sid_1",
         "turn_id": "turn_001",
@@ -312,6 +332,7 @@ async def test_decline_request_allows_reason(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
         "ok": True,
+        "request_id": "approval_request_2",
         "turn_id": "turn_001",
         "approval_id": "approval_1",
         "call_id": "call_1",
@@ -327,6 +348,7 @@ async def test_decline_request_allows_reason(monkeypatch) -> None:
         "approval_1",
         "decline",
         turn_id="turn_001",
+        request_id="approval_request_2",
         reason="user denied",
     )
 

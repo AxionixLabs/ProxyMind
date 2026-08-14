@@ -94,6 +94,28 @@ def test_unknown_event_preserves_extension_payload_and_display() -> None:
     assert event.payload["provider_data"] == {"step": 2}
 
 
+def test_stream_event_preserves_turn_identity_and_event_sequence() -> None:
+    event = parse_stream_event({
+        "type": "text.delta",
+        "turn_id": "turn_1",
+        "event_seq": 41,
+        "text": "answer",
+    })
+
+    assert event.turn_id == "turn_1"
+    assert event.event_seq == 41
+
+
+@pytest.mark.parametrize("event_seq", [0, -1, True, "41"])
+def test_stream_event_rejects_invalid_explicit_event_sequence(event_seq) -> None:
+    with pytest.raises(ValueError, match="event_seq"):
+        parse_stream_event({
+            "type": "text.delta",
+            "event_seq": event_seq,
+            "text": "answer",
+        })
+
+
 def test_tool_approval_and_output_events_copy_payloads() -> None:
     approval = parse_stream_event({
         "type": "tool.approval_required",

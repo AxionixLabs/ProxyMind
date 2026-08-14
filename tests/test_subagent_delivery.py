@@ -224,6 +224,7 @@ async def test_steering_delivery_maps_remote_status(
     async def request(**kwargs):
         return TurnControlResponse(
             status=status,
+            request_id=kwargs["request_id"],
             turn_id=kwargs["turn_id"],
             client_message_id=kwargs["turn_input"].client_message_id,
         )
@@ -269,11 +270,15 @@ async def test_steering_delivery_recovers_ambiguous_acceptance_as_duplicate(
     calls = []
 
     async def request(**kwargs):
-        calls.append(kwargs["turn_input"].client_message_id)
+        calls.append((
+            kwargs["turn_input"].client_message_id,
+            kwargs["request_id"],
+        ))
         if len(calls) == 1:
             raise TurnControlRequestError("response lost after acceptance")
         return TurnControlResponse(
             status="duplicate",
+            request_id=kwargs["request_id"],
             turn_id=kwargs["turn_id"],
             client_message_id=kwargs["turn_input"].client_message_id,
         )
@@ -287,4 +292,8 @@ async def test_steering_delivery_recovers_ambiguous_acceptance_as_duplicate(
 
     assert receipt is not None
     assert receipt.status == "duplicate"
-    assert calls == [event.event_id, event.event_id]
+    assert [message_id for message_id, _ in calls] == [
+        event.event_id,
+        event.event_id,
+    ]
+    assert calls[0][1] == calls[1][1]

@@ -18,6 +18,7 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
         200,
         json={
             "ok": True,
+            "request_id": "steer_request_1",
             "status": "accepted",
             "turn_id": "turn_001",
             "client_message_id": "message_1",
@@ -62,15 +63,18 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
             attachments=({"kind": "image"},),
             extras={"source": "tui"},
         ),
+        request_id="steer_request_1",
         timeout=4.0,
     )
 
     assert result.status == "accepted"
+    assert result.request_id == "steer_request_1"
     assert captured["url"] == "https://example.com/turn/steer"
     assert captured["params"] == {"cid": "cid_1", "sid": "sid_1"}
     assert captured["headers"] == {"authorization": "test"}
     assert captured["timeout"] == 4.0
     assert json.loads(json.dumps(captured["json"])) == {
+        "request_id": "steer_request_1",
         "turn_id": "turn_001",
         "client_message_id": "message_1",
         "input": {
@@ -152,9 +156,10 @@ async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
         200,
         json={
             "ok": True,
+            "request_id": "interrupt_request_1",
             "status": "accepted",
             "turn_id": "turn_other",
-            "client_message_id": "interrupt",
+            "client_message_id": None,
         },
         request=httpx.Request("POST", "https://example.com/turn/interrupt"),
     )
@@ -182,6 +187,7 @@ async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
             cid="cid_1",
             sid="sid_1",
             turn_id="turn_001",
+            request_id="interrupt_request_1",
         )
 
 
@@ -221,4 +227,18 @@ async def test_turn_control_rejects_invalid_turn_id() -> None:
             cid="cid_1",
             sid="sid_1",
             turn_id="short",
+        )
+
+
+@pytest.mark.anyio
+async def test_turn_control_rejects_invalid_request_id() -> None:
+    with pytest.raises(
+        turn_control.TurnControlRequestError,
+        match="8-160 ASCII",
+    ):
+        await turn_control.interrupt_turn(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+            request_id="invalid request id",
         )

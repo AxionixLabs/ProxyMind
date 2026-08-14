@@ -5,6 +5,7 @@ import enum
 import httpx
 import typing
 import asyncio
+import contextlib
 from engine.channel import Channel
 from mind_nova.requests.payload import (
     build_chat_payload,
@@ -22,6 +23,8 @@ from mind_nova.stream_events import (
 from mind_nova import const
 
 TURN_SETTLEMENT_TIMEOUT_SEC: typing.Final[float] = 2.0
+
+ATTACH_RETRY_DELAYS_SEC: typing.Final[tuple[float, ...]] = (0.0, 0.2, 1.0)
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -58,12 +61,16 @@ class TurnEventStream(object):
 
         self._payload_stream: typing.AsyncGenerator[dict, None] | None = None
 
-        self._settlement_deadline: float | None = None
+        self._attach_target: dict[str, str] | None = None
+        self._settlement_deadline: float | None    = None
 
-        self._settlement_seen: bool   = False
         self._close_after_yield: bool = False
 
+        self._reconnect_failures: int = 0
+
         self.end_reason: TurnStreamEndReason | None = None
+
+        self.last_event_seq: int = 0
 
     def __aiter__(self) -> typing.AsyncIterator[ChatStreamEvent]:
         return self._iterate()
@@ -106,12 +113,18 @@ class TurnEventStream(object):
 
             if parsed_event.type == "ping":
                 continue
+            if (
+                parsed_event.event_seq is not None
+                and parsed_event.event_seq <= self.last_event_seq
+            ):
+                continue
+            if parsed_event.event_seq is not None:
+                self.last_event_seq = parsed_event.event_seq
+            self._reconnect_failures = 0
             event = parsed_event
 
         if isinstance(event, TurnLogicalSettledEvent):
-            self._settlement_seen = True
-            if self._state is _TurnStreamState.OUTCOME_SEEN:
-                self._close_after_yield = True
+            self._close_after_yield = True
         elif (
             isinstance(event, (TurnDoneEvent, TurnFailedEvent))
             and self._state is _TurnStreamState.RUNNING
@@ -121,8 +134,6 @@ class TurnEventStream(object):
                 asyncio.get_running_loop().time()
                 + TURN_SETTLEMENT_TIMEOUT_SEC
             )
-            if self._settlement_seen:
-                self._close_after_yield = True
 
         return event
 
@@ -137,28 +148,40 @@ class TurnEventStream(object):
 
     async def _next_payload(self) -> dict:
         """读取下一项载荷或以内部结束信号完成当前流。"""
-        payload_stream = await self._ensure_open()
+        while True:
+            payload_stream = await self._ensure_open()
 
-        try:
-            if self._settlement_deadline is None:
-                return await anext(payload_stream)
-            async with asyncio.timeout_at(self._settlement_deadline):
-                return await anext(payload_stream)
-        except StopAsyncIteration:
-            await self._finish("disconnected")
-            raise _TurnStreamEnded from None
-        except TimeoutError:
-            await self._finish("settlement_timeout")
-            raise _TurnStreamEnded from None
-        except asyncio.CancelledError:
-            await self._finish("disconnected")
-            raise
-        except (httpx.HTTPError, OSError):
-            outcome_seen = self._state is _TurnStreamState.OUTCOME_SEEN
-            await self._finish("disconnected")
-            if outcome_seen:
+            try:
+                payload: typing.Any = None
+                if self._settlement_deadline is None:
+                    payload = await anext(payload_stream)
+                else:
+                    async with asyncio.timeout_at(self._settlement_deadline):
+                        payload = await anext(payload_stream)
+                if not isinstance(payload, dict):
+                    raise TypeError("stream payload must be an object")
+                return payload
+            except StopAsyncIteration:
+                if await self._resume_stream():
+                    continue
+                await self._finish("disconnected")
                 raise _TurnStreamEnded from None
-            raise
+            except TimeoutError:
+                await self._finish("settlement_timeout")
+                raise _TurnStreamEnded from None
+            except asyncio.CancelledError:
+                await self._finish("disconnected")
+                raise
+            except (httpx.HTTPError, OSError) as error:
+                outcome_seen = self._state is _TurnStreamState.OUTCOME_SEEN
+                if await self._resume_stream(error):
+                    continue
+                await self._finish("disconnected")
+                if outcome_seen:
+                    raise _TurnStreamEnded from None
+                raise
+
+        raise RuntimeError("event payload loop exited unexpectedly")
 
     async def _ensure_open(self) -> typing.AsyncGenerator[dict, None]:
         """按首次读取延迟创建并返回底层事件传输。"""
@@ -175,6 +198,18 @@ class TurnEventStream(object):
             **kwargs,
         )
 
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            cid = str(metadata.get("cid") or "").strip()
+            sid = str(metadata.get("sid") or "").strip()
+            turn_id = str(payload.get("turn_id") or "").strip()
+            if cid and sid and turn_id:
+                self._attach_target = {
+                    "cid": cid,
+                    "sid": sid,
+                    "turn_id": turn_id,
+                }
+
         self._payload_stream = streaming(
             service_endpoints.endpoint("/mind-chat"),
             Channel.make_headers(),
@@ -184,20 +219,59 @@ class TurnEventStream(object):
 
         return self._payload_stream
 
+    async def _resume_stream(
+        self,
+        error: httpx.HTTPError | OSError | None = None,
+    ) -> bool:
+        """在可恢复的传输中断后改用 attach 接口继续观察。"""
+        attach_target = self._attach_target
+        if attach_target is None or not self._recoverable(error):
+            return False
+        if self._reconnect_failures >= len(ATTACH_RETRY_DELAYS_SEC):
+            return False
+
+        delay = ATTACH_RETRY_DELAYS_SEC[self._reconnect_failures]
+        self._reconnect_failures += 1
+
+        await self._close_payload_stream()
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+        payload: dict[str, typing.Any] = dict(attach_target)
+        payload["after_seq"] = self.last_event_seq
+        self._payload_stream = streaming(
+            service_endpoints.endpoint("/mind-attach"),
+            Channel.make_headers(),
+            payload,
+            self._timeout,
+        )
+        return True
+
+    @staticmethod
+    def _recoverable(error: httpx.HTTPError | OSError | None) -> bool:
+        """判断传输错误是否允许重新接入当前轮次。"""
+        if not isinstance(error, httpx.HTTPStatusError):
+            return True
+        status_code = error.response.status_code
+        return status_code >= 500 or status_code in {408, 409, 425, 429}
+
+    async def _close_payload_stream(self) -> None:
+        """关闭当前底层事件传输。"""
+        payload_stream       = self._payload_stream
+        self._payload_stream = None
+        if payload_stream is None:
+            return
+        with contextlib.suppress(Exception):
+            await payload_stream.aclose()
+
     async def _finish(self, reason: TurnStreamEndReason) -> None:
         """只执行一次底层传输关闭。"""
         if self._state is _TurnStreamState.CLOSED:
-            return None
+            return
 
         self._state          = _TurnStreamState.CLOSED
         self.end_reason      = reason
-        payload_stream       = self._payload_stream
-        self._payload_stream = None
-
-        if payload_stream is None:
-            return None
-
-        await payload_stream.aclose()
+        await self._close_payload_stream()
 
 
 def stream_chat(
