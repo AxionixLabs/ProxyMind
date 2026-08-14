@@ -864,7 +864,6 @@ async def stream_turn(
                                 fields=report.fields,
                             ),
                             additional_context=report.additional_context,
-                            system_message=report.system_message,
                         )
 
                     hook_run = await tool_call_coordinator.run_invocation(
@@ -904,12 +903,6 @@ async def stream_turn(
                         post_kwargs["additional_context"] = (
                             hook_run.additional_context
                         )
-                    if (
-                        visible_result is not None
-                        and visible_result.system_message
-                    ):
-                        post_kwargs["system_message"] = visible_result.system_message
-
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,

@@ -159,6 +159,7 @@ async def test_tool_result_posts_only_transport_fields(
         True,
         result,
         execution={"target": "client"},
+        additional_context=(" inspect policy ", "verify output"),
         request_id="tool_result_request_1",
     )
 
@@ -172,6 +173,7 @@ async def test_tool_result_posts_only_transport_fields(
         "ok": True,
         "result": expected,
         "execution": {"target": "client"},
+        "additional_context": ["inspect policy", "verify output"],
     }
 
 
@@ -350,9 +352,11 @@ async def test_decline_request_allows_reason(monkeypatch) -> None:
         turn_id="turn_001",
         request_id="approval_request_2",
         reason="user denied",
+        additional_context=("Use the safe wrapper.",),
     )
 
     assert captured["json"]["reason"] == "user denied"
+    assert captured["json"]["additional_context"] == ["Use the safe wrapper."]
     assert "execpolicy_amendment_id" not in captured["json"]
 
 

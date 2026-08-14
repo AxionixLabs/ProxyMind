@@ -311,7 +311,6 @@ async def test_client_tool_call_applies_post_hook_replacement(
                     "data": {"redacted": True},
                 },
                 additional_context=("review replacement",),
-                system_message="Prefer the replacement.",
             ),
         )
 
@@ -337,7 +336,6 @@ async def test_client_tool_call_applies_post_hook_replacement(
     assert result.text == "replacement"
     assert result.fields["data"] == {"redacted": True}
     assert outcome.additional_context == ("review replacement",)
-    assert outcome.system_message == "Prefer the replacement."
 
 
 def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
@@ -350,7 +348,6 @@ def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
             fields={"ok": True, "text": "done"},
         ),
         additional_context=(" context ",),
-        system_message=" system ",
     )
 
     assert build_client_tool_post_kwargs(
@@ -359,7 +356,6 @@ def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
     ) == {
         "execution": {"kind": "local"},
         "additional_context": ("context",),
-        "system_message": "system",
     }
 
 

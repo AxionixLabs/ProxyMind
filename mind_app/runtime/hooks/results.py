@@ -15,7 +15,6 @@ def apply_tool_result_effect(
     blocked: bool = False,
     feedback_message: str = "",
     additional_context: typing.Iterable[str] = (),
-    system_message: str = ""
 ) -> HookVisibleToolResult:
     """把后置 Hook 影响应用到模型可见工具结果。"""
     result_ok     = bool(ok)
@@ -54,7 +53,6 @@ def apply_tool_result_effect(
         text=result_text,
         fields=result_fields,
         additional_context=tuple(additional_context),
-        system_message=system_message,
     )
 
 

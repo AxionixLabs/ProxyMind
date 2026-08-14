@@ -40,7 +40,6 @@ class PlanStepResult:
     result: dict[str, typing.Any]
     cost_ms: int = 0
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
 
 @dataclass(slots=True)
@@ -53,7 +52,6 @@ class PlanExecutionReport:
     cost_ms: int
     results: list[PlanStepResult]
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     @property
     def fields(self) -> dict[str, typing.Any]:
@@ -255,7 +253,6 @@ class StepPlanExecutor:
                 result=dict(visible.fields),
                 cost_ms=int((time.perf_counter() - started_at) * 1000),
                 additional_context=visible.additional_context,
-                system_message=visible.system_message,
             )
             self._log_step_result(step_result)
             return step_result
@@ -419,11 +416,6 @@ class StepPlanExecutor:
                 context
                 for result in results
                 for context in result.additional_context
-            ),
-            system_message="\n\n".join(
-                result.system_message
-                for result in results
-                if result.system_message
             ),
         )
 

@@ -387,7 +387,6 @@ class ToolOperationResult(typing.Generic[ToolValue]):
     snapshot: ToolResultSnapshot
     hook_response: typing.Any = None
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     def __post_init__(self) -> None:
         """校验结果快照并规范化内部反馈。"""
@@ -403,7 +402,6 @@ class ToolOperationResult(typing.Generic[ToolValue]):
                 if text
             ),
         )
-        object.__setattr__(self, "system_message", str(self.system_message or "").strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,7 +411,6 @@ class HookVisibleToolResult:
     text: str
     fields: dict[str, typing.Any] = field(default_factory=dict)
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     def __post_init__(self) -> None:
         """复制可变字段并规范化反馈文本。"""
@@ -429,11 +426,6 @@ class HookVisibleToolResult:
                 for text in [str(value or "").strip()]
                 if text
             ),
-        )
-        object.__setattr__(
-            self,
-            "system_message",
-            str(self.system_message or "").strip(),
         )
 
 

@@ -66,7 +66,6 @@ class _ToolResultPayload(typing.TypedDict):
     result: _ServerToolResult
     execution: typing.NotRequired[dict[str, typing.Any]]
     additional_context: typing.NotRequired[list[str]]
-    system_message: typing.NotRequired[str]
 
 
 class _ToolApprovalPayload(typing.TypedDict):
@@ -108,7 +107,6 @@ async def post_tool_result(
     result: _ToolResultValue,
     execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
-    system_message: str = "",
     arguments: typing.Mapping[str, typing.Any] | None = None,
     request_id: str | None = None
 ) -> dict[str, typing.Any]:
@@ -140,10 +138,6 @@ async def post_tool_result(
     contexts = _normalized_contexts(additional_context)
     if contexts:
         payload["additional_context"] = contexts
-
-    system_text = str(system_message or "").strip()
-    if system_text:
-        payload["system_message"] = system_text
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)

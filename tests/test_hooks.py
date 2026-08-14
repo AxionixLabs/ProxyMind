@@ -1922,7 +1922,6 @@ async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
         "prefer concise output",
         "post context",
     )
-    assert result.visible_result.system_message == ""
 
 
 @pytest.mark.anyio
@@ -1957,7 +1956,6 @@ async def test_post_tool_use_exposes_replacement_result_effect() -> None:
     assert result.visible_result.text == "redacted"
     assert result.visible_result.fields["data"] == {"redacted": True}
     assert result.visible_result.additional_context == ("explain the redaction",)
-    assert result.visible_result.system_message == ""
 
 
 @pytest.mark.anyio

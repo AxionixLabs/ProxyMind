@@ -59,7 +59,6 @@ class ClientToolCallOutcome:
 
     result: ClientToolCallResult
     additional_context: tuple[str, ...] = ()
-    system_message: str = ""
 
     def __post_init__(self) -> None:
         """规范化 Hook 反馈文本。"""
@@ -72,9 +71,6 @@ class ClientToolCallOutcome:
             for value in self.additional_context
         ):
             raise TypeError("additional context must be a tuple of strings")
-        if not isinstance(self.system_message, str):
-            raise TypeError("system message must be a string")
-
         object.__setattr__(
             self,
             "additional_context",
@@ -84,11 +80,6 @@ class ClientToolCallOutcome:
                 for text in [value.strip()]
                 if text
             ),
-        )
-        object.__setattr__(
-            self,
-            "system_message",
-            self.system_message.strip(),
         )
 
 
@@ -104,9 +95,6 @@ def build_client_tool_post_kwargs(
 
     if outcome.additional_context:
         post_kwargs["additional_context"] = outcome.additional_context
-
-    if outcome.system_message:
-        post_kwargs["system_message"] = outcome.system_message
 
     return post_kwargs
 
@@ -367,7 +355,6 @@ class ClientToolCallRunner:
                 response=hook_run.value.response,
             ),
             additional_context=visible.additional_context,
-            system_message=visible.system_message,
         )
 
 

@@ -419,7 +419,6 @@ class ToolCallCoordinator:
             blocked=post_result.blocked,
             feedback_message=post_result.feedback_message,
             additional_context=additional_context,
-            system_message=operation_result.system_message,
         )
 
         return ToolCallRunResult(
