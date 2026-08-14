@@ -12,6 +12,17 @@ ToolApprovalDecision: typing.TypeAlias = typing.Literal[
     "cancel",
 ]
 
+ToolApprovalStatus: typing.TypeAlias = typing.Literal[
+    "approved",
+    "declined",
+    "cancelled",
+]
+
+ToolApprovalTurnStatus: typing.TypeAlias = typing.Literal[
+    "active",
+    "interrupting",
+]
+
 ToolLifecycleStatus: typing.TypeAlias = typing.Literal[
     "completed",
     "failed",
@@ -37,6 +48,21 @@ TOOL_APPROVAL_ACCEPT_DECISIONS: frozenset[ToolApprovalDecision] = frozenset[
     "acceptWithExecpolicyAmendment",
 })
 
+TOOL_APPROVAL_STATUSES: frozenset[ToolApprovalStatus] = frozenset[
+    ToolApprovalStatus
+]({
+    "approved",
+    "declined",
+    "cancelled",
+})
+
+TOOL_APPROVAL_TURN_STATUSES: frozenset[ToolApprovalTurnStatus] = frozenset[
+    ToolApprovalTurnStatus
+]({
+    "active",
+    "interrupting",
+})
+
 TOOL_LIFECYCLE_STATUSES: frozenset[ToolLifecycleStatus] = frozenset[
     ToolLifecycleStatus
 ]({
@@ -55,8 +81,8 @@ class ToolApprovalAck(object):
     approval_id: str
     call_id: str
     decision: ToolApprovalDecision
-    tool_status: str
-    turn_status: str
+    tool_status: ToolApprovalStatus
+    turn_status: ToolApprovalTurnStatus
 
 
 if __name__ == '__main__':

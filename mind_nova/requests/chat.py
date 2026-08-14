@@ -112,6 +112,7 @@ class TurnEventStream(object):
                 raise error
 
             if parsed_event.type == "ping":
+                self._reconnect_failures = 0
                 continue
             if (
                 parsed_event.event_seq is not None
@@ -149,6 +150,7 @@ class TurnEventStream(object):
     async def _next_payload(self) -> dict:
         """读取下一项载荷或以内部结束信号完成当前流。"""
         while True:
+            await self._check_settlement_deadline()
             payload_stream = await self._ensure_open()
 
             try:
@@ -234,8 +236,7 @@ class TurnEventStream(object):
         self._reconnect_failures += 1
 
         await self._close_payload_stream()
-        if delay > 0:
-            await asyncio.sleep(delay)
+        await self._wait_before_attach(delay)
 
         payload: dict[str, typing.Any] = dict(attach_target)
         payload["after_seq"] = self.last_event_seq
@@ -253,12 +254,43 @@ class TurnEventStream(object):
         if not isinstance(error, httpx.HTTPStatusError):
             return True
         status_code = error.response.status_code
-        return status_code >= 500 or status_code in {408, 409, 425, 429}
+        return status_code >= 500 or status_code in {408, 425, 429}
+
+    async def _check_settlement_deadline(self) -> None:
+        """在逻辑结算等待超时后终止恢复。"""
+        deadline = self._settlement_deadline
+        if (
+            deadline is None
+            or asyncio.get_running_loop().time() < deadline
+        ):
+            return
+        await self._finish("settlement_timeout")
+        raise _TurnStreamEnded
+
+    async def _wait_before_attach(self, delay: float) -> None:
+        """在逻辑结算截止时间约束内等待下一次接入。"""
+        await self._check_settlement_deadline()
+        if delay <= 0:
+            return
+
+        deadline = self._settlement_deadline
+        if deadline is None:
+            await asyncio.sleep(delay)
+            return
+
+        try:
+            async with asyncio.timeout_at(deadline):
+                await asyncio.sleep(delay)
+        except TimeoutError:
+            await self._finish("settlement_timeout")
+            raise _TurnStreamEnded from None
 
     async def _close_payload_stream(self) -> None:
         """关闭当前底层事件传输。"""
-        payload_stream       = self._payload_stream
+        payload_stream = self._payload_stream
+
         self._payload_stream = None
+
         if payload_stream is None:
             return
         with contextlib.suppress(Exception):
@@ -269,8 +301,9 @@ class TurnEventStream(object):
         if self._state is _TurnStreamState.CLOSED:
             return
 
-        self._state          = _TurnStreamState.CLOSED
-        self.end_reason      = reason
+        self._state     = _TurnStreamState.CLOSED
+        self.end_reason = reason
+
         await self._close_payload_stream()
 
 
@@ -308,6 +341,7 @@ async def stream_heal(
 ) -> typing.AsyncGenerator[dict, None]:
     """流式获取修复链路事件。"""
     headers = Channel.make_headers()
+
     payload = {
         "llm_conf"   : request_llm_conf(pref_config),
         "app_id"     : const.APP_DESC,

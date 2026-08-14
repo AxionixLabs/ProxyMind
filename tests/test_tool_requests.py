@@ -265,7 +265,7 @@ async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
         "approval_id": "approval_1",
         "call_id": "call_1",
         "decision": "acceptWithExecpolicyAmendment",
-        "tool_status": "completed",
+        "tool_status": "approved",
         "turn_status": "active",
     }), captured)
 
@@ -287,7 +287,7 @@ async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
         approval_id="approval_1",
         call_id="call_1",
         decision="acceptWithExecpolicyAmendment",
-        tool_status="completed",
+        tool_status="approved",
         turn_status="active",
     )
     assert captured["url"] == "https://example.test/tool-approval"
@@ -425,3 +425,42 @@ async def test_approval_ack_rejects_mismatched_coordinates(monkeypatch) -> None:
         )
 
     assert caught.value.code == "approval_ack_mismatch"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_status", "turn_status"),
+    [
+        ("completed", "active"),
+        ("approved", "completed"),
+    ],
+)
+async def test_approval_ack_rejects_invalid_lifecycle_status(
+    monkeypatch,
+    tool_status,
+    turn_status,
+) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "request_id": "approval_request_1",
+        "turn_id": "turn_001",
+        "approval_id": "approval_1",
+        "call_id": "call_1",
+        "decision": "accept",
+        "tool_status": tool_status,
+        "turn_status": turn_status,
+    }), captured)
+
+    with pytest.raises(tools.ToolApprovalRequestError) as caught:
+        await tools.post_tool_approval(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "approval_1",
+            "accept",
+            turn_id="turn_001",
+            request_id="approval_request_1",
+        )
+
+    assert caught.value.code == "approval_ack_invalid"

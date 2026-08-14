@@ -8,10 +8,13 @@ from mind_nova.identifiers import resolve_request_id
 from mind_nova.services import service_endpoints
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
+    TOOL_APPROVAL_STATUSES,
+    TOOL_APPROVAL_TURN_STATUSES,
     ToolApprovalAck,
     ToolApprovalDecision,
+    ToolApprovalStatus,
+    ToolApprovalTurnStatus
 )
-
 
 _ToolResultValue = typing.Union[
     None,
@@ -328,20 +331,24 @@ def _tool_approval_ack(
     tool_status = str(body.get("tool_status") or "").strip()
     turn_status = str(body.get("turn_status") or "").strip()
 
-    if not tool_status or not turn_status:
+    if (
+        tool_status not in TOOL_APPROVAL_STATUSES
+        or turn_status not in TOOL_APPROVAL_TURN_STATUSES
+    ):
         raise ToolApprovalRequestError(
             "approval_ack_invalid",
-            "tool approval response is missing lifecycle status",
+            "tool approval response has invalid lifecycle status",
             status_code=response.status_code,
         )
+
     return ToolApprovalAck(
         request_id=request_id,
         turn_id=turn_id,
         approval_id=approval_id,
         call_id=call_id,
         decision=decision,
-        tool_status=tool_status,
-        turn_status=turn_status,
+        tool_status=typing.cast(ToolApprovalStatus, tool_status),
+        turn_status=typing.cast(ToolApprovalTurnStatus, turn_status),
     )
 
 
@@ -353,9 +360,11 @@ def _tool_approval_error(response: httpx.Response) -> tuple[str, str]:
         body = None
 
     detail = body.get("detail") if isinstance(body, dict) else None
+
     if isinstance(detail, dict):
-        code = str(detail.get("code") or "").strip()
+        code    = str(detail.get("code") or "").strip()
         message = str(detail.get("message") or detail.get("detail") or "").strip()
+
         if code:
             return code, message or code
 

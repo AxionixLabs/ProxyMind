@@ -255,7 +255,38 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("status_code", [404, 422])
+async def test_chat_conflict_does_not_attach_reused_turn(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            response = httpx.Response(
+                409,
+                json={"detail": {"code": "turn_id_reused"}},
+                request=httpx.Request("POST", url),
+            )
+            response.raise_for_status()
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+            "next_input": None,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    event_stream = chat.stream_chat({}, "new request", [])
+
+    with pytest.raises(httpx.HTTPStatusError):
+        async for _event in event_stream:
+            pass
+
+    assert calls == ["https://example.com/mind-chat"]
+    assert event_stream.end_reason == "disconnected"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [404, 409, 422])
 async def test_attach_does_not_retry_nonrecoverable_client_error(
     monkeypatch,
     status_code,
@@ -296,6 +327,74 @@ async def test_attach_does_not_retry_nonrecoverable_client_error(
         "https://example.com/mind-attach",
     ]
     assert event_stream.end_reason == "disconnected"
+
+
+@pytest.mark.anyio
+async def test_ping_resets_attach_retry_budget(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "segment_id": "segment_1",
+                "text": "started",
+            }
+            raise OSError("connection lost")
+
+        attach_count = len(calls) - 1
+        if attach_count < 5:
+            yield {"type": "ping"}
+            raise OSError("connection lost")
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 2,
+            "next_input": None,
+        }
+
+    monkeypatch.setattr(chat, "ATTACH_RETRY_DELAYS_SEC", (0.0, 0.0, 0.0))
+    _install_reconnect_stream(monkeypatch, streaming)
+
+    event_stream = chat.stream_chat({}, "hello", [])
+    events = [event async for event in event_stream]
+
+    assert [event.event_seq for event in events] == [1, 2]
+    assert len(calls) == 6
+    assert event_stream.end_reason == "settled"
+
+
+@pytest.mark.anyio
+async def test_attach_backoff_respects_settlement_deadline(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "turn.done",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "status": "completed",
+            }
+        raise OSError("connection lost")
+
+    monkeypatch.setattr(chat, "TURN_SETTLEMENT_TIMEOUT_SEC", 0.01)
+    monkeypatch.setattr(chat, "ATTACH_RETRY_DELAYS_SEC", (0.0, 0.05, 0.05))
+    _install_reconnect_stream(monkeypatch, streaming)
+
+    event_stream = chat.stream_chat({}, "hello", [])
+    events = [event async for event in event_stream]
+
+    assert [event.event_seq for event in events] == [1]
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+    assert event_stream.end_reason == "settlement_timeout"
 
 
 @pytest.mark.anyio
