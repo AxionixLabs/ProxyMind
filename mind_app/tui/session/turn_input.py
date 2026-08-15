@@ -45,24 +45,27 @@ class TuiTurnInputControl(object):
         sid: str,
         turn_id: str
     ) -> None:
-        self._controller    = controller
-        self._runtime       = runtime
-        self._state         = state
-        self._target        = (cid, sid, turn_id)
-        self._ready_turn_id = ""
+        """绑定当前会话坐标并初始化输入对账状态。"""
+        self._controller = controller
+        self._runtime    = runtime
+        self._state      = state
+        self._target     = (cid, sid, turn_id)
 
-        self._stream_end_reason: TurnStreamEndReason = "disconnected"
+        self._ready_turn_id: str = ""
+
+        self._stream_end_reason: TurnStreamEndReason = "cancelled"
 
         self._ledger: PendingSteerLedger = PendingSteerLedger()
 
         self._steer_task: asyncio.Task[None] | None = None
-        self._tasks: set[asyncio.Task[None]]        = set()
+
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def activate(self, context: TurnContext) -> None:
         """更新等待服务端启动确认的远端轮次。"""
         self._target            = (context.cid, context.sid, context.turn_id)
         self._ready_turn_id     = ""
-        self._stream_end_reason = "disconnected"
+        self._stream_end_reason = "cancelled"
 
         resolution = self._ledger.advance()
         for client_message_id in resolution.resolved_ids:
@@ -147,7 +150,12 @@ class TuiTurnInputControl(object):
 
     def handle_stream_end(self, reason: TurnStreamEndReason) -> None:
         """记录当前远端事件传输的最终结束原因。"""
-        if reason not in {"settled", "settlement_timeout", "disconnected"}:
+        if reason not in {
+            "settled",
+            "fatal",
+            "cancelled",
+            "protocol_error",
+        }:
             raise ValueError(f"invalid turn stream end reason: {reason}")
         self._stream_end_reason = reason
 
@@ -195,10 +203,7 @@ class TuiTurnInputControl(object):
         if (
             not self._ledger.settled
             and sent_ids
-            and self._stream_end_reason in {
-                "settlement_timeout",
-                "disconnected",
-            }
+            and self._stream_end_reason != "settled"
         ):
             committed_ids, retry_ids = await self._reconcile(sent_ids)
 
@@ -221,7 +226,8 @@ class TuiTurnInputControl(object):
         """在绝对截止时间内查询已发送输入的稳定归属。"""
         cid, sid, turn_id = self._target
 
-        loop        = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
+
         deadline    = loop.time() + self.RECONCILE_DEADLINE_SEC
         pending_ids = client_message_ids
 

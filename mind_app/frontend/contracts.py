@@ -85,6 +85,10 @@ class FrontendRuntime(typing.Protocol):
         """显示覆盖当前交互周期的等待状态。"""
         ...
 
+    def set_wait_retrying(self, retrying: bool) -> None:
+        """切换等待状态的连接提示。"""
+        ...
+
     async def begin_upload_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
@@ -170,6 +174,11 @@ class PassiveFrontendRuntime(object):
 
     async def begin_wait_status(self) -> None:
         """忽略等待状态请求。"""
+        return None
+
+    def set_wait_retrying(self, retrying: bool) -> None:
+        """忽略等待状态的连接提示。"""
+        _ = retrying
         return None
 
     async def begin_upload_status(

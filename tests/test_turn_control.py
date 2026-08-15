@@ -10,6 +10,160 @@ from mind_nova.turn_inputs import TurnInput
 
 
 @pytest.mark.anyio
+async def test_turn_status_returns_validated_authoritative_snapshot(
+    monkeypatch,
+) -> None:
+    captured = {}
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "turn_id": "turn_001",
+            "run_id": "run_001",
+            "status": "running",
+            "terminal": False,
+            "attempt": 2,
+            "version": 3,
+            "last_event_seq": 17,
+            "created_at": 10.0,
+            "updated_at": 12.5,
+            "error": "",
+        },
+        request=httpx.Request("GET", "https://example.com/turn/status"),
+    )
+
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return response
+
+    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
+    monkeypatch.setattr(
+        turn_control.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.com{path}",
+    )
+    monkeypatch.setattr(
+        turn_control.Channel,
+        "make_headers",
+        lambda: {"authorization": "test"},
+    )
+
+    snapshot = await turn_control.get_turn_status(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        timeout=4.0,
+    )
+
+    assert snapshot.status == "running"
+    assert snapshot.terminal is False
+    assert snapshot.last_event_seq == 17
+    assert captured == {
+        "timeout": 4.0,
+        "url": "https://example.com/turn/status",
+        "params": {
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "turn_id": "turn_001",
+        },
+        "headers": {"authorization": "test"},
+    }
+
+
+@pytest.mark.anyio
+async def test_turn_status_preserves_http_status_code(monkeypatch) -> None:
+    response = httpx.Response(
+        404,
+        request=httpx.Request("GET", "https://example.com/turn/status"),
+    )
+
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            _ = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
+
+    with pytest.raises(turn_control.TurnStatusRequestError) as raised:
+        await turn_control.get_turn_status(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+        )
+
+    assert raised.value.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_turn_status_rejects_inconsistent_terminal_flag(monkeypatch) -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "turn_id": "turn_001",
+            "run_id": "run_001",
+            "status": "failed",
+            "terminal": False,
+            "attempt": 1,
+            "version": 1,
+            "last_event_seq": 3,
+            "created_at": 10.0,
+            "updated_at": 12.5,
+            "error": "provider failed",
+        },
+        request=httpx.Request("GET", "https://example.com/turn/status"),
+    )
+
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            _ = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
+
+    with pytest.raises(
+        turn_control.TurnStatusRequestError,
+        match="invalid response",
+    ):
+        await turn_control.get_turn_status(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+        )
+
+
+@pytest.mark.anyio
 async def test_steer_request_uses_session_query_and_stable_message_id(
     monkeypatch,
 ) -> None:

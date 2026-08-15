@@ -689,7 +689,7 @@ async def test_unconfirmed_sent_steer_is_retried_with_original_payload(
 
     assert control.submit(submission, False)
     await asyncio.sleep(0)
-    control.handle_stream_end("settlement_timeout")
+    control.handle_stream_end("fatal")
     await control.close()
 
     restored = await runtime.submissions.read_submission()

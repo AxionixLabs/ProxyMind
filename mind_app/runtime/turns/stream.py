@@ -287,6 +287,7 @@ async def stream_turn(
     on_turn_input_context = kwargs.pop("on_turn_input_context", None)
     on_turn_input_event   = kwargs.pop("on_turn_input_event", None)
     on_turn_stream_end    = kwargs.pop("on_turn_stream_end", None)
+    on_reconnect_status   = kwargs.pop("on_reconnect_status", None)
 
     reentry_kwargs = dict(kwargs)
     if on_turn_input_context is not None:
@@ -295,6 +296,8 @@ async def stream_turn(
         reentry_kwargs["on_turn_input_event"] = on_turn_input_event
     if on_turn_stream_end is not None:
         reentry_kwargs["on_turn_stream_end"] = on_turn_stream_end
+    if on_reconnect_status is not None:
+        reentry_kwargs["on_reconnect_status"] = on_reconnect_status
 
     started_at = time.perf_counter()
 
@@ -308,6 +311,9 @@ async def stream_turn(
     turn_context = turn_execution.context
     hook_scope   = turn_execution.hook_scope
     message      = turn_execution.message
+
+    if on_reconnect_status is None and turn_context.agent.depth == 0:
+        on_reconnect_status = mind.frontend.runtime.set_wait_retrying
 
     if on_turn_input_context is not None:
         on_turn_input_context(turn_context)
@@ -490,7 +496,13 @@ async def stream_turn(
             tool_call_coordinator=tool_call_coordinator,
         )
 
-        event_stream = stream_chat(pref_config, message, tools, **kwargs)
+        event_stream = stream_chat(
+            pref_config,
+            message,
+            tools,
+            on_reconnect_status=on_reconnect_status,
+            **kwargs,
+        )
 
         async for event in event_stream:
             event_count += 1
@@ -1182,7 +1194,7 @@ async def stream_turn(
     finally:
         if on_turn_stream_end is not None and event_stream is not None:
             on_turn_stream_end(
-                getattr(event_stream, "end_reason", None) or "disconnected"
+                getattr(event_stream, "end_reason", None) or "cancelled"
             )
 
         record_pending_assistant_output()

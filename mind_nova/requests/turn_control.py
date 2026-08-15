@@ -20,6 +20,19 @@ TurnControlStatus = typing.Literal[
     "duplicate",
 ]
 
+TurnRuntimeStatus = typing.Literal[
+    "queued",
+    "running",
+    "waiting_tool",
+    "waiting_approval",
+    "waiting_user",
+    "finalizing",
+    "completed",
+    "failed",
+    "interrupted",
+    "cancelled",
+]
+
 _CONTROL_STATUSES: typing.Final[set[str]] = {
     "accepted",
     "turn_not_active",
@@ -28,9 +41,43 @@ _CONTROL_STATUSES: typing.Final[set[str]] = {
     "duplicate",
 }
 
+_TURN_RUNTIME_STATUSES: typing.Final[set[str]] = {
+    "queued",
+    "running",
+    "waiting_tool",
+    "waiting_approval",
+    "waiting_user",
+    "finalizing",
+    "completed",
+    "failed",
+    "interrupted",
+    "cancelled",
+}
+
+_TERMINAL_TURN_STATUSES: typing.Final[set[str]] = {
+    "completed",
+    "failed",
+    "interrupted",
+    "cancelled",
+}
+
 
 class TurnControlRequestError(Exception):
     """描述轮次控制请求未得到有效响应。"""
+
+
+class TurnStatusRequestError(Exception):
+    """描述权威轮次状态请求失败或返回无效响应。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+    ) -> None:
+        """保留请求失败对应的 HTTP 状态码。"""
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +98,78 @@ class TurnReconcileResponse(object):
     pending_ids: tuple[str, ...]
     retry_ids: tuple[str, ...]
     unknown_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TurnStatusSnapshot(object):
+    """描述服务端持久化逻辑轮次的权威状态。"""
+    cid: str
+    sid: str
+    turn_id: str
+    run_id: str
+    status: TurnRuntimeStatus
+    terminal: bool
+    attempt: int
+    version: int
+    last_event_seq: int
+    created_at: float
+    updated_at: float
+    error: str
+
+
+async def get_turn_status(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    timeout: float = 10.0,
+) -> TurnStatusSnapshot:
+    """查询持久化逻辑轮次的权威状态。"""
+    normalized_cid = str(cid or "").strip()
+    normalized_sid = str(sid or "").strip()
+
+    if not normalized_cid:
+        raise TurnStatusRequestError("turn status requires cid")
+    if not normalized_sid:
+        raise TurnStatusRequestError("turn status requires sid")
+    try:
+        normalized_turn_id = normalize_turn_id(turn_id)
+    except ValueError as error:
+        raise TurnStatusRequestError(str(error)) from error
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(
+                service_endpoints.endpoint("/turn/status"),
+                params={
+                    "cid": normalized_cid,
+                    "sid": normalized_sid,
+                    "turn_id": normalized_turn_id,
+                },
+                headers=Channel.make_headers(),
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise TurnStatusRequestError(
+            "turn status request failed",
+            status_code=error.response.status_code,
+        ) from error
+    except httpx.HTTPError as error:
+        raise TurnStatusRequestError("turn status request failed") from error
+
+    try:
+        body = response.json()
+    except (TypeError, ValueError) as error:
+        raise TurnStatusRequestError(
+            "turn status returned an invalid response"
+        ) from error
+
+    return _status_snapshot(
+        body,
+        expected_cid=normalized_cid,
+        expected_sid=normalized_sid,
+        expected_turn_id=normalized_turn_id,
+    )
 
 
 async def steer_turn(
@@ -301,6 +420,68 @@ async def _post_json(
     if not isinstance(body, dict) or body.get("ok") is not True:
         raise TurnControlRequestError("turn control returned an invalid response")
     return body
+
+
+def _status_snapshot(
+    body: typing.Any,
+    *,
+    expected_cid: str,
+    expected_sid: str,
+    expected_turn_id: str
+) -> TurnStatusSnapshot:
+    """校验状态响应并构建不可变快照。"""
+    invalid_message = "turn status returned an invalid response"
+    if not isinstance(body, dict) or body.get("ok") is not True:
+        raise TurnStatusRequestError(invalid_message)
+
+    run_id    = body.get("run_id")
+    status    = body.get("status")
+    terminal  = body.get("terminal")
+    error     = body.get("error")
+    attempt   = body.get("attempt")
+    version   = body.get("version")
+    event_seq = body.get("last_event_seq")
+    created   = body.get("created_at")
+    updated   = body.get("updated_at")
+
+    numeric_values = (attempt, version, event_seq, created, updated)
+    if (
+        body.get("cid") != expected_cid
+        or body.get("sid") != expected_sid
+        or body.get("turn_id") != expected_turn_id
+        or not isinstance(run_id, str)
+        or not isinstance(status, str)
+        or status not in _TURN_RUNTIME_STATUSES
+        or not isinstance(terminal, bool)
+        or terminal != (status in _TERMINAL_TURN_STATUSES)
+        or not isinstance(error, str)
+        or any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in numeric_values
+        )
+        or not isinstance(attempt, int)
+        or attempt < 1
+        or not isinstance(version, int)
+        or version < 1
+        or not isinstance(event_seq, int)
+        or event_seq < 0
+    ):
+        raise TurnStatusRequestError(invalid_message)
+
+    return TurnStatusSnapshot(
+        cid=expected_cid,
+        sid=expected_sid,
+        turn_id=expected_turn_id,
+        run_id=run_id,
+        status=typing.cast(TurnRuntimeStatus, status),
+        terminal=terminal,
+        attempt=attempt,
+        version=version,
+        last_event_seq=event_seq,
+        created_at=float(created),
+        updated_at=float(updated),
+        error=error,
+    )
 
 
 def _response_ids(body: dict[str, typing.Any], field: str) -> tuple[str, ...]:

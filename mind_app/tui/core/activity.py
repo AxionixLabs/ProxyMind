@@ -148,6 +148,7 @@ class TuiActivity(object):
         self._wait_started_at: float | None = None
         self._wait_phase: float             = 0.0
         self._wait_paused: bool             = False
+        self._wait_retrying: bool           = False
 
         self._slots: dict[ActivitySlotKey, _ActivitySlot]    = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
@@ -164,18 +165,13 @@ class TuiActivity(object):
         self._wait_elapsed_sec = 0.0
         self._wait_phase       = 0.0
         self._wait_paused      = False
+        self._wait_retrying    = False
         self._wait_started_at  = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
             key="foreground",
             kind="wait",
-            render=lambda phase: _status_block(
-                "Thinking",
-                family="wait",
-                phase=phase,
-                elapsed_sec=self._wait_elapsed(),
-                color_level=self.color_level,
-            ),
+            render=self._wait_block,
         ))
 
     async def begin_upload(
@@ -430,14 +426,27 @@ class TuiActivity(object):
             key="foreground",
             kind="wait",
             phase=self._wait_phase,
-            render=lambda phase: _status_block(
-                "Thinking",
-                family="wait",
-                phase=phase,
-                elapsed_sec=self._wait_elapsed(),
-                color_level=self.color_level,
-            ),
+            render=self._wait_block,
         ))
+
+    def set_wait_retrying(self, retrying: bool) -> None:
+        """切换等待动画的连接状态并保持当前动画相位。"""
+        self._wait_retrying = bool(retrying)
+
+        slot = self._slots.get("foreground")
+        if slot is not None and slot.kind == "wait" and not slot.frozen:
+            self._render_slots()
+
+    def _wait_block(self, phase: float) -> FragmentBlock:
+        """按当前连接状态生成等待帧。"""
+        retrying = self._wait_retrying
+        return _status_block(
+            "Retrying" if retrying else "Thinking",
+            family="retry" if retrying else "wait",
+            phase=phase,
+            elapsed_sec=self._wait_elapsed(),
+            color_level=self.color_level,
+        )
 
     async def _cancel_task(self) -> None:
         """取消活动区域的合成动画任务。"""
@@ -640,6 +649,7 @@ class TuiActivity(object):
         self._wait_started_at  = None
         self._wait_phase       = 0.0
         self._wait_paused      = False
+        self._wait_retrying    = False
 
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:

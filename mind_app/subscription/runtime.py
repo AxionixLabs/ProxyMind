@@ -297,8 +297,11 @@ class AgentRuntime(object):
         if pending_count:
             return f"agent · {pending_count} pending"
 
-        if self.is_running():
+        if self.is_ready():
             return "agent · online"
+
+        if self.is_running():
+            return "agent · reconnecting"
 
         return "agent · off"
 

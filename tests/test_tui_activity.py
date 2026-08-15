@@ -377,6 +377,41 @@ async def test_pause_wait_excludes_approval_time_from_elapsed() -> None:
 
 
 @pytest.mark.anyio
+async def test_retrying_reuses_wait_slot_and_animation_phase() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    await activity.begin_wait()
+    slot = activity._slots["foreground"]
+    slot.phase = 0.73
+    activity.refresh("wait")
+
+    generation = slot.generation
+    task = activity.task
+    thinking = rendered[-1]
+
+    activity.set_wait_retrying(True)
+
+    assert activity._slots["foreground"] is slot
+    assert slot.phase == 0.73
+    assert slot.generation == generation
+    assert activity.task is task
+    assert "Thinking" in _block_text(thinking)
+    assert "Retrying" in _block_text(rendered[-1])
+    assert thinking.fragments != rendered[-1].fragments
+
+    activity.set_wait_retrying(False)
+
+    assert activity._slots["foreground"] is slot
+    assert slot.phase == 0.73
+    assert "Thinking" in _block_text(rendered[-1])
+    await activity.clear()
+
+
+@pytest.mark.anyio
 async def test_stopping_paused_wait_prevents_later_resume() -> None:
     rendered = []
     activity = TuiActivity(

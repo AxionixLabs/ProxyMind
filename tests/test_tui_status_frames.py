@@ -104,6 +104,33 @@ def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
     )
 
 
+def test_retry_palette_keeps_wait_sweep_geometry() -> None:
+    phase = 0.73
+    thinking = render_status_fragments(
+        "Thinking",
+        family="wait",
+        phase=phase,
+        animated=True,
+        color_level=TerminalColorLevel.TRUECOLOR,
+    )
+    retrying = render_status_fragments(
+        "Retrying",
+        family="retry",
+        phase=phase,
+        animated=True,
+        color_level=TerminalColorLevel.TRUECOLOR,
+    )
+
+    thinking_emphasis = tuple("bold" in style for style, _text in thinking[2:])
+    retrying_emphasis = tuple("bold" in style for style, _text in retrying[2:])
+
+    assert get_cwidth("Thinking") == get_cwidth("Retrying")
+    assert thinking_emphasis == retrying_emphasis
+    assert tuple(style for style, _text in thinking) != tuple(
+        style for style, _text in retrying
+    )
+
+
 def test_explicit_spinner_keeps_one_cell_and_rotates() -> None:
     indicators = {
         spinner_indicator_fragment(index / 10)[1]

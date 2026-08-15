@@ -1836,6 +1836,10 @@ class TuiRuntime(object):
         """启动覆盖当前交互周期的等待动画。"""
         await self.activity.begin_wait()
 
+    def set_wait_retrying(self, retrying: bool) -> None:
+        """切换等待动画的连接状态并保持当前动画相位。"""
+        self.activity.set_wait_retrying(retrying)
+
     async def begin_upload_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]]

@@ -8,7 +8,7 @@ from prompt_toolkit.utils import get_cwidth
 from mind_core.design.terminal_capabilities import TerminalColorLevel
 from .models import FormattedText
 
-StatusFamily = typing.Literal["tool", "wait"]
+StatusFamily = typing.Literal["tool", "wait", "retry"]
 
 SWEEP_GLOW_SPAN    = 2.8
 SWEEP_MIN_DURATION = 1.22
@@ -135,6 +135,54 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
                     (0.72, "#ACC8C7"),
                     (0.90, "#CEE2E0"),
                     (1.00, "#E8F3F1"),
+                ),
+            ),
+        ),
+    ),
+    "retry": SweepProfile(
+        dim_glyph="◦",
+        peak_glyph="•",
+        speed_factor=0.94,
+        rest_duration=0.68,
+        peak_radius=0.80,
+        glow_span=2.90,
+        breathe_rate=3.6,
+        palette_period=10.5,
+        palettes=(
+            SweepPalette(
+                indicator_dim="#674B32",
+                indicator_peak="#F2C078",
+                color_stops=(
+                    (0.00, "#76563A"),
+                    (0.18, "#8C6745"),
+                    (0.44, "#AC8157"),
+                    (0.72, "#D9A968"),
+                    (0.90, "#F0C77F"),
+                    (1.00, "#FFE3A3"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#68443A",
+                indicator_peak="#F2AE91",
+                color_stops=(
+                    (0.00, "#774E42"),
+                    (0.18, "#8E5D4E"),
+                    (0.44, "#B0745F"),
+                    (0.72, "#DD9875"),
+                    (0.90, "#F4B590"),
+                    (1.00, "#FFD5B3"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#625037",
+                indicator_peak="#EBC77D",
+                color_stops=(
+                    (0.00, "#705C40"),
+                    (0.18, "#856D4B"),
+                    (0.44, "#A4895C"),
+                    (0.72, "#D0AE6D"),
+                    (0.90, "#EACB84"),
+                    (1.00, "#FBE5AA"),
                 ),
             ),
         ),

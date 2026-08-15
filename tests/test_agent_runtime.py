@@ -103,7 +103,7 @@ async def test_agent_runtime_consumes_background_failure() -> None:
 
     assert isinstance(results[0], RuntimeError)
     assert not runtime.is_running()
-    assert labels == ["agent · off", "agent · online", "agent · off"]
+    assert labels == ["agent · off", "agent · reconnecting", "agent · off"]
 
 
 @pytest.mark.anyio
@@ -173,6 +173,7 @@ async def test_agent_runtime_disconnect_clears_connection_readiness() -> None:
     runtime._mark_disconnected()
 
     assert not runtime.is_ready()
+    assert runtime.status_label() == "agent · reconnecting"
     await runtime.stop()
 
 

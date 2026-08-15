@@ -157,7 +157,10 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         report=SimpleNamespace(output_record_path=""),
         transcripts=transcripts,
         frontend=SimpleNamespace(
-            runtime=SimpleNamespace(active=frontend_active),
+            runtime=SimpleNamespace(
+                active=frontend_active,
+                set_wait_retrying=Mock(),
+            ),
             interaction=interaction,
         ),
         approval_coordinator=ApprovalCoordinator(interaction),
