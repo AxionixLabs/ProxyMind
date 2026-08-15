@@ -11,6 +11,7 @@ from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from mind_core.config_layers import ConfigResolution
 from mind_core.agent_config import AgentSettings
+from mind_core.feature_config import FeatureSettings
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.permissions import (
@@ -363,9 +364,9 @@ async def _run_application(
         raise
 
     try:
-        hook_registry  = HookRegistry()
-        agent_settings = AgentSettings.from_config(config_resolution.config)
-
+        hook_registry    = HookRegistry()
+        agent_settings   = AgentSettings.from_config(config_resolution.config)
+        feature_settings = FeatureSettings.from_config(config_resolution.config)
     except BaseException as error:
         observe_exception("app.bootstrap.failed", error)
         report.close()
@@ -392,6 +393,7 @@ async def _run_application(
             permissions=permissions,
             hook_registry=hook_registry,
             agent_settings=agent_settings,
+            feature_settings=feature_settings,
             startup_warnings=(
                 *config_resolution.startup_warnings,
                 *(
@@ -427,6 +429,7 @@ async def _run_controller(
     permissions: PermissionSettings,
     hook_registry: HookRegistry | None = None,
     agent_settings: AgentSettings | None = None,
+    feature_settings: FeatureSettings | None = None,
     startup_warnings: tuple[str, ...] = ()
 ) -> int:
     """创建 Controller 并运行用户命令。"""
@@ -463,6 +466,7 @@ async def _run_controller(
             hook_registry=hook_registry or HookRegistry(),
             hook_status=hook_status,
             agent_settings=agent_settings or AgentSettings(),
+            feature_settings=feature_settings or FeatureSettings(),
         )
 
     except BaseException as error:

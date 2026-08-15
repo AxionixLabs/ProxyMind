@@ -25,6 +25,11 @@ from mind_core.agent_config import (
     AgentConfigError,
     normalize_agent_table
 )
+from mind_core.feature_config import (
+    FEATURE_CONFIG_FIELDS,
+    FeatureConfigError,
+    normalize_feature_table
+)
 
 DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT: typing.Final[int] = 10_000
 
@@ -162,6 +167,7 @@ def _default_effective_config() -> dict[str, typing.Any]:
             "enabled"  : [],
             "disabled" : []
         },
+        "features": normalize_feature_table(None),
         "hooks": {},
         "agents": normalize_agent_table(None),
         "mcp_servers": {},
@@ -213,6 +219,7 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
             "enabled": _as_str_list(skills.get("enabled")),
             "disabled": _as_str_list(skills.get("disabled"))
         },
+        "features": normalize_feature_table(data.get("features")),
         "hooks": normalize_hook_table(data.get("hooks")),
         "agents": normalize_agent_table(data.get("agents")),
         "mcp_servers": copy.deepcopy(mcp_servers),
@@ -268,7 +275,8 @@ STRING_CONFIG_PATHS = frozenset({
 })
 
 BOOL_CONFIG_PATHS = frozenset({
-    ("agents", "enabled"),
+    ("features", "js_repl"),
+    ("features", "subagents"),
     ("hosted_tools", "groups", "perf_engine"),
     ("hosted_tools", "groups", "sandbox_cloud"),
 })
@@ -290,6 +298,7 @@ TABLE_CONFIG_PATHS = (
     ("service",),
     ("model_providers",),
     ("skills",),
+    ("features",),
     ("hosted_tools",),
     ("hosted_tools", "groups"),
     ("mcp_servers",),
@@ -310,6 +319,7 @@ ROOT_CONFIG_FIELDS = frozenset({
     "project_root_markers",
     "service",
     "skills",
+    "features",
     "hosted_tools",
     "mcp_servers",
     "projects",
@@ -465,6 +475,13 @@ def validate_config_value(
             raise ConfigValidationError(str(error)) from error
         return None
 
+    if path == ("features",):
+        try:
+            normalize_feature_table(value)
+        except FeatureConfigError as error:
+            raise ConfigValidationError(str(error)) from error
+        return None
+
     if path == ("projects",):
         validate_config({"projects": value})
         return None
@@ -579,6 +596,11 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
     except AgentConfigError as error:
         raise ConfigValidationError(str(error)) from error
 
+    try:
+        normalize_feature_table(config.get("features"))
+    except FeatureConfigError as error:
+        raise ConfigValidationError(str(error)) from error
+
     _validate_tui_config(config.get("tui"))
 
     for path in TABLE_CONFIG_PATHS:
@@ -660,6 +682,7 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
     nested_fields = (
         (config.get("service"), SERVICE_FIELDS, "service"),
         (config.get("skills"), SKILL_FIELDS, "skills"),
+        (config.get("features"), FEATURE_CONFIG_FIELDS, "features"),
         (config.get("hosted_tools"), HOSTED_TOOL_FIELDS, "hosted_tools"),
         (config.get("tui"), TUI_FIELDS, "tui"),
     )

@@ -15,6 +15,7 @@ from engine.errors import AppError
 from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
 from mind_core.agent_config import AgentSettings
+from mind_core.feature_config import FeatureSettings
 from mind_core.permissions import PermissionSettings
 from mind_core.hooks import (
     HookDefinitionConfig,
@@ -165,12 +166,17 @@ class Mind(object):
             self.frontend.interaction
         )
 
+        self.features: FeatureSettings = (
+            kwargs.get("feature_settings") or FeatureSettings()
+        )
+
         self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
 
         self.subagents: SubagentRuntime = (
             kwargs.get("subagent_runtime")
             or SubagentRuntime(
                 self,
+                enabled=self.features.subagents,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
                 transcript_path_for=self.transcripts.path_for_session,
                 session_cleanup=self._close_repl_session,
@@ -652,6 +658,7 @@ class Mind(object):
             execution_root=self.history_workspace,
             subagent_runtime=self.subagents,
             approval_coordinator=self.approval_coordinator,
+            features=self.features,
         )
 
     def bind_server_manager(self, server_manager: ServerManage) -> None:

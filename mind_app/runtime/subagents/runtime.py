@@ -81,6 +81,7 @@ class SubagentRuntime:
         self,
         controller: "Mind",
         *,
+        enabled: bool = True,
         settings: AgentSettings | None = None,
         executor: SubagentExecutionPort | None = None,
         message_delivery: AgentMessageDeliveryPort | None = None,
@@ -89,7 +90,11 @@ class SubagentRuntime:
         transcript_path_for: TranscriptPathResolver | None = None,
         session_cleanup: SessionCleanup | None = None
     ) -> None:
+        if not isinstance(enabled, bool):
+            raise TypeError("subagent runtime enabled state must be a boolean")
+
         self._controller       = controller
+        self._enabled          = enabled
         self._settings         = settings or AgentSettings()
         self._executor         = executor or StreamSubagentExecutor(controller)
         self._message_delivery = message_delivery or SteeringMessageDelivery()
@@ -121,6 +126,11 @@ class SubagentRuntime:
     def settings(self) -> AgentSettings:
         """返回运行时使用的固定配置。"""
         return self._settings
+
+    @property
+    def enabled(self) -> bool:
+        """返回运行时是否允许创建和控制子执行主体。"""
+        return self._enabled
 
     async def spawn(
         self,
@@ -590,7 +600,7 @@ class SubagentRuntime:
 
         async with self._lock:
             self._require_active()
-            if not self._settings.enabled:
+            if not self._enabled:
                 raise AgentStateError("subagent runtime is disabled")
 
             control = self._controls.get(normalized)

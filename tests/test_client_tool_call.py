@@ -48,16 +48,24 @@ def _invocation() -> ToolInvocation:
     )
 
 
-def _runner(coordinator) -> tuple[ClientToolCallRunner, SimpleNamespace]:
+def _runner(
+    coordinator,
+    *,
+    tools: list[dict] | None = None,
+) -> tuple[ClientToolCallRunner, SimpleNamespace]:
     output = SimpleNamespace(record_tool_arguments=Mock())
-    status = SimpleNamespace(end_status=AsyncMock())
+    status = SimpleNamespace(
+        begin_custom_tool_status=AsyncMock(),
+        begin_tool_status=AsyncMock(),
+        end_status=AsyncMock(),
+    )
     presentation = SimpleNamespace(emit=AsyncMock())
     runner = ClientToolCallRunner(
         session=SimpleNamespace(),
         output_control=output,
         status_control=status,
         presentation=presentation,
-        tools=[{"name": "test_tool"}],
+        tools=tools if tools is not None else [{"name": "test_tool"}],
         pref_config={},
         tool_call_coordinator=coordinator,
     )
@@ -118,6 +126,39 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
 
 
 @pytest.mark.anyio
+async def test_client_tool_call_rejects_tool_outside_turn_catalog(monkeypatch) -> None:
+    async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
+        )
+
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
+    runner, _ports = _runner(coordinator)
+    base = _invocation()
+    invocation = ToolInvocation(
+        turn=base.turn,
+        call_id="call-hidden",
+        name="hidden_tool",
+        arguments={},
+    )
+    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+    runner.session.call_tool = AsyncMock()
+
+    outcome = await runner.execute(invocation, use_coding_trace=False)
+
+    assert outcome.result.ok is False
+    assert "tool is unavailable in this turn: hidden_tool" in outcome.result.text
+    runner.session.call_tool.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch) -> None:
     async def run_allowed(invocation, operation):
         operation_result = await operation(invocation)
@@ -132,7 +173,7 @@ async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch)
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
-    runner, ports = _runner(coordinator)
+    runner, ports = _runner(coordinator, tools=[{"name": "js_repl"}])
     base = _invocation()
     invocation = ToolInvocation(
         turn=base.turn,
@@ -202,7 +243,7 @@ async def test_native_tool_start_trace_uses_two_stage_policy(
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
-    runner, _ports = _runner(coordinator)
+    runner, _ports = _runner(coordinator, tools=[{"name": name}])
     base = _invocation()
     invocation = ToolInvocation(
         turn=base.turn,

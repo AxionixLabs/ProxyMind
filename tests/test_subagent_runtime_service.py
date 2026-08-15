@@ -752,7 +752,7 @@ async def test_runtime_shutdown_cancels_tasks_and_is_terminal() -> None:
 async def test_disabled_runtime_rejects_spawn() -> None:
     runtime = SubagentRuntime(
         _Controller(),
-        settings=AgentSettings(enabled=False),
+        enabled=False,
     )
 
     with pytest.raises(AgentStateError, match="disabled"):

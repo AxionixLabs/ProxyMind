@@ -336,6 +336,9 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
         'open_transcript = "f12"\n'
         "[agents]\n"
         "max_depth = 4\n"
+        "[features]\n"
+        "js_repl = false\n"
+        "subagents = false\n"
         "[mcp_servers.project]\n"
         'command = "project-server"\n',
         encoding="utf-8",
@@ -383,6 +386,8 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
     run_controller.assert_awaited_once()
     arguments = run_controller.await_args.kwargs
     assert arguments["agent_settings"].max_depth == 4
+    assert arguments["feature_settings"].js_repl is False
+    assert arguments["feature_settings"].subagents is False
     assert arguments["permissions"].sandbox_mode == "read-only"
     assert arguments["permissions"].approval_policy == "never"
     assert "tui" in arguments["startup_warnings"][0]

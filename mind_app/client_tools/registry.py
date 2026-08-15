@@ -5,6 +5,7 @@ import copy
 import typing
 from pathlib import Path
 from mcp import types as mcp_types
+from mind_core.feature_config import FeatureSettings
 from mind_app.runtime.execution import TurnContext
 from .types import (
     ClientTool,
@@ -20,6 +21,8 @@ from .view_image import view_image_tools
 if typing.TYPE_CHECKING:
     from mind_app.approval.coordinator import ApprovalCoordinator
     from mind_app.runtime.subagents.runtime import SubagentRuntime
+
+JS_REPL_TOOL_NAMES = frozenset({"js_repl", "js_repl_reset"})
 
 
 class ClientToolRegistry:
@@ -102,29 +105,36 @@ def default_registry(
     *,
     execution_root: str | Path | None = None,
     subagent_runtime: "SubagentRuntime | None" = None,
-    approval_coordinator: "ApprovalCoordinator | None" = None
+    approval_coordinator: "ApprovalCoordinator | None" = None,
+    features: FeatureSettings | None = None,
 ) -> ClientToolRegistry:
     """构建默认客户端工具注册表。"""
+    feature_settings = features or FeatureSettings()
     root_source = execution_root
     if root_source is None and native_coding is not None:
         root_source = native_coding.root
 
     root = Path(root_source or Path.cwd()).resolve()
 
+    coding = coding_tools(
+        native_coding,
+        approval_coordinator=approval_coordinator,
+    )
+    if not feature_settings.js_repl:
+        coding = [
+            tool
+            for tool in coding
+            if tool.name not in JS_REPL_TOOL_NAMES
+        ]
+
     tools = [
         *planning_tools(),
         *update_plan_tools(),
-        *coding_tools(
-            native_coding,
-            approval_coordinator=approval_coordinator,
-        ),
+        *coding,
         *view_image_tools(root),
     ]
 
-    if (
-        subagent_runtime is not None
-        and subagent_runtime.settings.enabled
-    ):
+    if subagent_runtime is not None and subagent_runtime.enabled:
         tools.extend(subagent_tools(subagent_runtime))
 
     return ClientToolRegistry(tools)

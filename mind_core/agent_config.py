@@ -10,7 +10,6 @@ DEFAULT_FORK_TURNS             = 5
 DEFAULT_MAX_FORK_CONTEXT_CHARS = 40_000
 
 AGENT_CONFIG_FIELDS = frozenset({
-    "enabled",
     "max_concurrent_threads_per_session",
     "max_depth",
     "default_fork_turns",
@@ -25,7 +24,6 @@ class AgentConfigError(ValueError):
 @dataclass(frozen=True, slots=True)
 class AgentSettings:
     """保存本地多执行主体运行设置。"""
-    enabled: bool = True
     max_concurrent_threads_per_session: int = DEFAULT_MAX_CONCURRENT_THREADS
     max_depth: int = DEFAULT_MAX_AGENT_DEPTH
     default_fork_turns: int = DEFAULT_FORK_TURNS
@@ -38,7 +36,6 @@ class AgentSettings:
         values = normalize_agent_table(root.get("agents"))
 
         return cls(
-            enabled=values["enabled"],
             max_concurrent_threads_per_session=(
                 values["max_concurrent_threads_per_session"]
             ),
@@ -60,10 +57,6 @@ def normalize_agent_table(raw: typing.Any) -> dict[str, typing.Any]:
     unknown = sorted(set(data).difference(AGENT_CONFIG_FIELDS))
     if unknown:
         raise AgentConfigError(f"unknown agents key: {unknown[0]}")
-
-    enabled = data.get("enabled", True)
-    if not isinstance(enabled, bool):
-        raise AgentConfigError("agents.enabled must be a boolean")
 
     max_threads = _positive_integer(
         data.get(
@@ -89,7 +82,6 @@ def normalize_agent_table(raw: typing.Any) -> dict[str, typing.Any]:
     )
 
     return {
-        "enabled": enabled,
         "max_concurrent_threads_per_session": max_threads,
         "max_depth": max_depth,
         "default_fork_turns": default_fork_turns,

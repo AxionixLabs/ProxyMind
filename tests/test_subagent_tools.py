@@ -91,7 +91,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     enabled = SubagentRuntime(_Controller())
     disabled = SubagentRuntime(
         _Controller(),
-        settings=AgentSettings(enabled=False),
+        enabled=False,
     )
 
     enabled_tools = default_registry(
@@ -106,7 +106,6 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
             subagent_runtime=disabled,
         ).list_tools().tools
     }
-
     agent_names = {
         "spawn_agent",
         "list_agents",

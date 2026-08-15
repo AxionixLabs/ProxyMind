@@ -30,9 +30,11 @@ from mind_core.application_paths import (
     ApplicationLayout,
     resolve_application_layout
 )
+from mind_core.agent_config import AgentSettings
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
+from mind_core.feature_config import FeatureSettings
 from mind_core.preference import Preferences
 from mind_core.permissions import (
     PermissionSettings,
@@ -132,6 +134,10 @@ class MindMcpRuntime(object):
             workspace_root=Path.cwd(),
             permissions=permissions,
             hook_registry=hook_registry,
+            agent_settings=AgentSettings.from_config(config_resolution.config),
+            feature_settings=FeatureSettings.from_config(
+                config_resolution.config
+            ),
         )
 
         try:

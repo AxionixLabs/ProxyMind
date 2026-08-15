@@ -50,10 +50,13 @@ domain = ""
 enabled = []
 disabled = []
 
+[features]
+js_repl = true
+subagents = true
+
 [hooks]
 
 [agents]
-enabled = true
 max_concurrent_threads_per_session = 4
 max_depth = 1
 default_fork_turns = 5

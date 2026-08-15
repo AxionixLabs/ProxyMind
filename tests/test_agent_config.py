@@ -10,7 +10,6 @@ def test_agent_settings_use_normalized_defaults() -> None:
     config = normalize_config({})
 
     assert config["agents"] == {
-        "enabled": True,
         "max_concurrent_threads_per_session": 4,
         "max_depth": 1,
         "default_fork_turns": 5,
@@ -22,7 +21,6 @@ def test_agent_settings_use_normalized_defaults() -> None:
 def test_agent_settings_read_explicit_config() -> None:
     config = normalize_config({
         "agents": {
-            "enabled": False,
             "max_concurrent_threads_per_session": 8,
             "max_depth": 2,
             "default_fork_turns": 3,
@@ -31,7 +29,6 @@ def test_agent_settings_read_explicit_config() -> None:
     })
 
     assert AgentSettings.from_config(config) == AgentSettings(
-        enabled=False,
         max_concurrent_threads_per_session=8,
         max_depth=2,
         default_fork_turns=3,
@@ -42,7 +39,6 @@ def test_agent_settings_read_explicit_config() -> None:
 @pytest.mark.parametrize(
     ("agents", "message"),
     [
-        ({"enabled": 1}, "enabled must be a boolean"),
         (
             {"max_concurrent_threads_per_session": 0},
             "must be a positive integer",

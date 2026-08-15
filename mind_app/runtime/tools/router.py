@@ -33,9 +33,14 @@ async def execute_tool(
     enable_progress_notify: bool = False
 ) -> CallToolResult:
     """统一工具执行入口。"""
-    if is_hosted_tool(tools, invocation.name, meta=invocation.meta):
+    if not has_tool(tools, invocation.name):
+        if is_hosted_tool(tools, invocation.name, meta=invocation.meta):
+            raise RuntimeError(
+                "Hosted tool is not configured for local execution: "
+                f"{invocation.name}"
+            )
         raise RuntimeError(
-            f"Hosted tool is not configured for local execution: {invocation.name}"
+            f"tool is unavailable in this turn: {invocation.name}"
         )
 
     progress_callback = None
