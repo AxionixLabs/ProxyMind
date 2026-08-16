@@ -242,6 +242,42 @@ async def test_disconnect_after_outcome_recovers_until_settlement(monkeypatch) -
 
 
 @pytest.mark.anyio
+async def test_cancellation_clears_reconnecting_status(monkeypatch) -> None:
+    reconnecting = []
+    reconnect_started = asyncio.Event()
+
+    async def streaming(_url, _headers, _payload, _timeout):
+        raise OSError("connection lost")
+        yield
+
+    async def wait_before_attach(_delay):
+        reconnect_started.set()
+        await asyncio.Future()
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(
+        chat.TurnEventStream,
+        "_wait_before_attach",
+        staticmethod(wait_before_attach),
+    )
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_reconnect_status=reconnecting.append,
+    )
+
+    consuming = asyncio.create_task(anext(event_stream.__aiter__()))
+    await reconnect_started.wait()
+    consuming.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await consuming
+
+    assert event_stream.end_reason == "cancelled"
+    assert reconnecting == [True, False]
+
+
+@pytest.mark.anyio
 async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
     monkeypatch,
 ) -> None:

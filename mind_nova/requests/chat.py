@@ -386,6 +386,8 @@ class TurnEventStream(object):
         self._state     = _TurnStreamState.CLOSED
         self.end_reason = reason
 
+        self._set_reconnecting(False)
+
         await self._close_payload_stream()
 
 

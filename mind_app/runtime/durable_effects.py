@@ -15,10 +15,8 @@ _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS local_effects (
     effect_id TEXT PRIMARY KEY,
     fingerprint TEXT NOT NULL,
-    effect_class TEXT NOT NULL,
-    replay_policy TEXT NOT NULL,
+    replay TEXT NOT NULL,
     status TEXT NOT NULL,
-    dispatch_count INTEGER NOT NULL DEFAULT 0,
     result_payload TEXT,
     error TEXT NOT NULL DEFAULT '',
     created_at_ms INTEGER NOT NULL,
@@ -120,14 +118,13 @@ class LocalEffectJournal:
             connection.execute(
                 """
                 INSERT OR IGNORE INTO local_effects (
-                    effect_id, fingerprint, effect_class, replay_policy,
-                    status, dispatch_count, created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, 'prepared', 0, ?, ?)
+                    effect_id, fingerprint, replay, status,
+                    created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, 'prepared', ?, ?)
                 """,
                 (
                     effect.effect_id,
                     effect.fingerprint,
-                    "read_only" if effect.replay == "safe" else "non_replayable",
                     effect.replay,
                     now_ms,
                     now_ms,
@@ -141,7 +138,7 @@ class LocalEffectJournal:
                 raise sqlite3.DatabaseError("local effect record was not persisted")
             if str(row["fingerprint"]) != effect.fingerprint:
                 raise ValueError("local effect fingerprint conflicts with persisted semantics")
-            if str(row["replay_policy"]) != effect.replay:
+            if str(row["replay"]) != effect.replay:
                 raise ValueError("local effect replay policy conflicts with persisted semantics")
 
             status = str(row["status"])
@@ -172,8 +169,7 @@ class LocalEffectJournal:
             connection.execute(
                 """
                 UPDATE local_effects
-                   SET status = 'dispatching', dispatch_count = dispatch_count + 1,
-                       error = '', updated_at_ms = ?
+                   SET status = 'dispatching', error = '', updated_at_ms = ?
                  WHERE effect_id = ?
                 """,
                 (now_ms, effect.effect_id),
@@ -198,7 +194,7 @@ class LocalEffectJournal:
                 return EffectJournalDecision("execute")
             if str(row["fingerprint"]) != effect.fingerprint:
                 raise ValueError("local effect fingerprint conflicts with persisted semantics")
-            if str(row["replay_policy"]) != effect.replay:
+            if str(row["replay"]) != effect.replay:
                 raise ValueError("local effect replay policy conflicts with persisted semantics")
 
             status = str(row["status"])
