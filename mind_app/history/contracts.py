@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from abc import (
+    ABC,
+    abstractmethod
+)
 
 TranscriptActor: typing.TypeAlias = typing.Literal[
     "user",
@@ -11,10 +15,10 @@ TranscriptActor: typing.TypeAlias = typing.Literal[
 ]
 
 
-@typing.runtime_checkable
-class TranscriptSink(typing.Protocol):
+class TranscriptSink(ABC):
     """定义结构化会话事件的追加写入能力。"""
 
+    @abstractmethod
     def append(
         self,
         event: str,

@@ -3,6 +3,7 @@
 import pytest
 
 from mind_nova.stream_events import (
+    PresentationSupersededEvent,
     TextMetaEvent,
     ToolApprovalRequiredEvent,
     ToolCallEvent,
@@ -11,9 +12,114 @@ from mind_nova.stream_events import (
     TurnFailedEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
+    TurnReconciliationRequiredEvent,
     UnknownStreamEvent,
     parse_stream_event,
 )
+
+
+def _durable_tool_event() -> dict:
+    """构造最新客户端工具执行协议事件。"""
+    return {
+        "proto": "mind.chat",
+        "type": "tool.call",
+        "turn_id": "turn_test",
+        "presentation_epoch": 2,
+        "name": "shell_command",
+        "call_id": "call_test",
+        "arguments": {"command": "echo ready"},
+        "execution": {
+            "target": "local",
+            "effect": {
+                "effect_id": "effect_test",
+                "fingerprint": "a" * 64,
+                "class": "non_replayable",
+                "replay_policy": "manual",
+                "provider_idempotency_key": "",
+                "status": "dispatching",
+                "dispatch_required": True,
+                "dispatch_count": 1,
+            },
+        },
+        "checkpoint": {
+            "checkpoint_id": "checkpoint_test",
+            "required": True,
+            "workspace": {"root": "/tmp/workspace"},
+            "artifact": {},
+        },
+    }
+
+
+def test_latest_tool_protocol_parses_effect_and_checkpoint_strictly() -> None:
+    event = parse_stream_event(_durable_tool_event())
+
+    assert isinstance(event, ToolCallEvent)
+    assert event.effect is not None
+    assert event.effect.replay_policy == "manual"
+    assert event.checkpoint is not None
+    assert event.checkpoint.checkpoint_id == "checkpoint_test"
+
+
+@pytest.mark.parametrize("missing", ("effect", "checkpoint"))
+def test_latest_tool_protocol_rejects_missing_durability_gate(missing: str) -> None:
+    payload = _durable_tool_event()
+    if missing == "effect":
+        payload["execution"].pop("effect")
+    else:
+        payload.pop("checkpoint")
+
+    with pytest.raises(ValueError, match=missing):
+        parse_stream_event(payload)
+
+
+@pytest.mark.parametrize("required", (False, 1, "true", None))
+def test_latest_tool_protocol_requires_literal_checkpoint_true(required) -> None:
+    payload = _durable_tool_event()
+    payload["checkpoint"]["required"] = required
+
+    with pytest.raises(ValueError, match="required must be true"):
+        parse_stream_event(payload)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"class": "idempotent", "replay_policy": "provider_idempotent",
+          "provider_idempotency_key": "provider-key"}, "manual non-replayable"),
+        ({"status": "prepared"}, "not dispatchable"),
+        ({"dispatch_required": False}, "not dispatchable"),
+        ({"dispatch_count": 0}, "not dispatchable"),
+    ],
+)
+def test_latest_tool_protocol_rejects_inconsistent_effect_semantics(
+    updates: dict,
+    message: str,
+) -> None:
+    payload = _durable_tool_event()
+    payload["execution"]["effect"].update(updates)
+
+    with pytest.raises(ValueError, match=message):
+        parse_stream_event(payload)
+
+
+def test_presentation_superseded_requires_preceding_epoch() -> None:
+    event = parse_stream_event({
+        "proto": "mind.chat",
+        "type": "presentation.superseded",
+        "turn_id": "turn_test",
+        "presentation_epoch": 2,
+        "superseded_epoch": 1,
+    })
+    assert isinstance(event, PresentationSupersededEvent)
+
+    with pytest.raises(ValueError, match="must precede"):
+        parse_stream_event({
+            "proto": "mind.chat",
+            "type": "presentation.superseded",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+            "superseded_epoch": 2,
+        })
 
 
 def test_text_meta_event_copies_structured_metadata() -> None:
@@ -41,33 +147,59 @@ def test_text_meta_event_copies_structured_metadata() -> None:
 
 
 def test_tool_call_event_normalizes_wire_aliases() -> None:
-    event = parse_stream_event({
-        "type": "tool.call",
+    payload = _durable_tool_event()
+    payload.pop("name")
+    payload.update({
         "tool": "shell_command",
         "call_id": "call-1",
         "arguments": {"command": "pytest -q"},
         "meta": {"domain": "coding"},
-        "execution": {"target": "client"},
         "approvalRequired": "required",
     })
+    event = parse_stream_event(payload)
 
     assert isinstance(event, ToolCallEvent)
     assert event.name == "shell_command"
     assert event.call_id == "call-1"
     assert event.arguments == {"command": "pytest -q"}
     assert event.meta == {"domain": "coding"}
-    assert event.execution == {"target": "client"}
+    assert event.execution is not None
+    assert event.execution["target"] == "local"
     assert event.approval_required is True
 
 
 def test_tool_call_event_parses_false_boolean_text() -> None:
-    event = parse_stream_event({
-        "type": "tool.call",
-        "approved": "false",
-    })
+    payload = _durable_tool_event()
+    payload["approved"] = "false"
+    event = parse_stream_event(payload)
 
     assert isinstance(event, ToolCallEvent)
     assert event.approved is False
+
+
+def test_all_tool_call_protocols_require_current_durability_fields() -> None:
+    with pytest.raises(ValueError, match="execution.effect"):
+        parse_stream_event({
+            "type": "tool.call",
+            "name": "shell_command",
+            "call_id": "call_legacy",
+        })
+
+
+def test_turn_reconciliation_required_is_a_typed_terminal_pause() -> None:
+    event = parse_stream_event({
+        "proto": "mind.chat",
+        "type": "turn.reconciliation_required",
+        "turn_id": "turn_test",
+        "presentation_epoch": 2,
+        "status": "reconciliation_required",
+        "effect_id": "effect_test",
+        "error": "provider succeeded but commit failed",
+    })
+
+    assert isinstance(event, TurnReconciliationRequiredEvent)
+    assert event.effect_id == "effect_test"
+    assert event.status == "reconciliation_required"
 
 
 def test_stream_event_rejects_fractional_integer_fields() -> None:

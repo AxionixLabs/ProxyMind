@@ -86,6 +86,7 @@ class ToolApprovalExpired(Exception):
     """表示服务端审批请求已不再处于 pending 状态。"""
 
     def __init__(self, message: str = "tool approval not pending") -> None:
+        """保存审批已过期的稳定错误说明。"""
         super().__init__(message)
 
 
@@ -93,6 +94,7 @@ class ToolApprovalRequestError(Exception):
     """描述服务端拒绝或无法确认的审批决定。"""
 
     def __init__(self, code: str, message: str, *, status_code: int = 0) -> None:
+        """保存审批请求的错误码和响应状态。"""
         super().__init__(message)
         self.code = code
         self.status_code = status_code
@@ -112,6 +114,40 @@ async def post_tool_result(
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
+
+    payload = build_tool_result_payload(
+        cid=cid,
+        sid=sid,
+        call_id=call_id,
+        name=name,
+        ok=ok,
+        result=result,
+        execution=execution,
+        additional_context=additional_context,
+        arguments=arguments,
+        request_id=request_id,
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+def build_tool_result_payload(
+    *,
+    cid: str,
+    sid: str,
+    call_id: str,
+    name: str,
+    ok: bool,
+    result: _ToolResultValue,
+    execution: dict[str, typing.Any] | None = None,
+    additional_context: typing.Sequence[str] = (),
+    arguments: typing.Mapping[str, typing.Any] | None = None,
+    request_id: str | None = None,
+) -> dict[str, typing.Any]:
+    """构建可用于普通投递或效果核对的完整工具结果。"""
 
     normalized_request_id = resolve_request_id(
         request_id,
@@ -138,11 +174,7 @@ async def post_tool_result(
     contexts = _normalized_contexts(additional_context)
     if contexts:
         payload["additional_context"] = contexts
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)
-        r.raise_for_status()
-        return r.json()
+    return dict(payload)
 
 
 async def post_tool_approval(

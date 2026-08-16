@@ -183,12 +183,11 @@ async def test_request_payload_normalizes_system_message() -> None:
 
 
 def test_never_policy_rejects_approval_required_tool_call() -> None:
-    event = parse_stream_event({
-        "type": "tool.call",
-        "call_id": "call-1",
-        "approval_required": True,
-    })
-    assert isinstance(event, ToolCallEvent)
+    event = ToolCallEvent(
+        type="tool.call",
+        call_id="call-1",
+        approval_required=True,
+    )
 
     decision = validate_tool_approval(
         event=event,

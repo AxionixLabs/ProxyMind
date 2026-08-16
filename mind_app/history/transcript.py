@@ -87,6 +87,7 @@ class TranscriptReader(object):
     """从单个会话文件读取有效的结构化事件。"""
 
     def __init__(self, path: str | Path) -> None:
+        """绑定可选的结构化会话记录路径。"""
         self.path = Path(path) if str(path or "").strip() else None
 
     def read(self) -> tuple[TranscriptEntry, ...]:
@@ -195,6 +196,7 @@ class TranscriptReplay(object):
     """把持久事件归并为可恢复的消息和工具记录。"""
 
     def __init__(self, entries: typing.Iterable[TranscriptEntry]) -> None:
+        """保存待归并的结构化会话事件。"""
         self.entries = tuple(entries)
 
     def build(self) -> tuple[TranscriptEntry, ...]:
@@ -207,6 +209,25 @@ class TranscriptReplay(object):
         pending_unmerged_tools: dict[str, dict[str, typing.Any]] = {}
 
         for entry in self.entries:
+            if entry.event == "message.superseded" and entry.actor == "assistant":
+                superseded_epoch = entry.payload.get("presentation_epoch")
+                if isinstance(superseded_epoch, bool) or not isinstance(
+                    superseded_epoch,
+                    int,
+                ):
+                    continue
+                replay = [
+                    item
+                    for item in replay
+                    if not (
+                        item.actor == "assistant"
+                        and item.turn_id == entry.turn_id
+                        and int(item.payload.get("presentation_epoch") or 1)
+                        <= superseded_epoch
+                    )
+                ]
+                continue
+
             if entry.event == "message.created":
                 content = entry.payload.get("content")
                 if entry.actor not in {"user", "assistant"}:
@@ -305,6 +326,7 @@ class TranscriptWriter(TranscriptSink):
         session_id: str,
         turn_id: str | None = None
     ) -> None:
+        """绑定记录路径及默认会话和轮次标识。"""
         self.path       = Path(path) if str(path or "").strip() else None
         self.session_id = str(session_id or "").strip()
         self.turn_id    = str(turn_id or "").strip() or None
@@ -403,6 +425,7 @@ class ConversationTranscriptStore:
     """按会话创建稳定的日期分层记录路径。"""
 
     def __init__(self, root: str | Path | None = None) -> None:
+        """绑定会话记录的根目录。"""
         self.root = Path(root or sessions_dir()).expanduser()
 
     def path_for_session(self, session_id: str) -> str:

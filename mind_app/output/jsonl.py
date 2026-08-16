@@ -29,6 +29,7 @@ from mind_app.presentation.models import (
 from ..stream_io.output_record import StreamRecordWriter
 from .content import (
     AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -130,6 +131,7 @@ class JsonOutputState:
         record_writer: StreamRecordWriter,
         stdout: typing.TextIO
     ) -> None:
+        """绑定结构化记录器和标准输出流。"""
         self.record_writer = record_writer
         self.stdout        = stdout
 
@@ -212,6 +214,7 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
     """提供逐行结构化事件的输出控制。"""
 
     def __init__(self, state: JsonOutputState) -> None:
+        """绑定共享的结构化输出状态。"""
         self.state = state
 
     async def open(self) -> None:
@@ -303,6 +306,7 @@ class JsonContentSink(ContentSink):
     """把正文增量合并为完整消息事件。"""
 
     def __init__(self, state: JsonOutputState) -> None:
+        """绑定正文使用的结构化输出状态。"""
         self.state = state
 
     async def emit(self, output: ContentOutput) -> None:
@@ -313,6 +317,14 @@ class JsonContentSink(ContentSink):
         if isinstance(output, (AssistantSegmentCompleted, AssistantOutputBoundary)):
             self.state.flush_assistant()
             return None
+        if isinstance(output, AssistantPresentationSuperseded):
+            self.state.flush_assistant()
+            self.state.emit({
+                "type": "presentation.superseded",
+                "superseded_epoch": output.superseded_epoch,
+                "presentation_epoch": output.presentation_epoch,
+            })
+            return None
         if isinstance(output, SourcesOutput):
             return None
         raise TypeError(f"Unsupported content output: {type(output).__name__}")
@@ -322,6 +334,7 @@ class JsonPresentationSink(PresentationSink):
     """把展示数据编码为逐行结构化事件。"""
 
     def __init__(self, state: JsonOutputState) -> None:
+        """绑定展示事件使用的结构化输出状态。"""
         self.state = state
 
     async def emit(self, view: PresentationView) -> None:
@@ -443,7 +456,7 @@ class JsonPresentationSink(PresentationSink):
 
     def _hook_event(self, view: HookRunView) -> None:
         """编码 Hook 生命周期事件。"""
-        item = {
+        item: dict[str, typing.Any] = {
             "id": self.state.item_id(view.id),
             "type": "hook",
             "hook_key": view.hook_key,

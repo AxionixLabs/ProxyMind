@@ -24,6 +24,7 @@ from mind_nova.stream_events import (
     TextDeltaEvent,
     TextDoneEvent,
     TextMetaEvent,
+    PresentationSupersededEvent,
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
@@ -33,6 +34,7 @@ from mind_nova.stream_events import (
     TurnFailedEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
+    TurnReconciliationRequiredEvent,
     TurnTerminalEvent
 )
 from mind_nova.requests.tools import (
@@ -44,6 +46,7 @@ from ...output import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    AssistantPresentationSuperseded,
     OutputControlPort,
     SourcesOutput
 )
@@ -87,6 +90,7 @@ from ..tools.client_call import (
     ClientToolCallRunner,
     build_client_tool_post_kwargs
 )
+from ..durable_effects import LocalEffectReconciliationRequired
 from ..tools.plan_call import PlanToolCallRunner
 from ..tools.plan_steps import PlanExecutionReport
 from .executor import (
@@ -111,6 +115,19 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 MAX_STOP_CONTINUATIONS = 3
+
+
+def _optional_callback(
+    value: typing.Any,
+    *,
+    name: str,
+) -> typing.Callable[..., typing.Any] | None:
+    """校验可选回调并返回可调用边界。"""
+    if value is None:
+        return None
+    if not callable(value):
+        raise TypeError(f"{name} must be callable")
+    return value
 
 
 def _terminal_result_fields(
@@ -156,6 +173,8 @@ def _tool_invocation_from_event(
         arguments=dict(event.arguments if arguments is None else arguments),
         meta=effective_meta,
         execution=event.execution,
+        effect=event.effect,
+        checkpoint=event.checkpoint,
     )
 
 
@@ -175,7 +194,7 @@ def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
 def _approval_with_updated_input(
     approval: dict[str, typing.Any],
     tool: str,
-    effective_arguments: dict[str, typing.Any] | None,
+    effective_arguments: dict[str, typing.Any] | None
 ) -> dict[str, typing.Any]:
     """返回应用 Hook 参数改写后的审批数据。"""
     if effective_arguments is None:
@@ -200,7 +219,7 @@ def _approval_report_kwargs(
     source: ApprovalSource,
     turn_id: str,
     hook_reason: str = "",
-    additional_context: typing.Sequence[str] = (),
+    additional_context: typing.Sequence[str] = ()
 ) -> dict[str, typing.Any]:
     """构造审批决定回传所需的协议字段。"""
     approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
@@ -284,10 +303,22 @@ async def stream_turn(
     **kwargs
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
-    on_turn_input_context = kwargs.pop("on_turn_input_context", None)
-    on_turn_input_event   = kwargs.pop("on_turn_input_event", None)
-    on_turn_stream_end    = kwargs.pop("on_turn_stream_end", None)
-    on_reconnect_status   = kwargs.pop("on_reconnect_status", None)
+    on_turn_input_context = _optional_callback(
+        kwargs.pop("on_turn_input_context", None),
+        name="on_turn_input_context",
+    )
+    on_turn_input_event = _optional_callback(
+        kwargs.pop("on_turn_input_event", None),
+        name="on_turn_input_event",
+    )
+    on_turn_stream_end = _optional_callback(
+        kwargs.pop("on_turn_stream_end", None),
+        name="on_turn_stream_end",
+    )
+    on_reconnect_status = _optional_callback(
+        kwargs.pop("on_reconnect_status", None),
+        name="on_reconnect_status",
+    )
 
     reentry_kwargs = dict(kwargs)
     if on_turn_input_context is not None:
@@ -386,9 +417,11 @@ async def stream_turn(
     turn_incomplete: bool = False
     turn_failed: bool     = False
 
-    turn_usage: dict[str, typing.Any] = {}
+    reconciliation_required: bool = False
+
+    turn_usage: dict[str, typing.Any]         = {}
     turn_terminal_meta: dict[str, typing.Any] = {}
-    turn_can_continue: bool = False
+    turn_can_continue: bool                   = False
 
     failure_error: str | None = None
     result_status: RunStatus  = "incomplete"
@@ -420,7 +453,10 @@ async def stream_turn(
             transcript.append(
                 "message.created",
                 actor="assistant",
-                payload={"content": assistant_output},
+                payload={
+                    "content": assistant_output,
+                    "presentation_epoch": tracker.last_committed_epoch,
+                },
             )
 
     idle_wait = IdleStatusTimer(
@@ -540,9 +576,10 @@ async def stream_turn(
                 continue
 
             if isinstance(event, TurnFailedEvent):
-                turn_failed   = True
-                failure_error = event.error
-                turn_usage = dict(event.usage)
+
+                turn_failed        = True
+                failure_error      = event.error
+                turn_usage         = dict(event.usage)
                 turn_terminal_meta = _terminal_result_fields(event)
 
                 observe(
@@ -566,10 +603,75 @@ async def stream_turn(
                 )
                 continue
 
+            if isinstance(event, TurnReconciliationRequiredEvent):
+                try:
+                    recovered = await client_tool_runner.reconcile_known_effect(
+                        event.effect_id
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as recovery_error:
+                    recovered = False
+                    observe(
+                        "stream.reconciliation_auto_recovery_failed",
+                        level="WARNING",
+                        turn_id=turn_context.turn_id,
+                        effect_id=event.effect_id,
+                        error=f"{type(recovery_error).__name__}: {recovery_error}",
+                    )
+                if recovered:
+                    observe(
+                        "stream.reconciliation_auto_recovered",
+                        turn_id=turn_context.turn_id,
+                        effect_id=event.effect_id,
+                    )
+                    await status_control.begin_reply_wait_status()
+                    continue
+
+                reconciliation_required = True
+                failure_error = event.error
+                observe(
+                    "stream.reconciliation_required",
+                    level="ERROR",
+                    turn_id=turn_context.turn_id,
+                    effect_id=event.effect_id,
+                    error=failure_error,
+                )
+                if turn_context.agent.depth == 0:
+                    await mind.await_cleanup(
+                        mind.stop_anim("wait", settle=False)
+                    )
+                await finish_failure(
+                    status_control,
+                    presentation,
+                    None,
+                    phase="turn.reconciliation_required",
+                    error=failure_error,
+                )
+                break
+
             if isinstance(event, TextDeltaEvent):
                 tracker.on_text_delta(event)
                 await content.emit(AssistantTextDelta(event.text))
                 idle_wait.reschedule()
+                continue
+
+            if isinstance(event, PresentationSupersededEvent):
+                record_pending_assistant_output()
+                transcript.append(
+                    "message.superseded",
+                    actor="assistant",
+                    payload={
+                        "presentation_epoch": event.superseded_epoch,
+                        "superseded_by_epoch": event.presentation_epoch,
+                        "reason": event.reason,
+                    },
+                )
+                tracker.on_presentation_superseded(event)
+                await content.emit(AssistantPresentationSuperseded(
+                    superseded_epoch=event.superseded_epoch,
+                    presentation_epoch=event.presentation_epoch,
+                ))
                 continue
 
             if isinstance(event, TextDoneEvent):
@@ -583,9 +685,10 @@ async def stream_turn(
                 continue
 
             if isinstance(event, TurnDoneEvent):
-                turn_usage = dict(event.usage)
+
+                turn_usage         = dict(event.usage)
                 turn_terminal_meta = _terminal_result_fields(event)
-                turn_can_continue = event.can_continue is True
+                turn_can_continue  = event.can_continue is True
 
                 if event.status == "interrupted":
                     interrupted = True
@@ -697,23 +800,29 @@ async def stream_turn(
                     approval_id=approval_id,
                 )
 
+                decision: ApprovalDecisionValue
+                decision_source: ApprovalSource
+
                 if (
                     permission_decision is not None
                     and permission_decision.action == "deny"
                 ):
-                    decision = "decline"
+                    decision        = "decline"
                     decision_source = "hook"
+
                 elif (
                     permission_decision is not None
                     and permission_decision.action == "allow"
                 ):
-                    decision = "accept"
+                    decision        = "accept"
                     decision_source = "hook"
+
                 elif kwargs["permissions"].approval_policy == "never":
-                    decision = "decline"
+                    decision        = "decline"
                     decision_source = "policy"
+
                 else:
-                    decision = await mind.approval_coordinator.request(approval)
+                    decision        = await mind.approval_coordinator.request(approval)
                     decision_source = mind.approval_coordinator.decision_source
 
                 observe(
@@ -882,6 +991,7 @@ async def stream_turn(
                         invocation,
                         execute_plan_call,
                     )
+
                     if not hook_run.allowed:
                         plan_ok        = False
                         plan_result    = _hook_denied_result(hook_run.reason)
@@ -1075,6 +1185,25 @@ async def stream_turn(
 
             continue
 
+    except LocalEffectReconciliationRequired as error:
+        result_status = "reconciliation_required"
+        failure_error = str(error)
+        observe(
+            "stream.local_effect_reconciliation_required",
+            level="ERROR",
+            turn_id=turn_context.turn_id,
+            effect_id=error.effect_id,
+        )
+        if turn_context.agent.depth == 0:
+            await mind.await_cleanup(mind.stop_anim("wait"))
+        await finish_failure(
+            status_control,
+            presentation,
+            ev_report,
+            phase="turn.reconciliation_required",
+            error=failure_error,
+        )
+
     except PromptHookBlockedError as error:
         result_status = "failed"
         failure_error = str(error)
@@ -1137,6 +1266,8 @@ async def stream_turn(
     else:
         if interrupted:
             result_status = "interrupted"
+        elif reconciliation_required:
+            result_status = "reconciliation_required"
         elif turn_failed:
             result_status = "failed"
         elif turn_completed:
@@ -1180,6 +1311,8 @@ async def stream_turn(
                 if interrupted
                 else "failed"
                 if turn_failed
+                else "reconciliation_required"
+                if reconciliation_required
                 else "incomplete"
                 if turn_incomplete
                 else "complete"

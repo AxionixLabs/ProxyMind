@@ -33,6 +33,7 @@ from mind_app.presentation.models import (
 from ..stream_io.output_record import StreamRecordWriter
 from .content import (
     AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -145,6 +146,7 @@ class TextOutputState:
         stderr: TextStream,
         color: bool = False
     ) -> None:
+        """绑定文本流、记录器和颜色配置。"""
         self.record_writer  = record_writer
         self.stdout         = stdout
         self.stderr         = stderr
@@ -220,6 +222,7 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
     """提供无动画的文本输出控制。"""
 
     def __init__(self, state: TextOutputState) -> None:
+        """绑定共享的文本输出状态。"""
         self.state = state
 
     async def open(self) -> None:
@@ -304,6 +307,7 @@ class TextContentSink(ContentSink):
     """把结构化正文写入文本输出流。"""
 
     def __init__(self, state: TextOutputState) -> None:
+        """绑定正文使用的文本输出状态。"""
         self.state = state
 
     async def emit(self, output: ContentOutput) -> None:
@@ -313,6 +317,10 @@ class TextContentSink(ContentSink):
             return None
         if isinstance(output, (AssistantSegmentCompleted, AssistantOutputBoundary)):
             self.state.settle_assistant()
+            return None
+        if isinstance(output, AssistantPresentationSuperseded):
+            self.state.settle_assistant()
+            self.state.process("↻ Previous attempt interrupted; retrying\n")
             return None
         if isinstance(output, SourcesOutput):
             return None
@@ -324,6 +332,7 @@ class TextPresentationSink(PresentationSink):
     """把结构化展示数据输出为人类可读文本。"""
 
     def __init__(self, state: TextOutputState) -> None:
+        """绑定展示事件使用的文本输出状态。"""
         self.state = state
 
     async def emit(self, view: PresentationView) -> None:

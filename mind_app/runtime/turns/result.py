@@ -13,6 +13,7 @@ RunStatus = typing.Literal[
     "failed",
     "incomplete",
     "interrupted",
+    "reconciliation_required",
 ]
 
 
@@ -61,11 +62,11 @@ class RunResult(object):
     def to_dict(self) -> dict[str, typing.Any]:
         """返回可用于协议输出的结构化结果。"""
         result: dict[str, typing.Any] = {
-            "status"         : self.status,
-            "assistant_text" : self.assistant_text,
-            "usage"          : copy.deepcopy(self.usage),
-            "error"          : self.error,
-            "exit_code"      : self.exit_code
+            "status": self.status,
+            "assistant_text": self.assistant_text,
+            "usage": copy.deepcopy(self.usage),
+            "error": self.error,
+            "exit_code": self.exit_code
         }
 
         for field_name in (

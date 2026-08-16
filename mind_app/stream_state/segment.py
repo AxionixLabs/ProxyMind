@@ -6,6 +6,7 @@ from mind_nova.stream_events import (
     TextDeltaEvent,
     TextDoneEvent,
     TextMetaEvent,
+    PresentationSupersededEvent,
     ToolBuiltinDoneEvent
 )
 
@@ -14,6 +15,7 @@ class SegmentTracker(object):
     """维护流式文本段落及其 meta/sources 回填状态。"""
 
     def __init__(self) -> None:
+        """初始化正文段落、远端标识和展示块索引。"""
         self.segment_seq = 0
 
         self.current_segment_key: typing.Optional[str] = None
@@ -28,11 +30,14 @@ class SegmentTracker(object):
 
         self.output_blocks: list[list[str]] = []
 
+        self.last_committed_epoch: int = 1
+
     @staticmethod
     def _merge_segment_meta(
         segment: dict[str, typing.Any],
         payload: typing.Optional[dict[str, typing.Any]]
     ) -> None:
+        """把有效的来源与标注字段合并到正文段落。"""
         if not segment or not isinstance(payload, dict):
             return None
 
@@ -56,6 +61,7 @@ class SegmentTracker(object):
         segment: dict[str, typing.Any],
         remote_segment_id: typing.Optional[str]
     ) -> None:
+        """把提前到达的元数据应用到已绑定段落。"""
         if not remote_segment_id:
             return None
 
@@ -67,6 +73,7 @@ class SegmentTracker(object):
         segment: typing.Optional[dict[str, typing.Any]],
         remote_segment_id: typing.Optional[typing.Any]
     ) -> typing.Optional[dict[str, typing.Any]]:
+        """把本地段落绑定到稳定的远端段落标识。"""
         if not segment:
             return None
 
@@ -86,6 +93,7 @@ class SegmentTracker(object):
         return segment
 
     def _latest_unbound_segment(self) -> typing.Optional[dict[str, typing.Any]]:
+        """返回最近创建且尚未绑定远端标识的段落。"""
         for key in reversed(self.segment_order):
             if (segment := self.segments_by_key.get(key)) and not segment.get("segment_id"):
                 return segment
@@ -93,21 +101,27 @@ class SegmentTracker(object):
 
     def _create_segment(
         self,
-        remote_segment_id: typing.Optional[typing.Any] = None
+        remote_segment_id: typing.Optional[typing.Any] = None,
+        *,
+        presentation_epoch: int = 1
     ) -> dict[str, typing.Any]:
+        """创建属于指定展示 epoch 的本地正文段落。"""
         self.segment_seq += 1
         local_id = f"segment-{self.segment_seq}"
 
         segment = {
-            "local_id"      : local_id,
-            "segment_id"    : None,
-            "text"          : "",
-            "done"          : False,
-            "annotations"   : [],
-            "citations"     : [],
-            "sources"       : [],
-            "source_count"  : 0,
+            "local_id": local_id,
+            "segment_id": None,
+            "text": "",
+            "done": False,
+            "annotations": [],
+            "citations": [],
+            "sources": [],
+            "source_count": 0,
+            "presentation_epoch": max(1, int(presentation_epoch)),
+            "superseded": False,
         }
+
         self.segment_order.append(local_id)
         self.segments_by_key[local_id] = segment
         self.current_segment_key = local_id
@@ -121,6 +135,7 @@ class SegmentTracker(object):
         return segment
 
     def _remember_output_segment(self, segment: dict[str, typing.Any]) -> None:
+        """记录需要提交到当前 assistant 输出块的段落。"""
         local_id = segment.get("local_id")
         if not isinstance(local_id, str) or not local_id:
             return None
@@ -134,6 +149,7 @@ class SegmentTracker(object):
         create: bool = False,
         prefer_current: bool = False
     ) -> typing.Optional[dict[str, typing.Any]]:
+        """按远端标识和当前流式状态解析正文段落。"""
         remote_id = str(remote_segment_id or "").strip()
 
         if remote_id and remote_id in self.segments_by_remote_id:
@@ -156,6 +172,7 @@ class SegmentTracker(object):
         return None
 
     def on_text_delta(self, event: TextDeltaEvent) -> None:
+        """把正文增量追加到当前展示 epoch 的段落。"""
         if not event.text:
             return None
 
@@ -165,10 +182,12 @@ class SegmentTracker(object):
             prefer_current=True,
         )
         if segment is not None:
+            segment["presentation_epoch"] = event.presentation_epoch
             segment["text"] += event.text
             self._remember_output_segment(segment)
 
     def on_text_done(self, event: TextDoneEvent) -> None:
+        """标记正文段落结束并断开当前流式段落。"""
         if segment := self._resolve_segment(
             event.segment_id,
             prefer_current=True,
@@ -177,6 +196,7 @@ class SegmentTracker(object):
         self.current_segment_key = None
 
     def on_text_meta(self, event: TextMetaEvent) -> None:
+        """应用或暂存正文段落的来源与标注元数据。"""
         if not event.segment_id:
             return None
 
@@ -188,6 +208,7 @@ class SegmentTracker(object):
         self.pending_meta_by_segment_id[event.segment_id] = payload
 
     def on_builtin_done(self, event: ToolBuiltinDoneEvent) -> None:
+        """把内置工具来源关联到当前或下一正文段落。"""
         meta = self._typed_sources_payload(
             sources=event.sources,
             source_count=event.source_count,
@@ -203,6 +224,24 @@ class SegmentTracker(object):
             **(self.pending_segment_sources or {}),
             **meta
         }
+
+    def on_presentation_superseded(
+        self,
+        event: PresentationSupersededEvent
+    ) -> None:
+        """把旧 epoch 段落标为仅供审计展示并断开流式续接。"""
+        for segment in self.segments_by_key.values():
+            if int(segment.get("presentation_epoch") or 1) <= event.superseded_epoch:
+                segment["superseded"] = True
+
+        self.pending_output_segment_keys = [
+            key
+            for key in self.pending_output_segment_keys
+            if not bool((self.segments_by_key.get(key) or {}).get("superseded"))
+        ]
+
+        self.current_segment_key     = None
+        self.pending_segment_sources = None
 
     @classmethod
     def _typed_segment_meta_payload(
@@ -251,6 +290,11 @@ class SegmentTracker(object):
 
         self.output_blocks.append(keys)
 
+        self.last_committed_epoch = max(
+            int((self.segments_by_key.get(key) or {}).get("presentation_epoch") or 1)
+            for key in keys
+        )
+
         parts = [
             str((self.segments_by_key.get(key) or {}).get("text") or "")
             for key in keys
@@ -258,8 +302,11 @@ class SegmentTracker(object):
         return _join_text_segments(parts).strip()
 
     def iter_sources(self) -> typing.Iterable[typing.Any]:
+        """按段落顺序迭代未被取代的来源记录。"""
         for key in self.segment_order:
             segment = self.segments_by_key.get(key) or {}
+            if segment.get("superseded"):
+                continue
             sources = segment.get("sources")
             if not isinstance(sources, list):
                 continue
@@ -271,6 +318,7 @@ class SegmentTracker(object):
         parts = [
             str((self.segments_by_key.get(key) or {}).get("text") or "")
             for key in self.segment_order
+            if not bool((self.segments_by_key.get(key) or {}).get("superseded"))
         ]
         return _join_text_segments(parts).strip()
 

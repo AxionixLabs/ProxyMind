@@ -3,6 +3,7 @@
 
 from .content import (
     AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -21,6 +22,7 @@ class TerminalContentSink(ContentSink):
     """使用当前终端输出能力展示正文内容。"""
 
     def __init__(self, output: OutputPort) -> None:
+        """绑定当前终端输出端口。"""
         self.output = output
 
     async def emit(self, output: ContentOutput) -> None:
@@ -36,6 +38,14 @@ class TerminalContentSink(ContentSink):
 
         if isinstance(output, AssistantOutputBoundary):
             await self.output.prepare_external_output()
+            return None
+
+        if isinstance(output, AssistantPresentationSuperseded):
+            await self.output.prepare_external_output()
+            await self.output.feed(
+                "↻ Previous attempt interrupted; retrying",
+                display=BLOCK_OUTPUT,
+            )
             return None
 
         if isinstance(output, SourcesOutput):

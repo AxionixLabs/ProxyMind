@@ -3,6 +3,7 @@
 
 from mind_app.output.content import (
     AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -17,6 +18,7 @@ class TuiContentSink(ContentSink):
     """把结构化正文写入持久 TUI。"""
 
     def __init__(self, output: TuiOutputControl) -> None:
+        """绑定持久终端界面的输出控制器。"""
         self.output = output
 
     async def emit(self, output: ContentOutput) -> None:
@@ -30,6 +32,9 @@ class TuiContentSink(ContentSink):
             return None
         if isinstance(output, AssistantOutputBoundary):
             await self.output.prepare_external_output()
+            return None
+        if isinstance(output, AssistantPresentationSuperseded):
+            self.output.supersede_assistant_presentation()
             return None
         if isinstance(output, SourcesOutput):
             await self.output.append_assistant_metadata(

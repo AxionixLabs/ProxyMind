@@ -63,6 +63,7 @@ class TuiOutputControl(OutputControlPort):
         runtime: TuiRuntime,
         animate: bool = True,
     ) -> None:
+        """绑定持久 TUI 运行时与单轮输出记录。"""
         self.log_file = log_file
         self.runtime  = runtime
         self.animate  = bool(animate)
@@ -76,20 +77,20 @@ class TuiOutputControl(OutputControlPort):
         self._stream_render_handle: asyncio.TimerHandle | None = None
         self._stream_resize_handle: asyncio.TimerHandle | None = None
 
-        self._stream_rendered_at: float         = 0.0
-        self._stream_render_cost_sec: float     = 0.0
-        self._stream_source_end: int            = 0
-        self._stream_committed_source_end: int  = 0
-        self._stream_stable_source_len: int     = 0
-        self._stream_stable_row_count: int      = 0
-        self._stream_width: int                 = 0
-        self._stream_block                      = FragmentBlock(())
-        self._stream_rows: list[FormattedText]  = []
-        self._stream_visible_rows: int          = 0
+        self._stream_rendered_at: float        = 0.0
+        self._stream_render_cost_sec: float    = 0.0
+        self._stream_source_end: int           = 0
+        self._stream_committed_source_end: int = 0
+        self._stream_stable_source_len: int    = 0
+        self._stream_stable_row_count: int     = 0
+        self._stream_width: int                = 0
+        self._stream_block                     = FragmentBlock(())
+        self._stream_rows: list[FormattedText] = []
+        self._stream_visible_rows: int         = 0
 
         self._stream_oldest_pending_at: float | None = None
-
-        self._before_render_registered = True
+        self._presentation_restart_pending: bool     = False
+        self._before_render_registered: bool         = True
 
         self.runtime.screen.application.before_render += (
             self._sync_stream_width
@@ -151,6 +152,22 @@ class TuiOutputControl(OutputControlPort):
         self.assistant.discard_boundary()
         self._finish_assistant_filter(render=False)
         self._commit_current()
+
+    def supersede_assistant_presentation(self) -> None:
+        """原子提交旧正文、追加审计提示并为新 Attempt 开启独立助手块。"""
+        notice = FragmentBlock((
+            ("class:notice", "↻ Previous attempt interrupted; retrying"),
+        ))
+        with self.runtime.screen.visual_update():
+            self.assistant.discard_boundary()
+            self._finish_assistant_filter(render=False)
+            self._commit_current()
+            self.runtime.append_block(
+                notice,
+                kind="notice",
+                stream_continuation=True,
+            )
+            self._presentation_restart_pending = True
 
     async def settle_stream(self) -> None:
         """渲染当前未换行尾部并立即揭示全部完整显示行。"""
@@ -686,8 +703,15 @@ class TuiOutputControl(OutputControlPort):
             kind="assistant",
             raw_text=raw_text,
             stream_continuation=continuation,
-            gap_before=1 if continuation else None,
+            gap_before=(
+                0
+                if self._presentation_restart_pending
+                else 1
+                if continuation
+                else None
+            ),
         )
+        self._presentation_restart_pending = False
         return True
 
     def _commit_visible_stream_prefix(self) -> bool:

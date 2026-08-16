@@ -172,6 +172,8 @@ def record_turn_finished(
         if normalized_status == "completed"
         else "turn.incomplete"
         if normalized_status == "incomplete"
+        else "turn.reconciliation_required"
+        if normalized_status == "reconciliation_required"
         else "turn.failed"
     )
 
@@ -214,6 +216,28 @@ def turn_continuation_count(execution: TurnExecution) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, count)
+
+
+def _resolve_tool_filter_mode(
+    controller: object,
+    selected: ToolFilterMode | None,
+) -> ToolFilterMode | None:
+    """解析并校验单轮工具过滤模式。"""
+    if selected is not None:
+        return selected
+
+    profile_for_turn = getattr(controller, "tool_profile_for_turn", None)
+    if not callable(profile_for_turn):
+        return None
+
+    profile_mode = profile_for_turn()
+    if profile_mode is None:
+        return None
+    if profile_mode == "app":
+        return "app"
+    if profile_mode == "api":
+        return "api"
+    raise ValueError(f"Invalid tool filter mode: {profile_mode}")
 
 
 def create_continuation_execution(
@@ -346,17 +370,7 @@ async def execute_turn(
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
-        selected_mode = tool_filter_mode
-        if selected_mode is None:
-            profile_for_turn = getattr(mind, "tool_profile_for_turn", None)
-            if callable(profile_for_turn):
-                profile_mode = profile_for_turn()
-                if profile_mode not in {None, "app", "api"}:
-                    raise ValueError(
-                        f"Invalid tool filter mode: {profile_mode}"
-                    )
-                selected_mode = profile_mode
-
+        selected_mode = _resolve_tool_filter_mode(mind, tool_filter_mode)
         visible_tools = filter_mode_tools(selected_mode, tools)
 
         operation_started.set()

@@ -9946,6 +9946,204 @@ async def test_text_done_boundary_adds_one_assistant_continuation_line() -> None
 
 
 @pytest.mark.anyio
+async def test_attempt_supersede_appends_notice_and_new_assistant_block() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("old partial")
+    await output.settle_stream()
+    with (
+        patch.object(runtime.screen, "clear_terminal_scrollback") as clear_scrollback,
+        patch.object(runtime.screen.application.renderer, "clear") as clear_renderer,
+    ):
+        output.supersede_assistant_presentation()
+        await output.append_assistant_delta("new answer")
+        await output.settle_stream()
+
+    assert _document_text(runtime.document) == "\n".join((
+        "• old partial",
+        "↻ Previous attempt interrupted; retrying",
+        "• new answer",
+    ))
+    assert runtime.document.visible_prefix_line_count == 0
+    clear_scrollback.assert_not_called()
+    clear_renderer.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stable_line_count", (0, 40))
+@pytest.mark.parametrize("surface", ("input", "slash", "skill", "skills_menu"))
+async def test_attempt_supersede_preserves_live_tui_surfaces_without_blank_frames(
+    stable_line_count: int,
+    surface: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        runtime.input_model.set_skills(tuple(
+            _spacing_test_skill(f"skill-{index:02d}")
+            for index in range(12)
+        ))
+        menu_task = None
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                if stable_line_count:
+                    runtime.append_block(
+                        _block("\n".join(
+                            f"stable {index:02d}"
+                            for index in range(stable_line_count)
+                        )),
+                        kind="assistant",
+                    )
+                    await _render_next_frame(runtime)
+
+                runtime.set_execution_active(True)
+                await output.append_assistant_delta("old partial")
+                await output.settle_stream()
+                await _render_next_frame(runtime)
+
+                if surface == "input":
+                    pipe_input.send_text("draft")
+                    await _wait_for_input_text(runtime, "draft")
+                elif surface in {"slash", "skill"}:
+                    pipe_input.send_text("/" if surface == "slash" else "$")
+                    for _ in range(100):
+                        await asyncio.sleep(0.002)
+                        state = runtime.screen.input.buffer.complete_state
+                        if state is not None and state.completions:
+                            break
+                    else:
+                        raise AssertionError("completion did not become ready")
+                    runtime.input_model._select_completion(
+                        runtime.screen.input.buffer,
+                        1,
+                    )
+                else:
+                    menu_task = asyncio.create_task(runtime.select_menu(
+                        MenuRequest(
+                            title="Skills",
+                            options=tuple(
+                                MenuOption(index, f"Skill {index}")
+                                for index in range(12)
+                            ),
+                        ),
+                    ))
+                    for _ in range(20):
+                        await asyncio.sleep(0)
+                        if runtime.screen.menu.active:
+                            break
+                    assert runtime.screen.menu.active
+                    runtime.screen.menu._move(1)
+
+                before_screen = await _render_next_frame(runtime)
+                before_positions = before_screen.visible_windows_to_write_positions
+                anchor_window = (
+                    runtime.screen.menu_window
+                    if surface == "skills_menu"
+                    else runtime.screen.input.window
+                )
+                before_anchor = before_positions[anchor_window]
+                before_row = 24 - before_screen.height + before_anchor.ypos
+                before_focus = runtime.screen.application.layout.current_window
+                before_input = runtime.screen.input.buffer.text
+                before_completion = (
+                    runtime.screen.input.buffer.complete_state.complete_index
+                    if runtime.screen.input.buffer.complete_state is not None
+                    else None
+                )
+                before_menu_selection = (
+                    runtime.screen.menu.state.selected
+                    if runtime.screen.menu.state is not None
+                    else None
+                )
+
+                frames = []
+
+                def capture_frame(_application) -> None:
+                    screen = runtime.screen.application.renderer.last_rendered_screen
+                    positions = screen.visible_windows_to_write_positions
+                    transcript = positions.get(runtime.screen.transcript_window)
+                    input_position = positions.get(runtime.screen.input.window)
+                    transcript_text = ""
+                    input_text = ""
+                    if transcript is not None:
+                        transcript_text = "".join(
+                            cells[column].char
+                            for row, cells in screen.data_buffer.items()
+                            if transcript.ypos <= row < transcript.ypos + transcript.height
+                            for column in sorted(cells)
+                        ).strip()
+                    if input_position is not None:
+                        input_text = "".join(
+                            cells[column].char
+                            for row, cells in screen.data_buffer.items()
+                            if input_position.ypos <= row < input_position.ypos + input_position.height
+                            for column in sorted(cells)
+                        ).strip()
+                    frames.append((
+                        bool(transcript_text),
+                        bool(input_text),
+                        runtime.screen.canvas_spacer in positions,
+                        _first_nonblank_screen_row(screen),
+                    ))
+
+                runtime.screen.application.after_render += capture_frame
+                output.supersede_assistant_presentation()
+                await output.append_assistant_delta("new answer")
+                await output.settle_stream()
+                after_screen = await _render_next_frame(runtime)
+                await asyncio.sleep(0)
+                runtime.screen.application.after_render -= capture_frame
+
+                after_positions = after_screen.visible_windows_to_write_positions
+                after_anchor = after_positions[anchor_window]
+                after_row = 24 - after_screen.height + after_anchor.ypos
+
+                assert frames
+                assert len(frames) <= 2
+                assert all(body or prompt for body, prompt, _spacer, _row in frames)
+                assert all(not spacer for _body, _prompt, spacer, _row in frames)
+                assert runtime.screen.application.layout.current_window is before_focus
+                assert runtime.screen.input.buffer.text == before_input
+                assert (
+                    runtime.screen.input.buffer.complete_state.complete_index
+                    if runtime.screen.input.buffer.complete_state is not None
+                    else None
+                ) == before_completion
+                assert (
+                    runtime.screen.menu.state.selected
+                    if runtime.screen.menu.state is not None
+                    else None
+                ) == before_menu_selection
+                assert runtime.screen.canvas_spacer not in after_positions
+                assert _first_nonblank_screen_row(after_screen) == 0
+
+                if stable_line_count:
+                    assert after_row == before_row
+                else:
+                    assert after_row >= before_row
+
+                assert _document_text(runtime.document).endswith("\n".join((
+                    "• old partial",
+                    "↻ Previous attempt interrupted; retrying",
+                    "• new answer",
+                )))
+            finally:
+                if runtime.screen.menu.active:
+                    runtime.screen.menu.finish(None)
+                if menu_task is not None:
+                    await menu_task
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("first", "second"),
     [

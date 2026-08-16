@@ -23,6 +23,13 @@ class AssistantOutputBoundary(object):
 
 
 @dataclass(frozen=True, slots=True)
+class AssistantPresentationSuperseded(object):
+    """描述旧 Attempt 正文保留展示但退出规范输出。"""
+    superseded_epoch: int
+    presentation_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
 class SourcesOutput(object):
     """描述当前回合引用的原始来源。"""
 
@@ -33,6 +40,7 @@ ContentOutput: typing.TypeAlias = (
     AssistantTextDelta
     | AssistantSegmentCompleted
     | AssistantOutputBoundary
+    | AssistantPresentationSuperseded
     | SourcesOutput
 )
 

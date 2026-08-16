@@ -16,6 +16,45 @@ TurnDoneStatus: typing.TypeAlias = typing.Literal[
     "interrupted",
 ]
 
+EffectClass: typing.TypeAlias = typing.Literal[
+    "read_only",
+    "idempotent",
+    "non_replayable",
+]
+
+EffectReplayPolicy: typing.TypeAlias = typing.Literal[
+    "safe",
+    "provider_idempotent",
+    "manual",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionEffect:
+    """描述客户端执行前必须遵守的持久效果约束。"""
+    effect_id: str
+    fingerprint: str
+    effect_class: EffectClass
+    replay_policy: EffectReplayPolicy
+    provider_idempotency_key: str
+    status: str
+    dispatch_required: bool
+    dispatch_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceCheckpoint:
+    """描述本地副作用前必须上传 artifact 的恢复点。"""
+    checkpoint_id: str
+    required: bool
+    workspace: dict[str, typing.Any]
+    artifact: dict[str, typing.Any]
+
+    def __post_init__(self) -> None:
+        """复制可变字段，保持协议事件不可变。"""
+        object.__setattr__(self, "workspace", copy.deepcopy(self.workspace))
+        object.__setattr__(self, "artifact", copy.deepcopy(self.artifact))
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StreamEvent:
@@ -25,6 +64,7 @@ class StreamEvent:
     turn_id: str = ""
     event_seq: int | None = None
     round: int | None = None
+    presentation_epoch: int = 1
     display: dict[str, typing.Any] | None = None
 
 
@@ -46,6 +86,7 @@ class TurnTerminalEvent(StreamEvent):
     stop_sequence: str | None = None
 
     def __post_init__(self) -> None:
+        """复制用量数据，避免外部引用修改不可变事件。"""
         object.__setattr__(self, "usage", copy.deepcopy(dict(self.usage or {})))
 
 
@@ -74,6 +115,21 @@ class TurnInputAcceptedEvent(StreamEvent):
 class TurnLogicalSettledEvent(StreamEvent):
     """描述逻辑轮次结算后选出的下一轮输入。"""
     next_input: TurnInput | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TurnReconciliationRequiredEvent(StreamEvent):
+    """描述持久效果结果不确定且轮次暂停结算的状态。"""
+    status: typing.Literal["reconciliation_required"] = "reconciliation_required"
+    effect_id: str = ""
+    error: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PresentationSupersededEvent(StreamEvent):
+    """描述旧 Attempt 展示已经被新的 presentation epoch 取代。"""
+    superseded_epoch: int = 0
+    reason: str = "attempt_restarted"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -114,8 +170,11 @@ class ToolEvent(StreamEvent):
     arguments: dict[str, typing.Any] = field(default_factory=dict)
     meta: dict[str, typing.Any] | None = None
     execution: dict[str, typing.Any] | None = None
+    effect: ExecutionEffect | None = None
+    checkpoint: WorkspaceCheckpoint | None = None
 
     def __post_init__(self) -> None:
+        """复制工具事件中的可变映射字段。"""
         object.__setattr__(
             self,
             "arguments",
@@ -134,6 +193,7 @@ class ToolApprovalRequiredEvent(ToolEvent):
     approval: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """复制公共工具字段和审批载荷。"""
         ToolEvent.__post_init__(self)
         object.__setattr__(
             self,
@@ -156,6 +216,7 @@ class ToolOutputEvent(ToolEvent):
     payload: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """复制公共工具字段和输出载荷。"""
         ToolEvent.__post_init__(self)
         object.__setattr__(self, "payload", copy.deepcopy(dict(self.payload or {})))
 
@@ -166,6 +227,7 @@ class UnknownStreamEvent(StreamEvent):
     payload: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """复制未建模事件的原始载荷。"""
         object.__setattr__(self, "payload", copy.deepcopy(dict(self.payload or {})))
 
 
@@ -175,6 +237,8 @@ ChatStreamEvent: typing.TypeAlias = (
     | TurnDoneEvent
     | TurnInputAcceptedEvent
     | TurnLogicalSettledEvent
+    | TurnReconciliationRequiredEvent
+    | PresentationSupersededEvent
     | TextDeltaEvent
     | TextDoneEvent
     | TextMetaEvent
@@ -236,6 +300,29 @@ def parse_stream_event(
             **common,
             next_input=_turn_input_or_none(raw.get("next_input")),
         )
+    if event_type == "turn.reconciliation_required":
+        return TurnReconciliationRequiredEvent(
+            **common,
+            effect_id=_required_text(
+                raw.get("effect_id"),
+                "turn.reconciliation_required effect_id",
+            ),
+            error=_error_text(raw.get("error")),
+        )
+    if event_type == "presentation.superseded":
+        superseded_epoch = _required_positive_int(
+            raw.get("superseded_epoch"),
+            "presentation.superseded superseded_epoch",
+        )
+        if superseded_epoch >= common["presentation_epoch"]:
+            raise ValueError(
+                "presentation.superseded epoch must precede presentation_epoch"
+            )
+        return PresentationSupersededEvent(
+            **common,
+            superseded_epoch=superseded_epoch,
+            reason=_text(raw.get("reason")) or "attempt_restarted",
+        )
     if event_type == "text.delta":
         return TextDeltaEvent(
             **common,
@@ -269,13 +356,34 @@ def parse_stream_event(
             approval=_dict(raw.get("approval")),
         )
     if event_type == "tool.call":
+        tool_fields = _tool_fields(raw)
+
+        effect = tool_fields["effect"]
+        if effect is None:
+            raise ValueError("tool.call execution.effect is required")
+        if tool_fields["checkpoint"] is None:
+            raise ValueError("tool.call checkpoint is required")
+        if (
+            effect.effect_class != "non_replayable"
+            or effect.replay_policy != "manual"
+            or effect.provider_idempotency_key
+        ):
+            raise ValueError("tool.call requires a manual non-replayable effect")
+        if (
+            effect.status != "dispatching"
+            or not effect.dispatch_required
+            or effect.dispatch_count < 1
+        ):
+            raise ValueError("tool.call effect is not dispatchable")
+
         return ToolCallEvent(
             **common,
-            **_tool_fields(raw),
+            **tool_fields,
             approval_id=_text(raw.get("approval_id")),
             approved=_truthy(raw.get("approved")),
             approval_required=_approval_required(raw),
         )
+
     if event_type == "tool.output":
         return ToolOutputEvent(
             **common,
@@ -292,39 +400,157 @@ def _common_fields(
 ) -> dict[str, typing.Any]:
     """提取所有流式事件共享的字段。"""
     display = payload.get("display")
+    proto   = _text(payload.get("proto"))
+
+    presentation_epoch = (
+        _required_positive_int(
+            payload.get("presentation_epoch"),
+            "presentation_epoch",
+        )
+        if proto == "mind.chat" and event_type != "ping"
+        else (_positive_int(payload.get("presentation_epoch")) or 1)
+    )
 
     return {
-        "type"      : event_type,
-        "proto"     : _text(payload.get("proto")),
-        "turn_id"   : _text(payload.get("turn_id")),
-        "event_seq" : _event_sequence(payload),
-        "round"     : _positive_int(payload.get("round")),
-        "display"   : copy.deepcopy(display) if isinstance(display, dict) else None
+        "type": event_type,
+        "proto": proto,
+        "turn_id": _text(payload.get("turn_id")),
+        "event_seq": _event_sequence(payload),
+        "round": _positive_int(payload.get("round")),
+        "presentation_epoch": presentation_epoch,
+        "display": copy.deepcopy(display) if isinstance(display, dict) else None
     }
 
 
 def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """提取工具事件共享的字段。"""
+    execution = _optional_dict(payload.get("execution"))
     return {
-        "name"      : _text(payload.get("name") or payload.get("tool")),
-        "call_id"   : _text(payload.get("call_id")),
-        "arguments" : _dict(payload.get("arguments")),
-        "meta"      : _optional_dict(payload.get("meta")),
-        "execution" : _optional_dict(payload.get("execution"))
+        "name": _text(payload.get("name") or payload.get("tool")),
+        "call_id": _text(payload.get("call_id")),
+        "arguments": _dict(payload.get("arguments")),
+        "meta": _optional_dict(payload.get("meta")),
+        "execution": execution,
+        "effect": _execution_effect(execution),
+        "checkpoint": _workspace_checkpoint(payload.get("checkpoint")),
     }
+
+
+def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffect | None:
+    """严格解析 execution.effect 并校验分类与重放策略。"""
+    if execution is None or "effect" not in execution:
+        return None
+
+    value = execution.get("effect")
+    if not isinstance(value, dict):
+        raise ValueError("execution.effect must be an object")
+
+    effect_id = _required_text(value.get("effect_id"), "execution.effect effect_id")
+
+    fingerprint = _required_text(
+        value.get("fingerprint"),
+        "execution.effect fingerprint",
+    )
+    if len(fingerprint) != 64 or any(
+        character not in "0123456789abcdef" for character in fingerprint.lower()
+    ):
+        raise ValueError("execution.effect fingerprint must be a SHA-256 hex digest")
+
+    effect_class = _required_text(value.get("class"), "execution.effect class")
+
+    replay_policy = _required_text(
+        value.get("replay_policy"),
+        "execution.effect replay_policy",
+    )
+    if effect_class not in {"read_only", "idempotent", "non_replayable"}:
+        raise ValueError("execution.effect class is invalid")
+    if replay_policy not in {"safe", "provider_idempotent", "manual"}:
+        raise ValueError("execution.effect replay_policy is invalid")
+    if effect_class == "non_replayable" and replay_policy != "manual":
+        raise ValueError("non-replayable effects require manual replay policy")
+    if effect_class == "read_only" and replay_policy != "safe":
+        raise ValueError("read-only effects require safe replay policy")
+
+    provider_key = value.get("provider_idempotency_key")
+    if not isinstance(provider_key, str):
+        raise ValueError("execution.effect provider_idempotency_key must be a string")
+
+    provider_key = provider_key.strip()
+
+    if replay_policy == "provider_idempotent" and not provider_key:
+        raise ValueError("provider-idempotent effects require an idempotency key")
+    if replay_policy != "provider_idempotent" and provider_key:
+        raise ValueError("provider idempotency key requires provider-idempotent replay")
+
+    dispatch_required = value.get("dispatch_required")
+    dispatch_count    = value.get("dispatch_count")
+
+    if not isinstance(dispatch_required, bool):
+        raise ValueError("execution.effect dispatch_required must be a boolean")
+
+    if (
+        isinstance(dispatch_count, bool)
+        or not isinstance(dispatch_count, int)
+        or dispatch_count < 0
+    ):
+        raise ValueError("execution.effect dispatch_count must be a non-negative integer")
+
+    return ExecutionEffect(
+        effect_id=effect_id,
+        fingerprint=fingerprint.lower(),
+        effect_class=typing.cast(EffectClass, effect_class),
+        replay_policy=typing.cast(EffectReplayPolicy, replay_policy),
+        provider_idempotency_key=provider_key,
+        status=_required_text(value.get("status"), "execution.effect status"),
+        dispatch_required=dispatch_required,
+        dispatch_count=dispatch_count,
+    )
+
+
+def _workspace_checkpoint(value: typing.Any) -> WorkspaceCheckpoint | None:
+    """严格解析本地副作用执行前的 workspace checkpoint。"""
+    if value is None:
+        return None
+
+    if not isinstance(value, dict):
+        raise ValueError("tool checkpoint must be an object")
+
+    required = value.get("required")
+    if not isinstance(required, bool) or not required:
+        raise ValueError("tool checkpoint required must be true")
+
+    workspace = value.get("workspace")
+    artifact  = value.get("artifact")
+
+    if not isinstance(workspace, dict) or not isinstance(artifact, dict):
+        raise ValueError("tool checkpoint workspace and artifact must be objects")
+
+    root = workspace.get("root")
+    if not isinstance(root, str) or not root.strip():
+        raise ValueError("tool checkpoint workspace.root is required")
+
+    return WorkspaceCheckpoint(
+        checkpoint_id=_required_text(
+            value.get("checkpoint_id"),
+            "tool checkpoint checkpoint_id",
+        ),
+        required=True,
+        workspace=workspace,
+        artifact=artifact,
+    )
 
 
 def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """提取轮次终态共享的响应元数据。"""
     return {
-        "response_id"   : _text(payload.get("response_id")),
-        "model"         : _text(payload.get("model")),
-        "route"         : _text(payload.get("route")),
-        "request_id"    : _text(payload.get("request_id")),
-        "service_tier"  : _text(payload.get("service_tier")),
-        "usage"         : _dict(payload.get("usage")),
-        "stop_reason"   : _optional_text(payload.get("stop_reason")),
-        "stop_sequence" : _optional_text(payload.get("stop_sequence")),
+        "response_id": _text(payload.get("response_id")),
+        "model": _text(payload.get("model")),
+        "route": _text(payload.get("route")),
+        "request_id": _text(payload.get("request_id")),
+        "service_tier": _text(payload.get("service_tier")),
+        "usage": _dict(payload.get("usage")),
+        "stop_reason": _optional_text(payload.get("stop_reason")),
+        "stop_sequence": _optional_text(payload.get("stop_sequence")),
     }
 
 
@@ -380,6 +606,13 @@ def _text(value: typing.Any) -> str:
     return str(value or "").strip()
 
 
+def _required_text(value: typing.Any, field_name: str) -> str:
+    """读取必填非空文本字段。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} is required")
+    return value.strip()
+
+
 def _optional_text(value: typing.Any) -> str | None:
     """保留可空文本协议值。"""
     return None if value is None else str(value).strip()
@@ -415,6 +648,14 @@ def _positive_int(value: typing.Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if value > 0 else None
+
+
+def _required_positive_int(value: typing.Any, field_name: str) -> int:
+    """读取必填正整数协议值。"""
+    parsed = _positive_int(value)
+    if parsed is None:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return parsed
 
 
 def _event_sequence(payload: dict[str, typing.Any]) -> int | None:

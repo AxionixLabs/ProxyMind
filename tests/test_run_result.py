@@ -141,6 +141,36 @@ def _hook(command, *, matcher=None):
     return config
 
 
+def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """把工具场景补齐为当前持久执行协议。"""
+    current = dict(payload)
+    call_id = str(current.get("call_id") or "call_test")
+    execution = dict(current.get("execution") or {})
+    execution.setdefault("target", "local")
+    execution["effect"] = {
+        "effect_id": f"effect_{call_id}",
+        "fingerprint": "a" * 64,
+        "class": "non_replayable",
+        "replay_policy": "manual",
+        "provider_idempotency_key": "",
+        "status": "dispatching",
+        "dispatch_required": True,
+        "dispatch_count": 1,
+    }
+    current.update({
+        "proto": "mind.chat",
+        "presentation_epoch": 1,
+        "execution": execution,
+        "checkpoint": {
+            "checkpoint_id": f"checkpoint_{call_id}",
+            "required": True,
+            "workspace": {"root": "/tmp/workspace"},
+            "artifact": {},
+        },
+    })
+    return current
+
+
 def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
     remembered: list[str] = []
     queued_context: list[tuple[str, ...]] = []
@@ -286,6 +316,7 @@ def test_run_result_maps_status_to_exit_code() -> None:
     assert RunResult(status="failed", error="failed").exit_code == 1
     assert RunResult(status="incomplete").exit_code == 1
     assert RunResult(status="interrupted").exit_code == 1
+    assert RunResult(status="reconciliation_required").exit_code == 1
 
 
 def test_run_result_preserves_nested_usage_and_terminal_metadata() -> None:
@@ -369,9 +400,122 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
     assert mind.transcripts.entries[2] == {
         "event": "message.created",
         "actor": "assistant",
-        "payload": {"content": "answer"},
+        "payload": {"content": "answer", "presentation_epoch": 1},
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_stream_preserves_reconciliation_required_without_normal_failure(
+    monkeypatch,
+) -> None:
+    result, mind = await _run_stream(monkeypatch, [{
+        "proto": "mind.chat",
+        "type": "turn.reconciliation_required",
+        "turn_id": "turn_test",
+        "presentation_epoch": 1,
+        "status": "reconciliation_required",
+        "effect_id": "effect_uncertain",
+        "error": "provider succeeded but commit failed",
+    }])
+
+    assert result.status == "reconciliation_required"
+    assert result.error == "provider succeeded but commit failed"
+    assert mind.remembered == []
+    assert mind.transcripts.entries[-1] == {
+        "event": "turn.reconciliation_required",
+        "actor": "system",
+        "payload": {
+            "status": "reconciliation_required",
+            "usage": {},
+            "error": "provider succeeded but commit failed",
+        },
+    }
+    failure_views = [
+        item
+        for item in mind.output_session.presentation.items
+        if isinstance(item, FailureView)
+    ]
+    assert failure_views
+    assert failure_views[-1].phase == "turn.reconciliation_required"
+
+
+@pytest.mark.anyio
+async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
+    monkeypatch,
+) -> None:
+    reconciled_effects = []
+
+    async def reconcile_known_effect(_runner, effect_id):
+        reconciled_effects.append(effect_id)
+        return True
+
+    monkeypatch.setattr(
+        stream.ClientToolCallRunner,
+        "reconcile_known_effect",
+        reconcile_known_effect,
+    )
+
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "proto": "mind.chat",
+            "type": "turn.reconciliation_required",
+            "turn_id": "turn_test",
+            "presentation_epoch": 1,
+            "effect_id": "effect_known",
+            "error": "effect ledger commit result is unknown",
+        },
+        {
+            "proto": "mind.chat",
+            "type": "presentation.superseded",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+            "superseded_epoch": 1,
+        },
+        {
+            "proto": "mind.chat",
+            "type": "turn.start",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+        },
+        {
+            "proto": "mind.chat",
+            "type": "text.delta",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+            "segment_id": "attempt-2:assistant:1",
+            "text": "recovered answer",
+        },
+        {
+            "proto": "mind.chat",
+            "type": "text.done",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+            "segment_id": "attempt-2:assistant:1",
+        },
+        {
+            "proto": "mind.chat",
+            "type": "turn.done",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+            "status": "completed",
+        },
+        {
+            "proto": "mind.chat",
+            "type": "turn.logical_settled",
+            "turn_id": "turn_test",
+            "presentation_epoch": 2,
+        },
+    ])
+
+    assert result.status == "completed"
+    assert result.assistant_text == "recovered answer"
+    assert reconciled_effects == ["effect_known"]
+    assert not any(
+        isinstance(item, FailureView)
+        and item.phase == "turn.reconciliation_required"
+        for item in mind.output_session.presentation.items
+    )
 
 
 @pytest.mark.anyio
@@ -533,7 +677,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
     ]
     assert messages == [
         ("user", {"content": "hello"}),
-        ("assistant", {"content": "before"}),
+            ("assistant", {"content": "before", "presentation_epoch": 1}),
         (
             "user",
             {
@@ -542,7 +686,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
                 "extras": {"source": "tui"},
             },
         ),
-        ("assistant", {"content": "after"}),
+            ("assistant", {"content": "after", "presentation_epoch": 1}),
     ]
 
 
@@ -574,14 +718,14 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
     assert ordered[0] == (
         "message.created",
         "assistant",
-        {"content": "before"},
+        {"content": "before", "presentation_epoch": 1},
     )
     assert ordered[1][0:2] == ("tool.completed", "tool")
     assert ordered[1][2]["duration_ms"] == 3500
     assert ordered[2] == (
         "message.created",
         "assistant",
-        {"content": "after"},
+        {"content": "after", "presentation_epoch": 1},
     )
 
 
@@ -1382,7 +1526,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
     result, _mind_state = await _run_stream(monkeypatch, [
-        {
+        _durable_tool_call({
             "type": "tool.call",
             "cid": "untrusted-cid",
             "sid": "untrusted-sid",
@@ -1390,7 +1534,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
             "name": "test_tool",
             "arguments": {"value": 1},
             "execution": {"target": "client"},
-        },
+        }),
         {"type": "turn.done"},
     ])
 
@@ -1407,7 +1551,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
         {"ok": True, "text": "done"},
     )
     assert posted_kwargs == {
-        "execution": {"target": "client"},
+        "execution": invocations[0].execution,
         "arguments": {"value": 1},
     }
 
@@ -1436,14 +1580,14 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
     result, _mind_state = await _run_stream(monkeypatch, [
-        {
+        _durable_tool_call({
             "type": "tool.call",
             "cid": "untrusted-cid",
             "sid": "untrusted-sid",
             "call_id": "call-plan",
             "name": PLAN_STEPS_TOOL,
             "arguments": {"steps": []},
-        },
+        }),
         {"type": "turn.done"},
     ])
 
@@ -1490,12 +1634,12 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
 
     result, mind_state = await _run_stream(
         monkeypatch,
-        [{
+        [_durable_tool_call({
             "type": "tool.call",
             "call_id": "call-plan",
             "name": PLAN_STEPS_TOOL,
             "arguments": {"steps": []},
-        }],
+        })],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
     )
 
@@ -1549,12 +1693,12 @@ async def test_post_tool_hook_replaces_plan_result_for_model(monkeypatch) -> Non
     result, _mind_state = await _run_stream(
         monkeypatch,
         [
-            {
+            _durable_tool_call({
                 "type": "tool.call",
                 "call_id": "call-plan",
                 "name": PLAN_STEPS_TOOL,
                 "arguments": {"steps": []},
-            },
+            }),
             {"type": "turn.done"},
         ],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -1631,12 +1775,12 @@ async def test_pre_tool_approval_denial_reports_additional_context(
             })
 
     definitions = resolve_hook_definitions(
-        {
+        _durable_tool_call({
             "PreToolUse": [{
                 "hooks": [{"type": "command", "command": "check"}],
                 "matcher": "test_tool",
             }],
-        },
+        }),
         source_scope="user",
         source_path=Path("config.toml"),
     )
@@ -1715,14 +1859,14 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
                 "arguments": {"value": 1},
             },
         },
-        {
+        _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-approved",
             "name": "test_tool",
             "arguments": {"value": 1},
             "approval_id": "approval-1",
             "approved": True,
-        },
+        }),
         {"type": "turn.done"},
     ])
 
@@ -1868,7 +2012,7 @@ async def test_noninteractive_approval_decline_is_attributed_to_policy(
     result, mind = await _run_stream(
         monkeypatch,
         [
-            {
+            _durable_tool_call({
                 "type": "tool.approval_required",
                 "call_id": "call-policy",
                 "name": "shell_command",
@@ -1877,7 +2021,7 @@ async def test_noninteractive_approval_decline_is_attributed_to_policy(
                     "tool": "shell_command",
                     "command": "pytest -q",
                 },
-            },
+            }),
             {"type": "turn.done", "status": "completed"},
         ],
         frontend_active=False,
@@ -2008,14 +2152,14 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
     result, _mind_state = await _run_stream(
         monkeypatch,
         [
-            {
+            _durable_tool_call({
                 "type": "tool.call",
                 "cid": "untrusted-cid",
                 "sid": "untrusted-sid",
                 "call_id": "call_test",
                 "name": "test_tool",
                 "arguments": {"value": 1},
-            },
+            }),
             {"type": "turn.done"},
         ],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -2176,6 +2320,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
         }
         approval_event["execution"] = execution
         call_event["execution"] = execution
+    call_event = _durable_tool_call(call_event)
 
     result, mind = await _run_stream(
         monkeypatch,
