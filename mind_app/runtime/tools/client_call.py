@@ -355,7 +355,7 @@ class ClientToolCallRunner:
                     arguments,
                     call_id=call_id,
                 )
-                if not use_coding_trace or is_two_stage_tool(name):
+                if is_two_stage_tool(name):
                     await show_tool_start(
                         self.presentation,
                         name,

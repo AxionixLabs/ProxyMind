@@ -561,18 +561,21 @@ async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch)
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("name", "shows_start"),
+    ("name", "use_coding_trace", "shows_start"),
     (
-        ("shell_command", True),
-        ("apply_patch", False),
-        ("exec_command", False),
-        ("write_stdin", False),
-        ("js_repl_reset", False),
+        ("shell_command", True, True),
+        ("apply_patch", True, False),
+        ("exec_command", True, False),
+        ("write_stdin", True, False),
+        ("js_repl_reset", True, False),
+        ("mcp__docs__search", False, True),
+        ("view_image", False, False),
     ),
 )
-async def test_native_tool_start_trace_uses_two_stage_policy(
+async def test_tool_start_trace_uses_two_stage_policy(
     monkeypatch,
     name: str,
+    use_coding_trace: bool,
     shows_start: bool,
 ) -> None:
     async def run_allowed(invocation, operation):
@@ -607,7 +610,7 @@ async def test_native_tool_start_trace_uses_two_stage_policy(
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 
-    await runner.execute(invocation, use_coding_trace=True)
+    await runner.execute(invocation, use_coding_trace=use_coding_trace)
 
     if shows_start:
         show_start.assert_awaited_once()

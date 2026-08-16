@@ -46,15 +46,36 @@ def build_generic_tool_result_view(
     """构建普通工具执行结果的展示数据。"""
     normalized_name = str(name or "tool").strip() or "tool"
     normalized_text = str(text or "")
+    title = f"• Function Invoked {normalized_name}"
+
+    if normalized_name == "view_image":
+        normalized_text = _view_image_result_text(normalized_text, ok=bool(ok))
+        title = "• Viewed"
 
     return GenericToolResultView(
         name=normalized_name,
         text=normalized_text,
         ok=bool(ok),
-        title=f"• Function Invoked {normalized_name}",
+        title=title,
         preview=render_generic_tool_result_preview(normalized_text),
         call_id=str(call_id or ""),
     )
+
+
+def _view_image_result_text(text: str, *, ok: bool) -> str:
+    """提取图片查看结果中适合直接展示的内容。"""
+    metadata = f"tool=view_image source=client ok={ok}"
+    if text == metadata:
+        result = ""
+    elif text.startswith(f"{metadata} "):
+        result = text[len(metadata) + 1:]
+    else:
+        return text
+
+    loaded_prefix = "Loaded image: "
+    if ok and result.startswith(loaded_prefix):
+        return result[len(loaded_prefix):]
+    return result
 
 
 def build_native_tool_result_view(

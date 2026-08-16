@@ -26,7 +26,10 @@ class ToolDisplaySpec(object):
     status_text: str | None = None
 
 
-_GENERIC_SPEC = ToolDisplaySpec(ToolDisplayKind.GENERIC)
+_GENERIC_SPEC = ToolDisplaySpec(
+    ToolDisplayKind.GENERIC,
+    two_stage=True,
+)
 
 _TOOL_DISPLAY_SPECS = {
     "shell_command": ToolDisplaySpec(
@@ -44,9 +47,14 @@ _TOOL_DISPLAY_SPECS = {
         status_text="JavaScript",
     ),
     "js_repl_reset": ToolDisplaySpec(ToolDisplayKind.JAVASCRIPT_RESET),
+    "view_image": ToolDisplaySpec(ToolDisplayKind.GENERIC),
 }
 
-NATIVE_TOOL_NAMES = frozenset(_TOOL_DISPLAY_SPECS)
+NATIVE_TOOL_NAMES = frozenset(
+    name
+    for name, spec in _TOOL_DISPLAY_SPECS.items()
+    if spec.kind is not ToolDisplayKind.GENERIC
+)
 
 
 def tool_display_spec(name: str) -> ToolDisplaySpec:
