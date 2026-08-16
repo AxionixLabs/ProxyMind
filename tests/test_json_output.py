@@ -6,9 +6,11 @@ import json
 import pytest
 
 from mind_app.output.content import (
+    AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    ResponseIdentity,
 )
 from mind_app.output.jsonl import (
     JsonContentSink,
@@ -39,20 +41,34 @@ class _RecordWriter(object):
         return None
 
 
+def _identity(
+    *,
+    turn_id: str = "turn_test",
+    presentation_epoch: int = 1,
+    round_no: int = 1,
+    attempt: int = 1,
+) -> ResponseIdentity:
+    return ResponseIdentity(turn_id, presentation_epoch, round_no, attempt)
+
+
 @pytest.mark.anyio
 async def test_json_output_initializes_and_flushes_assistant_state() -> None:
     stdout = io.StringIO()
     state = JsonOutputState(_RecordWriter(), stdout)
     content = JsonContentSink(state)
 
-    await content.emit(AssistantTextDelta("first "))
-    await content.emit(AssistantTextDelta("second"))
+    await content.emit(AssistantTextDelta("first ", _identity()))
+    await content.emit(AssistantTextDelta("second", _identity()))
 
     assert stdout.getvalue() == ""
-    await content.emit(AssistantSegmentCompleted())
+    await content.emit(AssistantSegmentCompleted(_identity()))
 
     event = json.loads(stdout.getvalue())
     assert event["item"]["text"] == "first second"
+    assert {
+        key: event["item"][key]
+        for key in ("turn_id", "presentation_epoch", "round", "attempt")
+    } == _identity().as_dict()
 
 
 @pytest.mark.anyio
@@ -62,8 +78,8 @@ async def test_json_output_preserves_structured_text_semantics() -> None:
     content = JsonContentSink(state)
     raw = "id\tdevice\x1b]52;c;payload\x1b\\"
 
-    await content.emit(AssistantTextDelta(raw))
-    await content.emit(AssistantSegmentCompleted())
+    await content.emit(AssistantTextDelta(raw, _identity()))
+    await content.emit(AssistantSegmentCompleted(_identity()))
 
     event = json.loads(stdout.getvalue())
     assert event["item"]["text"] == raw
@@ -77,6 +93,7 @@ async def test_json_output_distinguishes_response_retry_from_worker_takeover() -
     content = JsonContentSink(state)
 
     await content.emit(AssistantResponseSuperseded(
+        turn_id="turn_test",
         presentation_epoch=1,
         round=2,
         attempt=2,
@@ -84,10 +101,74 @@ async def test_json_output_distinguishes_response_retry_from_worker_takeover() -
 
     assert json.loads(stdout.getvalue()) == {
         "type": "response.superseded",
+        "turn_id": "turn_test",
         "presentation_epoch": 1,
         "round": 2,
         "attempt": 2,
+        "invalidated_item_ids": [],
     }
+
+
+@pytest.mark.anyio
+async def test_json_output_invalidates_exact_assistant_items() -> None:
+    """验证机器消费者可按 item ID 精确排除旧 response。"""
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    content = JsonContentSink(state)
+
+    round_one = _identity(round_no=1)
+    round_two_attempt_one = _identity(round_no=2)
+    round_two_attempt_two = _identity(round_no=2, attempt=2)
+
+    await content.emit(AssistantTextDelta("round one", round_one))
+    await content.emit(AssistantSegmentCompleted(round_one))
+    await content.emit(AssistantTextDelta("old partial", round_two_attempt_one))
+    await content.emit(AssistantResponseSuperseded(
+        turn_id="turn_test",
+        presentation_epoch=1,
+        round=2,
+        attempt=2,
+    ))
+    await content.emit(AssistantTextDelta("new answer", round_two_attempt_two))
+    await content.emit(AssistantSegmentCompleted(round_two_attempt_two))
+    await content.emit(AssistantPresentationSuperseded(
+        turn_id="turn_test",
+        superseded_epoch=1,
+        presentation_epoch=2,
+    ))
+
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    completed = [event for event in events if event["type"] == "item.completed"]
+    response_marker = next(
+        event for event in events if event["type"] == "response.superseded"
+    )
+    presentation_marker = next(
+        event for event in events if event["type"] == "presentation.superseded"
+    )
+
+    assert [event["item"]["id"] for event in completed] == [
+        "item_0", "item_1", "item_2"
+    ]
+    assert completed[0]["item"] == {
+        "id": "item_0",
+        "type": "agent_message",
+        "text": "round one",
+        **round_one.as_dict(),
+    }
+    assert response_marker["invalidated_item_ids"] == ["item_1"]
+    assert presentation_marker["invalidated_item_ids"] == ["item_0", "item_2"]
+
+
+@pytest.mark.anyio
+async def test_json_output_rejects_mismatched_completion_identity() -> None:
+    """验证完成边界不能错误关闭另一个 response 的正文。"""
+    state = JsonOutputState(_RecordWriter(), io.StringIO())
+    content = JsonContentSink(state)
+
+    await content.emit(AssistantTextDelta("partial", _identity(attempt=1)))
+
+    with pytest.raises(RuntimeError, match="completion identity"):
+        await content.emit(AssistantSegmentCompleted(_identity(attempt=2)))
 
 
 @pytest.mark.anyio

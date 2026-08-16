@@ -108,7 +108,7 @@ class SegmentTracker(object):
             int(segment.get("attempt") or 1),
         ) == identity
 
-    def _event_response_identity(
+    def response_identity(
         self,
         event: StreamEvent
     ) -> tuple[int, int, int]:
@@ -228,7 +228,7 @@ class SegmentTracker(object):
         if not event.text:
             return None
 
-        presentation_epoch, round_no, attempt = self._event_response_identity(event)
+        presentation_epoch, round_no, attempt = self.response_identity(event)
 
         segment = self._resolve_segment(
             event.segment_id,
@@ -244,14 +244,16 @@ class SegmentTracker(object):
 
     def on_text_done(self, event: TextDoneEvent) -> None:
         """标记正文段落结束并断开当前流式段落。"""
-        presentation_epoch, round_no, attempt = self._event_response_identity(event)
-        if segment := self._resolve_segment(
+        presentation_epoch, round_no, attempt = self.response_identity(event)
+
+        segment = self._resolve_segment(
             event.segment_id,
             prefer_current=True,
             presentation_epoch=presentation_epoch,
             round_no=round_no,
             attempt=attempt,
-        ):
+        )
+        if segment:
             segment["done"] = True
         self.current_segment_key = None
 
@@ -260,7 +262,7 @@ class SegmentTracker(object):
         if not event.segment_id:
             return None
 
-        presentation_epoch, round_no, attempt = self._event_response_identity(event)
+        presentation_epoch, round_no, attempt = self.response_identity(event)
 
         payload = self._typed_segment_meta_payload(event)
 

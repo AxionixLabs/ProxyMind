@@ -22,6 +22,7 @@ from mind_app.output.content import (
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    ResponseIdentity,
     SourcesOutput,
 )
 from mind_app.output.session import OutputSession
@@ -69,6 +70,16 @@ def parse_stream_event(payload):
         current.setdefault("event_seq", 1)
         current.setdefault("presentation_epoch", 1)
     return _parse_stream_event(current)
+
+
+def response_identity(
+    *,
+    presentation_epoch: int = 1,
+    round_no: int = 1,
+    attempt: int = 1,
+) -> ResponseIdentity:
+    """构造流测试使用的稳定响应身份。"""
+    return ResponseIdentity("turn_test", presentation_epoch, round_no, attempt)
 
 
 class _OutputControl(object):
@@ -407,8 +418,8 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
     )
     assert mind.remembered == ["answer"]
     assert mind.output_session.content.items == [
-        AssistantTextDelta("answer"),
-        AssistantSegmentCompleted(),
+        AssistantTextDelta("answer", response_identity()),
+        AssistantSegmentCompleted(response_identity()),
         SourcesOutput(()),
     ]
     assert [
@@ -475,14 +486,15 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
     assert result.status == "completed"
     assert result.assistant_text == "new answer"
     assert mind.output_session.content.items == [
-        AssistantTextDelta("old partial"),
+        AssistantTextDelta("old partial", response_identity()),
         AssistantResponseSuperseded(
+            turn_id="turn_test",
             presentation_epoch=1,
             round=1,
             attempt=2,
         ),
-        AssistantTextDelta("new answer"),
-        AssistantSegmentCompleted(),
+        AssistantTextDelta("new answer", response_identity(attempt=2)),
+        AssistantSegmentCompleted(response_identity(attempt=2)),
         SourcesOutput(()),
     ]
     assert mind.frontend.runtime.set_wait_retry_state.call_args_list == [
@@ -1761,11 +1773,11 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
 
     assert result.status == "completed"
     assert mind.output_session.content.items == [
-        AssistantTextDelta("first"),
-        AssistantSegmentCompleted(),
+        AssistantTextDelta("first", response_identity()),
+        AssistantSegmentCompleted(response_identity()),
         AssistantOutputBoundary(),
-        AssistantTextDelta("second"),
-        AssistantSegmentCompleted(),
+        AssistantTextDelta("second", response_identity()),
+        AssistantSegmentCompleted(response_identity()),
         SourcesOutput(()),
     ]
 

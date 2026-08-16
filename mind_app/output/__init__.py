@@ -17,6 +17,7 @@ from .content import (
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
+    ResponseIdentity,
     SourcesOutput
 )
 from .session import (
@@ -34,6 +35,7 @@ __all__ = [
     "AssistantTextDelta",
     "ContentOutput",
     "ContentSink",
+    "ResponseIdentity",
     "OutputControlPort",
     "OutputDisplay",
     "OutputPort",

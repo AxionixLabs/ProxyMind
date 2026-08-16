@@ -38,8 +38,10 @@ from mind_app.output.content import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    ResponseIdentity,
     SourcesOutput,
 )
+
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.batch_views import (
     build_batch_completed_view,
@@ -117,6 +119,8 @@ from mind_app.tui.core.styles import (
     failure_parts,
     query_block,
 )
+
+RESPONSE_IDENTITY = ResponseIdentity("turn_test", 1, 1, 1)
 
 
 def _block(text: str) -> FragmentBlock:
@@ -10814,15 +10818,15 @@ async def test_segment_completion_keeps_rendered_markdown_stable() -> None:
         "mind_app.tui.adapters.markdown.render_tui_markdown",
         wraps=render_tui_markdown,
     ) as render:
-        await content.emit(AssistantTextDelta("**bold**"))
-        await content.emit(AssistantSegmentCompleted())
+        await content.emit(AssistantTextDelta("**bold**", RESPONSE_IDENTITY))
+        await content.emit(AssistantSegmentCompleted(RESPONSE_IDENTITY))
 
         render.assert_not_called()
         assert _document_text(runtime.document) == "• bold"
         first_fragments = runtime.document.active_block.fragments
         assert any("bold" in style for style, text in first_fragments if text)
 
-        await content.emit(AssistantTextDelta(" and `code`"))
+        await content.emit(AssistantTextDelta(" and `code`", RESPONSE_IDENTITY))
         render.assert_not_called()
         assert _document_text(runtime.document) == "• bold"
 
@@ -10877,7 +10881,7 @@ async def test_sources_are_assistant_metadata_instead_of_operation_output() -> N
     output = TuiOutputControl("", runtime=runtime, animate=False)
     content = TuiContentSink(output)
 
-    await content.emit(AssistantTextDelta("answer"))
+    await content.emit(AssistantTextDelta("answer", RESPONSE_IDENTITY))
     await content.emit(SourcesOutput(({
         "title": "Reference",
         "url": "https://example.com/reference",

@@ -31,6 +31,7 @@ from mind_nova.stream_events import (
     TextDoneEvent,
     TextMetaEvent,
     PresentationSupersededEvent,
+    StreamEvent,
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
@@ -56,6 +57,7 @@ from ...output import (
     AssistantSegmentCompleted,
     AssistantTextDelta,
     OutputControlPort,
+    ResponseIdentity,
     SourcesOutput
 )
 from ...output.session import OutputSession
@@ -207,6 +209,20 @@ async def _cancel_reconciliation_turn(
                 continue
             return False
     return False
+
+
+def _response_identity(
+    event: StreamEvent,
+    tracker: SegmentTracker,
+) -> ResponseIdentity:
+    """把当前领域事件映射为机器输出使用的稳定响应身份。"""
+    presentation_epoch, round_no, attempt = tracker.response_identity(event)
+    return ResponseIdentity(
+        turn_id=event.turn_id,
+        presentation_epoch=presentation_epoch,
+        round=round_no,
+        attempt=attempt,
+    )
 
 
 def _terminal_result_fields(event: TurnTerminalEvent) -> dict[str, typing.Any]:
@@ -677,6 +693,7 @@ async def stream_turn(
                         },
                     )
                     await content.emit(AssistantResponseSuperseded(
+                        turn_id=event.turn_id,
                         presentation_epoch=event.presentation_epoch,
                         round=event.round,
                         attempt=event.attempt,
@@ -775,8 +792,9 @@ async def stream_turn(
                 break
 
             if isinstance(event, TextDeltaEvent):
+                identity = _response_identity(event, tracker)
                 tracker.on_text_delta(event)
-                await content.emit(AssistantTextDelta(event.text))
+                await content.emit(AssistantTextDelta(event.text, identity))
                 idle_wait.reschedule()
                 continue
 
@@ -794,14 +812,16 @@ async def stream_turn(
                 )
                 tracker.on_presentation_superseded(event)
                 await content.emit(AssistantPresentationSuperseded(
+                    turn_id=event.turn_id,
                     superseded_epoch=event.superseded_epoch,
                     presentation_epoch=event.presentation_epoch,
                 ))
                 continue
 
             if isinstance(event, TextDoneEvent):
+                identity = _response_identity(event, tracker)
                 tracker.on_text_done(event)
-                await content.emit(AssistantSegmentCompleted())
+                await content.emit(AssistantSegmentCompleted(identity))
                 await status_control.begin_reply_wait_status()
                 continue
 

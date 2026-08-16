@@ -12,6 +12,7 @@ from mind_app.output.content import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
+    ResponseIdentity,
 )
 from mind_app.output.terminal_content import TerminalContentSink
 from mind_app.tui.adapters.content import TuiContentSink
@@ -25,6 +26,10 @@ def _output() -> SimpleNamespace:
     )
 
 
+def _identity() -> ResponseIdentity:
+    return ResponseIdentity("turn_test", 1, 1, 1)
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("sink_type", (TerminalContentSink, TuiContentSink))
 async def test_content_adapter_projects_assistant_segment_completion(
@@ -33,7 +38,7 @@ async def test_content_adapter_projects_assistant_segment_completion(
     output = _output()
     sink = sink_type(output)
 
-    await sink.emit(AssistantSegmentCompleted())
+    await sink.emit(AssistantSegmentCompleted(_identity()))
 
     output.settle_stream.assert_awaited_once_with()
     output.mark_stream_boundary.assert_called_once_with()
@@ -62,6 +67,7 @@ async def test_tui_content_adapter_projects_response_retry_boundary() -> None:
     sink = TuiContentSink(output)
 
     await sink.emit(AssistantResponseSuperseded(
+        turn_id="turn_test",
         presentation_epoch=1,
         round=2,
         attempt=2,
@@ -80,6 +86,7 @@ async def test_terminal_content_adapter_projects_response_retry_boundary() -> No
     sink = TerminalContentSink(output)
 
     await sink.emit(AssistantResponseSuperseded(
+        turn_id="turn_test",
         presentation_epoch=1,
         round=2,
         attempt=2,

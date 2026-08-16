@@ -30,6 +30,7 @@ from mind_app.output.text import (
 from mind_app.output.content import (
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    ResponseIdentity,
 )
 from mind_app.presentation.models import (
     ApprovalView,
@@ -46,6 +47,8 @@ from mind_app.stream_events.worked import (
     worked_footer_text,
 )
 from mind_core.permissions import preset_permissions
+
+RESPONSE_IDENTITY = ResponseIdentity("turn_test", 1, 1, 1)
 
 
 class _RecordWriter(object):
@@ -310,11 +313,11 @@ async def test_text_output_emits_assistant_text_after_stream_settles() -> None:
     )
     content = TextContentSink(state)
 
-    await content.emit(AssistantTextDelta("first "))
-    await content.emit(AssistantTextDelta("second"))
+    await content.emit(AssistantTextDelta("first ", RESPONSE_IDENTITY))
+    await content.emit(AssistantTextDelta("second", RESPONSE_IDENTITY))
 
     assert stdout.getvalue() == ""
-    await content.emit(AssistantSegmentCompleted())
+    await content.emit(AssistantSegmentCompleted(RESPONSE_IDENTITY))
     assert stdout.getvalue() == "first second\n"
 
 
