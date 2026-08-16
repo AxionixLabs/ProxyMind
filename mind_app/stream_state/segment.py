@@ -320,8 +320,6 @@ class SegmentTracker(object):
 
     def on_turn_retrying(self, event: TurnRetryingEvent) -> bool:
         """隔离当前 provider attempt 的正文并返回是否存在可见输出。"""
-        if not event.replace_current_response:
-            return False
         if event.round is None:
             raise ValueError("turn.retrying round is required")
 

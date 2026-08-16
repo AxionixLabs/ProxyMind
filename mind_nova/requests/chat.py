@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import enum
+import time
 import httpx
 import random
 import typing
@@ -36,7 +37,8 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
     5.0,
 )
 
-ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float] = 0.2
+ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float]  = 0.2
+ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -86,8 +88,9 @@ class TurnEventStream(object):
 
         self._close_after_yield: bool = False
 
-        self._reconnect_failures: int = 0
-        self._reconnecting: bool      = False
+        self._reconnect_failures: int            = 0
+        self._reconnecting: bool                 = False
+        self._reconnect_started_at: float | None = None
 
         self._on_reconnect_status = on_reconnect_status
 
@@ -142,8 +145,7 @@ class TurnEventStream(object):
                 raise
 
             if parsed_event.type == "ping":
-                self._reconnect_failures = 0
-                self._set_reconnecting(False)
+                self._mark_transport_healthy()
                 continue
             self._validate_turn_identity(parsed_event)
             self._response_observed = True
@@ -159,8 +161,7 @@ class TurnEventStream(object):
                 raise RuntimeError("turn event sequence is not continuous")
             if parsed_event.event_seq is not None:
                 self.last_event_seq = parsed_event.event_seq
-            self._reconnect_failures = 0
-            self._set_reconnecting(False)
+            self._mark_transport_healthy()
             event = parsed_event
 
         if isinstance(event, TurnLogicalSettledEvent):
@@ -232,10 +233,12 @@ class TurnEventStream(object):
             self._chat_payload = payload
 
         metadata = payload.get("metadata")
+
         if isinstance(metadata, dict):
-            cid = str(metadata.get("cid") or "").strip()
-            sid = str(metadata.get("sid") or "").strip()
+            cid     = str(metadata.get("cid") or "").strip()
+            sid     = str(metadata.get("sid") or "").strip()
             turn_id = str(payload.get("turn_id") or "").strip()
+
             if cid and sid and turn_id:
                 self._attach_target = {
                     "cid": cid,
@@ -256,12 +259,25 @@ class TurnEventStream(object):
         if attach_target is None or not self._recoverable(error):
             return False
 
+        now = time.monotonic()
+        if self._reconnect_started_at is None:
+            self._reconnect_started_at = now
+        elif now - self._reconnect_started_at >= ATTACH_RETRY_MAX_ELAPSED_SEC:
+            return False
+
         delay = self._attach_delay()
         self._reconnect_failures += 1
         self._set_reconnecting(True)
 
         await self._close_payload_stream()
         await self._wait_before_attach(delay)
+
+        if (
+            self._reconnect_started_at is not None
+            and time.monotonic() - self._reconnect_started_at
+            >= ATTACH_RETRY_MAX_ELAPSED_SEC
+        ):
+            return False
 
         if not self._response_observed:
             turn_exists = await self._turn_exists_for_recovery(attach_target)
@@ -271,6 +287,7 @@ class TurnEventStream(object):
 
         payload: dict[str, typing.Any] = dict(attach_target)
         payload["after_seq"] = self.last_event_seq
+
         self._payload_stream = streaming(
             service_endpoints.endpoint("/mind-attach"),
             Channel.make_headers(),
@@ -284,7 +301,12 @@ class TurnEventStream(object):
         attach_target = self._attach_target
         if attach_target is None:
             raise ValueError("turn stream is missing recovery coordinates")
-        if event.turn_id != attach_target["turn_id"]:
+        if (
+            event.proto != "mind.chat"
+            or event.cid != attach_target["cid"]
+            or event.sid != attach_target["sid"]
+            or event.turn_id != attach_target["turn_id"]
+        ):
             raise ValueError("stream event does not belong to the current turn")
         if event.event_seq is None or event.event_seq < 1:
             raise ValueError("stream event requires a positive event_seq")
@@ -307,11 +329,18 @@ class TurnEventStream(object):
         if self._on_reconnect_status is not None:
             self._on_reconnect_status(value)
 
+    def _mark_transport_healthy(self) -> None:
+        """在收到有效载荷后重置连续重连预算。"""
+        self._reconnect_failures = 0
+        self._reconnect_started_at = None
+        self._set_reconnecting(False)
+
     def _open_chat_stream(self) -> typing.AsyncGenerator[dict, None]:
         """使用缓存的原始请求创建对话事件传输。"""
         payload = self._chat_payload
         if payload is None:
             raise RuntimeError("chat payload is unavailable")
+
         return streaming(
             service_endpoints.endpoint("/mind-chat"),
             Channel.make_headers(),
@@ -386,6 +415,7 @@ class TurnEventStream(object):
         self._state     = _TurnStreamState.CLOSED
         self.end_reason = reason
 
+        self._reconnect_started_at = None
         self._set_reconnecting(False)
 
         await self._close_payload_stream()

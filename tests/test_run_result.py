@@ -51,8 +51,24 @@ from mind_app.runtime.durable_effects import LocalEffectJournal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
-from mind_nova.stream_events import TurnInputAcceptedEvent, parse_stream_event
+from mind_nova.stream_events import (
+    TurnInputAcceptedEvent,
+    parse_stream_event as _parse_stream_event,
+)
 from mind_nova.turn_inputs import TurnInput
+
+
+def parse_stream_event(payload):
+    """为运行流测试补齐当前持久事件 envelope。"""
+    current = dict(payload)
+    if str(current.get("type") or "") != "ping":
+        current.setdefault("proto", "mind.chat")
+        current.setdefault("cid", "cid_test")
+        current.setdefault("sid", "sid_test")
+        current.setdefault("turn_id", "turn_test")
+        current.setdefault("event_seq", 1)
+        current.setdefault("presentation_epoch", 1)
+    return _parse_stream_event(current)
 
 
 class _OutputControl(object):
@@ -242,6 +258,11 @@ async def _run_stream(
         stream_chat = stream_factory
 
     monkeypatch.setattr(stream, "stream_chat", stream_chat)
+    monkeypatch.setattr(
+        stream,
+        "interrupt_turn",
+        AsyncMock(return_value=SimpleNamespace(status="accepted")),
+    )
     mind = mind_state or _mind(frontend_active=frontend_active)
     output_session = _output_session(
         show_hook_lifecycle=show_hook_lifecycle
@@ -432,7 +453,6 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 20,
-            "replace_current_response": True,
             "reason": "stream_reset",
         },
         {
@@ -513,7 +533,6 @@ async def test_provider_retry_preserves_completed_previous_model_round(
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 20,
-            "replace_current_response": True,
         },
         {
             "type": "text.delta",
@@ -569,7 +588,6 @@ async def test_provider_retry_without_partial_answer_adds_no_output_block(
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 20,
-            "replace_current_response": True,
         },
         {"type": "text.delta", "turn_id": "turn_test", "text": "answer"},
         {"type": "text.done", "turn_id": "turn_test"},
@@ -594,10 +612,9 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
             "type": "turn.retrying",
             "turn_id": "turn_test",
             "round": 1,
-            "attempt": 2,
-            "max_attempts": 3,
-            "retry_in_ms": 20,
-            "replace_current_response": True,
+                "attempt": 2,
+                "max_attempts": 3,
+                "retry_in_ms": 20,
         })
         reconnect_status(True)
         reconnect_status(False)
@@ -664,6 +681,7 @@ async def test_stream_preserves_reconciliation_required_without_normal_failure(
     ]
     assert failure_views
     assert failure_views[-1].phase == "turn.reconciliation_required"
+    stream.interrupt_turn.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -737,6 +755,7 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
     assert result.status == "completed"
     assert result.assistant_text == "recovered answer"
     assert reconciled_effects == ["effect_known"]
+    stream.interrupt_turn.assert_not_awaited()
     assert not any(
         isinstance(item, FailureView)
         and item.phase == "turn.reconciliation_required"

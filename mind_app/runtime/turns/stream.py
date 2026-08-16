@@ -19,6 +19,11 @@ from mind_app.approval.policy import (
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
+from mind_nova.identifiers import stable_request_id
+from mind_nova.requests.turn_control import (
+    TurnControlRequestError,
+    interrupt_turn
+)
 from mind_nova.turn_inputs import TurnInput
 from mind_app.frontend.contracts import WaitRetryState
 from mind_nova.stream_events import (
@@ -171,6 +176,37 @@ def _optional_callback(
     if not callable(value):
         raise TypeError(f"{name} must be callable")
     return value
+
+
+async def _cancel_reconciliation_turn(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    effect_id: str,
+) -> bool:
+    """使用稳定中断命令释放无法自动核对的持久轮次。"""
+    request_id = stable_request_id(
+        "reconciliation_cancel",
+        cid,
+        sid,
+        turn_id,
+        effect_id,
+    )
+    for attempt in range(2):
+        try:
+            response = await interrupt_turn(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                request_id=request_id,
+            )
+            return response.status in {"accepted", "turn_not_active"}
+        except TurnControlRequestError:
+            if attempt == 0:
+                continue
+            return False
+    return False
 
 
 def _terminal_result_fields(event: TurnTerminalEvent) -> dict[str, typing.Any]:
@@ -628,7 +664,7 @@ async def stream_turn(
 
                 had_assistant_output = tracker.on_turn_retrying(event)
 
-                if event.replace_current_response and had_assistant_output:
+                if had_assistant_output:
                     transcript.append(
                         "message.superseded",
                         actor="assistant",
@@ -701,14 +737,29 @@ async def stream_turn(
                     await status_control.begin_reply_wait_status()
                     continue
 
-                reconciliation_required = True
-                failure_error = event.error
+                cancelled = await _cancel_reconciliation_turn(
+                    cid=str(metadata.get("cid") or ""),
+                    sid=str(metadata.get("sid") or ""),
+                    turn_id=turn_context.turn_id,
+                    effect_id=event.effect_id,
+                )
+
+                reconciliation_required: bool = True
+
+                failure_error = event.error or "effect outcome requires reconciliation"
+
+                if not cancelled:
+                    failure_error = (
+                        f"{failure_error}; failed to release the suspended turn"
+                    )
+
                 observe(
                     "stream.reconciliation_required",
                     level="ERROR",
                     turn_id=turn_context.turn_id,
                     effect_id=event.effect_id,
                     error=failure_error,
+                    turn_released=cancelled,
                 )
                 if turn_context.agent.depth == 0:
                     await mind.await_cleanup(

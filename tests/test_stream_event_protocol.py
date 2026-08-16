@@ -15,16 +15,32 @@ from mind_nova.stream_events import (
     TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent,
     UnknownStreamEvent,
-    parse_stream_event,
+    parse_stream_event as _parse_stream_event,
 )
+
+
+def parse_stream_event(payload):
+    """为协议单测补齐当前 wire envelope。"""
+    current = dict(payload)
+    if str(current.get("type") or "") != "ping":
+        current.setdefault("proto", "mind.chat")
+        current.setdefault("cid", "cid_test")
+        current.setdefault("sid", "sid_test")
+        current.setdefault("turn_id", "turn_test")
+        current.setdefault("event_seq", 1)
+        current.setdefault("presentation_epoch", 1)
+    return _parse_stream_event(current)
 
 
 def _durable_tool_event() -> dict:
     """构造最新客户端工具执行协议事件。"""
     return {
         "proto": "mind.chat",
+        "cid": "cid_test",
+        "sid": "sid_test",
         "type": "tool.call",
         "turn_id": "turn_test",
+        "event_seq": 1,
         "presentation_epoch": 2,
         "name": "shell_command",
         "call_id": "call_test",
@@ -128,7 +144,6 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
         "attempt": 2,
         "max_attempts": 3,
         "retry_in_ms": 250,
-        "replace_current_response": True,
         "reason": "stream_reset",
     })
 
@@ -136,14 +151,13 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
     assert event.attempt == 2
     assert event.max_attempts == 3
     assert event.retry_in_ms == 250
-    assert event.replace_current_response is True
 
     for invalid in (
-        {"attempt": 0, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": True},
-        {"attempt": 4, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": True},
-        {"attempt": 2, "max_attempts": 3, "retry_in_ms": -1, "replace_current_response": True},
-        {"attempt": 2, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": 1},
-        {"attempt": 2, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": "yes"},
+        {"attempt": 0, "max_attempts": 3, "retry_in_ms": 0},
+        {"attempt": 4, "max_attempts": 3, "retry_in_ms": 0},
+        {"attempt": 2, "max_attempts": 3, "retry_in_ms": -1},
+        {"attempt": 2, "max_attempts": True, "retry_in_ms": 0},
+        {"attempt": 2, "max_attempts": 3, "retry_in_ms": True},
     ):
         with pytest.raises(ValueError):
             parse_stream_event({"type": "turn.retrying", "round": 2, **invalid})
@@ -154,7 +168,6 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 0,
-            "replace_current_response": True,
         })
 
 
@@ -167,7 +180,7 @@ def test_text_meta_event_copies_structured_metadata() -> None:
         "citations": [{"source": 0}],
         "sources": sources,
         "source_count": 1,
-        "proto": "stream.v2",
+        "proto": "mind.chat",
         "round": 2,
     }
 
@@ -178,7 +191,7 @@ def test_text_meta_event_copies_structured_metadata() -> None:
     assert event.segment_id == "segment-1"
     assert event.sources == ({"url": "https://example.com"},)
     assert event.source_count == 1
-    assert event.proto == "stream.v2"
+    assert event.proto == "mind.chat"
     assert event.round == 2
 
 
@@ -271,7 +284,46 @@ def test_stream_event_preserves_turn_identity_and_event_sequence() -> None:
     })
 
     assert event.turn_id == "turn_1"
+    assert event.cid == "cid_test"
+    assert event.sid == "sid_test"
     assert event.event_seq == 41
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("proto", "stream.v2"),
+        ("cid", ""),
+        ("sid", ""),
+        ("turn_id", ""),
+        ("event_seq", 0),
+        ("presentation_epoch", 0),
+    ),
+)
+def test_stream_event_rejects_invalid_current_envelope(field, value) -> None:
+    payload = {
+        "proto": "mind.chat",
+        "cid": "cid_test",
+        "sid": "sid_test",
+        "turn_id": "turn_test",
+        "event_seq": 1,
+        "presentation_epoch": 1,
+        "type": "text.delta",
+        "text": "answer",
+    }
+    payload[field] = value
+
+    with pytest.raises(ValueError):
+        _parse_stream_event(payload)
+
+
+@pytest.mark.parametrize("field", ("seq", "replace_current_response"))
+def test_stream_event_rejects_removed_fields(field) -> None:
+    payload = _durable_tool_event()
+    payload[field] = 1
+
+    with pytest.raises(ValueError, match="removed protocol field"):
+        _parse_stream_event(payload)
 
 
 @pytest.mark.parametrize("event_seq", [0, -1, True, "41"])
@@ -407,4 +459,4 @@ def test_stream_event_requires_type(payload) -> None:
 
 def test_stream_event_requires_object() -> None:
     with pytest.raises(TypeError, match="must be an object"):
-        parse_stream_event([])
+        _parse_stream_event([])

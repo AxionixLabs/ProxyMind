@@ -16,13 +16,18 @@ def test_report_binds_typed_stream_metadata() -> None:
     report = EventReport("cid", "sid")
     event = parse_stream_event({
         "type": "turn.start",
-        "proto": "stream.v2",
+        "proto": "mind.chat",
+        "cid": "cid",
+        "sid": "sid",
+        "turn_id": "turn_test",
+        "event_seq": 1,
+        "presentation_epoch": 1,
         "round": 3,
     })
 
     report.bind_event(event)
 
-    assert report.proto == "stream.v2"
+    assert report.proto == "mind.chat"
     assert report.round == 3
 
 

@@ -102,7 +102,6 @@ def test_retry_supersedes_already_committed_output_in_same_epoch() -> None:
         attempt=2,
         max_attempts=3,
         retry_in_ms=100,
-        replace_current_response=True,
     ))
     tracker.on_text_delta(TextDeltaEvent(
         type="text.delta",
@@ -142,7 +141,6 @@ def test_retry_only_supersedes_current_model_round() -> None:
         attempt=2,
         max_attempts=3,
         retry_in_ms=100,
-        replace_current_response=True,
     ))
     tracker.on_text_delta(TextDeltaEvent(
         type="text.delta",

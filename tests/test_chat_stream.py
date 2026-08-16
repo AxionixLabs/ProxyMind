@@ -18,6 +18,23 @@ from mind_nova.stream_events import (
 )
 
 
+@pytest.fixture(autouse=True)
+def current_wire_envelope(monkeypatch) -> None:
+    """让伪传输使用当前 mind.chat 持久事件 envelope。"""
+    parser = chat.parse_stream_event
+
+    def parse(payload):
+        current = dict(payload)
+        if str(current.get("type") or "") != "ping":
+            current.setdefault("proto", "mind.chat")
+            current.setdefault("cid", "cid_1")
+            current.setdefault("sid", "sid_1")
+            current.setdefault("presentation_epoch", 1)
+        return parser(current)
+
+    monkeypatch.setattr(chat, "parse_stream_event", parse)
+
+
 class _PayloadStream(object):
     def __init__(self, payloads) -> None:
         self._payloads = payloads
@@ -274,6 +291,43 @@ async def test_cancellation_clears_reconnecting_status(monkeypatch) -> None:
         await consuming
 
     assert event_stream.end_reason == "cancelled"
+    assert reconnecting == [True, False]
+
+
+@pytest.mark.anyio
+async def test_consecutive_attach_failures_stop_after_retry_budget(monkeypatch) -> None:
+    event_stream = chat.stream_chat({}, "hello", [])
+    event_stream._attach_target = {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "turn_id": "turn_001",
+    }
+    event_stream._reconnect_started_at = 100.0
+
+    monkeypatch.setattr(chat.time, "monotonic", lambda: 161.0)
+    transport = Mock()
+    monkeypatch.setattr(chat, "streaming", transport)
+
+    assert await event_stream._resume_stream(OSError("still offline")) is False
+    transport.assert_not_called()
+
+
+def test_valid_event_resets_consecutive_attach_budget() -> None:
+    reconnecting = []
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_reconnect_status=reconnecting.append,
+    )
+    event_stream._reconnect_failures = 4
+    event_stream._reconnect_started_at = 100.0
+    event_stream._set_reconnecting(True)
+
+    event_stream._mark_transport_healthy()
+
+    assert event_stream._reconnect_failures == 0
+    assert event_stream._reconnect_started_at is None
     assert reconnecting == [True, False]
 
 
@@ -813,11 +867,22 @@ async def test_sequence_gap_attaches_from_last_confirmed_event(monkeypatch) -> N
 
 
 @pytest.mark.anyio
-async def test_foreign_turn_event_is_rejected_before_delivery(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "foreign_identity",
+    (
+        {"cid": "cid_other", "turn_id": "turn_001"},
+        {"sid": "sid_other", "turn_id": "turn_001"},
+        {"turn_id": "turn_other"},
+    ),
+)
+async def test_foreign_turn_event_is_rejected_before_delivery(
+    monkeypatch,
+    foreign_identity,
+) -> None:
     async def streaming(_url, _headers, _payload, _timeout):
         yield {
             "type": "tool.call",
-            "turn_id": "turn_other",
+            **foreign_identity,
             "event_seq": 1,
             "call_id": "call_1",
             "name": "shell_command",

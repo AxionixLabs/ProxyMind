@@ -38,6 +38,8 @@ class StreamEvent:
     """描述流式协议事件的公共字段。"""
     type: str
     proto: str = ""
+    cid: str = ""
+    sid: str = ""
     turn_id: str = ""
     event_seq: int | None = None
     round: int | None = None
@@ -89,7 +91,6 @@ class TurnRetryingEvent(StreamEvent):
     attempt: int
     max_attempts: int
     retry_in_ms: int
-    replace_current_response: bool
     reason: str = "stream_error"
 
 
@@ -260,6 +261,11 @@ def parse_stream_event(
     if not event_type:
         raise ValueError("stream event type is required")
 
+    if event_type != "ping" and (
+        "seq" in raw or "replace_current_response" in raw
+    ):
+        raise ValueError("stream event contains a removed protocol field")
+
     common = _common_fields(raw, event_type)
 
     if event_type in _MARKER_EVENT_TYPES:
@@ -300,18 +306,11 @@ def parse_stream_event(
         if retry_in_ms is None:
             raise ValueError("turn.retrying retry_in_ms must be a non-negative integer")
 
-        replace_current_response = _optional_bool(
-            raw.get("replace_current_response")
-        )
-        if not replace_current_response:
-            raise ValueError("turn.retrying replace_current_response must be true")
-
         return TurnRetryingEvent(
             **{**common, "round": retry_round},
             attempt=attempt,
             max_attempts=max_attempts,
             retry_in_ms=retry_in_ms,
-            replace_current_response=replace_current_response,
             reason=_text(raw.get("reason")) or "stream_error",
         )
     if event_type == "turn.input.accepted":
@@ -410,22 +409,42 @@ def _common_fields(
 ) -> dict[str, typing.Any]:
     """提取所有流式事件共享的字段。"""
     display = payload.get("display")
-    proto   = _text(payload.get("proto"))
+    if event_type == "ping":
+        proto = _text(payload.get("proto"))
 
-    presentation_epoch = (
-        _required_positive_int(
+        cid     = _text(payload.get("cid"))
+        sid     = _text(payload.get("sid"))
+        turn_id = _text(payload.get("turn_id"))
+
+        event_seq = _event_sequence(payload)
+
+        presentation_epoch = _positive_int(
+            payload.get("presentation_epoch")
+        ) or 1
+
+    else:
+        proto = _required_text(payload.get("proto"), "proto")
+        if proto != "mind.chat":
+            raise ValueError("stream event proto must be mind.chat")
+
+        cid     = _required_text(payload.get("cid"), "cid")
+        sid     = _required_text(payload.get("sid"), "sid")
+        turn_id = _required_text(payload.get("turn_id"), "turn_id")
+
+        event_seq = _required_positive_int(payload.get("event_seq"), "event_seq")
+
+        presentation_epoch = _required_positive_int(
             payload.get("presentation_epoch"),
             "presentation_epoch",
         )
-        if proto == "mind.chat" and event_type != "ping"
-        else (_positive_int(payload.get("presentation_epoch")) or 1)
-    )
 
     return {
         "type": event_type,
         "proto": proto,
-        "turn_id": _text(payload.get("turn_id")),
-        "event_seq": _event_sequence(payload),
+        "cid": cid,
+        "sid": sid,
+        "turn_id": turn_id,
+        "event_seq": event_seq,
         "round": _positive_int(payload.get("round")),
         "presentation_epoch": presentation_epoch,
         "display": copy.deepcopy(display) if isinstance(display, dict) else None
@@ -435,6 +454,7 @@ def _common_fields(
 def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """提取工具事件共享的字段。"""
     execution = _optional_dict(payload.get("execution"))
+
     return {
         "name": _text(payload.get("name") or payload.get("tool")),
         "call_id": _text(payload.get("call_id")),
