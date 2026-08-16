@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import threading
 import typing
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -63,6 +64,7 @@ from mind_app.presentation.tool_views import (
 from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.adapters.content import TuiContentSink
 from mind_app.tui.adapters import markdown as tui_markdown
+from mind_app.tui.adapters import output as tui_output_module
 from mind_app.tui.adapters.markdown import (
     TuiMarkdownStreamRenderer,
     render_tui_assistant_markdown,
@@ -9960,7 +9962,7 @@ async def test_attempt_supersede_appends_notice_and_new_assistant_block() -> Non
         patch.object(runtime.screen, "clear_terminal_scrollback") as clear_scrollback,
         patch.object(runtime.screen.application.renderer, "clear") as clear_renderer,
     ):
-        output.supersede_assistant_presentation()
+        await output.supersede_assistant_presentation()
         await output.append_assistant_delta("new answer")
         await output.settle_stream()
 
@@ -10102,7 +10104,7 @@ async def test_attempt_supersede_preserves_live_tui_surfaces_without_blank_frame
                     ))
 
                 runtime.screen.application.after_render += capture_frame
-                output.supersede_assistant_presentation()
+                await output.supersede_assistant_presentation()
                 await output.append_assistant_delta("new answer")
                 await output.settle_stream()
                 after_screen = await _render_next_frame(runtime)
@@ -10163,7 +10165,7 @@ async def test_attempt_supersede_separates_retry_notice_from_failure() -> None:
         "turn.failed",
         "responses stream ended incomplete: max_output_tokens",
     ))
-    output.supersede_assistant_presentation()
+    await output.supersede_assistant_presentation()
 
     assert _document_text(runtime.document) == "\n".join((
         "■ turn.failed",
@@ -10497,17 +10499,66 @@ async def test_settled_stream_skips_an_identical_visible_tail_update() -> None:
     assert runtime.document.active_transcript_revision == revision
 
 
-def test_final_stream_handoff_merges_render_requests() -> None:
+@pytest.mark.anyio
+async def test_final_stream_handoff_merges_render_requests() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     output.assistant.append("final line")
 
     with patch.object(runtime.screen, "_invalidate_now") as invalidate:
-        output._commit_current()
+        await output._commit_current()
 
     invalidate.assert_called_once_with()
     assert runtime.document.active_block is None
     assert _document_text(runtime.document) == "• final line"
+
+
+@pytest.mark.anyio
+async def test_large_final_stream_render_yields_the_event_loop(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    started = threading.Event()
+    release = threading.Event()
+    render_thread: list[int] = []
+
+    def render(
+        _text: str,
+        _width: int,
+        *,
+        hyperlinks: bool,
+        continuation: bool,
+    ) -> FragmentBlock:
+        _ = hyperlinks, continuation
+        render_thread.append(threading.get_ident())
+        started.set()
+        if not release.wait(timeout=1.0):
+            raise AssertionError("event loop did not release final render")
+        return FragmentBlock((("", "• rendered"),))
+
+    monkeypatch.setattr(
+        tui_output_module,
+        "render_tui_assistant_markdown",
+        render,
+    )
+    output.assistant.append(
+        "x" * tui_output_module.FINAL_RENDER_ASYNC_MIN_SIZE
+    )
+
+    commit = asyncio.create_task(output._commit_current())
+    async with asyncio.timeout(1.0):
+        while not started.is_set():
+            await asyncio.sleep(0.001)
+
+    assert started.is_set()
+    assert not commit.done()
+    assert len(render_thread) == 1
+    assert render_thread[0] != threading.get_ident()
+
+    release.set()
+    assert await commit
+    assert _document_text(runtime.document) == "• rendered"
 
 
 @pytest.mark.anyio
@@ -10597,7 +10648,7 @@ async def test_final_stream_handoff_preserves_the_rendered_frame(
                     frames.append(frame_signature(rendered))
 
                 runtime.screen.application.after_render += capture_frame
-                output._commit_current()
+                await output._commit_current()
 
                 for _ in range(20):
                     await asyncio.sleep(0)
@@ -10611,7 +10662,7 @@ async def test_final_stream_handoff_preserves_the_rendered_frame(
 
 
 @pytest.mark.anyio
-async def test_execution_end_skips_an_unchanged_final_canvas_frame() -> None:
+async def test_execution_end_coalesces_an_unchanged_final_canvas_frame() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -10628,16 +10679,21 @@ async def test_execution_end_skips_an_unchanged_final_canvas_frame() -> None:
                 await output.settle_stream()
                 await _render_next_frame(runtime)
 
-                output._commit_current()
+                await output._commit_current()
                 await _render_next_frame(runtime)
                 render_revision = runtime.screen.application.render_counter
 
                 runtime.set_execution_active(False)
                 for _ in range(20):
                     await asyncio.sleep(0)
+                    if (
+                        runtime.screen.application.render_counter
+                        > render_revision
+                    ):
+                        break
 
                 assert runtime.screen.application.render_counter == (
-                    render_revision
+                    render_revision + 1
                 )
                 assert not runtime.execution_active
             finally:
@@ -10666,7 +10722,7 @@ async def test_execution_end_renders_changed_queue_hint() -> None:
                 await output.settle_stream()
                 await _render_next_frame(runtime)
 
-                output._commit_current()
+                await output._commit_current()
                 await _render_next_frame(runtime)
                 render_revision = runtime.screen.application.render_counter
                 assert "tab to queue" in fragments_text(

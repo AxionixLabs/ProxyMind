@@ -63,7 +63,7 @@ async def test_content_adapter_projects_external_output_boundary(
 @pytest.mark.anyio
 async def test_tui_content_adapter_projects_response_retry_boundary() -> None:
     """验证 response 重试沿用原子的 TUI 正文切换路径。"""
-    output = SimpleNamespace(supersede_assistant_presentation=Mock())
+    output = SimpleNamespace(supersede_assistant_presentation=AsyncMock())
     sink = TuiContentSink(output)
 
     await sink.emit(AssistantResponseSuperseded(
@@ -73,7 +73,7 @@ async def test_tui_content_adapter_projects_response_retry_boundary() -> None:
         attempt=2,
     ))
 
-    output.supersede_assistant_presentation.assert_called_once_with()
+    output.supersede_assistant_presentation.assert_awaited_once_with()
 
 
 @pytest.mark.anyio

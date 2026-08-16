@@ -1431,12 +1431,6 @@ class TuiRuntime(object):
         was_active = self.execution_active
         active     = bool(active)
 
-        previous_frame_key = (
-            self.screen.turn_settlement_frame_key()
-            if was_active and not active
-            else None
-        )
-
         with self.screen.visual_update():
             self.execution_active = active
             if self.execution_active:
@@ -1449,13 +1443,7 @@ class TuiRuntime(object):
                 self.submissions.clear_queued_submission_marker()
                 self._flush_background_blocks()
 
-            frame_changed = bool(
-                previous_frame_key is None
-                or previous_frame_key
-                != self.screen.turn_settlement_frame_key()
-            )
-            if frame_changed:
-                self.invalidate()
+            self.invalidate()
 
         if not self.execution_active:
             self.viewport.schedule_scrollback_flush()

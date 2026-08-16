@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
@@ -93,6 +93,30 @@ def test_submitted_query_padding_replaces_content_surface_gap() -> None:
 
     assert runtime.document.visible_tail_kind == "assistant"
     assert runtime.screen._content_input_gap_height() == 1
+
+
+def test_visible_tail_kind_uses_stable_cache_and_restores_with_document() -> None:
+    document = TuiDocument()
+    document.append_block(query_block("question"), kind="user")
+    snapshot = document.capture_state()
+
+    document.append_block(FragmentBlock(()), kind="notice")
+    assert document.visible_tail_kind == "user"
+
+    document.append_block(
+        FragmentBlock((("", "• answer"),)),
+        kind="assistant",
+    )
+
+    with patch.object(
+        document,
+        "_block_lines",
+        side_effect=AssertionError("stable tail kind rescanned blocks"),
+    ):
+        assert document.visible_tail_kind == "assistant"
+
+    document.restore_state(snapshot)
+    assert document.visible_tail_kind == "user"
 
 
 def test_submitted_query_padding_replaces_activity_top_gap() -> None:

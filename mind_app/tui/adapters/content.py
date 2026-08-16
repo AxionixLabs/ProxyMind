@@ -38,7 +38,7 @@ class TuiContentSink(ContentSink):
             AssistantPresentationSuperseded,
             AssistantResponseSuperseded,
         )):
-            self.output.supersede_assistant_presentation()
+            await self.output.supersede_assistant_presentation()
             return None
         if isinstance(output, SourcesOutput):
             await self.output.append_assistant_metadata(

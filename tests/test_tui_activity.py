@@ -139,7 +139,7 @@ async def test_worked_footer_atomically_replaces_frozen_wait() -> None:
                 runtime.screen.application.after_render += capture_frame
 
                 await runtime.freeze_activity_status("wait")
-                output._commit_current()
+                await output._commit_current()
                 await _render_next_frame(runtime)
 
                 emit_worked_footer(TuiApplicationSink(runtime), 1.2)

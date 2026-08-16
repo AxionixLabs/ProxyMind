@@ -110,6 +110,7 @@ class TuiDocumentState(object):
     active_tail: tuple[TranscriptBlock, ...]
     stable_lines: tuple[FormattedText, ...]
     stable_block_end_lines: tuple[int, ...]
+    stable_tail_kind: TuiBlockKind | None
     stable_snapshot_cells: tuple[TranscriptBlock, ...]
     stable_snapshot_revision: int
 
@@ -139,6 +140,7 @@ class TuiDocument(object):
 
         self._stable_lines: list[FormattedText]                  = []
         self._stable_block_end_lines: list[int]                  = []
+        self._stable_tail_kind: TuiBlockKind | None              = None
         self._stable_snapshot_cells: tuple[TranscriptBlock, ...] = ()
         self._stable_snapshot_revision: int                      = -1
 
@@ -323,11 +325,7 @@ class TuiDocument(object):
 
     def _last_rendered_kind(self) -> TuiBlockKind | None:
         """返回最后一个包含可见内容的稳定 cell 类型。"""
-        return next((
-            item.kind
-            for item in reversed(self.blocks)
-            if self._block_lines(item)
-        ), None)
+        return self._stable_tail_kind
 
     def _stable_line_count(self) -> int:
         """返回全部稳定正文的逻辑行数量。"""
@@ -402,6 +400,7 @@ class TuiDocument(object):
         """根据稳定块重新生成逻辑行缓存。"""
         self._stable_lines.clear()
         self._stable_block_end_lines.clear()
+        self._stable_tail_kind = None
         previous_kind: TuiBlockKind | None = None
 
         for item in self.blocks:
@@ -414,6 +413,7 @@ class TuiDocument(object):
             self._stable_lines.extend(own_lines)
             self._stable_block_end_lines.append(len(self._stable_lines))
             previous_kind = item.kind
+            self._stable_tail_kind = item.kind
 
     def set_display_width(
         self,
@@ -484,7 +484,7 @@ class TuiDocument(object):
 
         previous_line_count = self._stable_line_count()
         cleared_at_end      = self.cleared_line_count == previous_line_count
-        previous_kind       = self._last_rendered_kind()
+        previous_kind       = self._stable_tail_kind
 
         content_start: int | None = None
 
@@ -502,6 +502,7 @@ class TuiDocument(object):
             self._stable_lines.extend(own_lines)
             self._stable_block_end_lines.append(len(self._stable_lines))
             previous_kind = item.kind
+            self._stable_tail_kind = item.kind
 
         boundary_lines = max(
             0,
@@ -732,6 +733,7 @@ class TuiDocument(object):
             active_tail=deepcopy(tuple(self._active_tail)),
             stable_lines=deepcopy(tuple(self._stable_lines)),
             stable_block_end_lines=tuple(self._stable_block_end_lines),
+            stable_tail_kind=self._stable_tail_kind,
             stable_snapshot_cells=deepcopy(self._stable_snapshot_cells),
             stable_snapshot_revision=self._stable_snapshot_revision,
         )
@@ -757,6 +759,7 @@ class TuiDocument(object):
 
         self._stable_lines             = deepcopy(list(state.stable_lines))
         self._stable_block_end_lines   = list(state.stable_block_end_lines)
+        self._stable_tail_kind         = state.stable_tail_kind
         self._stable_snapshot_cells    = deepcopy(state.stable_snapshot_cells)
         self._stable_snapshot_revision = state.stable_snapshot_revision
 

@@ -51,6 +51,7 @@ STREAM_CATCH_UP_LINES         = 8
 STREAM_CATCH_UP_SEC           = 0.12
 STREAM_STABLE_PREFIX_MIN_ROWS = 4
 STREAM_RESIZE_DEBOUNCE_SEC    = 0.08
+FINAL_RENDER_ASYNC_MIN_SIZE   = 8_000
 
 
 class TuiOutputControl(OutputControlPort):
@@ -90,18 +91,19 @@ class TuiOutputControl(OutputControlPort):
 
         self._stream_oldest_pending_at: float | None = None
         self._before_render_registered: bool         = True
+        self._final_render_active: bool               = False
 
         self.runtime.screen.application.before_render += (
             self._sync_stream_width
         )
 
     @property
-    def terminal_width(self) -> int | None:
+    def terminal_width(self) -> int:
         """返回当前 TUI 宽度。"""
         return self.runtime.terminal_width
 
     @property
-    def terminal_height(self) -> int | None:
+    def terminal_height(self) -> int:
         """返回当前 TUI 高度。"""
         return self.runtime.terminal_height
 
@@ -113,8 +115,7 @@ class TuiOutputControl(OutputControlPort):
         """提交当前内容并关闭记录。"""
         _ = blink
         try:
-            self._finish_assistant_filter(render=False)
-            self._commit_current()
+            await self._commit_current()
             await self.record_writer.close()
         finally:
             self._cancel_stream_resize()
@@ -149,18 +150,18 @@ class TuiOutputControl(OutputControlPort):
     async def prepare_external_output(self) -> None:
         """在外部展示前提交当前流式内容。"""
         self.assistant.discard_boundary()
-        self._finish_assistant_filter(render=False)
-        self._commit_current()
+        await self._commit_current()
 
-    def supersede_assistant_presentation(self) -> None:
+    async def supersede_assistant_presentation(self) -> None:
         """原子提交旧正文、追加审计提示并为新 Attempt 开启独立助手块。"""
         notice = FragmentBlock((
             ("class:notice", "↻ Previous attempt interrupted; retrying"),
         ))
+
+        self.assistant.discard_boundary()
+        await self._commit_current()
+
         with self.runtime.screen.visual_update():
-            self.assistant.discard_boundary()
-            self._finish_assistant_filter(render=False)
-            self._commit_current()
             self.runtime.append_block(
                 notice,
                 kind="notice",
@@ -211,7 +212,7 @@ class TuiOutputControl(OutputControlPort):
         if not text:
             return None
         self.assistant.discard_boundary()
-        self._commit_current()
+        await self._commit_current()
 
         value = sanitize_terminal_text(text)
         self.record_writer.write(value, block=True)
@@ -242,7 +243,7 @@ class TuiOutputControl(OutputControlPort):
             return None
 
         self.assistant.discard_boundary()
-        self._commit_current()
+        await self._commit_current()
         self.record_writer.write(block.plain_text, block=True)
 
         self.runtime.append_block(
@@ -265,10 +266,11 @@ class TuiOutputControl(OutputControlPort):
         """刷新当前输出记录。"""
         self.record_writer.flush()
 
-    def _commit_current(self) -> bool:
+    async def _commit_current(self) -> bool:
         """把当前动态内容提交为稳定 TUI 内容块并返回提交状态。"""
         self._finish_assistant_filter(render=False)
         self._cancel_stream_render()
+        self._cancel_stream_resize()
 
         if not self.assistant.active:
             self._assistant_filter.reset()
@@ -284,8 +286,11 @@ class TuiOutputControl(OutputControlPort):
             self._reset_stream_state()
             return True
 
-        block        = self._render_final_block()
         continuation = self._stream_committed_source_end > 0
+        block, render_width = await self._render_final_snapshot(
+            text,
+            continuation=continuation,
+        )
 
         with self.runtime.screen.visual_update():
             if self.runtime.document.active_block is None:
@@ -303,7 +308,7 @@ class TuiOutputControl(OutputControlPort):
                 source_renderer=self._source_renderer(
                     continuation=continuation,
                 ),
-                source_render_width=self.terminal_width,
+                source_render_width=render_width,
             )
         self.assistant.clear()
         self._assistant_filter.reset()
@@ -311,13 +316,57 @@ class TuiOutputControl(OutputControlPort):
 
         return True
 
-    def _render_final_block(self) -> FragmentBlock:
-        """把当前尚未提交的正文渲染为最终块。"""
-        text = self._pending_stream_text()
+    async def _render_final_snapshot(
+        self,
+        text: str,
+        *,
+        continuation: bool,
+    ) -> tuple[FragmentBlock, int]:
+        """按稳定终端宽度生成最终正文块及其渲染宽度。"""
+        render_width = self.terminal_width
+        self._final_render_active = True
+        try:
+            block = await self._render_final_block(
+                text,
+                width=render_width,
+                continuation=continuation,
+            )
 
-        return self._render_markdown_block(
+            current_width = self.terminal_width
+            if current_width == render_width:
+                return block, render_width
+
+            return await self._render_final_block(
+                text,
+                width=current_width,
+                continuation=continuation,
+            ), current_width
+        finally:
+            self._final_render_active = False
+
+    async def _render_final_block(
+        self,
+        text: str,
+        *,
+        width: int,
+        continuation: bool,
+    ) -> FragmentBlock:
+        """把当前尚未提交的正文渲染为最终块。"""
+        render = render_tui_assistant_markdown
+        if len(text) < FINAL_RENDER_ASYNC_MIN_SIZE:
+            return render(
+                text,
+                width,
+                hyperlinks=self.runtime.hyperlinks_enabled,
+                continuation=continuation,
+            )
+
+        return await asyncio.to_thread(
+            render,
             text,
-            continuation=self._stream_committed_source_end > 0,
+            width,
+            hyperlinks=self.runtime.hyperlinks_enabled,
+            continuation=continuation,
         )
 
     def _render_markdown_block(
@@ -608,6 +657,10 @@ class TuiOutputControl(OutputControlPort):
 
     def _sync_stream_width(self, _application: typing.Any) -> None:
         """在布局计算前记录稳定后的活动正文目标宽度。"""
+        if self._final_render_active:
+            self._cancel_stream_resize()
+            return None
+
         width = max(1, int(self.terminal_width) - 2)
         if not self._stream_source_end or width == self._stream_width:
             self._cancel_stream_resize()
