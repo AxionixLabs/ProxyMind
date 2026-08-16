@@ -9962,9 +9962,13 @@ async def test_attempt_supersede_appends_notice_and_new_assistant_block() -> Non
 
     assert _document_text(runtime.document) == "\n".join((
         "• old partial",
+        "",
         "↻ Previous attempt interrupted; retrying",
+        "",
         "• new answer",
     ))
+    assert not runtime.document.blocks[-1].stream_continuation
+    assert runtime.document.active_gap_before == 1
     assert runtime.document.visible_prefix_line_count == 0
     clear_scrollback.assert_not_called()
     clear_renderer.assert_not_called()
@@ -10131,7 +10135,9 @@ async def test_attempt_supersede_preserves_live_tui_surfaces_without_blank_frame
 
                 assert _document_text(runtime.document).endswith("\n".join((
                     "• old partial",
+                    "",
                     "↻ Previous attempt interrupted; retrying",
+                    "",
                     "• new answer",
                 )))
             finally:
@@ -10141,6 +10147,30 @@ async def test_attempt_supersede_preserves_live_tui_surfaces_without_blank_frame
                     await menu_task
                 runtime.set_execution_active(False)
                 await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_attempt_supersede_separates_retry_notice_from_failure() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_failure_view(
+        "turn.failed",
+        "responses stream ended incomplete: max_output_tokens",
+    ))
+    output.supersede_assistant_presentation()
+
+    assert _document_text(runtime.document) == "\n".join((
+        "■ turn.failed",
+        "└ responses stream ended incomplete: max_output_tokens",
+        "",
+        "↻ Previous attempt interrupted; retrying",
+    ))
+    assert [item.stream_continuation for item in runtime.document.blocks] == [
+        False,
+        False,
+    ]
 
 
 @pytest.mark.anyio

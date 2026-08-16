@@ -89,7 +89,6 @@ class TuiOutputControl(OutputControlPort):
         self._stream_visible_rows: int         = 0
 
         self._stream_oldest_pending_at: float | None = None
-        self._presentation_restart_pending: bool     = False
         self._before_render_registered: bool         = True
 
         self.runtime.screen.application.before_render += (
@@ -165,9 +164,7 @@ class TuiOutputControl(OutputControlPort):
             self.runtime.append_block(
                 notice,
                 kind="notice",
-                stream_continuation=True,
             )
-            self._presentation_restart_pending = True
 
     async def settle_stream(self) -> None:
         """渲染当前未换行尾部并立即揭示全部完整显示行。"""
@@ -703,15 +700,8 @@ class TuiOutputControl(OutputControlPort):
             kind="assistant",
             raw_text=raw_text,
             stream_continuation=continuation,
-            gap_before=(
-                0
-                if self._presentation_restart_pending
-                else 1
-                if continuation
-                else None
-            ),
+            gap_before=1 if continuation else None,
         )
-        self._presentation_restart_pending = False
         return True
 
     def _commit_visible_stream_prefix(self) -> bool:
