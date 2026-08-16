@@ -7,6 +7,7 @@ from mind_nova.stream_events import (
     TextDoneEvent,
     TextMetaEvent,
     PresentationSupersededEvent,
+    TurnRetryingEvent,
     ToolBuiltinDoneEvent
 )
 
@@ -242,6 +243,29 @@ class SegmentTracker(object):
 
         self.current_segment_key     = None
         self.pending_segment_sources = None
+
+    def on_turn_retrying(self, event: TurnRetryingEvent) -> bool:
+        """隔离当前 provider attempt 的正文并返回是否存在可见输出。"""
+        if not event.replace_current_response:
+            return False
+        had_visible_output = False
+        for segment in self.segments_by_key.values():
+            if int(segment.get("presentation_epoch") or 1) == event.presentation_epoch:
+                if (
+                    not bool(segment.get("superseded"))
+                    and bool(str(segment.get("text") or "").strip())
+                ):
+                    had_visible_output = True
+                segment["superseded"] = True
+
+        self.pending_output_segment_keys = [
+            key
+            for key in self.pending_output_segment_keys
+            if not bool((self.segments_by_key.get(key) or {}).get("superseded"))
+        ]
+        self.current_segment_key = None
+        self.pending_segment_sources = None
+        return had_visible_output
 
     @classmethod
     def _typed_segment_meta_payload(

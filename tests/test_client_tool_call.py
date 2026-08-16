@@ -18,7 +18,9 @@ from mind_app.runtime.execution import (
 )
 from mind_app.runtime.hooks.models import (
     HookVisibleToolResult,
-    ToolCallRunResult
+    ToolCallRunResult,
+    ToolOperationResult,
+    ToolResultSnapshot,
 )
 from mind_app.runtime.tools import client_call
 from mind_app.runtime.durable_effects import (
@@ -35,7 +37,7 @@ from mind_app.runtime.tools.client_call import (
 )
 from mind_app.runtime.tools.run import hook_tool_response
 from mind_core.permissions import preset_permissions
-from mind_nova.stream_events import ExecutionEffect, WorkspaceCheckpoint
+from mind_nova.stream_events import ExecutionEffect
 
 
 def _invocation() -> ToolInvocation:
@@ -61,7 +63,6 @@ def _runner(
     *,
     tools: list[dict] | None = None,
     effect_journal=None,
-    artifact_gate=None,
     effect_reconciler=None,
 ) -> tuple[ClientToolCallRunner, SimpleNamespace]:
     output = SimpleNamespace(record_tool_arguments=Mock())
@@ -80,7 +81,6 @@ def _runner(
         pref_config={},
         tool_call_coordinator=coordinator,
         effect_journal=effect_journal,
-        artifact_gate=artifact_gate,
         effect_reconciler=effect_reconciler,
     )
     return runner, SimpleNamespace(
@@ -109,19 +109,7 @@ def _durable_invocation(workspace: Path) -> ToolInvocation:
         effect=ExecutionEffect(
             effect_id="effect_client_call",
             fingerprint="a" * 64,
-            effect_class="non_replayable",
-            replay_policy="manual",
-            scope="workspace",
-            provider_idempotency_key="",
-            status="dispatching",
-            dispatch_required=True,
-            dispatch_count=1,
-        ),
-        checkpoint=WorkspaceCheckpoint(
-            checkpoint_id="checkpoint_client_call",
-            required=True,
-            workspace={"root": str(workspace)},
-            artifact={},
+            replay="manual",
         ),
     )
 
@@ -176,17 +164,11 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
 
 
 @pytest.mark.anyio
-async def test_durable_tool_reuses_journal_before_artifact_and_hooks(
+async def test_durable_tool_uses_journal_before_hooks(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     order = []
-
-    class Gate:
-        async def ensure(self, checkpoint, *, expected_workspace_root):
-            assert checkpoint is not None
-            assert expected_workspace_root == str(tmp_path.resolve())
-            order.append("artifact")
 
     class Journal:
         async def inspect(self, effect):
@@ -224,7 +206,6 @@ async def test_durable_tool_reuses_journal_before_artifact_and_hooks(
     runner, _ = _runner(
         coordinator,
         effect_journal=Journal(),
-        artifact_gate=Gate(),
     )
 
     async def execute_tool(*args, **kwargs):
@@ -249,54 +230,11 @@ async def test_durable_tool_reuses_journal_before_artifact_and_hooks(
     assert outcome.result.ok is True
     assert order == [
         "journal_inspect",
-        "artifact",
         "journal_begin",
         "hooks",
         "tool",
         "journal_commit",
     ]
-
-
-@pytest.mark.anyio
-async def test_artifact_failure_prevents_hooks_and_local_tool(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    gate = SimpleNamespace(ensure=AsyncMock(side_effect=RuntimeError("upload failed")))
-    journal = SimpleNamespace(
-        inspect=AsyncMock(return_value=EffectJournalDecision("execute")),
-        begin=AsyncMock(return_value=EffectJournalDecision("execute")),
-        commit_unexecuted=AsyncMock(),
-    )
-    coordinator = SimpleNamespace(run_invocation=AsyncMock())
-    runner, _ = _runner(
-        coordinator,
-        effect_journal=journal,
-        artifact_gate=gate,
-    )
-    run_tool = AsyncMock()
-    monkeypatch.setattr(client_call, "run_tool_step", run_tool)
-
-    outcome = await runner.execute(
-        _durable_invocation(tmp_path),
-        use_coding_trace=False,
-    )
-
-    assert outcome.result.ok is False
-    assert outcome.result.fields["data"] == {
-        "executed": False,
-        "status": "workspace_checkpoint_unavailable",
-        "error": "RuntimeError: upload failed",
-    }
-    journal.inspect.assert_awaited_once()
-    journal.begin.assert_not_awaited()
-    journal.commit_unexecuted.assert_awaited_once()
-    persisted = journal.commit_unexecuted.await_args.args[1]
-    assert persisted["reconciliation_result_payload"]["result"]["data"][
-        "executed"
-    ] is False
-    coordinator.run_invocation.assert_not_awaited()
-    run_tool.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -317,12 +255,10 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
-    artifact_gate = SimpleNamespace(ensure=AsyncMock())
     journal = LocalEffectJournal(tmp_path / "effects.db")
     runner, ports = _runner(
         coordinator,
         effect_journal=journal,
-        artifact_gate=artifact_gate,
     )
     tool_run = SimpleNamespace(
         ok=True,
@@ -352,70 +288,70 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
     assert ports.output.record_tool_arguments.call_count == 1
     assert show_start.await_count == 1
     assert show_result.await_count == 1
-    assert artifact_gate.ensure.await_count == 1
 
 
 @pytest.mark.anyio
-async def test_process_effect_never_requests_workspace_artifact(
+async def test_custom_operation_uses_same_durable_effect_boundary(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
-    invocation = _durable_invocation(tmp_path)
-    invocation = ToolInvocation(
-        turn=invocation.turn,
-        call_id=invocation.call_id,
-        name=invocation.name,
-        arguments=invocation.arguments,
-        effect=ExecutionEffect(
-            effect_id="effect_process",
-            fingerprint="b" * 64,
-            effect_class="non_replayable",
-            replay_policy="manual",
-            scope="process",
-            provider_idempotency_key="",
-            status="dispatching",
-            dispatch_required=True,
-            dispatch_count=1,
-        ),
-    )
-    journal = SimpleNamespace(
-        inspect=AsyncMock(return_value=EffectJournalDecision("execute")),
-        begin=AsyncMock(return_value=EffectJournalDecision("execute")),
-        commit=AsyncMock(),
-        mark_unknown=AsyncMock(),
-    )
-    artifact_gate = SimpleNamespace(ensure=AsyncMock())
-
-    async def run_allowed(prepared, operation):
-        operation_result = await operation(prepared)
+    async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
         return ToolCallRunResult(
             allowed=True,
             value=operation_result.value,
             visible_result=HookVisibleToolResult(
-                ok=True,
-                text="done",
-                fields={"ok": True, "text": "done"},
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+                additional_context=operation_result.additional_context,
             ),
         )
 
-    runner, _ = _runner(
-        SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed)),
-        effect_journal=journal,
-        artifact_gate=artifact_gate,
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
+    runner, _ports = _runner(
+        coordinator,
+        effect_journal=LocalEffectJournal(tmp_path / "effects.db"),
     )
-    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=SimpleNamespace(
-        ok=True,
-        fields={"ok": True, "text": "done"},
-        text="done",
-        cost_ms=1,
-    )))
-    monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
-    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+    operation = Mock()
 
-    outcome = await runner.execute(invocation, use_coding_trace=False)
+    async def execute_plan(invocation):
+        result = ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=True,
+            text="plan complete",
+            cost_ms=4,
+            call_id=invocation.call_id,
+            fields={"ok": True, "text": "plan complete"},
+        )
+        operation(invocation)
+        return ToolOperationResult(
+            value=result,
+            snapshot=ToolResultSnapshot(
+                ok=True,
+                text=result.text,
+                fields=result.fields,
+            ),
+            additional_context=("nested context",),
+        )
 
-    assert outcome.result.ok is True
-    artifact_gate.ensure.assert_not_awaited()
+    invocation = _durable_invocation(tmp_path)
+    first = await runner.execute(
+        invocation,
+        use_coding_trace=False,
+        operation_handler=execute_plan,
+    )
+    second = await runner.execute(
+        invocation,
+        use_coding_trace=False,
+        operation_handler=execute_plan,
+    )
+
+    assert first.result.text == "plan complete"
+    assert second.result.text == "plan complete"
+    assert second.additional_context == ("nested context",)
+    assert operation.call_count == 1
+    assert coordinator.run_invocation.await_count == 1
 
 
 @pytest.mark.anyio
@@ -431,7 +367,6 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
         commit=AsyncMock(side_effect=OSError("disk unavailable")),
         mark_unknown=AsyncMock(),
     )
-    artifact_gate = SimpleNamespace(ensure=AsyncMock())
     reconciler = AsyncMock(
         return_value={"ok": True, "status": "reconciled", "effect": {}}
     )
@@ -454,7 +389,6 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
     runner, _ = _runner(
         coordinator,
         effect_journal=journal,
-        artifact_gate=artifact_gate,
         effect_reconciler=reconciler,
     )
     monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=SimpleNamespace(
@@ -508,13 +442,7 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
     assert reconcile_payload["result_payload"]["execution"]["effect"] == {
         "effect_id": "effect_client_call",
         "fingerprint": "a" * 64,
-        "class": "non_replayable",
-        "replay_policy": "manual",
-        "scope": "workspace",
-        "provider_idempotency_key": "",
-        "status": "dispatching",
-        "dispatch_required": True,
-        "dispatch_count": 1,
+        "replay": "manual",
     }
 
 
@@ -536,7 +464,6 @@ async def test_known_local_result_recovers_server_reconciliation_pause() -> None
     runner, _ = _runner(
         SimpleNamespace(),
         effect_journal=journal,
-        artifact_gate=SimpleNamespace(),
         effect_reconciler=reconciler,
     )
 
@@ -560,7 +487,6 @@ async def test_known_unexecuted_result_reconciles_as_failed() -> None:
     runner, _ = _runner(
         SimpleNamespace(),
         effect_journal=journal,
-        artifact_gate=SimpleNamespace(),
         effect_reconciler=reconciler,
     )
 
@@ -580,7 +506,6 @@ async def test_known_effect_ignores_only_journal_persistence_failure() -> None:
     runner, _ = _runner(
         SimpleNamespace(),
         effect_journal=journal,
-        artifact_gate=SimpleNamespace(),
         effect_reconciler=AsyncMock(return_value={"ok": True}),
     )
 

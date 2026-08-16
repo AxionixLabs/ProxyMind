@@ -10,6 +10,7 @@ from mind_nova.identifiers import (
     resolve_request_id
 )
 from mind_nova.services import service_endpoints
+from mind_nova.requests.reliable import post_json_reliably
 from mind_nova.turn_inputs import TurnInput
 
 TurnControlStatus = typing.Literal[
@@ -26,6 +27,7 @@ TurnRuntimeStatus = typing.Literal[
     "waiting_tool",
     "waiting_approval",
     "waiting_user",
+    "reconciliation_required",
     "finalizing",
     "completed",
     "failed",
@@ -47,6 +49,7 @@ _TURN_RUNTIME_STATUSES: typing.Final[set[str]] = {
     "waiting_tool",
     "waiting_approval",
     "waiting_user",
+    "reconciliation_required",
     "finalizing",
     "completed",
     "failed",
@@ -398,14 +401,15 @@ async def _post_json(
         raise TurnControlRequestError("turn control requires sid")
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                service_endpoints.endpoint(path),
-                params={"cid": normalized_cid, "sid": normalized_sid},
-                headers=Channel.make_headers(),
-                json=payload,
-            )
-            response.raise_for_status()
+        response = await post_json_reliably(
+            service_endpoints.endpoint(path),
+            params={"cid": normalized_cid, "sid": normalized_sid},
+            headers=Channel.make_headers(),
+            payload=payload,
+            timeout=timeout,
+            client_factory=httpx.AsyncClient,
+        )
+        response.raise_for_status()
     except httpx.HTTPError as error:
         raise TurnControlRequestError(
             f"turn control request failed: {path}"

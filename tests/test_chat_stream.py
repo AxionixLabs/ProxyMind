@@ -39,7 +39,10 @@ class _PayloadStream(object):
 
 def _install_stream(monkeypatch, payloads) -> _PayloadStream:
     payload_stream = _PayloadStream(payloads)
-    monkeypatch.setattr(chat, "build_chat_payload", AsyncMock(return_value={}))
+    monkeypatch.setattr(chat, "build_chat_payload", AsyncMock(return_value={
+        "turn_id": "turn_1",
+        "metadata": {"cid": "cid_1", "sid": "sid_1"},
+    }))
     monkeypatch.setattr(chat.Channel, "make_headers", Mock(return_value={}))
     monkeypatch.setattr(chat.service_endpoints, "endpoint", Mock(return_value="url"))
     monkeypatch.setattr(chat, "streaming", Mock(return_value=payload_stream))
@@ -73,16 +76,22 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
         yield {
             "type": "text.delta",
             "turn_id": "turn_001",
+            "event_seq": 1,
             "segment_id": "segment-1",
             "text": "answer",
         }
         yield {
             "type": "turn.logical_settled",
             "turn_id": "turn_001",
+            "event_seq": 2,
             "next_input": None,
         }
 
-    build_payload = AsyncMock(return_value={"message": "hello"})
+    build_payload = AsyncMock(return_value={
+        "turn_id": "turn_001",
+        "message": "hello",
+        "metadata": {"cid": "cid_1", "sid": "sid_1"},
+    })
     make_headers = Mock(return_value={"authorization": "test"})
     endpoint = Mock(return_value="https://example.com/chat")
     monkeypatch.setattr(chat, "build_chat_payload", build_payload)
@@ -115,11 +124,17 @@ async def test_failed_waits_for_logical_settlement_without_timeout(monkeypatch) 
     release = asyncio.Event()
 
     async def payloads():
-        yield {"type": "turn.failed", "turn_id": "turn_1", "error": "timeout"}
+        yield {
+            "type": "turn.failed",
+            "turn_id": "turn_1",
+            "event_seq": 1,
+            "error": "timeout",
+        }
         await release.wait()
         yield {
             "type": "turn.logical_settled",
             "turn_id": "turn_1",
+            "event_seq": 2,
             "next_input": None,
         }
 
@@ -143,7 +158,7 @@ async def test_failed_waits_for_logical_settlement_without_timeout(monkeypatch) 
 @pytest.mark.anyio
 async def test_done_without_settlement_stays_observed_until_cancelled(monkeypatch) -> None:
     async def payloads():
-        yield {"type": "turn.done", "turn_id": "turn_1"}
+        yield {"type": "turn.done", "turn_id": "turn_1", "event_seq": 1}
         await asyncio.Event().wait()
 
     payload_stream = _install_stream(monkeypatch, payloads())
@@ -164,10 +179,11 @@ async def test_done_without_settlement_stays_observed_until_cancelled(monkeypatc
 @pytest.mark.anyio
 async def test_settlement_closes_stream_without_waiting_for_eof(monkeypatch) -> None:
     async def payloads():
-        yield {"type": "turn.done", "turn_id": "turn_1"}
+        yield {"type": "turn.done", "turn_id": "turn_1", "event_seq": 1}
         yield {
             "type": "turn.logical_settled",
             "turn_id": "turn_1",
+            "event_seq": 2,
             "next_input": None,
         }
         await asyncio.Event().wait()
@@ -376,6 +392,48 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
     assert calls[0][1] is payload
     assert calls[1][1] is payload
     build_payload.assert_awaited_once()
+    status_probe.assert_awaited_once_with(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+
+
+@pytest.mark.anyio
+async def test_ping_before_first_event_still_probes_before_resubmit(
+    monkeypatch,
+) -> None:
+    """验证基础设施 ping 不会冒充已持久化的业务事件。"""
+    calls = []
+    status_probe = AsyncMock(side_effect=chat.TurnStatusRequestError(
+        "turn not found",
+        status_code=404,
+    ))
+
+    async def streaming(url, _headers, payload, _timeout):
+        calls.append((url, payload))
+        if len(calls) == 1:
+            yield {"type": "ping"}
+            raise OSError("connection lost before first business event")
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+            "next_input": None,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+
+    event_stream = chat.stream_chat({}, "hello", [])
+    events = [event async for event in event_stream]
+
+    assert len(events) == 1
+    assert isinstance(events[0], TurnLogicalSettledEvent)
+    assert [url for url, _payload in calls] == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-chat",
+    ]
     status_probe.assert_awaited_once_with(
         cid="cid_1",
         sid="sid_1",
@@ -647,6 +705,10 @@ async def test_logical_settlement_alone_closes_recovery_stream(monkeypatch) -> N
         await asyncio.Event().wait()
 
     payload_stream = _install_stream(monkeypatch, payloads())
+    monkeypatch.setattr(chat, "build_chat_payload", AsyncMock(return_value={
+        "turn_id": "turn_001",
+        "metadata": {"cid": "cid_1", "sid": "sid_1"},
+    }))
     event_stream = chat.stream_chat({}, "hello", [])
 
     events = [event async for event in event_stream]
@@ -655,3 +717,90 @@ async def test_logical_settlement_alone_closes_recovery_stream(monkeypatch) -> N
     assert isinstance(events[0], TurnLogicalSettledEvent)
     assert event_stream.end_reason == "settled"
     assert payload_stream.closed is True
+
+
+@pytest.mark.anyio
+async def test_sequence_gap_attaches_from_last_confirmed_event(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "segment_id": "segment_1",
+                "text": "one",
+            }
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 3,
+                "segment_id": "segment_1",
+                "text": "must not leak",
+            }
+        else:
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 2,
+                "segment_id": "segment_1",
+                "text": "two",
+            }
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 3,
+                "segment_id": "segment_1",
+                "text": "three",
+            }
+            yield {
+                "type": "turn.logical_settled",
+                "turn_id": "turn_001",
+                "event_seq": 4,
+                "next_input": None,
+            }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+
+    events = [event async for event in chat.stream_chat({}, "hello", [])]
+
+    assert [event.event_seq for event in events] == [1, 2, 3, 4]
+    assert [
+        event.text for event in events if isinstance(event, TextDeltaEvent)
+    ] == ["one", "two", "three"]
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+
+
+@pytest.mark.anyio
+async def test_foreign_turn_event_is_rejected_before_delivery(monkeypatch) -> None:
+    async def streaming(_url, _headers, _payload, _timeout):
+        yield {
+            "type": "tool.call",
+            "turn_id": "turn_other",
+            "event_seq": 1,
+            "call_id": "call_1",
+            "name": "shell_command",
+            "arguments": {},
+            "execution": {
+                "target": "client",
+                "effect": {
+                    "effect_id": "effect_1",
+                    "fingerprint": "a" * 64,
+                    "replay": "manual",
+                },
+            },
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    event_stream = chat.stream_chat({}, "hello", [])
+
+    with pytest.raises(ValueError, match="current turn"):
+        async for _event in event_stream:
+            pass
+
+    assert event_stream.end_reason == "protocol_error"

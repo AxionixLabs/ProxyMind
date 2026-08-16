@@ -5,6 +5,7 @@ import httpx
 import typing
 from engine.channel import Channel
 from mind_nova.services import service_endpoints
+from mind_nova.requests.reliable import post_json_reliably
 
 
 async def post_effect_reconciliation(
@@ -26,14 +27,15 @@ async def post_effect_reconciliation(
         "error": str(error or ""),
         "metadata": dict(metadata or {}),
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(
-            service_endpoints.endpoint("/effect/reconcile"),
-            headers=Channel.make_headers(),
-            json=payload,
-        )
-        response.raise_for_status()
-        body = response.json()
+    response = await post_json_reliably(
+        service_endpoints.endpoint("/effect/reconcile"),
+        headers=Channel.make_headers(),
+        payload=payload,
+        timeout=timeout,
+        client_factory=httpx.AsyncClient,
+    )
+    response.raise_for_status()
+    body = response.json()
     if (
         not isinstance(body, dict)
         or body.get("ok") is not True

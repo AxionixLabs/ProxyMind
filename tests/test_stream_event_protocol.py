@@ -10,6 +10,7 @@ from mind_nova.stream_events import (
     ToolOutputEvent,
     TurnDoneEvent,
     TurnFailedEvent,
+    TurnRetryingEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent,
@@ -33,70 +34,38 @@ def _durable_tool_event() -> dict:
             "effect": {
                 "effect_id": "effect_test",
                 "fingerprint": "a" * 64,
-                "class": "non_replayable",
-                "replay_policy": "manual",
-                "scope": "workspace",
-                "provider_idempotency_key": "",
-                "status": "dispatching",
-                "dispatch_required": True,
-                "dispatch_count": 1,
+                "replay": "manual",
             },
-        },
-        "checkpoint": {
-            "checkpoint_id": "checkpoint_test",
-            "required": True,
-            "workspace": {"root": "/tmp/workspace"},
-            "artifact": {},
         },
     }
 
 
-def test_latest_tool_protocol_parses_effect_and_checkpoint_strictly() -> None:
+def test_latest_tool_protocol_parses_effect_strictly() -> None:
     event = parse_stream_event(_durable_tool_event())
 
     assert isinstance(event, ToolCallEvent)
     assert event.effect is not None
-    assert event.effect.replay_policy == "manual"
-    assert event.checkpoint is not None
-    assert event.checkpoint.checkpoint_id == "checkpoint_test"
+    assert event.effect.replay == "manual"
 
 
-@pytest.mark.parametrize("scope", ("none", "process", "external"))
-def test_non_workspace_effects_parse_without_checkpoint(scope: str) -> None:
+@pytest.mark.parametrize("replay", ("safe", "manual"))
+def test_effect_replay_modes_parse_strictly(replay: str) -> None:
     payload = _durable_tool_event()
-    payload.pop("checkpoint")
     effect = payload["execution"]["effect"]
-    effect["scope"] = scope
-    if scope == "none":
-        effect["class"] = "read_only"
-        effect["replay_policy"] = "safe"
+    effect["replay"] = replay
 
     event = parse_stream_event(payload)
 
     assert isinstance(event, ToolCallEvent)
     assert event.effect is not None
-    assert event.effect.scope == scope
-    assert event.checkpoint is None
+    assert event.effect.replay == replay
 
 
-def test_non_workspace_effect_rejects_checkpoint() -> None:
+def test_effect_rejects_unknown_replay_mode() -> None:
     payload = _durable_tool_event()
-    payload["execution"]["effect"]["scope"] = "process"
+    payload["execution"]["effect"]["replay"] = "provider_idempotent"
 
-    with pytest.raises(ValueError, match="must not include"):
-        parse_stream_event(payload)
-
-
-def test_read_only_effect_requires_scope_none() -> None:
-    payload = _durable_tool_event()
-    payload.pop("checkpoint")
-    payload["execution"]["effect"].update({
-        "scope": "none",
-        "class": "non_replayable",
-        "replay_policy": "manual",
-    })
-
-    with pytest.raises(ValueError, match="safe read-only"):
+    with pytest.raises(ValueError, match="replay is invalid"):
         parse_stream_event(payload)
 
 
@@ -113,45 +82,19 @@ def test_execution_effect_rejects_noncanonical_payload(mutation: str) -> None:
         parse_stream_event(payload)
 
 
-@pytest.mark.parametrize("missing", ("effect", "checkpoint"))
-def test_latest_tool_protocol_rejects_missing_durability_gate(missing: str) -> None:
+def test_latest_tool_protocol_requires_effect() -> None:
     payload = _durable_tool_event()
-    if missing == "effect":
-        payload["execution"].pop("effect")
-    else:
-        payload.pop("checkpoint")
+    payload["execution"].pop("effect")
 
-    with pytest.raises(ValueError, match=missing):
+    with pytest.raises(ValueError, match="effect"):
         parse_stream_event(payload)
 
 
-@pytest.mark.parametrize("required", (False, 1, "true", None))
-def test_latest_tool_protocol_requires_literal_checkpoint_true(required) -> None:
+def test_latest_tool_protocol_rejects_removed_effect_fields() -> None:
     payload = _durable_tool_event()
-    payload["checkpoint"]["required"] = required
+    payload["execution"]["effect"]["scope"] = "workspace"
 
-    with pytest.raises(ValueError, match="required must be true"):
-        parse_stream_event(payload)
-
-
-@pytest.mark.parametrize(
-    ("updates", "message"),
-    [
-        ({"class": "idempotent", "replay_policy": "provider_idempotent",
-          "provider_idempotency_key": "provider-key"}, "manual non-replayable"),
-        ({"status": "prepared"}, "not dispatchable"),
-        ({"dispatch_required": False}, "not dispatchable"),
-        ({"dispatch_count": 0}, "not dispatchable"),
-    ],
-)
-def test_latest_tool_protocol_rejects_inconsistent_effect_semantics(
-    updates: dict,
-    message: str,
-) -> None:
-    payload = _durable_tool_event()
-    payload["execution"]["effect"].update(updates)
-
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="fields are invalid"):
         parse_stream_event(payload)
 
 
@@ -173,6 +116,35 @@ def test_presentation_superseded_requires_preceding_epoch() -> None:
             "presentation_epoch": 2,
             "superseded_epoch": 2,
         })
+
+
+def test_turn_retrying_requires_strict_attempt_metadata() -> None:
+    """校验 provider 重试事件的类型化字段和边界。"""
+    event = parse_stream_event({
+        "type": "turn.retrying",
+        "turn_id": "turn_test",
+        "event_seq": 7,
+        "attempt": 2,
+        "max_attempts": 3,
+        "retry_in_ms": 250,
+        "replace_current_response": True,
+        "reason": "stream_reset",
+    })
+
+    assert isinstance(event, TurnRetryingEvent)
+    assert event.attempt == 2
+    assert event.max_attempts == 3
+    assert event.retry_in_ms == 250
+    assert event.replace_current_response is True
+
+    for invalid in (
+        {"attempt": 0, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": True},
+        {"attempt": 4, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": True},
+        {"attempt": 2, "max_attempts": 3, "retry_in_ms": -1, "replace_current_response": True},
+        {"attempt": 2, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": "yes"},
+    ):
+        with pytest.raises(ValueError):
+            parse_stream_event({"type": "turn.retrying", **invalid})
 
 
 def test_text_meta_event_copies_structured_metadata() -> None:

@@ -35,6 +35,7 @@ from mind_nova.stream_events import (
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent,
+    TurnRetryingEvent,
     TurnTerminalEvent
 )
 from mind_nova.requests.tools import (
@@ -70,10 +71,6 @@ from ..execution import (
 )
 from ..hooks.tool import ToolCallCoordinator
 from ..hooks.models import StopHookDecision
-from ..hooks.models import (
-    ToolOperationResult,
-    ToolResultSnapshot
-)
 from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
@@ -92,7 +89,6 @@ from ..tools.client_call import (
 )
 from ..durable_effects import LocalEffectReconciliationRequired
 from ..tools.plan_call import PlanToolCallRunner
-from ..tools.plan_steps import PlanExecutionReport
 from .executor import (
     TurnExecution,
     build_turn_input_payload,
@@ -117,10 +113,49 @@ if typing.TYPE_CHECKING:
 MAX_STOP_CONTINUATIONS = 3
 
 
+class _RetryingStatus(object):
+    """合并传输重连与 provider 重试状态后通知展示层。"""
+
+    def __init__(
+        self,
+        sink: typing.Callable[[bool], None] | None,
+    ) -> None:
+        """绑定状态回调并初始化两个独立重试原因。"""
+        self.sink      = sink
+        self.transport = False
+        self.provider  = False
+        self.visible   = False
+
+    def set_transport(self, retrying: bool) -> None:
+        """更新事件传输重连状态。"""
+        self.transport = bool(retrying)
+        self._refresh()
+
+    def set_provider(self, retrying: bool) -> None:
+        """更新供应商流重试状态。"""
+        self.provider = bool(retrying)
+        self._refresh()
+
+    def close(self) -> None:
+        """清除所有重试原因并结束可见状态。"""
+        self.transport = False
+        self.provider = False
+        self._refresh()
+
+    def _refresh(self) -> None:
+        """仅在合并后的可见状态变化时通知展示层。"""
+        visible = self.transport or self.provider
+        if visible == self.visible:
+            return
+        self.visible = visible
+        if self.sink is not None:
+            self.sink(visible)
+
+
 def _optional_callback(
     value: typing.Any,
     *,
-    name: str,
+    name: str
 ) -> typing.Callable[..., typing.Any] | None:
     """校验可选回调并返回可调用边界。"""
     if value is None:
@@ -130,9 +165,7 @@ def _optional_callback(
     return value
 
 
-def _terminal_result_fields(
-    event: TurnTerminalEvent,
-) -> dict[str, typing.Any]:
+def _terminal_result_fields(event: TurnTerminalEvent) -> dict[str, typing.Any]:
     """提取需要保留到运行结果和会话记录的终态字段。"""
     fields: dict[str, typing.Any] = {}
     for field_name in (
@@ -174,7 +207,6 @@ def _tool_invocation_from_event(
         meta=effective_meta,
         execution=event.execution,
         effect=event.effect,
-        checkpoint=event.checkpoint,
     )
 
 
@@ -253,7 +285,7 @@ def _extend_request_context(
     kwargs: dict[str, typing.Any],
     *,
     additional_context: typing.Iterable[str] = (),
-    system_message: str = "",
+    system_message: str = ""
 ) -> None:
     """把 Hook 注入文本合并到请求参数。"""
     contexts = [
@@ -287,7 +319,7 @@ def _join_text(*values: str) -> str:
 
 
 async def _discard_stop_hook_decision(
-    awaitable: typing.Awaitable[StopHookDecision],
+    awaitable: typing.Awaitable[StopHookDecision]
 ) -> None:
     """执行停止 Hook 并丢弃清理阶段不应消费的续跑决定。"""
     await awaitable
@@ -463,6 +495,8 @@ async def stream_turn(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
+    retrying_status = _RetryingStatus(on_reconnect_status)
+
     try:
         transcript.open()
         record_turn_started(transcript, turn_execution)
@@ -536,7 +570,7 @@ async def stream_turn(
             pref_config,
             message,
             tools,
-            on_reconnect_status=on_reconnect_status,
+            on_reconnect_status=retrying_status.set_transport,
             **kwargs,
         )
 
@@ -562,6 +596,9 @@ async def stream_turn(
 
             event_type = event.type
 
+            if not isinstance(event, TurnRetryingEvent):
+                retrying_status.set_provider(False)
+
             if is_assistant_output_boundary(event):
                 record_pending_assistant_output()
                 await content.emit(AssistantOutputBoundary())
@@ -572,6 +609,29 @@ async def stream_turn(
                 continue
 
             if event_type == "turn.thinking":
+                await status_control.begin_reply_wait_status()
+                continue
+
+            if isinstance(event, TurnRetryingEvent):
+                retrying_status.set_provider(True)
+                record_pending_assistant_output()
+
+                had_assistant_output = tracker.on_turn_retrying(event)
+
+                if event.replace_current_response and had_assistant_output:
+                    transcript.append(
+                        "message.superseded",
+                        actor="assistant",
+                        payload={
+                            "presentation_epoch": event.presentation_epoch,
+                            "superseded_by_epoch": event.presentation_epoch,
+                            "reason": event.reason,
+                        },
+                    )
+                    await content.emit(AssistantPresentationSuperseded(
+                        superseded_epoch=event.presentation_epoch,
+                        presentation_epoch=event.presentation_epoch,
+                    ))
                 await status_control.begin_reply_wait_status()
                 continue
 
@@ -969,69 +1029,24 @@ async def stream_turn(
                 arguments = dict(invocation.arguments)
 
                 if name == PLAN_STEPS_TOOL:
-                    async def execute_plan_call(
-                        prepared: ToolInvocation
-                    ) -> ToolOperationResult[PlanExecutionReport]:
-                        """执行已经获准的计划工具调用。"""
-                        report = await plan_tool_runner.handle(
-                            invocation=prepared
-                        )
-
-                        return ToolOperationResult(
-                            value=report,
-                            snapshot=ToolResultSnapshot(
-                                ok=report.ok,
-                                text=report.text,
-                                fields=report.fields,
-                            ),
-                            additional_context=report.additional_context,
-                        )
-
-                    hook_run = await tool_call_coordinator.run_invocation(
+                    tool_outcome = await client_tool_runner.execute(
                         invocation,
-                        execute_plan_call,
+                        use_coding_trace=False,
+                        operation_handler=plan_tool_runner.execute_operation,
                     )
-
-                    if not hook_run.allowed:
-                        plan_ok        = False
-                        plan_result    = _hook_denied_result(hook_run.reason)
-                        visible_result = None
-                    else:
-                        if hook_run.value is None:
-                            raise RuntimeError("plan tool execution returned no result")
-
-                        visible_result = hook_run.visible_result
-                        if visible_result is None:
-                            raise RuntimeError(
-                                "plan tool execution returned no visible result"
-                            )
-
-                        plan_ok     = visible_result.ok
-                        plan_result = visible_result.fields
-
-                    post_kwargs: dict[str, typing.Any] = {
-                        "execution": invocation.execution,
-                        "arguments": invocation.arguments,
-                    }
-
-                    if (
-                        visible_result is not None
-                        and visible_result.additional_context
-                    ):
-                        post_kwargs["additional_context"] = (
-                            visible_result.additional_context
-                        )
-                    elif hook_run.additional_context:
-                        post_kwargs["additional_context"] = (
-                            hook_run.additional_context
-                        )
+                    tool_result = tool_outcome.result
+                    post_kwargs = build_client_tool_post_kwargs(
+                        tool_outcome,
+                        execution=invocation.execution,
+                    )
                     await post_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
                         invocation.call_id,
-                        invocation.name,
-                        plan_ok,
-                        plan_result,
+                        tool_result.name,
+                        tool_result.ok,
+                        tool_result.fields,
+                        arguments=invocation.arguments,
                         **post_kwargs,
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
@@ -1325,6 +1340,8 @@ async def stream_turn(
         )
 
     finally:
+        retrying_status.close()
+
         if on_turn_stream_end is not None and event_stream is not None:
             on_turn_stream_end(
                 getattr(event_stream, "end_reason", None) or "cancelled"

@@ -13,6 +13,10 @@ from engine.observability import (
 )
 
 
+class StreamDecodeError(httpx.DecodingError):
+    """表示 SSE 数据行在传输过程中损坏。"""
+
+
 async def cap_response(response: httpx.Response) -> None:
     """捕获失败响应体，便于后续调试。"""
     if response.status_code >= 400:
@@ -56,9 +60,12 @@ async def streaming(
 
                     try:
                         event = json.loads(line[len("data:"):].strip())
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as error:
                         invalid_lines += 1
-                        continue
+                        raise StreamDecodeError(
+                            "stream data line is not valid JSON",
+                            request=resp.request,
+                        ) from error
 
                     event_count += 1
                     yield event

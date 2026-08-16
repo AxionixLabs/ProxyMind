@@ -18,20 +18,23 @@ class McpToolContext:
 
 
 def _wire_effect_hint(tool: mcp_types.Tool) -> dict[str, str]:
-    """把工具声明转换为服务端可严格校验的效果提示。"""
+    """只信任客户端内置工具的本地效果声明。"""
     meta = dict(tool.meta or {})
 
+    if bool(meta.get("external")):
+        return {
+            "scope": "external",
+            "class": "non_replayable",
+            "replay_policy": "manual",
+        }
+
     explicit = meta.get("effect")
-    if isinstance(explicit, dict):
+    if bool(meta.get("client_builtin")) and isinstance(explicit, dict):
         return {
             "scope": str(explicit.get("scope") or ""),
             "class": str(explicit.get("class") or ""),
             "replay_policy": str(explicit.get("replay_policy") or ""),
         }
-
-    annotations = tool.annotations
-    if annotations is not None and annotations.readOnlyHint is True:
-        return {"scope": "none", "class": "read_only", "replay_policy": "safe"}
 
     return {
         "scope": "external",

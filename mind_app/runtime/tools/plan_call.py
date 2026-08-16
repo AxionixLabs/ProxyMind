@@ -9,6 +9,10 @@ from mind_app.runtime.execution import (
     TurnContext
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from mind_app.runtime.hooks.models import (
+    ToolOperationResult,
+    ToolResultSnapshot
+)
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -20,6 +24,7 @@ from .plan_steps import (
     PlanExecutionReport,
     StepPlanExecutor
 )
+from .client_call import ClientToolCallResult
 
 
 class PlanToolCallRunner:
@@ -37,6 +42,7 @@ class PlanToolCallRunner:
         pref_config: typing.Mapping[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator
     ) -> None:
+        """绑定计划执行所需端口和步骤执行器。"""
         self.output_control = output_control
         self.status_control = status_control
         self.presentation   = presentation
@@ -86,6 +92,31 @@ class PlanToolCallRunner:
             call_id=call_id,
         )
         return report
+
+    async def execute_operation(
+        self,
+        invocation: ToolInvocation
+    ) -> ToolOperationResult[ClientToolCallResult]:
+        """把计划执行结果转换为统一客户端工具操作结果。"""
+        report = await self.handle(invocation=invocation)
+        result = ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=report.ok,
+            text=report.text,
+            cost_ms=report.cost_ms,
+            call_id=invocation.call_id,
+            fields=report.fields,
+        )
+        return ToolOperationResult(
+            value=result,
+            snapshot=ToolResultSnapshot(
+                ok=result.ok,
+                text=result.text,
+                fields=result.fields,
+            ),
+            additional_context=report.additional_context,
+        )
 
 
 if __name__ == '__main__':

@@ -47,7 +47,6 @@ from ..durable_effects import (
     LocalEffectJournal,
     LocalEffectReconciliationRequired
 )
-from ..workspace_artifacts import WorkspaceArtifactGate
 
 
 @dataclass(slots=True)
@@ -94,6 +93,12 @@ class ClientToolCallOutcome:
         )
 
 
+ClientToolOperation = typing.Callable[
+    [ToolInvocation],
+    typing.Awaitable[ToolOperationResult[ClientToolCallResult]],
+]
+
+
 def build_client_tool_post_kwargs(
     outcome: ClientToolCallOutcome,
     *,
@@ -124,12 +129,11 @@ class ClientToolCallRunner:
         pref_config: dict[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator,
         effect_journal: LocalEffectJournal | None = None,
-        artifact_gate: WorkspaceArtifactGate | None = None,
         effect_reconciler: typing.Callable[..., typing.Awaitable[
             dict[str, typing.Any]
         ]] | None = None,
     ) -> None:
-        """绑定工具生命周期端口和本地持久化门禁。"""
+        """绑定工具生命周期端口和持久效果依赖。"""
         self.session               = session
         self.output_control        = output_control
         self.status_control        = status_control
@@ -138,7 +142,6 @@ class ClientToolCallRunner:
         self.pref_config           = pref_config
         self.tool_call_coordinator = tool_call_coordinator
         self.effect_journal        = effect_journal or LocalEffectJournal()
-        self.artifact_gate         = artifact_gate or WorkspaceArtifactGate()
         self.effect_reconciler     = effect_reconciler or post_effect_reconciliation
 
     @staticmethod
@@ -192,13 +195,7 @@ class ClientToolCallRunner:
             execution["effect"] = {
                 "effect_id": effect.effect_id,
                 "fingerprint": effect.fingerprint,
-                "class": effect.effect_class,
-                "replay_policy": effect.replay_policy,
-                "scope": effect.scope,
-                "provider_idempotency_key": effect.provider_idempotency_key,
-                "status": effect.status,
-                "dispatch_required": effect.dispatch_required,
-                "dispatch_count": effect.dispatch_count,
+                "replay": effect.replay,
             }
         return execution
 
@@ -507,7 +504,8 @@ class ClientToolCallRunner:
         invocation: ToolInvocation,
         *,
         use_coding_trace: bool,
-        display: bool = True
+        display: bool = True,
+        operation_handler: ClientToolOperation | None = None,
     ) -> ClientToolCallOutcome:
         """执行经过 Hook 协调的客户端工具调用。"""
         effect = invocation.effect
@@ -526,41 +524,6 @@ class ClientToolCallRunner:
                 return self._outcome_from_payload(decision.result_payload or {})
             if decision.action == "reconcile":
                 raise LocalEffectReconciliationRequired(effect.effect_id)
-            if effect.scope == "workspace":
-                try:
-                    await self.artifact_gate.ensure(
-                        invocation.checkpoint,
-                        expected_workspace_root=invocation.turn.cwd,
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as error:
-                    outcome = self._not_executed_outcome(
-                        invocation,
-                        status="workspace_checkpoint_unavailable",
-                        error=error,
-                    )
-                    persisted_outcome = {
-                        **self._outcome_payload(outcome),
-                        "reconciliation_result_payload": (
-                            self._reconciliation_result_payload(invocation, outcome)
-                        ),
-                    }
-                    try:
-                        await asyncio.shield(self.effect_journal.commit_unexecuted(
-                            effect,
-                            persisted_outcome,
-                        ))
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as persist_error:
-                        observe_exception(
-                            "client_effect.journal.unexecuted.failed",
-                            persist_error,
-                            level="WARNING",
-                            effect_id=effect.effect_id,
-                        )
-                    return outcome
             try:
                 decision = await self.effect_journal.begin(effect)
             except asyncio.CancelledError:
@@ -576,7 +539,7 @@ class ClientToolCallRunner:
             if decision.action == "reconcile":
                 raise LocalEffectReconciliationRequired(effect.effect_id)
 
-        async def operation(
+        async def default_operation(
             prepared: ToolInvocation
         ) -> ToolOperationResult[ClientToolCallResult]:
             """执行已获准的本地操作。"""
@@ -594,6 +557,8 @@ class ClientToolCallRunner:
                 ),
                 hook_response=result.hook_response,
             )
+
+        operation = operation_handler or default_operation
 
         try:
             hook_run = await self.tool_call_coordinator.run_invocation(

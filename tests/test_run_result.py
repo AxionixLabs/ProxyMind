@@ -18,6 +18,7 @@ from mind_app.runtime.turns import stream
 from mind_app.runtime.turns.result import RunResult
 from mind_app.output.content import (
     AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     SourcesOutput,
@@ -44,6 +45,8 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
 )
+from mind_app.runtime.tools import client_call
+from mind_app.runtime.durable_effects import LocalEffectJournal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import preset_permissions
@@ -150,26 +153,23 @@ def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     execution["effect"] = {
         "effect_id": f"effect_{call_id}",
         "fingerprint": "a" * 64,
-        "class": "non_replayable",
-        "replay_policy": "manual",
-        "scope": "workspace",
-        "provider_idempotency_key": "",
-        "status": "dispatching",
-        "dispatch_required": True,
-        "dispatch_count": 1,
+        "replay": "manual",
     }
     current.update({
         "proto": "mind.chat",
         "presentation_epoch": 1,
         "execution": execution,
-        "checkpoint": {
-            "checkpoint_id": f"checkpoint_{call_id}",
-            "required": True,
-            "workspace": {"root": "/tmp/workspace"},
-            "artifact": {},
-        },
     })
     return current
+
+
+def _install_effect_journal(monkeypatch, db_path: Path) -> None:
+    """让流测试使用隔离的本地效果账本。"""
+    monkeypatch.setattr(
+        client_call,
+        "LocalEffectJournal",
+        lambda: LocalEffectJournal(db_path),
+    )
 
 
 def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
@@ -404,6 +404,137 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         "payload": {"content": "answer", "presentation_epoch": 1},
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) -> None:
+    """验证 provider 断流后只保留新 attempt 正文并切换重试状态。"""
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "text.delta",
+            "turn_id": "turn_test",
+            "presentation_epoch": 1,
+            "segment_id": "attempt-1",
+            "text": "old partial",
+        },
+        {
+            "type": "turn.retrying",
+            "turn_id": "turn_test",
+            "presentation_epoch": 1,
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 20,
+            "replace_current_response": True,
+            "reason": "stream_reset",
+        },
+        {
+            "type": "text.delta",
+            "turn_id": "turn_test",
+            "presentation_epoch": 1,
+            "segment_id": "attempt-2",
+            "text": "new answer",
+        },
+        {
+            "type": "text.done",
+            "turn_id": "turn_test",
+            "presentation_epoch": 1,
+            "segment_id": "attempt-2",
+        },
+        {"type": "turn.done", "turn_id": "turn_test"},
+    ])
+
+    assert result.status == "completed"
+    assert result.assistant_text == "new answer"
+    assert mind.output_session.content.items == [
+        AssistantTextDelta("old partial"),
+        AssistantPresentationSuperseded(
+            superseded_epoch=1,
+            presentation_epoch=1,
+        ),
+        AssistantTextDelta("new answer"),
+        AssistantSegmentCompleted(),
+        SourcesOutput(()),
+    ]
+    assert mind.frontend.runtime.set_wait_retrying.call_args_list == [
+        ((True,), {}),
+        ((False,), {}),
+    ]
+    assert [
+        entry["event"]
+        for entry in mind.transcripts.entries
+        if entry["actor"] == "assistant"
+    ] == ["message.created", "message.superseded", "message.created"]
+
+
+@pytest.mark.anyio
+async def test_provider_retry_without_partial_answer_adds_no_output_block(
+    monkeypatch,
+) -> None:
+    """验证首字节前重试不会制造空正文或额外 attempt 提示。"""
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "turn.retrying",
+            "turn_id": "turn_test",
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 20,
+            "replace_current_response": True,
+        },
+        {"type": "text.delta", "turn_id": "turn_test", "text": "answer"},
+        {"type": "text.done", "turn_id": "turn_test"},
+        {"type": "turn.done", "turn_id": "turn_test"},
+    ])
+
+    assert result.assistant_text == "answer"
+    assert not any(
+        isinstance(item, AssistantPresentationSuperseded)
+        for item in mind.output_session.content.items
+    )
+
+
+@pytest.mark.anyio
+async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
+    monkeypatch,
+) -> None:
+    """验证两个重试来源重叠时只产生一次完整状态区间。"""
+    async def overlapping_retry_stream(*_args, **kwargs):
+        reconnect_status = kwargs["on_reconnect_status"]
+        yield parse_stream_event({
+            "type": "turn.retrying",
+            "turn_id": "turn_test",
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 20,
+            "replace_current_response": True,
+        })
+        reconnect_status(True)
+        reconnect_status(False)
+        yield parse_stream_event({
+            "type": "text.delta",
+            "turn_id": "turn_test",
+            "text": "answer",
+        })
+        yield parse_stream_event({
+            "type": "text.done",
+            "turn_id": "turn_test",
+        })
+        yield parse_stream_event({
+            "type": "turn.done",
+            "turn_id": "turn_test",
+        })
+
+    result, mind = await _run_stream(
+        monkeypatch,
+        [],
+        stream_factory=overlapping_retry_stream,
+    )
+
+    assert result.status == "completed"
+    assert result.assistant_text == "answer"
+    assert mind.frontend.runtime.set_wait_retrying.call_args_list == [
+        ((True,), {}),
+        ((False,), {}),
+    ]
 
 
 @pytest.mark.anyio
@@ -1558,8 +1689,12 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
 
 
 @pytest.mark.anyio
-async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> None:
+async def test_stream_reports_plan_result_after_local_execution(
+    monkeypatch,
+    tmp_path,
+) -> None:
     posted = []
+    _install_effect_journal(monkeypatch, tmp_path / "effects.db")
 
     async def handle(_runner, *, invocation):
         assert invocation.name == PLAN_STEPS_TOOL
@@ -1607,7 +1742,9 @@ async def test_stream_reports_plan_result_after_local_execution(monkeypatch) -> 
 @pytest.mark.anyio
 async def test_stream_queues_pre_tool_context_after_operation_error(
     monkeypatch,
+    tmp_path,
 ) -> None:
+    _install_effect_journal(monkeypatch, tmp_path / "effects.db")
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
             return SimpleNamespace(data={
@@ -1650,7 +1787,11 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
 
 
 @pytest.mark.anyio
-async def test_post_tool_hook_replaces_plan_result_for_model(monkeypatch) -> None:
+async def test_post_tool_hook_replaces_plan_result_for_model(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _install_effect_journal(monkeypatch, tmp_path / "effects.db")
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
             return SimpleNamespace(data={

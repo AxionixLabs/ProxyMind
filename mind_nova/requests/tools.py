@@ -4,7 +4,11 @@
 import httpx
 import typing
 from engine.channel import Channel
-from mind_nova.identifiers import resolve_request_id
+from mind_nova.identifiers import (
+    resolve_request_id,
+    stable_request_id
+)
+from mind_nova.requests.reliable import post_json_reliably
 from mind_nova.services import service_endpoints
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
@@ -128,10 +132,15 @@ async def post_tool_result(
         request_id=request_id,
     )
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)
-        r.raise_for_status()
-        return r.json()
+    r = await post_json_reliably(
+        service_endpoints.endpoint("/tool-result"),
+        headers=headers,
+        payload=payload,
+        timeout=30.0,
+        client_factory=httpx.AsyncClient,
+    )
+    r.raise_for_status()
+    return r.json()
 
 
 def build_tool_result_payload(
@@ -145,13 +154,14 @@ def build_tool_result_payload(
     execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
     arguments: typing.Mapping[str, typing.Any] | None = None,
-    request_id: str | None = None,
+    request_id: str | None = None
 ) -> dict[str, typing.Any]:
     """构建可用于普通投递或效果核对的完整工具结果。"""
 
-    normalized_request_id = resolve_request_id(
-        request_id,
-        prefix="tool_result",
+    normalized_request_id = (
+        resolve_request_id(request_id, prefix="tool_result")
+        if request_id is not None
+        else stable_request_id("tool_result", cid, sid, call_id)
     )
 
     payload: _ToolResultPayload = {
@@ -195,9 +205,20 @@ async def post_tool_approval(
     clean_decision = str(decision or "").strip()
     clean_turn_id  = str(turn_id or "").strip()
 
-    normalized_request_id = resolve_request_id(
-        request_id,
-        prefix="approval",
+    normalized_request_id = (
+        resolve_request_id(request_id, prefix="approval")
+        if request_id is not None
+        else stable_request_id(
+            "approval",
+            cid,
+            sid,
+            clean_turn_id,
+            call_id,
+            approval_id,
+            clean_decision,
+            execpolicy_amendment_id,
+            reason,
+        )
     )
 
     amendment_id = str(execpolicy_amendment_id or "").strip()
@@ -236,25 +257,30 @@ async def post_tool_approval(
     if contexts:
         payload["additional_context"] = contexts
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(service_endpoints.endpoint("/tool-approval"), headers=headers, json=payload)
-        if r.is_error:
-            code, message = _tool_approval_error(r)
-            if r.status_code == 404 and code == "approval_not_pending":
-                raise ToolApprovalExpired(message)
-            raise ToolApprovalRequestError(
-                code,
-                message,
-                status_code=r.status_code,
-            )
-        return _tool_approval_ack(
-            r,
-            request_id=normalized_request_id,
-            turn_id=clean_turn_id,
-            approval_id=approval_id,
-            call_id=call_id,
-            decision=typed_decision,
+    r = await post_json_reliably(
+        service_endpoints.endpoint("/tool-approval"),
+        headers=headers,
+        payload=dict(payload),
+        timeout=timeout,
+        client_factory=httpx.AsyncClient,
+    )
+    if r.is_error:
+        code, message = _tool_approval_error(r)
+        if r.status_code == 404 and code == "approval_not_pending":
+            raise ToolApprovalExpired(message)
+        raise ToolApprovalRequestError(
+            code,
+            message,
+            status_code=r.status_code,
         )
+    return _tool_approval_ack(
+        r,
+        request_id=normalized_request_id,
+        turn_id=clean_turn_id,
+        approval_id=approval_id,
+        call_id=call_id,
+        decision=typed_decision,
+    )
 
 
 def _tool_result_for_server(

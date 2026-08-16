@@ -141,18 +141,26 @@ class TurnEventStream(object):
                 await self._finish("protocol_error")
                 raise
 
-            self._response_observed = True
             if parsed_event.type == "ping":
                 self._reconnect_failures = 0
+                self._set_reconnecting(False)
                 continue
+            self._validate_turn_identity(parsed_event)
+            self._response_observed = True
             if (
                 parsed_event.event_seq is not None
                 and parsed_event.event_seq <= self.last_event_seq
             ):
                 continue
+            if self._has_sequence_gap(parsed_event):
+                if await self._resume_stream():
+                    continue
+                await self._finish("protocol_error")
+                raise RuntimeError("turn event sequence is not continuous")
             if parsed_event.event_seq is not None:
                 self.last_event_seq = parsed_event.event_seq
             self._reconnect_failures = 0
+            self._set_reconnecting(False)
             event = parsed_event
 
         if isinstance(event, TurnLogicalSettledEvent):
@@ -186,7 +194,6 @@ class TurnEventStream(object):
                 if not isinstance(payload, dict):
                     await self._finish("protocol_error")
                     raise TypeError("stream payload must be an object")
-                self._set_reconnecting(False)
                 return payload
             except StopAsyncIteration:
                 if await self._resume_stream():
@@ -271,6 +278,25 @@ class TurnEventStream(object):
             self._timeout,
         )
         return True
+
+    def _validate_turn_identity(self, event: ChatStreamEvent) -> None:
+        """拒绝缺失坐标或不属于当前逻辑轮次的业务事件。"""
+        attach_target = self._attach_target
+        if attach_target is None:
+            raise ValueError("turn stream is missing recovery coordinates")
+        if event.turn_id != attach_target["turn_id"]:
+            raise ValueError("stream event does not belong to the current turn")
+        if event.event_seq is None or event.event_seq < 1:
+            raise ValueError("stream event requires a positive event_seq")
+
+    def _has_sequence_gap(self, event: ChatStreamEvent) -> bool:
+        """判断已建立水位后的事件序号是否出现缺口。"""
+        event_seq = event.event_seq
+        return (
+            event_seq is not None
+            and self.last_event_seq > 0
+            and event_seq > self.last_event_seq + 1
+        )
 
     def _set_reconnecting(self, reconnecting: bool) -> None:
         """在连接状态实际变化时通知上层。"""

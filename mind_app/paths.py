@@ -60,11 +60,6 @@ def effect_journal_db_path() -> Path:
     return mind_history_dir() / "effects.db"
 
 
-def workspace_artifacts_dir() -> Path:
-    """返回副作用执行前的本地恢复 artifact 目录。"""
-    return mind_history_dir() / "workspace-artifacts"
-
-
 def ensure_writable_dir(path: Path) -> Path:
     """确保目录存在且可写。"""
     target = Path(path).expanduser()

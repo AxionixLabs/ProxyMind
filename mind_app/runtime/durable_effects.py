@@ -70,14 +70,6 @@ class LocalEffectJournal:
         """持久提交一次已知的本地效果结果。"""
         await asyncio.to_thread(self._commit, effect, result_payload)
 
-    async def commit_unexecuted(
-        self,
-        effect: ExecutionEffect,
-        result_payload: dict[str, typing.Any],
-    ) -> None:
-        """原子记录尚未进入本地操作的确定失败结果。"""
-        await asyncio.to_thread(self._commit_unexecuted, effect, result_payload)
-
     async def mark_unknown(
         self,
         effect: ExecutionEffect,
@@ -130,14 +122,13 @@ class LocalEffectJournal:
                 INSERT OR IGNORE INTO local_effects (
                     effect_id, fingerprint, effect_class, replay_policy,
                     status, dispatch_count, created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'prepared', 0, ?, ?)
                 """,
                 (
                     effect.effect_id,
                     effect.fingerprint,
-                    effect.effect_class,
-                    effect.replay_policy,
-                    "prepared" if effect.dispatch_required else "reconciliation_required",
+                    "read_only" if effect.replay == "safe" else "non_replayable",
+                    effect.replay,
                     now_ms,
                     now_ms,
                 ),
@@ -150,6 +141,8 @@ class LocalEffectJournal:
                 raise sqlite3.DatabaseError("local effect record was not persisted")
             if str(row["fingerprint"]) != effect.fingerprint:
                 raise ValueError("local effect fingerprint conflicts with persisted semantics")
+            if str(row["replay_policy"]) != effect.replay:
+                raise ValueError("local effect replay policy conflicts with persisted semantics")
 
             status = str(row["status"])
             if status == "committed":
@@ -164,19 +157,7 @@ class LocalEffectJournal:
                 "unknown",
                 "reconciliation_required",
             }
-            if uncertain and effect.replay_policy == "manual":
-                connection.execute(
-                    """
-                    UPDATE local_effects
-                       SET status = 'reconciliation_required', updated_at_ms = ?
-                     WHERE effect_id = ?
-                    """,
-                    (now_ms, effect.effect_id),
-                )
-                connection.commit()
-                return EffectJournalDecision("reconcile")
-
-            if not effect.dispatch_required and status == "prepared":
+            if uncertain and effect.replay == "manual":
                 connection.execute(
                     """
                     UPDATE local_effects
@@ -214,11 +195,11 @@ class LocalEffectJournal:
                 (effect.effect_id,),
             ).fetchone()
             if row is None:
-                return EffectJournalDecision(
-                    "execute" if effect.dispatch_required else "reconcile"
-                )
+                return EffectJournalDecision("execute")
             if str(row["fingerprint"]) != effect.fingerprint:
                 raise ValueError("local effect fingerprint conflicts with persisted semantics")
+            if str(row["replay_policy"]) != effect.replay:
+                raise ValueError("local effect replay policy conflicts with persisted semantics")
 
             status = str(row["status"])
             if status == "committed":
@@ -230,9 +211,7 @@ class LocalEffectJournal:
                 "dispatching",
                 "unknown",
                 "reconciliation_required",
-            } and effect.replay_policy == "manual":
-                return EffectJournalDecision("reconcile")
-            if not effect.dispatch_required:
+            } and effect.replay == "manual":
                 return EffectJournalDecision("reconcile")
             return EffectJournalDecision("execute")
         finally:
@@ -269,59 +248,6 @@ class LocalEffectJournal:
                 )
                 if cursor.rowcount != 1:
                     raise ValueError("local effect commit identity is invalid")
-        finally:
-            connection.close()
-
-    def _commit_unexecuted(
-        self,
-        effect: ExecutionEffect,
-        result_payload: dict[str, typing.Any],
-    ) -> None:
-        """在同步事务中直接提交未取得执行权的确定结果。"""
-        encoded = json.dumps(
-            result_payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        now_ms = int(time.time() * 1000)
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO local_effects (
-                    effect_id, fingerprint, effect_class, replay_policy,
-                    status, dispatch_count, result_payload,
-                    created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, 'committed', 0, ?, ?, ?)
-                """,
-                (
-                    effect.effect_id,
-                    effect.fingerprint,
-                    effect.effect_class,
-                    effect.replay_policy,
-                    encoded,
-                    now_ms,
-                    now_ms,
-                ),
-            )
-            row = connection.execute(
-                "SELECT * FROM local_effects WHERE effect_id = ?",
-                (effect.effect_id,),
-            ).fetchone()
-            if row is None:
-                raise sqlite3.DatabaseError("local effect record was not persisted")
-            if str(row["fingerprint"]) != effect.fingerprint:
-                raise ValueError("local effect fingerprint conflicts with persisted semantics")
-            if str(row["status"]) != "committed" or int(row["dispatch_count"]) != 0:
-                raise ValueError("local effect already entered execution")
-            if str(row["result_payload"] or "") != encoded:
-                raise ValueError("local effect result conflicts with persisted outcome")
-            connection.commit()
-        except BaseException:
-            connection.rollback()
-            raise
         finally:
             connection.close()
 

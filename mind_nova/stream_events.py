@@ -16,35 +16,12 @@ TurnDoneStatus: typing.TypeAlias = typing.Literal[
     "interrupted",
 ]
 
-EffectClass: typing.TypeAlias = typing.Literal[
-    "read_only",
-    "idempotent",
-    "non_replayable",
-]
-
-EffectReplayPolicy: typing.TypeAlias = typing.Literal[
-    "safe",
-    "provider_idempotent",
-    "manual",
-]
-
-EffectScope: typing.TypeAlias = typing.Literal[
-    "none",
-    "workspace",
-    "process",
-    "external",
-]
+EffectReplay: typing.TypeAlias = typing.Literal["safe", "manual"]
 
 _EXECUTION_EFFECT_FIELDS = frozenset({
     "effect_id",
     "fingerprint",
-    "class",
-    "replay_policy",
-    "scope",
-    "provider_idempotency_key",
-    "status",
-    "dispatch_required",
-    "dispatch_count",
+    "replay",
 })
 
 
@@ -53,27 +30,7 @@ class ExecutionEffect:
     """描述客户端执行前必须遵守的持久效果约束。"""
     effect_id: str
     fingerprint: str
-    effect_class: EffectClass
-    replay_policy: EffectReplayPolicy
-    scope: EffectScope
-    provider_idempotency_key: str
-    status: str
-    dispatch_required: bool
-    dispatch_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class WorkspaceCheckpoint:
-    """描述本地副作用前必须上传 artifact 的恢复点。"""
-    checkpoint_id: str
-    required: bool
-    workspace: dict[str, typing.Any]
-    artifact: dict[str, typing.Any]
-
-    def __post_init__(self) -> None:
-        """复制可变字段，保持协议事件不可变。"""
-        object.__setattr__(self, "workspace", copy.deepcopy(self.workspace))
-        object.__setattr__(self, "artifact", copy.deepcopy(self.artifact))
+    replay: EffectReplay
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -123,6 +80,16 @@ class TurnDoneEvent(TurnTerminalEvent):
     status: TurnDoneStatus = "completed"
     reason: str = ""
     can_continue: bool | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TurnRetryingEvent(StreamEvent):
+    """描述当前 Turn 内一次可恢复的 provider 流重试。"""
+    attempt: int
+    max_attempts: int
+    retry_in_ms: int
+    replace_current_response: bool
+    reason: str = "stream_error"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -191,7 +158,6 @@ class ToolEvent(StreamEvent):
     meta: dict[str, typing.Any] | None = None
     execution: dict[str, typing.Any] | None = None
     effect: ExecutionEffect | None = None
-    checkpoint: WorkspaceCheckpoint | None = None
 
     def __post_init__(self) -> None:
         """复制工具事件中的可变映射字段。"""
@@ -255,6 +221,7 @@ ChatStreamEvent: typing.TypeAlias = (
     MarkerEvent
     | TurnFailedEvent
     | TurnDoneEvent
+    | TurnRetryingEvent
     | TurnInputAcceptedEvent
     | TurnLogicalSettledEvent
     | TurnReconciliationRequiredEvent
@@ -309,6 +276,31 @@ def parse_stream_event(
             status=_turn_done_status(raw.get("status")),
             reason=_text(raw.get("reason")),
             can_continue=_optional_bool(raw.get("can_continue")),
+        )
+    if event_type == "turn.retrying":
+        attempt = _required_positive_int(
+            raw.get("attempt"),
+            "turn.retrying attempt",
+        )
+        max_attempts = _required_positive_int(
+            raw.get("max_attempts"),
+            "turn.retrying max_attempts",
+        )
+        if attempt > max_attempts:
+            raise ValueError("turn.retrying attempt exceeds max_attempts")
+        retry_in_ms = _nonnegative_int(raw.get("retry_in_ms"))
+        if retry_in_ms is None:
+            raise ValueError("turn.retrying retry_in_ms must be a non-negative integer")
+        replace_current_response = raw.get("replace_current_response")
+        if not isinstance(replace_current_response, bool):
+            raise ValueError("turn.retrying replace_current_response must be a boolean")
+        return TurnRetryingEvent(
+            **common,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            retry_in_ms=retry_in_ms,
+            replace_current_response=replace_current_response,
+            reason=_text(raw.get("reason")) or "stream_error",
         )
     if event_type == "turn.input.accepted":
         return TurnInputAcceptedEvent(
@@ -381,26 +373,6 @@ def parse_stream_event(
         effect = tool_fields["effect"]
         if effect is None:
             raise ValueError("tool.call execution.effect is required")
-        checkpoint = tool_fields["checkpoint"]
-        if effect.scope == "workspace" and checkpoint is None:
-            raise ValueError("workspace tool.call checkpoint is required")
-        if effect.scope != "workspace" and checkpoint is not None:
-            raise ValueError("non-workspace tool.call must not include a checkpoint")
-        if effect.scope == "none":
-            if effect.effect_class != "read_only" or effect.replay_policy != "safe":
-                raise ValueError("scope none requires a safe read-only effect")
-        elif (
-            effect.effect_class != "non_replayable"
-            or effect.replay_policy != "manual"
-            or effect.provider_idempotency_key
-        ):
-            raise ValueError("local side effects require manual non-replayable semantics")
-        if (
-            effect.status != "dispatching"
-            or not effect.dispatch_required
-            or effect.dispatch_count < 1
-        ):
-            raise ValueError("tool.call effect is not dispatchable")
 
         return ToolCallEvent(
             **common,
@@ -458,12 +430,11 @@ def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
         "meta": _optional_dict(payload.get("meta")),
         "execution": execution,
         "effect": _execution_effect(execution),
-        "checkpoint": _workspace_checkpoint(payload.get("checkpoint")),
     }
 
 
 def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffect | None:
-    """严格解析 execution.effect 并校验分类与重放策略。"""
+    """严格解析客户端所需的最小效果执行约束。"""
     if execution is None or "effect" not in execution:
         return None
 
@@ -484,92 +455,14 @@ def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffec
     ):
         raise ValueError("execution.effect fingerprint must be a SHA-256 hex digest")
 
-    effect_class = _required_text(value.get("class"), "execution.effect class")
-
-    replay_policy = _required_text(
-        value.get("replay_policy"),
-        "execution.effect replay_policy",
-    )
-    if effect_class not in {"read_only", "idempotent", "non_replayable"}:
-        raise ValueError("execution.effect class is invalid")
-    if replay_policy not in {"safe", "provider_idempotent", "manual"}:
-        raise ValueError("execution.effect replay_policy is invalid")
-
-    scope = _required_text(value.get("scope"), "execution.effect scope")
-    if scope not in {"none", "workspace", "process", "external"}:
-        raise ValueError("execution.effect scope is invalid")
-    if effect_class == "non_replayable" and replay_policy != "manual":
-        raise ValueError("non-replayable effects require manual replay policy")
-    if effect_class == "read_only" and replay_policy != "safe":
-        raise ValueError("read-only effects require safe replay policy")
-
-    provider_key = value.get("provider_idempotency_key")
-    if not isinstance(provider_key, str):
-        raise ValueError("execution.effect provider_idempotency_key must be a string")
-
-    provider_key = provider_key.strip()
-
-    if replay_policy == "provider_idempotent" and not provider_key:
-        raise ValueError("provider-idempotent effects require an idempotency key")
-    if replay_policy != "provider_idempotent" and provider_key:
-        raise ValueError("provider idempotency key requires provider-idempotent replay")
-
-    dispatch_required = value.get("dispatch_required")
-    dispatch_count    = value.get("dispatch_count")
-
-    if not isinstance(dispatch_required, bool):
-        raise ValueError("execution.effect dispatch_required must be a boolean")
-
-    if (
-        isinstance(dispatch_count, bool)
-        or not isinstance(dispatch_count, int)
-        or dispatch_count < 0
-    ):
-        raise ValueError("execution.effect dispatch_count must be a non-negative integer")
+    replay = _required_text(value.get("replay"), "execution.effect replay")
+    if replay not in {"safe", "manual"}:
+        raise ValueError("execution.effect replay is invalid")
 
     return ExecutionEffect(
         effect_id=effect_id,
         fingerprint=fingerprint.lower(),
-        effect_class=typing.cast(EffectClass, effect_class),
-        replay_policy=typing.cast(EffectReplayPolicy, replay_policy),
-        scope=typing.cast(EffectScope, scope),
-        provider_idempotency_key=provider_key,
-        status=_required_text(value.get("status"), "execution.effect status"),
-        dispatch_required=dispatch_required,
-        dispatch_count=dispatch_count,
-    )
-
-
-def _workspace_checkpoint(value: typing.Any) -> WorkspaceCheckpoint | None:
-    """严格解析本地副作用执行前的 workspace checkpoint。"""
-    if value is None:
-        return None
-
-    if not isinstance(value, dict):
-        raise ValueError("tool checkpoint must be an object")
-
-    required = value.get("required")
-    if not isinstance(required, bool) or not required:
-        raise ValueError("tool checkpoint required must be true")
-
-    workspace = value.get("workspace")
-    artifact  = value.get("artifact")
-
-    if not isinstance(workspace, dict) or not isinstance(artifact, dict):
-        raise ValueError("tool checkpoint workspace and artifact must be objects")
-
-    root = workspace.get("root")
-    if not isinstance(root, str) or not root.strip():
-        raise ValueError("tool checkpoint workspace.root is required")
-
-    return WorkspaceCheckpoint(
-        checkpoint_id=_required_text(
-            value.get("checkpoint_id"),
-            "tool checkpoint checkpoint_id",
-        ),
-        required=True,
-        workspace=workspace,
-        artifact=artifact,
+        replay=typing.cast(EffectReplay, replay),
     )
 
 

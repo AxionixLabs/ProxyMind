@@ -6,7 +6,7 @@ from dataclasses import (
     dataclass,
     replace
 )
-from mind_nova.stream_events import ExecutionEffect, WorkspaceCheckpoint
+from mind_nova.stream_events import ExecutionEffect
 from mind_core.permissions import PermissionSettings
 from mind_nova.identifiers import (
     normalize_turn_id,
@@ -229,7 +229,6 @@ class ToolInvocation:
     meta: dict[str, typing.Any] | None = None
     execution: dict[str, typing.Any] | None = None
     effect: ExecutionEffect | None = None
-    checkpoint: WorkspaceCheckpoint | None = None
 
     def __post_init__(self) -> None:
         """复制可变输入，避免调用建立后被外部修改。"""

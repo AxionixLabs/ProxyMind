@@ -6,6 +6,7 @@ from mind_nova.stream_events import (
     TextDeltaEvent,
     TextMetaEvent,
     ToolBuiltinDoneEvent,
+    TurnRetryingEvent,
 )
 
 
@@ -82,3 +83,32 @@ def test_superseded_epoch_is_excluded_from_canonical_text_and_sources() -> None:
     assert tracker.assistant_text() == "new"
     assert tracker.latest_assistant_output_text() == "new"
     assert list(tracker.iter_sources()) == []
+
+
+def test_retry_supersedes_already_committed_output_in_same_epoch() -> None:
+    tracker = SegmentTracker()
+    tracker.on_text_delta(TextDeltaEvent(
+        type="text.delta",
+        text="old",
+        segment_id="attempt-1",
+        presentation_epoch=1,
+    ))
+    assert tracker.commit_assistant_output() == "old"
+
+    replaced = tracker.on_turn_retrying(TurnRetryingEvent(
+        type="turn.retrying",
+        presentation_epoch=1,
+        attempt=2,
+        max_attempts=3,
+        retry_in_ms=100,
+        replace_current_response=True,
+    ))
+    tracker.on_text_delta(TextDeltaEvent(
+        type="text.delta",
+        text="new",
+        segment_id="attempt-2",
+        presentation_epoch=1,
+    ))
+
+    assert replaced is True
+    assert tracker.assistant_text() == "new"

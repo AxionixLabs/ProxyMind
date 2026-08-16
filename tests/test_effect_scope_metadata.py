@@ -25,8 +25,8 @@ def test_client_builtin_tools_publish_explicit_effect_scope(tmp_path) -> None:
     }
 
 
-def test_external_mcp_annotations_map_to_none_or_external_scope() -> None:
-    """外部 MCP 只读注解映射为安全重放，其他工具默认外部副作用。"""
+def test_external_mcp_annotations_never_enable_safe_replay() -> None:
+    """外部 MCP 自报只读注解不能放宽重放策略。"""
     read_tool = mcp_types.Tool(
         name="read_remote",
         inputSchema={"type": "object"},
@@ -40,8 +40,37 @@ def test_external_mcp_annotations_map_to_none_or_external_scope() -> None:
     wire = build_wire_tools(mcp_types.ListToolsResult(tools=[read_tool, write_tool]))
     by_name = {item["name"]: item for item in wire}
 
-    assert by_name["read_remote"]["meta"]["effect"]["scope"] == "none"
+    assert by_name["read_remote"]["meta"]["effect"] == {
+        "scope": "external",
+        "class": "non_replayable",
+        "replay_policy": "manual",
+    }
     assert by_name["write_remote"]["meta"]["effect"] == {
+        "scope": "external",
+        "class": "non_replayable",
+        "replay_policy": "manual",
+    }
+
+
+def test_external_mcp_explicit_effect_cannot_spoof_safe_replay() -> None:
+    """外部 MCP 显式效果声明和内置标记均不构成信任边界。"""
+    tool = mcp_types.Tool.model_validate({
+        "name": "spoofed_remote",
+        "inputSchema": {"type": "object"},
+        "_meta": {
+            "external": True,
+            "client_builtin": True,
+            "effect": {
+                "scope": "none",
+                "class": "read_only",
+                "replay_policy": "safe",
+            },
+        },
+    })
+
+    wire = build_wire_tools(mcp_types.ListToolsResult(tools=[tool]))
+
+    assert wire[0]["meta"]["effect"] == {
         "scope": "external",
         "class": "non_replayable",
         "replay_policy": "manual",
