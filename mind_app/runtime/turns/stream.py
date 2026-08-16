@@ -46,9 +46,10 @@ from mind_nova.requests.tools import (
 )
 from ...output import (
     AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
-    AssistantPresentationSuperseded,
     OutputControlPort,
     SourcesOutput
 )
@@ -495,6 +496,8 @@ async def stream_turn(
                 payload={
                     "content": assistant_output,
                     "presentation_epoch": tracker.last_committed_epoch,
+                    "round": tracker.last_committed_round,
+                    "attempt": tracker.last_committed_attempt,
                 },
             )
 
@@ -630,14 +633,17 @@ async def stream_turn(
                         "message.superseded",
                         actor="assistant",
                         payload={
+                            "scope": "response",
                             "presentation_epoch": event.presentation_epoch,
-                            "superseded_by_epoch": event.presentation_epoch,
+                            "round": event.round,
+                            "attempt": event.attempt,
                             "reason": event.reason,
                         },
                     )
-                    await content.emit(AssistantPresentationSuperseded(
-                        superseded_epoch=event.presentation_epoch,
+                    await content.emit(AssistantResponseSuperseded(
                         presentation_epoch=event.presentation_epoch,
+                        round=event.round,
+                        attempt=event.attempt,
                     ))
                 await status_control.begin_reply_wait_status()
                 continue
@@ -729,6 +735,7 @@ async def stream_turn(
                     "message.superseded",
                     actor="assistant",
                     payload={
+                        "scope": "presentation",
                         "presentation_epoch": event.superseded_epoch,
                         "superseded_by_epoch": event.presentation_epoch,
                         "reason": event.reason,
@@ -1308,7 +1315,7 @@ async def stream_turn(
 
         if turn_completed and turn_context.agent.depth == 0:
             record_pending_assistant_output()
-            mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
+            mind.remember_last_assistant_reply(tracker.assistant_text())
 
         await status_control.end_status()
         await content.emit(SourcesOutput(tuple(tracker.iter_sources())))
@@ -1374,7 +1381,7 @@ async def stream_turn(
                             error=failure_error,
                             usage=turn_usage,
                             last_assistant_message=(
-                                tracker.latest_assistant_output_text()
+                                tracker.assistant_text()
                             ),
                             continuation_count=turn_continuation_count(
                                 turn_execution
@@ -1387,7 +1394,7 @@ async def stream_turn(
                         error=failure_error,
                         usage=turn_usage,
                         last_assistant_message=(
-                            tracker.latest_assistant_output_text()
+                            tracker.assistant_text()
                         ),
                         continuation_count=turn_continuation_count(
                             turn_execution
@@ -1408,7 +1415,7 @@ async def stream_turn(
 
     result = RunResult(
         status=result_status,
-        assistant_text=tracker.latest_assistant_output_text(),
+        assistant_text=tracker.assistant_text(),
         usage=dict(turn_usage),
         error=failure_error,
         additional_context=result_additional_context,

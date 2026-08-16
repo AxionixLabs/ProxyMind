@@ -85,6 +85,7 @@ class TurnDoneEvent(TurnTerminalEvent):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TurnRetryingEvent(StreamEvent):
     """描述当前 Turn 内一次可恢复的 provider 流重试。"""
+    round: int
     attempt: int
     max_attempts: int
     retry_in_ms: int
@@ -278,24 +279,35 @@ def parse_stream_event(
             can_continue=_optional_bool(raw.get("can_continue")),
         )
     if event_type == "turn.retrying":
+        retry_round = _required_positive_int(
+            common.get("round"),
+            "turn.retrying round",
+        )
         attempt = _required_positive_int(
             raw.get("attempt"),
             "turn.retrying attempt",
         )
+        if attempt < 2:
+            raise ValueError("turn.retrying attempt must be greater than one")
         max_attempts = _required_positive_int(
             raw.get("max_attempts"),
             "turn.retrying max_attempts",
         )
         if attempt > max_attempts:
             raise ValueError("turn.retrying attempt exceeds max_attempts")
+
         retry_in_ms = _nonnegative_int(raw.get("retry_in_ms"))
         if retry_in_ms is None:
             raise ValueError("turn.retrying retry_in_ms must be a non-negative integer")
-        replace_current_response = raw.get("replace_current_response")
-        if not isinstance(replace_current_response, bool):
-            raise ValueError("turn.retrying replace_current_response must be a boolean")
+
+        replace_current_response = _optional_bool(
+            raw.get("replace_current_response")
+        )
+        if not replace_current_response:
+            raise ValueError("turn.retrying replace_current_response must be true")
+
         return TurnRetryingEvent(
-            **common,
+            **{**common, "round": retry_round},
             attempt=attempt,
             max_attempts=max_attempts,
             retry_in_ms=retry_in_ms,

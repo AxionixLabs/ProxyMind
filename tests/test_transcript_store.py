@@ -269,6 +269,92 @@ def test_replay_keeps_javascript_start_and_result_separate() -> None:
     ]
 
 
+def test_replay_supersedes_only_the_retried_model_response() -> None:
+    """验证 provider retry 保留同一展示代次中的前序模型 round。"""
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="assistant",
+            payload=payload,
+        )
+
+    replay = TranscriptReplay((
+        entry("message.created", {
+            "content": "round one",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        }),
+        entry("message.created", {
+            "content": "round two partial",
+            "presentation_epoch": 1,
+            "round": 2,
+            "attempt": 1,
+        }),
+        entry("message.superseded", {
+            "scope": "response",
+            "presentation_epoch": 1,
+            "round": 2,
+            "attempt": 2,
+        }),
+        entry("message.created", {
+            "content": "round two final",
+            "presentation_epoch": 1,
+            "round": 2,
+            "attempt": 2,
+        }),
+    )).build()
+
+    assert [item.payload["content"] for item in replay] == [
+        "round one",
+        "round two final",
+    ]
+
+
+def test_replay_presentation_takeover_supersedes_the_entire_old_epoch() -> None:
+    """验证 Worker 接管仍会排除整个旧展示代次。"""
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="assistant",
+            payload=payload,
+        )
+
+    replay = TranscriptReplay((
+        entry("message.created", {
+            "content": "old round one",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        }),
+        entry("message.created", {
+            "content": "old round two",
+            "presentation_epoch": 1,
+            "round": 2,
+            "attempt": 1,
+        }),
+        entry("message.superseded", {
+            "scope": "presentation",
+            "presentation_epoch": 1,
+            "superseded_by_epoch": 2,
+        }),
+        entry("message.created", {
+            "content": "recovered",
+            "presentation_epoch": 2,
+            "round": 2,
+            "attempt": 1,
+        }),
+    )).build()
+
+    assert [item.payload["content"] for item in replay] == ["recovered"]
+
+
 def test_store_finds_only_existing_transcript_path(tmp_path) -> None:
     session_id = new_sid(new_cid())
     store = ConversationTranscriptStore(tmp_path / "sessions")

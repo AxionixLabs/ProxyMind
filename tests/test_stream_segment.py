@@ -81,7 +81,6 @@ def test_superseded_epoch_is_excluded_from_canonical_text_and_sources() -> None:
     ))
 
     assert tracker.assistant_text() == "new"
-    assert tracker.latest_assistant_output_text() == "new"
     assert list(tracker.iter_sources()) == []
 
 
@@ -92,12 +91,14 @@ def test_retry_supersedes_already_committed_output_in_same_epoch() -> None:
         text="old",
         segment_id="attempt-1",
         presentation_epoch=1,
+        round=1,
     ))
     assert tracker.commit_assistant_output() == "old"
 
     replaced = tracker.on_turn_retrying(TurnRetryingEvent(
         type="turn.retrying",
         presentation_epoch=1,
+        round=1,
         attempt=2,
         max_attempts=3,
         retry_in_ms=100,
@@ -108,7 +109,52 @@ def test_retry_supersedes_already_committed_output_in_same_epoch() -> None:
         text="new",
         segment_id="attempt-2",
         presentation_epoch=1,
+        round=1,
     ))
 
     assert replaced is True
     assert tracker.assistant_text() == "new"
+
+
+def test_retry_only_supersedes_current_model_round() -> None:
+    """验证后一模型 round 重试时保留前序 round 的成功正文。"""
+    tracker = SegmentTracker()
+    tracker.on_text_delta(TextDeltaEvent(
+        type="text.delta",
+        text="round one",
+        segment_id="round-1-attempt-1",
+        presentation_epoch=1,
+        round=1,
+    ))
+    tracker.commit_assistant_output()
+    tracker.on_text_delta(TextDeltaEvent(
+        type="text.delta",
+        text="round two partial",
+        segment_id="round-2-attempt-1",
+        presentation_epoch=1,
+        round=2,
+    ))
+
+    replaced = tracker.on_turn_retrying(TurnRetryingEvent(
+        type="turn.retrying",
+        presentation_epoch=1,
+        round=2,
+        attempt=2,
+        max_attempts=3,
+        retry_in_ms=100,
+        replace_current_response=True,
+    ))
+    tracker.on_text_delta(TextDeltaEvent(
+        type="text.delta",
+        text="round two final",
+        segment_id="round-2-attempt-2",
+        presentation_epoch=1,
+        round=2,
+    ))
+
+    assert replaced is True
+    assert tracker.assistant_text() == "round one\nround two final"
+    assert [
+        segment["superseded"]
+        for segment in tracker.segments_by_key.values()
+    ] == [False, True, False]

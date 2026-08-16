@@ -124,6 +124,7 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
         "type": "turn.retrying",
         "turn_id": "turn_test",
         "event_seq": 7,
+        "round": 2,
         "attempt": 2,
         "max_attempts": 3,
         "retry_in_ms": 250,
@@ -141,10 +142,20 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
         {"attempt": 0, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": True},
         {"attempt": 4, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": True},
         {"attempt": 2, "max_attempts": 3, "retry_in_ms": -1, "replace_current_response": True},
+        {"attempt": 2, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": 1},
         {"attempt": 2, "max_attempts": 3, "retry_in_ms": 0, "replace_current_response": "yes"},
     ):
         with pytest.raises(ValueError):
-            parse_stream_event({"type": "turn.retrying", **invalid})
+            parse_stream_event({"type": "turn.retrying", "round": 2, **invalid})
+
+    with pytest.raises(ValueError, match="round"):
+        parse_stream_event({
+            "type": "turn.retrying",
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 0,
+            "replace_current_response": True,
+        })
 
 
 def test_text_meta_event_copies_structured_metadata() -> None:

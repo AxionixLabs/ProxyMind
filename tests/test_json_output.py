@@ -6,6 +6,7 @@ import json
 import pytest
 
 from mind_app.output.content import (
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
 )
@@ -66,6 +67,27 @@ async def test_json_output_preserves_structured_text_semantics() -> None:
 
     event = json.loads(stdout.getvalue())
     assert event["item"]["text"] == raw
+
+
+@pytest.mark.anyio
+async def test_json_output_distinguishes_response_retry_from_worker_takeover() -> None:
+    """验证结构化输出保留 provider response 的精确替换作用域。"""
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    content = JsonContentSink(state)
+
+    await content.emit(AssistantResponseSuperseded(
+        presentation_epoch=1,
+        round=2,
+        attempt=2,
+    ))
+
+    assert json.loads(stdout.getvalue()) == {
+        "type": "response.superseded",
+        "presentation_epoch": 1,
+        "round": 2,
+        "attempt": 2,
+    }
 
 
 @pytest.mark.anyio

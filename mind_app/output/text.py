@@ -34,6 +34,7 @@ from ..stream_io.output_record import StreamRecordWriter
 from .content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -318,7 +319,10 @@ class TextContentSink(ContentSink):
         if isinstance(output, (AssistantSegmentCompleted, AssistantOutputBoundary)):
             self.state.settle_assistant()
             return None
-        if isinstance(output, AssistantPresentationSuperseded):
+        if isinstance(output, (
+            AssistantPresentationSuperseded,
+            AssistantResponseSuperseded,
+        )):
             self.state.settle_assistant()
             self.state.process("↻ Previous attempt interrupted; retrying\n")
             return None

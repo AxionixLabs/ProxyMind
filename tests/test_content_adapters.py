@@ -10,6 +10,7 @@ import pytest
 
 from mind_app.output.content import (
     AssistantOutputBoundary,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
 )
 from mind_app.output.terminal_content import TerminalContentSink
@@ -52,3 +53,37 @@ async def test_content_adapter_projects_external_output_boundary(
     output.prepare_external_output.assert_awaited_once_with()
     output.settle_stream.assert_not_awaited()
     output.mark_stream_boundary.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_tui_content_adapter_projects_response_retry_boundary() -> None:
+    """验证 response 重试沿用原子的 TUI 正文切换路径。"""
+    output = SimpleNamespace(supersede_assistant_presentation=Mock())
+    sink = TuiContentSink(output)
+
+    await sink.emit(AssistantResponseSuperseded(
+        presentation_epoch=1,
+        round=2,
+        attempt=2,
+    ))
+
+    output.supersede_assistant_presentation.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_terminal_content_adapter_projects_response_retry_boundary() -> None:
+    """验证非 TUI 终端在 response 重试时提交旧正文并输出单条提示。"""
+    output = SimpleNamespace(
+        prepare_external_output=AsyncMock(),
+        feed=AsyncMock(),
+    )
+    sink = TerminalContentSink(output)
+
+    await sink.emit(AssistantResponseSuperseded(
+        presentation_epoch=1,
+        round=2,
+        attempt=2,
+    ))
+
+    output.prepare_external_output.assert_awaited_once_with()
+    output.feed.assert_awaited_once()

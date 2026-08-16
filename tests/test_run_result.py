@@ -19,6 +19,7 @@ from mind_app.runtime.turns.result import RunResult
 from mind_app.output.content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     SourcesOutput,
@@ -401,7 +402,12 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
     assert mind.transcripts.entries[2] == {
         "event": "message.created",
         "actor": "assistant",
-        "payload": {"content": "answer", "presentation_epoch": 1},
+        "payload": {
+            "content": "answer",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        },
     }
     assert not hasattr(mind, "hook_scope")
 
@@ -414,6 +420,7 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
             "type": "text.delta",
             "turn_id": "turn_test",
             "presentation_epoch": 1,
+            "round": 1,
             "segment_id": "attempt-1",
             "text": "old partial",
         },
@@ -421,6 +428,7 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
             "type": "turn.retrying",
             "turn_id": "turn_test",
             "presentation_epoch": 1,
+            "round": 1,
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 20,
@@ -431,6 +439,7 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
             "type": "text.delta",
             "turn_id": "turn_test",
             "presentation_epoch": 1,
+            "round": 1,
             "segment_id": "attempt-2",
             "text": "new answer",
         },
@@ -447,9 +456,10 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
     assert result.assistant_text == "new answer"
     assert mind.output_session.content.items == [
         AssistantTextDelta("old partial"),
-        AssistantPresentationSuperseded(
-            superseded_epoch=1,
+        AssistantResponseSuperseded(
             presentation_epoch=1,
+            round=1,
+            attempt=2,
         ),
         AssistantTextDelta("new answer"),
         AssistantSegmentCompleted(),
@@ -467,6 +477,86 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
 
 
 @pytest.mark.anyio
+async def test_provider_retry_preserves_completed_previous_model_round(
+    monkeypatch,
+) -> None:
+    """验证跨模型 round 重试只替换当前 response 的正文与记录。"""
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "text.delta",
+            "round": 1,
+            "segment_id": "round-1-attempt-1",
+            "text": "round one",
+        },
+        {
+            "type": "text.done",
+            "round": 1,
+            "segment_id": "round-1-attempt-1",
+        },
+        {
+            "type": "tool.output",
+            "round": 1,
+            "name": "remote_tool",
+            "call_id": "call-1",
+            "status": "completed",
+            "result": {"ok": True},
+        },
+        {
+            "type": "text.delta",
+            "round": 2,
+            "segment_id": "round-2-attempt-1",
+            "text": "round two partial",
+        },
+        {
+            "type": "turn.retrying",
+            "round": 2,
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 20,
+            "replace_current_response": True,
+        },
+        {
+            "type": "text.delta",
+            "round": 2,
+            "segment_id": "round-2-attempt-2",
+            "text": "round two final",
+        },
+        {
+            "type": "text.done",
+            "round": 2,
+            "segment_id": "round-2-attempt-2",
+        },
+        {"type": "turn.done", "round": 2},
+    ])
+
+    assert result.assistant_text == "round one\nround two final"
+    assistant_entries = [
+        entry
+        for entry in mind.transcripts.entries
+        if entry["actor"] == "assistant"
+    ]
+    assert [entry["event"] for entry in assistant_entries] == [
+        "message.created",
+        "message.created",
+        "message.superseded",
+        "message.created",
+    ]
+    assert assistant_entries[0]["payload"] == {
+        "content": "round one",
+        "presentation_epoch": 1,
+        "round": 1,
+        "attempt": 1,
+    }
+    assert assistant_entries[2]["payload"] == {
+        "scope": "response",
+        "presentation_epoch": 1,
+        "round": 2,
+        "attempt": 2,
+        "reason": "stream_error",
+    }
+
+
+@pytest.mark.anyio
 async def test_provider_retry_without_partial_answer_adds_no_output_block(
     monkeypatch,
 ) -> None:
@@ -475,6 +565,7 @@ async def test_provider_retry_without_partial_answer_adds_no_output_block(
         {
             "type": "turn.retrying",
             "turn_id": "turn_test",
+            "round": 1,
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 20,
@@ -487,7 +578,7 @@ async def test_provider_retry_without_partial_answer_adds_no_output_block(
 
     assert result.assistant_text == "answer"
     assert not any(
-        isinstance(item, AssistantPresentationSuperseded)
+        isinstance(item, AssistantResponseSuperseded)
         for item in mind.output_session.content.items
     )
 
@@ -502,6 +593,7 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
         yield parse_stream_event({
             "type": "turn.retrying",
             "turn_id": "turn_test",
+            "round": 1,
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 20,
@@ -811,7 +903,15 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
     ]
     assert messages == [
         ("user", {"content": "hello"}),
-            ("assistant", {"content": "before", "presentation_epoch": 1}),
+        (
+            "assistant",
+            {
+                "content": "before",
+                "presentation_epoch": 1,
+                "round": 1,
+                "attempt": 1,
+            },
+        ),
         (
             "user",
             {
@@ -820,7 +920,15 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
                 "extras": {"source": "tui"},
             },
         ),
-            ("assistant", {"content": "after", "presentation_epoch": 1}),
+        (
+            "assistant",
+            {
+                "content": "after",
+                "presentation_epoch": 1,
+                "round": 1,
+                "attempt": 1,
+            },
+        ),
     ]
 
 
@@ -852,14 +960,24 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
     assert ordered[0] == (
         "message.created",
         "assistant",
-        {"content": "before", "presentation_epoch": 1},
+        {
+            "content": "before",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        },
     )
     assert ordered[1][0:2] == ("tool.completed", "tool")
     assert ordered[1][2]["duration_ms"] == 3500
     assert ordered[2] == (
         "message.created",
         "assistant",
-        {"content": "after", "presentation_epoch": 1},
+        {
+            "content": "after",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        },
     )
 
 

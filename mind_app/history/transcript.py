@@ -199,6 +199,40 @@ class TranscriptReplay(object):
         """保存待归并的结构化会话事件。"""
         self.entries = tuple(entries)
 
+    @staticmethod
+    def _supersedes_assistant(
+        marker: TranscriptEntry,
+        item: TranscriptEntry,
+    ) -> bool:
+        """判断替换标记是否覆盖指定助手消息。"""
+        if item.actor != "assistant" or item.turn_id != marker.turn_id:
+            return False
+
+        scope        = _payload_text(marker.payload, "scope")
+        marker_epoch = _payload_positive_int(marker.payload, "presentation_epoch")
+        item_epoch   = _payload_positive_int(item.payload, "presentation_epoch")
+
+        if marker_epoch is None or item_epoch is None:
+            return False
+
+        if scope == "presentation":
+            return item_epoch <= marker_epoch
+        if scope != "response" or item_epoch != marker_epoch:
+            return False
+
+        marker_round   = _payload_positive_int(marker.payload, "round")
+        marker_attempt = _payload_positive_int(marker.payload, "attempt")
+        item_round     = _payload_positive_int(item.payload, "round")
+        item_attempt   = _payload_positive_int(item.payload, "attempt")
+
+        return (
+            marker_round is not None
+            and marker_attempt is not None
+            and item_round == marker_round
+            and item_attempt is not None
+            and item_attempt < marker_attempt
+        )
+
     def build(self) -> tuple[TranscriptEntry, ...]:
         """返回完成更新合并和工具调用配对后的事件。"""
         replay: list[TranscriptEntry] = []
@@ -210,21 +244,10 @@ class TranscriptReplay(object):
 
         for entry in self.entries:
             if entry.event == "message.superseded" and entry.actor == "assistant":
-                superseded_epoch = entry.payload.get("presentation_epoch")
-                if isinstance(superseded_epoch, bool) or not isinstance(
-                    superseded_epoch,
-                    int,
-                ):
-                    continue
                 replay = [
                     item
                     for item in replay
-                    if not (
-                        item.actor == "assistant"
-                        and item.turn_id == entry.turn_id
-                        and int(item.payload.get("presentation_epoch") or 1)
-                        <= superseded_epoch
-                    )
+                    if not self._supersedes_assistant(entry, item)
                 ]
                 continue
 
@@ -505,6 +528,14 @@ def _payload_text(payload: dict[str, typing.Any], key: str) -> str:
     """返回事件载荷中的非空文本字段。"""
     value = payload.get(key)
     return str(value).strip() if isinstance(value, str) else ""
+
+
+def _payload_positive_int(payload: dict[str, typing.Any], key: str) -> int | None:
+    """返回事件载荷中的正整数字段。"""
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
 
 
 def _session_datetime(session_id: str) -> datetime:

@@ -4,6 +4,7 @@
 from mind_app.output.content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -33,7 +34,10 @@ class TuiContentSink(ContentSink):
         if isinstance(output, AssistantOutputBoundary):
             await self.output.prepare_external_output()
             return None
-        if isinstance(output, AssistantPresentationSuperseded):
+        if isinstance(output, (
+            AssistantPresentationSuperseded,
+            AssistantResponseSuperseded,
+        )):
             self.output.supersede_assistant_presentation()
             return None
         if isinstance(output, SourcesOutput):

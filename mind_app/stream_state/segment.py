@@ -7,6 +7,7 @@ from mind_nova.stream_events import (
     TextDoneEvent,
     TextMetaEvent,
     PresentationSupersededEvent,
+    StreamEvent,
     TurnRetryingEvent,
     ToolBuiltinDoneEvent
 )
@@ -29,9 +30,11 @@ class SegmentTracker(object):
         self.pending_segment_sources: typing.Optional[dict[str, typing.Any]] = None
         self.pending_output_segment_keys: list[str]                          = []
 
-        self.output_blocks: list[list[str]] = []
+        self.last_committed_epoch: int   = 1
+        self.last_committed_round: int   = 1
+        self.last_committed_attempt: int = 1
 
-        self.last_committed_epoch: int = 1
+        self.active_attempts: dict[tuple[int, int], int] = {}
 
     @staticmethod
     def _merge_segment_meta(
@@ -93,10 +96,40 @@ class SegmentTracker(object):
         self._apply_pending_meta(segment, remote_segment_id)
         return segment
 
-    def _latest_unbound_segment(self) -> typing.Optional[dict[str, typing.Any]]:
-        """返回最近创建且尚未绑定远端标识的段落。"""
+    @staticmethod
+    def _has_response_identity(
+        segment: dict[str, typing.Any],
+        identity: tuple[int, int, int]
+    ) -> bool:
+        """判断段落是否属于指定展示代次、模型 round 和 provider attempt。"""
+        return (
+            int(segment.get("presentation_epoch") or 1),
+            int(segment.get("round") or 1),
+            int(segment.get("attempt") or 1),
+        ) == identity
+
+    def _event_response_identity(
+        self,
+        event: StreamEvent
+    ) -> tuple[int, int, int]:
+        """返回事件当前所属的 response 身份。"""
+        presentation_epoch = max(1, int(event.presentation_epoch))
+        round_no = max(1, int(event.round or 1))
+        attempt = self.active_attempts.get((presentation_epoch, round_no), 1)
+        return presentation_epoch, round_no, attempt
+
+    def _latest_unbound_segment(
+        self,
+        identity: tuple[int, int, int]
+    ) -> typing.Optional[dict[str, typing.Any]]:
+        """返回同一 response 中最近创建且尚未绑定远端标识的段落。"""
         for key in reversed(self.segment_order):
-            if (segment := self.segments_by_key.get(key)) and not segment.get("segment_id"):
+            if (
+                (segment := self.segments_by_key.get(key))
+                and not segment.get("segment_id")
+                and not bool(segment.get("superseded"))
+                and self._has_response_identity(segment, identity)
+            ):
                 return segment
         return None
 
@@ -104,10 +137,13 @@ class SegmentTracker(object):
         self,
         remote_segment_id: typing.Optional[typing.Any] = None,
         *,
-        presentation_epoch: int = 1
+        presentation_epoch: int = 1,
+        round_no: int = 1,
+        attempt: int = 1
     ) -> dict[str, typing.Any]:
-        """创建属于指定展示 epoch 的本地正文段落。"""
+        """创建属于指定 response 身份的本地正文段落。"""
         self.segment_seq += 1
+
         local_id = f"segment-{self.segment_seq}"
 
         segment = {
@@ -120,6 +156,8 @@ class SegmentTracker(object):
             "sources": [],
             "source_count": 0,
             "presentation_epoch": max(1, int(presentation_epoch)),
+            "round": max(1, int(round_no)),
+            "attempt": max(1, int(attempt)),
             "superseded": False,
         }
 
@@ -148,27 +186,40 @@ class SegmentTracker(object):
         remote_segment_id: typing.Optional[typing.Any] = None,
         *,
         create: bool = False,
-        prefer_current: bool = False
+        prefer_current: bool = False,
+        presentation_epoch: int = 1,
+        round_no: int = 1,
+        attempt: int = 1
     ) -> typing.Optional[dict[str, typing.Any]]:
         """按远端标识和当前流式状态解析正文段落。"""
         remote_id = str(remote_segment_id or "").strip()
+        identity  = (presentation_epoch, round_no, attempt)
 
         if remote_id and remote_id in self.segments_by_remote_id:
-            return self.segments_by_key.get(self.segments_by_remote_id[remote_id])
+            segment = self.segments_by_key.get(self.segments_by_remote_id[remote_id])
+            if segment is not None and not self._has_response_identity(segment, identity):
+                raise ValueError("segment_id cannot cross response identity")
+            return segment
 
         if prefer_current and self.current_segment_key:
             segment = self.segments_by_key.get(self.current_segment_key)
-            if segment:
+            if segment and self._has_response_identity(segment, identity):
                 return self._bind_remote_segment(segment, remote_id)
 
-        if remote_id and (segment := self._latest_unbound_segment()):
+        if remote_id and (segment := self._latest_unbound_segment(identity)):
             return self._bind_remote_segment(segment, remote_id)
 
         if self.current_segment_key and (segment := self.segments_by_key.get(self.current_segment_key)):
-            return segment
+            if self._has_response_identity(segment, identity):
+                return segment
 
         if create:
-            return self._create_segment(remote_id)
+            return self._create_segment(
+                remote_id,
+                presentation_epoch=presentation_epoch,
+                round_no=round_no,
+                attempt=attempt,
+            )
 
         return None
 
@@ -177,21 +228,29 @@ class SegmentTracker(object):
         if not event.text:
             return None
 
+        presentation_epoch, round_no, attempt = self._event_response_identity(event)
+
         segment = self._resolve_segment(
             event.segment_id,
             create=True,
             prefer_current=True,
+            presentation_epoch=presentation_epoch,
+            round_no=round_no,
+            attempt=attempt,
         )
         if segment is not None:
-            segment["presentation_epoch"] = event.presentation_epoch
             segment["text"] += event.text
             self._remember_output_segment(segment)
 
     def on_text_done(self, event: TextDoneEvent) -> None:
         """标记正文段落结束并断开当前流式段落。"""
+        presentation_epoch, round_no, attempt = self._event_response_identity(event)
         if segment := self._resolve_segment(
             event.segment_id,
             prefer_current=True,
+            presentation_epoch=presentation_epoch,
+            round_no=round_no,
+            attempt=attempt,
         ):
             segment["done"] = True
         self.current_segment_key = None
@@ -201,8 +260,17 @@ class SegmentTracker(object):
         if not event.segment_id:
             return None
 
+        presentation_epoch, round_no, attempt = self._event_response_identity(event)
+
         payload = self._typed_segment_meta_payload(event)
-        if segment := self._resolve_segment(event.segment_id, prefer_current=True):
+
+        if segment := self._resolve_segment(
+            event.segment_id,
+            prefer_current=True,
+            presentation_epoch=presentation_epoch,
+            round_no=round_no,
+            attempt=attempt,
+        ):
             self._merge_segment_meta(segment, payload)
             return None
 
@@ -235,6 +303,12 @@ class SegmentTracker(object):
             if int(segment.get("presentation_epoch") or 1) <= event.superseded_epoch:
                 segment["superseded"] = True
 
+        self.active_attempts = {
+            key: attempt
+            for key, attempt in self.active_attempts.items()
+            if key[0] > event.superseded_epoch
+        }
+
         self.pending_output_segment_keys = [
             key
             for key in self.pending_output_segment_keys
@@ -248,9 +322,24 @@ class SegmentTracker(object):
         """隔离当前 provider attempt 的正文并返回是否存在可见输出。"""
         if not event.replace_current_response:
             return False
-        had_visible_output = False
+        if event.round is None:
+            raise ValueError("turn.retrying round is required")
+
+        response_key     = (event.presentation_epoch, event.round)
+        previous_attempt = self.active_attempts.get(response_key, 1)
+
+        if event.attempt <= previous_attempt:
+            raise ValueError("turn.retrying attempt must increase within the response")
+        self.active_attempts[response_key] = event.attempt
+
+        had_visible_output: bool = False
+
         for segment in self.segments_by_key.values():
-            if int(segment.get("presentation_epoch") or 1) == event.presentation_epoch:
+            if (
+                int(segment.get("presentation_epoch") or 1) == event.presentation_epoch
+                and int(segment.get("round") or 1) == event.round
+                and int(segment.get("attempt") or 1) < event.attempt
+            ):
                 if (
                     not bool(segment.get("superseded"))
                     and bool(str(segment.get("text") or "").strip())
@@ -263,8 +352,10 @@ class SegmentTracker(object):
             for key in self.pending_output_segment_keys
             if not bool((self.segments_by_key.get(key) or {}).get("superseded"))
         ]
-        self.current_segment_key = None
+
+        self.current_segment_key     = None
         self.pending_segment_sources = None
+
         return had_visible_output
 
     @classmethod
@@ -312,12 +403,21 @@ class SegmentTracker(object):
         if not keys:
             return ""
 
-        self.output_blocks.append(keys)
-
-        self.last_committed_epoch = max(
-            int((self.segments_by_key.get(key) or {}).get("presentation_epoch") or 1)
+        identities = {
+            (
+                int((self.segments_by_key.get(key) or {}).get("presentation_epoch") or 1),
+                int((self.segments_by_key.get(key) or {}).get("round") or 1),
+                int((self.segments_by_key.get(key) or {}).get("attempt") or 1),
+            )
             for key in keys
-        )
+        }
+        if len(identities) != 1:
+            raise ValueError("assistant output block cannot cross response identity")
+        (
+            self.last_committed_epoch,
+            self.last_committed_round,
+            self.last_committed_attempt,
+        ) = identities.pop()
 
         parts = [
             str((self.segments_by_key.get(key) or {}).get("text") or "")
@@ -345,19 +445,6 @@ class SegmentTracker(object):
             if not bool((self.segments_by_key.get(key) or {}).get("superseded"))
         ]
         return _join_text_segments(parts).strip()
-
-    def latest_assistant_output_text(self) -> str:
-        """返回最近一次 assistant 输出块原文。"""
-        self.commit_assistant_output()
-        if not self.output_blocks:
-            return ""
-
-        parts = [
-            str((self.segments_by_key.get(key) or {}).get("text") or "")
-            for key in self.output_blocks[-1]
-        ]
-        return _join_text_segments(parts).strip()
-
 
 def _join_text_segments(parts: list[str]) -> str:
     """按流式段落边界拼接正文。"""

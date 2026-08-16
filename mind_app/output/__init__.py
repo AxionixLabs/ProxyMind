@@ -12,6 +12,7 @@ from .contracts import (
 from .content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -28,6 +29,7 @@ __all__ = [
     "STREAM_OUTPUT",
     "AssistantOutputBoundary",
     "AssistantPresentationSuperseded",
+    "AssistantResponseSuperseded",
     "AssistantSegmentCompleted",
     "AssistantTextDelta",
     "ContentOutput",

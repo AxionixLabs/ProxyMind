@@ -24,9 +24,17 @@ class AssistantOutputBoundary(object):
 
 @dataclass(frozen=True, slots=True)
 class AssistantPresentationSuperseded(object):
-    """描述旧 Attempt 正文保留展示但退出规范输出。"""
+    """描述旧 Worker 展示代次退出规范输出。"""
     superseded_epoch: int
     presentation_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantResponseSuperseded(object):
+    """描述当前模型 round 的旧 provider attempt 退出规范输出。"""
+    presentation_epoch: int
+    round: int
+    attempt: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +49,7 @@ ContentOutput: typing.TypeAlias = (
     | AssistantSegmentCompleted
     | AssistantOutputBoundary
     | AssistantPresentationSuperseded
+    | AssistantResponseSuperseded
     | SourcesOutput
 )
 

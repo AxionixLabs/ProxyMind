@@ -4,6 +4,7 @@
 from .content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -40,7 +41,10 @@ class TerminalContentSink(ContentSink):
             await self.output.prepare_external_output()
             return None
 
-        if isinstance(output, AssistantPresentationSuperseded):
+        if isinstance(output, (
+            AssistantPresentationSuperseded,
+            AssistantResponseSuperseded,
+        )):
             await self.output.prepare_external_output()
             await self.output.feed(
                 "↻ Previous attempt interrupted; retrying",

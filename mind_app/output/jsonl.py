@@ -30,6 +30,7 @@ from ..stream_io.output_record import StreamRecordWriter
 from .content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentOutput,
@@ -323,6 +324,15 @@ class JsonContentSink(ContentSink):
                 "type": "presentation.superseded",
                 "superseded_epoch": output.superseded_epoch,
                 "presentation_epoch": output.presentation_epoch,
+            })
+            return None
+        if isinstance(output, AssistantResponseSuperseded):
+            self.state.flush_assistant()
+            self.state.emit({
+                "type": "response.superseded",
+                "presentation_epoch": output.presentation_epoch,
+                "round": output.round,
+                "attempt": output.attempt,
             })
             return None
         if isinstance(output, SourcesOutput):
