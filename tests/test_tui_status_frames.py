@@ -131,6 +131,31 @@ def test_retry_palette_keeps_wait_sweep_geometry() -> None:
     )
 
 
+def test_provider_retry_palette_keeps_geometry_and_uses_distinct_colors() -> None:
+    phase = 0.73
+    network_retry = render_status_fragments(
+        "Retrying",
+        family="retry",
+        phase=phase,
+        animated=True,
+        color_level=TerminalColorLevel.TRUECOLOR,
+    )
+    provider_retry = render_status_fragments(
+        "Retrying",
+        family="provider_retry",
+        phase=phase,
+        animated=True,
+        color_level=TerminalColorLevel.TRUECOLOR,
+    )
+
+    assert tuple("bold" in style for style, _text in network_retry[2:]) == tuple(
+        "bold" in style for style, _text in provider_retry[2:]
+    )
+    assert tuple(style for style, _text in network_retry) != tuple(
+        style for style, _text in provider_retry
+    )
+
+
 def test_explicit_spinner_keeps_one_cell_and_rotates() -> None:
     indicators = {
         spinner_indicator_fragment(index / 10)[1]

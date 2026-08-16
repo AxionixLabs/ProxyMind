@@ -25,7 +25,8 @@ from mind_core.design.terminal_progress import (
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.frontend.contracts import (
     ActivityStatusKind,
-    FrontendRuntime
+    FrontendRuntime,
+    WaitRetryState
 )
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_line
@@ -1836,9 +1837,9 @@ class TuiRuntime(object):
         """启动覆盖当前交互周期的等待动画。"""
         await self.activity.begin_wait()
 
-    def set_wait_retrying(self, retrying: bool) -> None:
-        """切换等待动画的连接状态并保持当前动画相位。"""
-        self.activity.set_wait_retrying(retrying)
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """切换等待动画的重试来源并保持当前动画相位。"""
+        self.activity.set_wait_retry_state(state)
 
     async def begin_upload_status(
         self,

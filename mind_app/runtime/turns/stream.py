@@ -20,6 +20,7 @@ from mind_app.approval.models import ApprovalDecisionValue
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
 from mind_nova.turn_inputs import TurnInput
+from mind_app.frontend.contracts import WaitRetryState
 from mind_nova.stream_events import (
     TextDeltaEvent,
     TextDoneEvent,
@@ -118,13 +119,13 @@ class _RetryingStatus(object):
 
     def __init__(
         self,
-        sink: typing.Callable[[bool], None] | None,
+        sink: typing.Callable[[WaitRetryState], None] | None,
     ) -> None:
         """绑定状态回调并初始化两个独立重试原因。"""
         self.sink      = sink
         self.transport = False
         self.provider  = False
-        self.visible   = False
+        self.state: WaitRetryState = "idle"
 
     def set_transport(self, retrying: bool) -> None:
         """更新事件传输重连状态。"""
@@ -143,13 +144,19 @@ class _RetryingStatus(object):
         self._refresh()
 
     def _refresh(self) -> None:
-        """仅在合并后的可见状态变化时通知展示层。"""
-        visible = self.transport or self.provider
-        if visible == self.visible:
+        """按传输优先级合并重试来源并通知展示层。"""
+        state: WaitRetryState = (
+            "transport"
+            if self.transport
+            else "provider"
+            if self.provider
+            else "idle"
+        )
+        if state == self.state:
             return
-        self.visible = visible
+        self.state = state
         if self.sink is not None:
-            self.sink(visible)
+            self.sink(state)
 
 
 def _optional_callback(
@@ -347,9 +354,9 @@ async def stream_turn(
         kwargs.pop("on_turn_stream_end", None),
         name="on_turn_stream_end",
     )
-    on_reconnect_status = _optional_callback(
-        kwargs.pop("on_reconnect_status", None),
-        name="on_reconnect_status",
+    on_retry_state = _optional_callback(
+        kwargs.pop("on_retry_state", None),
+        name="on_retry_state",
     )
 
     reentry_kwargs = dict(kwargs)
@@ -359,8 +366,8 @@ async def stream_turn(
         reentry_kwargs["on_turn_input_event"] = on_turn_input_event
     if on_turn_stream_end is not None:
         reentry_kwargs["on_turn_stream_end"] = on_turn_stream_end
-    if on_reconnect_status is not None:
-        reentry_kwargs["on_reconnect_status"] = on_reconnect_status
+    if on_retry_state is not None:
+        reentry_kwargs["on_retry_state"] = on_retry_state
 
     started_at = time.perf_counter()
 
@@ -375,8 +382,8 @@ async def stream_turn(
     hook_scope   = turn_execution.hook_scope
     message      = turn_execution.message
 
-    if on_reconnect_status is None and turn_context.agent.depth == 0:
-        on_reconnect_status = mind.frontend.runtime.set_wait_retrying
+    if on_retry_state is None and turn_context.agent.depth == 0:
+        on_retry_state = mind.frontend.runtime.set_wait_retry_state
 
     if on_turn_input_context is not None:
         on_turn_input_context(turn_context)
@@ -495,7 +502,7 @@ async def stream_turn(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
-    retrying_status = _RetryingStatus(on_reconnect_status)
+    retrying_status = _RetryingStatus(on_retry_state)
 
     try:
         transcript.open()

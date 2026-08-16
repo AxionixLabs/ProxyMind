@@ -190,7 +190,7 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         frontend=SimpleNamespace(
             runtime=SimpleNamespace(
                 active=frontend_active,
-                set_wait_retrying=Mock(),
+                set_wait_retry_state=Mock(),
             ),
             interaction=interaction,
         ),
@@ -455,9 +455,9 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
         AssistantSegmentCompleted(),
         SourcesOutput(()),
     ]
-    assert mind.frontend.runtime.set_wait_retrying.call_args_list == [
-        ((True,), {}),
-        ((False,), {}),
+    assert mind.frontend.runtime.set_wait_retry_state.call_args_list == [
+        (("provider",), {}),
+        (("idle",), {}),
     ]
     assert [
         entry["event"]
@@ -531,9 +531,11 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
 
     assert result.status == "completed"
     assert result.assistant_text == "answer"
-    assert mind.frontend.runtime.set_wait_retrying.call_args_list == [
-        ((True,), {}),
-        ((False,), {}),
+    assert mind.frontend.runtime.set_wait_retry_state.call_args_list == [
+        (("provider",), {}),
+        (("transport",), {}),
+        (("provider",), {}),
+        (("idle",), {}),
     ]
 
 

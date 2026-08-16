@@ -393,7 +393,7 @@ async def test_retrying_reuses_wait_slot_and_animation_phase() -> None:
     task = activity.task
     thinking = rendered[-1]
 
-    activity.set_wait_retrying(True)
+    activity.set_wait_retry_state("transport")
 
     assert activity._slots["foreground"] is slot
     assert slot.phase == 0.73
@@ -403,7 +403,15 @@ async def test_retrying_reuses_wait_slot_and_animation_phase() -> None:
     assert "Retrying" in _block_text(rendered[-1])
     assert thinking.fragments != rendered[-1].fragments
 
-    activity.set_wait_retrying(False)
+    transport_retry = rendered[-1]
+    activity.set_wait_retry_state("provider")
+
+    assert activity._slots["foreground"] is slot
+    assert slot.phase == 0.73
+    assert "Retrying" in _block_text(rendered[-1])
+    assert transport_retry.fragments != rendered[-1].fragments
+
+    activity.set_wait_retry_state("idle")
 
     assert activity._slots["foreground"] is slot
     assert slot.phase == 0.73

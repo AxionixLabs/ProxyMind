@@ -7,7 +7,10 @@ import asyncio
 import contextlib
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from mind_app.frontend.contracts import ActivityStatusKind
+from mind_app.frontend.contracts import (
+    ActivityStatusKind,
+    WaitRetryState
+)
 from mind_app.presentation.models import TextStyle
 from mind_app.presentation.renderers.upload import (
     upload_idle_block,
@@ -148,7 +151,8 @@ class TuiActivity(object):
         self._wait_started_at: float | None = None
         self._wait_phase: float             = 0.0
         self._wait_paused: bool             = False
-        self._wait_retrying: bool           = False
+
+        self._wait_retry_state: WaitRetryState = "idle"
 
         self._slots: dict[ActivitySlotKey, _ActivitySlot]    = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
@@ -165,7 +169,7 @@ class TuiActivity(object):
         self._wait_elapsed_sec = 0.0
         self._wait_phase       = 0.0
         self._wait_paused      = False
-        self._wait_retrying    = False
+        self._wait_retry_state = "idle"
         self._wait_started_at  = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
@@ -429,9 +433,11 @@ class TuiActivity(object):
             render=self._wait_block,
         ))
 
-    def set_wait_retrying(self, retrying: bool) -> None:
-        """切换等待动画的连接状态并保持当前动画相位。"""
-        self._wait_retrying = bool(retrying)
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """切换等待动画的重试来源并保持当前动画相位。"""
+        if state not in {"idle", "transport", "provider"}:
+            raise ValueError(f"unsupported wait retry state: {state}")
+        self._wait_retry_state = state
 
         slot = self._slots.get("foreground")
         if slot is not None and slot.kind == "wait" and not slot.frozen:
@@ -439,10 +445,18 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
-        retrying = self._wait_retrying
+        retry_state = self._wait_retry_state
+        family: StatusFamily
+        if retry_state == "idle":
+            family = "wait"
+        elif retry_state == "provider":
+            family = "provider_retry"
+        else:
+            family = "retry"
+
         return _status_block(
-            "Retrying" if retrying else "Thinking",
-            family="retry" if retrying else "wait",
+            "Thinking" if retry_state == "idle" else "Retrying",
+            family=family,
             phase=phase,
             elapsed_sec=self._wait_elapsed(),
             color_level=self.color_level,
@@ -649,7 +663,7 @@ class TuiActivity(object):
         self._wait_started_at  = None
         self._wait_phase       = 0.0
         self._wait_paused      = False
-        self._wait_retrying    = False
+        self._wait_retry_state = "idle"
 
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:

@@ -23,6 +23,12 @@ ActivityStatusKind = typing.Literal[
     "operation",
 ]
 
+WaitRetryState = typing.Literal[
+    "idle",
+    "transport",
+    "provider",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ApplicationView(object):
@@ -85,8 +91,8 @@ class FrontendRuntime(typing.Protocol):
         """显示覆盖当前交互周期的等待状态。"""
         ...
 
-    def set_wait_retrying(self, retrying: bool) -> None:
-        """切换等待状态的连接提示。"""
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """切换等待状态的重试来源。"""
         ...
 
     async def begin_upload_status(
@@ -176,9 +182,9 @@ class PassiveFrontendRuntime(object):
         """忽略等待状态请求。"""
         return None
 
-    def set_wait_retrying(self, retrying: bool) -> None:
-        """忽略等待状态的连接提示。"""
-        _ = retrying
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """忽略等待状态的重试来源。"""
+        _ = state
         return None
 
     async def begin_upload_status(
@@ -252,7 +258,6 @@ class PassiveFrontendRuntime(object):
 @dataclass(frozen=True, slots=True)
 class Frontend(object):
     """聚合应用级展示、交互和单轮输出装配能力。"""
-
     application: ApplicationSink
     interaction: InteractionPort
     session_factory: SessionFactory

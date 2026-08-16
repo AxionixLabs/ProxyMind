@@ -8,6 +8,7 @@ from .contracts import (
     Frontend,
     FrontendRuntime,
     PassiveFrontendRuntime,
+    WaitRetryState,
     Viewport
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "Frontend",
     "FrontendRuntime",
     "PassiveFrontendRuntime",
+    "WaitRetryState",
     "Viewport"
 ]
 

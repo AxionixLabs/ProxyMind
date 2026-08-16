@@ -8,7 +8,7 @@ from prompt_toolkit.utils import get_cwidth
 from mind_core.design.terminal_capabilities import TerminalColorLevel
 from .models import FormattedText
 
-StatusFamily = typing.Literal["tool", "wait", "retry"]
+StatusFamily = typing.Literal["tool", "wait", "retry", "provider_retry"]
 
 SWEEP_GLOW_SPAN    = 2.8
 SWEEP_MIN_DURATION = 1.22
@@ -183,6 +183,54 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
                     (0.72, "#D0AE6D"),
                     (0.90, "#EACB84"),
                     (1.00, "#FBE5AA"),
+                ),
+            ),
+        ),
+    ),
+    "provider_retry": SweepProfile(
+        dim_glyph="◦",
+        peak_glyph="•",
+        speed_factor=0.94,
+        rest_duration=0.68,
+        peak_radius=0.80,
+        glow_span=2.90,
+        breathe_rate=3.6,
+        palette_period=10.5,
+        palettes=(
+            SweepPalette(
+                indicator_dim="#4E446A",
+                indicator_peak="#C9B5F4",
+                color_stops=(
+                    (0.00, "#594D73"),
+                    (0.18, "#6B5C8A"),
+                    (0.44, "#8471A8"),
+                    (0.72, "#AE94D5"),
+                    (0.90, "#C9B2EF"),
+                    (1.00, "#E5D8FF"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#454B70",
+                indicator_peak="#B9C5F5",
+                color_stops=(
+                    (0.00, "#4F567A"),
+                    (0.18, "#5F6993"),
+                    (0.44, "#7782B1"),
+                    (0.72, "#9CA8DC"),
+                    (0.90, "#BDC7F2"),
+                    (1.00, "#DEE3FF"),
+                ),
+            ),
+            SweepPalette(
+                indicator_dim="#5C4566",
+                indicator_peak="#D5B1E4",
+                color_stops=(
+                    (0.00, "#674F72"),
+                    (0.18, "#7A5F88"),
+                    (0.44, "#9675A6"),
+                    (0.72, "#BD95CE"),
+                    (0.90, "#D9B5E8"),
+                    (1.00, "#EED9F7"),
                 ),
             ),
         ),
