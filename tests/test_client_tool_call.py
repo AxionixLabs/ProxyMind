@@ -92,8 +92,17 @@ def _runner(
 
 def _durable_invocation(workspace: Path) -> ToolInvocation:
     base = _invocation()
+    turn = TurnContext.create(
+        agent=base.turn.agent,
+        cid=base.turn.cid,
+        sid=base.turn.sid,
+        source=base.turn.source,
+        pref_config={},
+        cwd=str(workspace.resolve()),
+        permissions=base.turn.permissions,
+    )
     return ToolInvocation(
-        turn=base.turn,
+        turn=turn,
         call_id=base.call_id,
         name=base.name,
         arguments=base.arguments,
@@ -102,6 +111,7 @@ def _durable_invocation(workspace: Path) -> ToolInvocation:
             fingerprint="a" * 64,
             effect_class="non_replayable",
             replay_policy="manual",
+            scope="workspace",
             provider_idempotency_key="",
             status="dispatching",
             dispatch_required=True,
@@ -166,18 +176,24 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
 
 
 @pytest.mark.anyio
-async def test_durable_tool_runs_artifact_gate_before_journal_and_hooks(
+async def test_durable_tool_reuses_journal_before_artifact_and_hooks(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     order = []
 
     class Gate:
-        async def ensure(self, checkpoint):
+        async def ensure(self, checkpoint, *, expected_workspace_root):
             assert checkpoint is not None
+            assert expected_workspace_root == str(tmp_path.resolve())
             order.append("artifact")
 
     class Journal:
+        async def inspect(self, effect):
+            assert effect.effect_id == "effect_client_call"
+            order.append("journal_inspect")
+            return EffectJournalDecision("execute")
+
         async def begin(self, effect):
             assert effect.effect_id == "effect_client_call"
             order.append("journal_begin")
@@ -232,6 +248,7 @@ async def test_durable_tool_runs_artifact_gate_before_journal_and_hooks(
 
     assert outcome.result.ok is True
     assert order == [
+        "journal_inspect",
         "artifact",
         "journal_begin",
         "hooks",
@@ -246,7 +263,11 @@ async def test_artifact_failure_prevents_hooks_and_local_tool(
     monkeypatch,
 ) -> None:
     gate = SimpleNamespace(ensure=AsyncMock(side_effect=RuntimeError("upload failed")))
-    journal = SimpleNamespace(begin=AsyncMock())
+    journal = SimpleNamespace(
+        inspect=AsyncMock(return_value=EffectJournalDecision("execute")),
+        begin=AsyncMock(return_value=EffectJournalDecision("execute")),
+        commit_unexecuted=AsyncMock(),
+    )
     coordinator = SimpleNamespace(run_invocation=AsyncMock())
     runner, _ = _runner(
         coordinator,
@@ -256,13 +277,24 @@ async def test_artifact_failure_prevents_hooks_and_local_tool(
     run_tool = AsyncMock()
     monkeypatch.setattr(client_call, "run_tool_step", run_tool)
 
-    with pytest.raises(RuntimeError, match="upload failed"):
-        await runner.execute(
-            _durable_invocation(tmp_path),
-            use_coding_trace=False,
-        )
+    outcome = await runner.execute(
+        _durable_invocation(tmp_path),
+        use_coding_trace=False,
+    )
 
+    assert outcome.result.ok is False
+    assert outcome.result.fields["data"] == {
+        "executed": False,
+        "status": "workspace_checkpoint_unavailable",
+        "error": "RuntimeError: upload failed",
+    }
+    journal.inspect.assert_awaited_once()
     journal.begin.assert_not_awaited()
+    journal.commit_unexecuted.assert_awaited_once()
+    persisted = journal.commit_unexecuted.await_args.args[1]
+    assert persisted["reconciliation_result_payload"]["result"]["data"][
+        "executed"
+    ] is False
     coordinator.run_invocation.assert_not_awaited()
     run_tool.assert_not_awaited()
 
@@ -320,6 +352,70 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
     assert ports.output.record_tool_arguments.call_count == 1
     assert show_start.await_count == 1
     assert show_result.await_count == 1
+    assert artifact_gate.ensure.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_process_effect_never_requests_workspace_artifact(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    invocation = _durable_invocation(tmp_path)
+    invocation = ToolInvocation(
+        turn=invocation.turn,
+        call_id=invocation.call_id,
+        name=invocation.name,
+        arguments=invocation.arguments,
+        effect=ExecutionEffect(
+            effect_id="effect_process",
+            fingerprint="b" * 64,
+            effect_class="non_replayable",
+            replay_policy="manual",
+            scope="process",
+            provider_idempotency_key="",
+            status="dispatching",
+            dispatch_required=True,
+            dispatch_count=1,
+        ),
+    )
+    journal = SimpleNamespace(
+        inspect=AsyncMock(return_value=EffectJournalDecision("execute")),
+        begin=AsyncMock(return_value=EffectJournalDecision("execute")),
+        commit=AsyncMock(),
+        mark_unknown=AsyncMock(),
+    )
+    artifact_gate = SimpleNamespace(ensure=AsyncMock())
+
+    async def run_allowed(prepared, operation):
+        operation_result = await operation(prepared)
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=True,
+                text="done",
+                fields={"ok": True, "text": "done"},
+            ),
+        )
+
+    runner, _ = _runner(
+        SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed)),
+        effect_journal=journal,
+        artifact_gate=artifact_gate,
+    )
+    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=SimpleNamespace(
+        ok=True,
+        fields={"ok": True, "text": "done"},
+        text="done",
+        cost_ms=1,
+    )))
+    monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
+    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+
+    outcome = await runner.execute(invocation, use_coding_trace=False)
+
+    assert outcome.result.ok is True
+    artifact_gate.ensure.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -330,6 +426,7 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
     reconcile_succeeds: bool,
 ) -> None:
     journal = SimpleNamespace(
+        inspect=AsyncMock(return_value=EffectJournalDecision("execute")),
         begin=AsyncMock(return_value=EffectJournalDecision("execute")),
         commit=AsyncMock(side_effect=OSError("disk unavailable")),
         mark_unknown=AsyncMock(),
@@ -413,6 +510,7 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
         "fingerprint": "a" * 64,
         "class": "non_replayable",
         "replay_policy": "manual",
+        "scope": "workspace",
         "provider_idempotency_key": "",
         "status": "dispatching",
         "dispatch_required": True,
@@ -444,7 +542,30 @@ async def test_known_local_result_recovers_server_reconciliation_pause() -> None
 
     assert await runner.reconcile_known_effect("effect_client_call") is True
     assert reconciler.await_args.kwargs["result_payload"] == result_payload
+    assert reconciler.await_args.kwargs["resolution"] == "committed"
     journal.mark_reconciled.assert_awaited_once_with("effect_client_call")
+
+
+@pytest.mark.anyio
+async def test_known_unexecuted_result_reconciles_as_failed() -> None:
+    result_payload = {
+        "result": {"data": {"executed": False}},
+        "execution": {"effect": {"effect_id": "effect_client_call"}},
+    }
+    journal = SimpleNamespace(
+        reconciliation_result=AsyncMock(return_value=result_payload),
+        mark_reconciled=AsyncMock(),
+    )
+    reconciler = AsyncMock(return_value={"ok": True})
+    runner, _ = _runner(
+        SimpleNamespace(),
+        effect_journal=journal,
+        artifact_gate=SimpleNamespace(),
+        effect_reconciler=reconciler,
+    )
+
+    assert await runner.reconcile_known_effect("effect_client_call") is True
+    assert reconciler.await_args.kwargs["resolution"] == "failed"
 
 
 @pytest.mark.anyio

@@ -152,6 +152,7 @@ def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
         "fingerprint": "a" * 64,
         "class": "non_replayable",
         "replay_policy": "manual",
+        "scope": "workspace",
         "provider_idempotency_key": "",
         "status": "dispatching",
         "dispatch_required": True,

@@ -19,6 +19,38 @@ NestedToolDispatch = typing.Callable[
 NESTED_TOOL_DISPATCH_META_KEY = "_nested_tool_dispatch"
 
 
+def _effect_hint(meta: dict[str, typing.Any]) -> dict[str, str]:
+    """根据客户端内置工具类别生成持久效果提示。"""
+    explicit = meta.get("effect")
+    if isinstance(explicit, dict):
+        return {
+            "scope": str(explicit.get("scope") or ""),
+            "class": str(explicit.get("class") or ""),
+            "replay_policy": str(explicit.get("replay_policy") or ""),
+        }
+
+    tool_class = str(meta.get("class") or "").strip()
+    if tool_class == "view":
+        return {"scope": "none", "class": "read_only", "replay_policy": "safe"}
+    if tool_class in {"workspace", "shell"}:
+        return {
+            "scope": "workspace",
+            "class": "non_replayable",
+            "replay_policy": "manual",
+        }
+    if tool_class in {"plan", "loop", "agent"}:
+        return {
+            "scope": "process",
+            "class": "non_replayable",
+            "replay_policy": "manual",
+        }
+    return {
+        "scope": "external",
+        "class": "non_replayable",
+        "replay_policy": "manual",
+    }
+
+
 @dataclass(slots=True)
 class ClientToolRuntime:
     """客户端工具处理函数可使用的运行上下文。"""
@@ -53,10 +85,11 @@ class ClientTool:
 
     def to_mcp_tool(self) -> mcp_types.Tool:
         """转换为 MCP 兼容的工具描述。"""
-        meta = {
+        meta: dict[str, typing.Any] = {
             "client_builtin": True,
             **dict(self.meta or {}),
         }
+        meta["effect"] = _effect_hint(meta)
         return mcp_types.Tool.model_validate({
             "name": self.name,
             "description": self.description,

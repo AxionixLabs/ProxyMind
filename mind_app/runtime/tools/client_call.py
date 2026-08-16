@@ -194,6 +194,7 @@ class ClientToolCallRunner:
                 "fingerprint": effect.fingerprint,
                 "class": effect.effect_class,
                 "replay_policy": effect.replay_policy,
+                "scope": effect.scope,
                 "provider_idempotency_key": effect.provider_idempotency_key,
                 "status": effect.status,
                 "dispatch_required": effect.dispatch_required,
@@ -232,6 +233,34 @@ class ClientToolCallRunner:
             fields=fields,
         )
 
+    @staticmethod
+    def _not_executed_outcome(
+        invocation: ToolInvocation,
+        *,
+        status: str,
+        error: BaseException,
+    ) -> ClientToolCallOutcome:
+        """构建本地副作用尚未开始时的确定失败结果。"""
+        detail = f"{type(error).__name__}: {error}"
+        text = f"{status}: {detail}"
+        fields = {
+            "ok": False,
+            "text": text,
+            "data": {
+                "executed": False,
+                "status": status,
+                "error": detail,
+            },
+        }
+        return ClientToolCallOutcome(result=ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=False,
+            text=text,
+            call_id=invocation.call_id,
+            fields=fields,
+        ))
+
     def _reconciliation_result_payload(
         self,
         invocation: ToolInvocation,
@@ -263,10 +292,20 @@ class ClientToolCallRunner:
     ) -> None:
         """使用稳定请求标识提交已知完成的本地效果结果。"""
         request_suffix = self._effect_request_suffix(effect_id)
+
+        result = result_payload.get("result")
+        data   = result.get("data") if isinstance(result, dict) else None
+
+        resolution: typing.Literal["failed", "committed"] = (
+            "failed"
+            if isinstance(data, dict) and data.get("executed") is False
+            else "committed"
+        )
+
         await self.effect_reconciler(
             effect_id=effect_id,
             request_id=f"effect-reconcile-{request_suffix}",
-            resolution="committed",
+            resolution=resolution,
             result_payload=result_payload,
             error="",
             metadata={"source": "client_local_journal"},
@@ -289,15 +328,18 @@ class ClientToolCallRunner:
     async def reconcile_known_effect(self, effect_id: str) -> bool:
         """使用本地确定结果自动恢复服务端暂停的持久效果。"""
         normalized_effect_id = str(effect_id or "").strip()
+
         result_payload = await self.effect_journal.reconciliation_result(
             normalized_effect_id
         )
+
         if result_payload is None:
             return False
         await self._submit_effect_reconciliation(
             normalized_effect_id,
             result_payload,
         )
+
         try:
             await self.effect_journal.mark_reconciled(normalized_effect_id)
         except EffectJournalPersistenceError as error:
@@ -470,8 +512,65 @@ class ClientToolCallRunner:
         """执行经过 Hook 协调的客户端工具调用。"""
         effect = invocation.effect
         if effect is not None:
-            await self.artifact_gate.ensure(invocation.checkpoint)
-            decision = await self.effect_journal.begin(effect)
+            try:
+                decision = await self.effect_journal.inspect(effect)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                return self._not_executed_outcome(
+                    invocation,
+                    status="local_effect_journal_unavailable",
+                    error=error,
+                )
+            if decision.action == "reuse":
+                return self._outcome_from_payload(decision.result_payload or {})
+            if decision.action == "reconcile":
+                raise LocalEffectReconciliationRequired(effect.effect_id)
+            if effect.scope == "workspace":
+                try:
+                    await self.artifact_gate.ensure(
+                        invocation.checkpoint,
+                        expected_workspace_root=invocation.turn.cwd,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    outcome = self._not_executed_outcome(
+                        invocation,
+                        status="workspace_checkpoint_unavailable",
+                        error=error,
+                    )
+                    persisted_outcome = {
+                        **self._outcome_payload(outcome),
+                        "reconciliation_result_payload": (
+                            self._reconciliation_result_payload(invocation, outcome)
+                        ),
+                    }
+                    try:
+                        await asyncio.shield(self.effect_journal.commit_unexecuted(
+                            effect,
+                            persisted_outcome,
+                        ))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as persist_error:
+                        observe_exception(
+                            "client_effect.journal.unexecuted.failed",
+                            persist_error,
+                            level="WARNING",
+                            effect_id=effect.effect_id,
+                        )
+                    return outcome
+            try:
+                decision = await self.effect_journal.begin(effect)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                return self._not_executed_outcome(
+                    invocation,
+                    status="local_effect_journal_unavailable",
+                    error=error,
+                )
             if decision.action == "reuse":
                 return self._outcome_from_payload(decision.result_payload or {})
             if decision.action == "reconcile":

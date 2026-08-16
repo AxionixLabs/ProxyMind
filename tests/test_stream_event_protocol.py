@@ -35,6 +35,7 @@ def _durable_tool_event() -> dict:
                 "fingerprint": "a" * 64,
                 "class": "non_replayable",
                 "replay_policy": "manual",
+                "scope": "workspace",
                 "provider_idempotency_key": "",
                 "status": "dispatching",
                 "dispatch_required": True,
@@ -58,6 +59,58 @@ def test_latest_tool_protocol_parses_effect_and_checkpoint_strictly() -> None:
     assert event.effect.replay_policy == "manual"
     assert event.checkpoint is not None
     assert event.checkpoint.checkpoint_id == "checkpoint_test"
+
+
+@pytest.mark.parametrize("scope", ("none", "process", "external"))
+def test_non_workspace_effects_parse_without_checkpoint(scope: str) -> None:
+    payload = _durable_tool_event()
+    payload.pop("checkpoint")
+    effect = payload["execution"]["effect"]
+    effect["scope"] = scope
+    if scope == "none":
+        effect["class"] = "read_only"
+        effect["replay_policy"] = "safe"
+
+    event = parse_stream_event(payload)
+
+    assert isinstance(event, ToolCallEvent)
+    assert event.effect is not None
+    assert event.effect.scope == scope
+    assert event.checkpoint is None
+
+
+def test_non_workspace_effect_rejects_checkpoint() -> None:
+    payload = _durable_tool_event()
+    payload["execution"]["effect"]["scope"] = "process"
+
+    with pytest.raises(ValueError, match="must not include"):
+        parse_stream_event(payload)
+
+
+def test_read_only_effect_requires_scope_none() -> None:
+    payload = _durable_tool_event()
+    payload.pop("checkpoint")
+    payload["execution"]["effect"].update({
+        "scope": "none",
+        "class": "non_replayable",
+        "replay_policy": "manual",
+    })
+
+    with pytest.raises(ValueError, match="safe read-only"):
+        parse_stream_event(payload)
+
+
+@pytest.mark.parametrize("mutation", ("unknown", "uppercase_fingerprint"))
+def test_execution_effect_rejects_noncanonical_payload(mutation: str) -> None:
+    payload = _durable_tool_event()
+    effect = payload["execution"]["effect"]
+    if mutation == "unknown":
+        effect["legacy"] = True
+    else:
+        effect["fingerprint"] = "A" * 64
+
+    with pytest.raises(ValueError):
+        parse_stream_event(payload)
 
 
 @pytest.mark.parametrize("missing", ("effect", "checkpoint"))

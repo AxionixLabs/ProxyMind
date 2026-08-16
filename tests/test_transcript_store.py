@@ -39,7 +39,7 @@ def test_store_uses_session_creation_date_and_stable_path(tmp_path) -> None:
     assert first.exists()
 
 
-def test_writer_appends_complete_events_without_schema_version(tmp_path) -> None:
+def test_writer_appends_events_with_current_top_level_fields(tmp_path) -> None:
     session_id = new_sid(new_cid())
     store = ConversationTranscriptStore(tmp_path / "sessions")
     path = store.path_for_session(session_id)
@@ -76,8 +76,14 @@ def test_writer_appends_complete_events_without_schema_version(tmp_path) -> None
     assert entries[0]["actor"] == "user"
     assert entries[0]["payload"] == {"content": "hello"}
     assert entries[1]["payload"]["score"] == "nan"
-    assert all("version" not in entry for entry in entries)
-    assert all("schema_version" not in entry for entry in entries)
+    assert all(set(entry) == {
+        "timestamp",
+        "event",
+        "session_id",
+        "turn_id",
+        "actor",
+        "payload",
+    } for entry in entries)
 
 
 def test_writer_implements_transcript_sink_contract() -> None:

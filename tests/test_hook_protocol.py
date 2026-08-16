@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import json
-
 import pytest
 
 from mind_app.runtime.hooks.effects import (
@@ -39,13 +37,11 @@ def test_protocol_catalog_covers_all_hook_events() -> None:
     assert tuple(HOOK_EVENT_SPECS) == HOOK_EVENT_NAMES
 
 
-def test_protocol_schemas_do_not_expose_schema_version() -> None:
-    serialized = json.dumps({
-        "input": HOOK_INPUT_SCHEMAS,
-        "output": HOOK_OUTPUT_SCHEMAS,
-    })
-
-    assert "schema_version" not in serialized
+def test_protocol_schemas_reject_unknown_top_level_fields() -> None:
+    assert all(
+        schema["additionalProperties"] is False
+        for schema in (*HOOK_INPUT_SCHEMAS.values(), *HOOK_OUTPUT_SCHEMAS.values())
+    )
 
 
 def test_input_schema_requires_matching_event_name() -> None:

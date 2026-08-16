@@ -17,6 +17,29 @@ class McpToolContext:
     tools: list[dict[str, typing.Any]]
 
 
+def _wire_effect_hint(tool: mcp_types.Tool) -> dict[str, str]:
+    """把工具声明转换为服务端可严格校验的效果提示。"""
+    meta = dict(tool.meta or {})
+
+    explicit = meta.get("effect")
+    if isinstance(explicit, dict):
+        return {
+            "scope": str(explicit.get("scope") or ""),
+            "class": str(explicit.get("class") or ""),
+            "replay_policy": str(explicit.get("replay_policy") or ""),
+        }
+
+    annotations = tool.annotations
+    if annotations is not None and annotations.readOnlyHint is True:
+        return {"scope": "none", "class": "read_only", "replay_policy": "safe"}
+
+    return {
+        "scope": "external",
+        "class": "non_replayable",
+        "replay_policy": "manual",
+    }
+
+
 def build_wire_tools(
     list_tools: mcp_types.ListToolsResult,
 ) -> list[dict[str, typing.Any]]:
@@ -27,13 +50,14 @@ def build_wire_tools(
         meta = dict(tool.meta or {})
         if bool(meta.get("hidden", False)):
             continue
+        meta["effect"] = _wire_effect_hint(tool)
 
         tools.append(
             {
-                "name"        : tool.name,
-                "description" : tool.description,
-                "inputSchema" : tool.inputSchema,
-                "meta"        : meta
+                "name": tool.name,
+                "description": tool.description,
+                "inputSchema": tool.inputSchema,
+                "meta": meta
             }
         )
 

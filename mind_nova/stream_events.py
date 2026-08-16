@@ -28,6 +28,25 @@ EffectReplayPolicy: typing.TypeAlias = typing.Literal[
     "manual",
 ]
 
+EffectScope: typing.TypeAlias = typing.Literal[
+    "none",
+    "workspace",
+    "process",
+    "external",
+]
+
+_EXECUTION_EFFECT_FIELDS = frozenset({
+    "effect_id",
+    "fingerprint",
+    "class",
+    "replay_policy",
+    "scope",
+    "provider_idempotency_key",
+    "status",
+    "dispatch_required",
+    "dispatch_count",
+})
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionEffect:
@@ -36,6 +55,7 @@ class ExecutionEffect:
     fingerprint: str
     effect_class: EffectClass
     replay_policy: EffectReplayPolicy
+    scope: EffectScope
     provider_idempotency_key: str
     status: str
     dispatch_required: bool
@@ -361,14 +381,20 @@ def parse_stream_event(
         effect = tool_fields["effect"]
         if effect is None:
             raise ValueError("tool.call execution.effect is required")
-        if tool_fields["checkpoint"] is None:
-            raise ValueError("tool.call checkpoint is required")
-        if (
+        checkpoint = tool_fields["checkpoint"]
+        if effect.scope == "workspace" and checkpoint is None:
+            raise ValueError("workspace tool.call checkpoint is required")
+        if effect.scope != "workspace" and checkpoint is not None:
+            raise ValueError("non-workspace tool.call must not include a checkpoint")
+        if effect.scope == "none":
+            if effect.effect_class != "read_only" or effect.replay_policy != "safe":
+                raise ValueError("scope none requires a safe read-only effect")
+        elif (
             effect.effect_class != "non_replayable"
             or effect.replay_policy != "manual"
             or effect.provider_idempotency_key
         ):
-            raise ValueError("tool.call requires a manual non-replayable effect")
+            raise ValueError("local side effects require manual non-replayable semantics")
         if (
             effect.status != "dispatching"
             or not effect.dispatch_required
@@ -444,6 +470,8 @@ def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffec
     value = execution.get("effect")
     if not isinstance(value, dict):
         raise ValueError("execution.effect must be an object")
+    if set(value) != _EXECUTION_EFFECT_FIELDS:
+        raise ValueError("execution.effect fields are invalid")
 
     effect_id = _required_text(value.get("effect_id"), "execution.effect effect_id")
 
@@ -452,7 +480,7 @@ def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffec
         "execution.effect fingerprint",
     )
     if len(fingerprint) != 64 or any(
-        character not in "0123456789abcdef" for character in fingerprint.lower()
+        character not in "0123456789abcdef" for character in fingerprint
     ):
         raise ValueError("execution.effect fingerprint must be a SHA-256 hex digest")
 
@@ -466,6 +494,10 @@ def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffec
         raise ValueError("execution.effect class is invalid")
     if replay_policy not in {"safe", "provider_idempotent", "manual"}:
         raise ValueError("execution.effect replay_policy is invalid")
+
+    scope = _required_text(value.get("scope"), "execution.effect scope")
+    if scope not in {"none", "workspace", "process", "external"}:
+        raise ValueError("execution.effect scope is invalid")
     if effect_class == "non_replayable" and replay_policy != "manual":
         raise ValueError("non-replayable effects require manual replay policy")
     if effect_class == "read_only" and replay_policy != "safe":
@@ -500,6 +532,7 @@ def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffec
         fingerprint=fingerprint.lower(),
         effect_class=typing.cast(EffectClass, effect_class),
         replay_policy=typing.cast(EffectReplayPolicy, replay_policy),
+        scope=typing.cast(EffectScope, scope),
         provider_idempotency_key=provider_key,
         status=_required_text(value.get("status"), "execution.effect status"),
         dispatch_required=dispatch_required,

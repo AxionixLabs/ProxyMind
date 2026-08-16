@@ -54,6 +54,10 @@ class LocalEffectJournal:
         """绑定独立的本地效果账本文件。"""
         self.db_path = Path(db_path or effect_journal_db_path()).expanduser()
 
+    async def inspect(self, effect: ExecutionEffect) -> EffectJournalDecision:
+        """不取得执行权地读取已提交结果或核对要求。"""
+        return await asyncio.to_thread(self._inspect, effect)
+
     async def begin(self, effect: ExecutionEffect) -> EffectJournalDecision:
         """原子取得执行权，或返回已提交结果与核对要求。"""
         return await asyncio.to_thread(self._begin, effect)
@@ -65,6 +69,14 @@ class LocalEffectJournal:
     ) -> None:
         """持久提交一次已知的本地效果结果。"""
         await asyncio.to_thread(self._commit, effect, result_payload)
+
+    async def commit_unexecuted(
+        self,
+        effect: ExecutionEffect,
+        result_payload: dict[str, typing.Any],
+    ) -> None:
+        """原子记录尚未进入本地操作的确定失败结果。"""
+        await asyncio.to_thread(self._commit_unexecuted, effect, result_payload)
 
     async def mark_unknown(
         self,
@@ -193,6 +205,39 @@ class LocalEffectJournal:
         finally:
             connection.close()
 
+    def _inspect(self, effect: ExecutionEffect) -> EffectJournalDecision:
+        """在同步连接中读取效果状态，但不创建或更新效果记录。"""
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM local_effects WHERE effect_id = ?",
+                (effect.effect_id,),
+            ).fetchone()
+            if row is None:
+                return EffectJournalDecision(
+                    "execute" if effect.dispatch_required else "reconcile"
+                )
+            if str(row["fingerprint"]) != effect.fingerprint:
+                raise ValueError("local effect fingerprint conflicts with persisted semantics")
+
+            status = str(row["status"])
+            if status == "committed":
+                payload = json.loads(str(row["result_payload"] or "{}"))
+                if not isinstance(payload, dict):
+                    raise ValueError("local effect result payload is invalid")
+                return EffectJournalDecision("reuse", payload)
+            if status in {
+                "dispatching",
+                "unknown",
+                "reconciliation_required",
+            } and effect.replay_policy == "manual":
+                return EffectJournalDecision("reconcile")
+            if not effect.dispatch_required:
+                return EffectJournalDecision("reconcile")
+            return EffectJournalDecision("execute")
+        finally:
+            connection.close()
+
     def _commit(
         self,
         effect: ExecutionEffect,
@@ -224,6 +269,59 @@ class LocalEffectJournal:
                 )
                 if cursor.rowcount != 1:
                     raise ValueError("local effect commit identity is invalid")
+        finally:
+            connection.close()
+
+    def _commit_unexecuted(
+        self,
+        effect: ExecutionEffect,
+        result_payload: dict[str, typing.Any],
+    ) -> None:
+        """在同步事务中直接提交未取得执行权的确定结果。"""
+        encoded = json.dumps(
+            result_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        now_ms = int(time.time() * 1000)
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO local_effects (
+                    effect_id, fingerprint, effect_class, replay_policy,
+                    status, dispatch_count, result_payload,
+                    created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, 'committed', 0, ?, ?, ?)
+                """,
+                (
+                    effect.effect_id,
+                    effect.fingerprint,
+                    effect.effect_class,
+                    effect.replay_policy,
+                    encoded,
+                    now_ms,
+                    now_ms,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM local_effects WHERE effect_id = ?",
+                (effect.effect_id,),
+            ).fetchone()
+            if row is None:
+                raise sqlite3.DatabaseError("local effect record was not persisted")
+            if str(row["fingerprint"]) != effect.fingerprint:
+                raise ValueError("local effect fingerprint conflicts with persisted semantics")
+            if str(row["status"]) != "committed" or int(row["dispatch_count"]) != 0:
+                raise ValueError("local effect already entered execution")
+            if str(row["result_payload"] or "") != encoded:
+                raise ValueError("local effect result conflicts with persisted outcome")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
