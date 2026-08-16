@@ -312,8 +312,9 @@ async def test_consecutive_attach_failures_stop_after_retry_budget(monkeypatch) 
     transport.assert_not_called()
 
 
-def test_valid_event_resets_consecutive_attach_budget() -> None:
+def test_valid_event_resets_consecutive_attach_budget(monkeypatch) -> None:
     reconnecting = []
+    monkeypatch.setattr(chat, "TRANSPORT_RETRY_MIN_VISIBLE_SEC", 0.0)
     event_stream = chat.stream_chat(
         {},
         "hello",
@@ -328,6 +329,145 @@ def test_valid_event_resets_consecutive_attach_budget() -> None:
 
     assert event_stream._reconnect_failures == 0
     assert event_stream._reconnect_started_at is None
+    assert reconnecting == [True, False]
+
+
+def test_transport_retry_status_has_minimum_visible_interval(monkeypatch) -> None:
+    now = [100.0]
+    scheduled = {}
+    reconnecting = []
+
+    class Handle:
+        cancelled_value = False
+
+        def cancel(self) -> None:
+            self.cancelled_value = True
+
+        def cancelled(self) -> bool:
+            return self.cancelled_value
+
+    handle = Handle()
+    loop = Mock()
+
+    def call_later(delay, callback, *args):
+        scheduled.update(delay=delay, callback=callback, args=args)
+        return handle
+
+    loop.call_later.side_effect = call_later
+    monkeypatch.setattr(chat.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(chat.asyncio, "get_running_loop", lambda: loop)
+
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_reconnect_status=reconnecting.append,
+    )
+    event_stream._set_reconnecting(True)
+
+    now[0] = 100.1
+    event_stream._mark_transport_healthy()
+
+    assert reconnecting == [True]
+    assert scheduled["delay"] == pytest.approx(0.7)
+
+    scheduled["callback"](*scheduled["args"])
+
+    assert reconnecting == [True, False]
+
+
+def test_stale_retry_clear_does_not_hide_new_reconnect(monkeypatch) -> None:
+    now = [100.0]
+    scheduled = []
+    reconnecting = []
+
+    class Handle:
+        cancelled_value = False
+
+        def cancel(self) -> None:
+            self.cancelled_value = True
+
+        def cancelled(self) -> bool:
+            return self.cancelled_value
+
+    loop = Mock()
+
+    def call_later(delay, callback, *args):
+        handle = Handle()
+        scheduled.append((delay, callback, args, handle))
+        return handle
+
+    loop.call_later.side_effect = call_later
+    monkeypatch.setattr(chat.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(chat.asyncio, "get_running_loop", lambda: loop)
+
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_reconnect_status=reconnecting.append,
+    )
+    event_stream._set_reconnecting(True)
+
+    now[0] = 100.1
+    event_stream._mark_transport_healthy()
+    _, stale_callback, stale_args, stale_handle = scheduled[-1]
+
+    now[0] = 100.2
+    event_stream._set_reconnecting(True)
+    stale_callback(*stale_args)
+
+    assert stale_handle.cancelled() is True
+    assert reconnecting == [True]
+    assert event_stream._reconnecting is True
+
+
+@pytest.mark.anyio
+async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
+    monkeypatch,
+) -> None:
+    calls = []
+    reconnecting = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "segment_id": "segment_1",
+                "text": "partial",
+            }
+            await asyncio.Event().wait()
+
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 2,
+            "next_input": None,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC", 0.01)
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        timeout=1.0,
+        on_reconnect_status=reconnecting.append,
+    )
+
+    events = [event async for event in event_stream]
+
+    assert [type(event) for event in events] == [
+        TextDeltaEvent,
+        TurnLogicalSettledEvent,
+    ]
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
     assert reconnecting == [True, False]
 
 

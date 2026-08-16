@@ -40,6 +40,9 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
 ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float]  = 0.2
 ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
 
+STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC: typing.Final[float] = 25.0
+TRANSPORT_RETRY_MIN_VISIBLE_SEC: typing.Final[float]    = 0.8
+
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
     "fatal",
@@ -91,6 +94,9 @@ class TurnEventStream(object):
         self._reconnect_failures: int            = 0
         self._reconnecting: bool                 = False
         self._reconnect_started_at: float | None = None
+        self._reconnect_visible_at: float | None = None
+
+        self._reconnect_clear_handle: asyncio.TimerHandle | None = None
 
         self._on_reconnect_status = on_reconnect_status
 
@@ -191,7 +197,8 @@ class TurnEventStream(object):
             payload_stream = await self._ensure_open()
 
             try:
-                payload: typing.Any = await anext(payload_stream)
+                async with asyncio.timeout(self._payload_silence_timeout()):
+                    payload: typing.Any = await anext(payload_stream)
                 if not isinstance(payload, dict):
                     await self._finish("protocol_error")
                     raise TypeError("stream payload must be an object")
@@ -205,6 +212,11 @@ class TurnEventStream(object):
                 ) from None
             except asyncio.CancelledError:
                 await self._finish("cancelled")
+                raise
+            except TimeoutError as error:
+                if await self._resume_stream(error):
+                    continue
+                await self._finish("fatal")
                 raise
             except (httpx.HTTPError, OSError) as error:
                 if await self._resume_stream(error):
@@ -323,17 +335,76 @@ class TurnEventStream(object):
     def _set_reconnecting(self, reconnecting: bool) -> None:
         """在连接状态实际变化时通知上层。"""
         value = bool(reconnecting)
-        if self._reconnecting == value:
+
+        if value:
+            self._cancel_reconnect_clear()
+            if self._reconnecting:
+                self._reconnect_visible_at = time.monotonic()
+                return
+            self._reconnecting = True
+            self._reconnect_visible_at = time.monotonic()
+            if self._on_reconnect_status is not None:
+                self._on_reconnect_status(True)
             return
-        self._reconnecting = value
+
+        if not self._reconnecting or self._reconnect_clear_handle is not None:
+            return
+
+        visible_at = self._reconnect_visible_at
+        if visible_at is None:
+            self._clear_reconnecting()
+            return
+
+        elapsed = max(0.0, time.monotonic() - visible_at)
+
+        remaining = max(0.0, TRANSPORT_RETRY_MIN_VISIBLE_SEC - elapsed)
+        if remaining <= 0:
+            self._clear_reconnecting()
+            return
+
+        self._reconnect_clear_handle = asyncio.get_running_loop().call_later(
+            remaining,
+            self._clear_reconnecting_after,
+            visible_at,
+        )
+
+    def _clear_reconnecting_after(self, visible_at: float) -> None:
+        """仅清除创建当前定时器的那一轮重连状态。"""
+        if self._reconnect_visible_at != visible_at:
+            return
+        self._clear_reconnecting()
+
+    def _cancel_reconnect_clear(self) -> None:
+        """取消尚未执行的重连状态复位。"""
+        handle = self._reconnect_clear_handle
+        self._reconnect_clear_handle = None
+        if handle is not None and not handle.cancelled():
+            handle.cancel()
+
+    def _clear_reconnecting(self) -> None:
+        """立即清除传输重连状态。"""
+        self._cancel_reconnect_clear()
+        if not self._reconnecting:
+            self._reconnect_visible_at = None
+            return
+
+        self._reconnecting = False
+        self._reconnect_visible_at = None
         if self._on_reconnect_status is not None:
-            self._on_reconnect_status(value)
+            self._on_reconnect_status(False)
 
     def _mark_transport_healthy(self) -> None:
         """在收到有效载荷后重置连续重连预算。"""
         self._reconnect_failures = 0
         self._reconnect_started_at = None
         self._set_reconnecting(False)
+
+    def _payload_silence_timeout(self) -> float:
+        """返回不超过传输超时的 SSE 静默检测窗口。"""
+        return max(
+            0.01,
+            min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
+        )
 
     def _open_chat_stream(self) -> typing.AsyncGenerator[dict, None]:
         """使用缓存的原始请求创建对话事件传输。"""
@@ -416,7 +487,7 @@ class TurnEventStream(object):
         self.end_reason = reason
 
         self._reconnect_started_at = None
-        self._set_reconnecting(False)
+        self._clear_reconnecting()
 
         await self._close_payload_stream()
 
