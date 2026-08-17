@@ -38,7 +38,12 @@ from ..prompting.paste import (
     parse_paste_placeholder,
     paste_line_count
 )
-from ..prompting.skills import SkillTokenLexer
+from ..prompting.skills import (
+    SkillTokenLexer,
+    iter_known_skill_tokens,
+    match_known_skill_at,
+    skill_query_token,
+)
 
 INPUT_BUFFER_NAME = "prompt-input"
 
@@ -80,6 +85,19 @@ class TuiInputHistoryEntry(object):
     def paste_store(self) -> dict[str, str]:
         """返回该历史项独立持有的粘贴映射。"""
         return dict(self.paste_items)
+
+
+@dataclass(frozen=True, slots=True)
+class _SelectedSkillToken(object):
+    """记录一个已由补全确认的 skill token。"""
+    start: int
+    token: str
+    document_text: str
+
+    @property
+    def end(self) -> int:
+        """返回 token 在输入文档中的结束位置。"""
+        return self.start + len(self.token)
 
 
 class TuiInputHistory(InMemoryHistory):
@@ -251,6 +269,7 @@ class TuiInputModel(object):
         self._history_draft_paste_store: dict[str, str]         = {}
 
         self._dismissed_completion_query: tuple[str, int] | None = None
+        self._selected_skill_token: _SelectedSkillToken | None = None
 
         self.key_bindings = self._build_key_bindings()
 
@@ -344,6 +363,9 @@ class TuiInputModel(object):
         """应用菜单候选并处理后续补全状态。"""
         original = buffer.document
         self.apply_completion(buffer, completion)
+
+        if completion.text.startswith("$") and completion.text != "$":
+            self.confirm_selected_skill(buffer)
 
         if buffer.document == original:
             self.dismiss_completion_menu(buffer)
@@ -473,7 +495,10 @@ class TuiInputModel(object):
         document: Document
     ) -> tuple[Completion, ...] | None:
         """返回当前未被关闭的命令或 skill 菜单项。"""
-        if self._completion_menu_dismissed(document):
+        if (
+            self._completion_menu_dismissed(document)
+            or self._selected_skill_completion_dismissed(document)
+        ):
             return None
         return self.completer.menu_completions(document)
 
@@ -486,8 +511,107 @@ class TuiInputModel(object):
 
     def reopen_completion_menu(self, buffer) -> None:
         """在输入内容变化后允许补全菜单重新显示。"""
-        _ = buffer
+        self._update_selected_skill(buffer.text)
         self._dismissed_completion_query = None
+
+    def confirm_selected_skill(self, buffer) -> None:
+        """确认光标前最后一个已知 skill token。"""
+        document = buffer.document
+        selected: _SelectedSkillToken | None = None
+
+        for start, end, _name in iter_known_skill_tokens(
+            document.text,
+            skills=self.skills,
+        ):
+            if end > document.cursor_position:
+                break
+            selected = _SelectedSkillToken(
+                start=start,
+                token=document.text[start:end],
+                document_text=document.text,
+            )
+
+        self._selected_skill_token = selected
+
+    def clear_selected_skill(self) -> None:
+        """清除已确认的 skill token 状态。"""
+        self._selected_skill_token = None
+
+    def _update_selected_skill(self, text: str) -> None:
+        """根据一次文本变化平移或撤销已确认 token。"""
+        selected = self._selected_skill_token
+        if selected is None or selected.document_text == text:
+            return None
+
+        previous = selected.document_text
+        prefix = 0
+        prefix_limit = min(len(previous), len(text))
+        while prefix < prefix_limit and previous[prefix] == text[prefix]:
+            prefix += 1
+
+        suffix = 0
+        suffix_limit = min(len(previous) - prefix, len(text) - prefix)
+        while (
+            suffix < suffix_limit
+            and previous[len(previous) - suffix - 1]
+            == text[len(text) - suffix - 1]
+        ):
+            suffix += 1
+
+        previous_change_end = len(previous) - suffix
+        current_change_end = len(text) - suffix
+
+        changed_before_token = previous_change_end <= selected.start
+        if changed_before_token:
+            start = selected.start + current_change_end - previous_change_end
+        elif prefix >= selected.end:
+            start = selected.start
+        else:
+            self._selected_skill_token = None
+            return None
+
+        current = _SelectedSkillToken(
+            start=start,
+            token=selected.token,
+            document_text=text,
+        )
+        matched = match_known_skill_at(text, start, skills=self.skills)
+        if (
+            text[current.start:current.end] != current.token
+            or (
+                not changed_before_token
+                and (matched is None or matched[0] != current.end)
+            )
+        ):
+            self._selected_skill_token = None
+            return None
+
+        self._selected_skill_token = current
+
+    def _selected_skill_completion_dismissed(
+        self,
+        document: Document,
+    ) -> bool:
+        """判断当前查询是否属于已确认的 skill token。"""
+        selected = self._selected_skill_token
+        if selected is None or selected.document_text != document.text:
+            return False
+
+        query = skill_query_token(document.text_before_cursor)
+        if query is None:
+            return False
+
+        query_start = document.cursor_position - len(query)
+        return bool(
+            query_start == selected.start
+            and selected.start < document.cursor_position <= selected.end
+            and document.text[selected.start:selected.end] == selected.token
+            and match_known_skill_at(
+                document.text,
+                selected.start,
+                skills=self.skills,
+            ) == (selected.end, selected.token[1:].lower())
+        )
 
     def dismiss_completion_menu(self, buffer) -> None:
         """关闭当前补全菜单并保留输入内容。"""

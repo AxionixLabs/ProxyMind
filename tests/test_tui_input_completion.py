@@ -60,6 +60,17 @@ async def wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     raise AssertionError(f"input text did not become {text!r}")
 
 
+async def wait_for_cursor_position(runtime: TuiRuntime, position: int) -> None:
+    """等待输入光标移动到指定位置。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+    while loop.time() < deadline:
+        if runtime.screen.input.buffer.cursor_position == position:
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError(f"input cursor did not move to {position}")
+
+
 async def render_next_frame(runtime: TuiRuntime):
     """触发渲染并返回完成后的屏幕。"""
     previous_revision = runtime.screen.application.render_counter
@@ -1771,6 +1782,99 @@ async def test_complete_skill_remains_selected_until_it_is_accepted() -> None:
 
             assert buffer.complete_state is None
             assert runtime.submissions.message_queue.empty()
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_selected_skill_stays_dismissed_until_its_name_is_edited() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("alpha"),))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$alph")
+            await wait_for_completion(runtime)
+            pipe_input.send_text("\r")
+            await wait_for_input_text(runtime, "$alpha ")
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is None
+
+            for key, position in (
+                ("\x1b[D", 6),
+                ("\x1b[D", 5),
+                ("\x1b[C", 6),
+                ("\x1b[C", 7),
+            ):
+                pipe_input.send_text(key)
+                await wait_for_cursor_position(runtime, position)
+                assert runtime.input_model.completion_menu_completions(
+                    buffer.document
+                ) is None
+                assert runtime.screen._footer_visible()
+
+            pipe_input.send_text("\x7f")
+            await wait_for_input_text(runtime, "$alpha")
+
+            assert buffer.complete_state is None
+            assert not runtime.screen._completion_visible()
+            assert runtime.screen._footer_visible()
+
+            screen = await render_next_frame(runtime)
+            assert runtime.screen.footer_window in (
+                screen.visible_windows_to_write_positions
+            )
+
+            pipe_input.send_text("\x7f")
+            await wait_for_input_text(runtime, "$alph")
+            await wait_for_completion(runtime)
+
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is not None
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_selected_skill_tracks_edits_outside_its_token() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("beta"),
+        ))
+
+        await runtime.open()
+        try:
+            runtime.replace_input_text("$alpha ", selected_skill=True)
+            buffer = runtime.screen.input.buffer
+
+            pipe_input.send_text("notes ")
+            await wait_for_input_text(runtime, "$alpha notes ")
+            buffer.cursor_position = 0
+            pipe_input.send_text("ask ")
+            await wait_for_input_text(runtime, "ask $alpha notes ")
+
+            buffer.cursor_position = len("ask $alp")
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
+
+            buffer.cursor_position = len(buffer.text)
+            pipe_input.send_text("$b")
+            await wait_for_input_text(runtime, "ask $alpha notes $b")
+            await wait_for_completion(runtime)
+
+            completions = runtime.input_model.completion_menu_completions(
+                buffer.document
+            )
+            assert completions is not None
+            assert [completion.text for completion in completions] == [
+                "$beta "
+            ]
         finally:
             await runtime.close()
 

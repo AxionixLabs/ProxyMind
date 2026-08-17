@@ -1074,13 +1074,22 @@ class TuiRuntime(object):
         handoff.consumed = True
         return lease
 
-    def replace_input_text(self, text: str) -> None:
+    def replace_input_text(
+        self,
+        text: str,
+        *,
+        selected_skill: bool = False,
+    ) -> None:
         """替换主输入内容并把光标移动到末尾。"""
         value = str(text)
 
         buffer = self.screen.input.buffer
+        self.input_model.clear_selected_skill()
         buffer.text = value
         buffer.cursor_position = len(value)
+
+        if selected_skill:
+            self.input_model.confirm_selected_skill(buffer)
 
         self.input_model.notify_input_layout()
         self.invalidate()

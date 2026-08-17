@@ -123,6 +123,19 @@ async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
         "without omitting details"
     )
 
+    buffer = runtime.screen.input.buffer
+    buffer.cursor_position = len("$review")
+    assert runtime.input_model.completion_menu_completions(
+        buffer.document
+    ) is None
+
+    buffer.cursor_position = len(buffer.text)
+    buffer.delete_before_cursor()
+    assert buffer.text == "$review"
+    assert runtime.input_model.completion_menu_completions(
+        buffer.document
+    ) is None
+
 
 @pytest.mark.anyio
 async def test_cancelled_skills_menu_keeps_input_empty() -> None:

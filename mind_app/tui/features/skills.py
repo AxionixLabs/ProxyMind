@@ -33,7 +33,10 @@ async def choose_skill(runtime: "TuiRuntime") -> SkillSpec | None:
     if not isinstance(selected, SkillSpec):
         return None
 
-    runtime.replace_input_text(f"${selected.name} ")
+    runtime.replace_input_text(
+        f"${selected.name} ",
+        selected_skill=True,
+    )
     return selected
 
 
