@@ -1596,42 +1596,58 @@ async def test_inline_shell_grows_known_viewport_like_stream_content() -> None:
             input_rows = []
             screen_heights = []
 
-            for line_count in (1, 2, 4):
-                snapshot = {
-                    "ok": True,
-                    "session_id": "exec_shell",
-                    "command": "ping -t 8.8.8.8",
-                    "status": "running",
-                    "origin": "tui_shell",
-                    "output_lines": [
-                        f"reply {index}"
-                        for index in range(line_count)
-                    ],
-                }
-                block = exec_session_live_block(
-                    snapshot,
-                    terminal_width=80,
-                    viewer_mode="inline",
-                )
-                if viewer is None:
-                    viewer = runtime.begin_process_viewer(
-                        ProcessViewerRequest(
-                            fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-                            max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-                            capture_input=False,
-                            session_id="exec_shell",
-                        ),
-                        block,
+            with (
+                patch.object(
+                    runtime.screen,
+                    "begin_synchronized_output",
+                    return_value=True,
+                ) as begin_synchronized,
+                patch.object(
+                    runtime.screen,
+                    "end_synchronized_output",
+                ) as end_synchronized,
+            ):
+                for line_count in (1, 2, 4):
+                    snapshot = {
+                        "ok": True,
+                        "session_id": "exec_shell",
+                        "command": "ping -t 8.8.8.8",
+                        "status": "running",
+                        "origin": "tui_shell",
+                        "output_lines": [
+                            f"reply {index}"
+                            for index in range(line_count)
+                        ],
+                    }
+                    block = exec_session_live_block(
+                        snapshot,
+                        terminal_width=80,
+                        viewer_mode="inline",
                     )
-                else:
-                    runtime.update_process_viewer(block)
+                    if viewer is None:
+                        viewer = runtime.begin_process_viewer(
+                            ProcessViewerRequest(
+                                fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
+                                max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
+                                capture_input=False,
+                                session_id="exec_shell",
+                            ),
+                            block,
+                        )
+                    else:
+                        runtime.update_process_viewer(block)
 
-                screen = await _render_next_frame(runtime)
-                positions = screen.visible_windows_to_write_positions
-                input_rows.append(positions[runtime.screen.input.window].ypos)
-                screen_heights.append(screen.height)
+                    screen = await _render_next_frame(runtime)
+                    positions = screen.visible_windows_to_write_positions
+                    input_rows.append(
+                        positions[runtime.screen.input.window].ypos
+                    )
+                    screen_heights.append(screen.height)
 
-                assert runtime.screen._content_input_gap_visible()
+                    assert runtime.screen._content_input_gap_visible()
+
+                assert begin_synchronized.call_count == 3
+                assert end_synchronized.call_count == 3
 
             assert input_rows == [4, 5, 7]
             assert screen_heights == [7, 8, 10]

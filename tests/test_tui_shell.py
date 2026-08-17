@@ -1342,6 +1342,33 @@ async def test_inline_process_viewer_keeps_input_and_footer_visible() -> None:
 
 
 @pytest.mark.anyio
+async def test_inline_process_viewer_synchronizes_visual_transitions() -> None:
+    runtime = TuiRuntime()
+    request = ProcessViewerRequest(
+        fragments=(("", " "),),
+        capture_input=False,
+        session_id="exec_shell",
+    )
+    live_block = FragmentBlock((("", "Shell running"),))
+    updated_block = FragmentBlock((("", "Shell running\noutput"),))
+    final_block = FragmentBlock((("", "Shell completed"),))
+
+    with patch.object(runtime.screen, "synchronize_next_render") as synchronize:
+        future = runtime.begin_process_viewer(request, live_block)
+        runtime.update_process_viewer(updated_block)
+        runtime.resolve_process_viewer("exited")
+        assert await future == "exited"
+        runtime.commit_process_viewer(final_block)
+
+        second = runtime.begin_process_viewer(request, live_block)
+        runtime.resolve_process_viewer("detach")
+        assert await second == "detach"
+        runtime.dismiss_process_viewer()
+
+    assert synchronize.call_count == 5
+
+
+@pytest.mark.anyio
 async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     runtime = TuiRuntime()
     task = asyncio.create_task(runtime.view_process(

@@ -744,6 +744,9 @@ class TuiRuntime(object):
         """同步激活进程查看器并返回等待结果。"""
         self._discard_submitted_query()
 
+        if not request.capture_input:
+            self.screen.synchronize_next_render()
+
         self.set_active_renderable(
             block,
             kind="operation",
@@ -770,6 +773,9 @@ class TuiRuntime(object):
         gap_before: int | None = None
     ) -> None:
         """替换当前动态进程正文。"""
+        if self.screen.process_viewer.input_passthrough:
+            self.screen.synchronize_next_render()
+
         self.set_active_renderable(
             block,
             kind="operation",
@@ -791,6 +797,8 @@ class TuiRuntime(object):
         if self.document.active_kind != "operation":
             raise RuntimeError("cannot commit a process without active output")
         input_passthrough = self.screen.process_viewer.input_passthrough
+        if input_passthrough:
+            self.screen.synchronize_next_render()
         self.document.commit_active(block, transcript_block=transcript_block)
         self.screen.process_viewer.settle()
         if input_passthrough:
@@ -803,6 +811,8 @@ class TuiRuntime(object):
         """撤下动态进程正文并恢复主输入区域。"""
         changed = self.document.active_kind == "operation"
         input_passthrough = self.screen.process_viewer.input_passthrough
+        if input_passthrough:
+            self.screen.synchronize_next_render()
         if changed:
             self.document.clear_active()
 
