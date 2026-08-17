@@ -1787,7 +1787,7 @@ async def test_complete_skill_remains_selected_until_it_is_accepted() -> None:
 
 
 @pytest.mark.anyio
-async def test_selected_skill_stays_dismissed_until_its_name_is_edited() -> None:
+async def test_selected_skill_stays_dismissed_while_its_anchor_remains() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         runtime.input_model.set_skills((skill_spec("alpha"),))
@@ -1822,13 +1822,40 @@ async def test_selected_skill_stays_dismissed_until_its_name_is_edited() -> None
             assert not runtime.screen._completion_visible()
             assert runtime.screen._footer_visible()
 
+            pipe_input.send_text("\x1b[D\x1b[D")
+            await wait_for_cursor_position(runtime, 4)
+            pipe_input.send_text("\x7f")
+            await wait_for_input_text(runtime, "$alha")
+
+            assert buffer.complete_state is None
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
+
+            pipe_input.send_text("\x1b[3~")
+            await wait_for_input_text(runtime, "$ala")
+
+            assert buffer.complete_state is None
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
+
+            pipe_input.send_text("z")
+            await wait_for_input_text(runtime, "$alza")
+
+            assert buffer.complete_state is None
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
+
             screen = await render_next_frame(runtime)
             assert runtime.screen.footer_window in (
                 screen.visible_windows_to_write_positions
             )
 
-            pipe_input.send_text("\x7f")
-            await wait_for_input_text(runtime, "$alph")
+            buffer.cursor_position = 1
+            pipe_input.send_text("\x7f$a")
+            await wait_for_input_text(runtime, "$aalza")
             await wait_for_completion(runtime)
 
             assert runtime.input_model.completion_menu_completions(

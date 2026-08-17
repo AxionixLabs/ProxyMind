@@ -41,7 +41,6 @@ from ..prompting.paste import (
 from ..prompting.skills import (
     SkillTokenLexer,
     iter_known_skill_tokens,
-    match_known_skill_at,
     skill_query_token,
 )
 
@@ -88,16 +87,10 @@ class TuiInputHistoryEntry(object):
 
 
 @dataclass(frozen=True, slots=True)
-class _SelectedSkillToken(object):
-    """记录一个已由补全确认的 skill token。"""
+class _CommittedSkillQuery(object):
+    """记录一次已确认 skill 补全的美元符号锚点。"""
     start: int
-    token: str
     document_text: str
-
-    @property
-    def end(self) -> int:
-        """返回 token 在输入文档中的结束位置。"""
-        return self.start + len(self.token)
 
 
 class TuiInputHistory(InMemoryHistory):
@@ -269,7 +262,7 @@ class TuiInputModel(object):
         self._history_draft_paste_store: dict[str, str]         = {}
 
         self._dismissed_completion_query: tuple[str, int] | None = None
-        self._selected_skill_token: _SelectedSkillToken | None = None
+        self._committed_skill_query: _CommittedSkillQuery | None = None
 
         self.key_bindings = self._build_key_bindings()
 
@@ -497,7 +490,7 @@ class TuiInputModel(object):
         """返回当前未被关闭的命令或 skill 菜单项。"""
         if (
             self._completion_menu_dismissed(document)
-            or self._selected_skill_completion_dismissed(document)
+            or self._committed_skill_completion_dismissed(document)
         ):
             return None
         return self.completer.menu_completions(document)
@@ -511,13 +504,13 @@ class TuiInputModel(object):
 
     def reopen_completion_menu(self, buffer) -> None:
         """在输入内容变化后允许补全菜单重新显示。"""
-        self._update_selected_skill(buffer.text)
+        self._update_committed_skill(buffer.text)
         self._dismissed_completion_query = None
 
     def confirm_selected_skill(self, buffer) -> None:
-        """确认光标前最后一个已知 skill token。"""
+        """确认光标前最后一个已知 skill 查询锚点。"""
         document = buffer.document
-        selected: _SelectedSkillToken | None = None
+        committed: _CommittedSkillQuery | None = None
 
         for start, end, _name in iter_known_skill_tokens(
             document.text,
@@ -525,25 +518,24 @@ class TuiInputModel(object):
         ):
             if end > document.cursor_position:
                 break
-            selected = _SelectedSkillToken(
+            committed = _CommittedSkillQuery(
                 start=start,
-                token=document.text[start:end],
                 document_text=document.text,
             )
 
-        self._selected_skill_token = selected
+        self._committed_skill_query = committed
 
     def clear_selected_skill(self) -> None:
-        """清除已确认的 skill token 状态。"""
-        self._selected_skill_token = None
+        """清除已确认的 skill 查询状态。"""
+        self._committed_skill_query = None
 
-    def _update_selected_skill(self, text: str) -> None:
-        """根据一次文本变化平移或撤销已确认 token。"""
-        selected = self._selected_skill_token
-        if selected is None or selected.document_text == text:
+    def _update_committed_skill(self, text: str) -> None:
+        """根据文本变化平移或撤销已确认的 skill 查询锚点。"""
+        committed = self._committed_skill_query
+        if committed is None or committed.document_text == text:
             return None
 
-        previous = selected.document_text
+        previous = committed.document_text
         prefix = 0
         prefix_limit = min(len(previous), len(text))
         while prefix < prefix_limit and previous[prefix] == text[prefix]:
@@ -561,40 +553,30 @@ class TuiInputModel(object):
         previous_change_end = len(previous) - suffix
         current_change_end = len(text) - suffix
 
-        changed_before_token = previous_change_end <= selected.start
-        if changed_before_token:
-            start = selected.start + current_change_end - previous_change_end
-        elif prefix >= selected.end:
-            start = selected.start
+        if previous_change_end <= committed.start:
+            start = committed.start + current_change_end - previous_change_end
+        elif prefix > committed.start:
+            start = committed.start
         else:
-            self._selected_skill_token = None
+            self._committed_skill_query = None
             return None
 
-        current = _SelectedSkillToken(
+        if start < 0 or start >= len(text) or text[start] != "$":
+            self._committed_skill_query = None
+            return None
+
+        self._committed_skill_query = _CommittedSkillQuery(
             start=start,
-            token=selected.token,
             document_text=text,
         )
-        matched = match_known_skill_at(text, start, skills=self.skills)
-        if (
-            text[current.start:current.end] != current.token
-            or (
-                not changed_before_token
-                and (matched is None or matched[0] != current.end)
-            )
-        ):
-            self._selected_skill_token = None
-            return None
 
-        self._selected_skill_token = current
-
-    def _selected_skill_completion_dismissed(
+    def _committed_skill_completion_dismissed(
         self,
         document: Document,
     ) -> bool:
-        """判断当前查询是否属于已确认的 skill token。"""
-        selected = self._selected_skill_token
-        if selected is None or selected.document_text != document.text:
+        """判断当前查询是否属于已确认的 skill 补全会话。"""
+        committed = self._committed_skill_query
+        if committed is None or committed.document_text != document.text:
             return False
 
         query = skill_query_token(document.text_before_cursor)
@@ -602,16 +584,7 @@ class TuiInputModel(object):
             return False
 
         query_start = document.cursor_position - len(query)
-        return bool(
-            query_start == selected.start
-            and selected.start < document.cursor_position <= selected.end
-            and document.text[selected.start:selected.end] == selected.token
-            and match_known_skill_at(
-                document.text,
-                selected.start,
-                skills=self.skills,
-            ) == (selected.end, selected.token[1:].lower())
-        )
+        return query_start == committed.start
 
     def dismiss_completion_menu(self, buffer) -> None:
         """关闭当前补全菜单并保留输入内容。"""
