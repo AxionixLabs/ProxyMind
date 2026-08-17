@@ -3234,7 +3234,7 @@ class TuiScreen(object):
             and (
                 auxiliary_content
                 or (
-                    self.document.has_visible_content
+                    self.document.has_display_tail
                     and self.document.visible_tail_kind != "user"
                     and not assistant_stream_active
                 )

@@ -204,6 +204,14 @@ class TuiDocument(object):
         )
 
     @property
+    def has_display_tail(self) -> bool:
+        """返回实时画布或原生滚屏区是否保留展示尾部。"""
+        return bool(
+            self.has_visible_content
+            or self._has_native_scrollback_boundary()
+        )
+
+    @property
     def visible_tail_kind(self) -> TuiBlockKind | None:
         """返回实时画布最后一个正文 cell 的类型。"""
         if self._active_tail:

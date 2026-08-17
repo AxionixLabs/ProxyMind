@@ -1357,10 +1357,10 @@ async def test_repeated_assistant_streams_recover_after_scrollback() -> None:
 
                 for turn in (2, 3):
                     settled_screen = await _render_next_frame(runtime)
-                    assert settled_screen.height == 4
+                    assert settled_screen.height == 5
                     assert (
                         runtime.screen.application.renderer.rows_above_layout
-                        == 14
+                        == 13
                     )
 
                     runtime.set_execution_active(True)
@@ -1523,10 +1523,10 @@ async def test_long_stream_grows_after_approval_and_consecutive_tools() -> None:
                 await _wait_for_scrollback_advance(runtime)
 
                 settled_screen = await _render_next_frame(runtime)
-                assert settled_screen.height == 4
+                assert settled_screen.height == 5
                 assert (
                     runtime.screen.application.renderer.rows_above_layout
-                    == 14
+                    == 13
                 )
                 assert not runtime.document.visible_stable_lines()
 
@@ -4715,6 +4715,130 @@ async def test_startup_title_uses_external_gap_and_colored_input_padding() -> No
                 assert input_position.ypos == top_padding.ypos + top_padding.height
                 assert bottom_padding.ypos == input_position.ypos + input_position.height
                 assert footer.ypos == bottom_padding.ypos + bottom_padding.height
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("block_kind", get_args(TuiBlockKind))
+async def test_every_transcript_kind_keeps_blank_row_before_input(
+    block_kind: TuiBlockKind,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block("visible content"), kind=block_kind)
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                input_position = positions[runtime.screen.input.window]
+                rows = {
+                    row: "".join(
+                        cells[column].char for column in sorted(cells)
+                    ).rstrip()
+                    for row, cells in screen.data_buffer.items()
+                }
+
+                transcript_end = transcript.ypos + transcript.height
+
+                assert runtime.document.has_display_tail
+                assert input_position.ypos > transcript_end
+                assert all(
+                    not rows.get(row)
+                    for row in range(transcript_end, input_position.ypos)
+                )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("block_kind", get_args(TuiBlockKind))
+async def test_native_scrollback_tail_keeps_content_gap_before_input(
+    block_kind: TuiBlockKind,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(
+                    _block("\n".join(f"line {index}" for index in range(30))),
+                    kind=block_kind,
+                )
+
+                for _ in range(100):
+                    await asyncio.sleep(0.002)
+                    if runtime.document.scrollback_line_count > 0:
+                        break
+
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                content_gap = positions[
+                    runtime.screen.content_input_gap.content
+                ]
+                top_padding = positions[runtime.screen.input_top_padding]
+                input_position = positions[runtime.screen.input.window]
+
+                assert not runtime.document.has_visible_content
+                assert runtime.document.has_display_tail
+                assert runtime.screen._content_input_gap_visible()
+                assert content_gap.ypos == 0
+                assert top_padding.ypos == (
+                    content_gap.ypos + content_gap.height
+                )
+                assert input_position.ypos == (
+                    top_padding.ypos + top_padding.height
+                )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_content_gap_preserves_natural_input_push_down() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=40),
+        ):
+            await runtime.open()
+            try:
+                initial = runtime.screen.application.renderer.last_rendered_screen
+                initial_input = initial.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+
+                runtime.append_block(_block("first"), kind="system")
+                first = await _render_next_frame(runtime)
+                first_input = first.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+
+                runtime.append_block(_block("second"), kind="system")
+                second = await _render_next_frame(runtime)
+                second_input = second.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ]
+
+                assert initial_input.ypos < first_input.ypos < second_input.ypos
+                assert runtime.screen._visible_height() < 24
+                assert runtime.screen.canvas_spacer not in (
+                    second.visible_windows_to_write_positions
+                )
             finally:
                 await runtime.close()
 
