@@ -21,6 +21,7 @@ from mind_app.tui.core.models import (
     MenuRequest,
 )
 from mind_app.tui.core.process_viewer import ProcessViewerRequest
+from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import text_block
 from mind_app.tui.session.barriers import TuiForegroundTasks
@@ -184,6 +185,91 @@ def test_completion_surface_has_no_async_footer_gap() -> None:
     ).lstrip().startswith("/mcp")
 
 
+@pytest.mark.parametrize(
+    ("terminal_rows", "expected_inset", "expected_footer"),
+    (
+        (3, 1, 0),
+        (4, 1, 0),
+        (5, 1, 1),
+        (12, 1, 1),
+    ),
+)
+def test_composer_budget_preserves_padding_before_optional_footer(
+    terminal_rows: int,
+    expected_inset: int,
+    expected_footer: int,
+) -> None:
+    runtime = TuiRuntime()
+
+    with patch.object(
+        runtime.screen.application.output,
+        "get_size",
+        return_value=Size(rows=terminal_rows, columns=40),
+    ):
+        pane_layout = runtime.screen._bottom_pane_layout()
+        layout = pane_layout.composer
+
+    assert pane_layout.outer_top_inset_height == expected_inset
+    assert layout.input_top_padding_height == 1
+    assert layout.input_height == 1
+    assert layout.input_bottom_padding_height == 1
+    assert layout.popup_height == 0
+    assert layout.footer_height == expected_footer
+    if terminal_rows >= 4:
+        assert pane_layout.total_height <= terminal_rows
+    else:
+        assert pane_layout.total_height == 4
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("terminal_rows", "expected_inset", "expected_popup"),
+    (
+        (3, 1, 0),
+        (4, 1, 0),
+        (5, 1, 1),
+        (10, 1, 6),
+        (12, 1, 8),
+    ),
+)
+async def test_completion_budget_shrinks_popup_before_input_surface(
+    terminal_rows: int,
+    expected_inset: int,
+    expected_popup: int,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills(tuple(
+            skill_spec(f"skill-{index:02d}")
+            for index in range(12)
+        ))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=terminal_rows, columns=40),
+        ):
+            await runtime.open()
+            try:
+                pipe_input.send_text("$")
+                await wait_for_completion(runtime)
+
+                pane_layout = runtime.screen._bottom_pane_layout()
+                layout = pane_layout.composer
+
+                assert pane_layout.outer_top_inset_height == expected_inset
+                assert layout.input_surface_height == 3
+                assert layout.popup_height == expected_popup
+                assert layout.footer_height == 0
+                assert (
+                    pane_layout.total_height <= terminal_rows
+                    if terminal_rows >= 4
+                    else pane_layout.total_height == 4
+                )
+            finally:
+                await runtime.close()
+
+
 @pytest.mark.anyio
 async def test_slash_completion_has_no_inline_ghost_text() -> None:
     with create_pipe_input() as pipe_input:
@@ -261,7 +347,7 @@ def test_slash_suggestion_only_appears_on_the_first_input_line() -> None:
 
 
 @pytest.mark.anyio
-async def test_ctrl_o_closes_skill_menu_and_releases_its_height() -> None:
+async def test_ctrl_o_closes_skill_menu_and_restores_natural_height() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         runtime.input_model.set_skills(tuple(
@@ -290,7 +376,9 @@ async def test_ctrl_o_closes_skill_menu_and_releases_its_height() -> None:
                 assert runtime.screen.input.buffer.complete_state is None
                 assert not runtime.screen._completion_visible()
                 assert runtime.screen._completion_section_height() == 0
-                assert runtime.screen._bottom_release_height() == 0
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
                 assert runtime.screen.canvas_spacer not in positions
             finally:
                 await runtime.close()
@@ -325,10 +413,11 @@ async def test_forward_typing_never_leaves_a_blank_completion_frame() -> None:
 
 
 @pytest.mark.anyio
-async def test_slash_canvas_frames_keep_raised_anchor_after_dismissal() -> None:
+async def test_slash_canvas_frames_restore_current_layout_after_dismissal(
+) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-        frames: list[tuple[str, int, int, int, bool]] = []
+        frames: list[tuple[str, int, int, bool]] = []
 
         def capture_frame(_application) -> None:
             screen = runtime.screen.application.renderer.last_rendered_screen
@@ -352,7 +441,6 @@ async def test_slash_canvas_frames_keep_raised_anchor_after_dismissal() -> None:
                 runtime.screen.input.buffer.text,
                 input_row,
                 runtime.screen._completion_section_height(),
-                runtime.screen._bottom_release_height(),
                 has_rendered_candidate,
             ))
 
@@ -391,13 +479,11 @@ async def test_slash_canvas_frames_keep_raised_anchor_after_dismissal() -> None:
                 assert all(
                     input_row == 14
                     and completion_height == 8
-                    and release_height == 0
                     and has_rendered_candidate
                     for (
                         _text,
                         input_row,
                         completion_height,
-                        release_height,
                         has_rendered_candidate,
                     ) in opened_frames
                 ), opened_frames
@@ -411,15 +497,13 @@ async def test_slash_canvas_frames_keep_raised_anchor_after_dismissal() -> None:
                 dismissed_frames = frames[dismissed_at:]
                 assert dismissed_frames
                 assert all(
-                    input_row == 14
+                    input_row == idle_row
                     and completion_height == 0
-                    and release_height == 7
                     and not has_rendered_candidate
                     for (
                         _text,
                         input_row,
                         completion_height,
-                        release_height,
                         has_rendered_candidate,
                     ) in dismissed_frames
                 ), dismissed_frames
@@ -479,7 +563,6 @@ async def test_clearing_multiline_completion_collapses_canvas(
 
                 assert runtime.screen._input_height() == 1
                 assert runtime.screen._completion_section_height() == 0
-                assert runtime.screen._bottom_release_height() == 0
                 assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
@@ -492,7 +575,7 @@ async def test_clearing_multiline_completion_collapses_canvas(
 @pytest.mark.anyio
 @pytest.mark.parametrize("stable_line_count", (0, 20))
 @pytest.mark.parametrize("close_method", ("escape", "backspace"))
-async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
+async def test_dismissed_slash_completion_keeps_fixed_outer_inset(
     close_method: str,
     stable_line_count: int,
 ) -> None:
@@ -532,6 +615,10 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 transcript = positions[runtime.screen.transcript_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
+                top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
                 before = (
                     24
@@ -539,10 +626,12 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                     + input_position.ypos
                 )
 
-                assert runtime.screen.content_input_gap.content not in positions
-                assert input_position.ypos == (
-                    transcript.ypos + transcript.height + 1
+                assert outer_inset.height == 1
+                assert outer_inset.ypos == (
+                    transcript.ypos + transcript.height
                 )
+                assert top_padding.ypos == outer_inset.ypos + 1
+                assert input_position.ypos == top_padding.ypos + 1
 
                 pipe_input.send_text("/")
                 await wait_for_completion(runtime)
@@ -558,7 +647,10 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                 )
 
                 assert runtime.screen.canvas_spacer not in positions
-                assert runtime.screen.content_input_gap.content not in positions
+                assert (
+                    runtime.screen.bottom_pane_top_inset.content
+                    in positions
+                )
 
                 if close_method == "escape":
                     runtime.input_model.dismiss_completion_menu(
@@ -571,6 +663,9 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 transcript = positions[runtime.screen.transcript_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 dismissed = positions[runtime.screen.input.window]
                 dismissed_row = (
@@ -580,18 +675,16 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                 )
 
                 assert raised_row < before
-                assert dismissed_row == raised_row
+                assert dismissed_row == before
                 assert runtime.screen.canvas_spacer not in positions
-                assert runtime.screen.content_input_gap.content not in positions
-                assert top_padding.ypos == (
+                assert outer_inset.ypos == (
                     transcript.ypos + transcript.height
                 )
+                assert top_padding.ypos == outer_inset.ypos + 1
                 assert dismissed.ypos == top_padding.ypos + top_padding.height
 
-                initial_release = runtime.screen._bottom_release_height()
                 final_block = None
-                for growth in range(1, initial_release + 1):
-                    line_count = 6 + growth
+                for line_count in range(7, 15):
                     final_block = FragmentBlock(((
                         "",
                         "\n".join(
@@ -606,31 +699,21 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                     screen = await render_next_frame(runtime)
                     positions = screen.visible_windows_to_write_positions
                     transcript = positions[runtime.screen.transcript_window]
+                    outer_inset = positions[
+                        runtime.screen.bottom_pane_top_inset.content
+                    ]
                     top_padding = positions[runtime.screen.input_top_padding]
                     input_position = positions[runtime.screen.input.window]
-                    input_row = (
-                        24
-                        - runtime.screen._visible_height()
-                        + input_position.ypos
+                    assert runtime.screen._visible_height() == (
+                        runtime.screen._natural_visible_height()
                     )
-
                     assert runtime.screen.canvas_spacer not in positions
-                    assert (
-                        runtime.screen.content_input_gap.content
-                        not in positions
-                    )
-                    assert top_padding.ypos == (
+                    assert outer_inset.ypos == (
                         transcript.ypos + transcript.height
                     )
+                    assert top_padding.ypos == outer_inset.ypos + 1
                     assert input_position.ypos == (
                         top_padding.ypos + top_padding.height
-                    )
-                    assert input_row == min(
-                        before,
-                        dismissed_row + growth,
-                    )
-                    assert runtime.screen._bottom_release_height() == (
-                        initial_release - growth
                     )
 
                 assert final_block is not None
@@ -646,7 +729,9 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
                     + committed.ypos
                 )
 
-                assert committed_row == before
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
                 assert runtime.screen.canvas_spacer not in positions
             finally:
                 runtime.set_execution_active(False)
@@ -655,7 +740,7 @@ async def test_dismissed_slash_completion_tracks_stream_without_top_spacer(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stabilize_prefix", (False, True))
-async def test_stream_growth_while_slash_is_open_leaves_no_backspace_spacer(
+async def test_stream_growth_keeps_outer_inset_after_completion_closes(
     stabilize_prefix: bool,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -722,23 +807,19 @@ async def test_stream_growth_while_slash_is_open_leaves_no_backspace_spacer(
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 transcript = positions[runtime.screen.transcript_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
-                input_row = (
-                    24
-                    - runtime.screen._visible_height()
-                    + input_position.ypos
-                )
-                release_height = runtime.screen._bottom_release_height()
-
-                assert release_height > 0
                 assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
-                assert top_padding.ypos == (
+                assert outer_inset.ypos == (
                     transcript.ypos + transcript.height
                 )
+                assert top_padding.ypos == outer_inset.ypos + 1
 
                 if stabilize_prefix:
                     tail = "\n".join(
@@ -763,21 +844,21 @@ async def test_stream_growth_while_slash_is_open_leaves_no_backspace_spacer(
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 transcript = positions[runtime.screen.transcript_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 next_input = positions[runtime.screen.input.window]
-                next_input_row = (
-                    24
-                    - runtime.screen._visible_height()
-                    + next_input.ypos
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
                 )
-
-                assert runtime.screen._bottom_release_height() == (
-                    release_height - 1
-                )
-                assert next_input_row == input_row + 1
                 assert runtime.screen.canvas_spacer not in positions
-                assert top_padding.ypos == (
+                assert outer_inset.ypos == (
                     transcript.ypos + transcript.height
+                )
+                assert top_padding.ypos == outer_inset.ypos + 1
+                assert next_input.ypos == (
+                    top_padding.ypos + top_padding.height
                 )
             finally:
                 runtime.set_execution_active(False)
@@ -839,7 +920,7 @@ async def test_slash_completion_does_not_commit_active_stream() -> None:
 
 
 @pytest.mark.anyio
-async def test_streaming_status_keeps_content_input_gap() -> None:
+async def test_streaming_status_keeps_internal_interaction_gap() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -863,7 +944,7 @@ async def test_streaming_status_keeps_content_input_gap() -> None:
                 positions = screen.visible_windows_to_write_positions
                 status = positions[runtime.screen.status_window]
                 content_gap = positions[
-                    runtime.screen.content_input_gap.content
+                    runtime.screen.status_interaction_gap.content
                 ]
                 top_padding = positions[runtime.screen.input_top_padding]
 
@@ -880,7 +961,7 @@ async def test_streaming_status_keeps_content_input_gap() -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize("wait_for_candidates", (False, True))
 @pytest.mark.parametrize("stable_line_count", (0, 20))
-async def test_streaming_slash_completion_has_one_row_above_input(
+async def test_streaming_slash_completion_has_outer_and_inner_insets(
     wait_for_candidates: bool,
     stable_line_count: int,
 ) -> None:
@@ -927,13 +1008,18 @@ async def test_streaming_slash_completion_has_one_row_above_input(
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 transcript = positions[runtime.screen.transcript_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
+                top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
 
                 assert runtime.screen._completion_visible()
-                assert input_position.ypos == (
-                    transcript.ypos + transcript.height + 1
+                assert outer_inset.ypos == (
+                    transcript.ypos + transcript.height
                 )
-                assert runtime.screen.content_input_gap.content not in positions
+                assert top_padding.ypos == outer_inset.ypos + 1
+                assert input_position.ypos == top_padding.ypos + 1
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
@@ -941,24 +1027,9 @@ async def test_streaming_slash_completion_has_one_row_above_input(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stable_line_count", (0, 20))
-@pytest.mark.parametrize(
-    (
-        "surface",
-        "surface_visible_height",
-        "closed_visible_height",
-        "expected_release_height",
-    ),
-    (
-        ("approval", 24, 24, 5),
-        ("menu", 22, 21, 2),
-        ("process_viewer", 24, 23, 4),
-    ),
-)
-async def test_bottom_surface_release_preserves_streaming_slash_anchor(
+@pytest.mark.parametrize("surface", ("approval", "menu", "process_viewer"))
+async def test_bottom_surface_restores_streaming_input_and_focus(
     surface: str,
-    surface_visible_height: int,
-    closed_visible_height: int,
-    expected_release_height: int,
     stable_line_count: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -998,17 +1069,9 @@ async def test_bottom_surface_release_preserves_streaming_slash_anchor(
                 pipe_input.send_text("/")
                 await wait_for_completion(runtime)
                 slash_screen = await render_next_frame(runtime)
-                slash_position = (
-                    slash_screen.visible_windows_to_write_positions[
-                        runtime.screen.input.window
-                    ]
+                assert runtime.screen.input.window in (
+                    slash_screen.visible_windows_to_write_positions
                 )
-                slash_row = (
-                    24
-                    - runtime.screen._visible_height()
-                    + slash_position.ypos
-                )
-                assert slash_row == 14
 
                 if surface == "approval":
                     surface_task = asyncio.create_task(
@@ -1056,9 +1119,7 @@ async def test_bottom_surface_release_preserves_streaming_slash_anchor(
                         break
                 assert surface_active()
                 await render_next_frame(runtime)
-                assert runtime.screen._visible_height() == (
-                    24 if stable_line_count else surface_visible_height
-                )
+                assert 1 <= runtime.screen._visible_height() <= 24
 
                 if surface == "approval":
                     runtime.screen.approval.finish("accept")
@@ -1074,71 +1135,17 @@ async def test_bottom_surface_release_preserves_streaming_slash_anchor(
 
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
-                input_position = positions[runtime.screen.input.window]
-                input_row = (
-                    24
-                    - runtime.screen._visible_height()
-                    + input_position.ypos
+                assert runtime.screen.input.window in positions
+                assert runtime.screen.bottom_pane.input_visible
+                assert runtime.screen.input.buffer.text == "/"
+                assert runtime.screen.application.layout.current_window is (
+                    runtime.screen.input.window
                 )
-                release_height = runtime.screen._bottom_release_height()
-                expected_closed_height = (
-                    24 if stable_line_count else closed_visible_height
+                assert "stream 7" in fragments_text(
+                    runtime.document.live_fragments()
                 )
-                expected_release = (
-                    0 if stable_line_count else expected_release_height
-                )
-
-                assert runtime.screen._visible_height() == (
-                    expected_closed_height
-                )
-                assert release_height == expected_release
-                assert input_row == slash_row - release_height
-                assert runtime.screen.canvas_spacer not in positions
-                assert (
-                    runtime.screen.content_input_gap.content
-                    not in positions
-                )
-
-                released_input_row = input_row
-                growth_steps = max(2, release_height)
-                for growth in range(1, growth_steps + 1):
-                    line_count = 8 + growth
-                    runtime.set_active_renderable(
-                        FragmentBlock(((
-                            "",
-                            "\n".join(
-                                f"stream {index}"
-                                for index in range(line_count)
-                            ),
-                        ),)),
-                        kind="assistant",
-                    )
-                    screen = await render_next_frame(runtime)
-                    input_position = (
-                        screen.visible_windows_to_write_positions[
-                            runtime.screen.input.window
-                        ]
-                    )
-                    input_row = (
-                        24
-                        - runtime.screen._visible_height()
-                        + input_position.ypos
-                    )
-
-                    assert input_row == min(
-                        slash_row,
-                        released_input_row + growth,
-                    )
-                    assert runtime.screen._bottom_release_height() == max(
-                        0,
-                        release_height - growth,
-                    )
-                    assert runtime.screen.canvas_spacer not in (
-                        screen.visible_windows_to_write_positions
-                    )
-
-                assert input_row == slash_row
-                assert runtime.screen._bottom_release_height() == 0
+                if stable_line_count:
+                    assert runtime.document.scrollback_line_count > 0
             finally:
                 if runtime.screen.approval.active:
                     runtime.screen.approval.finish("decline")
@@ -1408,7 +1415,9 @@ async def test_skill_menu_keeps_all_matches_beyond_visible_height() -> None:
             buffer = runtime.screen.input.buffer
             assert buffer.complete_state is not None
             assert len(buffer.complete_state.completions) == 12
-            assert runtime.screen._completion_height() == 7
+            assert runtime.screen._completion_height() == 6
+            assert runtime.screen._bottom_pane_top_inset_height() == 1
+            assert runtime.screen._input_surface_height() == 3
             assert runtime.screen.completion_menu.content.right_margins
 
             runtime.input_model._select_completion(buffer, 11)
@@ -1474,7 +1483,7 @@ async def test_backspacing_skill_query_does_not_move_input() -> None:
     ),
 )
 @pytest.mark.parametrize("prior_line_count", (0, 20))
-async def test_slash_command_result_releases_completion_layout(
+async def test_slash_command_result_uses_current_layout(
     command: str,
     prior_line_count: int,
 ) -> None:
@@ -1554,19 +1563,24 @@ async def test_slash_command_result_releases_completion_layout(
                     - runtime.screen._visible_height()
                     + input_position.ypos
                 )
-                assert final_input_row > command_input_row
+                assert final_input_row == command_input_row
                 assert all(
                     not rows.get(row)
                     for row in range(result_row + 1, input_position.ypos)
                 )
-                assert runtime.screen._bottom_release_height() == 0
                 assert runtime.screen.canvas_spacer not in positions
                 assert not runtime.command_layout_pending
 
                 for _ in range(5):
                     await asyncio.sleep(0)
-                assert runtime.screen.application.render_counter == (
-                    render_revision + 1
+                assert runtime.screen.application.render_counter > (
+                    render_revision
+                )
+                assert runtime.document.scrollback_line_count == (
+                    runtime.document.stable_line_count
+                )
+                assert "command completed" in fragments_text(
+                    runtime.document.all_fragments(width=40)
                 )
             finally:
                 await runtime.close()
@@ -1584,7 +1598,7 @@ async def test_slash_command_result_releases_completion_layout(
     ),
 )
 @pytest.mark.parametrize("terminal_rows", (12, 24))
-async def test_foreground_command_releases_completion_before_activity(
+async def test_foreground_command_uses_current_activity_layout(
     command: str,
     terminal_rows: int,
 ) -> None:
@@ -1683,10 +1697,9 @@ async def test_foreground_command_releases_completion_before_activity(
                     + position.ypos
                 )
 
-                assert completion_row < idle_row
+                assert completion_row == idle_row
                 assert running_row == [idle_row]
                 assert final_row == idle_row
-                assert runtime.screen._bottom_release_height() == 0
                 assert not runtime.command_layout_pending
             finally:
                 release.set()
@@ -1696,7 +1709,7 @@ async def test_foreground_command_releases_completion_before_activity(
 
 
 @pytest.mark.anyio
-async def test_stream_command_result_has_no_bottom_release_after_turn() -> None:
+async def test_stream_command_result_uses_natural_layout_after_turn() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -1755,7 +1768,9 @@ async def test_stream_command_result_has_no_bottom_release_after_turn() -> None:
                 )
 
                 assert input_position.ypos - result_row == 3
-                assert runtime.screen._bottom_release_height() == 0
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()

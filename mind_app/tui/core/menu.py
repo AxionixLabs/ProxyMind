@@ -43,7 +43,7 @@ class MenuState(object):
 class TuiMenu(object):
     """管理主 TUI Application 内的无边框选择菜单。"""
 
-    VISIBLE_ROWS: typing.Final[int]       = 10
+    VISIBLE_ROWS: typing.Final[int]       = 8
     MIN_LABEL_WIDTH: typing.Final[int]    = 8
     MIN_DETAIL_WIDTH: typing.Final[int]   = 12
     MAX_DETAIL_RESERVE: typing.Final[int] = 24
@@ -177,7 +177,7 @@ class TuiMenu(object):
         self,
         request: MenuRequest,
         *,
-        width: int,
+        width: int
     ) -> StyleAndTextTuples:
         """生成优先保留标题的单行菜单头部。"""
         title = clip_text(request.title, width=width)
@@ -201,7 +201,7 @@ class TuiMenu(object):
         *,
         available: int,
         label_width: int | None,
-        active: bool,
+        active: bool
     ) -> StyleAndTextTuples:
         """按可用宽度分配选项主标签和辅助信息。"""
         label_style = (

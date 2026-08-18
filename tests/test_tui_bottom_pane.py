@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-from unittest.mock import patch
 
 import pytest
+from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mind_app.tui.core.bottom_pane import TuiBottomPane
 from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
+from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
 
 
@@ -29,46 +30,147 @@ def test_bottom_pane_restores_previous_surface_focus() -> None:
     assert pane.active_surface is None
 
 
-@pytest.mark.parametrize(
-    ("surface", "expected_height"),
-    [
-        ("approval", 12),
-        ("menu", 11),
-        ("process_viewer", 11),
-    ],
-)
-def test_top_bottom_surface_starts_height_release(
-    surface: str,
-    expected_height: int,
-) -> None:
+@pytest.mark.parametrize("surface", ["approval", "menu", "process_viewer"])
+def test_bottom_surface_exit_uses_current_natural_layout(surface: str) -> None:
     runtime = TuiRuntime()
     screen = runtime.screen
-    screen._inline_layout.canvas_height_floor = 12
     screen.bottom_pane.activate(surface)
 
-    with patch.object(
-        screen,
-        "_begin_bottom_release",
-        wraps=screen._begin_bottom_release,
-    ) as begin_release:
-        screen._deactivate_bottom_surface(surface)
+    screen._deactivate_bottom_surface(surface)
 
-    begin_release.assert_called_once_with(expected_height)
     assert screen.bottom_pane.input_visible
+    assert screen._visible_height() == screen._natural_visible_height()
 
 
 def test_nested_bottom_surface_does_not_release_until_input_returns() -> None:
     runtime = TuiRuntime()
     screen = runtime.screen
-    screen._inline_layout.canvas_height_floor = 12
     screen.bottom_pane.activate("menu")
     screen.bottom_pane.activate("approval")
 
-    with patch.object(screen, "_begin_bottom_release") as begin_release:
-        screen._deactivate_bottom_surface("approval")
+    screen._deactivate_bottom_surface("approval")
 
-    begin_release.assert_not_called()
     assert screen.bottom_pane.active_surface == "menu"
+    assert screen._visible_height() == screen._natural_visible_height()
+
+
+@pytest.mark.parametrize(
+    (
+        "rows",
+        "expected_status_height",
+        "expected_process_height",
+        "expected_gap_height",
+    ),
+    (
+        (5, 0, 0, 0),
+        (6, 1, 0, 0),
+        (8, 3, 0, 0),
+        (9, 3, 1, 0),
+        (10, 3, 1, 1),
+    ),
+)
+def test_bottom_pane_shrinks_status_before_composer(
+    monkeypatch: pytest.MonkeyPatch,
+    rows: int,
+    expected_status_height: int,
+    expected_process_height: int,
+    expected_gap_height: int,
+) -> None:
+    runtime = TuiRuntime()
+    monkeypatch.setattr(
+        runtime.screen.application.output,
+        "get_size",
+        lambda: Size(rows=rows, columns=60),
+    )
+    runtime.screen.set_activity_renderable(FragmentBlock(((
+        "",
+        "status one\nstatus two\nstatus three",
+    ),)))
+    runtime.set_process_status_label("background command")
+
+    layout = runtime.screen._bottom_pane_layout()
+
+    assert layout.outer_top_inset_height == 1
+    assert layout.composer.input_stack_height == 4
+    assert layout.status_height == expected_status_height
+    assert layout.process_status_height == expected_process_height
+    assert layout.interaction_gap_height == expected_gap_height
+    assert layout.total_height <= rows
+
+
+@pytest.mark.anyio
+async def test_active_view_replaces_status_exec_and_queue() -> None:
+    runtime = TuiRuntime()
+    runtime.screen.set_activity_renderable(FragmentBlock((("", "Thinking"),)))
+    runtime.set_process_status_label("background command")
+    runtime.track_pending_steer(TuiSubmission(
+        value="queued input",
+        editable_text="queued input",
+        paste_store={},
+    ))
+
+    task = asyncio.create_task(runtime.select_menu(MenuRequest(
+        title="Options",
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    active = runtime.screen._bottom_pane_layout()
+
+    assert active.outer_top_inset_height == 1
+    assert active.active_view.surface == "menu"
+    assert active.status_height == 0
+    assert active.process_status_height == 0
+    assert active.queued_height == 0
+    assert active.interaction_gap_height == 0
+    assert active.composer.input_stack_height == 0
+
+    runtime.screen.menu.finish(None)
+    await task
+
+    restored = runtime.screen._bottom_pane_layout()
+    assert restored.active_view.surface is None
+    assert restored.status_height == 1
+    assert restored.process_status_height == 1
+    assert restored.queued_height > 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("rows", "option_count", "expected_content_height"),
+    ((8, 2, 4), (8, 12, 6), (12, 12, 10)),
+)
+async def test_menu_active_view_shrinks_to_current_terminal_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    rows: int,
+    option_count: int,
+    expected_content_height: int,
+) -> None:
+    runtime = TuiRuntime()
+    monkeypatch.setattr(
+        runtime.screen.application.output,
+        "get_size",
+        lambda: Size(rows=rows, columns=60),
+    )
+    task = asyncio.create_task(runtime.select_menu(MenuRequest(
+        title="Options",
+        options=tuple(
+            MenuOption(index, f"Option {index}")
+            for index in range(option_count)
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    layout = runtime.screen._active_view_layout()
+
+    assert layout.surface == "menu"
+    assert layout.available_height == rows - 1
+    assert layout.top_padding_height == 1
+    assert layout.content_height == expected_content_height
+    assert layout.total_height <= layout.available_height
+
+    runtime.screen.menu.finish(None)
+    await task
 
 
 @pytest.mark.anyio
@@ -81,7 +183,7 @@ async def test_approval_temporarily_replaces_menu_surface() -> None:
     )))
     await asyncio.sleep(0)
 
-    assert runtime.screen._content_input_gap_height() == 1
+    assert runtime.screen._bottom_pane_top_inset_height() == 1
 
     approval_task = asyncio.create_task(runtime.request_approval({
         "tool": "shell_command",
@@ -91,17 +193,22 @@ async def test_approval_temporarily_replaces_menu_surface() -> None:
     await asyncio.sleep(0)
 
     assert runtime.screen.bottom_pane.active_surface == "approval"
-    assert runtime.screen._content_input_gap_height() == 1
+    assert runtime.screen._bottom_pane_top_inset_height() == 1
     assert runtime.screen.approval_card.filter()
     assert not runtime.screen.menu_card.filter()
-    assert runtime.screen._menu_height() == 0
-    assert runtime.screen._approval_height() > 0
+    approval_layout = runtime.screen._active_view_layout()
+    assert approval_layout.surface == "approval"
+    assert approval_layout.total_height == runtime.screen._interaction_height()
+    assert approval_layout.total_height > 0
 
     runtime.screen.approval.finish("decline")
     assert await approval_task == "decline"
     assert runtime.screen.bottom_pane.active_surface == "menu"
-    assert runtime.screen._content_input_gap_height() == 1
+    assert runtime.screen._bottom_pane_top_inset_height() == 1
     assert runtime.screen.menu_card.filter()
+    menu_layout = runtime.screen._active_view_layout()
+    assert menu_layout.surface == "menu"
+    assert menu_layout.total_height == runtime.screen._interaction_height()
 
     runtime.screen.menu.finish(None)
     assert await menu_task is None

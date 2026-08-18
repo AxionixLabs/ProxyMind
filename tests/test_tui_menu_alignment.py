@@ -267,5 +267,32 @@ async def test_menu_selection_wraps_across_first_and_last_options() -> None:
     await task
 
 
+@pytest.mark.anyio
+async def test_menu_height_caps_visible_options_at_eight_rows() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Tools",
+        options=tuple(
+            MenuOption(index, f"Option {index}")
+            for index in range(12)
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    start, visible = menu._visible_options(menu.state)
+    assert start == 0
+    assert len(visible) == 8
+    assert menu.height() == 10
+
+    menu.finish(None)
+    await task
+
+
 def _fragments_text(parts) -> str:
     return "".join(text for _, text in parts)

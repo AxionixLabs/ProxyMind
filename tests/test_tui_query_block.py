@@ -51,14 +51,14 @@ def test_submitted_query_has_transparent_padding_before_response() -> None:
 
     assert lines == [
         [("", "─ Worked for 1m ─")],
-        [("", " ")],
+        [],
         [("", " ")],
         [
             ("class:prompt.kicker", "› "),
             ("class:prompt", "lock this behavior"),
         ],
         [("", " ")],
-        [("", " ")],
+        [],
         [("", "• response")],
     ]
 
@@ -69,22 +69,42 @@ def test_submitted_query_keeps_bottom_padding_while_last_cell() -> None:
 
     assert split_formatted_lines(document.fragments(width=80)) == [
         [("", " ")],
-        [("", " ")],
         [
             ("class:prompt.kicker", "› "),
             ("class:prompt", "waiting for response"),
         ],
         [("", " ")],
+    ]
+
+
+def test_consecutive_user_cells_keep_history_boundary_separator() -> None:
+    document = TuiDocument()
+    document.append_block(query_block("first question"), kind="user")
+    document.append_block(query_block("second question"), kind="user")
+
+    assert split_formatted_lines(document.fragments(width=80)) == [
+        [("", " ")],
+        [
+            ("class:prompt.kicker", "› "),
+            ("class:prompt", "first question"),
+        ],
+        [("", " ")],
+        [],
+        [("", " ")],
+        [
+            ("class:prompt.kicker", "› "),
+            ("class:prompt", "second question"),
+        ],
         [("", " ")],
     ]
 
 
-def test_submitted_query_padding_replaces_content_surface_gap() -> None:
+def test_content_surface_gap_is_independent_of_transcript_tail_kind() -> None:
     runtime = TuiRuntime()
     runtime.append_block(query_block("waiting for response"), kind="user")
 
     assert runtime.document.visible_tail_kind == "user"
-    assert runtime.screen._content_input_gap_height() == 0
+    assert runtime.screen._bottom_pane_top_inset_height() == 1
 
     runtime.append_block(
         FragmentBlock((("", "• response"),)),
@@ -92,7 +112,7 @@ def test_submitted_query_padding_replaces_content_surface_gap() -> None:
     )
 
     assert runtime.document.visible_tail_kind == "assistant"
-    assert runtime.screen._content_input_gap_height() == 1
+    assert runtime.screen._bottom_pane_top_inset_height() == 1
 
 
 def test_visible_tail_kind_uses_stable_cache_and_restores_with_document() -> None:
@@ -126,8 +146,8 @@ def test_submitted_query_padding_replaces_activity_top_gap() -> None:
         FragmentBlock((("", "• Thinking"),))
     )
 
-    assert not runtime.screen._transcript_status_gap_visible()
-    assert runtime.screen._content_input_gap_height() == 1
+    assert runtime.screen._bottom_pane_top_inset_visible()
+    assert runtime.screen._status_interaction_gap_height() == 1
 
 
 def test_query_transcript_uses_regular_font_weight() -> None:

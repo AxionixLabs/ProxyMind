@@ -83,10 +83,6 @@ from .hyperlinks import (
     TerminalHyperlinkOutput,
     TerminalHyperlinkWindow
 )
-from .inline_layout import (
-    BottomAnchorState,
-    InlineLayoutState
-)
 from .interrupt import TuiInterruptState
 from .keymap import (
     TuiKeyBinding,
@@ -217,6 +213,88 @@ class FrameGeometry(object):
     revision: int
 
 
+@dataclass(frozen=True, slots=True)
+class ComposerLayout(object):
+    """描述单帧输入表面、弹层和信息栏的高度预算。"""
+    input_top_padding_height: int
+    input_height: int
+    input_bottom_padding_height: int
+    popup_height: int
+    footer_height: int
+
+    @property
+    def input_surface_height(self) -> int:
+        """返回输入内容及其内部上下留白的总高度。"""
+        return (
+            self.input_top_padding_height
+            + self.input_height
+            + self.input_bottom_padding_height
+        )
+
+    @property
+    def input_stack_height(self) -> int:
+        """返回输入表面及其弹层或信息栏的总高度。"""
+        return (
+            self.input_surface_height
+            + self.popup_height
+            + self.footer_height
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveViewLayout(object):
+    """描述单帧临时交互表面的高度预算。"""
+    surface: BottomSurface | None
+    available_height: int
+    top_padding_height: int
+    content_height: int
+    footer_height: int
+
+    @property
+    def total_height(self) -> int:
+        """返回临时交互表面及其留白的总高度。"""
+        return (
+            self.top_padding_height
+            + self.content_height
+            + self.footer_height
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BottomPaneLayout(object):
+    """描述单帧底部状态区与交互区域的统一高度预算。"""
+    outer_top_inset_height: int
+    status_height: int
+    process_status_height: int
+    queued_height: int
+    interaction_gap_height: int
+    composer: ComposerLayout
+    active_view: ActiveViewLayout
+
+    @property
+    def interaction_height(self) -> int:
+        """返回输入区或临时交互表面当前占用的高度。"""
+        if self.active_view.surface is not None:
+            return self.active_view.total_height
+        return self.composer.input_stack_height
+
+    @property
+    def content_height(self) -> int:
+        """返回不含外部顶部间距的底部面板高度。"""
+        return (
+            self.status_height
+            + self.process_status_height
+            + self.queued_height
+            + self.interaction_gap_height
+            + self.interaction_height
+        )
+
+    @property
+    def total_height(self) -> int:
+        """返回包含外部顶部间距的底部面板总高度。"""
+        return self.outer_top_inset_height + self.content_height
+
+
 class TuiScreen(object):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
@@ -300,7 +378,7 @@ class TuiScreen(object):
         self._observe_terminal_geometry = observe_terminal_geometry
         self._observe_render_revision   = observe_render_revision
 
-        self.keymap = keymap
+        self.keymap: TuiRuntimeKeymap = keymap
 
         self._validate_keymap(keymap)
 
@@ -313,10 +391,12 @@ class TuiScreen(object):
         self._synchronized_frame_pending: bool = False
         self._synchronized_frame_active: bool  = False
 
-        self._frame_geometry: FrameGeometry | None     = None
-        self._frame_output_size: Size | None           = None
-        self._rendered_output_size: Size | None        = None
-        self._physical_geometry: tuple[int, int] | None = None
+        self._frame_geometry: FrameGeometry | None = None
+        self._frame_output_size: Size | None       = None
+
+        self._rendered_output_size: Size | None = None
+
+        self._bottom_pane_frame_layout: BottomPaneLayout | None = None
 
         self._transcript_cache_key: tuple[int, int, int] | None     = None
         self._transcript_cache_fragments: FormattedText             = []
@@ -326,8 +406,6 @@ class TuiScreen(object):
         self._transcript_cache_continuation_widths: tuple[int, ...] = ()
         self._transcript_cache_text: str                            = ""
         self._transcript_cache_display_rows: int                    = 0
-
-        self._inline_layout = InlineLayoutState()
 
         self.activity_block: FragmentBlock | None = None
 
@@ -415,7 +493,7 @@ class TuiScreen(object):
             focus_card=lambda: self._activate_bottom_surface("approval"),
             focus_input=lambda: self._deactivate_bottom_surface("approval"),
             get_width=lambda: self.terminal_width,
-            get_max_height=self._approval_available_height,
+            get_max_height=self._active_view_available_height,
         )
         self.approval_control = FormattedTextControl(
             self.approval.fragments,
@@ -699,13 +777,29 @@ class TuiScreen(object):
                 lambda: self.bottom_pane.is_active("process_viewer")
             ),
         )
-        self.transcript_status_gap = ConditionalContainer(
-            Window(height=Dimension.exact(1), char=" "),
-            filter=Condition(self._transcript_status_gap_visible),
+        self.active_view_area = ConditionalContainer(
+            HSplit(
+                [
+                    self.approval_card,
+                    self.menu_card,
+                    self.process_viewer_card,
+                ],
+                align=VerticalAlign.TOP,
+                height=self._active_view_dimension,
+                window_too_small=Window(),
+            ),
+            filter=Condition(lambda: (
+                self.bottom_pane.transient_active
+                and not self._transcript_only
+            )),
         )
-        self.content_input_gap = ConditionalContainer(
-            Window(height=self._content_input_gap_dimension, char=" "),
-            filter=Condition(self._content_input_gap_visible),
+        self.bottom_pane_top_inset = ConditionalContainer(
+            Window(height=self._bottom_pane_top_inset_dimension, char=" "),
+            filter=Condition(self._bottom_pane_top_inset_visible),
+        )
+        self.status_interaction_gap = ConditionalContainer(
+            Window(height=self._status_interaction_gap_dimension, char=" "),
+            filter=Condition(self._status_interaction_gap_visible),
         )
         self.completion_menu = CompletionsMenu(
             max_height=self.COMPLETION_MAX_HEIGHT,
@@ -794,12 +888,22 @@ class TuiScreen(object):
                 )
             ),
         )
-        self.bottom_release_spacer = Window(
-            height=self._bottom_release_dimension,
-            char=" ",
-            dont_extend_height=True,
+        self.bottom_pane_area = ConditionalContainer(
+            HSplit(
+                [
+                    self.status_window,
+                    self.process_status_window,
+                    self.queued_window,
+                    self.status_interaction_gap,
+                    self.active_view_area,
+                    self.input_area,
+                ],
+                align=VerticalAlign.TOP,
+                height=self._bottom_pane_content_dimension,
+                window_too_small=Window(),
+            ),
+            filter=Condition(self._bottom_pane_visible),
         )
-
         self.canvas_spacer = Window(
             height=Dimension(min=0, preferred=0, weight=1),
             char=" ",
@@ -809,16 +913,8 @@ class TuiScreen(object):
             [
                 self.canvas_spacer,
                 self.transcript_window,
-                self.transcript_status_gap,
-                self.status_window,
-                self.process_status_window,
-                self.queued_window,
-                self.content_input_gap,
-                self.process_viewer_card,
-                self.menu_card,
-                self.input_area,
-                self.bottom_release_spacer,
-                self.approval_card,
+                self.bottom_pane_top_inset,
+                self.bottom_pane_area,
             ],
             align=VerticalAlign.JUSTIFY,
             height=self._canvas_dimension,
@@ -979,8 +1075,8 @@ class TuiScreen(object):
         """返回属于助手正文块的全部逻辑行索引。"""
         assistant_lines: set[int] = set()
 
-        line_number   = 0
-        at_line_start = True
+        line_number: int    = 0
+        at_line_start: bool = True
 
         for style, text in fragments:
             parts      = text.split("\n")
@@ -1090,56 +1186,12 @@ class TuiScreen(object):
 
     def set_transcript_only(self, active: bool) -> None:
         """切换为只保留正文的终端画布。"""
-        active = bool(active)
-        if active:
-            self._reset_completion_layout(reset_canvas_floor=True)
-        self._transcript_only = active
+        self._transcript_only = bool(active)
         self.invalidate()
 
-    def settle_completion_layout(self, *, invalidate: bool = True) -> None:
-        """在交互周期结束时折叠尚未被正文消费的补全空间。"""
-        self._reset_completion_layout(reset_canvas_floor=False)
-        if invalidate:
-            self.invalidate()
-
-    def settle_input_layout(self, completion_closed: bool = False) -> None:
-        """随输入内容缩短收束输入区留下的画布高度。"""
-        if completion_closed:
-            self._reset_completion_layout(reset_canvas_floor=False)
-
-        if not self._inline_layout.input_growth_active:
-            if completion_closed:
-                self.invalidate()
-            return None
-
-        if self._input_contains_folded_paste():
-            self._inline_layout.cancel_input_growth()
-            self._inline_layout.cap_canvas_height(
-                self._natural_visible_height(),
-            )
-            self.invalidate()
-            return None
-
-        input_empty = not self.input.buffer.text
-        if input_empty:
-            self._inline_layout.bottom_anchor.clear()
-        self._inline_layout.settle_input(
-            natural_height=self._natural_visible_height(),
-            input_empty=input_empty,
-        )
+    def refresh_input_layout(self) -> None:
+        """按当前输入和补全状态请求重新计算布局。"""
         self.invalidate()
-
-    def settle_scrollback_layout(self) -> None:
-        """在稳定正文移入终端历史后收束实时画布高度。"""
-        self._inline_layout.cap_canvas_height(
-            self._natural_visible_height(),
-        )
-
-    def settle_dynamic_output_layout(self) -> None:
-        """在动态正文结束后收束实时画布高度。"""
-        self._inline_layout.cap_canvas_height(
-            self._natural_visible_height(),
-        )
 
     def set_transcript_overlay(self, active: bool) -> bool:
         """切换完整会话记录、终端画面和键盘焦点。"""
@@ -1179,7 +1231,7 @@ class TuiScreen(object):
         self,
         entries: typing.Iterable[MailboxEntry],
         *,
-        listener_active: bool,
+        listener_active: bool
     ) -> bool:
         """更新收件箱快照并在内容变化时刷新当前画面。"""
         previous_count = self.mailbox_overlay.pending_count
@@ -1199,7 +1251,7 @@ class TuiScreen(object):
         self,
         active: bool,
         *,
-        entry_key: str = "",
+        entry_key: str = ""
     ) -> bool:
         """切换全屏收件箱、终端画面和键盘焦点。"""
         active = bool(active)
@@ -1285,6 +1337,7 @@ class TuiScreen(object):
         """释放尚未结束的终端同步输出状态。"""
         self._synchronized_frame_pending = False
         self._synchronized_frame_active  = False
+
         if self._synchronized_output_depth <= 0:
             return None
 
@@ -1313,6 +1366,7 @@ class TuiScreen(object):
     def transcript_fragments(self) -> FormattedText:
         """生成会话内容区域的格式化片段。"""
         width = self.terminal_width
+
         key = (
             self.document.transcript_revision,
             self.document.visible_prefix_line_count,
@@ -1326,6 +1380,7 @@ class TuiScreen(object):
             self._transcript_cache_key = key
             self._transcript_cache_fragments = fragments
             self._transcript_assistant_lines = self._assistant_lines(fragments)
+
         return self._transcript_cache_fragments
 
     def _transcript_text(self) -> str:
@@ -1344,7 +1399,7 @@ class TuiScreen(object):
     ) -> tuple[tuple[int, ...], int]:
         """返回当前正文版本可复用的续行宽度与显示行数。"""
         fragments = self.transcript_fragments()
-        key = self._transcript_cache_key
+        key       = self._transcript_cache_key
 
         if key != self._transcript_metrics_key:
             text = self._transcript_text()
@@ -1395,69 +1450,18 @@ class TuiScreen(object):
 
     def _capture_frame_geometry(self, application: Application[None]) -> None:
         """在布局计算前固定当前帧使用的终端尺寸。"""
+        self._bottom_pane_frame_layout = None
+
         self._frame_geometry = self._read_frame_geometry(
             revision=application.render_counter,
         )
+
         geometry = self.output_geometry()
-        geometry_changed = (
-            self._physical_geometry is not None
-            and geometry != self._physical_geometry
-        )
-        self._physical_geometry = geometry
 
         self.document.set_display_width(
             self._frame_geometry.width,
             reflow_sources=False,
         )
-
-        if geometry_changed:
-            self._reset_completion_layout(reset_canvas_floor=True)
-
-        if (
-            not self.directory_trust.active
-            and not self.transcript_overlay.active
-            and not self.mailbox_overlay.active
-            and not self._transcript_only
-        ):
-            previous_release_height = self._bottom_release_height()
-            completion_visible      = self._update_bottom_anchor()
-
-            release_consumed = (
-                self._bottom_release_height() < previous_release_height
-            )
-
-            folded_paste = self._input_contains_folded_paste()
-            if folded_paste:
-                self._inline_layout.cancel_input_growth()
-
-            natural_height = self._natural_visible_height()
-            self._inline_layout.observe_auxiliary_layout(
-                height=self._input_auxiliary_height(),
-                queued_height=self._queued_height(),
-                natural_height=natural_height,
-            )
-
-            if folded_paste:
-                self._inline_layout.cap_canvas_height(natural_height)
-            else:
-                self._inline_layout.observe_input_layout(
-                    input_height=self._input_height(),
-                    footprint_height=(
-                        self._input_surface_height()
-                        + self._footer_height()
-                    ),
-                    stable_line_baseline=self.document.stable_line_count,
-                    live_height_baseline=self._completion_live_height(),
-                )
-
-            if completion_visible or release_consumed:
-                self._inline_layout.cap_canvas_height(natural_height)
-
-            self._inline_layout.fit_canvas_height(
-                natural_height=natural_height,
-                available_height=self._frame_geometry.height,
-                input_growth_height=max(0, self._input_height() - 1),
-            )
 
         self._observe_terminal_geometry(*geometry)
 
@@ -1469,12 +1473,14 @@ class TuiScreen(object):
         self._frame_output_size = None
         self._frame_geometry    = None
 
+        self._bottom_pane_frame_layout = None
+
     def _read_frame_geometry(self, *, revision: int) -> FrameGeometry:
         """读取并规范化一个终端尺寸快照。"""
         width, height = self._output_size()
         self._frame_output_size = Size(rows=height, columns=width)
 
-        height = self._inline_layout_height(
+        height = self._inline_frame_height(
             width=width,
             height=height,
         )
@@ -1485,7 +1491,7 @@ class TuiScreen(object):
             revision=max(0, int(revision)),
         )
 
-    def _inline_layout_height(self, *, width: int, height: int) -> int:
+    def _inline_frame_height(self, *, width: int, height: int) -> int:
         """返回不会推动原生终端滚屏的 inline 布局高度。"""
         application = getattr(self, "application", None)
         if application is None or application.full_screen:
@@ -1494,9 +1500,10 @@ class TuiScreen(object):
             self._inline_reply_handoff_growth_active()
             or self._inline_assistant_growth_active()
             or self._inline_process_growth_active()
-            or self._inline_auxiliary_growth_active(width=width)
+            or self._input_auxiliary_height(width=width) > 0
             or self._inline_completion_growth_active()
             or self._inline_input_growth_active(width=width)
+            or self.bottom_pane.transient_active
         ):
             return height
 
@@ -1609,15 +1616,7 @@ class TuiScreen(object):
         return max(
             0,
             self.terminal_height
-            - self._interaction_height()
-            - self._status_height()
-            - self._process_status_height()
-            - self._queued_height()
-            - self._menu_height()
-            - self._process_viewer_height()
-            - int(self._transcript_status_gap_visible())
-            - self._content_input_gap_height()
-            - self._bottom_release_height(),
+            - self._bottom_pane_layout().total_height,
         )
 
     def _focus_bottom_surface(self, surface: BottomSurface) -> None:
@@ -1649,34 +1648,12 @@ class TuiScreen(object):
         self.application.layout.focus(controls[surface])
 
     def _activate_bottom_surface(self, surface: BottomSurface) -> None:
-        """激活底部临时表面并清除上一个交互布局的高度残留。"""
+        """激活底部临时表面并切换焦点。"""
         self.bottom_pane.activate(surface)
-        self._reset_completion_layout(reset_canvas_floor=False)
 
     def _deactivate_bottom_surface(self, surface: BottomSurface) -> None:
-        """撤下底部临时表面并按恢复后的布局收束画布高度。"""
-        was_active     = self.bottom_pane.is_active(surface)
-        visible_height = self._visible_height()
-
-        alignment_padding = 0
-        if was_active and surface == "menu":
-            alignment_padding = self._menu_top_padding_height()
-        elif was_active and surface == "process_viewer":
-            alignment_padding = self._process_viewer_top_padding_height()
-
-        if alignment_padding:
-            visible_height = max(
-                1,
-                visible_height - alignment_padding,
-            )
-            self._inline_layout.cap_canvas_height(visible_height)
-
+        """撤下底部临时表面并按当前表面重新计算布局。"""
         self.bottom_pane.deactivate(surface)
-
-        if was_active and self.bottom_pane.input_visible:
-            self._begin_bottom_release(visible_height)
-        else:
-            self._reset_completion_layout(reset_canvas_floor=False)
 
     def _focus_input(self) -> None:
         """把焦点路由到当前顶层记录或主输入控件。"""
@@ -1753,7 +1730,7 @@ class TuiScreen(object):
         """生成动画区域下方的待提交消息。"""
         pending_active = self.pending_steers.active
         queued_active  = self.queued_messages.active
-        render_width = self.terminal_width if width is None else max(1, width)
+        render_width   = self.terminal_width if width is None else max(1, width)
 
         if pending_active and queued_active:
             pending_rows = 3
@@ -1875,7 +1852,6 @@ class TuiScreen(object):
         @bindings.add("c-l", eager=True, filter=input_active)
         def _(event) -> None:
             _ = event
-            self._reset_completion_layout(reset_canvas_floor=True)
             self._clear_visible_transcript()
 
         @bindings.add("pageup", eager=True, filter=input_active)
@@ -2461,17 +2437,18 @@ class TuiScreen(object):
         """生成收件箱标题、数量和监听状态。"""
         width = self.terminal_width
         count = format_mailbox_count(self.mailbox_overlay.pending_count)
+
         state = (
             "listening"
             if self.mailbox_overlay.listener_active
             else "stopped"
         )
-        status = f" {count} pending · {state} "
-        title = "/ M A I L B O X "
+        status  = f" {count} pending · {state} "
+        title   = "/ M A I L B O X "
         pattern = ("/ " * ((width + 1) // 2))[:width]
 
-        available = max(0, width - get_cwidth(status))
-        heading = clip_text(title, width=available)
+        available  = max(0, width - get_cwidth(status))
+        heading    = clip_text(title, width=available)
         fill_width = max(0, available - get_cwidth(heading))
 
         return [
@@ -2489,15 +2466,19 @@ class TuiScreen(object):
     def _mailbox_overlay_separator_fragments(self) -> FormattedText:
         """生成包含消息正文页码的底栏分隔线。"""
         width = self.terminal_width
+
         current, total = self.mailbox_overlay.message_progress()
+
         progress = (
             f" {format_mailbox_count(current)}/"
             f"{format_mailbox_count(total)} "
             if total > 1
             else ""
         )
+
         progress_width = get_cwidth(progress)
-        prefix_width = max(0, width - progress_width - int(bool(progress)))
+        prefix_width   = max(0, width - progress_width - int(bool(progress)))
+
         return [
             ("class:mailbox.filler", "─" * prefix_width),
             ("class:mailbox.progress", progress),
@@ -2569,10 +2550,6 @@ class TuiScreen(object):
         height = self._input_stack_height()
         return Dimension(min=1, preferred=height, max=height)
 
-    def _bottom_release_dimension(self) -> Dimension:
-        """返回底部临时区域收起后保留的输入框下方高度。"""
-        return Dimension.exact(self._bottom_release_height())
-
     def _approval_dimension(self) -> Dimension:
         """返回审批卡背景区域的当前显示高度。"""
         return Dimension.exact(self._approval_card_height())
@@ -2597,9 +2574,25 @@ class TuiScreen(object):
         """返回进程查看器顶部对齐留白的显示高度。"""
         return Dimension.exact(self._process_viewer_top_padding_height())
 
-    def _status_height(self, *, width: int | None = None) -> int:
-        """计算动画区域占用行数。"""
-        if self.bottom_pane.is_active("approval"):
+    def _active_view_dimension(self) -> Dimension:
+        """返回当前临时交互表面的统一显示高度。"""
+        return Dimension.exact(self._active_view_layout().total_height)
+
+    def _bottom_pane_top_inset_dimension(self) -> Dimension:
+        """返回正文与整个底部面板之间的外部间距尺寸。"""
+        return Dimension.exact(self._bottom_pane_top_inset_height())
+
+    def _status_interaction_gap_dimension(self) -> Dimension:
+        """返回状态区与交互区域之间的内部间距尺寸。"""
+        return Dimension.exact(self._status_interaction_gap_height())
+
+    def _bottom_pane_content_dimension(self) -> Dimension:
+        """返回不含外部顶部间距的底部面板尺寸。"""
+        return Dimension.exact(self._bottom_pane_layout().content_height)
+
+    def _status_natural_height(self, *, width: int | None = None) -> int:
+        """计算活动状态内容的自然高度。"""
+        if self.bottom_pane.transient_active:
             return 0
         text = fragments_text(self._status_fragments())
         if not text:
@@ -2607,9 +2600,13 @@ class TuiScreen(object):
         render_width = self.terminal_width if width is None else max(1, width)
         return min(5, max(1, display_line_count(text, width=render_width)))
 
-    def _queued_height(self, *, width: int | None = None) -> int:
-        """计算待提交消息区域占用行数。"""
-        if self._transcript_only or self.bottom_pane.is_active("approval"):
+    def _status_height(self) -> int:
+        """计算动画区域占用行数。"""
+        return self._bottom_pane_layout().status_height
+
+    def _queued_natural_height(self, *, width: int | None = None) -> int:
+        """计算待提交消息内容的自然高度。"""
+        if self._transcript_only or self.bottom_pane.transient_active:
             return 0
 
         render_width = self.terminal_width if width is None else max(1, width)
@@ -2618,32 +2615,33 @@ class TuiScreen(object):
             return 0
 
         rows = display_line_count(text, width=render_width)
-
         max_rows = (
             self.QUEUED_MAX_HEIGHT
             + int(self._activity_queue_gap_visible(width=render_width))
         )
-
         return min(max_rows, max(1, rows))
+
+    def _queued_height(self) -> int:
+        """计算待提交消息区域占用行数。"""
+        return self._bottom_pane_layout().queued_height
+
+    def _process_status_natural_height(self) -> int:
+        """计算后台进程状态内容的自然高度。"""
+        if self.bottom_pane.transient_active:
+            return 0
+        return int(self.process_status.active)
 
     def _process_status_height(self) -> int:
         """计算后台进程状态区域占用行数。"""
-        if self.bottom_pane.transient_active:
-            return 0
-        return 1 if self.process_status.active else 0
+        return self._bottom_pane_layout().process_status_height
 
     def _footer_height(self) -> int:
         """返回当前输入区 footer 占用高度。"""
-        return 1 if self._footer_visible() else 0
+        return self._composer_layout().footer_height
 
     def _footer_visible(self) -> bool:
         """判断输入框下方的信息栏是否应当显示。"""
-        return bool(
-            not self._transcript_only
-            and not self._overlay_active()
-            and self.terminal_height
-            > self.INPUT_SURFACE_PADDING_HEIGHT * 2 + 1
-        )
+        return self._footer_height() > 0
 
     def _queue_submission_hint_visible(self) -> bool:
         """判断执行期间是否应显示输入排队提示。"""
@@ -2666,15 +2664,6 @@ class TuiScreen(object):
             self.directory_trust.active
             or self.bottom_pane.transient_active
             or self._completion_visible()
-        )
-
-    def scrollback_interaction_active(self) -> bool:
-        """判断底部交互状态是否要求暂停原生滚屏提交。"""
-        return bool(
-            self._overlay_active()
-            or self.input.buffer.text
-            or self.input_model.shell_mode
-            or self._queued_content_visible()
         )
 
     def _full_screen_overlay_active(self) -> bool:
@@ -2799,223 +2788,100 @@ class TuiScreen(object):
             document
         ))
 
-    def _completion_height(self) -> int:
-        """计算无边框补全列表占用行数。"""
-        if not self._completion_visible():
-            return 0
-
+    def _completion_candidate_count(self) -> int:
+        """返回当前已经加载或同步可得的最大候选数量。"""
         state        = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0
-        count        = max(loaded_count, self._expected_completion_count())
-        available = max(
-            0,
-            self.terminal_height
-            - self._input_surface_height()
-            - self._input_auxiliary_height(),
+
+        return max(loaded_count, self._expected_completion_count())
+
+    def _composer_layout(self) -> ComposerLayout:
+        """返回当前帧统一使用的输入区域高度预算。"""
+        return self._bottom_pane_layout().composer
+
+    def _measure_composer_layout(self, *, available_height: int) -> ComposerLayout:
+        """在给定底部面板预算内计算输入区域高度。"""
+        minimum_surface_height = self.INPUT_SURFACE_PADDING_HEIGHT * 2 + 1
+        popup_visible          = self._completion_visible()
+
+        footer_height = int(
+            not popup_visible
+            and available_height >= minimum_surface_height + 1
         )
 
-        return min(self.COMPLETION_MAX_HEIGHT, count, available)
+        input_available_height = max(
+            1,
+            available_height
+            - self.INPUT_SURFACE_PADDING_HEIGHT * 2
+            - footer_height,
+        )
+
+        input_height = min(
+            self._input_content_height(width=self.terminal_width),
+            input_available_height,
+        )
+
+        popup_available_height = max(
+            0,
+            available_height
+            - self.INPUT_SURFACE_PADDING_HEIGHT * 2
+            - input_height,
+        )
+
+        popup_height = (
+            min(
+                self.COMPLETION_MAX_HEIGHT,
+                self._completion_candidate_count(),
+                popup_available_height,
+            )
+            if popup_visible
+            else 0
+        )
+
+        return ComposerLayout(
+            input_top_padding_height=self.INPUT_SURFACE_PADDING_HEIGHT,
+            input_height=input_height,
+            input_bottom_padding_height=self.INPUT_SURFACE_PADDING_HEIGHT,
+            popup_height=popup_height,
+            footer_height=footer_height,
+        )
+
+    def _completion_height(self) -> int:
+        """计算无边框补全列表占用行数。"""
+        return self._composer_layout().popup_height
 
     def _completion_section_height(self) -> int:
         """返回补全列表占用高度。"""
         return self._completion_height()
 
-    def _update_bottom_anchor(self) -> bool:
-        """更新输入锚定状态并返回补全菜单是否可见。"""
-        anchor = self._inline_layout.bottom_anchor
-        completion_height  = self._completion_section_height()
-        completion_visible = completion_height > 0
-        completion_closed  = (
-            anchor.completion_visible and not completion_visible
-        )
-
-        if completion_visible and not anchor.completion_visible:
-            anchor.begin(
-                footprint_height=(
-                    self._input_surface_height()
-                    + completion_height
-                ),
-                completion_visible=True,
-                stable_line_baseline=self.document.stable_line_count,
-                live_height_baseline=self._completion_live_height(),
-            )
-        elif completion_visible:
-            anchor.preserve_footprint(
-                self._input_surface_height()
-                + completion_height,
-            )
-        elif completion_closed and not anchor.release_active:
-            anchor.begin_release(
-                stable_line_baseline=self.document.stable_line_count,
-                live_height_baseline=self._completion_live_height(),
-            )
-
-        self._consume_bottom_anchor(anchor)
-        self._consume_bottom_anchor(self._inline_layout.input_anchor)
-
-        anchor.completion_visible = completion_visible
-        anchor.clamp(self.terminal_height)
-        return completion_visible
-
-    def _consume_bottom_anchor(self, anchor: BottomAnchorState) -> None:
-        """按锚点建立后的正文增长消费底部释放空间。"""
-        if (
-            not anchor.release_active
-            or not anchor.footprint_height
-            or anchor.consumed_height >= anchor.footprint_height
-        ):
-            return None
-
-        stable_height = self._stable_growth_height_since(anchor)
-        live_height = self._completion_live_height()
-        growth = max(
-            0,
-            stable_height
-            + live_height
-            - anchor.live_height_baseline,
-        )
-        anchor.consume(growth)
-
-    def _begin_bottom_release(self, previous_visible_height: int) -> None:
-        """保留临时区域释放的高度并建立正文增长基线。"""
-        layout = self._inline_layout
-        anchor = layout.bottom_anchor
-        anchor.clear()
-
-        restored_height = self._natural_visible_height()
-
-        release_height = max(
-            0,
-            min(self.terminal_height, previous_visible_height)
-            - restored_height,
-        )
-        if release_height <= 0:
-            layout.cap_canvas_height(restored_height)
-            return None
-
-        completion_height = self._completion_section_height()
-
-        occupied_height = (
-            self._input_surface_height()
-            + completion_height
-            + self._footer_height()
-        )
-        anchor.begin(
-            footprint_height=min(
-                self.terminal_height,
-                occupied_height + release_height,
-            ),
-            completion_visible=completion_height > 0,
-            stable_line_baseline=self.document.stable_line_count,
-            live_height_baseline=self._completion_live_height(),
-            release_active=True,
-        )
-
-        layout.preserve_canvas_height(
-            previous_visible_height,
-            available_height=self.terminal_height,
-        )
-
-    def _reset_completion_layout(self, *, reset_canvas_floor: bool) -> None:
-        """清除底部临时区域状态并同步收束画布高度下限。"""
-        if reset_canvas_floor:
-            self._inline_layout.reset()
-        else:
-            self._inline_layout.bottom_anchor.clear()
-            self._inline_layout.cap_canvas_height(
-                self._natural_visible_height(),
-            )
-            if not self.input.buffer.text:
-                self._inline_layout.release_empty_input()
-
-    def _stable_growth_height_since(
-        self,
-        anchor: BottomAnchorState,
-    ) -> int:
-        """返回指定底部锚点之后新增稳定正文的显示高度。"""
-        return sum(
-            max(
-                1,
-                display_line_count(
-                    fragments_text(line),
-                    width=self.terminal_width,
-                    continuation_widths=(
-                        self._transcript_continuation_widths(line)
-                    ),
-                ),
-            )
-            for line in self.document.stable_lines_since(
-                max(
-                    anchor.stable_line_baseline,
-                    self.document.visible_prefix_line_count,
-                )
-            )
-        )
-
-    def _completion_live_height(self) -> int:
-        """返回动态正文相对稳定正文新增的显示高度。"""
-        fragments = self.document.live_fragments()
-        if not fragments:
-            return 0
-
-        height = display_line_count(
-            fragments_text(fragments),
-            width=self.terminal_width,
-            continuation_widths=self._transcript_continuation_widths(
-                fragments,
-            ),
-        )
-        if self.document.visible_stable_lines():
-            height -= 1
-        return max(0, height)
-
-    def _bottom_release_height(self) -> int:
-        """返回用于保持输入框位置的底部释放空间。"""
-        if self._transcript_only or not self.bottom_pane.input_visible:
-            return 0
-
-        occupied_height = (
-            self._input_surface_height()
-            + self._completion_section_height()
-            + self._footer_height()
-        )
-        return self._inline_layout.bottom_release_height(occupied_height)
-
     def _input_stack_height(self) -> int:
         """返回当前完整输入区域占用高度。"""
-        return (
-            self._input_surface_height()
-            + self._completion_section_height()
-            + self._footer_height()
-        )
+        return self._composer_layout().input_stack_height
 
     def _input_surface_height(self) -> int:
         """计算输入内容与上下留白共同占用的高度。"""
-        return self._input_height() + self.INPUT_SURFACE_PADDING_HEIGHT * 2
+        return self._composer_layout().input_surface_height
 
     def _input_height(self) -> int:
         """计算输入内容占用的显示行数。"""
-        return min(
-            self._input_content_height(width=self.terminal_width),
-            self._input_available_height(),
-        )
-
-    def _input_available_height(self) -> int:
-        """返回扣除输入表面和固定底部区域后的可用行数。"""
-        reserved_height = (
-            self.INPUT_SURFACE_PADDING_HEIGHT * 2
-            + self._footer_height()
-            + self._input_auxiliary_height()
-        )
-        return max(1, self.terminal_height - reserved_height)
+        return self._composer_layout().input_height
 
     def _input_auxiliary_height(self, *, width: int | None = None) -> int:
         """返回输入区之外仍需固定展示的辅助区域高度。"""
+        status_height         = self._status_natural_height(width=width)
+        process_status_height = self._process_status_natural_height()
+        queued_height         = self._queued_natural_height(width=width)
+
+        interaction_gap_height = int(
+            not queued_height
+            and bool(status_height or process_status_height)
+        )
+
         return (
-            self._status_height(width=width)
-            + self._process_status_height()
-            + self._queued_height(width=width)
-            + int(self._transcript_status_gap_visible(width=width))
+            status_height
+            + process_status_height
+            + queued_height
+            + interaction_gap_height
         )
 
     def _input_content_height(self, *, width: int) -> int:
@@ -3027,224 +2893,291 @@ class TuiScreen(object):
             rows += 1
         return max(1, rows)
 
-    def _approval_height(self) -> int:
-        """计算审批卡在当前画布中的显示高度。"""
-        if not self.bottom_pane.is_active("approval"):
-            return 0
-
-        return min(
-            self._approval_card_height() + self._approval_footer_height(),
-            self._approval_available_height(),
-        )
-
     def _approval_card_height(self) -> int:
-        """计算审批卡背景区域占用的显示行数。"""
-        if not self.bottom_pane.is_active("approval"):
-            return 0
-
-        text = fragments_text(self.approval.fragments())
-        if not text:
-            return 0
-        return display_line_count(text, width=self.terminal_width)
+        """返回审批内容区域在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().content_height
+            if self.bottom_pane.is_active("approval")
+            else 0
+        )
 
     def _approval_footer_height(self) -> int:
-        """计算审批卡透明提示区域占用的显示行数。"""
-        if not self.bottom_pane.is_active("approval"):
-            return 0
-
-        text = fragments_text(self.approval.footer_fragments())
-        if not text:
-            return 0
-        return display_line_count(text, width=self.terminal_width)
-
-    def _approval_available_height(self) -> int:
-        """返回审批内容在当前终端中的可用高度。"""
-        return max(
-            1,
-            self.terminal_height
-            - self._status_height()
-            - self._queued_height()
-            - self._menu_height()
-            - self._process_viewer_height()
-            - int(self._transcript_status_gap_visible())
-            - self._content_input_gap_height(),
+        """返回审批提示区域在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().footer_height
+            if self.bottom_pane.is_active("approval")
+            else 0
         )
-
-    def _menu_height(self) -> int:
-        """计算内嵌菜单在当前画布中的显示高度。"""
-        if not self.bottom_pane.is_active("menu"):
-            return 0
-
-        return self._menu_top_padding_height() + self._menu_content_height()
 
     def _menu_content_height(self) -> int:
-        """计算内嵌菜单内容在当前画布中的显示高度。"""
-        if not self.bottom_pane.is_active("menu"):
-            return 0
-
-        available = self._menu_available_height()
-        padding   = self._menu_top_padding_height()
-
-        return min(self.menu.height(), max(1, available - padding))
+        """返回菜单内容在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().content_height
+            if self.bottom_pane.is_active("menu")
+            else 0
+        )
 
     def _menu_top_padding_height(self) -> int:
-        """返回使菜单首行与输入文本起点对齐的顶部留白。"""
-        if not self.bottom_pane.is_active("menu"):
-            return 0
-
-        return min(
-            self.INPUT_SURFACE_PADDING_HEIGHT,
-            max(0, self._menu_available_height() - 1),
-        )
-
-    def _menu_available_height(self) -> int:
-        """返回内嵌菜单表面在当前终端中的可用高度。"""
-        available = max(
-            1,
-            self.terminal_height
-            - self._interaction_height()
-            - self._status_height()
-            - self._queued_height()
-            - self._content_input_gap_height(),
-        )
-
-        return available
-
-    def _process_viewer_height(self) -> int:
-        """计算进程查看器占用的高度。"""
-        if not self.bottom_pane.is_active("process_viewer"):
-            return 0
-
+        """返回菜单表面顶部留白在当前帧中的显示行数。"""
         return (
-            self._process_viewer_top_padding_height()
-            + self._process_viewer_content_height()
+            self._active_view_layout().top_padding_height
+            if self.bottom_pane.is_active("menu")
+            else 0
         )
 
     def _process_viewer_content_height(self) -> int:
-        """计算进程查看器内容占用的显示高度。"""
-        if not self.bottom_pane.is_active("process_viewer"):
-            return 0
-
-        available = self._process_viewer_available_height()
-        padding   = self._process_viewer_top_padding_height()
-
-        return min(self.process_viewer.height(), max(1, available - padding))
+        """返回进程查看器内容在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().content_height
+            if self.bottom_pane.is_active("process_viewer")
+            else 0
+        )
 
     def _process_viewer_top_padding_height(self) -> int:
-        """返回使进程查看器首行与输入文本起点对齐的顶部留白。"""
-        if not self.bottom_pane.is_active("process_viewer"):
-            return 0
-
-        return min(
-            self.INPUT_SURFACE_PADDING_HEIGHT,
-            max(0, self._process_viewer_available_height() - 1),
+        """返回进程查看器表面顶部留白在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().top_padding_height
+            if self.bottom_pane.is_active("process_viewer")
+            else 0
         )
 
-    def _process_viewer_available_height(self) -> int:
-        """返回进程查看器表面在当前终端中的可用高度。"""
-        available = max(
-            1,
-            self.terminal_height
-            - self._status_height()
-            - self._queued_height()
-            - self._content_input_gap_height(),
+    def _bottom_pane_visible(self) -> bool:
+        """判断底部状态和交互面板是否参与当前画布。"""
+        return not self._transcript_only and not self.directory_trust.active
+
+    def _bottom_pane_outer_top_inset_height(self) -> int:
+        """返回整个底部面板固定使用的顶部外部间距。"""
+        if not self._bottom_pane_visible():
+            return 0
+        return min(self.CONTENT_SURFACE_GAP_HEIGHT, self.terminal_height)
+
+    def _bottom_pane_layout(self) -> BottomPaneLayout:
+        """返回当前帧底部状态区与交互区域的统一高度结果。"""
+        cached = self._bottom_pane_frame_layout
+        if self._frame_geometry is not None and cached is not None:
+            return cached
+
+        empty_composer = ComposerLayout(
+            input_top_padding_height=0,
+            input_height=0,
+            input_bottom_padding_height=0,
+            popup_height=0,
+            footer_height=0,
         )
-        return available
+        empty_active_view = ActiveViewLayout(
+            surface=None,
+            available_height=0,
+            top_padding_height=0,
+            content_height=0,
+            footer_height=0,
+        )
 
-    def _interaction_height(self) -> int:
-        """返回输入区或审批区当前占用的高度。"""
-        if self._transcript_only:
-            return 0
-        if self.bottom_pane.is_active("approval"):
-            return self._approval_height()
-        if self.bottom_pane.transient_active:
-            return 0
+        if not self._bottom_pane_visible():
+            layout = BottomPaneLayout(
+                outer_top_inset_height=0,
+                status_height=0,
+                process_status_height=0,
+                queued_height=0,
+                interaction_gap_height=0,
+                composer=empty_composer,
+                active_view=empty_active_view,
+            )
+        else:
+            outer_top_inset_height = (
+                self._bottom_pane_outer_top_inset_height()
+            )
+            available_height = max(
+                0,
+                self.terminal_height - outer_top_inset_height,
+            )
+            surface = self.bottom_pane.active_surface
 
-        return self._input_stack_height()
+            if surface is not None:
+                active_view = self._measure_active_view_layout(
+                    surface=surface,
+                    available_height=available_height,
+                )
+                layout = BottomPaneLayout(
+                    outer_top_inset_height=outer_top_inset_height,
+                    status_height=0,
+                    process_status_height=0,
+                    queued_height=0,
+                    interaction_gap_height=0,
+                    composer=empty_composer,
+                    active_view=active_view,
+                )
+            else:
+                composer = self._measure_composer_layout(
+                    available_height=available_height,
+                )
+                remaining_height = max(
+                    0,
+                    available_height - composer.input_stack_height,
+                )
 
-    def _visible_height(self) -> int:
-        """返回 inline 画布当前需要占用的终端行数。"""
+                natural_status_height = self._status_natural_height()
+
+                status_height = min(
+                    natural_status_height,
+                    remaining_height,
+                )
+
+                remaining_height -= status_height
+
+                natural_process_status_height = (
+                    self._process_status_natural_height()
+                )
+                process_status_height = min(
+                    natural_process_status_height,
+                    remaining_height,
+                )
+
+                remaining_height -= process_status_height
+
+                natural_queued_height = self._queued_natural_height()
+
+                queued_height = min(
+                    natural_queued_height,
+                    remaining_height,
+                )
+                remaining_height -= queued_height
+
+                interaction_gap_height = int(
+                    natural_queued_height == 0
+                    and bool(
+                        natural_status_height
+                        or natural_process_status_height
+                    )
+                    and remaining_height > 0
+                )
+
+                layout = BottomPaneLayout(
+                    outer_top_inset_height=outer_top_inset_height,
+                    status_height=status_height,
+                    process_status_height=process_status_height,
+                    queued_height=queued_height,
+                    interaction_gap_height=interaction_gap_height,
+                    composer=composer,
+                    active_view=empty_active_view,
+                )
+
+        if self._frame_geometry is not None:
+            self._bottom_pane_frame_layout = layout
+        return layout
+
+    def _active_view_available_height(self) -> int:
+        """返回当前临时交互表面可使用的原始高度预算。"""
         return max(
             1,
-            min(
-                self.terminal_height,
-                max(
-                    self._inline_layout.canvas_height_floor,
-                    self._natural_visible_height(),
-                ),
-            ),
+            self.terminal_height - self._bottom_pane_outer_top_inset_height(),
         )
+
+    def _active_view_layout(self) -> ActiveViewLayout:
+        """返回当前帧临时交互表面的统一高度结果。"""
+        return self._bottom_pane_layout().active_view
+
+    def _measure_active_view_layout(
+        self,
+        *,
+        surface: BottomSurface,
+        available_height: int
+    ) -> ActiveViewLayout:
+        """在给定底部面板预算内计算临时交互表面高度。"""
+        top_padding: int    = 0
+        content_height: int = 0
+        footer_height: int  = 0
+
+        if surface == "approval":
+            card_text   = fragments_text(self.approval.fragments())
+            footer_text = fragments_text(self.approval.footer_fragments())
+
+            natural_card_height = (
+                display_line_count(card_text, width=self.terminal_width)
+                if card_text
+                else 0
+            )
+
+            natural_footer_height = (
+                display_line_count(footer_text, width=self.terminal_width)
+                if footer_text
+                else 0
+            )
+
+            footer_height = min(available_height, natural_footer_height)
+
+            content_height = min(
+                natural_card_height,
+                max(0, available_height - footer_height),
+            )
+
+        elif surface == "menu":
+            top_padding = min(
+                self.INPUT_SURFACE_PADDING_HEIGHT,
+                max(0, available_height - 1),
+            )
+            content_height = min(
+                self.menu.height(),
+                max(0, available_height - top_padding),
+            )
+
+        elif surface == "process_viewer":
+            top_padding = min(
+                self.INPUT_SURFACE_PADDING_HEIGHT,
+                max(0, available_height - 1),
+            )
+            content_height = min(
+                self.process_viewer.height(),
+                max(0, available_height - top_padding),
+            )
+
+        return ActiveViewLayout(
+            surface,
+            available_height,
+            top_padding,
+            content_height,
+            footer_height,
+        )
+
+    def _interaction_height(self) -> int:
+        """返回输入区或临时交互表面当前占用的高度。"""
+        return self._bottom_pane_layout().interaction_height
+
+    def _visible_height(self) -> int:
+        """返回当前内容自然占用的 inline 画布行数。"""
+        return self._natural_visible_height()
 
     def _natural_visible_height(self) -> int:
         """返回不包含稳定高度下限的当前内容自然高度。"""
         height = (
             self._transcript_dimension().preferred
-            + self._status_height()
-            + self._process_status_height()
-            + self._queued_height()
-            + self._menu_height()
-            + self._process_viewer_height()
-            + int(self._transcript_status_gap_visible())
-            + self._content_input_gap_height()
-            + self._interaction_height()
-            + self._bottom_release_height()
+            + self._bottom_pane_layout().total_height
         )
 
         return max(1, min(self.terminal_height, height))
 
-    def _content_input_gap_height(self) -> int:
-        """返回正文状态区与底部交互区域之间的间距高度。"""
-        if not self._content_input_gap_visible():
-            return 0
-        return self.CONTENT_SURFACE_GAP_HEIGHT
+    def _bottom_pane_top_inset_height(self) -> int:
+        """返回正文与整个底部面板之间的外部间距高度。"""
+        return self._bottom_pane_layout().outer_top_inset_height
 
-    def _content_input_gap_dimension(self) -> Dimension:
-        """返回正文状态区与底部交互区域之间的间距尺寸。"""
-        return Dimension.exact(self._content_input_gap_height())
+    def _bottom_pane_top_inset_visible(self) -> bool:
+        """判断整个底部面板的顶部外部间距是否可见。"""
+        return self._bottom_pane_top_inset_height() > 0
 
-    def _content_input_gap_visible(self) -> bool:
-        """判断正文状态区与底部交互区域之间是否保留空行。"""
-        if (
-            self.bottom_pane.input_visible
-            and self._queued_content_visible()
-        ):
-            return False
+    def _status_interaction_gap_height(self) -> int:
+        """返回状态区与交互区域之间的内部间距高度。"""
+        return self._bottom_pane_layout().interaction_gap_height
 
-        if self.bottom_pane.input_visible:
-            reserved_height = (
-                self._input_auxiliary_height()
-                + self._input_stack_height()
-                + self._bottom_release_height()
-            )
-            if reserved_height >= self.terminal_height:
-                return False
-
-        auxiliary_content = bool(
-            self._status_height()
-            or self._process_status_height()
-            or self._queued_height()
-        )
-        assistant_stream_active = bool(
-            self._get_submission_deferred()
-            and self.document.active_kind == "assistant"
-            and self.bottom_pane.input_visible
-        )
-        return bool(
-            not self._transcript_only
-            and (
-                auxiliary_content
-                or (
-                    self.document.has_display_tail
-                    and self.document.visible_tail_kind != "user"
-                    and not assistant_stream_active
-                )
-            )
-        )
+    def _status_interaction_gap_visible(self) -> bool:
+        """判断状态区与交互区域之间是否保留内部空行。"""
+        return self._status_interaction_gap_height() > 0
 
     def _activity_queue_gap_visible(self, *, width: int | None = None) -> bool:
         """判断活动状态与待提交消息之间是否保留空行。"""
         return bool(
-            self._status_height(width=width)
+            (
+                self._status_natural_height(width=width)
+                or self._process_status_natural_height()
+            )
             and self._queued_content_visible()
         )
 
@@ -3254,12 +3187,6 @@ class TuiScreen(object):
             self.bottom_pane.input_visible
             and self.process_viewer.input_passthrough
             and self.document.active_kind == "operation"
-        )
-
-    def _inline_auxiliary_growth_active(self, *, width: int) -> bool:
-        """判断正文下方的辅助区域是否需要推动 inline 画布增长。"""
-        return self._inline_layout.auxiliary_growth_active(
-            self._input_auxiliary_height(width=width)
         )
 
     def _inline_completion_growth_active(self) -> bool:
@@ -3277,12 +3204,6 @@ class TuiScreen(object):
             and self._input_content_height(width=width) > 1
         )
 
-    def _input_contains_folded_paste(self) -> bool:
-        """判断当前输入是否包含仍可还原的折叠粘贴内容。"""
-        return bool(
-            self.input_model.submission_state(self.input.buffer.text)
-        )
-
     def _inline_reply_handoff_growth_active(self) -> bool:
         """判断回复建立正文前是否需要为轮次交接扩展画布。"""
         return bool(
@@ -3298,22 +3219,6 @@ class TuiScreen(object):
             self._get_submission_deferred()
             and self.bottom_pane.input_visible
             and self.document.active_kind == "assistant"
-        )
-
-    def _transcript_status_gap_visible(
-        self,
-        *,
-        width: int | None = None,
-    ) -> bool:
-        """判断正文与活动状态之间是否保留空行。"""
-        return bool(
-            self.document.has_visible_content
-            and self.document.visible_tail_kind != "user"
-            and (
-                self._status_height(width=width)
-                or self._process_status_height()
-            )
-            and not self.bottom_pane.is_active("menu")
         )
 
     def _output_size(self) -> tuple[int, int]:

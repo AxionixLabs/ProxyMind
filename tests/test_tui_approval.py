@@ -472,7 +472,7 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
         assert padding.style == "class:input-surface"
         assert padding.width is None
         assert not padding.dont_extend_width()
-    assert runtime.screen._approval_height() > 14
+    assert runtime.screen._active_view_layout().total_height > 14
 
     runtime.screen.approval.finish("decline")
     await task

@@ -41,7 +41,7 @@ from ..prompting.paste import (
 from ..prompting.skills import (
     SkillTokenLexer,
     iter_known_skill_tokens,
-    skill_query_token,
+    skill_query_token
 )
 
 INPUT_BUFFER_NAME = "prompt-input"
@@ -51,9 +51,8 @@ def _ignore_action() -> None:
     """忽略尚未绑定的输入动作。"""
 
 
-def _ignore_input_layout(completion_closed: bool = False) -> None:
+def _ignore_input_layout() -> None:
     """忽略尚未绑定的输入布局通知。"""
-    _ = completion_closed
 
 
 def _ignore_buffer_action(_buffer: typing.Any) -> None:
@@ -120,7 +119,7 @@ class TuiInputHistory(InMemoryHistory):
         editable_text: str,
         paste_store: dict[str, str],
         *,
-        shell_mode: bool,
+        shell_mode: bool
     ) -> bool:
         """追加一条提交历史并保留其独立编辑状态。"""
         paste_items = tuple(
@@ -229,9 +228,10 @@ class TuiInputModel(object):
             lambda: self.skills,
         )
 
-        self.interrupt_handler: typing.Callable[[], None]    = _ignore_action
-        self.exit_handler: typing.Callable[[], None]         = _ignore_action
-        self._input_layout_handler: typing.Callable[[bool], None] = (
+        self.interrupt_handler: typing.Callable[[], None] = _ignore_action
+        self.exit_handler: typing.Callable[[], None]      = _ignore_action
+
+        self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
         )
 
@@ -314,9 +314,7 @@ class TuiInputModel(object):
         )
 
     @staticmethod
-    def _history_entry_state(
-        entry: TuiInputHistoryEntry
-    ) -> tuple[str, bool]:
+    def _history_entry_state(entry: TuiInputHistoryEntry) -> tuple[str, bool]:
         """把历史条目转换为输入文本和 Shell 前缀状态。"""
         return entry.editable_text, entry.shell_mode
 
@@ -421,7 +419,7 @@ class TuiInputModel(object):
         self,
         buffer,
         *,
-        previous_text: str,
+        previous_text: str
     ) -> bool:
         """在文本撤销跨过模式转换边界时恢复普通输入状态。"""
         transition = self._shell_mode_undo_transition
@@ -440,7 +438,7 @@ class TuiInputModel(object):
         buffer,
         selected_text: str | None = None,
         *,
-        previous_text: str,
+        previous_text: str
     ) -> None:
         """收束删除后的输入模式、联想和补全状态。"""
         self._promote_shell_prefix(buffer, previous_text=previous_text)
@@ -460,16 +458,13 @@ class TuiInputModel(object):
         """绑定主运行时提供的输入中断处理函数。"""
         self.interrupt_handler = handler
 
-    def bind_input_layout(
-        self,
-        handler: typing.Callable[[bool], None],
-    ) -> None:
-        """绑定输入内容变化后的布局收束动作。"""
+    def bind_input_layout(self, handler: typing.Callable[[], None]) -> None:
+        """绑定输入内容变化后的当前帧布局刷新动作。"""
         self._input_layout_handler = handler
 
-    def notify_input_layout(self, *, completion_closed: bool = False) -> None:
-        """通知布局层收束输入内容或补全菜单变化。"""
-        self._input_layout_handler(completion_closed)
+    def notify_input_layout(self) -> None:
+        """通知布局层按当前输入和补全状态刷新画面。"""
+        self._input_layout_handler()
 
     def handle_interrupt(self, buffer) -> None:
         """优先关闭补全，再把取消操作交给主运行时。"""
@@ -483,10 +478,7 @@ class TuiInputModel(object):
         self.interrupt_handler()
         self.notify_input_layout()
 
-    def completion_menu_completions(
-        self,
-        document: Document
-    ) -> tuple[Completion, ...] | None:
+    def completion_menu_completions(self, document: Document) -> tuple[Completion, ...] | None:
         """返回当前未被关闭的命令或 skill 菜单项。"""
         if (
             self._completion_menu_dismissed(document)
@@ -510,6 +502,7 @@ class TuiInputModel(object):
     def confirm_selected_skill(self, buffer) -> None:
         """确认光标前最后一个已知 skill 查询锚点。"""
         document = buffer.document
+
         committed: _CommittedSkillQuery | None = None
 
         for start, end, _name in iter_known_skill_tokens(
@@ -535,14 +528,16 @@ class TuiInputModel(object):
         if committed is None or committed.document_text == text:
             return None
 
-        previous = committed.document_text
-        prefix = 0
-        prefix_limit = min(len(previous), len(text))
+        previous: str     = committed.document_text
+        prefix: int       = 0
+        prefix_limit: int = min(len(previous), len(text))
+
         while prefix < prefix_limit and previous[prefix] == text[prefix]:
             prefix += 1
 
-        suffix = 0
-        suffix_limit = min(len(previous) - prefix, len(text) - prefix)
+        suffix: int       = 0
+        suffix_limit: int = min(len(previous) - prefix, len(text) - prefix)
+
         while (
             suffix < suffix_limit
             and previous[len(previous) - suffix - 1]
@@ -551,7 +546,7 @@ class TuiInputModel(object):
             suffix += 1
 
         previous_change_end = len(previous) - suffix
-        current_change_end = len(text) - suffix
+        current_change_end  = len(text) - suffix
 
         if previous_change_end <= committed.start:
             start = committed.start + current_change_end - previous_change_end
@@ -572,7 +567,7 @@ class TuiInputModel(object):
 
     def _committed_skill_completion_dismissed(
         self,
-        document: Document,
+        document: Document
     ) -> bool:
         """判断当前查询是否属于已确认的 skill 补全会话。"""
         committed = self._committed_skill_query
@@ -1109,7 +1104,7 @@ class TuiInputModel(object):
                 and self.completion_menu_completions(buffer.document) is None
             ):
                 buffer.cancel_completion()
-                self.notify_input_layout(completion_closed=True)
+                self.notify_input_layout()
 
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(

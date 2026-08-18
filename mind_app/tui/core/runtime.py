@@ -123,7 +123,7 @@ class _ActivityHandoff(object):
 
 
 class _CommandLayoutHandoff(object):
-    """保存当前命令结果对补全锚点的接管状态。"""
+    """保存命令结果接管活动区域前的业务同步状态。"""
 
     __slots__ = ("consumed",)
 
@@ -251,7 +251,6 @@ class TuiRuntime(object):
             end_synchronized_output=(
                 lambda: self.screen.end_synchronized_output()
             ),
-            settle_canvas_height=self._settle_scrollback_layout,
             report_error=self._report_display_error,
             invalidate=self.invalidate,
         )
@@ -304,7 +303,7 @@ class TuiRuntime(object):
             self._can_report_missing_backtrack,
             self._report_missing_backtrack,
         )
-        self.input_model.bind_input_layout(self.screen.settle_input_layout)
+        self.input_model.bind_input_layout(self.screen.refresh_input_layout)
 
         self.activity = TuiActivity(
             set_renderable=lambda block: self.screen.set_activity_renderable(
@@ -374,9 +373,19 @@ class TuiRuntime(object):
 
     @property
     def command_layout_pending(self) -> bool:
-        """返回当前任务是否仍等待命令结果收束补全锚点。"""
+        """返回当前命令结果是否仍等待业务交接完成。"""
         handoff = self._command_layout.get()
         return handoff is not None and not handoff.consumed
+
+    @property
+    def directory_trust_active(self) -> bool:
+        """返回启动阶段的目录信任界面是否仍在显示。"""
+        return self.screen.directory_trust.active
+
+    @property
+    def approval_source(self) -> typing.Literal["user"]:
+        """声明审批决策来自当前交互用户。"""
+        return "user"
 
     @execution_active.setter
     def execution_active(self, active: bool) -> None:
@@ -392,20 +401,7 @@ class TuiRuntime(object):
         return bool(
             self._modal_depth > 0
             or self.foreground_active
-            or self.screen.scrollback_interaction_active()
         )
-
-    def _settle_scrollback_layout(self) -> None:
-        """在稳定正文退休后收束其占用的实时画布。"""
-        self.screen.settle_scrollback_layout()
-
-    def _discard_submitted_query(self) -> None:
-        """在二级菜单接管交互时撤下刚提交的输入块。"""
-        if self.document.discard_submission():
-            self.invalidate()
-            return None
-        if self.viewport.discard_submitted_query():
-            self.screen.transcript_overlay.content_changed()
 
     def _application_task_exception(self) -> BaseException | None:
         """返回输入应用已经产生的终止异常。"""
@@ -663,15 +659,6 @@ class TuiRuntime(object):
         )
         self.screen.process_status.set_label(label)
 
-    async def wait_for_process_routing_boundary(self) -> None:
-        """等待当前命令和临时交互结束后再决定进程结果落点。"""
-        while (
-            self._command_layout_token is not None
-            or self.screen.bottom_pane.transient_active
-        ):
-            self._process_routing_settled.clear()
-            await self._process_routing_settled.wait()
-
     def _handle_input_interrupt(self) -> None:
         """按当前前台交互状态分派输入中断。"""
         viewer = self.screen.process_viewer
@@ -701,37 +688,9 @@ class TuiRuntime(object):
         """结束主画布中的菜单或只读面板。"""
         self.screen.menu.finish(value)
 
-    async def begin_directory_trust(
-        self,
-        cwd: Path,
-        trust_target: Path
-    ) -> None:
-        """在主 Application 中打开启动阶段的目录信任界面。"""
-        self.screen.directory_trust.begin(cwd, trust_target)
-        try:
-            await self.open()
-        except BaseException:
-            self.screen.directory_trust.close()
-            raise
-
-    async def wait_directory_trust(self) -> bool:
-        """等待目录信任界面的下一次选择。"""
-        return await self.screen.directory_trust.wait() == "trust"
-
-    @property
-    def directory_trust_active(self) -> bool:
-        """返回启动阶段的目录信任界面是否仍在显示。"""
-        return self.screen.directory_trust.active
-
     def show_directory_trust_error(self, message: str) -> None:
         """显示目录信任状态保存失败信息。"""
         self.screen.directory_trust.show_error(message)
-
-    async def finish_directory_trust(self) -> None:
-        """关闭目录信任界面并播放延后的启动动画。"""
-        self.screen.directory_trust.close()
-        await self._play_startup_animation()
-        self.viewport.refresh_geometry()
 
     def begin_process_viewer(
         self,
@@ -742,7 +701,7 @@ class TuiRuntime(object):
         gap_before: int | None = None
     ) -> asyncio.Future[typing.Any]:
         """同步激活进程查看器并返回等待结果。"""
-        self._discard_submitted_query()
+        self.discard_pending_submission()
 
         if not request.capture_input:
             self.screen.synchronize_next_render()
@@ -755,15 +714,6 @@ class TuiRuntime(object):
         )
 
         return self.screen.process_viewer.begin(request)
-
-    async def detach_inline_process_viewer(self) -> None:
-        """在提交新输入前撤下保持输入可见的进程查看器。"""
-        viewer = self.screen.process_viewer
-        if not viewer.input_passthrough:
-            return None
-
-        viewer.resolve("detach")
-        await viewer.wait_settled()
 
     def update_process_viewer(
         self,
@@ -796,13 +746,13 @@ class TuiRuntime(object):
         """原位提交进程摘要并恢复主输入区域。"""
         if self.document.active_kind != "operation":
             raise RuntimeError("cannot commit a process without active output")
+
         input_passthrough = self.screen.process_viewer.input_passthrough
         if input_passthrough:
             self.screen.synchronize_next_render()
+
         self.document.commit_active(block, transcript_block=transcript_block)
         self.screen.process_viewer.settle()
-        if input_passthrough:
-            self.screen.settle_dynamic_output_layout()
         self.screen.transcript_overlay.content_changed()
         self.viewport.stable_content_changed()
         self._flush_background_blocks()
@@ -810,6 +760,7 @@ class TuiRuntime(object):
     def dismiss_process_viewer(self) -> None:
         """撤下动态进程正文并恢复主输入区域。"""
         changed = self.document.active_kind == "operation"
+
         input_passthrough = self.screen.process_viewer.input_passthrough
         if input_passthrough:
             self.screen.synchronize_next_render()
@@ -817,9 +768,6 @@ class TuiRuntime(object):
             self.document.clear_active()
 
         self.screen.process_viewer.settle()
-        if input_passthrough:
-            self.screen.settle_dynamic_output_layout()
-
         if changed:
             self.screen.transcript_overlay.content_changed()
             self.viewport.stable_content_changed()
@@ -832,7 +780,7 @@ class TuiRuntime(object):
         transcript_block: FragmentBlock | None = None
     ) -> None:
         """用稳定进程摘要替换刚提交的命令输入。"""
-        self._discard_submitted_query()
+        self.discard_pending_submission()
 
         self.document.set_active(
             block,
@@ -913,7 +861,7 @@ class TuiRuntime(object):
         raw_text: str | None = None,
         stream_continuation: bool = False,
         display_renderer: WidthBlockRenderer | None = None,
-        display_render_width: int | None = None,
+        display_render_width: int | None = None
     ) -> None:
         """向会话内容追加一个稳定展示块。"""
         with self.screen.visual_update():
@@ -942,7 +890,7 @@ class TuiRuntime(object):
         stream_continuation: bool = False,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
-        activity_lease: ActivityLease | None = None,
+        activity_lease: ActivityLease | None = None
     ) -> None:
         """在当前视觉事务中追加正文并完成相关状态交接。"""
         appended = self.document.append_block(
@@ -975,7 +923,6 @@ class TuiRuntime(object):
 
         self._discard_background_blocks()
 
-        self.viewport.clear_submitted_query()
         self.viewport.reset_view()
         self.screen.transcript_overlay.content_replaced()
         self.screen.clear_terminal_scrollback()
@@ -987,7 +934,7 @@ class TuiRuntime(object):
             self.invalidate()
 
     def begin_command_layout(self) -> None:
-        """标记当前输入可能通过命令结果收束补全占位。"""
+        """标记命令结果开始接管当前活动区域。"""
         self.cancel_command_layout()
         self._process_routing_settled.clear()
         self._command_layout_token = self._command_layout.set(
@@ -995,7 +942,7 @@ class TuiRuntime(object):
         )
 
     def cancel_command_layout(self) -> None:
-        """取消当前输入的命令收束标记并保留正文增长锚点。"""
+        """取消当前命令结果的业务交接标记。"""
         token = self._command_layout_token
         self._command_layout_token = None
         if token is not None:
@@ -1003,23 +950,21 @@ class TuiRuntime(object):
         self._process_routing_settled.set()
 
     def finish_command_layout(self, *, force: bool = False) -> None:
-        """结束命令布局并按需强制收束输入补全留下的临时空间。"""
+        """结束命令结果交接并请求一次当前帧重绘。"""
         with self.screen.visual_update():
             completed = self._complete_command_layout()
             if force and not completed:
-                self.screen.settle_completion_layout(invalidate=False)
                 completed = True
             if completed:
                 self.invalidate()
         self.cancel_command_layout()
 
     def _complete_command_layout(self) -> bool:
-        """同步消费命令收束标记并更新最终画布高度。"""
+        """消费命令结果交接标记并报告是否发生状态变化。"""
         handoff = self._command_layout.get()
         if handoff is None or handoff.consumed:
             return False
         handoff.consumed = True
-        self.screen.settle_completion_layout(invalidate=False)
         return True
 
     def activity_handoff(
@@ -1055,7 +1000,7 @@ class TuiRuntime(object):
     def _consume_activity_handoff(
         self,
         *,
-        deferred: bool,
+        deferred: bool
     ) -> ActivityLease | None:
         """消费当前任务等待交接的活动租约。"""
         handoff = self._activity_handoff.get()
@@ -1078,7 +1023,7 @@ class TuiRuntime(object):
         self,
         text: str,
         *,
-        selected_skill: bool = False,
+        selected_skill: bool = False
     ) -> None:
         """替换主输入内容并把光标移动到末尾。"""
         value = str(text)
@@ -1168,7 +1113,6 @@ class TuiRuntime(object):
                 raise RuntimeError("submitted query could not be bound")
             self.screen.synchronize_next_render()
             self.screen.transcript_overlay.content_changed()
-            self.viewport.mark_submitted_query(display)
 
         return True
 
@@ -1231,6 +1175,7 @@ class TuiRuntime(object):
             self.viewport.stable_content_changed()
             self.viewport.clear_restored_history_notice()
             return True
+
         except BaseException:
             self.viewport.pause_scrollback()
             self.document.restore_state(document_state)
@@ -1331,7 +1276,7 @@ class TuiRuntime(object):
         self,
         message_id: str,
         *,
-        automatic: bool,
+        automatic: bool
     ) -> None:
         """把一条收件箱执行请求投递到 TUI 主输入事件队列。"""
         self.submissions.message_queue.put_nowait(MailboxRunRequest(
@@ -1343,6 +1288,7 @@ class TuiRuntime(object):
         """冻结原生滚屏并等待单条消息详情关闭。"""
         self.input_model.cancel_history_backtrack()
         self.viewport.pause_scrollback()
+
         try:
             opened = self.screen.set_mailbox_overlay(
                 True,
@@ -1452,13 +1398,10 @@ class TuiRuntime(object):
 
         with self.screen.visual_update():
             self.execution_active = active
-            if self.execution_active:
-                self.viewport.clear_submitted_query()
-            else:
+            if not self.execution_active:
                 if was_active:
                     for callback in tuple(self._turn_finished_callbacks):
                         callback()
-                    self.screen.settle_completion_layout(invalidate=False)
                 self.submissions.clear_queued_submission_marker()
                 self._flush_background_blocks()
 
@@ -1477,6 +1420,10 @@ class TuiRuntime(object):
             self.viewport.schedule_scrollback_flush()
 
         self.invalidate()
+
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """切换等待动画的重试来源并保持当前动画相位。"""
+        self.activity.set_wait_retry_state(state)
 
     def bind_interrupt_handler(
         self,
@@ -1553,12 +1500,6 @@ class TuiRuntime(object):
     def consume_exit_request(self) -> TuiExitReason | None:
         """消费并返回主输入区是否已请求退出。"""
         return self.submissions.consume_exit_request()
-
-    async def wait_for_application_failure(self) -> BaseException:
-        """等待输入应用异常停止并返回原始错误。"""
-        await self._application_failure.wait()
-        error = self._application_error
-        return error if error is not None else EOFError()
 
     async def _run_application(self) -> None:
         """运行输入应用并传播终端结束状态。"""
@@ -1720,7 +1661,57 @@ class TuiRuntime(object):
 
         self.screen.directory_trust.close()
 
-    async def read_message(self, context: PromptContext) -> str:
+    async def finish_directory_trust(self) -> None:
+        """关闭目录信任界面并播放延后的启动动画。"""
+        self.screen.directory_trust.close()
+        await self._play_startup_animation()
+        self.viewport.refresh_geometry()
+
+    async def detach_inline_process_viewer(self) -> None:
+        """在提交新输入前撤下保持输入可见的进程查看器。"""
+        viewer = self.screen.process_viewer
+        if not viewer.input_passthrough:
+            return None
+
+        viewer.resolve("detach")
+        await viewer.wait_settled()
+
+    async def wait_directory_trust(self) -> bool:
+        """等待目录信任界面的下一次选择。"""
+        return await self.screen.directory_trust.wait() == "trust"
+
+    async def wait_for_process_routing_boundary(self) -> None:
+        """等待当前命令和临时交互结束后再决定进程结果落点。"""
+        while (
+            self._command_layout_token is not None
+            or self.screen.bottom_pane.transient_active
+        ):
+            self._process_routing_settled.clear()
+            await self._process_routing_settled.wait()
+
+    async def wait_for_application_failure(self) -> BaseException:
+        """等待输入应用异常停止并返回原始错误。"""
+        await self._application_failure.wait()
+        error = self._application_error
+        return error if error is not None else EOFError()
+
+    async def begin_directory_trust(
+        self,
+        cwd: Path,
+        trust_target: Path
+    ) -> None:
+        """在主 Application 中打开启动阶段的目录信任界面。"""
+        self.screen.directory_trust.begin(cwd, trust_target)
+        try:
+            await self.open()
+        except BaseException:
+            self.screen.directory_trust.close()
+            raise
+
+    async def read_message(
+        self,
+        context: PromptContext
+    ) -> str:
         """更新输入上下文并按提交顺序读取下一条消息。"""
         self.set_prompt_context(context)
 
@@ -1768,15 +1759,17 @@ class TuiRuntime(object):
                     self.screen.synchronize_next_render()
                     self.screen.transcript_overlay.content_changed()
                     self.viewport.content_appended()
-                    self.viewport.mark_submitted_query(committed)
 
         self.submissions.clear_surface_submission_pending()
 
         return value
 
-    async def select_menu(self, request: MenuRequest) -> typing.Any:
+    async def select_menu(
+        self,
+        request: MenuRequest
+    ) -> typing.Any:
         """在主 Application 画布内读取菜单选择。"""
-        self._discard_submitted_query()
+        self.discard_pending_submission()
         self._process_routing_settled.clear()
         try:
             return await self.screen.menu.request(request)
@@ -1794,10 +1787,10 @@ class TuiRuntime(object):
         wait_paused: bool = False
 
         self.terminal_progress.warning()
+
         try:
             wait_paused = await self.activity.pause_wait()
             decision    = await self.screen.approval.wait()
-
         except BaseException:
             await self._finish_approval_session(wait_paused)
             raise
@@ -1805,11 +1798,6 @@ class TuiRuntime(object):
         await self._finish_approval_session(wait_paused)
 
         return decision
-
-    @property
-    def approval_source(self) -> typing.Literal["user"]:
-        """声明审批决策来自当前交互用户。"""
-        return "user"
 
     async def view_process(
         self,
@@ -1843,10 +1831,6 @@ class TuiRuntime(object):
     async def begin_wait_status(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
         await self.activity.begin_wait()
-
-    def set_wait_retry_state(self, state: WaitRetryState) -> None:
-        """切换等待动画的重试来源并保持当前动画相位。"""
-        self.activity.set_wait_retry_state(state)
 
     async def begin_upload_status(
         self,

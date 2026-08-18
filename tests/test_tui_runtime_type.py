@@ -82,5 +82,5 @@ async def test_runtime_close_preserves_conversation_without_bottom_area() -> Non
     assert not runtime.screen.input_area.filter()
     assert not runtime.screen._footer_visible()
     assert runtime.screen._interaction_height() == 0
-    assert runtime.screen._content_input_gap_height() == 0
+    assert runtime.screen._bottom_pane_top_inset_height() == 0
     assert runtime.screen._queued_height() == 0

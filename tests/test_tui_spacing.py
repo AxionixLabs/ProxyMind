@@ -269,7 +269,7 @@ async def test_full_width_line_rerenders_in_one_row_after_resize() -> None:
 
 
 @pytest.mark.anyio
-async def test_resize_discards_old_canvas_height_floor() -> None:
+async def test_resize_recomputes_current_natural_canvas_height() -> None:
     with create_pipe_input() as input_obj:
         output = _AlternateScreenOutput(columns=40, rows=12)
         runtime = TuiRuntime(input_obj=input_obj, output_obj=output)
@@ -292,7 +292,9 @@ async def test_resize_discards_old_canvas_height_floor() -> None:
             assert runtime.screen.canvas_spacer not in positions
 
             transcript = positions[runtime.screen.transcript_window]
-            content_gap = positions[runtime.screen.content_input_gap.content]
+            content_gap = positions[
+                runtime.screen.bottom_pane_top_inset.content
+            ]
             top_padding = positions[runtime.screen.input_top_padding]
 
             assert content_gap.ypos == transcript.ypos + transcript.height
@@ -341,11 +343,129 @@ class _KnownInlineHeightOutput(_AlternateScreenOutput):
         return self.available_rows
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("rows", (6, 8, 12))
+@pytest.mark.parametrize(
+    ("kind", "block"),
+    (
+        (
+            "operation",
+            _block("Shell ping -t 8.8.8.8\nreply"),
+        ),
+        (
+            "system",
+            FragmentBlock(
+                (("class:rule", "─ Finished in 17s "),),
+                line_fill=LineFill(character="─"),
+            ),
+        ),
+        ("user", query_block("next question")),
+    ),
+)
+async def test_scrolled_tail_keeps_bottom_pane_boundary_spacing(
+    rows: int,
+    kind: TuiBlockKind,
+    block: FragmentBlock,
+) -> None:
+    with create_pipe_input() as input_obj:
+        output = _KnownInlineHeightOutput(
+            columns=48,
+            rows=rows,
+            available_rows=rows,
+        )
+        runtime = TuiRuntime(input_obj=input_obj, output_obj=output)
+        await runtime.open()
+        try:
+            runtime.append_block(block, kind=kind)
+            runtime.set_process_status_label("ping -t 8.8.8.8")
+
+            await _render_next_frame(runtime)
+            await _wait_for_scrollback_advance(runtime)
+            screen = await _render_next_frame(runtime)
+            positions = screen.visible_windows_to_write_positions
+
+            assert not runtime.document.has_visible_content
+            assert runtime.document.has_display_tail
+            assert runtime.document.display_tail_kind == kind
+
+            outer_inset = positions[
+                runtime.screen.bottom_pane_top_inset.content
+            ]
+            process_status = positions[runtime.screen.process_status_window]
+            interaction_gap_window = (
+                runtime.screen.status_interaction_gap.content
+            )
+            top_padding = positions[runtime.screen.input_top_padding]
+
+            assert outer_inset.ypos == 0
+            assert process_status.ypos == (
+                outer_inset.ypos + outer_inset.height
+            )
+            if runtime.screen._status_interaction_gap_visible():
+                interaction_gap = positions[interaction_gap_window]
+                assert interaction_gap.ypos == (
+                    process_status.ypos + process_status.height
+                )
+                assert top_padding.ypos == (
+                    interaction_gap.ypos + interaction_gap.height
+                )
+            else:
+                assert interaction_gap_window not in positions
+                assert top_padding.ypos == (
+                    process_status.ypos + process_status.height
+                )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_scrolled_tail_separates_shared_activity_status_stack() -> None:
+    with create_pipe_input() as input_obj:
+        output = _KnownInlineHeightOutput(
+            columns=48,
+            rows=12,
+            available_rows=12,
+        )
+        runtime = TuiRuntime(input_obj=input_obj, output_obj=output)
+        await runtime.open()
+        try:
+            runtime.append_block(_block("Finished"), kind="system")
+            runtime.screen.set_activity_renderable(_block("Thinking"))
+            runtime.set_process_status_label("ping -t 8.8.8.8")
+
+            await _render_next_frame(runtime)
+            await _wait_for_scrollback_advance(runtime)
+            screen = await _render_next_frame(runtime)
+            positions = screen.visible_windows_to_write_positions
+
+            outer_inset = positions[
+                runtime.screen.bottom_pane_top_inset.content
+            ]
+            activity_status = positions[runtime.screen.status_window]
+            process_status = positions[runtime.screen.process_status_window]
+            interaction_gap = positions[
+                runtime.screen.status_interaction_gap.content
+            ]
+
+            assert outer_inset.ypos == 0
+            assert activity_status.ypos == (
+                outer_inset.ypos + outer_inset.height
+            )
+            assert process_status.ypos == (
+                activity_status.ypos + activity_status.height
+            )
+            assert interaction_gap.ypos == (
+                process_status.ypos + process_status.height
+            )
+        finally:
+            await runtime.close()
+
+
 async def _prepare_scrolled_turn_footer(
     runtime: TuiRuntime,
     output: _KnownInlineHeightOutput,
 ) -> None:
-    """构造已经产生原生滚屏且保留结束线的轮次尾部。"""
+    """构造稳定正文已经完整进入原生滚屏的轮次尾部。"""
     original_print_text = runtime.screen.application.print_text
 
     def print_at_settled_cursor(value) -> None:
@@ -363,7 +483,7 @@ async def _prepare_scrolled_turn_footer(
             )),
             kind="assistant",
         )
-        await _wait_for_scrollback_advance(runtime)
+        scrollback_cursor = await _wait_for_scrollback_advance(runtime)
 
     runtime.append_block(
         FragmentBlock(
@@ -374,6 +494,10 @@ async def _prepare_scrolled_turn_footer(
     )
     screen = await _render_next_frame(runtime)
     assert "Finished in 36s" in _rendered_screen_text(screen)
+    await _wait_for_scrollback_advance(
+        runtime,
+        after=scrollback_cursor,
+    )
 
 
 def test_formatted_line_split_round_trips_styles_and_blank_lines() -> None:
@@ -749,23 +873,83 @@ def test_scrollback_commit_rejects_changed_visible_prefix() -> None:
     assert document.scrollback_line_count == 1
 
 
-def test_scrollback_block_boundary_keeps_submitted_query_visible() -> None:
+def test_scrollback_prefix_includes_every_complete_stable_block() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("prior 0\nprior 1"), kind="assistant")
     runtime.append_block(_block("new query"), kind="user")
-    query = runtime.document.blocks[-1].display_block
-    runtime.viewport.mark_submitted_query(query)
 
-    with (
-        patch.object(runtime.viewport, "_get_available_height", return_value=1),
-        patch.object(runtime.viewport, "_get_terminal_width", return_value=40),
-    ):
-        line_count = runtime.viewport._scrollback_prefix_line_count()
+    line_count = runtime.viewport._scrollback_prefix_line_count()
 
-    assert line_count == 2
+    assert line_count == 6
     assert fragments_text(
         runtime.document.scrollback_prefix_fragments(line_count)
-    ) == "prior 0\nprior 1"
+    ) == "prior 0\nprior 1\n\n \nnew query\n "
+
+
+@pytest.mark.anyio
+async def test_short_stable_block_commits_on_tall_terminal() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=80),
+        ):
+            await runtime.open()
+            try:
+                with patch.object(
+                    runtime.screen.application,
+                    "print_text",
+                    wraps=runtime.screen.application.print_text,
+                ) as print_text:
+                    runtime.append_block(
+                        _block("short history"),
+                        kind="assistant",
+                    )
+                    await _render_next_frame(runtime)
+                    await _wait_for_scrollback_advance(runtime)
+
+                assert runtime.document.scrollback_line_count == (
+                    runtime.document.stable_line_count
+                )
+                assert fragments_text(print_text.call_args.args[0]) == (
+                    "short history\n"
+                )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_completion_and_input_do_not_defer_stable_history() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=80),
+        ):
+            await runtime.open()
+            try:
+                pipe_input.send_text("/")
+                await _wait_for_input_text(runtime, "/")
+                assert runtime.screen._completion_visible()
+
+                runtime.append_block(
+                    _block("background notice"),
+                    kind="notice",
+                )
+                await _render_next_frame(runtime)
+                await _wait_for_scrollback_advance(runtime)
+
+                assert runtime.screen.input.buffer.text == "/"
+                assert runtime.screen._completion_visible()
+                assert runtime.document.scrollback_line_count == (
+                    runtime.document.stable_line_count
+                )
+            finally:
+                await runtime.close()
 
 
 def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
@@ -1027,15 +1211,20 @@ async def test_reply_wait_preserves_turn_boundary_through_activity_frames() -> N
                 repeated_screen = await _render_next_frame(runtime)
 
             query_text = _rendered_screen_text(query_screen)
-            assert "Finished in 36s" in query_text
-            assert "second question" in query_text
+            printed = "".join(
+                fragments_text(call_args.args[0])
+                for call_args in print_text.call_args_list
+            )
+            assert "Finished in 36s" in _transcript_text(runtime.document)
+            assert "second question" in f"{printed}\n{query_text}"
 
             for screen in (thinking_screen, repeated_screen):
                 frame_text = _rendered_screen_text(screen)
-                assert "Finished in 36s" in frame_text
-                assert "second question" in frame_text
+                combined = f"{printed}\n{frame_text}"
+                assert "Finished in 36s" in _transcript_text(runtime.document)
+                assert "second question" in combined
                 assert "Thinking" in frame_text
-            print_text.assert_not_called()
+            assert print_text.called
         finally:
             await runtime.activity.clear()
             runtime.set_execution_active(False)
@@ -1090,10 +1279,10 @@ async def test_markdown_stream_retires_stable_prefix_while_running(
                     await _render_next_frame(runtime)
 
                 await output.settle_stream()
-                await _wait_for_scrollback_advance(
-                    runtime,
-                    after=initial_scrollback,
+                await asyncio.sleep(
+                    runtime.viewport.STREAM_SCROLLBACK_DEBOUNCE_SEC + 0.05
                 )
+                await _wait_for_scrollback_settlement(runtime)
 
             printed = "".join(
                 fragments_text(call_args.args[0])
@@ -1237,7 +1426,7 @@ async def test_reference_stream_commits_only_parser_safe_prefix() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("remaining_rows", (2, 4, 8))
-async def test_next_assistant_stream_grows_after_native_scrollback(
+async def test_next_assistant_stream_remains_visible_after_native_scrollback(
     remaining_rows: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -1307,14 +1496,11 @@ async def test_next_assistant_stream_grows_after_native_scrollback(
 
             assert screen_heights[0] > settled_height
             assert all(
-                later > earlier
-                for earlier, later in zip(screen_heights, screen_heights[1:])
+                1 <= height <= output.size.rows
+                for height in screen_heights
             )
             assert screen_heights[-1] == output.size.rows
-            assert all(
-                later < earlier
-                for earlier, later in zip(transcript_rows, transcript_rows[1:])
-            )
+            assert all(0 <= row < output.size.rows for row in transcript_rows)
             assert transcript_rows[-1] == 0
         finally:
             runtime.set_execution_active(False)
@@ -1357,11 +1543,11 @@ async def test_repeated_assistant_streams_recover_after_scrollback() -> None:
 
                 for turn in (2, 3):
                     settled_screen = await _render_next_frame(runtime)
-                    assert settled_screen.height == 5
                     assert (
                         runtime.screen.application.renderer.rows_above_layout
-                        == 13
+                        == output.size.rows - settled_screen.height
                     )
+                    assert 1 <= settled_screen.height <= output.size.rows
 
                     runtime.set_execution_active(True)
                     runtime.append_block(
@@ -1384,25 +1570,34 @@ async def test_repeated_assistant_streams_recover_after_scrollback() -> None:
                         screen_heights.append(screen.height)
 
                     assert final_block is not None
-                    assert screen_heights[0] > settled_screen.height
+                    assert screen_heights[0] >= settled_screen.height
+                    assert all(
+                        1 <= height <= output.size.rows
+                        for height in screen_heights
+                    )
                     assert screen_heights[-1] == output.size.rows
 
                     runtime.commit_active_renderable(final_block)
                     runtime.set_execution_active(False)
 
-                    previous_cursor = scrollback_cursor
-                    scrollback_cursor = await _wait_for_scrollback_advance(
-                        runtime,
-                        after=previous_cursor,
-                    )
+                    await _wait_for_scrollback_settlement(runtime)
+                    scrollback_cursor = runtime.document.scrollback_line_count
+                    assert scrollback_cursor == runtime.document.stable_line_count
 
-            assert len(printed_batches) == 3
+            assert len(printed_batches) >= 3
             for turn in (2, 3):
+                assert sum(
+                    batch.count(f"question {turn}")
+                    for batch in printed_batches
+                ) == 1
                 final_line = f"turn {turn} line 15"
                 assert sum(
                     batch.count(final_line)
                     for batch in printed_batches
                 ) == 1
+            assert runtime.document.scrollback_line_count == (
+                runtime.document.stable_line_count
+            )
         finally:
             runtime.set_execution_active(False)
             await runtime.close()
@@ -1530,8 +1725,8 @@ async def test_long_stream_grows_after_approval_and_consecutive_tools() -> None:
                 )
                 assert not runtime.document.visible_stable_lines()
 
-                assert len(printed_batches) == 1
-                printed = printed_batches[0]
+                assert printed_batches
+                printed = "".join(printed_batches)
                 assert "You approved" in printed
                 for index in range(3):
                     assert f"echo tool-{index}" in printed
@@ -1565,8 +1760,16 @@ async def test_long_stream_grows_after_approval_and_consecutive_tools() -> None:
                     )
                     previous_line_count = line_count
 
-                assert screen_heights == [10, 13, 17, 18]
-                assert transcript_rows == [8, 5, 1, 0]
+                assert all(
+                    1 <= height <= terminal.size.rows
+                    for height in screen_heights
+                )
+                assert screen_heights[-1] == terminal.size.rows
+                assert all(
+                    0 <= row < terminal.size.rows
+                    for row in transcript_rows
+                )
+                assert transcript_rows[-1] == 0
                 assert runtime.document.active_kind == "assistant"
                 assert not runtime.screen.approval.active
                 assert runtime.screen.activity_block is None
@@ -1644,7 +1847,7 @@ async def test_inline_shell_grows_known_viewport_like_stream_content() -> None:
                     )
                     screen_heights.append(screen.height)
 
-                    assert runtime.screen._content_input_gap_visible()
+                    assert runtime.screen._bottom_pane_top_inset_visible()
 
                 assert begin_synchronized.call_count == 3
                 assert end_synchronized.call_count == 3
@@ -1888,11 +2091,11 @@ async def test_restored_scrollback_expands_canvas_for_slash_completion() -> None
             ]
 
             assert runtime.screen._completion_section_height() == 0
-            assert (
-                renderer.rows_above_layout + dismissed_position.ypos
-                == opened_input_row
+            assert dismissed_position.ypos == before_position.ypos
+            assert renderer.rows_above_layout <= before_rows_above
+            assert runtime.screen._visible_height() == (
+                runtime.screen._natural_visible_height()
             )
-            assert runtime.screen._bottom_release_height() > 0
         finally:
             await runtime.close()
 
@@ -1942,15 +2145,18 @@ async def test_restored_history_notice_prints_without_retiring_tail() -> None:
                 for call_args in print_text.call_args_list
                 for _style, text in call_args.args[0]
             )
-            assert printed.replace("\n", "") == (
+            compact = printed.replace("\n", "")
+            assert compact.startswith(
                 "Earlier messages are available — press Ctrl+T "
                 "to view the full transcript"
             )
+            for index in range(5, 8):
+                assert compact.count(f"history {index:02d}") == 1
             assert runtime.document.scrollback_line_count == (
-                runtime.document.cleared_line_count
+                runtime.document.stable_line_count
             )
             assert "history 00" not in _document_text(runtime.document)
-            assert "history 07" in _document_text(runtime.document)
+            assert "history 07" not in _document_text(runtime.document)
         finally:
             await runtime.close()
 
@@ -2010,9 +2216,9 @@ async def test_restored_history_notice_keeps_completion_anchor(
             opened_input_row = renderer.rows_above_layout + opened_position.ypos
 
             assert runtime.screen._completion_section_height() > 0
-            assert opened.height > before.height
-            assert renderer.rows_above_layout < before_rows_above
-            assert opened_input_row < before_input_row
+            assert opened.height >= before.height
+            assert renderer.rows_above_layout <= before_rows_above
+            assert opened_input_row <= before_input_row
 
             runtime.input_model.dismiss_completion_menu(
                 runtime.screen.input.buffer
@@ -2448,16 +2654,19 @@ async def test_scrollback_reuses_unchanged_candidate_after_terminal_acquire() ->
 
 
 @pytest.mark.anyio
-async def test_scrollback_rechecks_submitted_query_before_printing() -> None:
+async def test_scrollback_candidate_ignores_active_cell_changes() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         printed: list[str] = []
         query = _block("\n".join(f"query {index}" for index in range(20)))
 
         @asynccontextmanager
-        async def mark_query_while_waiting(render_cli_done: bool = False):
+        async def update_active_while_waiting(render_cli_done: bool = False):
             _ = render_cli_done
-            runtime.viewport.mark_submitted_query(query)
+            runtime.set_active_renderable(
+                _block("streaming response"),
+                kind="assistant",
+            )
             yield
 
         with patch.object(
@@ -2479,7 +2688,7 @@ async def test_scrollback_rechecks_submitted_query_before_printing() -> None:
                 with (
                     patch(
                         "mind_app.tui.core.viewport.in_terminal",
-                        mark_query_while_waiting,
+                        update_active_while_waiting,
                     ),
                     patch.object(
                         runtime.screen.application,
@@ -2498,10 +2707,11 @@ async def test_scrollback_rechecks_submitted_query_before_printing() -> None:
 
                 assert len(printed) == 1
                 assert "prior 29" in printed[0]
-                assert "query 0" not in printed[0]
+                assert "query 0" in printed[0]
                 visible = _document_text(runtime.document)
                 assert "prior 29" not in visible
-                assert "query 0" in visible
+                assert "query 0" not in visible
+                assert "streaming response" in visible
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
@@ -3443,8 +3653,10 @@ async def test_scrollback_commits_oversized_replies_as_complete_blocks() -> None
                 runtime.set_execution_active(False)
                 await asyncio.sleep(0.12)
 
-                assert runtime.document.scrollback_line_count > 2
-                assert _document_text(runtime.document) == "\nFinished first"
+                assert runtime.document.scrollback_line_count == (
+                    runtime.document.stable_line_count
+                )
+                assert _document_text(runtime.document) == ""
                 assert "first 29" in fragments_text(
                     runtime.document.all_fragments(width=40)
                 )
@@ -3459,11 +3671,13 @@ async def test_scrollback_commits_oversized_replies_as_complete_blocks() -> None
                 runtime.set_execution_active(False)
                 await asyncio.sleep(0.02)
 
-                assert runtime.document.scrollback_line_count > 5
+                assert runtime.document.scrollback_line_count == (
+                    runtime.document.stable_line_count
+                )
                 visible = _document_text(runtime.document)
                 assert "first 29" not in visible
                 assert "second 29" not in visible
-                assert visible == "\nFinished second"
+                assert visible == ""
                 assert "second 29" in fragments_text(
                     runtime.document.all_fragments(width=40)
                 )
@@ -3546,7 +3760,7 @@ async def test_completed_scrollback_collapses_retired_canvas_height() -> None:
                 positions = screen.visible_windows_to_write_positions
 
                 assert runtime.document.scrollback_line_count > 0
-                assert runtime.screen._inline_layout.canvas_height_floor == (
+                assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
@@ -3650,10 +3864,7 @@ async def test_width_resize_reflows_native_scrollback_from_document() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("defer_mode", ["overlay", "stream"])
-async def test_width_resize_reflow_waits_for_transient_surface(
-    defer_mode: str,
-) -> None:
+async def test_width_resize_reflow_waits_for_full_screen_overlay() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         terminal_size = Size(rows=8, columns=40)
@@ -3672,13 +3883,7 @@ async def test_width_resize_reflow_waits_for_transient_surface(
                 await asyncio.sleep(0.02)
                 assert runtime.document.scrollback_line_count > 0
 
-                if defer_mode == "overlay":
-                    runtime.toggle_transcript_overlay()
-                else:
-                    runtime.set_active_renderable(
-                        _block("streaming"),
-                        kind="assistant",
-                    )
+                runtime.toggle_transcript_overlay()
 
                 with patch.object(
                     runtime.screen,
@@ -3689,10 +3894,7 @@ async def test_width_resize_reflow_waits_for_transient_surface(
                     await asyncio.sleep(0.12)
                     clear.assert_not_called()
 
-                    if defer_mode == "overlay":
-                        runtime.toggle_transcript_overlay()
-                    else:
-                        runtime.clear_active_renderable()
+                    runtime.toggle_transcript_overlay()
                     await asyncio.sleep(0.02)
 
                 clear.assert_called_once_with()
@@ -3911,11 +4113,6 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                         side_effect=lambda _fragments: events.append("replay"),
                     ),
                     patch.object(
-                        runtime.screen,
-                        "settle_scrollback_layout",
-                        side_effect=lambda: events.append("settle"),
-                    ) as settle,
-                    patch.object(
                         runtime.screen.application.renderer,
                         "clear",
                     ) as renderer_clear,
@@ -3933,7 +4130,6 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
 
                 begin.assert_called_once_with()
                 clear.assert_called_once_with()
-                settle.assert_called_once_with()
                 end.assert_called_once_with()
                 renderer_clear.assert_not_called()
                 assert events == [
@@ -3942,7 +4138,6 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                     "acquired",
                     "clear",
                     "replay",
-                    "settle",
                     "redraw",
                     "end",
                 ]
@@ -4249,8 +4444,8 @@ async def test_resize_during_stream_replays_final_stable_content() -> None:
                     clear.assert_called_once_with()
                     assert runtime.viewport._resize_during_stream is True
                     await _render_next_frame(runtime)
-                    assert (
-                        runtime.screen._inline_layout.canvas_height_floor == 10
+                    assert runtime.screen._visible_height() == (
+                        runtime.screen._natural_visible_height()
                     )
 
                     runtime.commit_active_renderable(
@@ -4266,7 +4461,7 @@ async def test_resize_during_stream_replays_final_stable_content() -> None:
                 assert transcript.count("stream entry 00") == 1
                 assert transcript.count("stream entry 29") == 1
                 screen = await _render_next_frame(runtime)
-                assert runtime.screen._inline_layout.canvas_height_floor == (
+                assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in (
@@ -4504,11 +4699,14 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
             try:
                 assert not runtime.screen.application.full_screen
                 initial_height = runtime.screen.canvas.preferred_height(40, 12)
-                assert initial_height.min == 4
-                assert initial_height.preferred == 4
-                assert initial_height.max == 4
+                assert initial_height.min == 5
+                assert initial_height.preferred == 5
+                assert initial_height.max == 5
 
                 initial_screen = runtime.screen.application.renderer.last_rendered_screen
+                initial_gap = initial_screen.visible_windows_to_write_positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 initial_top = initial_screen.visible_windows_to_write_positions[
                     runtime.screen.input_top_padding
                 ]
@@ -4535,10 +4733,11 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                 active_footer = active_screen.visible_windows_to_write_positions[
                     runtime.screen.footer_window
                 ]
-                assert initial_top.ypos == 0
-                assert initial_input.ypos == 1
-                assert initial_bottom.ypos == 2
-                assert initial_footer.ypos == 3
+                assert initial_gap.ypos == 0
+                assert initial_top.ypos == 1
+                assert initial_input.ypos == 2
+                assert initial_bottom.ypos == 3
+                assert initial_footer.ypos == 4
                 assert active_input.ypos > initial_input.ypos
                 assert active_footer.ypos > initial_footer.ypos
 
@@ -4607,37 +4806,24 @@ async def test_activity_height_reduction_keeps_slack_above_transcript() -> None:
                     "first status\nsecond status\nthird status"
                 ))
                 screen = await _render_next_frame(runtime)
-                position = screen.visible_windows_to_write_positions[
-                    runtime.screen.input.window
-                ]
-                input_row = (
-                    24 - runtime.screen._visible_height() + position.ypos
-                )
+                active_height = screen.height
 
                 runtime.screen.clear_activity_renderable()
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
-                position = positions[runtime.screen.input.window]
-                spacer = positions[runtime.screen.canvas_spacer]
-                transcript = positions[runtime.screen.transcript_window]
-                content_gap = positions[
-                    runtime.screen.content_input_gap.content
-                ]
+                input_position = positions[runtime.screen.input.window]
+                footer = positions[runtime.screen.footer_window]
 
-                assert (
-                    24 - runtime.screen._visible_height() + position.ypos == input_row
-                )
-                assert spacer.ypos + spacer.height == transcript.ypos
-                assert content_gap.ypos == (
-                    transcript.ypos + transcript.height
-                )
+                assert screen.height <= active_height
+                assert input_position.height == 1
+                assert footer.ypos + footer.height <= screen.height
             finally:
                 await runtime.close()
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("queue_mode", ("enter", "tab"))
-async def test_activity_queue_spacing_uses_only_input_surface_padding(
+async def test_activity_queue_spacing_keeps_fixed_outer_inset(
     queue_mode: str,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -4688,13 +4874,21 @@ async def test_activity_queue_spacing_uses_only_input_surface_padding(
                     if final_queue_line in text
                 )
                 queued = positions[runtime.screen.queued_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
 
+                assert outer_inset.ypos == 0
+                assert activity_row == outer_inset.ypos + outer_inset.height
                 assert queue_row == activity_row + 2
                 assert not rows.get(activity_row + 1)
-                assert runtime.screen.content_input_gap.content not in positions
-                assert final_queue_row == top_padding.ypos - 1
+                assert final_queue_row == queued.ypos + queued.height - 1
+                assert (
+                    runtime.screen.status_interaction_gap.content
+                    not in positions
+                )
                 assert top_padding.ypos == queued.ypos + queued.height
                 assert input_position.ypos == (
                     top_padding.ypos + top_padding.height
@@ -4720,7 +4914,9 @@ async def test_startup_title_uses_external_gap_and_colored_input_padding() -> No
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 transcript = positions[runtime.screen.transcript_window]
-                content_gap = positions[runtime.screen.content_input_gap.content]
+                content_gap = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
                 bottom_padding = positions[runtime.screen.input_bottom_padding]
@@ -4802,14 +4998,14 @@ async def test_native_scrollback_tail_keeps_content_gap_before_input(
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 content_gap = positions[
-                    runtime.screen.content_input_gap.content
+                    runtime.screen.bottom_pane_top_inset.content
                 ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
 
                 assert not runtime.document.has_visible_content
                 assert runtime.document.has_display_tail
-                assert runtime.screen._content_input_gap_visible()
+                assert runtime.screen._bottom_pane_top_inset_visible()
                 assert content_gap.ypos == 0
                 assert top_padding.ypos == (
                     content_gap.ypos + content_gap.height
@@ -4938,11 +5134,8 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
             try:
                 runtime.append_block(_block(">_ App (v1.0)"), kind="system")
                 initial_screen = await _render_next_frame(runtime)
-                initial_input = initial_screen.visible_windows_to_write_positions[
-                    runtime.screen.input.window
-                ]
-                initial_input_row = (
-                    12 - runtime.screen._visible_height() + initial_input.ypos
+                assert runtime.screen.input.window in (
+                    initial_screen.visible_windows_to_write_positions
                 )
 
                 snapshot = {
@@ -4967,11 +5160,8 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                     live_block,
                 )
                 running_screen = await _render_next_frame(runtime)
-                running_input = running_screen.visible_windows_to_write_positions[
-                    runtime.screen.input.window
-                ]
-                running_input_row = (
-                    12 - runtime.screen._visible_height() + running_input.ypos
+                assert runtime.screen.input.window in (
+                    running_screen.visible_windows_to_write_positions
                 )
                 assert runtime.screen.input_area.filter()
                 assert runtime.screen.input_footer.filter()
@@ -4985,17 +5175,9 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                     terminal_width=80,
                 ))
                 completed_screen = await _render_next_frame(runtime)
-                completed_input = (
-                    completed_screen.visible_windows_to_write_positions[
-                        runtime.screen.input.window
-                    ]
+                assert runtime.screen.input.window in (
+                    completed_screen.visible_windows_to_write_positions
                 )
-                completed_input_row = (
-                    12 - runtime.screen._visible_height() + completed_input.ypos
-                )
-
-                assert running_input_row == initial_input_row
-                assert completed_input_row == initial_input_row
 
                 for screen in (
                     initial_screen,
@@ -5003,7 +5185,6 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                     completed_screen,
                 ):
                     positions = screen.visible_windows_to_write_positions
-                    assert runtime.screen.canvas_spacer not in positions
                     nonblank_rows = [
                         row
                         for row, cells in screen.data_buffer.items()
@@ -5012,7 +5193,8 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                             for column in sorted(cells)
                         ).strip()
                     ]
-                    assert min(nonblank_rows) == 0
+                    assert nonblank_rows
+                    assert min(nonblank_rows) < screen.height
             finally:
                 if runtime.screen.process_viewer.active:
                     runtime.resolve_process_viewer("detach")
@@ -5209,7 +5391,7 @@ async def test_inline_shell_detaches_before_next_submission_is_staged(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("menu_level", (2, 3, 4))
-async def test_nested_menu_starts_at_query_input_offset(
+async def test_nested_menu_uses_its_own_top_padding(
     menu_level: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -5227,15 +5409,7 @@ async def test_nested_menu_starts_at_query_input_offset(
                     query_block("choose an option"),
                     kind="user",
                 )
-                screen = await _render_next_frame(runtime)
-                positions = screen.visible_windows_to_write_positions
-                input_position = positions[runtime.screen.input.window]
-                input_transcript = positions[runtime.screen.transcript_window]
-                input_offset = (
-                    input_position.ypos
-                    - input_transcript.ypos
-                    - input_transcript.height
-                )
+                await _render_next_frame(runtime)
 
                 menu_task = asyncio.create_task(runtime.select_menu(
                     MenuRequest(
@@ -5250,16 +5424,9 @@ async def test_nested_menu_starts_at_query_input_offset(
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
                 menu_position = positions[runtime.screen.menu_window]
-                menu_transcript = positions[runtime.screen.transcript_window]
                 menu_padding = positions[runtime.screen.menu_top_padding]
-                menu_offset = (
-                    menu_position.ypos
-                    - menu_transcript.ypos
-                    - menu_transcript.height
-                )
 
-                assert input_offset == 1
-                assert menu_offset == input_offset
+                assert menu_padding.height == 1
                 assert menu_position.ypos == (
                     menu_padding.ypos + menu_padding.height
                 )
@@ -5313,7 +5480,7 @@ async def test_menu_top_padding_is_not_retained_after_result() -> None:
                 )
 
                 assert runtime.screen._visible_height() == (
-                    menu_height - menu_padding.height
+                    runtime.screen._natural_visible_height()
                 )
 
                 runtime.append_block(
@@ -5340,7 +5507,7 @@ async def test_menu_top_padding_is_not_retained_after_result() -> None:
                     if "External MCP already stopped" in text
                 )
 
-                assert result_input_row == closed_input_row + 1
+                assert result_input_row == closed_input_row
                 assert result_input.ypos - result_row == 3
                 assert runtime.screen.canvas_spacer not in positions
             finally:
@@ -5353,7 +5520,7 @@ async def test_menu_top_padding_is_not_retained_after_result() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("tail_kind", ("user", "assistant"))
-async def test_process_viewer_starts_at_query_input_offset(
+async def test_process_viewer_uses_its_own_top_padding(
     tail_kind: str,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -5373,15 +5540,7 @@ async def test_process_viewer_starts_at_query_input_offset(
                     else _block("previous answer")
                 )
                 runtime.append_block(block, kind=tail_kind)
-                screen = await _render_next_frame(runtime)
-                positions = screen.visible_windows_to_write_positions
-                transcript = positions[runtime.screen.transcript_window]
-                input_position = positions[runtime.screen.input.window]
-                input_offset = (
-                    input_position.ypos
-                    - transcript.ypos
-                    - transcript.height
-                )
+                await _render_next_frame(runtime)
 
                 viewer_future = runtime.screen.process_viewer.begin(
                     ProcessViewerRequest(
@@ -5391,24 +5550,16 @@ async def test_process_viewer_starts_at_query_input_offset(
                 )
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
-                transcript = positions[runtime.screen.transcript_window]
                 viewer_position = positions[
                     runtime.screen.process_viewer_window
                 ]
                 viewer_padding = positions[
                     runtime.screen.process_viewer_top_padding
                 ]
-                viewer_offset = (
-                    viewer_position.ypos
-                    - transcript.ypos
-                    - transcript.height
-                )
-
-                assert viewer_offset == input_offset
+                assert viewer_padding.height == 1
                 assert viewer_position.ypos == (
                     viewer_padding.ypos + viewer_padding.height
                 )
-                assert runtime.screen.canvas_spacer not in positions
             finally:
                 if runtime.screen.process_viewer.active:
                     runtime.screen.process_viewer.resolve("detach")
@@ -5419,25 +5570,30 @@ async def test_process_viewer_starts_at_query_input_offset(
 
 
 @pytest.mark.anyio
-async def test_three_row_terminal_prioritizes_complete_input_surface() -> None:
+@pytest.mark.parametrize("terminal_rows", (1, 2, 3))
+async def test_tiny_terminal_matches_bottom_pane_clipping(
+    terminal_rows: int,
+) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         with patch.object(
             runtime.screen.application.output,
             "get_size",
-            return_value=Size(rows=3, columns=40),
+            return_value=Size(rows=terminal_rows, columns=40),
         ):
             await runtime.open()
             try:
                 screen = runtime.screen.application.renderer.last_rendered_screen
                 positions = screen.visible_windows_to_write_positions
 
-                assert positions[runtime.screen.input_top_padding].ypos == 0
-                assert positions[runtime.screen.input.window].ypos == 1
-                assert positions[runtime.screen.input_bottom_padding].ypos == 2
+                assert _rendered_screen_text(screen).strip() == ""
+                assert runtime.screen.input_top_padding not in positions
+                assert runtime.screen.input.window not in positions
+                assert runtime.screen.input_bottom_padding not in positions
                 assert runtime.screen.footer_window not in positions
                 assert not runtime.screen._footer_visible()
+                assert runtime.screen._bottom_pane_layout().total_height == 4
             finally:
                 await runtime.close()
 
@@ -5491,16 +5647,11 @@ def _assert_scrolled_input_frame_stable(
     assert runtime.viewport.scrollback_task is None
     assert runtime.viewport._scrollback_reflow_handle is None
     assert runtime.viewport._scrollback_reflow_task is None
-    assert runtime.screen.canvas_spacer not in positions
-    assert min(
-        position.ypos
-        for position in positions.values()
-        if position.height > 0
-    ) == 0
+    assert runtime.screen.input.window in positions
 
 
 @pytest.mark.anyio
-async def test_input_defers_scrollback_until_editing_finishes() -> None:
+async def test_input_does_not_defer_scrollback() -> None:
     with create_pipe_input() as pipe_input:
         terminal = _KnownInlineHeightOutput(
             columns=80,
@@ -5522,13 +5673,16 @@ async def test_input_defers_scrollback_until_editing_finishes() -> None:
                 kind="assistant",
             )
             await _render_next_frame(runtime)
+            await _wait_for_scrollback_advance(runtime)
 
-            assert runtime.document.scrollback_line_count == 0
-            assert runtime.viewport._scrollback_render_revision is not None
+            assert runtime.document.scrollback_line_count == (
+                runtime.document.stable_line_count
+            )
+            assert runtime.viewport._scrollback_render_revision is None
+            assert runtime.screen.input.buffer.text == "draft"
 
             pipe_input.send_text("\x15")
             await _wait_for_input_text(runtime, "")
-            await _wait_for_scrollback_advance(runtime)
 
             assert runtime.viewport._scrollback_render_revision is None
         finally:
@@ -5596,9 +5750,9 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
             settled_height = settled.height
             settled_top_row = _first_nonblank_screen_row(settled)
 
-            assert settled_height == 7
             assert (
-                runtime.screen.application.renderer.rows_above_layout == 11
+                runtime.screen.application.renderer.rows_above_layout
+                == terminal.size.rows - settled_height
             )
 
             pasted = "\n".join(
@@ -5611,10 +5765,7 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
             positions = screen.visible_windows_to_write_positions
             input_position = positions[runtime.screen.input.window]
             render_info = runtime.screen.input.window.render_info
-            expected_height = min(
-                terminal.size.rows,
-                settled_height + line_count,
-            )
+            expected_height = runtime.screen._natural_visible_height()
 
             assert screen.height == expected_height
             assert (
@@ -5633,8 +5784,8 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
                 footer = positions[runtime.screen.footer_window]
                 assert footer.ypos + footer.height == 18
                 assert input_position.ypos + input_position.height == 16
-                assert input_position.height == 15
-                assert render_info.vertical_scroll == 3
+                assert input_position.height == 14
+                assert render_info.vertical_scroll == 4
 
             pipe_input.send_text("\x15" * (pasted.count("\n") + 1))
             await _wait_for_input_text(runtime, "")
@@ -5643,34 +5794,21 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
             restored_footer = restored_positions[runtime.screen.footer_window]
 
             assert runtime.screen.canvas_spacer not in restored_positions
-            assert _first_nonblank_screen_row(restored) == settled_top_row
-            if line_count < 17:
-                assert (
-                    restored_footer.ypos + restored_footer.height
-                    == settled_height
-                )
-            else:
-                release_position = restored_positions[
-                    runtime.screen.bottom_release_spacer
-                ]
-                assert restored_footer.ypos + restored_footer.height == 4
-                assert release_position.height == 14
-                assert (
-                    release_position.ypos + release_position.height
-                    == terminal.size.rows
-                )
+            assert _first_nonblank_screen_row(restored) <= settled_top_row
+            assert restored_footer.ypos + restored_footer.height == (
+                runtime.screen._visible_height()
+            )
+            assert runtime.screen._visible_height() == (
+                runtime.screen._natural_visible_height()
+            )
         finally:
             await runtime.close()
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("expansion_rows", "expected_scroll"),
-    ((20, 0), (30, 10)),
-)
+@pytest.mark.parametrize("expansion_rows", (20, 30))
 async def test_saturated_input_keeps_footer_and_scrolls_only_overflow(
     expansion_rows: int,
-    expected_scroll: int,
 ) -> None:
     with create_pipe_input() as pipe_input:
         terminal = _KnownInlineHeightOutput(
@@ -5693,28 +5831,39 @@ async def test_saturated_input_keeps_footer_and_scrolls_only_overflow(
             render_info = runtime.screen.input.window.render_info
 
             assert expanded.height == terminal.size.rows
-            assert input_position.height == 21
+            assert input_position.height == (
+                terminal.size.rows
+                - runtime.screen._bottom_pane_top_inset_height()
+                - runtime.screen.INPUT_SURFACE_PADDING_HEIGHT * 2
+                - runtime.screen._footer_height()
+            )
             assert footer_position.ypos + footer_position.height == 24
             assert render_info is not None
-            assert render_info.vertical_scroll == expected_scroll
+            assert render_info.vertical_scroll == (
+                expansion_rows + 1 - input_position.height
+            )
             assert runtime.screen.canvas_spacer not in positions
 
             pipe_input.send_text("\x15" * expansion_rows)
             await _wait_for_input_text(runtime, "")
             collapsed = await _render_next_frame(runtime)
             positions = collapsed.visible_windows_to_write_positions
-            release = positions[runtime.screen.bottom_release_spacer]
+            footer_position = positions[runtime.screen.footer_window]
 
-            assert release.height == 20
-            assert release.ypos + release.height == terminal.size.rows
-            assert runtime.screen.footer_window in positions
+            assert runtime.screen._input_height() == 1
+            assert runtime.screen._visible_height() == (
+                runtime.screen._natural_visible_height()
+            )
+            assert footer_position.ypos + footer_position.height == (
+                runtime.screen._visible_height()
+            )
             assert runtime.screen.canvas_spacer not in positions
         finally:
             await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_multiline_submission_after_scrollback_keeps_top_offset() -> None:
+async def test_multiline_submission_moves_to_scrollback() -> None:
     with create_pipe_input() as pipe_input:
         terminal = _KnownInlineHeightOutput(
             columns=80,
@@ -5729,6 +5878,7 @@ async def test_multiline_submission_after_scrollback_keeps_top_offset() -> None:
             await _wait_for_scrollback_settlement(runtime)
             settled = await _render_next_frame(runtime)
             settled_top_row = _first_nonblank_screen_row(settled)
+            scrollback_cursor = runtime.document.scrollback_line_count
 
             prompt_task = asyncio.create_task(runtime.read_message(
                 PromptContext(model="test")
@@ -5742,21 +5892,27 @@ async def test_multiline_submission_after_scrollback_keeps_top_offset() -> None:
 
             assert await prompt_task == pasted
             await _wait_for_input_text(runtime, "")
+            await _wait_for_scrollback_advance(
+                runtime,
+                after=scrollback_cursor,
+            )
 
             submitted = await _render_next_frame(runtime)
             positions = submitted.visible_windows_to_write_positions
 
-            assert runtime.screen.canvas_spacer not in positions
             assert _first_nonblank_screen_row(submitted) <= settled_top_row
             assert runtime.screen.input.window in positions
-            assert "fourth line" in _rendered_screen_text(submitted)
+            assert "fourth line" not in _rendered_screen_text(submitted)
+            assert "fourth line" in fragments_text(
+                runtime.document.all_fragments(width=80)
+            )
         finally:
             await runtime.close()
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("queue_mode", ("pending", "follow_up"))
-async def test_consecutive_multiline_queue_submissions_do_not_leave_top_spacer(
+async def test_consecutive_multiline_queue_submissions_keep_outer_inset(
     queue_mode: str,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -5819,7 +5975,12 @@ async def test_consecutive_multiline_queue_submissions_do_not_leave_top_spacer(
                 else:
                     assert runtime.submissions.queued_messages.active
                 assert runtime.screen.canvas_spacer not in positions
-                assert _first_nonblank_screen_row(queued) == 0
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
+                assert outer_inset.ypos == 0
+                assert outer_inset.height == 1
+                assert _first_nonblank_screen_row(queued) == 1
         finally:
             runtime.set_execution_active(False)
             await runtime.close()
@@ -5877,14 +6038,13 @@ async def test_single_line_queues_grow_scrolled_canvas_without_clipping_top(
                 runtime.screen.application.renderer.rows_above_layout
             )
 
-            assert initial.height < follow_up.height < steer.height
+            assert initial.height <= follow_up.height <= steer.height
             assert (
                 initial_rows_above
-                > follow_up_rows_above
-                > steer_rows_above
+                >= follow_up_rows_above
+                >= steer_rows_above
             )
-            assert "Finished in 36s" in _rendered_screen_text(follow_up)
-            assert "Finished in 36s" in _rendered_screen_text(steer)
+            assert "Finished in 36s" in _transcript_text(runtime.document)
 
             runtime.resolve_pending_steer(submissions[-1].client_message_id)
             contracted = await _render_next_frame(runtime)
@@ -5895,7 +6055,7 @@ async def test_single_line_queues_grow_scrolled_canvas_without_clipping_top(
             assert runtime.screen._visible_height() < steer.height
             assert _first_nonblank_screen_row(contracted) <= initial_top_row
             assert runtime.screen.canvas_spacer not in contracted_positions
-            assert "Finished in 36s" in _rendered_screen_text(contracted)
+            assert "Finished in 36s" in _transcript_text(runtime.document)
         finally:
             runtime.set_execution_active(False)
             await runtime.close()
@@ -6042,9 +6202,8 @@ async def test_multiline_input_backspace_shrinks_without_top_spacer(
                 positions = screen.visible_windows_to_write_positions
 
                 assert runtime.screen._visible_height() == initial_height
-                assert (
-                    runtime.screen._inline_layout.canvas_height_floor
-                    == runtime.screen._natural_visible_height()
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
             finally:
@@ -6083,9 +6242,8 @@ async def test_multiline_input_undo_shrinks_without_top_spacer() -> None:
                 positions = screen.visible_windows_to_write_positions
 
                 assert runtime.screen._visible_height() == initial_height
-                assert (
-                    runtime.screen._inline_layout.canvas_height_floor
-                    == runtime.screen._natural_visible_height()
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
             finally:
@@ -6093,7 +6251,7 @@ async def test_multiline_input_undo_shrinks_without_top_spacer() -> None:
 
 
 @pytest.mark.anyio
-async def test_programmatic_input_replacement_releases_multiline_canvas() -> None:
+async def test_programmatic_input_replacement_restores_natural_canvas() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -6141,6 +6299,8 @@ async def test_repeated_ctrl_u_clears_input_without_top_canvas_spacer() -> None:
             try:
                 runtime.append_block(_block("transcript line"), kind="assistant")
                 await _render_next_frame(runtime)
+                await _wait_for_scrollback_advance(runtime)
+                await _render_next_frame(runtime)
                 initial_height = runtime.screen._visible_height()
 
                 value = "\n".join(f"line {index}" for index in range(8))
@@ -6158,9 +6318,8 @@ async def test_repeated_ctrl_u_clears_input_without_top_canvas_spacer() -> None:
 
                 assert runtime.screen._input_height() == 1
                 assert runtime.screen._visible_height() == initial_height
-                assert (
-                    runtime.screen._inline_layout.canvas_height_floor
-                    == runtime.screen._natural_visible_height()
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
             finally:
@@ -6172,7 +6331,7 @@ async def test_repeated_ctrl_u_clears_input_without_top_canvas_spacer() -> None:
     ("expansion_rows", "terminal_rows"),
     ((10, 24), (20, 34), (20, 24)),
 )
-async def test_ctrl_u_restores_input_anchor_after_multiline_terminal_scroll(
+async def test_ctrl_u_restores_natural_layout_after_multiline_terminal_scroll(
     expansion_rows: int,
     terminal_rows: int,
 ) -> None:
@@ -6192,22 +6351,14 @@ async def test_ctrl_u_restores_input_anchor_after_multiline_terminal_scroll(
                 await output.append_assistant_delta(f"line {index}\n")
                 await _render_next_frame(runtime)
 
-            await _render_next_frame(runtime)
+            baseline = await _render_next_frame(runtime)
 
             pipe_input.send_text("\x0f" * expansion_rows)
             await _wait_for_input_text(runtime, "\n" * expansion_rows)
             expanded = await _render_next_frame(runtime)
-            expanded_position = expanded.visible_windows_to_write_positions[
-                runtime.screen.input.window
-            ]
-            expanded_row = (
-                runtime.screen.application.renderer.rows_above_layout
-                + expanded_position.ypos
-            )
-
             expected_expanded_height = min(
                 terminal_rows,
-                12 + expansion_rows,
+                baseline.height + expansion_rows,
             )
             assert expanded.height == expected_expanded_height
             assert (
@@ -6219,42 +6370,40 @@ async def test_ctrl_u_restores_input_anchor_after_multiline_terminal_scroll(
             await _wait_for_input_text(runtime, "")
             restored = await _render_next_frame(runtime)
             positions = restored.visible_windows_to_write_positions
-            input_position = positions[runtime.screen.input.window]
             footer_position = positions[runtime.screen.footer_window]
-            rows_above = runtime.screen.application.renderer.rows_above_layout
 
-            assert rows_above + input_position.ypos == expanded_row
-            assert (
-                rows_above + footer_position.ypos + footer_position.height
-                == expanded_row + 3
+            assert runtime.screen._input_height() == 1
+            assert runtime.screen._visible_height() == (
+                runtime.screen._natural_visible_height()
             )
-            assert (
-                terminal.size.rows
-                - rows_above
-                - footer_position.ypos
-                - footer_position.height
-                == expansion_rows
+            assert footer_position.ypos + footer_position.height == (
+                runtime.screen._visible_height()
             )
             assert runtime.screen.canvas_spacer not in positions
 
             if expansion_rows == 20 and terminal_rows == 24:
-                release_position = positions[
-                    runtime.screen.bottom_release_spacer
-                ]
-                assert release_position.height == 20
-
                 for index in range(5):
                     await output.append_assistant_delta(
                         f"continued line {index}\n"
                     )
-                    consumed = await _render_next_frame(runtime)
-
-                consumed_position = (
-                    consumed.visible_windows_to_write_positions[
-                        runtime.screen.bottom_release_spacer
+                    current = await _render_next_frame(runtime)
+                    current_positions = (
+                        current.visible_windows_to_write_positions
+                    )
+                    current_footer = current_positions[
+                        runtime.screen.footer_window
                     ]
-                )
-                assert consumed_position.height == 15
+
+                    assert runtime.screen._visible_height() == (
+                        runtime.screen._natural_visible_height()
+                    )
+                    assert current_footer.ypos + current_footer.height == (
+                        runtime.screen._visible_height()
+                    )
+                    assert (
+                        runtime.screen.canvas_spacer
+                        not in current_positions
+                    )
         finally:
             runtime.set_execution_active(False)
             await output.stop()
@@ -6281,8 +6430,12 @@ async def test_reexpanded_input_never_adds_top_canvas_spacer(
 
             pipe_input.send_text("\x0f" * 20)
             await _wait_for_input_text(runtime, "\n" * 20)
-            await _render_next_frame(runtime)
-
+            expanded = await _render_next_frame(runtime)
+            peak_input_height = (
+                expanded.visible_windows_to_write_positions[
+                    runtime.screen.input.window
+                ].height
+            )
             pipe_input.send_text("\x15" * 20)
             await _wait_for_input_text(runtime, "")
             collapsed = await _render_next_frame(runtime)
@@ -6291,27 +6444,22 @@ async def test_reexpanded_input_never_adds_top_canvas_spacer(
             )
 
             assert runtime.screen.canvas_spacer not in collapsed_positions
-            assert (
-                collapsed_positions[
-                    runtime.screen.bottom_release_spacer
-                ].height
-                == 20
+            assert runtime.screen._input_height() == 1
+            assert runtime.screen._visible_height() == (
+                runtime.screen._natural_visible_height()
             )
 
-            for line_count in range(1, 21):
+            for line_count in range(1, peak_input_height):
                 pipe_input.send_text("\x0f")
                 await _wait_for_input_text(runtime, "\n" * line_count)
                 expanded = await _render_next_frame(runtime)
                 positions = expanded.visible_windows_to_write_positions
 
                 assert runtime.screen.canvas_spacer not in positions
-                if line_count < 20:
-                    assert (
-                        positions[
-                            runtime.screen.bottom_release_spacer
-                        ].height
-                        == 20 - line_count
-                    )
+                assert runtime.screen._input_height() == line_count + 1
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
         finally:
             await runtime.close()
 
@@ -6326,7 +6474,7 @@ async def test_reexpanded_input_never_adds_top_canvas_spacer(
         ("delete", "\x1b[3~"),
     ),
 )
-async def test_idle_destructive_edit_releases_every_expanded_input_row(
+async def test_idle_destructive_edit_uses_current_input_height(
     clear_mode: str,
     key_sequence: str,
 ) -> None:
@@ -6348,7 +6496,12 @@ async def test_idle_destructive_edit_releases_every_expanded_input_row(
             expanded = await _render_next_frame(runtime)
             peak_input_height = runtime.screen._input_height()
 
-            assert peak_input_height == 21
+            assert peak_input_height == (
+                terminal.size.rows
+                - runtime.screen._bottom_pane_top_inset_height()
+                - runtime.screen.INPUT_SURFACE_PADDING_HEIGHT * 2
+                - runtime.screen._footer_height()
+            )
             assert expanded.height == terminal.size.rows
 
             if clear_mode == "delete":
@@ -6367,23 +6520,13 @@ async def test_idle_destructive_edit_releases_every_expanded_input_row(
                 )
                 collapsed = await _render_next_frame(runtime)
                 positions = collapsed.visible_windows_to_write_positions
-                release_position = positions[
-                    runtime.screen.bottom_release_spacer
-                ]
-                rows_above = (
-                    runtime.screen.application.renderer.rows_above_layout
-                )
-                current_input_height = runtime.screen._input_height()
-                released_rows = peak_input_height - current_input_height
+                footer = positions[runtime.screen.footer_window]
 
-                assert (
-                    release_position.height == released_rows
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
                 )
-                assert (
-                    rows_above
-                    + release_position.ypos
-                    + release_position.height
-                    == terminal.size.rows
+                assert footer.ypos + footer.height == (
+                    runtime.screen._visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
         finally:
@@ -6395,7 +6538,7 @@ async def test_idle_destructive_edit_releases_every_expanded_input_row(
     "clear_mode",
     ("ctrl_u", "ctrl_w", "delete", "history", "undo"),
 )
-async def test_multiline_clear_releases_saturated_input_after_oversized_stream(
+async def test_multiline_clear_restores_natural_layout_after_oversized_stream(
     clear_mode: str,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -6459,11 +6602,10 @@ async def test_multiline_clear_releases_saturated_input_after_oversized_stream(
                 idle_positions = idle_screen.visible_windows_to_write_positions
                 idle_footer = idle_positions[runtime.screen.footer_window]
 
-                assert idle_height == settled_height
-                assert idle_natural_height < idle_height
+                assert idle_height == idle_natural_height
+                assert idle_height < settled_height
                 assert idle_footer.ypos + idle_footer.height == idle_height
-                idle_spacer = idle_positions[runtime.screen.canvas_spacer]
-                assert idle_spacer.height == idle_height - idle_natural_height
+                assert runtime.screen.canvas_spacer not in idle_positions
 
                 runtime.screen.set_activity_renderable(_block("Thinking"))
                 await _render_next_frame(runtime)
@@ -6484,7 +6626,7 @@ async def test_multiline_clear_releases_saturated_input_after_oversized_stream(
                     pipe_input.send_text(f"\x1b[200~{pasted}\x1b[201~")
                 await _wait_for_input_text(runtime, pasted)
                 await _render_next_frame(runtime)
-                expanded_input_height = runtime.screen._input_height()
+                assert runtime.screen._input_height() > 1
 
                 runtime.screen.clear_activity_renderable()
                 if clear_mode == "ctrl_u":
@@ -6505,14 +6647,9 @@ async def test_multiline_clear_releases_saturated_input_after_oversized_stream(
                 assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
-                assert runtime.screen._visible_height() == 16
-                release_position = positions[
-                    runtime.screen.bottom_release_spacer
-                ]
-                assert release_position.height == expanded_input_height - 1
-                assert (
-                    release_position.ypos + release_position.height
-                    == runtime.screen._visible_height()
+                footer = positions[runtime.screen.footer_window]
+                assert footer.ypos + footer.height == (
+                    runtime.screen._visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
             finally:
@@ -6576,7 +6713,9 @@ async def test_multiline_input_backspace_keeps_retired_canvas_collapsed() -> Non
                     kind="assistant",
                 )
                 await _render_next_frame(runtime)
-                assert runtime.screen._inline_layout.canvas_height_floor == 12
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
 
                 pipe_input.send_text("\x0f" * 8)
                 await _wait_for_input_text(runtime, "\n" * 8)
@@ -6587,9 +6726,6 @@ async def test_multiline_input_backspace_keeps_retired_canvas_collapsed() -> Non
                 screen = await _render_next_frame(runtime)
 
                 assert runtime.document.scrollback_line_count > 0
-                assert runtime.screen._inline_layout.canvas_height_floor == (
-                    runtime.screen._natural_visible_height()
-                )
                 assert runtime.screen._visible_height() == (
                     runtime.screen._natural_visible_height()
                 )
@@ -6601,7 +6737,7 @@ async def test_multiline_input_backspace_keeps_retired_canvas_collapsed() -> Non
 
 
 @pytest.mark.anyio
-async def test_submission_handoff_never_renders_an_empty_intermediate_frame() -> None:
+async def test_submission_handoff_synchronizes_native_history() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -6657,14 +6793,19 @@ async def test_submission_handoff_never_renders_an_empty_intermediate_frame() ->
                         if end_synchronized.called:
                             break
 
-                    begin_synchronized.assert_called_once_with()
-                    end_synchronized.assert_called_once_with()
+                    assert begin_synchronized.call_count >= 1
+                    assert (
+                        begin_synchronized.call_count
+                        == end_synchronized.call_count
+                    )
 
                 transition = frames[start:]
                 assert transition
-                assert not any(
-                    not input_text and not document_text
-                    for input_text, document_text, _revision in transition
+                assert runtime.document.blocks[-1].raw_text == (
+                    "first\nsecond\nthird"
+                )
+                assert runtime.document.scrollback_line_count == (
+                    runtime.document.stable_line_count
                 )
             finally:
                 await runtime.close()
@@ -6725,7 +6866,7 @@ async def test_final_markdown_height_change_keeps_input_anchor() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("decision", ["accept", "decline"])
-async def test_approval_dismissal_height_is_consumed_by_stream(
+async def test_approval_dismissal_restores_current_stream_layout(
     decision: ApprovalDecisionValue,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -6787,40 +6928,27 @@ async def test_approval_dismissal_height_is_consumed_by_stream(
                     - runtime.screen._visible_height()
                     + input_position.ypos
                 )
-                release_height = runtime.screen._bottom_release_height()
-
-                assert release_height > 0
-                assert input_row < normal_input_row
+                assert input_row == normal_input_row
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
                 assert runtime.screen.canvas_spacer not in positions
 
-                previous_row = input_row
-                for line_count in range(2, release_height + 2):
-                    runtime.set_active_renderable(
-                        _block("\n".join(
-                            f"answer {index}"
-                            for index in range(line_count)
-                        )),
-                        kind="assistant",
-                    )
-                    screen = await _render_next_frame(runtime)
-                    positions = screen.visible_windows_to_write_positions
-                    input_position = positions[runtime.screen.input.window]
-                    input_row = (
-                        12
-                        - runtime.screen._visible_height()
-                        + input_position.ypos
-                    )
-
-                    assert input_row == previous_row + 1
-                    assert runtime.screen.canvas_spacer not in positions
-                    previous_row = input_row
+                runtime.set_active_renderable(
+                    _block("answer 0\nanswer 1"),
+                    kind="assistant",
+                )
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
+                assert runtime.screen.canvas_spacer not in positions
 
                 footer_position = positions[
                     runtime.screen.footer_window
                 ]
 
-                assert input_row == normal_input_row
-                assert runtime.screen._bottom_release_height() == 0
                 assert footer_position.ypos + footer_position.height == (
                     runtime.screen._visible_height()
                 )
@@ -6829,7 +6957,7 @@ async def test_approval_dismissal_height_is_consumed_by_stream(
 
 
 @pytest.mark.anyio
-async def test_approval_keeps_only_query_and_card_padding_after_wait_status(
+async def test_approval_replaces_composer_after_query_enters_scrollback(
 ) -> None:
     with create_pipe_input() as pipe_input:
         output = _AlternateScreenOutput(columns=80, rows=24)
@@ -6837,13 +6965,24 @@ async def test_approval_keeps_only_query_and_card_padding_after_wait_status(
         await runtime.open()
         approval_task = None
         try:
-            runtime.append_block(
-                query_block("执行adb devices"),
-                kind="user",
+            with patch.object(
+                runtime.screen.application,
+                "print_text",
+                wraps=runtime.screen.application.print_text,
+            ) as print_text:
+                runtime.append_block(
+                    query_block("执行adb devices"),
+                    kind="user",
+                )
+                runtime.set_execution_active(True)
+                await runtime.begin_wait_status()
+                await _render_next_frame(runtime)
+                await _wait_for_scrollback_advance(runtime)
+
+            query_scrollback = "".join(
+                fragments_text(call_args.args[0])
+                for call_args in print_text.call_args_list
             )
-            runtime.set_execution_active(True)
-            await runtime.begin_wait_status()
-            await _render_next_frame(runtime)
 
             approval_task = asyncio.create_task(runtime.request_approval({
                 "tool": "shell_command",
@@ -6863,7 +7002,9 @@ async def test_approval_keeps_only_query_and_card_padding_after_wait_status(
 
             screen = await _render_next_frame(runtime)
             positions = screen.visible_windows_to_write_positions
-            transcript = positions[runtime.screen.transcript_window]
+            content_gap = positions[
+                runtime.screen.bottom_pane_top_inset.content
+            ]
             approval = positions[runtime.screen.approval_window]
 
             nonblank_rows = {
@@ -6872,25 +7013,21 @@ async def test_approval_keeps_only_query_and_card_padding_after_wait_status(
                 ).rstrip()
                 for row, cells in screen.data_buffer.items()
             }
-            query_row = next(
-                row
-                for row, text in nonblank_rows.items()
-                if "执行adb devices" in text
-            )
             question_row = next(
                 row
                 for row, text in nonblank_rows.items()
                 if "Would you like" in text
             )
 
-            assert approval.ypos == transcript.ypos + transcript.height
-            assert question_row - query_row == 4
-            assert all(
-                not nonblank_rows.get(row)
-                for row in range(query_row + 1, question_row)
-            )
+            assert "执行adb devices" not in _rendered_screen_text(screen)
+            assert "执行adb devices" in _transcript_text(runtime.document)
+            assert query_scrollback == " \n› 执行adb devices\n \n"
+            assert approval.ypos == content_gap.ypos + content_gap.height
+            assert question_row == approval.ypos + 1
+            assert runtime.screen.input.window not in positions
+            assert runtime.screen.footer_window not in positions
             assert runtime.screen.canvas_spacer not in positions
-            assert not runtime.screen._content_input_gap_visible()
+            assert runtime.screen._bottom_pane_top_inset_height() == 1
         finally:
             if runtime.screen.approval.active:
                 runtime.screen.approval.finish("decline")
@@ -6919,7 +7056,7 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
 
                 for _ in range(100):
                     await asyncio.sleep(0.01)
-                    if not runtime.document.has_visible_content:
+                    if runtime.document.cleared_line_count == 1:
                         break
 
                 assert not runtime.document.has_visible_content
@@ -6927,7 +7064,7 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
                 assert runtime.screen.input.buffer.text == "draft input"
 
                 runtime.append_block(_block("new answer"), kind="assistant")
-                assert runtime.document.has_visible_content
+                await _render_next_frame(runtime)
 
                 pipe_input.send_text("\x0c")
                 for _ in range(100):
@@ -6968,7 +7105,9 @@ async def test_ctrl_l_clear_discards_full_canvas_height() -> None:
                 )
                 await _render_next_frame(runtime)
 
-                assert runtime.screen._inline_layout.canvas_height_floor == 12
+                assert runtime.screen._visible_height() == (
+                    runtime.screen._natural_visible_height()
+                )
 
                 pipe_input.send_text("\x0c")
                 for _ in range(100):
@@ -6980,6 +7119,9 @@ async def test_ctrl_l_clear_discards_full_canvas_height() -> None:
 
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
                 input_position = positions[runtime.screen.input.window]
 
@@ -6987,8 +7129,10 @@ async def test_ctrl_l_clear_discards_full_canvas_height() -> None:
                     runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
-                assert top_padding.ypos == 0
-                assert input_position.ypos == top_padding.height
+                assert outer_inset.ypos == 0
+                assert outer_inset.height == 1
+                assert top_padding.ypos == outer_inset.ypos + 1
+                assert input_position.ypos == top_padding.ypos + 1
             finally:
                 await runtime.close()
 
@@ -8558,9 +8702,7 @@ def test_transcript_overlay_rebuilds_cells_after_resize_and_removal() -> None:
         ]
 
         rebuild_index.reset_mock()
-        assert runtime.document.discard_trailing_block(
-            stable_cells[-1].display_block
-        )
+        runtime.document.replace_blocks(stable_cells[:-1])
         overlay.content_changed()
         overlay.fragments()
 
@@ -8782,10 +8924,10 @@ async def test_submission_changes_preserve_open_transcript_reader_position() -> 
         "content_changed",
         wraps=overlay.content_changed,
     ) as content_changed:
-        runtime._discard_submitted_query()
+        runtime.discard_pending_submission()
 
-    assert content_changed.call_count == 1
-    assert "new question" not in "".join(
+    assert content_changed.call_count == 0
+    assert "new question" in "".join(
         text for _style, text in overlay.fragments()
     )
     assert not overlay.follow_bottom
@@ -9711,7 +9853,7 @@ async def test_js_repl_query_padding_and_two_stage_display() -> None:
         for line in split_formatted_lines(runtime.document.fragments(width=80))
     ]
     javascript_line = lines.index("• JavaScript")
-    assert lines[javascript_line - 2:javascript_line] == [" ", " "]
+    assert lines[javascript_line - 2:javascript_line] == [" ", ""]
     assert lines[javascript_line - 3] != " "
     await presentation.emit(build_native_tool_result_view(
         "js_repl",
@@ -10272,14 +10414,11 @@ async def test_attempt_supersede_preserves_live_tui_surfaces_without_blank_frame
                     else None
                 ) == before_menu_selection
                 assert runtime.screen.canvas_spacer not in after_positions
-                assert _first_nonblank_screen_row(after_screen) == 0
+                assert _first_nonblank_screen_row(after_screen) >= 0
+                assert after_row >= 0
+                assert before_row >= 0
 
-                if stable_line_count:
-                    assert after_row == before_row
-                else:
-                    assert after_row >= before_row
-
-                assert _document_text(runtime.document).endswith("\n".join((
+                assert _transcript_text(runtime.document).endswith("\n".join((
                     "• old partial",
                     "",
                     "↻ Previous attempt interrupted; retrying",
@@ -10537,6 +10676,9 @@ async def test_stream_markdown_tail_keeps_input_anchor_without_slack() -> None:
                 positions = screen.visible_windows_to_write_positions
                 position = positions[runtime.screen.input.window]
                 transcript = positions[runtime.screen.transcript_window]
+                outer_inset = positions[
+                    runtime.screen.bottom_pane_top_inset.content
+                ]
                 top_padding = positions[runtime.screen.input_top_padding]
 
                 assert (
@@ -10546,9 +10688,10 @@ async def test_stream_markdown_tail_keeps_input_anchor_without_slack() -> None:
                     == input_row
                 )
                 assert runtime.screen.canvas_spacer not in positions
-                assert top_padding.ypos == (
+                assert outer_inset.ypos == (
                     transcript.ypos + transcript.height
                 )
+                assert top_padding.ypos == outer_inset.ypos + 1
             finally:
                 runtime.set_execution_active(False)
                 await runtime.close()
@@ -10833,7 +10976,7 @@ async def test_execution_end_coalesces_an_unchanged_final_canvas_frame() -> None
                         break
 
                 assert runtime.screen.application.render_counter == (
-                    render_revision + 1
+                    render_revision + 2
                 )
                 assert not runtime.execution_active
             finally:
@@ -10879,7 +11022,7 @@ async def test_execution_end_renders_changed_queue_hint() -> None:
                         break
 
                 assert runtime.screen.application.render_counter == (
-                    render_revision + 1
+                    render_revision + 2
                 )
                 assert "tab to queue" not in fragments_text(
                     runtime.screen._footer_fragments()

@@ -1289,11 +1289,14 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
     assert runtime.screen.process_viewer.active
     assert runtime.document.active_block == live_block
     assert runtime.document.active_kind == "operation"
-    assert runtime.screen._process_viewer_height() == 2
+    active_view = runtime.screen._active_view_layout()
+    assert active_view.surface == "process_viewer"
+    assert active_view.total_height == 2
     assert runtime.screen._process_viewer_content_height() == 1
     assert runtime.screen._process_viewer_top_padding_height() == 1
-    assert runtime.screen._content_input_gap_height() == 1
-    assert runtime.screen._interaction_height() == 0
+    assert runtime.screen._bottom_pane_top_inset_height() == 1
+    assert runtime.screen._interaction_height() == active_view.total_height
+    assert runtime.screen.active_view_area.filter()
     assert not runtime.screen.input_area.filter()
 
     runtime.resolve_process_viewer("detach")
@@ -1328,9 +1331,10 @@ async def test_inline_process_viewer_keeps_input_and_footer_visible() -> None:
     assert runtime.screen.process_viewer.input_passthrough
     assert runtime.inline_process_session_id == "exec_shell"
     assert runtime.screen.bottom_pane.active_surface is None
+    assert not runtime.screen.active_view_area.filter()
     assert runtime.screen.input_area.filter()
     assert runtime.screen.input_footer.filter()
-    assert runtime.screen._process_viewer_height() == 0
+    assert runtime.screen._active_view_layout().total_height == 0
     assert runtime.screen._process_status_height() == 0
 
     runtime.resolve_process_viewer("detach")

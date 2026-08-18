@@ -34,9 +34,10 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
     assert "pytest -q" not in fragments_text(
         runtime.screen._footer_fragments()
     )
-    assert runtime.screen.canvas.children.index(runtime.screen.status_window) < (
-        runtime.screen.canvas.children.index(runtime.screen.process_status_window)
-    ) < runtime.screen.canvas.children.index(runtime.screen.queued_window)
+    bottom_children = runtime.screen.bottom_pane_area.content.children
+    assert bottom_children.index(runtime.screen.status_window) < (
+        bottom_children.index(runtime.screen.process_status_window)
+    ) < bottom_children.index(runtime.screen.queued_window)
     exec_fragment = next(
         fragment
         for fragment in runtime.screen.process_status.fragments()

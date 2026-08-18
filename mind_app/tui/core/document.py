@@ -222,6 +222,16 @@ class TuiDocument(object):
             return self._last_rendered_kind()
         return None
 
+    @property
+    def display_tail_kind(self) -> TuiBlockKind | None:
+        """返回实时画布或原生滚屏区最后一个正文 cell 的类型。"""
+        visible_kind = self.visible_tail_kind
+        if visible_kind is not None:
+            return visible_kind
+        if self._has_native_scrollback_boundary():
+            return self._last_rendered_kind()
+        return None
+
     @staticmethod
     def _trim_block_fragments(parts: FormattedText) -> FormattedText:
         """移除正文块外侧换行并保留块内原始结构。"""
@@ -258,8 +268,7 @@ class TuiDocument(object):
         *,
         transcript: bool = False,
         leading_content: bool = False,
-        leading_content_terminated: bool = False,
-        previous_kind: TuiBlockKind | None = None
+        leading_content_terminated: bool = False
     ) -> bool:
         """向已有正文追加一个块并统一处理块前间距。"""
         if transcript:
@@ -279,7 +288,7 @@ class TuiDocument(object):
                 else (
                     max(1, int(item.gap_before))
                     if transcript
-                    else self._display_gap_height(previous_kind, item)
+                    else self._display_gap_height(item)
                 )
             )
             if leading_content_terminated and not out:
@@ -298,13 +307,10 @@ class TuiDocument(object):
         *,
         transcript: bool = False,
         leading_content: bool = False,
-        leading_content_terminated: bool = False,
-        leading_kind: TuiBlockKind | None = None
+        leading_content_terminated: bool = False
     ) -> FormattedText:
         """统一渲染一组正文块及其前置间距。"""
         out: FormattedText = []
-
-        previous_kind = leading_kind
 
         for item in blocks:
             if self._append_rendered_block(
@@ -313,22 +319,15 @@ class TuiDocument(object):
                 transcript=transcript,
                 leading_content=leading_content,
                 leading_content_terminated=leading_content_terminated,
-                previous_kind=previous_kind,
             ):
                 leading_content = False
                 leading_content_terminated = False
-                previous_kind = item.kind
 
         return out
 
     @staticmethod
-    def _display_gap_height(
-        previous_kind: TuiBlockKind | None,
-        item: TranscriptBlock
-    ) -> int:
+    def _display_gap_height(item: TranscriptBlock) -> int:
         """返回两个普通正文 cell 之间需要保留的空行数。"""
-        if previous_kind == "user" or item.kind == "user":
-            return 0
         return max(0, int(item.gap_before))
 
     def _last_rendered_kind(self) -> TuiBlockKind | None:
@@ -372,55 +371,25 @@ class TuiDocument(object):
 
         return [
             [("", " ")],
-            [("", " ")],
             *lines,
             [("", " ")],
-            [("", " ")],
         ]
-
-    def _block_start_line(self, block: FragmentBlock) -> int | None:
-        """返回指定稳定块首项内容所在的逻辑行位置。"""
-        line: int         = 0
-        found: int | None = None
-
-        has_rendered_block: bool = False
-
-        previous_kind: TuiBlockKind | None = None
-
-        for item in self.blocks:
-            own_lines = self._block_lines(item)
-            if not own_lines:
-                continue
-            if (
-                has_rendered_block
-                and self._display_gap_height(previous_kind, item)
-            ):
-                line += self._display_gap_height(previous_kind, item)
-            if item.display_block is block:
-                found = line
-            line += len(own_lines)
-            has_rendered_block = True
-            previous_kind = item.kind
-
-        return found
 
     def _rebuild_stable_lines(self) -> None:
         """根据稳定块重新生成逻辑行缓存。"""
         self._stable_lines.clear()
         self._stable_block_end_lines.clear()
         self._stable_tail_kind = None
-        previous_kind: TuiBlockKind | None = None
 
         for item in self.blocks:
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            gap_height = self._display_gap_height(previous_kind, item)
+            gap_height = self._display_gap_height(item)
             if self._stable_lines and gap_height:
                 self._stable_lines.extend([] for _ in range(gap_height))
             self._stable_lines.extend(own_lines)
             self._stable_block_end_lines.append(len(self._stable_lines))
-            previous_kind = item.kind
             self._stable_tail_kind = item.kind
 
     def set_display_width(
@@ -492,7 +461,6 @@ class TuiDocument(object):
 
         previous_line_count = self._stable_line_count()
         cleared_at_end      = self.cleared_line_count == previous_line_count
-        previous_kind       = self._stable_tail_kind
 
         content_start: int | None = None
 
@@ -502,14 +470,16 @@ class TuiDocument(object):
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
-            gap_height = self._display_gap_height(previous_kind, item)
+
+            gap_height = self._display_gap_height(item)
+
             if self._stable_lines and gap_height:
                 self._stable_lines.extend([] for _ in range(gap_height))
             if content_start is None:
                 content_start = len(self._stable_lines)
+
             self._stable_lines.extend(own_lines)
             self._stable_block_end_lines.append(len(self._stable_lines))
-            previous_kind = item.kind
             self._stable_tail_kind = item.kind
 
         boundary_lines = max(
@@ -643,33 +613,6 @@ class TuiDocument(object):
 
         self._stable_snapshot_cells    = ()
         self._stable_snapshot_revision = -1
-
-    def discard_trailing_block(self, block: FragmentBlock) -> bool:
-        """移除与指定对象相同的末尾稳定正文块。"""
-        if (
-            self.active_block is not None
-            or not self.blocks
-            or self.blocks[-1].display_block is not block
-        ):
-            return False
-
-        block_start = self._block_start_line(block)
-        if (
-            block_start is None
-            or self.visible_prefix_line_count > block_start
-        ):
-            return False
-
-        self.blocks.pop()
-        self._rebuild_stable_lines()
-        self.stable_transcript_revision += 1
-
-        line_count = self._stable_line_count()
-
-        self.scrollback_line_count = min(self.scrollback_line_count, line_count)
-        self.cleared_line_count    = min(self.cleared_line_count, line_count)
-
-        return True
 
     def bind_latest_user_turn(
         self,
@@ -940,12 +883,6 @@ class TuiDocument(object):
             not out and self._has_native_scrollback_boundary()
         )
 
-        previous_kind = (
-            self._last_rendered_kind()
-            if out or hidden_stable_content
-            else None
-        )
-
         if self.active_block is not None:
             if self.active_kind is None:
                 raise ValueError("active TUI block is missing its semantic kind")
@@ -963,10 +900,8 @@ class TuiDocument(object):
                 item,
                 leading_content=hidden_stable_content,
                 leading_content_terminated=hidden_stable_content,
-                previous_kind=previous_kind,
             ):
                 hidden_stable_content = False
-                previous_kind = item.kind
 
         for item in self._active_tail:
             if self._append_rendered_block(
@@ -974,10 +909,8 @@ class TuiDocument(object):
                 item,
                 leading_content=hidden_stable_content,
                 leading_content_terminated=hidden_stable_content,
-                previous_kind=previous_kind,
             ):
                 hidden_stable_content = False
-                previous_kind = item.kind
 
         return out
 
@@ -1018,23 +951,11 @@ class TuiDocument(object):
                 leading_content or leading_content_terminated
             ),
             leading_content_terminated=leading_content_terminated,
-            leading_kind=(
-                self._last_rendered_kind()
-                if leading_content or leading_content_terminated
-                else None
-            ),
         )
 
     def visible_stable_lines(self) -> list[FormattedText]:
         """返回尚未进入滚屏区且未被清除的稳定逻辑行。"""
         return self._stable_lines[self.visible_prefix_line_count:]
-
-    def visible_line_offset_for_block(self, block: FragmentBlock) -> int | None:
-        """返回指定稳定块首项内容相对实时正文的逻辑行位置。"""
-        line = self._block_start_line(block)
-        if line is None or line < self.visible_prefix_line_count:
-            return None
-        return line - self.visible_prefix_line_count
 
     def scrollback_prefix_fragments(self, line_count: int) -> FormattedText:
         """生成下一批待写入终端滚屏区的稳定逻辑行。"""

@@ -13,10 +13,7 @@ from prompt_toolkit.application import (
 from prompt_toolkit.layout.containers import WindowRenderInfo
 from mind_core.config import DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
 from .document import TuiDocument
-from .models import (
-    FormattedText,
-    FragmentBlock
-)
+from .models import FormattedText
 from .render import (
     display_line_count,
     fragment_continuation_widths,
@@ -34,12 +31,9 @@ class ScrollbackCandidate(object):
     start_line: int
     line_count: int
     stable_revision: int
-    active_revision: int
     display_width: int
-    available_height: int
     geometry: tuple[int, int]
     reflow_generation: int
-    submitted_query_block: FragmentBlock | None
     include_restored_history_notice: bool
 
 
@@ -47,7 +41,6 @@ class TuiTranscriptViewport(object):
     """管理正文视口、分页位置和原生终端滚屏提交。"""
 
     SCROLLBACK_REFLOW_DEBOUNCE_SEC: typing.Final[float] = 0.08
-
     STREAM_SCROLLBACK_DEBOUNCE_SEC: typing.Final[float] = 0.08
     STREAM_SCROLLBACK_BATCH_LINES: typing.Final[int]    = 4
 
@@ -75,7 +68,6 @@ class TuiTranscriptViewport(object):
         clear_terminal_for_resize_replay: typing.Callable[[], None],
         begin_synchronized_output: typing.Callable[[], bool],
         end_synchronized_output: typing.Callable[[], None],
-        settle_canvas_height: typing.Callable[[], None],
         report_error: typing.Callable[[BaseException], None],
         invalidate: typing.Callable[[], None],
         scrollback_reflow_line_limit: int = (
@@ -97,14 +89,14 @@ class TuiTranscriptViewport(object):
         self._get_render_info           = get_render_info
         self._get_render_revision       = get_render_revision
         self._get_open_transcript_label = get_open_transcript_label
+        self._clear_terminal_scrollback = clear_terminal_scrollback
 
-        self._clear_terminal_scrollback         = clear_terminal_scrollback
         self._clear_terminal_for_resize_replay = (
             clear_terminal_for_resize_replay
         )
+
         self._begin_synchronized_output = begin_synchronized_output
         self._end_synchronized_output   = end_synchronized_output
-        self._settle_canvas_height      = settle_canvas_height
         self._report_error              = report_error
 
         self._invalidate = invalidate
@@ -117,8 +109,7 @@ class TuiTranscriptViewport(object):
 
         self.view_row: int | None = None
 
-        self._scrollback_task: asyncio.Task[None] | None  = None
-        self._submitted_query_block: FragmentBlock | None = None
+        self._scrollback_task: asyncio.Task[None] | None = None
 
         self._restored_history_truncated: bool      = False
         self._restored_history_notice_printed: bool = False
@@ -366,10 +357,6 @@ class TuiTranscriptViewport(object):
         return bool(
             self._is_scrollback_deferred()
             or self._is_full_screen_overlay_active()
-            or (
-                self.document.active_block is not None
-                and not self.document.active_stream_continuation
-            )
             or self.view_row is not None
         )
 
@@ -378,84 +365,15 @@ class TuiTranscriptViewport(object):
         width, height = self._get_terminal_geometry()
         return self._normalize_geometry(width, height)
 
-    def _scrollback_prefix_line_count(
-        self,
-        *,
-        width: int | None = None,
-        available_height: int | None = None
-    ) -> int:
-        """计算可写入滚屏区且不拆分稳定块的逻辑行数量。"""
-        if (
-            self.document.active_block is not None
-            and not self.document.active_stream_continuation
-        ):
-            return 0
-
-        lines     = self.document.visible_stable_lines()
-        submitted = self._submitted_query_block
-
+    def _scrollback_prefix_line_count(self) -> int:
+        """返回当前可整体写入原生滚屏区的稳定逻辑行数量。"""
+        lines = self.document.visible_stable_lines()
         if not lines:
             return 0
 
-        max_retirable = len(lines)
-        if submitted is not None:
-            submitted_offset = self.document.visible_line_offset_for_block(
-                submitted
-            )
-            if submitted_offset is not None:
-                max_retirable = min(max_retirable, submitted_offset)
-        if max_retirable <= 0:
-            return 0
-
-        display_width = max(
-            1,
-            int(self._get_terminal_width() if width is None else width),
-        )
-
-        viewport_height = max(
-            0,
-            int(
-                self._get_available_height()
-                if available_height is None
-                else available_height
-            ),
-        )
-
-        available = max(
-            0,
-            viewport_height - self._live_tail_height(width=display_width),
-        )
-
-        if available <= 0:
-            retire_count = max_retirable
-        else:
-            kept_rows: int = 0
-
-            for index in range(len(lines) - 1, -1, -1):
-                line = lines[index]
-                rows = max(1, display_line_count(
-                    fragments_text(line),
-                    width=display_width,
-                    continuation_widths=fragment_continuation_widths(
-                        line,
-                        prefix_style=ASSISTANT_PREFIX_CLASS,
-                        prefix_width=2,
-                    ),
-                ))
-
-                candidate = rows + kept_rows
-                if candidate > available:
-                    retire_count = min(index + 1, len(lines) - 1)
-                    break
-
-                kept_rows = candidate
-            else:
-                return 0
-
-        retire_count = min(retire_count, max_retirable)
         retire_count = self.document.complete_scrollback_prefix_line_count(
-            required_line_count=retire_count,
-            maximum_line_count=max_retirable,
+            required_line_count=len(lines),
+            maximum_line_count=len(lines),
         )
 
         return self._stream_scrollback_batch(retire_count)
@@ -469,26 +387,6 @@ class TuiTranscriptViewport(object):
         ):
             return 0
         return line_count
-
-    def _live_tail_height(self, *, width: int | None = None) -> int:
-        """返回当前动态正文占用的显示行数。"""
-        fragments = self.document.live_fragments()
-        if not fragments:
-            return 0
-
-        display_width = max(
-            1,
-            int(self._get_terminal_width() if width is None else width),
-        )
-        return display_line_count(
-            fragments_text(fragments),
-            width=display_width,
-            continuation_widths=fragment_continuation_widths(
-                fragments,
-                prefix_style=ASSISTANT_PREFIX_CLASS,
-                prefix_width=2,
-            ),
-        )
 
     def _schedule_stream_scrollback_flush(self) -> None:
         """合并短时间内连续产生的流式滚屏提交。"""
@@ -552,19 +450,16 @@ class TuiTranscriptViewport(object):
             if self._scrollback_reflow_pending():
                 return None
 
-        display_width    = max(1, int(self._get_terminal_width()))
-        available_height = max(0, int(self._get_available_height()))
+        display_width = max(1, int(self._get_terminal_width()))
+        line_count    = self._scrollback_prefix_line_count()
 
-        line_count = self._scrollback_prefix_line_count(
-            width=display_width,
-            available_height=available_height,
-        )
         include_notice = bool(
             not self._restored_history_notice_printed
             and self._restored_history_notice_fragments(
                 width=display_width
             )
         )
+
         if line_count <= 0 and not include_notice:
             return None
 
@@ -572,12 +467,9 @@ class TuiTranscriptViewport(object):
             start_line=self.document.visible_prefix_line_count,
             line_count=line_count,
             stable_revision=self.document.stable_transcript_revision,
-            active_revision=self.document.active_transcript_revision,
             display_width=display_width,
-            available_height=available_height,
             geometry=geometry,
             reflow_generation=self._reflow_generation,
-            submitted_query_block=self._submitted_query_block,
             include_restored_history_notice=include_notice,
         )
 
@@ -593,12 +485,8 @@ class TuiTranscriptViewport(object):
             candidate.start_line != self.document.visible_prefix_line_count
             or candidate.stable_revision
             != self.document.stable_transcript_revision
-            or candidate.active_revision
-            != self.document.active_transcript_revision
             or candidate.reflow_generation != self._reflow_generation
             or candidate.geometry != self._observed_geometry
-            or candidate.submitted_query_block
-            is not self._submitted_query_block
             or candidate.include_restored_history_notice
             != bool(
                 not self._restored_history_notice_printed
@@ -614,10 +502,9 @@ class TuiTranscriptViewport(object):
             self.observe_terminal_geometry(*current_geometry)
             return False
 
-        return bool(
-            candidate.display_width == max(1, int(self._get_terminal_width()))
-            and candidate.available_height
-            == max(0, int(self._get_available_height()))
+        return candidate.display_width == max(
+            1,
+            int(self._get_terminal_width()),
         )
 
     def _start_scrollback_flush(self) -> None:
@@ -678,30 +565,8 @@ class TuiTranscriptViewport(object):
         """让正文视口恢复跟随最新输出。"""
         self.view_row = None
 
-    def mark_submitted_query(self, block: FragmentBlock) -> None:
-        """标记刚提交且应暂时保留在实时画布中的用户输入。"""
-        self._submitted_query_block = block
-
-    def clear_submitted_query(self) -> None:
-        """清除刚提交用户输入的保留标记。"""
-        self._submitted_query_block = None
-
-    def discard_submitted_query(self) -> bool:
-        """在二级交互接管时撤下刚提交的用户输入块。"""
-        block = self._submitted_query_block
-
-        self._submitted_query_block = None
-
-        if block is not None and self.document.discard_trailing_block(block):
-            self.view_row = None
-            self._invalidate()
-            return True
-
-        return False
-
     def content_appended(self) -> None:
-        """在稳定正文追加后清除提交标记并安排滚屏。"""
-        self._submitted_query_block = None
+        """在稳定正文追加后安排原生滚屏提交。"""
         self._require_stable_render()
         self.schedule_scrollback_flush()
 
@@ -804,7 +669,7 @@ class TuiTranscriptViewport(object):
         return current != previous
 
     def schedule_scrollback_flush(self) -> None:
-        """在稳定正文超出实时视口时安排原生滚屏提交。"""
+        """安排完整稳定正文进入原生滚屏区。"""
         if self._scrollback_render_revision is None:
             self._scrollback_render_revision = self._rendered_revision
 
@@ -999,7 +864,6 @@ class TuiTranscriptViewport(object):
                     if candidate.include_restored_history_notice:
                         self._restored_history_notice_printed = True
 
-                    self._settle_canvas_height()
                     self.view_row = None
 
                     current_geometry = self._current_geometry()
@@ -1151,8 +1015,6 @@ class TuiTranscriptViewport(object):
                         self._restored_history_notice_printed = (
                             notice_available
                         )
-                        self._settle_canvas_height()
-
                     self._complete_scrollback_reflow(target_geometry)
                     if (
                         self.document.active_kind == "assistant"
