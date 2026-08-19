@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from pathlib import Path
 from dataclasses import replace
 from types import SimpleNamespace
@@ -18,16 +19,11 @@ from mind_app.tui.features.hooks import (
     hook_event_menu,
     manage_hooks,
 )
-
-
-class _Runtime(object):
-    def __init__(self, responses) -> None:
-        self.responses = iter(responses)
-        self.requests = []
-
-    async def select_menu(self, request):
-        self.requests.append(request)
-        return next(self.responses)
+from mind_app.tui.core.models import (
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
+from mind_app.tui.core.runtime import TuiRuntime
 
 
 def _catalog(
@@ -85,6 +81,23 @@ def _catalog(
     )
 
 
+async def _wait_for_menu(runtime: TuiRuntime, title: str) -> None:
+    for _ in range(100):
+        state = runtime.screen.menu.state
+        if state is not None and state.request.title == title:
+            return None
+        await asyncio.sleep(0)
+    raise AssertionError(f"menu did not open: {title}")
+
+
+async def _wait_for_call(mock: Mock) -> None:
+    for _ in range(100):
+        if mock.call_count:
+            return None
+        await asyncio.sleep(0)
+    raise AssertionError("background menu action did not run")
+
+
 def test_hook_event_menu_localizes_descriptions_and_summarizes_counts(
     tmp_path,
 ) -> None:
@@ -116,6 +129,13 @@ def test_hook_event_menu_localizes_descriptions_and_summarizes_counts(
 
     assert menu.options[0].detail == "9999/9999 active · 工具执行前"
     assert menu.options[1].detail == "0/0 active · 工具执行后"
+    assert menu.view_id == "hooks:events"
+    assert menu.help_text == ""
+    assert menu.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        menu.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
 
 
 def test_hook_event_menu_shows_discovery_warnings(tmp_path) -> None:
@@ -134,17 +154,11 @@ def test_hook_event_menu_shows_discovery_warnings(tmp_path) -> None:
 async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     initial = _catalog(tmp_path, trust_state="untrusted")
     updated = _catalog(tmp_path, trust_state="trusted")
-    runtime = _Runtime([
-        "PreToolUse",
-        initial.hooks[0].key,
-        "trust",
-        None,
-        None,
-    ])
+    runtime = TuiRuntime()
     views = []
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        inspect_hooks=Mock(return_value=initial),
+        inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(return_value=updated),
         set_hook_enabled=Mock(),
         frontend=SimpleNamespace(
@@ -152,47 +166,46 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
         ),
     )
 
-    await manage_hooks(runtime, mind)
+    task = asyncio.create_task(manage_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "PreToolUse")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "Hook Details")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_call(mind.trust_hook)
 
     mind.trust_hook.assert_called_once_with(
         initial.hooks[0].key,
         expected_content_hash="sha256:" + "a" * 64,
         workspace=tmp_path,
     )
-    assert runtime.requests[0].title == "Hooks"
-    assert runtime.requests[0].status == "installed=1 active=0"
-    assert runtime.requests[0].options[0].detail == (
-        "0/1 active · 工具执行前"
+    root = runtime.screen.menu._menu_views()[0].state.request
+    assert root.title == "Hooks"
+    assert root.status == "installed=1 active=1"
+    assert root.options[0].detail == (
+        "1/1 active · 工具执行前"
     )
-    assert runtime.requests[1].title == "PreToolUse"
-    assert runtime.requests[2].body[0] == "Command: python check_hook.py"
-    assert runtime.requests[1].options[0].detail.endswith(
+    current = runtime.screen.menu.state
+    assert current is not None
+    assert current.request.title == "PreToolUse"
+    assert current.request.options[0].detail.endswith(
         "matcher[tool_name]=shell_command"
     )
-    assert runtime.requests[2].body == (
-        "Command: python check_hook.py",
-        "Matcher: shell_command",
-        f"Source: project · {tmp_path / '.codex' / 'config.toml'}",
-        "Timeout: 5s",
-    )
     assert [view.type for view in views] == ["tui.hooks.status", "tui.gap"]
+    runtime.cancel_menu()
+    runtime.cancel_menu()
+    await task
 
 
 @pytest.mark.anyio
 async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     initial = _catalog(tmp_path, trust_state="untrusted")
-    refreshed = _catalog(tmp_path, trust_state="trusted")
-    runtime = _Runtime([
-        "PreToolUse",
-        initial.hooks[0].key,
-        "trust",
-        None,
-        None,
-    ])
+    runtime = TuiRuntime()
     views = []
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        inspect_hooks=Mock(side_effect=[initial, refreshed]),
+        inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(
             side_effect=HookCatalogStaleError("hook content changed"),
         ),
@@ -202,14 +215,24 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
         ),
     )
 
-    await manage_hooks(runtime, mind)
+    task = asyncio.create_task(manage_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "PreToolUse")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "Hook Details")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_menu(runtime, "Hook operation")
 
-    assert mind.inspect_hooks.call_count == 2
-    assert runtime.requests[3].status == "installed=1 active=1"
-    assert [view.type for view in views] == ["tui.hooks.failure", "tui.gap"]
-    assert "".join(
-        text for _style, text in views[0].renderable.fragments
-    ) == "/hooks · Failed · hook content changed"
+    assert mind.inspect_hooks.call_count == 1
+    assert [view.type for view in views] == []
+    state = runtime.screen.menu.state
+    assert state is not None
+    assert state.request.body == ("Failed: hook content changed",)
+    runtime.cancel_menu()
+    runtime.cancel_menu()
+    runtime.cancel_menu()
+    await task
 
 
 def test_hook_detail_menu_separates_trust_enabled_and_managed_states(

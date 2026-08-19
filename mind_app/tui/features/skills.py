@@ -4,8 +4,10 @@
 import typing
 from mind_core.skills import SkillSpec
 from ..core.models import (
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..prompting.skills import skill_description_text
 
@@ -19,8 +21,12 @@ async def choose_skill(runtime: "TuiRuntime") -> SkillSpec | None:
 
     selected = await runtime.select_menu(MenuRequest(
         title="Skills",
+        view_id="skills:root",
         status=f"items={len(skills)}",
         body=("No skills available.",) if not skills else (),
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
             MenuOption(
                 value=skill,

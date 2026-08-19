@@ -14,7 +14,11 @@ from mind_app.tui.core.process_viewer import (
     ProcessViewerRequest,
     TuiProcessViewer,
 )
-from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.models import (
+    FragmentBlock,
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
@@ -778,6 +782,13 @@ async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
         "Background Commands",
         "Stop Background Commands",
     ]
+    assert requests[0].view_id == "processes:root"
+    assert requests[0].help_text == ""
+    assert requests[0].footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        requests[0].description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
     assert requests[1].selected == 0
     assert requests[1].options[0].value is False
     assert cancelled == ["exec_shell", "exec_tool"]

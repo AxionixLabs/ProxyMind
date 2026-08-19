@@ -11,8 +11,9 @@ from prompt_toolkit.utils import get_cwidth
 from mind_core.skills import SkillSpec
 from .paste import iter_paste_placeholders
 
-SKILL_EYE_WIDTH = 16
-SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
+SKILL_NAME_TRUNCATE_WIDTH = 28
+SKILL_CATEGORY_TAG        = "[Skill]"
+SKILL_PREFIX_RE           = re.compile(r"^\$[A-Za-z0-9_.-]*$")
 
 
 class SkillTokenLexer(Lexer):
@@ -39,7 +40,7 @@ class SkillTokenLexer(Lexer):
 
     def lex_document(self, document: Document) -> typing.Callable[[int], StyleAndTextTuples]:
         """返回指定行的格式化文本。"""
-        line_offsets = self._line_offsets(document.text)
+        line_offsets       = self._line_offsets(document.text)
         paste_placeholders = tuple(self._paste_placeholders())
 
         def get_line(line_number: int) -> StyleAndTextTuples:
@@ -48,7 +49,7 @@ class SkillTokenLexer(Lexer):
 
             parts: StyleAndTextTuples = []
 
-            pos = 0
+            pos: int = 0
             for start, end, style in iter_prompt_tokens(
                 line,
                 paste_placeholders=paste_placeholders,
@@ -56,12 +57,14 @@ class SkillTokenLexer(Lexer):
                 offset=line_offset,
             ):
                 line_start = start - line_offset
-                line_end = end - line_offset
+                line_end   = end - line_offset
+
                 if line_start > pos:
                     parts.append(("", line[pos:line_start]))
 
                 parts.append((style, line[line_start:line_end]))
                 pos = line_end
+
             if pos < len(line):
                 parts.append(("", line[pos:]))
 
@@ -70,16 +73,12 @@ class SkillTokenLexer(Lexer):
         return get_line
 
 
-def known_skill_names(
-    skills: typing.Iterable[SkillSpec] = ()
-) -> frozenset[str]:
+def known_skill_names(skills: typing.Iterable[SkillSpec] = ()) -> frozenset[str]:
     """返回当前可用 skill 名称白名单。"""
     return frozenset(skill.name.lower() for skill in skills)
 
 
-def sorted_known_skill_names(
-    skills: typing.Iterable[SkillSpec] = ()
-) -> tuple[str, ...]:
+def sorted_known_skill_names(skills: typing.Iterable[SkillSpec] = ()) -> tuple[str, ...]:
     """返回按长度优先匹配的 skill 名称白名单。"""
     return tuple(sorted(known_skill_names(skills), key=len, reverse=True))
 
@@ -102,6 +101,7 @@ def match_known_skill_at(
     """在指定位置匹配一个白名单 skill token。"""
     if start < 0 or start >= len(text) or text[start] != "$":
         return None
+
     if not is_skill_boundary(text, start - 1):
         return None
 
@@ -145,7 +145,7 @@ def iter_paste_placeholder_tokens(
     text: str,
     *,
     paste_placeholders: typing.Iterable[str] = (),
-    offset: int = 0,
+    offset: int = 0
 ) -> typing.Iterator[tuple[int, int, str]]:
     """迭代折叠粘贴内容的可见占位文本。"""
     active = {
@@ -216,29 +216,91 @@ def skill_completions(
         return
     query = token[1:].strip().lower()
 
-    matches = [
-        skill for skill in skills
-        if not query or skill.name.lower().startswith(query)
-    ]
+    matches = sorted(
+        (
+            (rank, skill)
+            for skill in skills
+            if (
+                rank := skill_match_rank(
+                    str(skill.name or ""),
+                    query,
+                )
+            ) is not None
+        ),
+        key=lambda item: item[0],
+    )
 
-    for skill in matches:
+    for _rank, skill in matches:
         yield Completion(
             f"${skill.name} ",
             start_position=-len(token),
             display=skill_display_text(skill.name),
-            display_meta=f"[Skill] {skill_meta_description(skill.description)}",
+            display_meta=skill_meta_text(skill),
         )
+
+
+def skill_match_rank(
+    name: str,
+    query: str
+) -> tuple[int, int, int, str] | None:
+    """返回 skill 名称匹配排序权重。"""
+    folded_name  = str(name or "").casefold()
+    folded_query = str(query or "").casefold()
+
+    if not folded_query:
+        return 0, 0, 0, folded_name
+
+    if folded_name.startswith(folded_query):
+        return 0, 0, len(folded_name), folded_name
+
+    score = subsequence_match_score(folded_name, folded_query)
+    if score is None:
+        return None
+
+    return 1, score, len(folded_name), folded_name
+
+
+def subsequence_match_score(text: str, query: str) -> int | None:
+    """返回非连续匹配跨度分数。"""
+    if not query:
+        return 0
+
+    start: int | None = None
+    cursor: int       = 0
+
+    for char in query:
+        index = text.find(char, cursor)
+        if index < 0:
+            return None
+        if start is None:
+            start = index
+        cursor = index + 1
+
+    if start is None:
+        return 0
+
+    return cursor - start
 
 
 def skill_display_text(name: str) -> str:
     """返回 skill 菜单名称列。"""
     text = str(name or "")
-    return pad_display_width(truncate_display_width(text, SKILL_EYE_WIDTH), SKILL_EYE_WIDTH)
+    return truncate_display_width(text, SKILL_NAME_TRUNCATE_WIDTH)
 
 
-def skill_meta_description(description: str) -> str:
-    """返回 skill 菜单摘要。"""
-    return truncate_display_width(skill_description_text(description), 42)
+def skill_meta_text(skill: SkillSpec) -> str:
+    """返回 skill 菜单说明列。"""
+    return combined_skill_meta_text(SKILL_CATEGORY_TAG, skill.description)
+
+
+def combined_skill_meta_text(category_tag: str, description: str) -> str:
+    """组合菜单类别标签和描述文本。"""
+    tag    = str(category_tag or "").strip()
+    detail = skill_description_text(description)
+
+    if tag and detail:
+        return f"{tag} {detail}"
+    return tag or detail
 
 
 def skill_description_text(description: str) -> str:
@@ -264,14 +326,6 @@ def truncate_display_width(text: str, limit: int) -> str:
         used += size
 
     return "".join(out).rstrip() + "..."
-
-
-def pad_display_width(text: str, width: int) -> str:
-    """按终端显示宽度补齐文本。"""
-    size = get_cwidth(text)
-    if size >= width:
-        return text
-    return text + (" " * (width - size))
 
 
 if __name__ == '__main__':

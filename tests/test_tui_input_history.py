@@ -104,9 +104,15 @@ def test_history_navigation_suppresses_slash_menu_until_edit() -> None:
     assert buffer.text == "first query"
 
     press_history_key(model, Keys.Down, buffer)
-    press_history_key(model, Keys.Left, buffer)
+    buffer.cursor_left()
 
     assert buffer.text == "/skills"
+    assert model.completion_menu_completions(buffer.document) is None
+
+    buffer.document = Document("/skill", cursor_position=len("/skill"))
+    model.reopen_completion_menu(buffer)
+    model.refresh_completion_menu(buffer)
+
     assert model.completion_menu_completions(buffer.document) is not None
     assert buffer.complete_state is not None
     assert [

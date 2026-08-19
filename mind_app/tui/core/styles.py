@@ -50,10 +50,25 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "auto-suggestion": "bg:default #5A616A",
     "completion-menu": "bg:default #B8C0C9",
     "completion-menu.completion": "bg:default bold #B8C0C9",
-    "completion-menu.completion.current": "bg:default bold #F4F8FB",
+    "completion-menu.completion.current": "bg:default bold ansicyan",
     "completion-menu.meta.completion": "bg:default #707A84",
-    "completion-menu.meta.completion.current": "bg:default #8FC7EA",
-    "completion-menu.empty": "bg:default #59616A",
+    "completion-menu.meta.completion.current": "bg:default bold ansicyan",
+    "completion-menu.empty": "bg:default dim italic #59616A",
+    "token-menu": "bg:default #B8C0C9",
+    "token-menu.command": "bg:default bold #C4A7E7",
+    "token-menu.command.current": "bg:default bold ansicyan",
+    "token-menu.skill": "bg:default bold #8FD7FF",
+    "token-menu.skill.current": "bg:default bold ansicyan",
+    "token-menu.completion": "bg:default bold #B8C0C9",
+    "token-menu.completion.current": "bg:default bold ansicyan",
+    "token-menu.meta.command": "bg:default #8A929C",
+    "token-menu.meta.command.current": "bg:default bold ansicyan",
+    "token-menu.meta.skill": "bg:default #7B838E",
+    "token-menu.meta.skill.current": "bg:default bold ansicyan",
+    "token-menu.meta.completion": "bg:default #707A84",
+    "token-menu.meta.completion.current": "bg:default bold ansicyan",
+    "token-menu.hint": "bg:default #7B838E dim",
+    "token-menu.hint.key": "bg:default bold #DDE7EF",
     "queue.label": "bg:default #8A929C",
     "queue.hint": "bg:default #7B838E dim",
     "queue.marker": "bg:default #7B838E dim",
@@ -129,9 +144,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 })
 
 
-def _surface_style(
-    capabilities: TerminalCapabilities
-) -> BaseStyle:
+def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
     """根据终端主题创建输入区和审批卡表面样式。"""
     if not capabilities.dynamic_surfaces:
         return Style.from_dict({})
@@ -149,8 +162,9 @@ def _surface_style(
     background = f"bg:{_hex_color(surface_background)}"
 
     styles = {
-        "input-surface" : background,
-        "approval-card" : background,
+    "input-surface": background,
+    "approval-card": background,
+    "menu-card": background,
     }
 
     if light:
@@ -161,7 +175,24 @@ def _surface_style(
             "footer.model": "#005F87",
             "placeholder": "#68737D",
             "auto-suggestion": "#737F89",
-            "completion-menu.empty": "#68737D",
+            "completion-menu.empty": "dim italic #68737D",
+            "completion-menu.completion.current": "bold #005F87",
+            "completion-menu.meta.completion.current": "bold #005F87",
+            "token-menu": "#52606C",
+            "token-menu.command": "bold #70408F",
+            "token-menu.command.current": "bold #005F87",
+            "token-menu.skill": "bold #005F87",
+            "token-menu.skill.current": "bold #005F87",
+            "token-menu.completion": "bold #52606C",
+            "token-menu.completion.current": "bold #005F87",
+            "token-menu.meta.command": "#68737D",
+            "token-menu.meta.command.current": "bold #005F87",
+            "token-menu.meta.skill": "#68737D",
+            "token-menu.meta.skill.current": "bold #005F87",
+            "token-menu.meta.completion": "#68737D",
+            "token-menu.meta.completion.current": "bold #005F87",
+            "token-menu.hint": "#68737D dim",
+            "token-menu.hint.key": "bold #005F87",
             "approval-question": "bold #005F87",
             "approval-context": "#53606C",
             "approval-field-label": "bold #43505C",
@@ -365,7 +396,7 @@ def _normalize_whitespace_only_fragments(
 def _assistant_continuation_fragments(
     fragments: list[tuple[str, str]],
     *,
-    indent_style: str,
+    indent_style: str
 ) -> tuple[tuple[str, str], ...]:
     """在助手正文每个显式续行前补充两个空格。"""
     out: list[tuple[str, str]] = []
@@ -412,7 +443,7 @@ def text_block(text: str, style: TextStyle = TextStyle()) -> FragmentBlock:
 
 def failure_parts(
     text: str,
-    style: TextStyle = FAILURE_STYLE,
+    style: TextStyle = FAILURE_STYLE
 ) -> tuple[TextSpan, TextSpan]:
     """生成带非粗体方块标记的错误片段。"""
     return (
@@ -423,7 +454,7 @@ def failure_parts(
 
 def failure_text_block(
     text: str,
-    style: TextStyle = FAILURE_STYLE,
+    style: TextStyle = FAILURE_STYLE
 ) -> FragmentBlock:
     """生成带非粗体方块标记的独立错误块。"""
     return fragment_block(*failure_parts(text, style))
@@ -513,7 +544,7 @@ def command_result_block(
 def interrupted_status_block(
     label: str,
     *,
-    action: str = "",
+    action: str = ""
 ) -> FragmentBlock:
     """生成带中性项目符号的前台操作中断状态。"""
     detail = f"{action} interrupted" if action else "interrupted"

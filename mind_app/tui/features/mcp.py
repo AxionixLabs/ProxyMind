@@ -12,8 +12,10 @@ from mind_core.mcp_status import (
     external_mcp_status_view
 )
 from ..core.models import (
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from mind_app.mcp.config import normalize_mcp_servers
 from ..core.styles import (
@@ -54,6 +56,33 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
 )
 
 
+def _present(
+    mind: typing.Any,
+    renderable: typing.Any = None,
+    *,
+    view_type: str = "tui.mcp"
+) -> None:
+    """发送一项外部 MCP 展示。"""
+    mind.frontend.application.emit(ApplicationView(
+        type=view_type,
+        renderable=renderable,
+    ))
+
+
+def _present_external_mcp_result(
+    mind: typing.Any,
+    view: McpStatusView
+) -> bool:
+    """提交一项外部 MCP 最终状态。"""
+    block = render_mcp_status_block(view)
+    if not block.plain_text:
+        return False
+
+    _present(mind, block, view_type="tui.external_mcp.status")
+    _present(mind, view_type="tui.gap")
+    return True
+
+
 def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
     """解析外部 MCP 命令及其可选动作。"""
     parts = str(value or "").strip().casefold().split()
@@ -66,19 +95,6 @@ def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
         return True, typing.cast(McpAction, parts[1])
 
     return False, None
-
-
-def _present(
-    mind: typing.Any,
-    renderable: typing.Any = None,
-    *,
-    view_type: str = "tui.mcp",
-) -> None:
-    """发送一项外部 MCP 展示。"""
-    mind.frontend.application.emit(ApplicationView(
-        type=view_type,
-        renderable=renderable,
-    ))
 
 
 def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
@@ -147,6 +163,21 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     }
 
 
+def external_status_line(summary: dict[str, typing.Any]) -> str:
+    """返回外部 MCP 状态摘要文本。"""
+    if summary.get("config_error"):
+        return "config=invalid"
+
+    configured = summary.get("configured")
+
+    return (
+        f"started={str(bool(summary.get('started'))).lower()} "
+        f"· configured={len(configured) if isinstance(configured, list) else 0} "
+        f"· tools={int(summary.get('tool_count') or 0)} "
+        f"· filtered={int(summary.get('filtered_count') or 0)}"
+    )
+
+
 def default_mcp_action_index(
     summary: dict[str, typing.Any],
     actions: list[tuple[McpAction, str, str]]
@@ -173,117 +204,10 @@ def default_mcp_action_index(
     return 0
 
 
-async def choose_mcp_action(
-    runtime: "TuiRuntime",
-    mind: typing.Any,
-) -> McpAction | None:
-    """在主 TUI 中选择外部 MCP 操作。"""
-    summary  = summarize_external_runtime(mind)
-    actions  = list(MCP_MENU_ACTIONS)
-
-    config_error = str(summary.get("config_error") or "")
-
-    return await runtime.select_menu(MenuRequest(
-        title="External MCP",
-        status=external_status_line(summary),
-        body=(config_error,) if config_error else (),
-        options=tuple(
-            MenuOption(value=action, label=label, detail=detail)
-            for action, label, detail in actions
-        ),
-        selected=default_mcp_action_index(summary, actions),
-    ))
-
-
-def external_status_line(summary: dict[str, typing.Any]) -> str:
-    """返回外部 MCP 状态摘要文本。"""
-    if summary.get("config_error"):
-        return "config=invalid"
-
-    configured = summary.get("configured")
-
-    return (
-        f"started={str(bool(summary.get('started'))).lower()} "
-        f"· configured={len(configured) if isinstance(configured, list) else 0} "
-        f"· tools={int(summary.get('tool_count') or 0)} "
-        f"· filtered={int(summary.get('filtered_count') or 0)}"
-    )
-
-
-async def run_mcp_action(
-    mind: typing.Any,
-    action: McpAction | None,
-) -> bool:
-    """执行外部 MCP 动作并返回操作前是否已经启动。"""
-    if action is None:
-        return False
-
-    if action == "status":
-        return False
-
-    external_runtime = getattr(mind, "external_mcp", None)
-    was_started      = bool(getattr(external_runtime, "started", False))
-
-    if action == "stop":
-        runtime = require_tui_runtime(mind.frontend.runtime)
-        if bool(getattr(mind, "animate", True)):
-            await runtime.begin_operation_status(
-                lambda: {"summary": "External MCP stopping"},
-            )
-        await mind.stop_external_mcp_runtime()
-    elif action == "force":
-        runtime = getattr(mind, "external_mcp", None)
-        if bool(getattr(runtime, "started", False)):
-            await _begin_external_mcp_restart_activity(mind)
-            await mind.restart_external_mcp_runtime(
-                include_disabled=True,
-                defer_activity_stop=True,
-            )
-        else:
-            await mind.start_external_mcp_runtime(
-                include_disabled=True,
-                defer_activity_stop=True,
-            )
-    elif action == "start":
-        await mind.start_external_mcp_runtime(defer_activity_stop=True)
-    else:
-        await _begin_external_mcp_restart_activity(mind)
-        await mind.restart_external_mcp_runtime(defer_activity_stop=True)
-
-    return was_started
-
-
-async def _begin_external_mcp_restart_activity(mind: typing.Any) -> None:
-    """在断开旧连接前启动外部 MCP 重启活动状态。"""
-    if not bool(getattr(mind, "animate", True)):
-        return None
-    runtime = require_tui_runtime(mind.frontend.runtime)
-    await runtime.begin_external_mcp_status(
-        lambda: {
-            "summary": "External MCP restarting",
-            "done": False,
-            "items": [],
-        },
-    )
-
-
-async def finish_mcp_activity(mind: typing.Any, action: McpAction) -> None:
-    """结束外部 MCP 操作对应的活动状态。"""
-    if action == "stop":
-        runtime = require_tui_runtime(mind.frontend.runtime)
-        await runtime.end_activity_status(
-            "operation",
-            settle=False,
-        )
-        return None
-
-    await mind.stop_anim("external_mcp", settle=False)
-
-
 def render_mcp_action_result(
     mind: typing.Any,
     action: McpAction,
-    was_started: bool,
+    was_started: bool
 ) -> None:
     """展示外部 MCP 操作的最终结果。"""
     if action == "stop":
@@ -383,20 +307,6 @@ def render_external_mcp_stop_status(
     _present_external_mcp_result(mind, view)
 
 
-def _present_external_mcp_result(
-    mind: typing.Any,
-    view: McpStatusView
-) -> bool:
-    """提交一项外部 MCP 最终状态。"""
-    block = render_mcp_status_block(view)
-    if not block.plain_text:
-        return False
-
-    _present(mind, block, view_type="tui.external_mcp.status")
-    _present(mind, view_type="tui.gap")
-    return True
-
-
 def render_mcp_status(
     mind: typing.Any,
     *,
@@ -485,6 +395,96 @@ def render_mcp_status(
     )
     _present(mind, block)
     _present(mind, view_type="tui.gap")
+
+
+async def _begin_external_mcp_restart_activity(mind: typing.Any) -> None:
+    """在断开旧连接前启动外部 MCP 重启活动状态。"""
+    if not bool(getattr(mind, "animate", True)):
+        return None
+    runtime = require_tui_runtime(mind.frontend.runtime)
+    await runtime.begin_external_mcp_status(
+        lambda: {
+            "summary": "External MCP restarting",
+            "done": False,
+            "items": [],
+        },
+    )
+
+
+async def choose_mcp_action(runtime: "TuiRuntime", mind: typing.Any) -> McpAction | None:
+    """在主 TUI 中选择外部 MCP 操作。"""
+    summary = summarize_external_runtime(mind)
+    actions = list(MCP_MENU_ACTIONS)
+
+    config_error = str(summary.get("config_error") or "")
+
+    return await runtime.select_menu(MenuRequest(
+        title="External MCP",
+        view_id="mcp:root",
+        status=external_status_line(summary),
+        body=(config_error,) if config_error else (),
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=tuple(
+            MenuOption(value=action, label=label, detail=detail)
+            for action, label, detail in actions
+        ),
+        selected=default_mcp_action_index(summary, actions),
+    ))
+
+
+async def finish_mcp_activity(mind: typing.Any, action: McpAction) -> None:
+    """结束外部 MCP 操作对应的活动状态。"""
+    if action == "stop":
+        runtime = require_tui_runtime(mind.frontend.runtime)
+        await runtime.end_activity_status(
+            "operation",
+            settle=False,
+        )
+        return None
+
+    await mind.stop_anim("external_mcp", settle=False)
+
+
+async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> bool:
+    """执行外部 MCP 动作并返回操作前是否已经启动。"""
+    if action is None:
+        return False
+
+    if action == "status":
+        return False
+
+    external_runtime = getattr(mind, "external_mcp", None)
+    was_started      = bool(getattr(external_runtime, "started", False))
+
+    if action == "stop":
+        runtime = require_tui_runtime(mind.frontend.runtime)
+        if bool(getattr(mind, "animate", True)):
+            await runtime.begin_operation_status(
+                lambda: {"summary": "External MCP stopping"},
+            )
+        await mind.stop_external_mcp_runtime()
+    elif action == "force":
+        runtime = getattr(mind, "external_mcp", None)
+        if bool(getattr(runtime, "started", False)):
+            await _begin_external_mcp_restart_activity(mind)
+            await mind.restart_external_mcp_runtime(
+                include_disabled=True,
+                defer_activity_stop=True,
+            )
+        else:
+            await mind.start_external_mcp_runtime(
+                include_disabled=True,
+                defer_activity_stop=True,
+            )
+    elif action == "start":
+        await mind.start_external_mcp_runtime(defer_activity_stop=True)
+    else:
+        await _begin_external_mcp_restart_activity(mind)
+        await mind.restart_external_mcp_runtime(defer_activity_stop=True)
+
+    return was_started
 
 
 if __name__ == '__main__':

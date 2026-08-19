@@ -11,8 +11,10 @@ from mind_core.mcp_status import (
     McpStatusView
 )
 from ..core.models import (
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..core.runtime import (
     TuiRuntime,
@@ -70,68 +72,6 @@ def parse_listener_command(
     if len(parts) == 2 and parts[1] in _LISTENER_ACTIONS:
         return True, typing.cast(ListenerAction, parts[1])
     return False, None
-
-
-async def choose_listener_action(
-    runtime: TuiRuntime,
-    controller: "Mind"
-) -> ListenerOperation | None:
-    """在主 TUI 中选择监听器启动或停止操作。"""
-    listener = getattr(controller, "subscription_runtime", None)
-
-    selected = await runtime.select_menu(MenuRequest(
-        title="Listener",
-        status=_listener_status(listener),
-        options=_LISTENER_MENU_OPTIONS,
-        selected=1 if listener is not None and listener.is_running() else 0,
-    ))
-
-    if selected not in {"start", "stop"}:
-        return None
-    return typing.cast(ListenerOperation, selected)
-
-
-async def run_listener_action(
-    controller: "Mind",
-    action: ListenerOperation
-) -> ListenerOutcome:
-    """执行监听器启动或停止操作，并返回稳定结果状态。"""
-    listener = getattr(controller, "subscription_runtime", None)
-
-    if action == "start":
-        if listener is not None and listener.is_ready():
-            return "already_ready"
-
-        await _begin_listener_activity(controller, "Listener starting")
-        listener = controller.start_subscription_listener()
-        try:
-            await listener.wait_until_ready()
-        except TimeoutError:
-            await controller.await_cleanup(
-                controller.pause_subscription_listener()
-            )
-            raise
-
-        return "ready"
-
-    if listener is None or not listener.is_running():
-        return "already_stopped"
-
-    await _begin_listener_activity(controller, "Listener stopping")
-    await controller.pause_subscription_listener()
-
-    return "stopped"
-
-
-async def _begin_listener_activity(
-    controller: "Mind",
-    summary: str
-) -> None:
-    """按当前动画设置启动单行监听器操作状态。"""
-    if not bool(getattr(controller, "animate", True)):
-        return None
-    runtime = require_tui_runtime(controller.frontend.runtime)
-    await runtime.begin_operation_status(lambda: {"summary": summary})
 
 
 def render_listener_result(
@@ -258,6 +198,72 @@ def _listener_status(listener: "AgentRuntime | None") -> str:
         return "ready"
     if listener is not None and listener.is_running():
         return "starting"
+
+    return "stopped"
+
+
+async def _begin_listener_activity(
+    controller: "Mind",
+    summary: str
+) -> None:
+    """按当前动画设置启动单行监听器操作状态。"""
+    if not bool(getattr(controller, "animate", True)):
+        return None
+    runtime = require_tui_runtime(controller.frontend.runtime)
+    await runtime.begin_operation_status(lambda: {"summary": summary})
+
+
+async def choose_listener_action(
+    runtime: TuiRuntime,
+    controller: "Mind"
+) -> ListenerOperation | None:
+    """在主 TUI 中选择监听器启动或停止操作。"""
+    listener = getattr(controller, "subscription_runtime", None)
+
+    selected = await runtime.select_menu(MenuRequest(
+        title="Listener",
+        view_id="listener:root",
+        status=_listener_status(listener),
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=_LISTENER_MENU_OPTIONS,
+        selected=1 if listener is not None and listener.is_running() else 0,
+    ))
+
+    if selected not in {"start", "stop"}:
+        return None
+    return selected
+
+
+async def run_listener_action(
+    controller: "Mind",
+    action: ListenerOperation
+) -> ListenerOutcome:
+    """执行监听器启动或停止操作，并返回稳定结果状态。"""
+    listener = getattr(controller, "subscription_runtime", None)
+
+    if action == "start":
+        if listener is not None and listener.is_ready():
+            return "already_ready"
+
+        await _begin_listener_activity(controller, "Listener starting")
+        listener = controller.start_subscription_listener()
+        try:
+            await listener.wait_until_ready()
+        except TimeoutError:
+            await controller.await_cleanup(
+                controller.pause_subscription_listener()
+            )
+            raise
+
+        return "ready"
+
+    if listener is None or not listener.is_running():
+        return "already_stopped"
+
+    await _begin_listener_activity(controller, "Listener stopping")
+    await controller.pause_subscription_listener()
 
     return "stopped"
 

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from enum import Enum
 from dataclasses import (
     dataclass,
     field
@@ -10,7 +11,33 @@ from pathlib import Path
 
 FormattedText: typing.TypeAlias = list[tuple[str, str]]
 
-TranscriptExportFormat: typing.TypeAlias = typing.Literal["markdown", "raw"]
+TranscriptExportFormat: typing.TypeAlias = typing.Literal[
+    "markdown",
+    "raw"
+]
+
+STANDARD_MENU_FOOTER_HINT: typing.Final[str] = (
+    "Press enter to confirm or esc to go back"
+)
+CLOSE_MENU_FOOTER_HINT: typing.Final[str] = "Press enter or esc to close"
+
+
+class ViewCompletion(str, Enum):
+    """描述交互视图的终止语义。"""
+    ACCEPTED  = "accepted"
+    CANCELLED = "cancelled"
+
+
+class MenuDescriptionLayout(str, Enum):
+    """描述菜单选项辅助文本的排列方式。"""
+    COLUMNS = "columns"
+    STACK_BELOW_WHEN_NARROW = "stack_below_when_narrow"
+
+
+class MenuActionKind(str, Enum):
+    """区分菜单导航事件和领域操作事件。"""
+    NAVIGATION = "navigation"
+    DOMAIN = "domain"
 
 
 class TranscriptExportResult(typing.Protocol):
@@ -49,6 +76,24 @@ class MenuOption(object):
     value: typing.Any
     label: str
     detail: str = ""
+    on_select: typing.Callable[[], None] | None = None
+    dismiss_on_select: bool = True
+    dismiss_parent_on_child_accept: bool = False
+    disabled: bool = False
+    disabled_reason: str = ""
+    selected_detail: str = ""
+    is_current: bool = False
+    is_default: bool = False
+    search_value: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MenuAction(object):
+    """描述一次需要在菜单事件边界执行的动作。"""
+    callback: typing.Callable[[], None]
+    name: str = "tui menu action"
+    session_id: int | None = None
+    kind: MenuActionKind = MenuActionKind.DOMAIN
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +105,15 @@ class MenuRequest(object):
     selected: int = 0
     status: str = ""
     help_text: str = "Up/Down select · Enter apply · Esc/q cancel"
+    view_id: str | None = None
+    generation: int = 0
+    searchable: bool = False
+    search_placeholder: str = "Search"
+    footer_note: str = ""
+    footer_hint: str = ""
+    allow_cancel: bool = True
+    description_layout: MenuDescriptionLayout = MenuDescriptionLayout.COLUMNS
+    min_description_width: int = 24
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,8 +15,10 @@ from mind_app.frontend import (
 )
 from ..core.models import (
     FragmentBlock,
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..core.process_viewer import ProcessViewerRequest
 from ..core.render import (
@@ -146,8 +148,11 @@ async def manage_exec_sessions(
 
     selection = await runtime.select_menu(MenuRequest(
         title="Background Commands",
+        view_id="processes:root",
         status=" · ".join(status_parts),
-        help_text="Up/Down select · Enter choose · Esc/q close",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=(
             *(
                 MenuOption(

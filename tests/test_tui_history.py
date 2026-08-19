@@ -8,6 +8,10 @@ from mind_app.tui.core.document import TuiDocument
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.features import history
 from mind_app.tui.core.hyperlinks import terminal_hyperlink_from_style
+from mind_app.tui.core.models import (
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
 
 
 @pytest.mark.anyio
@@ -37,6 +41,13 @@ async def test_history_menu_displays_date_then_query(monkeypatch) -> None:
     option = requests[0].options[0]
     assert option.label == "07-21 14:30"
     assert option.detail == "explain the current architecture"
+    assert requests[0].view_id == "history:resume"
+    assert requests[0].help_text == ""
+    assert requests[0].footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        requests[0].description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
 
 
 @pytest.mark.anyio

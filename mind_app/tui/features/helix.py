@@ -26,8 +26,10 @@ from mind_core.mcp_status import (
 from mind_nova import const
 from ..core.models import (
     FragmentBlock,
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..core.runtime import (
     TuiRuntime,
@@ -83,7 +85,7 @@ def _present_helix_result(
     mind: "Mind",
     *,
     state: str,
-    error: str = "",
+    error: str = ""
 ) -> None:
     """展示 Helix MCP 的最终状态。"""
     if state == "stopped":
@@ -144,9 +146,167 @@ class TuiUpgradeProgress(object):
         await self.runtime.hold_activity_status("download")
 
 
+def render_helix_mode_result(mind: "Mind", mode: ToolFilterMode) -> None:
+    """展示工具过滤模式切换结果。"""
+    _present(mind, command_result_block(
+        "/helix-mode",
+        TextSpan(mode, BRIGHT_STYLE),
+    ))
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_download_result(mind: "Mind", command: str) -> None:
+    """展示运行时下载完成后的重新打开提示。"""
+    _present(mind, command_result_block(
+        command,
+        TextSpan("Downloaded", BRIGHT_STYLE),
+        TextSpan(" · Reopen the app to continue", MUTED_STYLE),
+    ))
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_command_failure(
+    mind: "Mind",
+    command: str,
+    error: BaseException | str
+) -> None:
+    """展示 Helix 命令失败结果。"""
+    detail = (
+        _helix_error_detail(error)
+        if isinstance(error, BaseException)
+        else str(error).strip()
+    )
+    _present(
+        mind,
+        command_result_block(
+            command,
+            TextSpan("Failed", FAILURE_STYLE),
+            TextSpan(f" · {detail}", BODY_STYLE),
+        ),
+        view_type="tui.helix.status",
+    )
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_command_hint(
+    mind: "Mind",
+    command: str,
+    message: str
+) -> None:
+    """展示 Helix 命令的普通状态提示。"""
+    _present(
+        mind,
+        command_result_block(
+            command,
+            TextSpan(str(message).strip(), BODY_STYLE),
+        ),
+        view_type="tui.helix.status",
+    )
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_link_result(mind: "Mind", linked: bool) -> None:
+    """展示 Helix 接入操作的最终结果。"""
+    if not linked:
+        _present(
+            mind,
+            _label_detail("Helix", "skipped"),
+            view_type="tui.helix.status",
+        )
+        _present(mind, view_type="tui.gap")
+        return None
+
+    _present_helix_result(mind, state="ready")
+
+
+def render_helix_link_failure(mind: "Mind", error: BaseException) -> None:
+    """展示 Helix 接入操作的失败结果。"""
+    _present_helix_result(
+        mind,
+        state="failed",
+        error=_helix_error_detail(error),
+    )
+
+
+def render_helix_interrupted(
+    mind: "Mind",
+    *,
+    label: str = "Helix MCP"
+) -> None:
+    """展示 Helix 前台操作被用户中断的状态。"""
+    _present(
+        mind,
+        interrupted_status_block(label),
+        view_type="tui.helix.interrupted",
+    )
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_stop_result(mind: "Mind", _result: typing.Any = None) -> None:
+    """展示 Helix 停止操作的成功结果。"""
+    _present_helix_result(mind, state="stopped")
+
+
+def render_helix_stop_failure(mind: "Mind", error: BaseException) -> None:
+    """展示 Helix 停止操作的失败结果。"""
+    _present_helix_result(
+        mind,
+        state="stop_failed",
+        error=_helix_error_detail(error),
+    )
+
+
+def render_helix_home_result(mind: "Mind", url: str | None) -> None:
+    """展示 Helix 首页操作的最终结果。"""
+    if url is None:
+        _present(mind, _label_detail("Helix", "skipped"))
+    else:
+        _present(mind, _label_detail("Helix Home", url))
+
+    _present(mind, view_type="tui.gap")
+
+
+def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
+    """展示 Helix 首页操作的失败结果。"""
+    detail = _helix_error_detail(error)
+    _present(
+        mind,
+        command_result_block(
+            "/helix-home",
+            TextSpan("Failed", FAILURE_STYLE),
+            TextSpan(f" · {detail}", BODY_STYLE),
+        ),
+        view_type="tui.helix.status",
+    )
+    _present(mind, view_type="tui.gap")
+
+
+def helix_runtime_home_url(mind: "Mind") -> str:
+    """返回当前 Helix 服务管理器确认的首页地址。"""
+    server_manager = getattr(mind, "server_manager", None)
+
+    url = str(getattr(server_manager, "url", "") or "").strip()
+
+    return (url or const.BASE_URL).rstrip("/")
+
+
+def unlink_helix_runtime(mind: "Mind") -> None:
+    """从当前工具会话移除 Helix MCP，不停止本地服务。"""
+    was_linked = mind.is_service_mcp_linked()
+    mind.unlink_service_mcp()
+
+    state = "unlinked" if was_linked else "already unlinked"
+
+    _present(mind, command_result_block(
+        "/helix-unlink",
+        TextSpan(state.capitalize(), BRIGHT_STYLE),
+    ))
+    _present(mind, view_type="tui.gap")
+
+
 async def confirm_runtime_download(
     runtime: TuiRuntime,
-    context: ServiceRuntimeContext,
+    context: ServiceRuntimeContext
 ) -> bool:
     """在主 TUI 中确认是否下载缺失的 Helix 运行时。"""
     result = await runtime.select_menu(MenuRequest(
@@ -178,14 +338,23 @@ async def download_service_runtime(
 
 async def choose_helix_tool_profile(
     runtime: TuiRuntime,
-    current: ToolFilterMode,
+    current: ToolFilterMode
 ) -> ToolFilterMode | None:
     """选择当前服务连接使用的工具过滤模式。"""
     selected = await runtime.select_menu(MenuRequest(
         title="Helix Tool Mode",
+        view_id="helix:tool-mode",
         status=f"current={current}",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
-            MenuOption(value=value, label=label, detail=detail)
+            MenuOption(
+                value=value,
+                label=label,
+                detail=detail,
+                is_current=value == current,
+            )
             for value, label, detail in TOOL_PROFILE_OPTIONS
         ),
         selected=next(
@@ -198,66 +367,27 @@ async def choose_helix_tool_profile(
     ))
     if selected not in {"app", "api"}:
         return None
-    return typing.cast(ToolFilterMode, selected)
+    return selected
 
 
-def render_helix_mode_result(mind: "Mind", mode: ToolFilterMode) -> None:
-    """展示工具过滤模式切换结果。"""
-    _present(mind, command_result_block(
-        "/helix-mode",
-        TextSpan(mode, BRIGHT_STYLE),
-    ))
-    _present(mind, view_type="tui.gap")
+async def open_helix_home(mind: "Mind") -> str | None:
+    """打开已经连接的服务管理首页。"""
+    if not mind.is_service_mcp_linked():
+        raise AppError("Helix MCP is not connected")
+
+    url = helix_runtime_home_url(mind)
+    await FileAssist.open_url(url)
+    return url
 
 
-def render_helix_download_result(mind: "Mind", command: str) -> None:
-    """展示运行时下载完成后的重新打开提示。"""
-    _present(mind, command_result_block(
-        command,
-        TextSpan("Downloaded", BRIGHT_STYLE),
-        TextSpan(" · Reopen the app to continue", MUTED_STYLE),
-    ))
-    _present(mind, view_type="tui.gap")
-
-
-def render_helix_command_failure(
-    mind: "Mind",
-    command: str,
-    error: BaseException | str,
-) -> None:
-    """展示 Helix 命令失败结果。"""
-    detail = (
-        _helix_error_detail(error)
-        if isinstance(error, BaseException)
-        else str(error).strip()
-    )
-    _present(
-        mind,
-        command_result_block(
-            command,
-            TextSpan("Failed", FAILURE_STYLE),
-            TextSpan(f" · {detail}", BODY_STYLE),
-        ),
-        view_type="tui.helix.status",
-    )
-    _present(mind, view_type="tui.gap")
-
-
-def render_helix_command_hint(
-    mind: "Mind",
-    command: str,
-    message: str,
-) -> None:
-    """展示 Helix 命令的普通状态提示。"""
-    _present(
-        mind,
-        command_result_block(
-            command,
-            TextSpan(str(message).strip(), BODY_STYLE),
-        ),
-        view_type="tui.helix.status",
-    )
-    _present(mind, view_type="tui.gap")
+async def stop_helix_runtime(mind: "Mind") -> None:
+    """显示停止活动并关闭 Helix 服务。"""
+    runtime = require_tui_runtime(mind.frontend.runtime)
+    if bool(getattr(mind, "animate", True)):
+        await runtime.begin_operation_status(
+            lambda: {"summary": "Helix MCP stopping"},
+        )
+    await mind.stop_service_runtime()
 
 
 async def prepare_tui_service_runtime(
@@ -312,125 +442,6 @@ async def link_helix_runtime(
 async def finish_helix_activity(mind: "Mind") -> None:
     """结束 Helix 前台操作占用的运行时活动区域。"""
     await mind.stop_anim("inbuild", settle=False)
-
-
-def render_helix_link_result(mind: "Mind", linked: bool) -> None:
-    """展示 Helix 接入操作的最终结果。"""
-    if not linked:
-        _present(
-            mind,
-            _label_detail("Helix", "skipped"),
-            view_type="tui.helix.status",
-        )
-        _present(mind, view_type="tui.gap")
-        return None
-
-    _present_helix_result(mind, state="ready")
-
-
-def render_helix_link_failure(mind: "Mind", error: BaseException) -> None:
-    """展示 Helix 接入操作的失败结果。"""
-    _present_helix_result(
-        mind,
-        state="failed",
-        error=_helix_error_detail(error),
-    )
-
-
-def unlink_helix_runtime(mind: "Mind") -> None:
-    """从当前工具会话移除 Helix MCP，不停止本地服务。"""
-    was_linked = mind.is_service_mcp_linked()
-    mind.unlink_service_mcp()
-
-    state = "unlinked" if was_linked else "already unlinked"
-
-    _present(mind, command_result_block(
-        "/helix-unlink",
-        TextSpan(state.capitalize(), BRIGHT_STYLE),
-    ))
-    _present(mind, view_type="tui.gap")
-
-
-def render_helix_interrupted(
-    mind: "Mind",
-    *,
-    label: str = "Helix MCP"
-) -> None:
-    """展示 Helix 前台操作被用户中断的状态。"""
-    _present(
-        mind,
-        interrupted_status_block(label),
-        view_type="tui.helix.interrupted",
-    )
-    _present(mind, view_type="tui.gap")
-
-
-async def open_helix_home(mind: "Mind") -> str | None:
-    """打开已经连接的服务管理首页。"""
-    if not mind.is_service_mcp_linked():
-        raise AppError("Helix MCP is not connected")
-
-    url = helix_runtime_home_url(mind)
-    await FileAssist.open_url(url)
-    return url
-
-
-def render_helix_home_result(mind: "Mind", url: str | None) -> None:
-    """展示 Helix 首页操作的最终结果。"""
-    if url is None:
-        _present(mind, _label_detail("Helix", "skipped"))
-    else:
-        _present(mind, _label_detail("Helix Home", url))
-
-    _present(mind, view_type="tui.gap")
-
-
-def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
-    """展示 Helix 首页操作的失败结果。"""
-    detail = _helix_error_detail(error)
-    _present(
-        mind,
-        command_result_block(
-            "/helix-home",
-            TextSpan("Failed", FAILURE_STYLE),
-            TextSpan(f" · {detail}", BODY_STYLE),
-        ),
-        view_type="tui.helix.status",
-    )
-    _present(mind, view_type="tui.gap")
-
-
-def helix_runtime_home_url(mind: "Mind") -> str:
-    """返回当前 Helix 服务管理器确认的首页地址。"""
-    server_manager = getattr(mind, "server_manager", None)
-
-    url = str(getattr(server_manager, "url", "") or "").strip()
-
-    return (url or const.BASE_URL).rstrip("/")
-
-
-async def stop_helix_runtime(mind: "Mind") -> None:
-    """显示停止活动并关闭 Helix 服务。"""
-    runtime = require_tui_runtime(mind.frontend.runtime)
-    if bool(getattr(mind, "animate", True)):
-        await runtime.begin_operation_status(
-            lambda: {"summary": "Helix MCP stopping"},
-        )
-    await mind.stop_service_runtime()
-
-
-def render_helix_stop_result(mind: "Mind", _result: typing.Any = None) -> None:
-    """展示 Helix 停止操作的成功结果。"""
-    _present_helix_result(mind, state="stopped")
-
-
-def render_helix_stop_failure(mind: "Mind", error: BaseException) -> None:
-    """展示 Helix 停止操作的失败结果。"""
-    _present_helix_result(
-        mind,
-        state="stop_failed",
-        error=_helix_error_detail(error),
-    )
 
 
 if __name__ == '__main__':

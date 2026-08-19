@@ -7,9 +7,38 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.models import (
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
+from mind_app.tui.features.model import choose_model_effort
 from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
 from mind_core.permissions import preset_permissions
+
+
+@pytest.mark.anyio
+async def test_effort_menu_uses_primary_selection_contract() -> None:
+    runtime = TuiRuntime()
+    runtime.select_menu = AsyncMock(return_value="high")
+
+    selected = await choose_model_effort(runtime, "high")
+
+    request = runtime.select_menu.await_args.args[0]
+    assert selected == "high"
+    assert request.view_id == "model:effort"
+    assert request.help_text == ""
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
+    assert [option.is_current for option in request.options] == [
+        False,
+        False,
+        True,
+        False,
+    ]
 
 
 @pytest.mark.anyio

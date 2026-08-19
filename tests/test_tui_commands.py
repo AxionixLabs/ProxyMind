@@ -17,7 +17,11 @@ from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.skills import SkillSpec
 from mind_app.history.transcript import TranscriptEntry
-from mind_app.tui.core.models import TranscriptBacktrackRequest
+from mind_app.tui.core.models import (
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+    TranscriptBacktrackRequest,
+)
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
 from mind_app.tui.features.model import (
@@ -122,6 +126,13 @@ async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
         "Review the current changes and report every important issue "
         "without omitting details"
     )
+    assert request.view_id == "skills:root"
+    assert request.help_text == ""
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
 
     buffer = runtime.screen.input.buffer
     buffer.cursor_position = len("$review")
@@ -182,6 +193,15 @@ async def test_provider_selection_persists_active_profile(tmp_path) -> None:
         "claude-main",
     ]
     assert request.options[-1].detail == "anthropic · claude-test · messages"
+    assert request.view_id == "model:provider"
+    assert request.help_text == ""
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
+    assert request.options[0].is_current
+    assert not request.options[-1].is_current
 
 
 @pytest.mark.anyio
@@ -1210,6 +1230,14 @@ async def test_helix_mode_menu_uses_current_profile() -> None:
     assert request.status == "current=app"
     assert [option.value for option in request.options] == ["app", "api"]
     assert request.selected == 0
+    assert request.view_id == "helix:tool-mode"
+    assert request.help_text == ""
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
+    assert request.options[0].is_current
 
 
 @pytest.mark.anyio

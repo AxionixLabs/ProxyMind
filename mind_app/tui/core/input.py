@@ -26,11 +26,23 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from mind_core.skills import SkillSpec
 from mind_app.presentation.terminal_text import sanitize_terminal_text
+from .token_menu import (
+    CommittedTokenQuery,
+    DismissedToken,
+    TokenMenuItem,
+    TokenMenuKind,
+    TokenMenuSnapshot,
+    TokenMenuState,
+    prefix_match_indices,
+    subsequence_match_indices
+)
 from ..prompting.commands import (
     SlashCommandCompleter,
     completion_changes_input,
     is_first_input_line,
-    parameterized_command_texts
+    parameterized_command_texts,
+    slash_command_dismissal_token,
+    slash_command_query
 )
 from ..prompting.paste import (
     format_paste_placeholder,
@@ -83,13 +95,6 @@ class TuiInputHistoryEntry(object):
     def paste_store(self) -> dict[str, str]:
         """返回该历史项独立持有的粘贴映射。"""
         return dict(self.paste_items)
-
-
-@dataclass(frozen=True, slots=True)
-class _CommittedSkillQuery(object):
-    """记录一次已确认 skill 补全的美元符号锚点。"""
-    start: int
-    document_text: str
 
 
 class TuiInputHistory(InMemoryHistory):
@@ -159,8 +164,8 @@ class TuiAutoSuggest(AutoSuggest):
     """生成 TUI 输入区的行内命令建议。"""
 
     SLASH_HINTS: typing.Final[dict[str, str]] = {
-        "/model"  : " <model-id>",
-        "/model " : "<model-id>",
+        "/model": " <model-id>",
+        "/model ": "<model-id>",
     }
 
     def __init__(self) -> None:
@@ -194,6 +199,8 @@ class TuiInputModel(object):
     PARAMETERIZED_COMMANDS: typing.Final[tuple[str, ...]] = (
         parameterized_command_texts()
     )
+
+    TAB_DISPATCH_COMMANDS: typing.Final[tuple[str, ...]] = ("/skills",)
 
     PLACEHOLDER_PROMPTS: typing.Final[tuple[str, ...]] = (
         "Ask anything",
@@ -261,8 +268,7 @@ class TuiInputModel(object):
         self._history_draft_shell_mode: bool                    = False
         self._history_draft_paste_store: dict[str, str]         = {}
 
-        self._dismissed_completion_query: tuple[str, int] | None = None
-        self._committed_skill_query: _CommittedSkillQuery | None = None
+        self._token_menu_state = TokenMenuState()
 
         self.key_bindings = self._build_key_bindings()
 
@@ -284,10 +290,23 @@ class TuiInputModel(object):
             "paste-placeholder": "bold #D3C27C",
             "completion-menu": "bg:default #B8C0C9",
             "completion-menu.completion": "bg:default bold #B8C0C9",
-            "completion-menu.completion.current": "bg:default bold #F4F8FB",
+            "completion-menu.completion.current": "bg:default bold ansicyan",
             "completion-menu.meta.completion": "#707A84",
-            "completion-menu.meta.completion.current": "#8FC7EA",
-            "completion-menu.empty": "#59616A",
+            "completion-menu.meta.completion.current": "bg:default bold ansicyan",
+            "completion-menu.empty": "dim italic #59616A",
+            "token-menu": "bg:default #B8C0C9",
+            "token-menu.command": "bg:default bold #C4A7E7",
+            "token-menu.command.current": "bg:default bold ansicyan",
+            "token-menu.skill": "bg:default bold #8FD7FF",
+            "token-menu.skill.current": "bg:default bold ansicyan",
+            "token-menu.completion": "bg:default bold #B8C0C9",
+            "token-menu.completion.current": "bg:default bold ansicyan",
+            "token-menu.meta.command": "#8A929C",
+            "token-menu.meta.command.current": "bg:default bold ansicyan",
+            "token-menu.meta.skill": "#7B838E",
+            "token-menu.meta.skill.current": "bg:default bold ansicyan",
+            "token-menu.meta.completion": "#707A84",
+            "token-menu.meta.completion.current": "bg:default bold ansicyan",
         })
 
     @staticmethod
@@ -302,9 +321,14 @@ class TuiInputModel(object):
         document = state.original_document if state is not None else buffer.document
         cursor   = document.cursor_position
         start    = cursor + completion.start_position
-        command  = document.text_before_cursor.lstrip().startswith("/")
-        suffix   = "" if command else document.text_after_cursor
-        text     = document.text[:start] + completion.text + suffix
+
+        command  = (
+            slash_command_query(document) is not None
+            or document.text_before_cursor.lstrip().startswith("/")
+        )
+
+        suffix = "" if command else document.text_after_cursor
+        text   = document.text[:start] + completion.text + suffix
 
         buffer.complete_state = None
 
@@ -339,6 +363,105 @@ class TuiInputModel(object):
             buffer.on_suggestion_set.fire()
         return True
 
+    @staticmethod
+    def _token_menu_kind(completion: Completion) -> TokenMenuKind:
+        """返回补全候选在 token 菜单中的类型。"""
+        if completion.text.startswith("$"):
+            return "skill"
+        if completion.text.startswith("/"):
+            return "command"
+        return "completion"
+
+    @staticmethod
+    def _token_menu_match_indices(
+        document: Document,
+        completion: Completion,
+    ) -> tuple[int, ...] | None:
+        """返回补全候选中需要高亮的位置。"""
+        if completion.text.startswith("$"):
+            query = skill_query_token(document.text_before_cursor)
+            if query is None:
+                return None
+            return subsequence_match_indices(
+                completion.display_text,
+                query[1:].strip(),
+            )
+
+        if completion.text.startswith("/"):
+            query = slash_command_query(document)
+            if query is None:
+                return None
+
+            token = query.token[1:].strip()
+            if not token:
+                return None
+
+            offset = 1 if completion.display_text.startswith("/") else 0
+            return prefix_match_indices(
+                completion.display_text,
+                token,
+                offset=offset,
+            )
+
+        return None
+
+    @staticmethod
+    def _skill_completion_token(document: Document) -> tuple[int, str] | None:
+        """返回当前 skill 补全 token 的起点和完整文本。"""
+        prefix = skill_query_token(document.text_before_cursor)
+        if prefix is None:
+            return None
+
+        token_start = document.cursor_position - len(prefix)
+        text        = document.text
+
+        if token_start < 0 or token_start >= len(text) or text[token_start] != "$":
+            return None
+
+        token_end = token_start + 1
+        while token_end < len(text):
+            char = text[token_end]
+            if not (char.isalnum() or char in "_.-"):
+                break
+            token_end += 1
+
+        token = text[token_start:token_end]
+        if not token:
+            return None
+        return token_start, token
+
+    @staticmethod
+    def _delete_current_line(buffer) -> bool:
+        """删除光标所在逻辑行及其分隔换行。"""
+        document = buffer.document
+        text     = document.text
+
+        line_start = (
+            document.cursor_position
+            - len(document.current_line_before_cursor)
+        )
+
+        line_end = (
+            document.cursor_position
+            + len(document.current_line_after_cursor)
+        )
+
+        if line_end < len(text):
+            delete_start, delete_end = line_start, line_end + 1
+        elif line_start > 0:
+            delete_start, delete_end = line_start - 1, line_end
+        else:
+            delete_start, delete_end = 0, len(text)
+
+        if delete_start == delete_end:
+            return False
+
+        buffer.document = Document(
+            text[:delete_start] + text[delete_end:],
+            cursor_position=delete_start,
+        )
+        return True
+
     def _selected_menu_completion(self, buffer) -> Completion | None:
         """返回当前补全菜单中准备确认的候选项。"""
         completions = self.completion_menu_completions(buffer.document)
@@ -371,23 +494,6 @@ class TuiInputModel(object):
                 buffer.document,
             )
             buffer.on_suggestion_set.fire()
-
-    def new_placeholder(self) -> str:
-        """为新的输入轮次生成一次占位文案。"""
-        prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
-        command = random.choice(self.PLACEHOLDER_COMMANDS)
-
-        return f"{prompt}, {command}"
-
-    def set_skills(self, skills: typing.Iterable[SkillSpec]) -> None:
-        """更新输入补全和高亮使用的 skill 快照。"""
-        self.skills = tuple(skills)
-
-    def set_shell_mode(self, active: bool) -> None:
-        """更新输入框的 Shell 前缀模式。"""
-        self.shell_mode = bool(active)
-        self.auto_suggest.shell_mode = self.shell_mode
-        self._shell_mode_undo_transition = None
 
     def _promote_shell_prefix(
         self,
@@ -454,77 +560,30 @@ class TuiInputModel(object):
 
         self.notify_input_layout()
 
-    def bind_interrupt(self, handler: typing.Callable[[], None]) -> None:
-        """绑定主运行时提供的输入中断处理函数。"""
-        self.interrupt_handler = handler
-
-    def bind_input_layout(self, handler: typing.Callable[[], None]) -> None:
-        """绑定输入内容变化后的当前帧布局刷新动作。"""
-        self._input_layout_handler = handler
-
-    def notify_input_layout(self) -> None:
-        """通知布局层按当前输入和补全状态刷新画面。"""
-        self._input_layout_handler()
-
-    def handle_interrupt(self, buffer) -> None:
-        """优先关闭补全，再把取消操作交给主运行时。"""
-        if (
-            buffer.complete_state is not None
-            or self.completion_menu_completions(buffer.document) is not None
-        ):
-            self.dismiss_completion_menu(buffer)
-            return None
-
-        self.interrupt_handler()
-        self.notify_input_layout()
-
-    def completion_menu_completions(self, document: Document) -> tuple[Completion, ...] | None:
-        """返回当前未被关闭的命令或 skill 菜单项。"""
-        if (
-            self._completion_menu_dismissed(document)
-            or self._committed_skill_completion_dismissed(document)
-        ):
-            return None
-        return self.completer.menu_completions(document)
-
-    def _completion_menu_dismissed(self, document: Document) -> bool:
-        """判断当前文本和光标位置是否已主动关闭补全。"""
+    def _slash_completion_menu_dismissed(self, document: Document) -> bool:
+        """判断当前斜杠命令 token 是否已主动关闭补全。"""
+        if slash_command_query(document) is None:
+            return False
+        token = slash_command_dismissal_token(document)
         return (
-            document.text,
-            document.cursor_position,
-        ) == self._dismissed_completion_query
+            token is not None
+            and token == self._token_menu_state.command_dismissal_token()
+        )
 
-    def reopen_completion_menu(self, buffer) -> None:
-        """在输入内容变化后允许补全菜单重新显示。"""
-        self._update_committed_skill(buffer.text)
-        self._dismissed_completion_query = None
+    def _skill_completion_menu_dismissed(self, document: Document) -> bool:
+        """判断当前 skill token 是否已主动关闭补全。"""
+        token = self._skill_completion_token(document)
+        dismissed = self._token_menu_state.dismissed_skill()
 
-    def confirm_selected_skill(self, buffer) -> None:
-        """确认光标前最后一个已知 skill 查询锚点。"""
-        document = buffer.document
-
-        committed: _CommittedSkillQuery | None = None
-
-        for start, end, _name in iter_known_skill_tokens(
-            document.text,
-            skills=self.skills,
-        ):
-            if end > document.cursor_position:
-                break
-            committed = _CommittedSkillQuery(
-                start=start,
-                document_text=document.text,
-            )
-
-        self._committed_skill_query = committed
-
-    def clear_selected_skill(self) -> None:
-        """清除已确认的 skill 查询状态。"""
-        self._committed_skill_query = None
+        return (
+            token is not None
+            and dismissed is not None
+            and dismissed.matches(document.text, token[1], token[0])
+        )
 
     def _update_committed_skill(self, text: str) -> None:
         """根据文本变化平移或撤销已确认的 skill 查询锚点。"""
-        committed = self._committed_skill_query
+        committed = self._token_menu_state.committed_skill()
         if committed is None or committed.document_text == text:
             return None
 
@@ -553,24 +612,21 @@ class TuiInputModel(object):
         elif prefix > committed.start:
             start = committed.start
         else:
-            self._committed_skill_query = None
+            self._token_menu_state.set_committed_skill(None)
             return None
 
         if start < 0 or start >= len(text) or text[start] != "$":
-            self._committed_skill_query = None
+            self._token_menu_state.set_committed_skill(None)
             return None
 
-        self._committed_skill_query = _CommittedSkillQuery(
+        self._token_menu_state.set_committed_skill(CommittedTokenQuery(
             start=start,
             document_text=text,
-        )
+        ))
 
-    def _committed_skill_completion_dismissed(
-        self,
-        document: Document
-    ) -> bool:
+    def _committed_skill_completion_dismissed(self, document: Document) -> bool:
         """判断当前查询是否属于已确认的 skill 补全会话。"""
-        committed = self._committed_skill_query
+        committed = self._token_menu_state.committed_skill()
         if committed is None or committed.document_text != document.text:
             return False
 
@@ -580,171 +636,6 @@ class TuiInputModel(object):
 
         query_start = document.cursor_position - len(query)
         return query_start == committed.start
-
-    def dismiss_completion_menu(self, buffer) -> None:
-        """关闭当前补全菜单并保留输入内容。"""
-        document = getattr(buffer, "document", None)
-        if document is not None:
-            self._dismissed_completion_query = (
-                document.text,
-                document.cursor_position,
-            )
-        buffer.cancel_completion()
-
-    def select_default_completion(self, buffer) -> None:
-        """让命令或 skill 菜单默认高亮第一个有效候选项。"""
-        state = buffer.complete_state
-        if (
-            state is None
-            or state.complete_index is not None
-            or not state.completions
-            or self.completion_menu_completions(state.original_document) is None
-        ):
-            return None
-
-        if (
-            len(state.completions) == 1
-            and not completion_changes_input(
-                state.original_document,
-                state.completions[0],
-            )
-        ):
-            return None
-
-        state.go_to_index(0)
-
-    def refresh_completion_menu(
-        self,
-        buffer,
-        selected_text: str | None = None
-    ) -> None:
-        """同步刷新补全菜单并尽量保留当前候选项。"""
-        if self.completion_menu_completions(buffer.document) is None:
-            buffer.cancel_completion()
-            return None
-
-        completions = self.completer.matching_completions(buffer.document)
-        if not completions:
-            buffer.cancel_completion()
-            return None
-
-        index = next(
-            (
-                item_index
-                for item_index, completion in enumerate(completions)
-                if completion.text == selected_text
-            ),
-            0,
-        )
-
-        buffer.complete_state = CompletionState(
-            original_document=buffer.document,
-            completions=list(completions),
-            complete_index=index,
-        )
-        buffer.on_completions_changed.fire()
-
-    def refresh_inserted_completion_menu(self, buffer) -> None:
-        """在字符插入后同步刷新可用的补全菜单。"""
-        if buffer.completer and buffer.complete_while_typing():
-            self.refresh_completion_menu(buffer)
-
-    def bind_exit(
-        self,
-        can_exit: typing.Callable[[], bool],
-        handler: typing.Callable[[], None]
-    ) -> None:
-        """绑定空输入状态下的直接退出判断和处理函数。"""
-        self.can_exit = can_exit
-        self.exit_handler = handler
-
-    def bind_queue_rollback(
-        self,
-        can_rollback: typing.Callable[[], bool],
-        handler: typing.Callable[[], bool]
-    ) -> None:
-        """绑定执行期待提交消息的可用状态和撤回处理。"""
-        self.can_rollback_queue     = can_rollback
-        self.rollback_queue_handler = handler
-
-    def bind_queue_submission(
-        self,
-        can_submit: typing.Callable[[], bool],
-        handler: typing.Callable[[typing.Any], None]
-    ) -> None:
-        """绑定执行期使用 Tab 提交待处理消息的可用状态。"""
-        self.can_submit_queue         = can_submit
-        self.queue_submission_handler = handler
-
-    def bind_history_backtrack(
-        self,
-        can_backtrack: typing.Callable[[], bool],
-        handler: typing.Callable[[], None],
-        can_report_missing: typing.Callable[[], bool],
-        missing_handler: typing.Callable[[], None]
-    ) -> None:
-        """绑定空输入状态下的历史编辑入口。"""
-        self.can_backtrack_history        = can_backtrack
-        self.backtrack_history_handler    = handler
-        self.can_report_missing_backtrack = can_report_missing
-        self.missing_backtrack_handler    = missing_handler
-
-    def cancel_history_backtrack(self) -> None:
-        """清除等待第二次 Esc 的历史编辑状态。"""
-        self.history_backtrack_primed = False
-
-    def submission_state(self, text: str | None = None) -> dict[str, str]:
-        """返回当前提交文本关联的折叠粘贴状态。"""
-        if text is not None:
-            active = {
-                placeholder
-                for _start, _end, placeholder in iter_paste_placeholders(text)
-            }
-            return {
-                placeholder: original
-                for placeholder, original in self.paste_store.items()
-                if placeholder in active
-            }
-        return dict(self.paste_store)
-
-    def restore_submission_state(self, state: dict[str, str]) -> None:
-        """恢复被撤回提交文本关联的折叠粘贴状态。"""
-        self.paste_store = dict(state)
-
-    def rollback_submission_history(self, text: str) -> None:
-        """撤销最近一次匹配的输入历史提交。"""
-        self.history.rollback_latest(text)
-
-    def record_submission_history(
-        self,
-        editable_text: str,
-        paste_store: dict[str, str],
-        *,
-        shell_mode: bool
-    ) -> bool:
-        """记录一次提交对应的完整可编辑历史。"""
-        return self.history.append_submission(
-            editable_text,
-            paste_store,
-            shell_mode=shell_mode,
-        )
-
-    def restore_submission(self, text: str) -> str:
-        """还原折叠粘贴内容并清理提交文本。"""
-        restored = text
-        for placeholder, original in sorted(
-            self.paste_store.items(),
-            key=lambda item: len(item[0]),
-            reverse=True,
-        ):
-            restored = restored.replace(placeholder, original, 1)
-        return restored.strip()
-
-    def clear_submission_state(self) -> None:
-        """清理一次提交关联的临时粘贴状态。"""
-        self._clear_paste_state()
-        self.set_shell_mode(False)
-        self._reset_history_navigation()
 
     def _active_paste_placeholders(self) -> tuple[str, ...]:
         """返回输入框中仍然有效的折叠粘贴占位符。"""
@@ -794,38 +685,6 @@ class TuiInputModel(object):
     def _clear_paste_state(self) -> None:
         """清理粘贴内容映射。"""
         self.paste_store.clear()
-
-    @staticmethod
-    def _delete_current_line(buffer) -> bool:
-        """删除光标所在逻辑行及其分隔换行。"""
-        document = buffer.document
-        text     = document.text
-
-        line_start = (
-            document.cursor_position
-            - len(document.current_line_before_cursor)
-        )
-
-        line_end = (
-            document.cursor_position
-            + len(document.current_line_after_cursor)
-        )
-
-        if line_end < len(text):
-            delete_start, delete_end = line_start, line_end + 1
-        elif line_start > 0:
-            delete_start, delete_end = line_start - 1, line_end
-        else:
-            delete_start, delete_end = 0, len(text)
-
-        if delete_start == delete_end:
-            return False
-
-        buffer.document = Document(
-            text[:delete_start] + text[delete_end:],
-            cursor_position=delete_start,
-        )
-        return True
 
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
@@ -983,11 +842,6 @@ class TuiInputModel(object):
                 ) is not None
             )
         )
-        dismissed_completion_query = has_focus(INPUT_BUFFER_NAME) & Condition(
-            lambda: self._completion_menu_dismissed(
-                get_app().current_buffer.document
-            )
-        )
 
         @bindings.add("escape", eager=True, filter=completion_menu_open)
         def _(event) -> None:
@@ -1075,20 +929,21 @@ class TuiInputModel(object):
             )
             self.notify_input_layout()
 
-        @bindings.add(
-            "left",
-            eager=True,
-            filter=dismissed_completion_query,
-        )
+        @bindings.add("left", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
         def _(event) -> None:
-            buffer = event.app.current_buffer
-            previous_position = buffer.cursor_position
+            self._move_cursor_with_completion_menu(
+                event.app.current_buffer,
+                step=-1,
+                count=max(1, event.arg),
+            )
 
-            buffer.cursor_left(count=max(1, event.arg))
-
-            if buffer.cursor_position != previous_position:
-                self.reopen_completion_menu(buffer)
-                self.refresh_completion_menu(buffer)
+        @bindings.add("right", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
+        def _(event) -> None:
+            self._move_cursor_with_completion_menu(
+                event.app.current_buffer,
+                step=1,
+                count=max(1, event.arg),
+            )
 
         @bindings.add("escape", "enter")
         @bindings.add("c-o")
@@ -1187,6 +1042,8 @@ class TuiInputModel(object):
 
             if menu_completion is not None:
                 self._apply_menu_completion(buffer, menu_completion)
+                if menu_completion.text in self.TAB_DISPATCH_COMMANDS:
+                    buffer.validate_and_handle()
             elif completion_menu_opened:
                 return None
             elif (
@@ -1206,6 +1063,15 @@ class TuiInputModel(object):
                     select_first=True,
                     complete_event=CompleteEvent(completion_requested=True),
                 )
+
+        @bindings.add("/", eager=True, filter=completion_menu_open)
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            completion = self._selected_menu_completion(buffer)
+            if completion is not None and completion.text.startswith("/"):
+                self._apply_menu_completion(buffer, completion)
+                return None
+            buffer.insert_text("/")
 
         @bindings.add("s-tab")
         def _(event) -> None:
@@ -1305,6 +1171,327 @@ class TuiInputModel(object):
             )
 
         return bindings
+
+    def _move_cursor_with_completion_menu(
+        self,
+        buffer,
+        *,
+        step: int,
+        count: int
+    ) -> None:
+        """移动光标并同步补全菜单。"""
+        previous_position = buffer.cursor_position
+        if step < 0:
+            buffer.cursor_left(count=count)
+        else:
+            buffer.cursor_right(count=count)
+
+        if buffer.cursor_position != previous_position:
+            self.sync_completion_menu(buffer)
+
+    def new_placeholder(self) -> str:
+        """为新的输入轮次生成一次占位文案。"""
+        prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
+        command = random.choice(self.PLACEHOLDER_COMMANDS)
+
+        return f"{prompt}, {command}"
+
+    def token_menu_snapshot(self, buffer) -> TokenMenuSnapshot | None:
+        """返回当前输入 token 菜单快照。"""
+        state = getattr(buffer, "complete_state", None)
+        if state is None or not state.completions:
+            return None
+
+        selected = state.complete_index if state.complete_index is not None else 0
+        return TokenMenuSnapshot(
+            items=tuple(
+                TokenMenuItem(
+                    display_text=completion.display_text,
+                    meta_text=completion.display_meta_text,
+                    kind=self._token_menu_kind(completion),
+                    match_indices=self._token_menu_match_indices(
+                        buffer.document,
+                        completion,
+                    ),
+                )
+                for completion in state.completions
+            ),
+            selected=selected,
+        )
+
+    def set_skills(self, skills: typing.Iterable[SkillSpec]) -> None:
+        """更新输入补全和高亮使用的 skill 快照。"""
+        self.skills = tuple(skills)
+
+    def set_shell_mode(self, active: bool) -> None:
+        """更新输入框的 Shell 前缀模式。"""
+        self.shell_mode = bool(active)
+        self.auto_suggest.shell_mode = self.shell_mode
+        self._shell_mode_undo_transition = None
+
+    def bind_interrupt(self, handler: typing.Callable[[], None]) -> None:
+        """绑定主运行时提供的输入中断处理函数。"""
+        self.interrupt_handler = handler
+
+    def bind_input_layout(self, handler: typing.Callable[[], None]) -> None:
+        """绑定输入内容变化后的当前帧布局刷新动作。"""
+        self._input_layout_handler = handler
+
+    def notify_input_layout(self) -> None:
+        """通知布局层按当前输入和补全状态刷新画面。"""
+        self._input_layout_handler()
+
+    def handle_interrupt(self, buffer) -> None:
+        """优先关闭补全，再把取消操作交给主运行时。"""
+        if (
+            buffer.complete_state is not None
+            or self.completion_menu_completions(buffer.document) is not None
+        ):
+            self.dismiss_completion_menu(buffer)
+            return None
+
+        self.interrupt_handler()
+        self.notify_input_layout()
+
+    def completion_menu_completions(self, document: Document) -> tuple[Completion, ...] | None:
+        """返回当前未被关闭的命令或 skill 菜单项。"""
+        if (
+            self._slash_completion_menu_dismissed(document)
+            or self._skill_completion_menu_dismissed(document)
+            or self._committed_skill_completion_dismissed(document)
+        ):
+            return None
+        return self.completer.menu_completions(document)
+
+    def completion_menu_has_skill_items(self, document: Document) -> bool:
+        """判断当前补全菜单是否包含 skill 候选。"""
+        completions = self.completion_menu_completions(document)
+        return bool(
+            completions
+            and any(completion.text.startswith("$") for completion in completions)
+        )
+
+    def reopen_completion_menu(self, buffer) -> None:
+        """在输入内容变化后允许补全菜单重新显示。"""
+        self._update_committed_skill(buffer.text)
+        token = slash_command_dismissal_token(buffer.document)
+        if token != self._token_menu_state.command_dismissal_token():
+            self._token_menu_state.clear_command_dismissal()
+
+    def confirm_selected_skill(self, buffer) -> None:
+        """确认光标前最后一个已知 skill 查询锚点。"""
+        document = buffer.document
+
+        committed: CommittedTokenQuery | None = None
+
+        for start, end, _name in iter_known_skill_tokens(
+            document.text,
+            skills=self.skills,
+        ):
+            if end > document.cursor_position:
+                break
+            committed = CommittedTokenQuery(
+                start=start,
+                document_text=document.text,
+            )
+
+        self._token_menu_state.set_committed_skill(committed)
+
+    def clear_selected_skill(self) -> None:
+        """清除已确认的 skill 查询状态。"""
+        self._token_menu_state.set_committed_skill(None)
+
+    def dismiss_completion_menu(self, buffer) -> None:
+        """关闭当前补全菜单并保留输入内容。"""
+        document = getattr(buffer, "document", None)
+        if document is not None:
+            slash_token = slash_command_dismissal_token(document)
+            if slash_token is not None and slash_command_query(document) is not None:
+                self._token_menu_state.dismiss_command(slash_token)
+            else:
+                skill_token = self._skill_completion_token(document)
+                if skill_token is not None:
+                    token_start, token = skill_token
+                    self._token_menu_state.dismiss_skill(DismissedToken.capture(
+                        document.text,
+                        token,
+                        token_start,
+                    ))
+        buffer.cancel_completion()
+
+    def select_default_completion(self, buffer) -> None:
+        """让命令或 skill 菜单默认高亮第一个有效候选项。"""
+        state = buffer.complete_state
+        if (
+            state is None
+            or state.complete_index is not None
+            or not state.completions
+            or self.completion_menu_completions(state.original_document) is None
+        ):
+            return None
+
+        if (
+            len(state.completions) == 1
+            and not completion_changes_input(
+                state.original_document,
+                state.completions[0],
+            )
+        ):
+            return None
+
+        state.go_to_index(0)
+
+    def refresh_completion_menu(
+        self,
+        buffer,
+        selected_text: str | None = None
+    ) -> None:
+        """同步刷新补全菜单并尽量保留当前候选项。"""
+        if self.completion_menu_completions(buffer.document) is None:
+            buffer.cancel_completion()
+            return None
+
+        completions = self.completer.matching_completions(buffer.document)
+        if not completions:
+            buffer.cancel_completion()
+            return None
+
+        index = next(
+            (
+                item_index
+                for item_index, completion in enumerate(completions)
+                if completion.text == selected_text
+            ),
+            0,
+        )
+
+        buffer.complete_state = CompletionState(
+            original_document=buffer.document,
+            completions=list(completions),
+            complete_index=index,
+        )
+        buffer.on_completions_changed.fire()
+
+    def refresh_inserted_completion_menu(self, buffer) -> None:
+        """在字符插入后同步刷新可用的补全菜单。"""
+        self.sync_completion_menu(buffer)
+
+    def sync_completion_menu(
+        self,
+        buffer,
+        selected_text: str | None = None
+    ) -> None:
+        """按当前光标位置同步补全菜单。"""
+        if not buffer.completer or not buffer.complete_while_typing():
+            return None
+
+        if selected_text is None:
+            state = getattr(buffer, "complete_state", None)
+
+            selected_text = (
+                state.current_completion.text
+                if state is not None and state.current_completion is not None
+                else None
+            )
+
+        self.refresh_completion_menu(buffer, selected_text)
+
+    def bind_exit(
+        self,
+        can_exit: typing.Callable[[], bool],
+        handler: typing.Callable[[], None]
+    ) -> None:
+        """绑定空输入状态下的直接退出判断和处理函数。"""
+        self.can_exit     = can_exit
+        self.exit_handler = handler
+
+    def bind_queue_rollback(
+        self,
+        can_rollback: typing.Callable[[], bool],
+        handler: typing.Callable[[], bool]
+    ) -> None:
+        """绑定执行期待提交消息的可用状态和撤回处理。"""
+        self.can_rollback_queue     = can_rollback
+        self.rollback_queue_handler = handler
+
+    def bind_queue_submission(
+        self,
+        can_submit: typing.Callable[[], bool],
+        handler: typing.Callable[[typing.Any], None]
+    ) -> None:
+        """绑定执行期使用 Tab 提交待处理消息的可用状态。"""
+        self.can_submit_queue         = can_submit
+        self.queue_submission_handler = handler
+
+    def bind_history_backtrack(
+        self,
+        can_backtrack: typing.Callable[[], bool],
+        handler: typing.Callable[[], None],
+        can_report_missing: typing.Callable[[], bool],
+        missing_handler: typing.Callable[[], None]
+    ) -> None:
+        """绑定空输入状态下的历史编辑入口。"""
+        self.can_backtrack_history        = can_backtrack
+        self.backtrack_history_handler    = handler
+        self.can_report_missing_backtrack = can_report_missing
+        self.missing_backtrack_handler    = missing_handler
+
+    def cancel_history_backtrack(self) -> None:
+        """清除等待第二次 Esc 的历史编辑状态。"""
+        self.history_backtrack_primed = False
+
+    def submission_state(self, text: str | None = None) -> dict[str, str]:
+        """返回当前提交文本关联的折叠粘贴状态。"""
+        if text is not None:
+            active = {
+                placeholder
+                for _start, _end, placeholder in iter_paste_placeholders(text)
+            }
+            return {
+                placeholder: original
+                for placeholder, original in self.paste_store.items()
+                if placeholder in active
+            }
+        return dict(self.paste_store)
+
+    def restore_submission_state(self, state: dict[str, str]) -> None:
+        """恢复被撤回提交文本关联的折叠粘贴状态。"""
+        self.paste_store = dict(state)
+
+    def rollback_submission_history(self, text: str) -> None:
+        """撤销最近一次匹配的输入历史提交。"""
+        self.history.rollback_latest(text)
+
+    def record_submission_history(
+        self,
+        editable_text: str,
+        paste_store: dict[str, str],
+        *,
+        shell_mode: bool
+    ) -> bool:
+        """记录一次提交对应的完整可编辑历史。"""
+        return self.history.append_submission(
+            editable_text,
+            paste_store,
+            shell_mode=shell_mode,
+        )
+
+    def restore_submission(self, text: str) -> str:
+        """还原折叠粘贴内容并清理提交文本。"""
+        restored = text
+        for placeholder, original in sorted(
+            self.paste_store.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
+            restored = restored.replace(placeholder, original, 1)
+        return restored.strip()
+
+    def clear_submission_state(self) -> None:
+        """清理一次提交关联的临时粘贴状态。"""
+        self._clear_paste_state()
+        self.set_shell_mode(False)
+        self._reset_history_navigation()
 
 
 if __name__ == '__main__':

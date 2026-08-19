@@ -37,12 +37,11 @@ from prompt_toolkit.layout import (
 from prompt_toolkit.layout.containers import (
     ConditionalContainer,
     HSplit,
+    ScrollOffsets,
     VerticalAlign,
-    VSplit,
     Window
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.layout.processors import (
     AfterInput,
     ConditionalProcessor
@@ -125,6 +124,11 @@ from .styles import (
     ASSISTANT_PREFIX_CLASS,
     build_tui_application_style,
     exit_summary_fragments
+)
+from .token_menu import (
+    TOKEN_MENU_LEFT_PADDING,
+    TokenCompletionMenuControl,
+    token_menu_display_height,
 )
 from .transcript_overlay import TuiTranscriptOverlay
 
@@ -248,6 +252,7 @@ class ActiveViewLayout(object):
     available_height: int
     top_padding_height: int
     content_height: int
+    bottom_padding_height: int
     footer_height: int
 
     @property
@@ -256,6 +261,7 @@ class ActiveViewLayout(object):
         return (
             self.top_padding_height
             + self.content_height
+            + self.bottom_padding_height
             + self.footer_height
         )
 
@@ -300,6 +306,7 @@ class TuiScreen(object):
 
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
+    COMPLETION_HINT_HEIGHT: typing.Final[int]        = 2
     COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
     CONTENT_SURFACE_GAP_HEIGHT: typing.Final[int]    = 1
     INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int]  = 1
@@ -509,9 +516,10 @@ class TuiScreen(object):
             focus_menu=lambda: self._activate_bottom_surface("menu"),
             focus_input=lambda: self._deactivate_bottom_surface("menu"),
             get_width=lambda: self.terminal_width,
+            view_stack=self.bottom_pane.view_stack,
         )
         self.menu_control = FormattedTextControl(
-            self.menu.fragments,
+            self._menu_view_fragments,
             focusable=True,
             modal=True,
             key_bindings=self.menu.key_bindings,
@@ -697,10 +705,19 @@ class TuiScreen(object):
             wrap_lines=False,
             always_hide_cursor=True,
             dont_extend_height=True,
+            style="class:menu-card",
+            char=" ",
         )
         self.menu_top_padding = Window(
             height=self._menu_top_padding_dimension,
             char=" ",
+            style="class:menu-card",
+            dont_extend_height=True,
+        )
+        self.menu_bottom_padding = Window(
+            height=self._menu_bottom_padding_dimension,
+            char=" ",
+            style="class:menu-card",
             dont_extend_height=True,
         )
         self.process_viewer_window = Window(
@@ -758,6 +775,7 @@ class TuiScreen(object):
                 [
                     self.menu_top_padding,
                     self.menu_window,
+                    self.menu_bottom_padding,
                 ],
                 align=VerticalAlign.TOP,
                 window_too_small=Window(),
@@ -801,21 +819,50 @@ class TuiScreen(object):
             Window(height=self._status_interaction_gap_dimension, char=" "),
             filter=Condition(self._status_interaction_gap_visible),
         )
-        self.completion_menu = CompletionsMenu(
-            max_height=self.COMPLETION_MAX_HEIGHT,
-            scroll_offset=1,
-            extra_filter=Condition(self._native_completion_visible),
+        self.completion_menu = Window(
+            content=TokenCompletionMenuControl(
+                lambda: self.input_model.token_menu_snapshot(
+                    self.input.buffer
+                )
+            ),
+            width=Dimension(min=8),
+            height=Dimension(min=1, max=self.COMPLETION_MAX_HEIGHT),
+            scroll_offsets=ScrollOffsets(top=1, bottom=1),
+            dont_extend_width=True,
+            style="class:token-menu",
+        )
+
+        self.completion_menu_hint_spacer_window = Window(
+            height=Dimension.exact(1),
+            char=" ",
+            style="class:token-menu",
+        )
+        self.completion_menu_hint_spacer = ConditionalContainer(
+            self.completion_menu_hint_spacer_window,
+            filter=Condition(self._completion_hint_visible),
+        )
+
+        self.completion_menu_hint_window = Window(
+            content=FormattedTextControl(self._completion_hint_fragments),
+            height=Dimension.exact(1),
+            dont_extend_width=True,
+            style="class:token-menu",
+        )
+        self.completion_menu_hint = ConditionalContainer(
+            self.completion_menu_hint_window,
+            filter=Condition(self._completion_hint_visible),
         )
 
         self.completion_menu_row = ConditionalContainer(
-            VSplit([
-                Window(
-                    width=Dimension.exact(1),
-                    char=" ",
-                    dont_extend_width=True,
-                ),
-                self.completion_menu,
-            ]),
+            HSplit(
+                [
+                    self.completion_menu,
+                    self.completion_menu_hint_spacer,
+                    self.completion_menu_hint,
+                ],
+                align=VerticalAlign.TOP,
+                window_too_small=Window(),
+            ),
             filter=Condition(self._native_completion_visible),
         )
 
@@ -831,14 +878,7 @@ class TuiScreen(object):
         )
 
         self.completion_fallback_row = ConditionalContainer(
-            VSplit([
-                Window(
-                    width=Dimension.exact(1),
-                    char=" ",
-                    dont_extend_width=True,
-                ),
-                self.completion_fallback_window,
-            ]),
+            self.completion_fallback_window,
             filter=Condition(self._completion_fallback_visible),
         )
 
@@ -1251,15 +1291,20 @@ class TuiScreen(object):
         self,
         active: bool,
         *,
-        entry_key: str = ""
+        entry_key: str = "",
+        allow_menu: bool = False,
     ) -> bool:
         """切换全屏收件箱、终端画面和键盘焦点。"""
         active = bool(active)
         if active == self.mailbox_overlay.active:
             return False
+        menu_only = allow_menu and self.bottom_pane.is_active("menu")
         if active and (
             self.transcript_overlay.active
-            or self._full_screen_overlay_blocked()
+            or (
+                self._full_screen_overlay_blocked()
+                and not menu_only
+            )
         ):
             return False
 
@@ -2566,6 +2611,10 @@ class TuiScreen(object):
         """返回内嵌菜单顶部对齐留白的显示高度。"""
         return Dimension.exact(self._menu_top_padding_height())
 
+    def _menu_bottom_padding_dimension(self) -> Dimension:
+        """返回内嵌菜单底部对齐留白的显示高度。"""
+        return Dimension.exact(self._menu_bottom_padding_height())
+
     def _process_viewer_dimension(self) -> Dimension:
         """返回进程查看器内容当前显示高度。"""
         return Dimension.exact(self._process_viewer_content_height())
@@ -2697,6 +2746,15 @@ class TuiScreen(object):
             )
         )
 
+    def _completion_hint_visible(self) -> bool:
+        """判断 skill 补全是否应显示底部提示行。"""
+        return bool(
+            self._native_completion_visible()
+            and self.input_model.completion_menu_has_skill_items(
+                self.input.buffer.document
+            )
+        )
+
     def _native_completion_visible(self) -> bool:
         """判断原生补全候选列表是否应当显示。"""
         if self._get_surface_submission_pending():
@@ -2718,6 +2776,25 @@ class TuiScreen(object):
             and self._completion_fallback_fragments()
         )
 
+    def _completion_hint_fragments(self) -> PromptFormattedText:
+        """返回 skill 补全使用的底部提示文本。"""
+        if not self._completion_hint_visible():
+            return PromptFormattedText()
+
+        return PromptFormattedText([
+            (
+                "class:token-menu.hint",
+                f"{' ' * TOKEN_MENU_LEFT_PADDING}Press ",
+            ),
+            ("class:token-menu.hint.key", "enter"),
+            (
+                "class:token-menu.hint",
+                " to insert or ",
+            ),
+            ("class:token-menu.hint.key", "esc"),
+            ("class:token-menu.hint", " to close"),
+        ])
+
     def _completion_fallback_fragments(self) -> PromptFormattedText:
         """返回精确命令或空结果状态使用的展示片段。"""
         completions = self.input_model.completion_menu_completions(
@@ -2729,7 +2806,10 @@ class TuiScreen(object):
 
         if not completions:
             return PromptFormattedText([
-                ("class:completion-menu.empty", " no matches"),
+                (
+                    "class:completion-menu.empty",
+                    f"{' ' * TOKEN_MENU_LEFT_PADDING}no matches",
+                ),
             ])
 
         if (
@@ -2746,15 +2826,17 @@ class TuiScreen(object):
 
         command_width = max(
             self.COMPLETION_COLUMN_MIN_WIDTH,
-            display_width + 2,
+            display_width + TOKEN_MENU_LEFT_PADDING + 1,
         )
 
-        command_padding = " " * (command_width - display_width - 1)
+        command_padding = " " * (
+            command_width - display_width - TOKEN_MENU_LEFT_PADDING
+        )
 
         fragments: StyleAndTextTuples = [
             (
                 "class:completion-menu.completion.current",
-                f" {completion.display_text}{command_padding}",
+                f"{' ' * TOKEN_MENU_LEFT_PADDING}{completion.display_text}{command_padding}",
             ),
         ]
 
@@ -2789,7 +2871,11 @@ class TuiScreen(object):
         ))
 
     def _completion_candidate_count(self) -> int:
-        """返回当前已经加载或同步可得的最大候选数量。"""
+        """返回当前已经加载或同步可得的菜单显示行数。"""
+        snapshot = self.input_model.token_menu_snapshot(self.input.buffer)
+        if snapshot is not None:
+            return token_menu_display_height(snapshot, self.terminal_width)
+
         state        = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0
 
@@ -2802,7 +2888,9 @@ class TuiScreen(object):
     def _measure_composer_layout(self, *, available_height: int) -> ComposerLayout:
         """在给定底部面板预算内计算输入区域高度。"""
         minimum_surface_height = self.INPUT_SURFACE_PADDING_HEIGHT * 2 + 1
-        popup_visible          = self._completion_visible()
+
+        popup_visible = self._completion_visible()
+        hint_height   = self._completion_hint_height()
 
         footer_height = int(
             not popup_visible
@@ -2830,8 +2918,8 @@ class TuiScreen(object):
 
         popup_height = (
             min(
-                self.COMPLETION_MAX_HEIGHT,
-                self._completion_candidate_count(),
+                self.COMPLETION_MAX_HEIGHT + hint_height,
+                self._completion_candidate_count() + hint_height,
                 popup_available_height,
             )
             if popup_visible
@@ -2849,6 +2937,10 @@ class TuiScreen(object):
     def _completion_height(self) -> int:
         """计算无边框补全列表占用行数。"""
         return self._composer_layout().popup_height
+
+    def _completion_hint_height(self) -> int:
+        """计算 skill 补全附加提示占用的行数。"""
+        return self.COMPLETION_HINT_HEIGHT if self._completion_hint_visible() else 0
 
     def _completion_section_height(self) -> int:
         """返回补全列表占用高度。"""
@@ -2917,10 +3009,23 @@ class TuiScreen(object):
             else 0
         )
 
+    def _menu_view_fragments(self) -> StyleAndTextTuples:
+        """从底部面板对象栈渲染当前选择 view。"""
+        view = self.bottom_pane.active_view
+        return view.fragments() if view is not None else []
+
     def _menu_top_padding_height(self) -> int:
         """返回菜单表面顶部留白在当前帧中的显示行数。"""
         return (
             self._active_view_layout().top_padding_height
+            if self.bottom_pane.is_active("menu")
+            else 0
+        )
+
+    def _menu_bottom_padding_height(self) -> int:
+        """返回菜单表面底部留白在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().bottom_padding_height
             if self.bottom_pane.is_active("menu")
             else 0
         )
@@ -2969,6 +3074,7 @@ class TuiScreen(object):
             available_height=0,
             top_padding_height=0,
             content_height=0,
+            bottom_padding_height=0,
             footer_height=0,
         )
 
@@ -3085,6 +3191,7 @@ class TuiScreen(object):
         """在给定底部面板预算内计算临时交互表面高度。"""
         top_padding: int    = 0
         content_height: int = 0
+        bottom_padding: int = 0
         footer_height: int  = 0
 
         if surface == "approval":
@@ -3112,12 +3219,19 @@ class TuiScreen(object):
 
         elif surface == "menu":
             top_padding = min(
-                self.INPUT_SURFACE_PADDING_HEIGHT,
-                max(0, available_height - 1),
+                TuiMenu.SURFACE_VERTICAL_INSET,
+                max(0, (available_height - 1) // 2),
             )
+            bottom_padding = top_padding
             content_height = min(
-                self.menu.height(),
-                max(0, available_height - top_padding),
+                (
+                    self.bottom_pane.active_view.desired_height(
+                        self.terminal_width,
+                    )
+                    if self.bottom_pane.active_view is not None
+                    else self.menu.height()
+                ),
+                max(0, available_height - top_padding - bottom_padding),
             )
 
         elif surface == "process_viewer":
@@ -3135,6 +3249,7 @@ class TuiScreen(object):
             available_height,
             top_padding,
             content_height,
+            bottom_padding,
             footer_height,
         )
 

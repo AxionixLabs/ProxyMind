@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from .view import (
+    BottomPaneView,
+    BottomPaneViewStack
+)
 
 BottomSurface: typing.TypeAlias = typing.Literal[
     "approval",
@@ -18,12 +22,17 @@ class TuiBottomPane(object):
         *,
         focus_surface: typing.Callable[[BottomSurface], None],
         focus_input: typing.Callable[[], None],
-        invalidate: typing.Callable[[], None],
+        invalidate: typing.Callable[[], None]
     ) -> None:
         self._focus_surface = focus_surface
-        self._focus_input = focus_input
-        self._invalidate = invalidate
+        self._focus_input   = focus_input
+        self._invalidate    = invalidate
+
         self._stack: list[BottomSurface] = []
+
+        self.view_stack = BottomPaneViewStack(
+            changed=self._view_stack_changed,
+        )
 
     @property
     def active_surface(self) -> BottomSurface | None:
@@ -39,6 +48,13 @@ class TuiBottomPane(object):
     def input_visible(self) -> bool:
         """返回主输入区当前是否可见。"""
         return not self._stack
+
+    @property
+    def active_view(self) -> BottomPaneView | None:
+        """返回当前可见的对象化选择视图。"""
+        if self.active_surface != "menu":
+            return None
+        return self.view_stack.active_view
 
     def is_active(self, surface: BottomSurface) -> bool:
         """返回指定表面是否位于交互栈顶。"""
@@ -66,11 +82,27 @@ class TuiBottomPane(object):
 
     def clear(self) -> None:
         """清空全部临时表面并恢复主输入焦点。"""
-        if not self._stack:
+        had_views = bool(self.view_stack)
+        if not self._stack and not had_views:
             return None
+
+        self.view_stack.clear()
         self._stack.clear()
         self._focus_input()
         self._invalidate()
+
+    def _view_stack_changed(self, active: bool) -> None:
+        """让选择视图栈与 menu 表面的生命周期保持一致。"""
+        if active:
+            if "menu" not in self._stack:
+                self.activate("menu")
+            elif self.active_surface == "menu":
+                self._focus_surface("menu")
+                self._invalidate()
+            else:
+                self._invalidate()
+            return None
+        self.deactivate("menu")
 
 
 if __name__ == '__main__':

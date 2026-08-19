@@ -9,8 +9,10 @@ from mind_app.frontend import (
     ApplicationView
 )
 from ..core.models import (
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from mind_core.provider_config import DEFAULT_REASONING_EFFORT
 from mind_core.config import config_to_preferences
@@ -124,9 +126,18 @@ async def choose_model_effort(
     current = normalize_reasoning_effort(current_effort)
     return await runtime.select_menu(MenuRequest(
         title="Reasoning Effort",
+        view_id="model:effort",
         status=f"current={current}",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
-            MenuOption(value=value, label=label, detail=detail)
+            MenuOption(
+                value=value,
+                label=label,
+                detail=detail,
+                is_current=value == current,
+            )
             for value, label, detail in MODEL_EFFORT_OPTIONS
         ),
         selected=_default_effort_index(current),
@@ -152,13 +163,17 @@ async def choose_provider(
 
     return await runtime.select_menu(MenuRequest(
         title="Provider",
+        view_id="model:provider",
         status=f"current={active or '(none)'}",
-        help_text="Up/Down select · Enter use · Esc/q cancel",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
             MenuOption(
                 value=profile_id,
                 label=str(profile.get("name") or profile_id),
                 detail=_provider_detail(profile),
+                is_current=profile_id == active,
             )
             for profile_id, profile in profiles.items()
             if isinstance(profile, dict)

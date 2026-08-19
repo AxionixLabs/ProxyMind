@@ -26,8 +26,10 @@ from ..adapters.presentation import render_presentation_fragment_block
 from ..core.document import TranscriptBlock
 from ..core.models import (
     FragmentBlock,
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..core.styles import (
     MUTED_STYLE,
@@ -54,8 +56,11 @@ async def choose_history_session(
 
     return await runtime.select_menu(MenuRequest(
         title="Resume conversation",
+        view_id="history:resume",
         status=f"items={len(records)}",
-        help_text="Up/Down select · PgUp/PgDn jump · Enter resume · Esc/q cancel",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
             MenuOption(
                 value=record,
@@ -127,9 +132,10 @@ def _legacy_record_blocks(
 def _missing_transcript_block(session_id: str) -> TranscriptBlock:
     """生成会话内容不可用时的显式占位块。"""
     identifier = str(session_id or "").strip()
-    suffix = f" ({identifier})" if identifier else ""
-    text = f"Earlier transcript content is unavailable{suffix}."
-    block = text_block(text, MUTED_STYLE)
+    suffix     = f" ({identifier})" if identifier else ""
+    text       = f"Earlier transcript content is unavailable{suffix}."
+    block      = text_block(text, MUTED_STYLE)
+
     return TranscriptBlock(
         display_block=block,
         transcript_block=block,

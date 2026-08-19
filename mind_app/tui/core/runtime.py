@@ -6,6 +6,7 @@ import typing
 import asyncio
 import contextlib
 import contextvars
+from collections import deque
 from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,9 +32,12 @@ from mind_app.frontend.contracts import (
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_line
 from .models import (
+    CLOSE_MENU_FOOTER_HINT,
     FragmentBlock,
     MailboxEntry,
     MailboxRunRequest,
+    MenuAction,
+    MenuActionKind,
     MenuRequest,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
@@ -172,6 +176,9 @@ class TuiRuntime(object):
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
         self._background_blocks: list[_DeferredBlock]                 = []
+
+        self._menu_actions: deque[MenuAction] = deque()
+        self._menu_action_scheduled: bool     = False
 
         self._running_process_status_label: str = ""
 
@@ -687,6 +694,121 @@ class TuiRuntime(object):
     def finish_menu(self, value: typing.Any = None) -> None:
         """结束主画布中的菜单或只读面板。"""
         self.screen.menu.finish(value)
+
+    def cancel_menu(self) -> None:
+        """取消主画布中的当前菜单或只读面板。"""
+        self.screen.menu.cancel()
+
+    def push_menu(self, request: MenuRequest) -> None:
+        """在当前菜单上压入子菜单并保留父级状态。"""
+        self.discard_pending_submission()
+        self.screen.menu.push(request)
+
+    def emit_menu_action(
+        self,
+        action: typing.Callable[[], None],
+        *,
+        name: str = "tui menu action",
+        kind: MenuActionKind = MenuActionKind.DOMAIN
+    ) -> bool:
+        """把菜单导航或业务动作排到下一次事件循环。"""
+        if self._closing:
+            return False
+        self._menu_actions.append(MenuAction(
+            action,
+            name=name,
+            session_id=self.screen.menu.active_session_id,
+            kind=kind,
+        ))
+        if not self._menu_action_scheduled:
+            self._menu_action_scheduled = True
+            asyncio.get_running_loop().call_soon(self._drain_menu_actions)
+        return True
+
+    def _drain_menu_actions(self) -> None:
+        """执行当前批次菜单动作并隔离同步异常。"""
+        self._menu_action_scheduled = False
+        if self._closing:
+            self._menu_actions.clear()
+            return None
+        while self._menu_actions:
+            action = self._menu_actions.popleft()
+            if (
+                action.session_id is not None
+                and not self.screen.menu.session_is_active(action.session_id)
+            ):
+                continue
+            try:
+                action.callback()
+            except Exception as error:
+                self._show_menu_action_failure(action, error)
+
+    def _show_menu_action_failure(
+        self,
+        action: MenuAction,
+        error: BaseException
+    ) -> None:
+        """把当前会话中的同步菜单异常转换为失败子面板。"""
+        if (
+            action.session_id is None
+            or not self.screen.menu.session_is_active(action.session_id)
+        ):
+            self._report_runtime_error(action.name, error)
+            return None
+
+        error_type  = type(error).__name__
+        detail      = sanitize_terminal_line(str(error))
+        description = error_type if not detail else f"{error_type}: {detail}"
+
+        title = (
+            "Menu navigation failed"
+            if action.kind is MenuActionKind.NAVIGATION
+            else "Menu action failed"
+        )
+
+        self.push_menu(MenuRequest(
+            title=title,
+            view_id=f"menu:failure:{action.kind.value}",
+            status=sanitize_terminal_line(action.name),
+            body=(f"Failed: {description}"[:280],),
+            help_text="",
+            footer_hint=CLOSE_MENU_FOOTER_HINT,
+        ))
+
+    def replace_active_menu_if_id(
+        self,
+        view_id: str,
+        request: MenuRequest
+    ) -> bool:
+        """仅在栈顶菜单标识匹配时刷新内容。"""
+        return self.screen.menu.replace_active_if_id(view_id, request)
+
+    def replace_present_menu_if_id(
+        self,
+        view_id: str,
+        request: MenuRequest
+    ) -> bool:
+        """刷新栈中仍存在的指定菜单。"""
+        return self.screen.menu.replace_present_if_id(view_id, request)
+
+    def dismiss_menu_by_id(self, view_id: str) -> bool:
+        """按标识取消菜单及其上方子菜单。"""
+        return self.screen.menu.dismiss_view_by_id(view_id)
+
+    def dismiss_menus_by_id(
+        self,
+        view_ids: typing.Iterable[str]
+    ) -> int:
+        """从最浅命中标识开始取消多个菜单层。"""
+        return self.screen.menu.dismiss_views_by_id(view_ids)
+
+    def active_menu_session_id(self) -> int | None:
+        """返回当前菜单会话标识，供领域 action 绑定生命周期。"""
+        return self.screen.menu.active_session_id
+
+    def menu_session_is_active(self, session_id: int) -> bool:
+        """判断菜单会话是否仍可接受异步结果。"""
+        return self.screen.menu.session_is_active(session_id)
 
     def show_directory_trust_error(self, message: str) -> None:
         """显示目录信任状态保存失败信息。"""
@@ -1284,7 +1406,12 @@ class TuiRuntime(object):
             automatic=automatic,
         ))
 
-    async def view_mailbox_entry(self, entry_key: str) -> bool:
+    async def view_mailbox_entry(
+        self,
+        entry_key: str,
+        *,
+        allow_menu: bool = False
+    ) -> bool:
         """冻结原生滚屏并等待单条消息详情关闭。"""
         self.input_model.cancel_history_backtrack()
         self.viewport.pause_scrollback()
@@ -1293,6 +1420,7 @@ class TuiRuntime(object):
             opened = self.screen.set_mailbox_overlay(
                 True,
                 entry_key=entry_key,
+                allow_menu=allow_menu,
             )
         except BaseException:
             self.viewport.schedule_scrollback_flush()
@@ -1613,7 +1741,10 @@ class TuiRuntime(object):
         """停止输入应用和全部动态任务。"""
         self._closing = True
 
-        self._turn_progress_active = False
+        self._menu_actions.clear()
+
+        self._menu_action_scheduled = False
+        self._turn_progress_active  = False
 
         preserve_transcript = self.document.has_conversation
 

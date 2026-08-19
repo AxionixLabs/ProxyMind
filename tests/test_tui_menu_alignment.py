@@ -1,16 +1,23 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from prompt_toolkit.utils import get_cwidth
+from prompt_toolkit.keys import Keys
 
 from mind_app.tui.core.menu import (
     TUI_MENU_STYLE,
     TuiMenu,
 )
-from mind_app.tui.core.models import MenuOption, MenuRequest
+from mind_app.tui.core.models import (
+    MenuDescriptionLayout,
+    MenuOption,
+    MenuRequest,
+    ViewCompletion,
+)
 
 
 @pytest.mark.anyio
@@ -78,8 +85,12 @@ async def test_menu_rows_fit_terminal_width_with_wide_text() -> None:
     await task
 
     assert all(get_cwidth(line) <= width for line in lines)
-    assert "…" in lines[2]
-    separators = [get_cwidth(line.split(" · ", 1)[0]) for line in lines[2:]]
+    option_lines = [line for line in lines if line.startswith("    ")]
+    assert "…" in option_lines[0]
+    separators = [
+        get_cwidth(line.split(" · ", 1)[0])
+        for line in option_lines
+    ]
     assert len(set(separators)) == 1
 
 
@@ -117,8 +128,8 @@ async def test_skills_and_resume_details_share_adaptive_terminal_width() -> None
     narrow = [await option_width(request, 48) for request in requests]
     wide = [await option_width(request, 96) for request in requests]
 
-    assert narrow == [48, 48]
-    assert wide == [96, 96]
+    assert narrow == [46, 46]
+    assert wide == [94, 94]
 
 
 @pytest.mark.anyio
@@ -229,10 +240,11 @@ async def test_menu_normalizes_external_fields_to_single_rows() -> None:
     await task
 
     assert text.splitlines() == [
-        "Remote title · listener active",
-        "Enter to view",
-        "  first second",
-        "  › 1. Summary continued · call 1",
+        "  Remote title",
+        "  listener active",
+        "  Enter to view",
+        "    first second",
+        "    › 1. Summary continued · call 1",
     ]
 
 
@@ -292,6 +304,756 @@ async def test_menu_height_caps_visible_options_at_eight_rows() -> None:
 
     menu.finish(None)
     await task
+
+
+@pytest.mark.anyio
+async def test_menu_stack_keeps_parent_until_child_finishes() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    child_future = []
+
+    def open_child() -> None:
+        child_future.append(menu.push(MenuRequest(
+            title="Child",
+            options=(MenuOption("done", "Done"),),
+        )))
+
+    root_task = asyncio.create_task(menu.request(MenuRequest(
+        title="Root",
+        options=(MenuOption(
+            "open",
+            "Open",
+            on_select=open_child,
+            dismiss_on_select=False,
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    root_state = menu.state
+    menu._choose_index(0)
+
+    assert menu.state is not None
+    assert menu.state.request.title == "Child"
+    child_state = menu.state
+    assert not root_task.done()
+    assert len(child_future) == 1
+
+    menu.finish("child")
+    assert await child_future[0] == "child"
+    assert child_state.completion is ViewCompletion.ACCEPTED
+    assert child_state.result == "child"
+    assert menu.state is not None
+    assert menu.state.request.title == "Root"
+
+    menu.finish("root")
+    assert root_state is not None
+    assert root_state.completion is ViewCompletion.ACCEPTED
+    assert root_state.result == "root"
+    assert await root_task == "root"
+
+
+@pytest.mark.anyio
+async def test_menu_child_accept_can_dismiss_marked_parent() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+
+    def open_child() -> None:
+        menu.push(MenuRequest(
+            title="Child",
+            options=(MenuOption("done", "Done"),),
+        ))
+
+    root_task = asyncio.create_task(menu.request(MenuRequest(
+        title="Root",
+        options=(MenuOption(
+            "open",
+            "Open",
+            on_select=open_child,
+            dismiss_on_select=False,
+            dismiss_parent_on_child_accept=True,
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    root_state = menu.state
+    menu._choose_index(0)
+    assert menu.state is not None
+    assert menu.state.request.title == "Child"
+    child_state = menu.state
+
+    menu.finish("done")
+
+    assert not menu.active
+    assert root_state is not None
+    assert root_state.completion is ViewCompletion.ACCEPTED
+    assert child_state.completion is ViewCompletion.ACCEPTED
+    assert await root_task == "done"
+
+
+@pytest.mark.anyio
+async def test_menu_bulk_dismiss_returns_zero_when_no_view_id_matches() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Root",
+        view_id="root",
+        options=(MenuOption("root", "Root"),),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.dismiss_views_by_id(("missing", "")) == 0
+    assert menu.active
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_child_cancel_clears_parent_completion_marker() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+
+    def open_child() -> None:
+        menu.push(MenuRequest(
+            title="Child",
+            options=(MenuOption("done", "Done"),),
+        ))
+
+    root_task = asyncio.create_task(menu.request(MenuRequest(
+        title="Root",
+        options=(MenuOption(
+            "open",
+            "Open",
+            on_select=open_child,
+            dismiss_on_select=False,
+            dismiss_parent_on_child_accept=True,
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    root_state = menu.state
+    menu._choose_index(0)
+    child_state = menu.state
+    menu.cancel()
+
+    assert child_state is not None
+    assert child_state.completion is ViewCompletion.CANCELLED
+    assert root_state is not None
+    assert not root_state.dismiss_after_child_accept
+    assert menu.state is root_state
+
+    menu.cancel()
+    assert root_state.completion is ViewCompletion.CANCELLED
+    assert await root_task is None
+
+
+@pytest.mark.anyio
+async def test_menu_close_cancels_every_pending_frame() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+
+    def open_child() -> None:
+        menu.push(MenuRequest(
+            title="Child",
+            options=(MenuOption("done", "Done"),),
+        ))
+
+    root_task = asyncio.create_task(menu.request(MenuRequest(
+        title="Root",
+        options=(MenuOption(
+            "open",
+            "Open",
+            on_select=open_child,
+            dismiss_on_select=False,
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    root_state = menu.state
+    menu._choose_index(0)
+    child_state = menu.state
+    await menu.close()
+
+    assert root_state is not None
+    assert root_state.completion is ViewCompletion.CANCELLED
+    assert child_state is not None
+    assert child_state.completion is ViewCompletion.CANCELLED
+    assert not menu.active
+    assert await root_task is None
+
+
+@pytest.mark.anyio
+async def test_menu_callback_push_does_not_complete_new_child_frame() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+
+    def open_child() -> None:
+        menu.push(MenuRequest(
+            title="Child",
+            options=(MenuOption("done", "Done"),),
+        ))
+
+    root_task = asyncio.create_task(menu.request(MenuRequest(
+        title="Root",
+        options=(MenuOption(
+            "open",
+            "Open",
+            on_select=open_child,
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    root_state = menu.state
+    menu._choose_index(0)
+
+    assert root_state is not None
+    assert root_state.completion is None
+    assert menu.state is not None
+    assert menu.state.request.title == "Child"
+    assert not root_task.done()
+
+    menu.cancel()
+    menu.cancel()
+    assert await root_task is None
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_uses_filtered_absolute_indices() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        options=(
+            MenuOption("one", "Alpha"),
+            MenuOption("two", "Beta"),
+            MenuOption("three", "Alphabet"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    menu._update_query("alp")
+    _start, options = menu._visible_options(menu.state)
+    assert [option.value for option in options] == ["one", "three"]
+    assert menu.state is not None
+    assert menu.state.selected == 0
+
+    menu._choose_index(2)
+    assert await task == "three"
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_ctrl_w_removes_previous_query_word() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        options=(MenuOption("one", "Alpha"),),
+    )))
+    await asyncio.sleep(0)
+
+    menu._update_query("alpha beta  ")
+    ctrl_w = next(
+        binding.handler
+        for binding in menu.key_bindings.bindings
+        if binding.keys == (Keys.ControlW,)
+    )
+    ctrl_w(None)
+
+    assert menu.state is not None
+    assert menu.state.query == "alpha"
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_treats_number_keys_as_query_text() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        options=(MenuOption("one", "Item 1"),),
+    )))
+    await asyncio.sleep(0)
+
+    number = next(
+        binding.handler
+        for binding in menu.key_bindings.bindings
+        if binding.keys == ("1",)
+    )
+    number(SimpleNamespace(data="1"))
+
+    assert menu.state is not None
+    assert menu.state.query == "1"
+    assert not task.done()
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_footer_wraps_and_contributes_to_desired_height() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 24,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        footer_note="A long note that wraps",
+        footer_hint="Press enter to confirm or esc to go back",
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    text = _fragments_text(menu.fragments())
+    lines = text.splitlines()
+
+    assert "    A long note that w" in lines
+    assert lines[-2:] == [
+        "    firm or esc to go ",
+        "    back",
+    ]
+    assert all(get_cwidth(line) <= 24 for line in lines)
+    assert menu.height() == len(lines)
+
+    menu.cancel()
+    await task
+
+
+@pytest.mark.anyio
+async def test_menu_footer_hint_is_hidden_when_cancellation_is_disabled() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        footer_note="Status",
+        footer_hint="Press enter to confirm or esc to go back",
+        allow_cancel=False,
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    text = _fragments_text(menu.fragments())
+    assert "Status" in text
+    assert "Press enter" not in text
+    assert menu.height() == 5
+
+    menu.cancel()
+    await task
+
+
+@pytest.mark.anyio
+async def test_menu_can_replace_legacy_help_row_with_footer_only() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        help_text="",
+        footer_hint="Press enter to confirm or esc to go back",
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    lines = _fragments_text(menu.fragments()).splitlines()
+
+    assert lines == [
+        "  Options",
+        "    › 1. One",
+        "  ",
+        "    Press enter to confirm or esc to go back",
+    ]
+    assert menu.height() == 4
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_ignores_cancel_key_when_cancellation_is_disabled() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Required choice",
+        allow_cancel=False,
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    handled = menu.handle_key_event(SimpleNamespace(
+        key=Keys.Escape,
+        key_sequence=(),
+        data="",
+    ))
+
+    assert handled is False
+    assert not task.done()
+    menu.finish("one")
+    assert await task == "one"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("width", "stacked"),
+    ((40, True), (60, False), (100, False)),
+)
+async def test_menu_stacks_descriptions_only_when_declared_and_narrow(
+    width: int,
+    stacked: bool,
+) -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: width,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Key bindings",
+        description_layout=(
+            MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+        ),
+        options=(MenuOption(
+            "binding",
+            "Configure key binding",
+            "设置一个较长的快捷键说明，并确保窄终端中的内容不会越界。",
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    lines = _fragments_text(menu.fragments()).splitlines()
+    option_lines = lines[2:]
+
+    assert (len(option_lines) > 1) is stacked
+    assert all(get_cwidth(line) <= width for line in lines)
+    assert menu.height() == len(lines)
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_default_menu_description_layout_remains_single_line() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 40,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Commands",
+        options=(MenuOption(
+            "command",
+            "Configure key binding",
+            "A description that would stack in the opt-in layout.",
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    assert len(_fragments_text(menu.fragments()).splitlines()[2:]) == 1
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_bracketed_paste_is_single_line_query() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        options=(MenuOption("one", "Alpha"),),
+    )))
+    await asyncio.sleep(0)
+
+    paste = next(
+        binding.handler
+        for binding in menu.key_bindings.bindings
+        if binding.keys == (Keys.BracketedPaste,)
+    )
+    paste(SimpleNamespace(data="alpha\nbeta"))
+
+    assert menu.state is not None
+    assert menu.state.query == "alpha beta"
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_dims_placeholder_but_not_query() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        search_placeholder="Type to filter",
+        options=(MenuOption("one", "Alpha"),),
+    )))
+    await asyncio.sleep(0)
+
+    assert (
+        "class:tui-menu.search.placeholder",
+        "Type to filter",
+    ) in menu.fragments()
+
+    menu._update_query("alpha")
+    assert ("class:tui-menu.search", "alpha") in menu.fragments()
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_current_and_selected_detail_are_rendered_for_active_option() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Model",
+        options=(MenuOption(
+            "model",
+            "gpt",
+            "available",
+            selected_detail="selected",
+            is_current=True,
+        ),),
+    )))
+    await asyncio.sleep(0)
+
+    text = _fragments_text(menu.fragments())
+    menu.cancel()
+    await task
+
+    assert "selected (current)" in text
+    assert "available" not in text
+
+
+@pytest.mark.anyio
+async def test_menu_initial_selection_prefers_current_then_default() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Model",
+        selected=1,
+        options=(
+            MenuOption("default", "Default", is_default=True),
+            MenuOption("requested", "Requested"),
+            MenuOption("current", "Current", is_current=True),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    assert menu.state.selected == 2
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_refresh_preserves_selected_option_by_value() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Refresh",
+        view_id="refresh",
+        options=(
+            MenuOption("one", "One"),
+            MenuOption("two", "Two"),
+            MenuOption("three", "Three"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    menu._move(1)
+    assert menu.state is not None
+    assert menu.state.request.options[menu.state.selected].value == "two"
+
+    assert menu.replace_present_if_id(
+        "refresh",
+        MenuRequest(
+            title="Refresh",
+            view_id="refresh",
+            options=(
+                MenuOption("three", "Three"),
+                MenuOption("two", "Two"),
+                MenuOption("one", "One"),
+            ),
+        ),
+    )
+    assert menu.state is not None
+    assert menu.state.selected == 1
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_view_generation_is_monotonic_across_refreshes() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Generation",
+        view_id="generation",
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    assert menu.state.request.generation == 1
+    assert menu.replace_present_if_id(
+        "generation",
+        MenuRequest(
+            title="Generation",
+            view_id="generation",
+            options=(MenuOption("one", "One"),),
+        ),
+    )
+    assert menu.state is not None
+    assert menu.state.request.generation == 2
+    assert not menu.replace_present_if_id(
+        "generation",
+        MenuRequest(
+            title="Stale",
+            view_id="generation",
+            generation=1,
+            options=(MenuOption("one", "One"),),
+        ),
+    )
+    assert menu.state.request.title == "Generation"
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_all_disabled_menu_enter_cancels_without_accepting() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Unavailable",
+        options=(
+            MenuOption("one", "One", disabled=True, disabled_reason="Busy"),
+            MenuOption("two", "Two", disabled=True, disabled_reason="Busy"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    text = _fragments_text(menu.fragments())
+    enter = next(
+        binding.handler
+        for binding in menu.key_bindings.bindings
+        if binding.keys == (Keys.ControlM,)
+    )
+    enter(None)
+
+    assert "›" not in text
+    assert await task is None
+    assert menu.state is None
+
+
+@pytest.mark.anyio
+async def test_number_key_chooses_nth_enabled_filtered_option() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        options=(
+            MenuOption("disabled", "Disabled", disabled=True),
+            MenuOption("one", "One"),
+            MenuOption("two", "Two"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    choose_first = next(
+        binding.handler
+        for binding in menu.key_bindings.bindings
+        if binding.keys == ("1",)
+    )
+    choose_first(None)
+
+    assert await task == "one"
 
 
 def _fragments_text(parts) -> str:

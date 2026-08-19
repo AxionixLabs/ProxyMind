@@ -17,8 +17,10 @@ from mind_app.frontend import (
     ApplicationView
 )
 from ..core.models import (
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..core.styles import (
     MUTED_STYLE,
@@ -42,9 +44,18 @@ async def choose_permissions_mode(
     """在主 TUI 中选择权限模式。"""
     selected = await runtime.select_menu(MenuRequest(
         title="Permissions",
+        view_id="permissions:root",
         status=f"current={permission_label(current)}",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
-            MenuOption(value=value, label=label, detail=detail)
+            MenuOption(
+                value=value,
+                label=label,
+                detail=detail,
+                is_current=value == current.preset,
+            )
             for value, label, detail in PERMISSION_OPTIONS
         ),
         selected=next(

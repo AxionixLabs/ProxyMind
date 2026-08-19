@@ -171,6 +171,87 @@ def is_first_input_line(document) -> bool:
     return document.cursor_position_row == 0
 
 
+@dataclass(frozen=True, slots=True)
+class SlashCommandQuery(object):
+    """记录斜杠命令补全查询。"""
+    token: str
+    start_position: int
+
+
+def _slash_command_bounds(document) -> tuple[str, int, int, int] | None:
+    """返回首行斜杠命令 token 的边界。"""
+    token = _slash_command_token(document)
+    if token is None or not is_first_input_line(document):
+        return None
+
+    first_line, slash_start, token_end = token
+
+    cursor = document.cursor_position
+    if cursor < slash_start:
+        return None
+
+    if cursor > token_end:
+        return None
+
+    return first_line, slash_start, token_end, cursor
+
+
+def _slash_command_token(document) -> tuple[str, int, int] | None:
+    """返回首行斜杠命令 token。"""
+    text = document.text
+
+    first_line_end = text.find("\n")
+    if first_line_end < 0:
+        first_line_end = len(text)
+
+    first_line = text[:first_line_end]
+    stripped   = first_line.lstrip()
+
+    slash_start = len(first_line) - len(stripped)
+    if not stripped.startswith("/"):
+        return None
+
+    token_end = next(
+        (
+            index
+            for index, char in enumerate(
+                first_line[slash_start:],
+                start=slash_start,
+            )
+            if char.isspace()
+        ),
+        len(first_line),
+    )
+    return first_line, slash_start, token_end
+
+
+def slash_command_query(document) -> SlashCommandQuery | None:
+    """返回当前首行斜杠命令补全查询。"""
+    bounds = _slash_command_bounds(document)
+    if bounds is None:
+        return None
+
+    first_line, slash_start, token_end, cursor = bounds
+
+    query_end = token_end if cursor <= slash_start + 1 else cursor
+
+    return SlashCommandQuery(
+        token=first_line[slash_start:query_end],
+        start_position=slash_start - cursor,
+    )
+
+
+def slash_command_dismissal_token(document) -> str | None:
+    """返回用于保持关闭状态的斜杠命令 token。"""
+    token = _slash_command_token(document)
+    if token is None:
+        return None
+
+    first_line, slash_start, token_end = token
+
+    return first_line[slash_start:token_end]
+
+
 def command_spec(key: str) -> TuiCommandSpec:
     """返回指定标识对应的命令描述。"""
     return _COMMAND_BY_KEY[key]
@@ -330,18 +411,18 @@ def _completion_items() -> tuple[dict[str, str], ...]:
 
     for command in TUI_COMMANDS:
         item = {
-            "text"    : command.insertion_text,
-            "display" : command.command,
-            "meta"    : command.completion_meta
+            "text": command.insertion_text,
+            "display": command.command,
+            "meta": command.completion_meta
         }
 
         items.append(item)
 
         items.extend(
             {
-                "text"    : alias,
-                "display" : alias,
-                "meta"    : command.completion_meta
+                "text": alias,
+                "display": alias,
+                "meta": command.completion_meta
             }
             for alias in command.aliases
             if alias.startswith("/")
@@ -361,7 +442,7 @@ class SlashCommandCompleter(Completer):
 
     def __init__(
         self,
-        skills: typing.Callable[[], tuple[SkillSpec, ...]] | None = None,
+        skills: typing.Callable[[], tuple[SkillSpec, ...]] | None = None
     ) -> None:
         self._skills = skills or (lambda: ())
 
@@ -384,44 +465,27 @@ class SlashCommandCompleter(Completer):
             if completion_changes_input(document, completion)
         )
 
-    def menu_completions(
-        self,
-        document
-    ) -> tuple[Completion, ...] | None:
+    def menu_completions(self, document) -> tuple[Completion, ...] | None:
         """返回当前命令或 skill 查询的全部菜单项。"""
         completions = self.skill_completions(document)
         if completions is not None:
             return completions
         return self.slash_completions(document)
 
-    def skill_completions(
-        self,
-        document
-    ) -> tuple[Completion, ...] | None:
+    def skill_completions(self, document) -> tuple[Completion, ...] | None:
         """返回 skill 查询阶段的全部匹配项。"""
         text = document.text_before_cursor
         if skill_query_token(text) is None:
             return None
         return tuple(skill_completions(text, self._skills()))
 
-    def slash_completions(
-        self,
-        document
-    ) -> tuple[Completion, ...] | None:
+    def slash_completions(self, document) -> tuple[Completion, ...] | None:
         """返回命令名输入阶段的全部斜杠命令匹配项。"""
-        if not is_first_input_line(document):
+        query = slash_command_query(document)
+        if query is None:
             return None
 
-        text     = document.text_before_cursor
-        stripped = text.lstrip()
-
-        if not stripped.startswith("/"):
-            return None
-
-        token = stripped.splitlines()[-1]
-        if " " in token:
-            return None
-
+        token = query.token
         if token == "/":
             candidates = [
                 item for item in self.COMMANDS if item["display"] in self.TOP_LEVEL
@@ -446,7 +510,7 @@ class SlashCommandCompleter(Completer):
         return tuple(
             Completion(
                 item["text"],
-                start_position=-len(token),
+                start_position=query.start_position,
                 display=item["display"],
                 display_meta=item["meta"]
             )
@@ -456,6 +520,12 @@ class SlashCommandCompleter(Completer):
 
 def completion_changes_input(document, completion: Completion) -> bool:
     """判断补全项是否会改写光标前的匹配文本。"""
+    if slash_command_query(document) is not None:
+        cursor = document.cursor_position
+        start  = cursor + completion.start_position
+
+        return document.text[:start] + completion.text != document.text
+
     before = document.text_before_cursor
     start  = len(before) + completion.start_position
 

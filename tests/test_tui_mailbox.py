@@ -9,7 +9,12 @@ import pytest
 from mind_app.interaction.contracts import PromptContext
 from mind_app.subscription.forwarding import AgentInbox
 from mind_app.subscription.models import AgentForwardRequest
-from mind_app.tui.core.models import FragmentBlock, MailboxRunRequest
+from mind_app.tui.core.models import (
+    FragmentBlock,
+    MailboxRunRequest,
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.submission import TuiMailboxRunRequested
@@ -105,20 +110,29 @@ async def test_mailbox_summary_keeps_policy_and_transport_in_title_line() -> Non
         _request("1", "first line", summary="Inspect workspace"),
         _request("2", "run tests"),
     ))
-    runtime.select_menu = AsyncMock(return_value=None)
-
-    await feature.open()
-
-    request = runtime.select_menu.await_args.args[0]
+    task = asyncio.create_task(feature.open())
+    await _wait_for_menu(runtime, "Mailbox")
+    state = runtime.screen.menu.state
+    assert state is not None
+    request = state.request
     assert request.title == "Mailbox"
     assert request.status == "2 pending · auto=off · listening"
     assert request.body == ()
     assert request.selected == 1
+    assert request.view_id == "mailbox:summary"
+    assert request.help_text == ""
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
     assert [option.label for option in request.options] == [
         "Auto-run: off",
         "Inspect workspace",
         "run tests",
     ]
+    runtime.cancel_menu()
+    await task
 
 
 @pytest.mark.anyio
@@ -126,24 +140,30 @@ async def test_mailbox_message_detail_returns_to_actions_then_queues_run() -> No
     feature, runtime, _views = _feature(_Listener(
         _request("1", "inspect workspace", summary="Inspect"),
     ))
-    runtime.select_menu = AsyncMock(side_effect=[
-        ("message", "1"),
-        "detail",
-        "run",
-    ])
-    runtime.view_mailbox_entry = AsyncMock(return_value=True)
-
-    await feature.open()
-
-    runtime.view_mailbox_entry.assert_awaited_once_with("1")
-    requests = [call.args[0] for call in runtime.select_menu.await_args_list]
-    assert requests[1].title == "Mailbox Message"
-    assert requests[1].status == "Inspect"
-    assert [option.label for option in requests[1].options] == [
+    task = asyncio.create_task(feature.open())
+    await _wait_for_menu(runtime, "Mailbox")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_menu(runtime, "Mailbox Message")
+    state = runtime.screen.menu.state
+    assert state is not None
+    assert state.request.status == "Inspect"
+    assert [option.label for option in state.request.options] == [
         "Run",
         "Delete",
         "Detail",
     ]
+    runtime.screen.menu._choose_index(2)
+    for _ in range(100):
+        if runtime.screen.mailbox_overlay.active:
+            break
+        await asyncio.sleep(0)
+    assert runtime.screen.mailbox_overlay.active
+    runtime.close_mailbox_overlay()
+    await _wait_for_menu(runtime, "Mailbox Message")
+    assert runtime.screen.menu.state is not None
+    assert runtime.screen.menu.state.request.title == "Mailbox Message"
+    runtime.screen.menu._choose_index(0)
+    await task
     queued = await runtime.submissions.read_submission()
     assert queued == MailboxRunRequest("1", automatic=False)
 
@@ -157,10 +177,10 @@ async def test_mailbox_real_menu_detail_returns_to_same_application() -> None:
 
     task = asyncio.create_task(feature.open())
     await _wait_for_menu(runtime, "Mailbox")
-    runtime.finish_menu(("message", "1"))
+    runtime.screen.menu._choose_index(1)
 
     await _wait_for_menu(runtime, "Mailbox Message")
-    runtime.finish_menu("detail")
+    runtime.screen.menu._choose_index(2)
     for _ in range(100):
         if runtime.screen.mailbox_overlay.active:
             break
@@ -172,7 +192,7 @@ async def test_mailbox_real_menu_detail_returns_to_same_application() -> None:
 
     runtime.close_mailbox_overlay()
     await _wait_for_menu(runtime, "Mailbox Message")
-    runtime.finish_menu("run")
+    runtime.screen.menu._choose_index(0)
     await task
 
     assert not runtime.screen.mailbox_overlay.active
@@ -187,12 +207,12 @@ async def test_mailbox_real_menu_detail_returns_to_same_application() -> None:
 async def test_mailbox_delete_cancels_and_removes_summary() -> None:
     listener = _Listener(_request("1", "inspect workspace"))
     feature, runtime, views = _feature(listener)
-    runtime.select_menu = AsyncMock(side_effect=[
-        ("message", "1"),
-        "delete",
-    ])
-
-    await feature.open()
+    task = asyncio.create_task(feature.open())
+    await _wait_for_menu(runtime, "Mailbox")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_menu(runtime, "Mailbox Message")
+    runtime.screen.menu._choose_index(1)
+    await task
 
     assert listener.inbox.items == []
     assert runtime.mailbox_entries() == ()
@@ -226,12 +246,12 @@ async def test_mailbox_manual_run_does_not_duplicate_queued_auto_run() -> None:
     listener = _Listener(_request("1", "first"))
     feature, runtime, _views = _feature(listener)
     feature.set_auto_run(True)
-    runtime.select_menu = AsyncMock(side_effect=[
-        ("message", "1"),
-        "run",
-    ])
-
-    await feature.open()
+    task = asyncio.create_task(feature.open())
+    await _wait_for_menu(runtime, "Mailbox")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_menu(runtime, "Mailbox Message")
+    runtime.screen.menu._choose_index(0)
+    await task
 
     request = await runtime.submissions.read_submission()
     assert request == MailboxRunRequest("1", automatic=True)
@@ -242,12 +262,12 @@ async def test_mailbox_manual_run_does_not_duplicate_queued_auto_run() -> None:
 async def test_mailbox_auto_does_not_duplicate_queued_manual_run() -> None:
     listener = _Listener(_request("1", "first"))
     feature, runtime, _views = _feature(listener)
-    runtime.select_menu = AsyncMock(side_effect=[
-        ("message", "1"),
-        "run",
-    ])
-
-    await feature.open()
+    task = asyncio.create_task(feature.open())
+    await _wait_for_menu(runtime, "Mailbox")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_menu(runtime, "Mailbox Message")
+    runtime.screen.menu._choose_index(0)
+    await task
     feature.set_auto_run(True)
 
     request = await runtime.submissions.read_submission()
@@ -353,9 +373,10 @@ async def test_mailbox_run_request_is_not_staged_as_visible_input() -> None:
 async def test_mailbox_auto_toggle_is_process_local_and_visible() -> None:
     listener = _Listener(ready=False)
     feature, runtime, views = _feature(listener)
-    runtime.select_menu = AsyncMock(return_value=("auto", True))
-
-    await feature.open()
+    task = asyncio.create_task(feature.open())
+    await _wait_for_menu(runtime, "Mailbox")
+    runtime.screen.menu._choose_index(0)
+    await task
 
     assert feature.auto_run
     assert listener.receipt_disposition_resolver() == "auto_run"

@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from engine.errors import AppError
+from mind_app.tui.core.models import (
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import mcp
 
@@ -52,6 +56,13 @@ async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch
         "status",
     ]
     assert runtime.request.selected == 4
+    assert runtime.request.view_id == "mcp:root"
+    assert runtime.request.help_text == ""
+    assert runtime.request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        runtime.request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
     assert "enabled=false" in runtime.request.options[1].detail
     assert "stdio" in runtime.request.options[2].detail
 

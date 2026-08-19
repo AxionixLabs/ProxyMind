@@ -138,7 +138,7 @@ async def test_active_view_replaces_status_exec_and_queue() -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("rows", "option_count", "expected_content_height"),
-    ((8, 2, 4), (8, 12, 6), (12, 12, 10)),
+    ((8, 2, 4), (8, 12, 5), (12, 12, 9)),
 )
 async def test_menu_active_view_shrinks_to_current_terminal_budget(
     monkeypatch: pytest.MonkeyPatch,
@@ -166,6 +166,7 @@ async def test_menu_active_view_shrinks_to_current_terminal_budget(
     assert layout.surface == "menu"
     assert layout.available_height == rows - 1
     assert layout.top_padding_height == 1
+    assert layout.bottom_padding_height == 1
     assert layout.content_height == expected_content_height
     assert layout.total_height <= layout.available_height
 
@@ -214,6 +215,53 @@ async def test_approval_temporarily_replaces_menu_surface() -> None:
     assert await menu_task is None
     assert runtime.screen.bottom_pane.active_surface is None
     assert runtime.screen.input_area.filter()
+
+
+@pytest.mark.anyio
+async def test_object_view_stack_restores_exact_parent_after_overlay() -> None:
+    runtime = TuiRuntime()
+    root_task = asyncio.create_task(runtime.select_menu(MenuRequest(
+        title="Root",
+        options=(MenuOption("open", "Open"),),
+        view_id="root",
+    )))
+    await asyncio.sleep(0)
+
+    root_view = runtime.screen.bottom_pane.active_view
+    runtime.push_menu(MenuRequest(
+        title="Child",
+        options=(MenuOption("done", "Done"),),
+        view_id="child",
+    ))
+    child_view = runtime.screen.bottom_pane.active_view
+
+    assert root_view is not None
+    assert child_view is not None
+    assert child_view is not root_view
+    assert child_view.view_id() == "child"
+    assert len(runtime.screen.bottom_pane.view_stack) == 2
+
+    approval_task = asyncio.create_task(runtime.request_approval({
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "show_timer": False,
+    }))
+    await asyncio.sleep(0)
+
+    assert runtime.screen.bottom_pane.active_surface == "approval"
+    assert runtime.screen.bottom_pane.active_view is None
+
+    runtime.screen.approval.finish("decline")
+    assert await approval_task == "decline"
+    assert runtime.screen.bottom_pane.active_view is child_view
+
+    runtime.cancel_menu()
+    assert runtime.screen.bottom_pane.active_view is root_view
+
+    runtime.cancel_menu()
+    assert await root_task is None
+    assert runtime.screen.bottom_pane.active_view is None
+    assert len(runtime.screen.bottom_pane.view_stack) == 0
 
 
 @pytest.mark.anyio

@@ -12,10 +12,14 @@ from mind_core.mcp_status import (
 )
 from ..core.mailbox import format_mailbox_count
 from ..core.models import (
+    CLOSE_MENU_FOOTER_HINT,
     MailboxEntry,
     MailboxRunRequest,
+    MenuActionKind,
+    MenuDescriptionLayout,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
 )
 from ..core.runtime import TuiRuntime
 
@@ -32,6 +36,11 @@ class PreparedMailboxRun(object):
     prompt: str
 
 
+_DETAIL_ACTION = "detail"
+_RUN_ACTION    = "run"
+_DELETE_ACTION = "delete"
+
+
 class TuiMailboxFeature(object):
     """协调进程内收件箱菜单、自动消费和主循环执行请求。"""
 
@@ -46,175 +55,119 @@ class TuiMailboxFeature(object):
         self._automatic_message_id: str    = ""
         self._manual_message_ids: set[str] = set()
 
-    def bind_listener(self) -> None:
-        """绑定当前监听器，并将内存消息同步到 TUI 快照。"""
-        listener = getattr(self.controller, "subscription_runtime", None)
-        if listener is self._listener:
-            self._refresh()
-            return None
-
-        previous = self._listener
-        self._listener = listener
-        if previous is not None:
-            previous.bind_inbox_changed(None)
-            previous.bind_receipt_disposition(None)
-
-        if listener is None:
-            self.runtime.set_mailbox_entries((), listener_active=False)
-            return None
-
-        listener.bind_receipt_disposition(self._receipt_disposition)
-        listener.bind_inbox_changed(self._refresh)
-
-    async def open(self) -> None:
-        """打开消息摘要，并按选择进入单条消息操作。"""
-        self.bind_listener()
-        while True:
-            selected = await self.runtime.select_menu(self._summary_menu())
-            if selected is None:
-                return None
-
-            kind, value = selected
-            if kind == "auto":
-                self.set_auto_run(bool(value))
-                render_mailbox_auto_status(self.controller, self.auto_run)
-                return None
-
-            if kind == "message":
-                completed = await self._open_message(str(value))
-                if completed:
-                    return None
-
-    def set_auto_run(self, enabled: bool) -> None:
-        """切换当前 TUI 会话的自动运行策略。"""
-        self.auto_run = bool(enabled)
-        self._refresh()
-
-    def _receipt_disposition(self) -> typing.Literal["queued", "auto_run"]:
-        """把会话级自动运行策略映射为收件回执意图。"""
-        return "auto_run" if self.auto_run else "queued"
-
-    def prepare_run(
-        self,
-        request: MailboxRunRequest
-    ) -> PreparedMailboxRun | None:
-        """校验一条主循环执行请求，并返回稳定执行参数。"""
-        if request.automatic:
-            if not self._automatic_message_id:
-                self._automatic_message_id = request.message_id
-        else:
-            self._manual_message_ids.add(request.message_id)
-
-        self.bind_listener()
-        listener = self._listener
-
-        if request.automatic and not self.auto_run:
-            return None
-        if listener is None:
-            if not request.automatic:
-                render_mailbox_failure(
-                    self.controller,
-                    "Mailbox run failed",
-                    RuntimeError("listener is not running"),
-                )
-            return None
-
-        item = listener.inbox.find(request.message_id)
-        if item is None or item.status != "pending":
-            if not request.automatic:
-                render_mailbox_failure(
-                    self.controller,
-                    "Mailbox run failed",
-                    RuntimeError("message is no longer available"),
-                )
-            return None
-
-        if not listener.is_ready():
-            if not request.automatic:
-                render_mailbox_failure(
-                    self.controller,
-                    "Mailbox run failed",
-                    RuntimeError("listener is not ready"),
-                )
-            return None
-
-        message = item.request.payload.get("message")
-
-        return PreparedMailboxRun(
-            listener=listener,
-            message_id=request.message_id,
-            prompt=message if isinstance(message, str) else "",
+    @staticmethod
+    def _mailbox_failure_panel(message_id: str, error: BaseException) -> MenuRequest:
+        """生成收件箱操作失败的只读子面板。"""
+        message = str(error).strip() or type(error).__name__
+        return MenuRequest(
+            title="Mailbox operation",
+            view_id=f"mailbox:failure:{message_id}",
+            body=(f"Failed: {message}",),
+            help_text="",
+            footer_hint=CLOSE_MENU_FOOTER_HINT,
         )
 
-    def finish_run(self, request: MailboxRunRequest) -> None:
-        """释放自动运行占位并继续调度下一条待处理消息。"""
-        if (
-            request.automatic
-            and self._automatic_message_id == request.message_id
-        ):
-            self._automatic_message_id = ""
-        if not request.automatic:
-            self._manual_message_ids.discard(request.message_id)
-        self._refresh()
+    def _select_auto_run(self, value: bool) -> None:
+        """处理摘要菜单中的自动运行开关。"""
+        self.runtime.emit_menu_action(
+            lambda: self._apply_auto_run(value),
+            name="tui mailbox menu action",
+            kind=MenuActionKind.DOMAIN,
+        )
 
-    async def _open_message(self, message_id: str) -> bool:
-        """打开单条消息操作菜单，返回是否已经完成终态操作。"""
-        while True:
-            entry = self._entry(message_id)
-            if entry is None:
-                break
+    def _apply_auto_run(self, value: bool) -> None:
+        """应用摘要菜单中的自动运行开关。"""
+        self.set_auto_run(bool(value))
+        render_mailbox_auto_status(self.controller, self.auto_run)
+        self.runtime.finish_menu(None)
 
-            action = await self.runtime.select_menu(MenuRequest(
-                title="Mailbox Message",
-                status=entry.title,
-                options=(
-                    MenuOption("run", "Run", "Execute this message now."),
-                    MenuOption(
-                        "delete",
-                        "Delete",
-                        "Cancel this task and remove it from the mailbox.",
-                    ),
-                    MenuOption("detail", "Detail", "Open the full message."),
-                ),
-                help_text="Up/Down select · Enter apply · Esc/q back",
+    def _push_message_menu(self, message_id: str) -> None:
+        """从摘要菜单压入单条消息操作菜单。"""
+        self.runtime.emit_menu_action(
+            lambda: self._push_message_menu_now(message_id),
+            name="tui mailbox navigation",
+            kind=MenuActionKind.NAVIGATION,
+        )
+
+    def _push_message_menu_now(self, message_id: str) -> None:
+        """在菜单 action 队列中压入单条消息操作菜单。"""
+        entry = self._entry(message_id)
+        if entry is None:
+            self.runtime.push_menu(self._mailbox_failure_panel(
+                message_id,
+                RuntimeError("message is no longer available"),
             ))
+            return None
+        self.runtime.push_menu(self._message_menu(entry))
 
-            if action is None:
-                return False
-            if action == "detail":
-                await self.runtime.view_mailbox_entry(message_id)
-                continue
-            if action == "run":
-                self._enqueue_run(
-                    message_id,
-                    automatic=False,
-                )
-                return True
-            if action == "delete":
-                listener = self._listener
-                try:
-                    if listener is None:
-                        raise RuntimeError("listener is not running")
-                    await listener.discard(message_id)
-                except (KeyError, RuntimeError, ValueError) as error:
-                    render_mailbox_failure(
-                        self.controller,
-                        "Mailbox delete failed",
-                        error,
-                    )
-                else:
-                    render_mailbox_deleted(self.controller)
-                return True
+    def _message_menu(
+        self,
+        entry: MailboxEntry
+    ) -> MenuRequest:
+        """生成带有异步操作回调的单条消息菜单。"""
 
-        render_mailbox_failure(
-            self.controller,
-            "Mailbox unavailable",
-            RuntimeError("message is no longer available"),
+        return MenuRequest(
+            title="Mailbox Message",
+            view_id=f"mailbox:message:{entry.key}",
+            status=entry.title,
+            options=(
+                MenuOption(
+                    _RUN_ACTION,
+                    "Run",
+                    "Execute this message now.",
+                    on_select=lambda: self._queue_message_action(
+                        entry.key,
+                        _RUN_ACTION,
+                    ),
+                ),
+                MenuOption(
+                    _DELETE_ACTION,
+                    "Delete",
+                    "Cancel this task and remove it from the mailbox.",
+                    on_select=lambda: self._queue_message_action(
+                        entry.key,
+                        _DELETE_ACTION,
+                    ),
+                ),
+                MenuOption(
+                    _DETAIL_ACTION,
+                    "Detail",
+                    "Open the full message.",
+                    on_select=lambda: self._queue_message_action(
+                        entry.key,
+                        _DETAIL_ACTION,
+                    ),
+                    dismiss_on_select=False,
+                ),
+            ),
+            help_text="",
+            footer_hint=STANDARD_MENU_FOOTER_HINT,
+            description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         )
 
-        return True
+    def _queue_message_action(self, message_id: str, action: str) -> None:
+        """把单条消息操作排入菜单事件队列。"""
 
-    def _summary_menu(self) -> MenuRequest:
+        self.runtime.emit_menu_action(
+            lambda: self._start_message_action(message_id, action),
+            name="tui mailbox menu action",
+            kind=MenuActionKind.DOMAIN,
+        )
+
+    def _start_message_action(self, message_id: str, action: str) -> None:
+        """启动由界面生命周期管理的消息后台操作。"""
+
+        self.runtime.start_background_task(
+            self._run_message_action(message_id, action),
+            name="tui mailbox menu action",
+        )
+
+    def _summary_menu(
+        self,
+        *,
+        on_auto: typing.Callable[[bool], None] | None = None,
+        on_message: typing.Callable[[str], None] | None = None,
+    ) -> MenuRequest:
         """生成当前收件箱摘要菜单。"""
         entries = self.runtime.mailbox_entries()
 
@@ -233,12 +186,24 @@ class TuiMailboxFeature(object):
                 ("auto", not self.auto_run),
                 f"Auto-run: {auto_state}",
                 "Run pending and newly received messages in order.",
+                on_select=(
+                    lambda: on_auto(not self.auto_run)
+                    if on_auto is not None
+                    else None
+                ),
+                dismiss_on_select=on_auto is None,
             ),
             *(
                 MenuOption(
                     ("message", entry.key),
                     entry.title,
                     entry.detail,
+                    on_select=(
+                        lambda selected=entry.key: on_message(selected)
+                        if on_message is not None
+                        else None
+                    ),
+                    dismiss_on_select=on_message is None,
                 )
                 for entry in entries
             ),
@@ -246,10 +211,14 @@ class TuiMailboxFeature(object):
 
         return MenuRequest(
             title="Mailbox",
+            view_id="mailbox:summary",
             status=(
                 f"{format_mailbox_count(len(entries))} pending "
                 f"· auto={auto_state} · {listener_state}"
             ),
+            help_text="",
+            footer_hint=STANDARD_MENU_FOOTER_HINT,
+            description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
             options=options,
             selected=1 if entries else 0,
         )
@@ -321,6 +290,163 @@ class TuiMailboxFeature(object):
                 self._manual_message_ids.discard(message_id)
             raise
         return True
+
+    def _receipt_disposition(self) -> typing.Literal["queued", "auto_run"]:
+        """把会话级自动运行策略映射为收件回执意图。"""
+        return "auto_run" if self.auto_run else "queued"
+
+    def bind_listener(self) -> None:
+        """绑定当前监听器，并将内存消息同步到 TUI 快照。"""
+        listener = getattr(self.controller, "subscription_runtime", None)
+        if listener is self._listener:
+            self._refresh()
+            return None
+
+        previous = self._listener
+        self._listener = listener
+        if previous is not None:
+            previous.bind_inbox_changed(None)
+            previous.bind_receipt_disposition(None)
+
+        if listener is None:
+            self.runtime.set_mailbox_entries((), listener_active=False)
+            return None
+
+        listener.bind_receipt_disposition(self._receipt_disposition)
+        listener.bind_inbox_changed(self._refresh)
+
+    def set_auto_run(self, enabled: bool) -> None:
+        """切换当前 TUI 会话的自动运行策略。"""
+        self.auto_run = bool(enabled)
+        self._refresh()
+
+    def finish_run(self, request: MailboxRunRequest) -> None:
+        """释放自动运行占位并继续调度下一条待处理消息。"""
+        if (
+            request.automatic
+            and self._automatic_message_id == request.message_id
+        ):
+            self._automatic_message_id = ""
+        if not request.automatic:
+            self._manual_message_ids.discard(request.message_id)
+        self._refresh()
+
+    def prepare_run(
+        self,
+        request: MailboxRunRequest
+    ) -> PreparedMailboxRun | None:
+        """校验一条主循环执行请求，并返回稳定执行参数。"""
+        if request.automatic:
+            if not self._automatic_message_id:
+                self._automatic_message_id = request.message_id
+        else:
+            self._manual_message_ids.add(request.message_id)
+
+        self.bind_listener()
+        listener = self._listener
+
+        if request.automatic and not self.auto_run:
+            return None
+        if listener is None:
+            if not request.automatic:
+                render_mailbox_failure(
+                    self.controller,
+                    "Mailbox run failed",
+                    RuntimeError("listener is not running"),
+                )
+            return None
+
+        item = listener.inbox.find(request.message_id)
+        if item is None or item.status != "pending":
+            if not request.automatic:
+                render_mailbox_failure(
+                    self.controller,
+                    "Mailbox run failed",
+                    RuntimeError("message is no longer available"),
+                )
+            return None
+
+        if not listener.is_ready():
+            if not request.automatic:
+                render_mailbox_failure(
+                    self.controller,
+                    "Mailbox run failed",
+                    RuntimeError("listener is not ready"),
+                )
+            return None
+
+        message = item.request.payload.get("message")
+
+        return PreparedMailboxRun(
+            listener=listener,
+            message_id=request.message_id,
+            prompt=message if isinstance(message, str) else "",
+        )
+
+    async def open(self) -> None:
+        """打开消息摘要，并按选择进入单条消息操作。"""
+        self.bind_listener()
+        await self.runtime.select_menu(self._summary_menu(
+            on_auto=self._select_auto_run,
+            on_message=self._push_message_menu,
+        ))
+
+    async def _run_message_action(
+        self,
+        message_id: str,
+        action: str
+    ) -> None:
+        """执行消息操作并刷新仍在栈中的摘要菜单。"""
+        session_id = self.runtime.active_menu_session_id()
+        if session_id is None:
+            return None
+
+        if action == _DETAIL_ACTION:
+            try:
+                await self.runtime.view_mailbox_entry(
+                    message_id,
+                    allow_menu=True,
+                )
+            except Exception as error:
+                if self.runtime.menu_session_is_active(session_id):
+                    self.runtime.push_menu(
+                        self._mailbox_failure_panel(message_id, error)
+                    )
+                return None
+            if self.runtime.menu_session_is_active(session_id):
+                entry = self._entry(message_id)
+                if entry is not None:
+                    self.runtime.replace_present_menu_if_id(
+                        "mailbox:summary",
+                        self._summary_menu(
+                            on_auto=self._select_auto_run,
+                            on_message=self._push_message_menu,
+                        ),
+                    )
+            return None
+
+        try:
+            if action == _RUN_ACTION:
+                self._enqueue_run(message_id, automatic=False)
+            elif action == _DELETE_ACTION:
+                listener = self._listener
+                if listener is None:
+                    raise RuntimeError("listener is not running")
+                await listener.discard(message_id)
+            else:
+                return None
+        except (KeyError, RuntimeError, ValueError) as error:
+            if self.runtime.menu_session_is_active(session_id):
+                self.runtime.push_menu(
+                    self._mailbox_failure_panel(message_id, error)
+                )
+            return None
+
+        if not self.runtime.menu_session_is_active(session_id):
+            return None
+        if action == _DELETE_ACTION:
+            render_mailbox_deleted(self.controller)
+        self.runtime.finish_menu(None)
 
 
 def render_mailbox_auto_status(controller: "Mind", enabled: bool) -> None:

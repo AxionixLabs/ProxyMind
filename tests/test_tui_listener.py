@@ -15,7 +15,11 @@ from mind_app.tui.core.mailbox import (
     TuiMailboxOverlay,
     format_mailbox_count,
 )
-from mind_app.tui.core.models import MailboxEntry
+from mind_app.tui.core.models import (
+    MailboxEntry,
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.mailbox import TuiMailboxFeature
@@ -272,6 +276,13 @@ async def test_listener_menu_keeps_status_in_title_line(
     assert request.status == expected_status
     assert request.body == ()
     assert request.selected == expected_selected
+    assert request.view_id == "listener:root"
+    assert request.help_text == ""
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert (
+        request.description_layout
+        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    )
     assert [option.label for option in request.options] == [
         "Start listener",
         "Stop listener",

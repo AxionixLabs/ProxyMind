@@ -12,6 +12,13 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from mind_core.design.terminal_capabilities import (
+    TerminalCapabilities,
+    TerminalColorLevel,
+    TerminalIdentity,
+    TerminalKind,
+    TerminalTheme,
+)
 from mind_core.skills import SkillSpec
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.adapters.output import TuiOutputControl
@@ -24,6 +31,16 @@ from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import text_block
+from mind_app.tui.core.token_menu import (
+    TokenCompletionMenuControl,
+    TokenMenuItem,
+    TokenMenuSnapshot,
+    token_menu_display_height,
+)
+from mind_app.tui.prompting.skills import (
+    skill_display_text,
+    skill_meta_text,
+)
 from mind_app.tui.session.barriers import TuiForegroundTasks
 
 
@@ -37,6 +54,17 @@ async def wait_for_completion(runtime: TuiRuntime) -> None:
             return
         await asyncio.sleep(0.001)
     raise AssertionError("completion did not become ready")
+
+
+async def wait_for_no_completion(runtime: TuiRuntime) -> None:
+    """等待当前输入的补全菜单收起。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+    while loop.time() < deadline:
+        if runtime.screen.input.buffer.complete_state is None:
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError("completion did not close")
 
 
 async def wait_for_suggestion(runtime: TuiRuntime) -> None:
@@ -133,16 +161,231 @@ def rendered_window_line(runtime: TuiRuntime, window) -> str:
     ).rstrip()
 
 
-def skill_spec(name: str) -> SkillSpec:
+def skill_spec(name: str, description: str | None = None) -> SkillSpec:
     """创建输入补全测试使用的 skill 描述。"""
     entry = Path(f"{name}/SKILL.md")
     return SkillSpec(
         name=name,
-        description=f"Use {name}",
+        description=description or f"Use {name}",
         source="test",
         root=entry.parent,
         entry=entry,
     )
+
+
+def test_skill_menu_text_matches_codex_row_shape() -> None:
+    skill = skill_spec(
+        "abcdefghijklmnopqrstuvwxyz-long",
+        description="  write   tests\nquickly  ",
+    )
+
+    assert skill_display_text("alpha") == "alpha"
+    assert skill_display_text(skill.name) == "abcdefghijklmnopqrstuvwxy..."
+    assert skill_meta_text(skill) == "[Skill] write tests quickly"
+
+
+def test_token_menu_caps_long_meta_width() -> None:
+    item = TokenMenuItem(
+        display_text="/short",
+        meta_text="x" * 200,
+        kind="command",
+    )
+    control = TokenCompletionMenuControl(
+        lambda: TokenMenuSnapshot(items=(item,))
+    )
+
+    assert control.preferred_width(100) == 79
+
+
+def test_token_menu_keeps_short_meta_content_width() -> None:
+    item = TokenMenuItem(
+        display_text="/short",
+        meta_text="short help",
+        kind="command",
+    )
+    control = TokenCompletionMenuControl(
+        lambda: TokenMenuSnapshot(items=(item,))
+    )
+
+    assert control.preferred_width(100) == 21
+
+
+def test_token_menu_render_snapshot_for_mixed_rows() -> None:
+    items = (
+        TokenMenuItem(
+            display_text="short",
+            meta_text="[Skill] concise help",
+            kind="skill",
+        ),
+        TokenMenuItem(
+            display_text="/model",
+            meta_text="[Command] set model",
+            kind="command",
+        ),
+        TokenMenuItem(
+            display_text="very-long-name-that-truncates",
+            meta_text="[Skill] " + "x" * 80,
+            kind="skill",
+        ),
+    )
+    control = TokenCompletionMenuControl(
+        lambda: TokenMenuSnapshot(items=items, selected=1)
+    )
+
+    content = control.create_content(60, 3)
+
+    assert content.line_count == 3
+    assert [content.get_line(index) for index in range(content.line_count)] == [
+        [
+            ("class:token-menu.skill", "  short                         "),
+            ("class:token-menu.meta.skill", " [Skill] concise help       "),
+        ],
+        [
+            ("class:token-menu.command.current", "  /model                        "),
+            (
+                "class:token-menu.meta.command.current",
+                " [Command] set model        ",
+            ),
+        ],
+        [
+            (
+                "class:token-menu.skill",
+                "  very-long-name-that-truncates ",
+            ),
+            ("class:token-menu.meta.skill", " [Skill] xxxxxxxxxxxxxxx... "),
+        ],
+    ]
+
+
+def test_token_menu_highlights_match_indices_in_rendered_rows() -> None:
+    item = TokenMenuItem(
+        display_text="alphabet",
+        meta_text="",
+        kind="skill",
+        match_indices=(0, 2, 4),
+    )
+    control = TokenCompletionMenuControl(
+        lambda: TokenMenuSnapshot(items=(item,))
+    )
+
+    fragments = control.create_content(24, 1).get_line(0)
+
+    assert any(
+        style == "class:token-menu.skill.current" and text == "  "
+        for style, text in fragments
+    )
+    assert any("bold" in style and text == "a" for style, text in fragments)
+    assert any("bold" in style and text == "p" for style, text in fragments)
+    assert any("bold" in style and text == "a" for style, text in fragments[2:])
+
+
+def test_light_theme_uses_deep_cyan_for_selected_token_styles() -> None:
+    runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+        color_level=TerminalColorLevel.TRUECOLOR,
+        theme=TerminalTheme(background=(255, 255, 255)),
+    ))
+
+    style = runtime.screen.application.style
+    selected = style.get_attrs_for_style_str("class:token-menu.skill.current")
+    meta_selected = style.get_attrs_for_style_str(
+        "class:token-menu.meta.skill.current"
+    )
+    fallback = style.get_attrs_for_style_str(
+        "class:completion-menu.completion.current"
+    )
+    fallback_meta = style.get_attrs_for_style_str(
+        "class:completion-menu.meta.completion.current"
+    )
+
+    assert selected.color == "005F87"
+    assert selected.bold
+    assert meta_selected.color == "005F87"
+    assert fallback.color == "005F87"
+    assert fallback_meta.color == "005F87"
+
+
+@pytest.mark.anyio
+async def test_skill_snapshot_marks_highlight_positions() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("generate-client"),
+            skill_spec("git-commit"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$gc")
+            await wait_for_completion(runtime)
+
+            snapshot = runtime.input_model.token_menu_snapshot(
+                runtime.screen.input.buffer
+            )
+
+            assert snapshot is not None
+            assert [item.display_text for item in snapshot.items] == [
+                "git-commit",
+                "generate-client",
+            ]
+            assert [item.match_indices for item in snapshot.items] == [
+                (0, 4),
+                (0, 9),
+            ]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_popup_renders_codex_hint_line() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("generate-client"),
+            skill_spec("git-commit"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$gc")
+            await wait_for_completion(runtime)
+            screen = await render_next_frame(runtime)
+
+            menu_position = screen.visible_windows_to_write_positions[
+                runtime.screen.completion_menu
+            ]
+
+            assert runtime.screen._completion_height() == 4
+            assert "".join(
+                screen.data_buffer[menu_position.ypos + 3][column].char
+                for column in range(
+                    menu_position.xpos,
+                    menu_position.xpos + menu_position.width,
+                )
+            ).rstrip() == "  Press enter to insert or esc to close"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_slash_snapshot_marks_prefix_positions() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/mo")
+            await wait_for_completion(runtime)
+
+            snapshot = runtime.input_model.token_menu_snapshot(
+                runtime.screen.input.buffer
+            )
+
+            assert snapshot is not None
+            assert snapshot.items[0].display_text == "/model"
+            assert snapshot.items[0].match_indices == (1, 2)
+        finally:
+            await runtime.close()
 
 
 def test_command_completion_discards_text_after_cursor() -> None:
@@ -366,7 +609,7 @@ async def test_ctrl_o_closes_skill_menu_and_restores_natural_height() -> None:
                 await wait_for_completion(runtime)
                 await render_next_frame(runtime)
 
-                assert runtime.screen._completion_section_height() == 8
+                assert runtime.screen._completion_section_height() == 10
 
                 pipe_input.send_text("\x0f")
                 await wait_for_input_text(runtime, "$\n")
@@ -1209,7 +1452,7 @@ async def test_slash_completion_aligns_with_input_command() -> None:
             await asyncio.sleep(0)
 
             input_line = rendered_input_line(runtime)
-            menu_window = runtime.screen.completion_menu.content
+            menu_window = runtime.screen.completion_menu
             completion_line = rendered_window_line(runtime, menu_window)
             screen = runtime.screen.application.renderer.last_rendered_screen
             bottom_position = screen.visible_windows_to_write_positions[
@@ -1220,12 +1463,14 @@ async def test_slash_completion_aligns_with_input_command() -> None:
             assert input_line == "› /sk"
             assert completion_line.lstrip().startswith("/skills")
             assert input_line.index("/") == completion_line.index("/")
-            assert menu_position.xpos == input_line.index("/") - 1
-            assert "class:completion-menu.completion.current" in (
-                screen.data_buffer[menu_position.ypos][menu_position.xpos].style
+            assert menu_position.xpos == 0
+            assert "class:token-menu.command.current" in (
+                screen.data_buffer[menu_position.ypos][
+                    menu_position.xpos + 2
+                ].style
             )
-            meta_column = input_line.index("/") + len("/skills") + 1
-            assert "class:completion-menu.meta.completion.current" in (
+            meta_column = input_line.index("/") + len("/skills") + 2
+            assert "class:token-menu.meta.command.current" in (
                 screen.data_buffer[menu_position.ypos][meta_column].style
             )
             assert menu_position.ypos == bottom_position.ypos + 1
@@ -1258,13 +1503,13 @@ async def test_exact_slash_completion_aligns_with_input_command() -> None:
             assert input_line == "› /skills"
             assert completion_line.lstrip().startswith("/skills")
             assert input_line.index("/") == completion_line.index("/")
-            assert fallback_position.xpos == input_line.index("/") - 1
+            assert fallback_position.xpos == 0
             assert "class:completion-menu.completion.current" in (
                 screen.data_buffer[fallback_position.ypos][
-                    fallback_position.xpos
+                    fallback_position.xpos + 2
                 ].style
             )
-            meta_column = input_line.index("/") + len("/skills") + 1
+            meta_column = input_line.index("/") + len("/skills") + 2
             assert "class:completion-menu.meta.completion.current" in (
                 screen.data_buffer[fallback_position.ypos][meta_column].style
             )
@@ -1309,6 +1554,85 @@ async def test_tab_completes_selected_slash_command_without_submitting() -> None
                 text
                 for _style, text in runtime.screen._completion_fallback_fragments()
             ).lstrip().startswith("/fork")
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_tab_dispatches_selected_skills_command() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/sk")
+            await wait_for_completion(runtime)
+            pipe_input.send_text("\t")
+
+            submission = await asyncio.wait_for(
+                runtime.submissions.message_queue.get(),
+                timeout=1,
+            )
+            assert submission.value == "/skills"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_slash_key_completes_selected_slash_command_without_submitting() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/m")
+            await wait_for_completion(runtime)
+            pipe_input.send_text("/")
+            await wait_for_input_text(runtime, "/model ")
+
+            assert runtime.submissions.message_queue.empty()
+            assert runtime.screen.input.buffer.suggestion is not None
+            assert runtime.screen.input.buffer.suggestion.text == "<model-id>"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_slash_menu_survives_left_and_right_cursor_motion() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/sx")
+            await wait_for_input_text(runtime, "/sx")
+
+            pipe_input.send_text("\x1b[D")
+            await wait_for_cursor_position(runtime, 2)
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert [
+                completion.display_text
+                for completion in buffer.complete_state.completions
+            ] == ["/skills", "/shutdown"]
+
+            pipe_input.send_text("\x1b[C")
+            await wait_for_cursor_position(runtime, 3)
+            await wait_for_no_completion(runtime)
+
+            assert buffer.complete_state is None
+
+            pipe_input.send_text("\x1b[D")
+            await wait_for_cursor_position(runtime, 2)
+            await wait_for_completion(runtime)
+
+            assert buffer.complete_state is not None
+            assert [
+                completion.display_text
+                for completion in buffer.complete_state.completions
+            ] == ["/skills", "/shutdown"]
         finally:
             await runtime.close()
 
@@ -1363,7 +1687,7 @@ async def test_unknown_slash_command_renders_non_selectable_empty_state() -> Non
             assert buffer.complete_state is None
             assert runtime.screen._completion_fallback_visible()
             assert runtime.screen._completion_fallback_fragments() == [
-                ("class:completion-menu.empty", " no matches"),
+                ("class:completion-menu.empty", "  no matches"),
             ]
             assert rendered_window_line(
                 runtime,
@@ -1389,6 +1713,138 @@ async def test_skill_prefix_selects_first_match_without_rewriting_input() -> Non
             assert buffer.complete_state is not None
             assert buffer.complete_state.complete_index == 0
             assert buffer.complete_state.current_completion.text == "$alpha "
+
+            runtime.screen.application.invalidate()
+            await asyncio.sleep(0)
+
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            menu_window = runtime.screen.completion_menu
+            menu_position = screen.visible_windows_to_write_positions[
+                menu_window
+            ]
+            assert "class:token-menu.skill.current" in (
+                screen.data_buffer[menu_position.ypos][
+                    menu_position.xpos + 2
+                ].style
+            )
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_menu_sorts_empty_query_by_name() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("zeta"),
+            skill_spec("alpha"),
+            skill_spec("beta"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert [
+                completion.text
+                for completion in buffer.complete_state.completions
+            ] == ["$alpha ", "$beta ", "$zeta "]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_menu_accepts_non_contiguous_query_matches() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("generate-client"),
+            skill_spec("git-commit"),
+            skill_spec("review"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$gc")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert [
+                completion.text
+                for completion in buffer.complete_state.completions
+            ] == ["$git-commit ", "$generate-client "]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_menu_survives_left_and_right_cursor_motion() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("alphabet"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$alp")
+            await wait_for_completion(runtime)
+
+            pipe_input.send_text("\x1b[D")
+            await wait_for_cursor_position(runtime, 3)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert [
+                completion.text
+                for completion in buffer.complete_state.completions
+            ] == ["$alpha ", "$alphabet "]
+
+            pipe_input.send_text("\x1b[C")
+            await wait_for_cursor_position(runtime, 4)
+
+            assert buffer.complete_state is not None
+            assert [
+                completion.text
+                for completion in buffer.complete_state.completions
+            ] == ["$alpha ", "$alphabet "]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_menu_closes_when_cursor_leaves_token_left_edge() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("alphabet"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$alp")
+            await wait_for_completion(runtime)
+
+            pipe_input.send_text("\x1b[D\x1b[D\x1b[D\x1b[D")
+            await wait_for_cursor_position(runtime, 0)
+            await wait_for_no_completion(runtime)
+
+            pipe_input.send_text("\x1b[C")
+            await wait_for_cursor_position(runtime, 1)
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert [
+                completion.text
+                for completion in buffer.complete_state.completions
+            ] == ["$alpha ", "$alphabet "]
         finally:
             await runtime.close()
 
@@ -1418,7 +1874,7 @@ async def test_skill_menu_keeps_all_matches_beyond_visible_height() -> None:
             assert runtime.screen._completion_height() == 6
             assert runtime.screen._bottom_pane_top_inset_height() == 1
             assert runtime.screen._input_surface_height() == 3
-            assert runtime.screen.completion_menu.content.right_margins
+            assert not runtime.screen.completion_menu.right_margins
 
             runtime.input_model._select_completion(buffer, 11)
 
@@ -1936,7 +2392,7 @@ async def test_unknown_skill_renders_non_selectable_empty_state() -> None:
 
             assert runtime.screen.input.buffer.complete_state is None
             assert runtime.screen._completion_fallback_fragments() == [
-                ("class:completion-menu.empty", " no matches"),
+                ("class:completion-menu.empty", "  no matches"),
             ]
         finally:
             await runtime.close()
@@ -2042,6 +2498,39 @@ async def test_backspace_reopens_completion_menu() -> None:
                 completion.display_text
                 for completion in buffer.complete_state.completions
             ] == ["/skills", "/shutdown"]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_dismissed_skill_menu_stays_closed_with_cursor_motion() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("alphabet"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$alp")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            runtime.input_model.dismiss_completion_menu(buffer)
+            await wait_for_no_completion(runtime)
+
+            pipe_input.send_text("\x1b[D")
+            await wait_for_cursor_position(runtime, 3)
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
+
+            pipe_input.send_text("\x1b[C")
+            await wait_for_cursor_position(runtime, 4)
+            assert runtime.input_model.completion_menu_completions(
+                buffer.document
+            ) is None
         finally:
             await runtime.close()
 
