@@ -345,9 +345,9 @@ async def choose_helix_tool_profile(
 ) -> ToolFilterMode | None:
     """选择当前服务连接使用的工具过滤模式。"""
     selected = await runtime.select_menu(MenuRequest(
-        title="Helix Tool Mode",
+        title=f"Update Helix Tool Mode · {current}",
+        title_accent_suffix=f" · {current}",
         view_id="helix:tool-mode",
-        status=f"current={current}",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,

@@ -108,11 +108,9 @@ def _permission_confirmation_menu(
         view_id=f"permissions:confirm:{settings.preset}",
         body=_permission_detail() + ("",),
         body_warning=_permission_warning(),
-        option_rows_bleed_surface=True,
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
-        description_separator="  ",
         options=(
             MenuOption(
                 value=settings,
@@ -175,12 +173,10 @@ async def choose_permissions_mode(
         title=f"Update Model Permissions · {permission_label(current)}",
         title_accent_suffix=f" · {permission_label(current)}",
         body=("",),
-        option_rows_bleed_surface=True,
         view_id="permissions:root",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
-        description_separator="  ",
         options=tuple(
             option_for(value, label, detail)
             for value, label, detail in PERMISSION_OPTIONS

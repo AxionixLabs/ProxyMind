@@ -194,14 +194,16 @@ async def test_provider_selection_persists_active_profile(tmp_path) -> None:
     ]
     assert request.options[-1].detail == "anthropic · claude-test · messages"
     assert request.view_id == "model:provider"
+    assert request.title == "Update Model Provider · openai-main"
+    assert request.title_accent_suffix == " · openai-main"
     assert request.help_text == ""
     assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
     assert (
         request.description_layout
         is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
     )
-    assert request.options[0].is_current
-    assert not request.options[-1].is_current
+    assert not any(option.is_current for option in request.options)
+    assert request.selected == 0
 
 
 @pytest.mark.anyio
@@ -1226,8 +1228,9 @@ async def test_helix_mode_menu_uses_current_profile() -> None:
 
     assert selected == "api"
     request = runtime.select_menu.await_args.args[0]
-    assert request.title == "Helix Tool Mode"
-    assert request.status == "current=app"
+    assert request.title == "Update Helix Tool Mode · app"
+    assert request.title_accent_suffix == " · app"
+    assert request.status == ""
     assert [option.value for option in request.options] == ["app", "api"]
     assert request.selected == 0
     assert request.view_id == "helix:tool-mode"

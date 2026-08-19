@@ -31,8 +31,6 @@ from .render import (
 from .view import BottomPaneViewStack, ViewIdentity
 
 TUI_MENU_STYLE = Style.from_dict({
-    # Keep menu text on the terminal's default foreground. Codex only adds
-    # semantic emphasis here; the shared surface supplies the background.
     "tui-menu.title": "bold",
     "tui-menu.title.current": "ansicyan",
     "tui-menu.status": "dim",
@@ -251,25 +249,30 @@ class TuiMenu(object):
     def _join_surface_sections(
         cls,
         header: StyleAndTextTuples,
-        rows: StyleAndTextTuples,
-        request: MenuRequest
+        rows: StyleAndTextTuples
     ) -> StyleAndTextTuples:
-        """合并带普通内缩的头部与可向左回退的选项行。"""
+        """合并菜单头部与选项行。"""
         header_lines = split_formatted_lines(cls._surface_inset_fragments(header))
+
         row_lines = split_formatted_lines(rows)
         if row_lines and not row_lines[-1]:
             row_lines.pop()
-        if request.option_rows_bleed_surface:
-            row_lines = [
-                [("class:tui-menu.surface", ""), *line]
-                for line in row_lines
-            ]
-        else:
-            row_lines = [
-                [("class:tui-menu.surface", "  "), *line]
-                for line in row_lines
-            ]
-        return join_formatted_lines([*header_lines, *row_lines])
+
+        row_lines = [
+            [("class:tui-menu.surface", ""), *line]
+            for line in row_lines
+        ]
+        if not row_lines:
+            return join_formatted_lines(header_lines)
+
+        sections = list(header_lines)
+        if not sections or any(
+            text.strip()
+            for _style, text in sections[-1]
+        ):
+            sections.append([])
+        sections.extend(row_lines)
+        return join_formatted_lines(sections)
 
     @staticmethod
     def _selected_value(state: MenuState) -> typing.Any:
@@ -348,7 +351,7 @@ class TuiMenu(object):
         *,
         width: int
     ) -> StyleAndTextTuples:
-        """生成正文及可选的 Codex 风格警示尾段。"""
+        """生成正文及可选警示尾段。"""
         out: StyleAndTextTuples = []
 
         warning_used: bool = False
@@ -611,6 +614,11 @@ class TuiMenu(object):
         return max(1, int(width) - cls.SURFACE_HORIZONTAL_INSET * 2)
 
     @classmethod
+    def _rows_width(cls, width: int) -> int:
+        """返回选项行可用的绘制宽度。"""
+        return max(1, int(width) - 2)
+
+    @classmethod
     def _surface_inset_fragments(
         cls,
         fragments: StyleAndTextTuples
@@ -845,22 +853,20 @@ class TuiMenu(object):
 
     def _surface_fragments(self, state: MenuState) -> StyleAndTextTuples:
         """生成指定菜单表面内的格式化片段，不包含透明 footer。"""
-
         request = state.request
-        width = (
-            self.get_width()
-            if request.option_rows_bleed_surface
-            else self._surface_content_width(self.get_width())
-        )
+
+        width         = self.get_width()
         content_width = self._surface_content_width(self.get_width())
+        rows_width    = self._rows_width(width)
 
         _start, visible_indices = self._visible_indices(state)
 
-        options = tuple(request.options[index] for index in visible_indices)
+        options      = tuple(request.options[index] for index in visible_indices)
         number_width = self._enabled_number_width(state)
+
         prefix_width, label_width = self._row_layout(
             request,
-            width=width,
+            width=rows_width,
             number_width=number_width,
             visible_indices=visible_indices,
         )
@@ -869,9 +875,9 @@ class TuiMenu(object):
             request,
             width=content_width,
         )
-
         header.append(("", "\n"))
-        tabs = self._tab_fragments(request, width=width)
+
+        tabs = self._tab_fragments(request, width=content_width)
         if tabs:
             header.extend(tabs)
             header.append(("", "\n"))
@@ -879,12 +885,12 @@ class TuiMenu(object):
             header.extend([
                 (
                     "class:tui-menu.help",
-                    clip_text(request.help_text, width=width),
+                    clip_text(request.help_text, width=content_width),
                 ),
                 ("", "\n"),
             ])
 
-        header.extend(self._body_fragments(request, width=width))
+        header.extend(self._body_fragments(request, width=content_width))
 
         if request.searchable:
             query = state.query
@@ -899,15 +905,17 @@ class TuiMenu(object):
                 ),
                 (
                     query_style,
-                    clip_text(query, width=max(1, width - 10)),
+                    clip_text(query, width=max(1, content_width - 10)),
                 ),
                 ("", "\n"),
             ])
 
         rows_out: StyleAndTextTuples = []
+
         for offset, option in enumerate(options):
             index  = visible_indices[offset]
             active = index == state.selected and not self._option_is_disabled(option)
+
             if self._option_is_disabled(option):
                 index_style = "class:tui-menu.index.disabled"
             else:
@@ -925,20 +933,20 @@ class TuiMenu(object):
             )
             rows = self._option_fragments(
                 option,
-                available=max(1, width - get_cwidth(prefix)),
+                available=max(1, rows_width - get_cwidth(prefix)),
                 label_width=label_width,
                 active=active,
                 request=request,
                 prefix_width=prefix_width,
-                width=width,
+                width=rows_width,
                 index_style=index_style,
                 prefix=prefix,
             )
             for row in rows:
-                rows_out.extend(clip_fragments(row, width=width))
+                rows_out.extend(clip_fragments(row, width=rows_width))
                 rows_out.append(("", "\n"))
 
-        return self._join_surface_sections(header, rows_out, request)
+        return self._join_surface_sections(header, rows_out)
 
     def footer_fragments(self) -> StyleAndTextTuples:
         """生成当前菜单表面下方的透明 footer 片段。"""
@@ -949,7 +957,7 @@ class TuiMenu(object):
         self,
         state: MenuState,
         *,
-        width: int | None = None,
+        width: int | None = None
     ) -> StyleAndTextTuples:
         """生成指定菜单 frame 的透明 footer 片段。"""
         render_width = self.get_width() if width is None else width
@@ -962,7 +970,7 @@ class TuiMenu(object):
         self,
         state: MenuState,
         *,
-        width: int | None = None,
+        width: int | None = None
     ) -> StyleAndTextTuples:
         """生成兼容独立菜单文本的 surface 内 footer 片段。"""
         render_width = self.get_width() if width is None else width
@@ -1033,11 +1041,13 @@ class TuiMenu(object):
             label_width=label_width,
         ):
             label = clip_text(option.label, width=available)
+
             rows: list[StyleAndTextTuples] = [[
                 (index_style, prefix),
                 (label_style, label),
             ]]
             detail_width = max(1, width - prefix_width)
+
             for detail_row in wrap_formatted_lines(
                 [(detail_style, detail)],
                 width=detail_width,
@@ -1046,6 +1056,7 @@ class TuiMenu(object):
                     (detail_style, " " * prefix_width),
                     *self._strip_leading_spaces(detail_row),
                 ])
+
             return rows
 
         if not detail or label_width is None:
@@ -1054,7 +1065,7 @@ class TuiMenu(object):
                 (label_style, clip_text(option.label, width=available)),
             ]]
 
-        separator = request.description_separator
+        separator       = request.description_separator
         separator_width = get_cwidth(separator)
 
         label        = clip_text(option.label, width=label_width)
@@ -1076,7 +1087,7 @@ class TuiMenu(object):
         *,
         width: int,
         number_width: int,
-        visible_indices: tuple[int, ...],
+        visible_indices: tuple[int, ...]
     ) -> tuple[int, int | None]:
         """计算当前窗口的选项前缀和共享标签列宽。"""
         prefix_width = (
@@ -1084,11 +1095,15 @@ class TuiMenu(object):
             if request.searchable
             else self._prefix_width(number_width)
         )
+
+        prefix_width = max(0, prefix_width - self.SURFACE_HORIZONTAL_INSET)
+
         label_width = self._label_column_width(
             request,
             available=max(1, width - prefix_width),
             visible_indices=visible_indices,
         )
+
         return prefix_width, label_width
 
     def _enabled_number_width(self, state: MenuState) -> int:
@@ -1108,10 +1123,7 @@ class TuiMenu(object):
         number_width: int,
     ) -> str:
         """生成候选项的选择标记和可执行序号 gutter。"""
-        if state.request.option_rows_bleed_surface:
-            marker = "›" if active else " "
-        else:
-            marker = "  ›" if active else "   "
+        marker = "›" if active else " "
         if state.request.searchable:
             return f"{marker} "
         option = state.request.options[index]
@@ -1139,10 +1151,11 @@ class TuiMenu(object):
         request: MenuRequest,
         *,
         available: int,
-        visible_indices: tuple[int, ...],
+        visible_indices: tuple[int, ...]
     ) -> int | None:
         """计算全部选项共用的主标签列宽。"""
         options = request.options
+
         measurement_options = (
             tuple(options[index] for index in visible_indices)
             if request.column_width_mode is MenuColumnWidthMode.AUTO_VISIBLE
@@ -1207,11 +1220,7 @@ class TuiMenu(object):
         """返回指定菜单表面内容占用的显示行数。"""
         content = self._fragments_for_height(
             state,
-            width=(
-                width
-                if state.request.option_rows_bleed_surface
-                else self._surface_content_width(width)
-            ),
+            width=width,
         )
         lines = split_formatted_lines(content)
         if lines and not lines[-1]:
@@ -1242,38 +1251,78 @@ class TuiMenu(object):
     ) -> StyleAndTextTuples:
         """生成不含表面内缩、用于测量的菜单内容。"""
         request = state.request
+
+        content_width = self._surface_content_width(width)
+        rows_width    = self._rows_width(width)
+
         _start, visible_indices = self._visible_indices(state)
-        options = tuple(request.options[index] for index in visible_indices)
+
+        options      = tuple(request.options[index] for index in visible_indices)
         number_width = self._enabled_number_width(state)
+
         prefix_width, label_width = self._row_layout(
             request,
-            width=width,
+            width=rows_width,
             number_width=number_width,
             visible_indices=visible_indices,
         )
 
-        out = self._header_fragments(request, width=width)
+        out = self._header_fragments(request, width=content_width)
         out.append(("", "\n"))
-        tabs = self._tab_fragments(request, width=width)
+
+        tabs = self._tab_fragments(request, width=content_width)
         if tabs:
             out.extend(tabs)
             out.append(("", "\n"))
         if request.help_text:
             out.extend([
-                ("class:tui-menu.help", clip_text(request.help_text, width=width)),
+                (
+                    "class:tui-menu.help",
+                    clip_text(
+                        request.help_text,
+                        width=self._surface_content_width(width),
+                    ),
+                ),
                 ("", "\n"),
             ])
-        out.extend(self._body_fragments(request, width=width))
+        out.extend(self._body_fragments(
+            request,
+            width=self._surface_content_width(width),
+        ))
+
         if request.searchable:
             query = state.query or request.search_placeholder
             out.extend([
                 ("class:tui-menu.search", "  Search: "),
-                ("class:tui-menu.search", clip_text(query, width=max(1, width - 10))),
+                (
+                    "class:tui-menu.search",
+                    clip_text(
+                        query,
+                        width=max(
+                            1,
+                            self._surface_content_width(width) - 10,
+                        ),
+                    ),
+                ),
                 ("", "\n"),
             ])
+
+        measured_lines = split_formatted_lines(out)
+        if measured_lines and not any(
+            text.strip()
+            for _style, text in measured_lines[-1]
+        ):
+            measured_lines.pop()
+        if options and (
+            not measured_lines
+            or any(text.strip() for _style, text in measured_lines[-1])
+        ):
+            out.append(("", "\n"))
+
         for offset, option in enumerate(options):
-            index = visible_indices[offset]
+            index  = visible_indices[offset]
             active = index == state.selected and not self._option_is_disabled(option)
+
             prefix = self._option_prefix(
                 state,
                 index,
@@ -1290,16 +1339,16 @@ class TuiMenu(object):
                 )
             for row in self._option_fragments(
                 option,
-                available=max(1, width - get_cwidth(prefix)),
+                available=max(1, rows_width - get_cwidth(prefix)),
                 label_width=label_width,
                 active=active,
                 request=request,
                 prefix_width=prefix_width,
-                width=width,
+                width=rows_width,
                 index_style=index_style,
                 prefix=prefix,
             ):
-                out.extend(clip_fragments(row, width=width))
+                out.extend(clip_fragments(row, width=rows_width))
                 out.append(("", "\n"))
         return out
 
@@ -1329,18 +1378,22 @@ class TuiMenu(object):
     def _replace_state_request(
         self,
         state: MenuState,
-        request: MenuRequest,
+        request: MenuRequest
     ) -> None:
         """在不改变 view 对象的情况下替换其请求内容。"""
-        previous_value = self._selected_value(state)
+        previous_value    = self._selected_value(state)
         previous_selected = state.selected
-        request = self._with_generation(_sanitize_menu_request(request))
+        request           = self._with_generation(_sanitize_menu_request(request))
+
         state.base_footer_hint = request.footer_hint
+
         request = self._request_for_tab(
             request,
             preferred_tab_id=state.request.active_tab_id,
         )
+
         state.request = request
+
         if not request.searchable:
             state.query = ""
         if request.options:
@@ -1358,7 +1411,7 @@ class TuiMenu(object):
         view_id: str,
         request: MenuRequest,
         *,
-        session_id: int | None = None,
+        session_id: int | None = None
     ) -> bool:
         """仅在栈顶标识匹配时替换菜单内容。"""
         if self.active_view_id() != view_id:
@@ -1377,7 +1430,7 @@ class TuiMenu(object):
         view_id: str,
         request: MenuRequest,
         *,
-        session_id: int | None = None,
+        session_id: int | None = None
     ) -> bool:
         """替换栈中仍存在的指定菜单内容。"""
         view = self._view_stack.find(view_id, session_id=session_id)
@@ -1398,7 +1451,7 @@ class TuiMenu(object):
         self,
         updates: typing.Iterable[tuple[str, MenuRequest]],
         *,
-        session_id: int | None = None,
+        session_id: int | None = None
     ) -> int:
         """在同一会话内原子刷新多个仍存在的菜单 view。"""
         prepared: list[tuple[MenuState, MenuRequest]] = []
@@ -1443,7 +1496,7 @@ class TuiMenu(object):
         self,
         view_id: str,
         *,
-        session_id: int | None = None,
+        session_id: int | None = None
     ) -> bool:
         """按标识取消当前菜单及其上方子菜单。"""
         return bool(
@@ -1454,7 +1507,7 @@ class TuiMenu(object):
         self,
         view_ids: typing.Iterable[str],
         *,
-        session_id: int | None = None,
+        session_id: int | None = None
     ) -> int:
         """从最浅命中标识开始取消菜单及其全部子菜单。"""
         targets = {
@@ -1462,7 +1515,9 @@ class TuiMenu(object):
             for view_id in view_ids
             if str(view_id).strip()
         }
+
         views = self._menu_views()
+
         index = next(
             (
                 index
@@ -1477,9 +1532,11 @@ class TuiMenu(object):
             ),
             None,
         )
+
         if index is None:
             return 0
         dismissed = len(views) - index
+
         while (
             self._active_menu_view() is not None
             and len(self._menu_views()) > index
@@ -1502,7 +1559,9 @@ class TuiMenu(object):
         state = self.state
         if state is None:
             return False
+
         key_sequence = getattr(event, "key_sequence", ())
+
         key = (
             key_sequence[-1].key
             if key_sequence
@@ -1569,7 +1628,7 @@ class TuiMenu(object):
         self,
         state: MenuState | None,
         value: typing.Any,
-        completion: ViewCompletion,
+        completion: ViewCompletion
     ) -> None:
         """完成指定栈顶菜单，并按完成语义处理父级。"""
         if state is None or self.state is not state:
@@ -1586,19 +1645,22 @@ class TuiMenu(object):
     def _settle_current(
         self,
         value: typing.Any,
-        completion: ViewCompletion,
+        completion: ViewCompletion
     ) -> MenuState | None:
         """弹出栈顶菜单并完成其等待结果。"""
         state = self.state
         if state is None:
             return None
+
         state.completion = completion
-        state.result = value
+        state.result     = value
+
         view = self._active_menu_view()
         if view is None or not self._view_stack.pop(view):
             return None
         if not state.future.done():
             state.future.set_result(value)
+
         return state
 
     def _active_menu_view(self) -> _MenuView | None:
@@ -1890,7 +1952,6 @@ def _sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         options=_sanitize_menu_options(request.options),
         body=tuple(sanitize_terminal_line(line) for line in request.body),
         body_warning=sanitize_terminal_line(request.body_warning),
-        option_rows_bleed_surface=request.option_rows_bleed_surface,
         selected=request.selected,
         status=sanitize_terminal_line(request.status),
         help_text=sanitize_terminal_line(request.help_text),

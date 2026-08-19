@@ -43,7 +43,7 @@ async def test_mcp_option_details_align_to_restart_width() -> None:
 
     task = asyncio.create_task(menu.request(request))
     await asyncio.sleep(0)
-    lines = _fragments_text(menu.fragments()).splitlines()[2:]
+    lines = _fragments_text(menu.fragments()).splitlines()[3:]
     separator_columns = [
         get_cwidth(line.split(" · ", 1)[0])
         for line in lines
@@ -87,7 +87,7 @@ async def test_menu_rows_fit_terminal_width_with_wide_text() -> None:
     await task
 
     assert all(get_cwidth(line) <= width for line in lines)
-    option_lines = [line for line in lines if line.startswith("    ")]
+    option_lines = lines[4:]
     assert "…" in option_lines[0]
     separators = [
         get_cwidth(line.split(" · ", 1)[0])
@@ -122,7 +122,7 @@ async def test_skills_and_resume_details_share_adaptive_terminal_width() -> None
         )
         task = asyncio.create_task(menu.request(request))
         await asyncio.sleep(0)
-        line = _fragments_text(menu.fragments()).splitlines()[2]
+        line = _fragments_text(menu.fragments()).splitlines()[3]
         menu.finish(None)
         await task
         return get_cwidth(line)
@@ -263,7 +263,8 @@ async def test_menu_normalizes_external_fields_to_single_rows() -> None:
         "  listener active",
         "  Enter to view",
         "    first second",
-        "    › 1. Summary continued · call 1",
+        "",
+        "› 1. Summary continued  call 1",
     ]
 
 
@@ -319,7 +320,7 @@ async def test_menu_height_caps_visible_options_at_eight_rows() -> None:
     start, visible = menu._visible_options(menu.state)
     assert start == 0
     assert len(visible) == 8
-    assert menu.height() == 10
+    assert menu.height() == 11
 
     menu.finish(None)
     await task
@@ -698,7 +699,7 @@ async def test_menu_footer_hint_is_hidden_when_cancellation_is_disabled() -> Non
     text = _fragments_text(menu.fragments())
     assert "Status" in text
     assert "Press enter" not in text
-    assert menu.height() == 5
+    assert menu.height() == 6
 
     menu.cancel()
     await task
@@ -724,11 +725,12 @@ async def test_menu_can_replace_legacy_help_row_with_footer_only() -> None:
 
     assert lines == [
         "  Options",
-        "    › 1. One",
+        "",
+        "› 1. One",
         "  ",
         "    Press enter to confirm or esc to go back",
     ]
-    assert menu.height() == 4
+    assert menu.height() == 5
 
     menu.cancel()
     assert await task is None
@@ -790,7 +792,7 @@ async def test_menu_stacks_descriptions_only_when_declared_and_narrow(
     await asyncio.sleep(0)
 
     lines = _fragments_text(menu.fragments()).splitlines()
-    option_lines = lines[2:]
+    option_lines = lines[3:]
 
     assert (len(option_lines) > 1) is stacked
     assert all(get_cwidth(line) <= width for line in lines)
@@ -818,7 +820,7 @@ async def test_default_menu_description_layout_remains_single_line() -> None:
     )))
     await asyncio.sleep(0)
 
-    assert len(_fragments_text(menu.fragments()).splitlines()[2:]) == 1
+    assert len(_fragments_text(menu.fragments()).splitlines()[3:]) == 1
 
     menu.cancel()
     assert await task is None
@@ -1276,10 +1278,10 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             "\n".join((
                 "  Columns",
                 "  Up/Down select · Enter apply · Esc/…",
-                "    › 1. Short",
-                "         这是一个很长的中文描述",
-                "      2. Long label",
-                "         description",
+                "› 1. Short",
+                "     这是一个很长的中文描述",
+                "  2. Long label",
+                "     description",
                 "  ",
                 "    Press enter",
             )),
@@ -1311,9 +1313,9 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 "  Options",
                 "  ready",
                 "  Up/Down select · Enter apply · Esc/q cancel",
-                "      1. One     · First",
-                "      ×  Blocked · Busy",
-                "    › 2. Two     · Second (current)",
+                "  1. One     · First",
+                "  ×  Blocked · Busy",
+                "› 2. Two     · Second (current)",
                 "  ",
                 "    Status",
                 "    Press enter",
@@ -1341,8 +1343,8 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             "\n".join((
                 "  Long menu",
                 "  Up/Down select · Enter apply · Esc/q cancel",
-                "    › 1. First option  · A descriptive value",
-                "      2. Second option · Another descriptive value",
+                "› 1. First option  · A descriptive value",
+                "  2. Second option · Another descriptive value",
                 "  ",
                 "    All options visible",
                 "    Press enter",
@@ -1376,8 +1378,8 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             "\n".join((
                 "  Disabled",
                 "  Up/Down select · Enter apply · Esc/q cancel",
-                "         A · Busy",
-                "         B",
+                "     A · Busy",
+                "     B",
                 "  ",
                 "    Press enter",
             )),

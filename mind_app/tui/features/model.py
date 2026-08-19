@@ -125,9 +125,9 @@ async def choose_model_effort(
     """在主 TUI 中选择模型推理强度。"""
     current = normalize_reasoning_effort(current_effort)
     return await runtime.select_menu(MenuRequest(
-        title="Reasoning Effort",
+        title=f"Update Reasoning Effort · {current}",
+        title_accent_suffix=f" · {current}",
         view_id="model:effort",
-        status=f"current={current}",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
@@ -136,7 +136,6 @@ async def choose_model_effort(
                 value=value,
                 label=label,
                 detail=detail,
-                is_current=value == current,
             )
             for value, label, detail in MODEL_EFFORT_OPTIONS
         ),
@@ -158,13 +157,19 @@ async def choose_provider(
 
     primary  = config_to_preferences(session.load()).get("primary") or {}
     active   = str(primary.get("provider") or "")
+    active_profile = profiles.get(active)
+    active_label = (
+        str(active_profile.get("name") or active)
+        if isinstance(active_profile, dict)
+        else active
+    ) or "(none)"
     ids      = [key for key, value in profiles.items() if isinstance(value, dict)]
     selected = ids.index(active) if active in ids else 0
 
     return await runtime.select_menu(MenuRequest(
-        title="Provider",
+        title=f"Update Model Provider · {active_label}",
+        title_accent_suffix=f" · {active_label}",
         view_id="model:provider",
-        status=f"current={active or '(none)'}",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
@@ -173,7 +178,6 @@ async def choose_provider(
                 value=profile_id,
                 label=str(profile.get("name") or profile_id),
                 detail=_provider_detail(profile),
-                is_current=profile_id == active,
             )
             for profile_id, profile in profiles.items()
             if isinstance(profile, dict)

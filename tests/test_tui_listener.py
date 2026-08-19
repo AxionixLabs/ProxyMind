@@ -272,8 +272,9 @@ async def test_listener_menu_keeps_status_in_title_line(
 
     assert selected == "start"
     request = runtime.select_menu.await_args.args[0]
-    assert request.title == "Listener"
-    assert request.status == expected_status
+    assert request.title == f"Update Listener · {expected_status}"
+    assert request.title_accent_suffix == f" · {expected_status}"
+    assert request.status == ""
     assert request.body == ()
     assert request.selected == expected_selected
     assert request.view_id == "listener:root"

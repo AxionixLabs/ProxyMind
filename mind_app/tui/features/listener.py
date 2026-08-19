@@ -219,11 +219,12 @@ async def choose_listener_action(
 ) -> ListenerOperation | None:
     """在主 TUI 中选择监听器启动或停止操作。"""
     listener = getattr(controller, "subscription_runtime", None)
+    current  = _listener_status(listener)
 
     selected = await runtime.select_menu(MenuRequest(
-        title="Listener",
+        title=f"Update Listener · {current}",
+        title_accent_suffix=f" · {current}",
         view_id="listener:root",
-        status=_listener_status(listener),
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,

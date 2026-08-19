@@ -19,6 +19,7 @@ TranscriptExportFormat: typing.TypeAlias = typing.Literal[
 STANDARD_MENU_FOOTER_HINT: typing.Final[str] = (
     "Press enter to confirm or esc to go back"
 )
+
 CLOSE_MENU_FOOTER_HINT: typing.Final[str] = "Press enter or esc to close"
 
 
@@ -130,7 +131,7 @@ class MenuRequest(object):
     footer_hint: str = ""
     allow_cancel: bool = True
     description_layout: MenuDescriptionLayout = MenuDescriptionLayout.COLUMNS
-    description_separator: str = " · "
+    description_separator: str = "  "
     min_description_width: int = 24
     tabs: tuple[MenuTab, ...] = ()
     active_tab_id: str | None = None
@@ -138,7 +139,6 @@ class MenuRequest(object):
     name_column_width: int | None = None
     title_accent_suffix: str = ""
     body_warning: str = ""
-    option_rows_bleed_surface: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,6 +27,8 @@ async def test_effort_menu_uses_primary_selection_contract() -> None:
     request = runtime.select_menu.await_args.args[0]
     assert selected == "high"
     assert request.view_id == "model:effort"
+    assert request.title == "Update Reasoning Effort · high"
+    assert request.title_accent_suffix == " · high"
     assert request.help_text == ""
     assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
     assert (
@@ -36,9 +38,10 @@ async def test_effort_menu_uses_primary_selection_contract() -> None:
     assert [option.is_current for option in request.options] == [
         False,
         False,
-        True,
+        False,
         False,
     ]
+    assert request.selected == 2
 
 
 @pytest.mark.anyio
