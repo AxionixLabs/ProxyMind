@@ -24,7 +24,7 @@ CLOSE_MENU_FOOTER_HINT: typing.Final[str] = "Press enter or esc to close"
 
 class ViewCompletion(str, Enum):
     """描述交互视图的终止语义。"""
-    ACCEPTED  = "accepted"
+    ACCEPTED = "accepted"
     CANCELLED = "cancelled"
 
 
@@ -32,6 +32,13 @@ class MenuDescriptionLayout(str, Enum):
     """描述菜单选项辅助文本的排列方式。"""
     COLUMNS = "columns"
     STACK_BELOW_WHEN_NARROW = "stack_below_when_narrow"
+
+
+class MenuColumnWidthMode(str, Enum):
+    """描述菜单标签列宽的计算范围。"""
+    AUTO_VISIBLE = "auto_visible"
+    AUTO_ALL_ROWS = "auto_all_rows"
+    FIXED = "fixed"
 
 
 class MenuActionKind(str, Enum):
@@ -85,6 +92,16 @@ class MenuOption(object):
     is_current: bool = False
     is_default: bool = False
     search_value: str | None = None
+    disabled_gutter_marker: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MenuTab(object):
+    """描述选择菜单中的一个分类页签。"""
+    tab_id: str
+    label: str
+    options: tuple[MenuOption, ...] = ()
+    footer_hint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +130,15 @@ class MenuRequest(object):
     footer_hint: str = ""
     allow_cancel: bool = True
     description_layout: MenuDescriptionLayout = MenuDescriptionLayout.COLUMNS
+    description_separator: str = " · "
     min_description_width: int = 24
+    tabs: tuple[MenuTab, ...] = ()
+    active_tab_id: str | None = None
+    column_width_mode: MenuColumnWidthMode = MenuColumnWidthMode.AUTO_ALL_ROWS
+    name_column_width: int | None = None
+    title_accent_suffix: str = ""
+    body_warning: str = ""
+    option_rows_bleed_surface: bool = False
 
 
 @dataclass(frozen=True, slots=True)

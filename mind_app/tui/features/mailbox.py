@@ -110,6 +110,9 @@ class TuiMailboxFeature(object):
             title="Mailbox Message",
             view_id=f"mailbox:message:{entry.key}",
             status=entry.title,
+            help_text="",
+            footer_hint=STANDARD_MENU_FOOTER_HINT,
+            description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
             options=(
                 MenuOption(
                     _RUN_ACTION,
@@ -140,9 +143,6 @@ class TuiMailboxFeature(object):
                     dismiss_on_select=False,
                 ),
             ),
-            help_text="",
-            footer_hint=STANDARD_MENU_FOOTER_HINT,
-            description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         )
 
     def _queue_message_action(self, message_id: str, action: str) -> None:
@@ -422,6 +422,7 @@ class TuiMailboxFeature(object):
                             on_auto=self._select_auto_run,
                             on_message=self._push_message_menu,
                         ),
+                        session_id=session_id,
                     )
             return None
 

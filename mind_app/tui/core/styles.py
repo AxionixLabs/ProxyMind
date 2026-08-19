@@ -211,6 +211,13 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "approval-command-string": "#246B4A",
             "approval-command-number": "#755D00",
             "approval-command-operator": "bold #53606C",
+            # Codex uses a terminal-aware cyan accent for selected controls;
+            # light surfaces need a darker cyan for readable contrast.
+            "tui-menu.tab-selected": "bold #005F87",
+            "tui-menu.title.current": "#005F87",
+            "tui-menu.index.active": "bold #005F87",
+            "tui-menu.label.active": "bold #005F87",
+            "tui-menu.detail-selected": "bold #005F87",
         })
     return Style.from_dict(styles)
 

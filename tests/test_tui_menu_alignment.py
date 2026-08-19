@@ -13,9 +13,11 @@ from mind_app.tui.core.menu import (
     TuiMenu,
 )
 from mind_app.tui.core.models import (
+    MenuColumnWidthMode,
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
+    MenuTab,
     ViewCompletion,
 )
 
@@ -170,11 +172,11 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     assert [style for style, _text in active_row] == [
         "class:tui-menu.index.active",
         "class:tui-menu.label.active",
-        "class:tui-menu.detail",
+        "class:tui-menu.detail-selected",
     ]
     assert TUI_MENU_STYLE.get_attrs_for_style_str(
         "class:tui-menu.label.active"
-    ).bgcolor == "1D3A4D"
+    ).bgcolor == ""
     assert TUI_MENU_STYLE.get_attrs_for_style_str(
         "class:tui-menu.detail"
     ).bgcolor == ""
@@ -187,6 +189,23 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     assert TUI_MENU_STYLE.get_attrs_for_style_str(
         "class:tui-menu.label.active"
     ).bold
+
+
+def test_menu_style_matches_codex_semantics_without_selected_row_background() -> None:
+    title = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.title")
+    status = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.status")
+    label = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.label")
+    detail = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.detail")
+    selected = TUI_MENU_STYLE.get_attrs_for_style_str(
+        "class:tui-menu.label.active"
+    )
+
+    assert title.bold and not title.dim
+    assert status.dim
+    assert not label.bold and not label.dim
+    assert detail.dim
+    assert selected.bold and selected.color == "ansicyan"
+    assert selected.bgcolor == ""
 
 
 @pytest.mark.anyio
@@ -1054,6 +1073,335 @@ async def test_number_key_chooses_nth_enabled_filtered_option() -> None:
     choose_first(None)
 
     assert await task == "one"
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_hides_number_gutter_like_codex() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        options=(
+            MenuOption("one", "One"),
+            MenuOption("two", "Two"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    lines = _fragments_text(menu.fragments()).splitlines()
+    one = next(line for line in lines if "One" in line)
+    assert "1. One" not in one
+    assert "› One" in one
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_page_and_end_navigation_clamp_before_trailing_disabled_rows() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Paging",
+        options=tuple(
+            MenuOption(
+                str(index),
+                f"Row {index}",
+                disabled=index >= 8,
+            )
+            for index in range(10)
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    menu._move(menu.VISIBLE_ROWS)
+    assert menu.state is not None
+    assert menu.state.selected == 7
+
+    menu._set_selection(9, direction=-1)
+    assert menu.state.selected == 7
+
+    menu._move(-menu.VISIBLE_ROWS)
+    assert menu.state.selected == 0
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_disabled_reason_uses_disabled_gutter_and_enabled_numbering() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        options=(
+            MenuOption(
+                "blocked",
+                "Blocked",
+                disabled_reason="Busy",
+                disabled_gutter_marker="×",
+            ),
+            MenuOption("available", "Available"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    lines = _fragments_text(menu.fragments()).splitlines()
+    blocked = next(line for line in lines if "Blocked" in line)
+    available = next(line for line in lines if "Available" in line)
+    assert "×" in blocked
+    assert "1." not in blocked
+    assert "› 1. Available" in available
+    assert menu.state is not None
+    assert menu.state.selected == 1
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_tabs_reset_query_selection_and_footer_hint() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Pick",
+        searchable=True,
+        tabs=(
+            MenuTab(
+                "first",
+                "First",
+                options=(MenuOption("alpha", "Alpha"),),
+                footer_hint="First hint",
+            ),
+            MenuTab(
+                "second",
+                "Second",
+                options=(MenuOption("beta", "Beta"),),
+                footer_hint="Second hint",
+            ),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    menu.handle_key_event(SimpleNamespace(key="b", data="b"))
+    assert menu.state is not None
+    assert menu.state.query == "b"
+    menu.handle_key_event(SimpleNamespace(key="right", data=""))
+
+    assert menu.active_tab_id() == "second"
+    assert menu.state is not None
+    assert menu.state.query == ""
+    assert menu.state.selected == 0
+    text = _fragments_text(menu.fragments())
+    assert "[Second]" in text
+    assert "Beta" in text
+    assert "First hint" not in text
+    assert "Second hint" in text
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "mode",
+    (
+        MenuColumnWidthMode.AUTO_VISIBLE,
+        MenuColumnWidthMode.AUTO_ALL_ROWS,
+        MenuColumnWidthMode.FIXED,
+    ),
+)
+async def test_menu_column_width_modes_keep_rendered_rows_within_width(
+    mode: MenuColumnWidthMode,
+) -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 40,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Columns",
+        column_width_mode=mode,
+        options=(
+            MenuOption("short", "Short", detail="small"),
+            MenuOption("long", "A much longer label", detail="description"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    lines = _fragments_text(menu.fragments()).splitlines()
+    assert all(get_cwidth(line) <= 40 for line in lines)
+    assert any("Short" in line for line in lines)
+    assert any("A much" in line for line in lines)
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("width", "menu_request", "expected"),
+    (
+        (
+            40,
+            MenuRequest(
+                title="Columns",
+                description_layout=(
+                    MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+                ),
+                options=(
+                    MenuOption("one", "Short", detail="这是一个很长的中文描述"),
+                    MenuOption("two", "Long label", detail="description"),
+                ),
+                footer_hint="Press enter",
+            ),
+            "\n".join((
+                "  Columns",
+                "  Up/Down select · Enter apply · Esc/…",
+                "    › 1. Short",
+                "         这是一个很长的中文描述",
+                "      2. Long label",
+                "         description",
+                "  ",
+                "    Press enter",
+            )),
+        ),
+        (
+            60,
+            MenuRequest(
+                title="Options",
+                status="ready",
+                options=(
+                    MenuOption("one", "One", detail="First"),
+                    MenuOption(
+                        "blocked",
+                        "Blocked",
+                        disabled_reason="Busy",
+                        disabled_gutter_marker="×",
+                    ),
+                    MenuOption(
+                        "two",
+                        "Two",
+                        detail="Second",
+                        is_current=True,
+                    ),
+                ),
+                footer_note="Status",
+                footer_hint="Press enter",
+            ),
+            "\n".join((
+                "  Options",
+                "  ready",
+                "  Up/Down select · Enter apply · Esc/q cancel",
+                "      1. One     · First",
+                "      ×  Blocked · Busy",
+                "    › 2. Two     · Second (current)",
+                "  ",
+                "    Status",
+                "    Press enter",
+            )),
+        ),
+        (
+            100,
+            MenuRequest(
+                title="Long menu",
+                options=(
+                    MenuOption(
+                        "first",
+                        "First option",
+                        detail="A descriptive value",
+                    ),
+                    MenuOption(
+                        "second",
+                        "Second option",
+                        detail="Another descriptive value",
+                    ),
+                ),
+                footer_note="All options visible",
+                footer_hint="Press enter",
+            ),
+            "\n".join((
+                "  Long menu",
+                "  Up/Down select · Enter apply · Esc/q cancel",
+                "    › 1. First option  · A descriptive value",
+                "      2. Second option · Another descriptive value",
+                "  ",
+                "    All options visible",
+                "    Press enter",
+            )),
+        ),
+        (
+            60,
+            MenuRequest(
+                title="Empty",
+                body=("No options available",),
+                footer_hint="Press enter",
+            ),
+            "\n".join((
+                "  Empty",
+                "  Up/Down select · Enter apply · Esc/q cancel",
+                "    No options available",
+                "  ",
+                "    Press enter",
+            )),
+        ),
+        (
+            60,
+            MenuRequest(
+                title="Disabled",
+                options=(
+                    MenuOption("a", "A", disabled=True, disabled_reason="Busy"),
+                    MenuOption("b", "B", disabled=True),
+                ),
+                footer_hint="Press enter",
+            ),
+            "\n".join((
+                "  Disabled",
+                "  Up/Down select · Enter apply · Esc/q cancel",
+                "         A · Busy",
+                "         B",
+                "  ",
+                "    Press enter",
+            )),
+        ),
+    ),
+)
+async def test_menu_text_snapshots_cover_visible_states(
+    width: int,
+    menu_request: MenuRequest,
+    expected: str,
+) -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: width,
+    )
+    task = asyncio.create_task(menu.request(menu_request))
+    await asyncio.sleep(0)
+
+    assert _fragments_text(menu.fragments()) == expected
+
+    menu.cancel()
+    assert await task is None
 
 
 def _fragments_text(parts) -> str:

@@ -524,6 +524,9 @@ class TuiScreen(object):
             modal=True,
             key_bindings=self.menu.key_bindings,
         )
+        self.menu_footer_control = FormattedTextControl(
+            self._menu_footer_fragments,
+        )
         self.process_viewer = TuiProcessViewer(
             invalidate=self.invalidate,
             focus_viewer=lambda: self._activate_bottom_surface("process_viewer"),
@@ -720,6 +723,13 @@ class TuiScreen(object):
             style="class:menu-card",
             dont_extend_height=True,
         )
+        self.menu_footer_window = Window(
+            content=self.menu_footer_control,
+            height=self._menu_footer_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
         self.process_viewer_window = Window(
             content=self.process_viewer_control,
             height=self._process_viewer_dimension,
@@ -782,6 +792,10 @@ class TuiScreen(object):
             ),
             filter=Condition(lambda: self.bottom_pane.is_active("menu")),
         )
+        self.menu_footer = ConditionalContainer(
+            self.menu_footer_window,
+            filter=Condition(lambda: self.bottom_pane.is_active("menu")),
+        )
         self.process_viewer_card = ConditionalContainer(
             HSplit(
                 [
@@ -800,6 +814,7 @@ class TuiScreen(object):
                 [
                     self.approval_card,
                     self.menu_card,
+                    self.menu_footer,
                     self.process_viewer_card,
                 ],
                 align=VerticalAlign.TOP,
@@ -2615,6 +2630,10 @@ class TuiScreen(object):
         """返回内嵌菜单底部对齐留白的显示高度。"""
         return Dimension.exact(self._menu_bottom_padding_height())
 
+    def _menu_footer_dimension(self) -> Dimension:
+        """返回菜单透明提示区域的当前显示高度。"""
+        return Dimension.exact(self._menu_footer_height())
+
     def _process_viewer_dimension(self) -> Dimension:
         """返回进程查看器内容当前显示高度。"""
         return Dimension.exact(self._process_viewer_content_height())
@@ -3014,6 +3033,11 @@ class TuiScreen(object):
         view = self.bottom_pane.active_view
         return view.fragments() if view is not None else []
 
+    def _menu_footer_fragments(self) -> StyleAndTextTuples:
+        """生成当前菜单表面下方的透明提示片段。"""
+        view = self.bottom_pane.active_view
+        return view.footer_fragments() if view is not None else []
+
     def _menu_top_padding_height(self) -> int:
         """返回菜单表面顶部留白在当前帧中的显示行数。"""
         return (
@@ -3026,6 +3050,14 @@ class TuiScreen(object):
         """返回菜单表面底部留白在当前帧中的显示行数。"""
         return (
             self._active_view_layout().bottom_padding_height
+            if self.bottom_pane.is_active("menu")
+            else 0
+        )
+
+    def _menu_footer_height(self) -> int:
+        """返回菜单透明提示区域在当前帧中的显示行数。"""
+        return (
+            self._active_view_layout().footer_height
             if self.bottom_pane.is_active("menu")
             else 0
         )
@@ -3223,15 +3255,28 @@ class TuiScreen(object):
                 max(0, (available_height - 1) // 2),
             )
             bottom_padding = top_padding
+            active_view = self.bottom_pane.active_view
+            footer_height = min(
+                available_height,
+                (
+                    active_view.footer_height(self.terminal_width)
+                    if active_view is not None
+                    else 0
+                ),
+            )
             content_height = min(
                 (
-                    self.bottom_pane.active_view.desired_height(
-                        self.terminal_width,
-                    )
-                    if self.bottom_pane.active_view is not None
-                    else self.menu.height()
+                    active_view.desired_height(self.terminal_width)
+                    if active_view is not None
+                    else 0
                 ),
-                max(0, available_height - top_padding - bottom_padding),
+                max(
+                    0,
+                    available_height
+                    - top_padding
+                    - bottom_padding
+                    - footer_height,
+                ),
             )
 
         elif surface == "process_viewer":

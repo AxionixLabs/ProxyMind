@@ -14,6 +14,7 @@ from mind_app.frontend import (
     ApplicationView
 )
 from ..core.models import (
+    CLOSE_MENU_FOOTER_HINT,
     FragmentBlock,
     MenuDescriptionLayout,
     MenuOption,
@@ -260,10 +261,12 @@ def _completed_exec_panel(snapshot: dict[str, typing.Any]) -> MenuRequest:
 
     return MenuRequest(
         title=f"{_session_kind(snapshot)} {_completion_state(snapshot)}",
+        view_id=f"processes:completed:{session_id or 'unknown'}",
         status=f"exit={exit_code if exit_code is not None else '-'} · "
                f"{session_id}",
-        help_text="Esc/q close",
+        help_text="",
         body=body,
+        footer_hint=CLOSE_MENU_FOOTER_HINT,
     )
 
 
@@ -290,11 +293,14 @@ async def stop_all_exec_sessions(
 
     confirmed = await runtime.select_menu(MenuRequest(
         title="Stop Background Commands",
+        view_id="processes:stop-all",
         status=f"running={count}",
         body=(
             f"Stop all {count} {const.APP_DESC}-owned background {tree_noun}?",
         ),
-        help_text="Up/Down select · Enter choose · Esc/q cancel",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=(
             MenuOption(
                 value=False,

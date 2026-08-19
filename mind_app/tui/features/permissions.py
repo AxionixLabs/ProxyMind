@@ -3,7 +3,6 @@
 
 import typing
 from mind_core.permissions import (
-    PermissionPreset,
     PermissionSettings,
     permission_label,
     preset_permissions
@@ -16,25 +15,133 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
+from mind_nova import const
 from ..core.models import (
+    MenuActionKind,
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
 )
 from ..core.styles import (
-    MUTED_STYLE,
-    command_result_block
+    fragment_block
 )
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
-PERMISSION_OPTIONS: tuple[tuple[PermissionPreset, str, str], ...] = (
-    ("read-only", "Read Only", "inspect files and ask before broader actions"),
-    ("auto", "Auto", "work in the workspace and ask before crossing its boundary"),
-    ("full-access", "Full Access", "run without sandbox restrictions or approval prompts"),
+PermissionMenuValue = typing.Literal[
+    "read-only",
+    "auto",
+    "ask-for-approval",
+    "approve-for-me",
+    "full-access",
+]
+
+PERMISSION_OPTIONS: tuple[tuple[PermissionMenuValue, str, str], ...] = (
+    (
+        "read-only",
+        "Read Only",
+        f"{const.APP_DESC} can read files in the current workspace. "
+        "Approval is required to edit files or access the internet.",
+    ),
+    (
+        "ask-for-approval",
+        "Ask for approval",
+        f"{const.APP_DESC} can read and edit files in the current workspace, "
+        "and run commands. Approval is required to access the internet or edit "
+        "other files.",
+    ),
+    (
+        "approve-for-me",
+        "Approve for me",
+        "Only ask for actions detected as potentially unsafe.",
+    ),
+    (
+        "full-access",
+        "Full Access",
+        f"{const.APP_DESC} can edit files outside this workspace and access the "
+        "internet without asking for approval. Exercise caution when using.",
+    ),
 )
+
+
+def _permission_settings(value: PermissionMenuValue) -> PermissionSettings:
+    """返回菜单项对应的权限设置。"""
+    if value == "read-only":
+        return preset_permissions("read-only", display_label="Read Only")
+    if value in ("auto", "ask-for-approval"):
+        label = "Ask for approval" if value == "ask-for-approval" else None
+        return preset_permissions("auto", display_label=label)
+    if value == "approve-for-me":
+        return preset_permissions("auto", display_label="Approve for me")
+    return preset_permissions("full-access", display_label="Full Access")
+
+
+def _permission_detail() -> tuple[str, ...]:
+    """生成权限确认面板的只读详情。"""
+    return (
+        f"When {const.APP_DESC} runs with full access, it can edit any file on "
+        "your computer and run commands with network, without your approval.",
+    )
+
+
+def _permission_warning() -> str:
+    """返回 Full Access 确认面板中的红色警示尾段。"""
+    return (
+        "Exercise caution when enabling full access. This significantly increases "
+        "the risk of data loss, leaks, or unexpected behavior."
+    )
+
+
+def _permission_confirmation_menu(
+    runtime: "TuiRuntime",
+    settings: PermissionSettings,
+) -> MenuRequest:
+    """生成权限预设的二级确认菜单。"""
+    def cancel_confirmation() -> None:
+        """关闭当前确认面板并返回权限列表。"""
+        runtime.cancel_menu()
+
+    return MenuRequest(
+        title="Enable full access?",
+        view_id=f"permissions:confirm:{settings.preset}",
+        body=_permission_detail() + ("",),
+        body_warning=_permission_warning(),
+        option_rows_bleed_surface=True,
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        description_separator="  ",
+        options=(
+            MenuOption(
+                value=settings,
+                label="Yes, continue anyway",
+                detail="Apply full access for this session",
+            ),
+            MenuOption(
+                value=None,
+                label="Cancel",
+                detail="Go back without enabling full access",
+                on_select=cancel_confirmation,
+                dismiss_on_select=False,
+            ),
+        ),
+    )
+
+
+def _queue_permission_confirmation(
+    runtime: "TuiRuntime",
+    settings: PermissionSettings,
+) -> None:
+    """把权限确认子菜单排入当前菜单会话。"""
+    runtime.emit_menu_action(
+        lambda: runtime.push_menu(
+            _permission_confirmation_menu(runtime, settings),
+        ),
+        name="tui permissions navigation",
+        kind=MenuActionKind.NAVIGATION,
+    )
 
 
 async def choose_permissions_mode(
@@ -42,27 +149,47 @@ async def choose_permissions_mode(
     current: PermissionSettings
 ) -> PermissionSettings | None:
     """在主 TUI 中选择权限模式。"""
+    def option_for(
+        value: PermissionMenuValue,
+        label: str,
+        detail: str,
+    ) -> MenuOption:
+        """生成权限预设列表项及其必要的确认导航动作。"""
+        settings = _permission_settings(value)
+        requires_confirmation = value == "full-access"
+        return MenuOption(
+            value=value,
+            label=label,
+            detail=detail,
+            on_select=(
+                lambda: _queue_permission_confirmation(runtime, settings)
+                if requires_confirmation
+                else None
+            ),
+            dismiss_on_select=not requires_confirmation,
+            dismiss_parent_on_child_accept=requires_confirmation,
+            is_current=False,
+        )
+
     selected = await runtime.select_menu(MenuRequest(
-        title="Permissions",
+        title=f"Update Model Permissions · {permission_label(current)}",
+        title_accent_suffix=f" · {permission_label(current)}",
+        body=("",),
+        option_rows_bleed_surface=True,
         view_id="permissions:root",
-        status=f"current={permission_label(current)}",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        description_separator="  ",
         options=tuple(
-            MenuOption(
-                value=value,
-                label=label,
-                detail=detail,
-                is_current=value == current.preset,
-            )
+            option_for(value, label, detail)
             for value, label, detail in PERMISSION_OPTIONS
         ),
         selected=next(
             (
                 index
-                for index, (value, _label, _detail) in enumerate(PERMISSION_OPTIONS)
-                if value == current.preset
+                for index, (_value, label, _detail) in enumerate(PERMISSION_OPTIONS)
+                if permission_label(current) == label
             ),
             0,
         ),
@@ -70,8 +197,10 @@ async def choose_permissions_mode(
 
     if selected is None:
         return None
+    if isinstance(selected, PermissionSettings):
+        return selected
 
-    return preset_permissions(typing.cast(PermissionPreset, selected))
+    return _permission_settings(typing.cast(PermissionMenuValue, selected))
 
 
 def render_permissions_status(
@@ -81,26 +210,11 @@ def render_permissions_status(
     """展示当前权限模式。"""
     label = permission_label(permissions)
 
-    detail = (
-        f"sandbox={permissions.sandbox_mode}"
-        f" · approval={permissions.approval_policy}"
-    )
-
-    title_style = TextStyle(
-        foreground=(
-            "#D8B26E"
-            if permissions.sandbox_mode == "danger-full-access"
-            else "#8FC7EA"
-        ),
-        bold=True,
-    )
-
     application.emit(ApplicationView(
         type="tui.permissions.status",
-        renderable=command_result_block(
-            "/permissions",
-            TextSpan(label, title_style),
-            TextSpan(f" · {detail}", MUTED_STYLE),
+        renderable=fragment_block(
+            TextSpan("• ", TextStyle(dim=True)),
+            TextSpan(f"Permissions updated to {label}"),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

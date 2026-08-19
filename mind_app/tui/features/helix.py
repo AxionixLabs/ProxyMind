@@ -311,8 +311,11 @@ async def confirm_runtime_download(
     """在主 TUI 中确认是否下载缺失的 Helix 运行时。"""
     result = await runtime.select_menu(MenuRequest(
         title="Helix Runtime Setup",
+        view_id="helix:runtime-setup",
         status=context.app_desc,
-        help_text="Up/Down select · Enter choose · Esc/q cancel",
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(
             MenuOption(value=value, label=label, detail=detail)
             for value, label, detail in DOWNLOAD_OPTIONS

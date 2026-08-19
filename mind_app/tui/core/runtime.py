@@ -64,6 +64,7 @@ from .process_viewer import ProcessViewerRequest
 from .render import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
+from .view import ViewIdentity
 from .styles import (
     failure_text_block,
     query_block,
@@ -778,33 +779,74 @@ class TuiRuntime(object):
     def replace_active_menu_if_id(
         self,
         view_id: str,
-        request: MenuRequest
+        request: MenuRequest,
+        *,
+        session_id: int | None = None,
     ) -> bool:
         """仅在栈顶菜单标识匹配时刷新内容。"""
-        return self.screen.menu.replace_active_if_id(view_id, request)
+        return self.screen.menu.replace_active_if_id(
+            view_id,
+            request,
+            session_id=session_id,
+        )
 
     def replace_present_menu_if_id(
         self,
         view_id: str,
-        request: MenuRequest
+        request: MenuRequest,
+        *,
+        session_id: int | None = None,
     ) -> bool:
         """刷新栈中仍存在的指定菜单。"""
-        return self.screen.menu.replace_present_if_id(view_id, request)
+        return self.screen.menu.replace_present_if_id(
+            view_id,
+            request,
+            session_id=session_id,
+        )
 
-    def dismiss_menu_by_id(self, view_id: str) -> bool:
+    def replace_present_menus_if_id(
+        self,
+        updates: typing.Iterable[tuple[str, MenuRequest]],
+        *,
+        session_id: int | None = None,
+    ) -> int:
+        """在同一会话内原子刷新多个仍存在的菜单 view。"""
+        return self.screen.menu.replace_present_many_if_id(
+            updates,
+            session_id=session_id,
+        )
+
+    def dismiss_menu_by_id(
+        self,
+        view_id: str,
+        *,
+        session_id: int | None = None,
+    ) -> bool:
         """按标识取消菜单及其上方子菜单。"""
-        return self.screen.menu.dismiss_view_by_id(view_id)
+        return self.screen.menu.dismiss_view_by_id(
+            view_id,
+            session_id=session_id,
+        )
 
     def dismiss_menus_by_id(
         self,
-        view_ids: typing.Iterable[str]
+        view_ids: typing.Iterable[str],
+        *,
+        session_id: int | None = None,
     ) -> int:
         """从最浅命中标识开始取消多个菜单层。"""
-        return self.screen.menu.dismiss_views_by_id(view_ids)
+        return self.screen.menu.dismiss_views_by_id(
+            view_ids,
+            session_id=session_id,
+        )
 
     def active_menu_session_id(self) -> int | None:
         """返回当前菜单会话标识，供领域 action 绑定生命周期。"""
         return self.screen.menu.active_session_id
+
+    def active_menu_view_identity(self) -> ViewIdentity | None:
+        """返回当前菜单 view 的稳定身份快照。"""
+        return self.screen.menu.active_view_identity()
 
     def menu_session_is_active(self, session_id: int) -> bool:
         """判断菜单会话是否仍可接受异步结果。"""
@@ -1761,6 +1803,9 @@ class TuiRuntime(object):
 
         await self.screen.approval.close()
         await self.screen.menu.close()
+        # Future.set_result 会在当前事件循环的下一次调度中恢复等待方。
+        # 关闭协议返回前让这些调用方完成 finally，避免留下悬挂的菜单协程。
+        await asyncio.sleep(0)
         await self.screen.process_viewer.close()
 
         if self.document.active_kind == "operation":

@@ -4,7 +4,8 @@
 import typing
 from .view import (
     BottomPaneView,
-    BottomPaneViewStack
+    BottomPaneViewStack,
+    ViewIdentity,
 )
 
 BottomSurface: typing.TypeAlias = typing.Literal[
@@ -55,6 +56,12 @@ class TuiBottomPane(object):
         if self.active_surface != "menu":
             return None
         return self.view_stack.active_view
+
+    @property
+    def active_view_identity(self) -> ViewIdentity | None:
+        """返回当前选择视图的稳定身份快照。"""
+        view = self.active_view
+        return view.identity() if view is not None else None
 
     def is_active(self, surface: BottomSurface) -> bool:
         """返回指定表面是否位于交互栈顶。"""

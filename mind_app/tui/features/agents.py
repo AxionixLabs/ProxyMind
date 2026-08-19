@@ -142,6 +142,7 @@ async def _run_agent_action(
             runtime.replace_active_menu_if_id(
                 _agent_root_view_id(root_session_id),
                 root_menu(refreshed),
+                session_id=session_id,
             )
     except (TypeError, ValueError, RuntimeError) as error:
         if runtime.menu_session_is_active(session_id):

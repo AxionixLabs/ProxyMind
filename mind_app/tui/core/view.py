@@ -2,9 +2,18 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from .models import ViewCompletion
+
+
+@dataclass(frozen=True, slots=True)
+class ViewIdentity(object):
+    """描述一个底部选择视图的稳定身份和会话代数。"""
+    view_id: str | None
+    generation: int
+    session_id: int | None
 
 
 class BottomPaneView(typing.Protocol):
@@ -15,19 +24,39 @@ class BottomPaneView(typing.Protocol):
 
     def fragments(self) -> StyleAndTextTuples: ...
 
+    def footer_fragments(self) -> StyleAndTextTuples: ...
+
     def desired_height(self, width: int) -> int: ...
+
+    def footer_height(self, width: int) -> int: ...
 
     def view_id(self) -> str | None: ...
 
     def generation(self) -> int: ...
 
-    def handle_key_event(self, event: typing.Any) -> bool: ...
+    def session_id(self) -> int | None: ...
+
+    def identity(self) -> ViewIdentity: ...
+
+    def selected_index(self) -> int | None: ...
+
+    def active_tab_id(self) -> str | None: ...
+
+    def handle_key_event(self, _event: typing.Any) -> bool: ...
+
+    def on_ctrl_c(self) -> bool: ...
+
+    def handle_paste(self, text: str) -> bool: ...
 
     def is_complete(self) -> bool: ...
 
     def completion(self) -> ViewCompletion | None: ...
 
     def result(self) -> typing.Any: ...
+
+    def dismiss_after_child_accept(self) -> bool: ...
+
+    def clear_dismiss_after_child_accept(self) -> None: ...
 
 
 class BottomPaneViewStack(object):
@@ -56,6 +85,21 @@ class BottomPaneViewStack(object):
     def views(self) -> tuple[BottomPaneView, ...]:
         """返回当前视图栈的只读快照。"""
         return tuple(self._views)
+
+    def active_view_id(self) -> str | None:
+        """返回栈顶视图的稳定标识。"""
+        view = self.active_view
+        return view.view_id() if view is not None else None
+
+    def find(self, view_id: str, *, session_id: int | None = None) -> BottomPaneView | None:
+        """返回当前会话中最靠近栈顶的指定身份视图。"""
+        for view in reversed(self._views):
+            if view.view_id() != view_id:
+                continue
+            if session_id is not None and view.session_id() != session_id:
+                continue
+            return view
+        return None
 
     def push(self, view: BottomPaneView) -> None:
         """压入视图并通知宿主更新表面。"""

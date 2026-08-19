@@ -136,6 +136,41 @@ async def test_active_view_replaces_status_exec_and_queue() -> None:
 
 
 @pytest.mark.anyio
+async def test_menu_footer_is_outside_surface_and_has_no_card_style() -> None:
+    runtime = TuiRuntime()
+    task = asyncio.create_task(runtime.select_menu(MenuRequest(
+        title="Options",
+        footer_note="Status",
+        footer_hint="Press Esc to go back",
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    screen = runtime.screen
+    view = screen.bottom_pane.active_view
+    assert view is not None
+
+    surface_text = "".join(text for _style, text in view.fragments())
+    footer_text = "".join(text for _style, text in view.footer_fragments())
+    assert "Press Esc" not in surface_text
+    assert "Press Esc" in footer_text
+    assert screen._menu_view_fragments() == view.fragments()
+    assert screen._menu_footer_fragments() == view.footer_fragments()
+    assert screen.menu_card.filter()
+    assert screen.menu_footer.filter()
+    assert screen.menu_window.style == "class:menu-card"
+    assert screen.menu_footer_window.style == ""
+
+    layout = screen._active_view_layout()
+    assert layout.footer_height == view.footer_height(screen.terminal_width)
+    assert layout.content_height == view.desired_height(screen.terminal_width)
+    assert layout.total_height == screen._interaction_height()
+
+    screen.menu.finish(None)
+    await task
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("rows", "option_count", "expected_content_height"),
     ((8, 2, 4), (8, 12, 5), (12, 12, 9)),

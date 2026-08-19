@@ -97,7 +97,11 @@ def _coding_stub() -> SimpleNamespace:
     ("preset", "settings", "label"),
     [
         ("read-only", PermissionSettings("read-only", "on-request"), "Read Only"),
-        ("auto", PermissionSettings("workspace-write", "on-request"), "Auto"),
+        (
+            "auto",
+            PermissionSettings("workspace-write", "on-request"),
+            "Ask for approval",
+        ),
         (
             "full-access",
             PermissionSettings("danger-full-access", "never"),

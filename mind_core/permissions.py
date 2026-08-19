@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from mind_nova.requests.permissions import (
     ApprovalPolicy,
     SandboxMode,
@@ -24,6 +24,7 @@ class PermissionSettings(object):
 
     sandbox_mode: SandboxMode
     approval_policy: ApprovalPolicy
+    display_label: str | None = field(default=None, compare=False)
 
     @property
     def preset(self) -> PermissionPreset:
@@ -38,14 +39,18 @@ class PermissionSettings(object):
         return "custom"
 
 
-def preset_permissions(preset: PermissionPreset) -> PermissionSettings:
+def preset_permissions(
+    preset: PermissionPreset,
+    *,
+    display_label: str | None = None,
+) -> PermissionSettings:
     """返回用户预设对应的权限设置。"""
     if preset == "read-only":
-        return PermissionSettings("read-only", "on-request")
+        return PermissionSettings("read-only", "on-request", display_label)
     if preset == "auto":
-        return PermissionSettings("workspace-write", "on-request")
+        return PermissionSettings("workspace-write", "on-request", display_label)
     if preset == "full-access":
-        return PermissionSettings("danger-full-access", "never")
+        return PermissionSettings("danger-full-access", "never", display_label)
     raise ValueError(f"unsupported permission preset: {preset}")
 
 
@@ -71,9 +76,11 @@ def resolve_permissions(
 
 def permission_label(settings: PermissionSettings) -> str:
     """返回 footer 和命令输出使用的权限名称。"""
+    if settings.display_label:
+        return settings.display_label
     labels: dict[PermissionPreset, str] = {
         "read-only": "Read Only",
-        "auto": "Auto",
+        "auto": "Ask for approval",
         "full-access": "Full Access",
         "custom": "Custom",
     }

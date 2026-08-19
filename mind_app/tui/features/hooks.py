@@ -108,6 +108,7 @@ async def _run_hook_action(
             runtime.replace_present_menu_if_id(
                 "hooks:events",
                 _hook_root_request(runtime, mind, workspace, refreshed),
+                session_id=session_id,
             )
             runtime.replace_present_menu_if_id(
                 f"hooks:list:{event}",
@@ -118,6 +119,7 @@ async def _run_hook_action(
                     refreshed,
                     event,
                 ),
+                session_id=session_id,
             )
     except Exception as error:
         if runtime.menu_session_is_active(session_id):

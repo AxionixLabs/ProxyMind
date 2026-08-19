@@ -327,6 +327,34 @@ def test_surface_background_depends_on_terminal_support(
     assert style.get_attrs_for_style_str(
         "class:approval-card"
     ).bgcolor == background
+    assert style.get_attrs_for_style_str(
+        "class:menu-card"
+    ).bgcolor == background
+
+
+def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(
+                TerminalKind.WINDOWS_TERMINAL,
+                "Windows Terminal",
+            ),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=(255, 255, 255)),
+        ),
+    )
+
+    for style_class in (
+        "tui-menu.index.active",
+        "tui-menu.label.active",
+        "tui-menu.detail-selected",
+    ):
+        attrs = style.get_attrs_for_style_str(f"class:{style_class}")
+        assert attrs.color == "005F87"
+        assert attrs.bgcolor == ""
 
 
 @pytest.mark.parametrize(
