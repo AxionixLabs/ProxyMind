@@ -297,12 +297,51 @@ def test_light_theme_uses_deep_cyan_for_selected_token_styles() -> None:
     fallback_meta = style.get_attrs_for_style_str(
         "class:completion-menu.meta.completion.current"
     )
+    command_selected = style.get_attrs_for_style_str(
+        "class:token-menu.command.current"
+    )
+    command_meta_selected = style.get_attrs_for_style_str(
+        "class:token-menu.meta.command.current"
+    )
 
     assert selected.color == "005F87"
     assert selected.bold
     assert meta_selected.color == "005F87"
     assert fallback.color == "005F87"
     assert fallback_meta.color == "005F87"
+    assert command_selected.color == "005F87"
+    assert command_selected.bold
+    assert not command_selected.dim
+    assert command_meta_selected.color == "005F87"
+    assert command_meta_selected.bold
+    assert not command_meta_selected.dim
+
+
+def test_command_menu_matches_codex_default_and_selected_styles() -> None:
+    runtime = TuiRuntime()
+
+    style = runtime.screen.application.style
+    command = style.get_attrs_for_style_str("class:token-menu.command")
+    command_selected = style.get_attrs_for_style_str(
+        "class:token-menu.command.current"
+    )
+    command_meta = style.get_attrs_for_style_str(
+        "class:token-menu.meta.command"
+    )
+    command_meta_selected = style.get_attrs_for_style_str(
+        "class:token-menu.meta.command.current"
+    )
+
+    assert command.color == "default"
+    assert not command.bold
+    assert command_selected.color == "ansicyan"
+    assert command_selected.bold
+    assert not command_selected.dim
+    assert command_meta.color == "default"
+    assert command_meta.dim
+    assert command_meta_selected.color == "ansicyan"
+    assert command_meta_selected.bold
+    assert not command_meta_selected.dim
 
 
 @pytest.mark.anyio

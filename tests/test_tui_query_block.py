@@ -16,7 +16,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import query_block
 
 
-def test_slash_command_uses_purple_transcript_style() -> None:
+def test_slash_command_uses_codex_command_transcript_style() -> None:
     block = query_block("/permissions")
 
     assert block.fragments == (

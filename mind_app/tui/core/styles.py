@@ -41,7 +41,7 @@ BODY_STYLE    = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B")
-COMMAND_STYLE = TextStyle(foreground="#C4A7E7", bold=True)
+COMMAND_STYLE = TextStyle(foreground="ansimagenta")
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
 
@@ -55,14 +55,14 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "completion-menu.meta.completion.current": "bg:default bold ansicyan",
     "completion-menu.empty": "bg:default dim italic #59616A",
     "token-menu": "bg:default #B8C0C9",
-    "token-menu.command": "bg:default bold #C4A7E7",
-    "token-menu.command.current": "bg:default bold ansicyan",
+    "token-menu.command": "bg:default fg:default",
+    "token-menu.command.current": "bg:default bold nodim ansicyan",
     "token-menu.skill": "bg:default bold #8FD7FF",
     "token-menu.skill.current": "bg:default bold ansicyan",
     "token-menu.completion": "bg:default bold #B8C0C9",
     "token-menu.completion.current": "bg:default bold ansicyan",
-    "token-menu.meta.command": "bg:default #8A929C",
-    "token-menu.meta.command.current": "bg:default bold ansicyan",
+    "token-menu.meta.command": "bg:default fg:default dim",
+    "token-menu.meta.command.current": "bg:default bold nodim ansicyan",
     "token-menu.meta.skill": "bg:default #7B838E",
     "token-menu.meta.skill.current": "bg:default bold ansicyan",
     "token-menu.meta.completion": "bg:default #707A84",
@@ -171,7 +171,7 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
         styles.update({
             "prompt": "#20262C",
             "prompt.kicker": "bold #596570",
-            "prompt.command.slash": "#70408F",
+            "prompt.command.slash": "ansimagenta",
             "footer.model": "#005F87",
             "placeholder": "#68737D",
             "auto-suggestion": "#737F89",
@@ -179,14 +179,14 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "completion-menu.completion.current": "bold #005F87",
             "completion-menu.meta.completion.current": "bold #005F87",
             "token-menu": "#52606C",
-            "token-menu.command": "bold #70408F",
-            "token-menu.command.current": "bold #005F87",
+            "token-menu.command": "bg:default fg:default",
+            "token-menu.command.current": "bold nodim #005F87",
             "token-menu.skill": "bold #005F87",
             "token-menu.skill.current": "bold #005F87",
             "token-menu.completion": "bold #52606C",
             "token-menu.completion.current": "bold #005F87",
-            "token-menu.meta.command": "#68737D",
-            "token-menu.meta.command.current": "bold #005F87",
+            "token-menu.meta.command": "bg:default fg:default dim",
+            "token-menu.meta.command.current": "bold nodim #005F87",
             "token-menu.meta.skill": "#68737D",
             "token-menu.meta.skill.current": "bold #005F87",
             "token-menu.meta.completion": "#68737D",
