@@ -1,132 +1,76 @@
 # Agents
 
-这个文件给自动化编码代理使用。执行任务时先读本文件，再读相关代码。
+本文件供自动化编码代理使用。开始修改前先阅读本文件，再阅读相关代码和测试。
+仅记录全仓库长期有效的规则；特定领域的约束应放入对应目录的局部 `AGENTS.md`。
 
-## 基本原则
+## 工作方式
 
-- 先看现有实现，再做改动。
-- 改动保持小而干净，不做无关重构。
-- 不保留无意义兼容层，不需要的旧逻辑直接删除。
-- 代码以可读性优先，避免绕、散、重复。
-- 不用 `global`、`nonlocal`、`in locals()`。
-- 拆模块不要用 mixin。
-- 非测试模块里的函数 docstring 使用中文中性描述，不绑定具体业务。
+- 先理解现有实现和调用链，再做小范围、可验证的修改。
+- 不做无关重构，不保留无意义兼容层或只转发一次调用的 facade。
+- 优先复用现有模块、契约和生命周期；只有边界或状态所有权明确时才拆模块。
+- 避免含义不清的布尔值、`None` 和数字位置参数；优先使用关键字参数、枚举或具名类型。
+- 不使用 `global`、`nonlocal`、`in locals()` 或 mixin。
+- 路径、shell 和子进程改动默认兼容 Windows、Linux、macOS；平台专用行为必须显式隔离。
 
-## 品牌与命名
+## 命名与文档
 
-- `Mind`、`mind` 是应用品牌和既有包名，不得当作领域语义写入新增或修改的代码。
-- 展示字符串不得硬编码 `Mind` 或 `mind`，应用名称统一引用
-  `mind_nova.const.APP_DESC` 或 `mind_nova.const.APP_NAME`。
-- docstring 使用中性能力描述，不得出现硬编码的 `Mind` 或 `mind`。
-- 新增或重命名的类名、函数名、方法名、属性名和常量名不得包含 `Mind` 或
-  `mind`，应按实际职责命名。
-- 既有包路径、稳定入口和外部契约中的 `Mind` 或 `mind` 保持不动；引用这些名称
-  不算新增硬编码，但不得据此继续扩散品牌命名。
-
-## 测试原则
-
-- 所有测试用例使用 pytest 风格，不使用 `unittest.TestCase` 或 `unittest.main()`。
-- 异步测试使用 pytest 对应的异步标记；mock 可以使用 `unittest.mock`。
-- 小改动不要求机械新增测试；新增功能或复杂行为变化时才补测试。
-- 测试只覆盖核心主流程，不为实现细节或低风险边界穷举用例。
-- 修改后运行与影响范围匹配的现有测试；扩大测试范围应与改动风险相称。
+- `Mind`/`mind` 是既有品牌和包名，不要扩展为新的领域语义。
+- 新增的类、函数、方法、属性和常量按实际职责命名，不包含 `Mind` 或 `mind`。
+- 展示字符串中的应用名称引用 `mind_nova.const.APP_NAME` 或 `APP_DESC`，不要硬编码。
+- 既有包路径、稳定入口和外部契约中的 `Mind`/`mind` 保持不变。
+- 非测试函数的 docstring 使用中文中性描述；新增 `Protocol`、ABC 或跨层契约时，
+  说明其职责、生命周期和实现方约束。
 
 ## 架构边界
 
-- `mind_app`、`mind_core`、`mind_nova` 等非 backend 模块不得导入 `backend` 包。
-- `backend` 包只允许导入 `backend` 内部模块、标准库和第三方依赖，不得导入非 backend 包。
-- 需要复用 backend 能力时，在 Mind 侧重写或迁移到 Mind 自己的模块。
-- Mind 是主程序控制侧，Helix 是外部 provider，不要把 Helix 逻辑混进 Mind 顶层结构。
-- `exec_env` 顶层以 Mind 为准；Helix 原始环境只放在 `providers.helix`。
-- Mind 顶层 runtime 负责常见本地运行时和 shell/coding 工具。
-- Helix provider 负责设备、媒体、性能等自身工具。
-
-## Mind 分层
-
 ```text
-mind.py
-    -> mind_app.cli                     参数选择、进程启动和前端装配
-        -> mind_app.controller.Mind     主程序状态与生命周期
-            -> mind_app.runtime         模型轮次、MCP、工具和本地运行时
-            -> mind_app.subscription    远程代理订阅编排
-        -> mind_app.tui                 持久交互前端
-        -> mind_app.output              text、jsonl、rich 输出实现
-
+mind.py -> mind_app.cli -> mind_app.controller
+                         -> mind_app.runtime / subscription / tui / output
 mind_app -> mind_core -> mind_nova
-mind_app -------------> mind_nova
 ```
 
 - `mind_app` 是主程序控制和运行侧，可以依赖 `mind_core`、`mind_nova`。
-- `mind_core` 持有配置、偏好、skills、共享终端设计、许可证和远程服务元数据，
-  可以依赖 `mind_nova`，不得导入 `mind_app`。
-- `mind_nova` 只持有请求协议、远程传输、服务认证、事件和标识，不得导入
-  `mind_core` 或 `mind_app`，不得读取本地 skills/config。
-- `engine.ports` 负责本地端口探测和占用进程清理，这类进程能力不放入 `mind_nova`。
-- CLI 是具体前端的组合根。`Mind`、`runtime`、`subscription` 不判断
-  `tui/rich/text/json`，只依赖前端和输出能力边界。
+- `mind_core` 持有配置、偏好和共享设计，可以依赖 `mind_nova`，不得导入 `mind_app`。
+- `mind_nova` 只持有协议、传输、认证、事件和标识，不读取本地配置或 skills，
+  不得导入 `mind_core` 或 `mind_app`。
+- `backend` 只能依赖自身、标准库和第三方库；其他包不得导入 `backend`。
+- `engine.ports` 负责本地端口探测和进程清理，不放入 `mind_nova`。
+- CLI 是组合根；控制器、runtime 和 subscription 不判断具体输出前端。
+- 保持公共 API 精简，不为测试扩大生产模块的公开接口；测试辅助函数放在测试代码中。
 
-### mind_app 目录
+## 测试
 
-- `cli`：命令行参数选择、启动编排和具体前端装配。
-- `cli/entry.py`：进程级事件循环、单次参数解析、入口错误输出和轻量命令路由。
-- `cli/bootstrap.py`：需要 Controller 的普通命令与升级命令的运行时生命周期装配。
-- `cli/help.py`：所有命令层级共用的帮助版式、终端配色和无色输出判断。
-- Doctor 和 MCP Server 各自作为独立组合根，不进入普通应用 bootstrap。
-- `controller.py`：Mind 主控制器，不使用与顶层 `mind_core` 冲突的模块名。
-- `frontend`、`interaction`：跨前端的应用展示与交互契约。
-- `output`、`presentation`：单轮输出控制、内容事件和展示模型。
-- `tui`：prompt_toolkit 应用、TUI 状态和交互功能。
-- `runtime`：工具执行、MCP 生命周期和运行环境。
-- `subscription`：远程代理订阅、消息转发和重连生命周期。
-- `client_tools`、`native_coding`、`mcp`：可执行能力及其协议适配。
-- `approval`、`history`：独立领域状态与持久化。
-- `stream_events`、`stream_state`、`stream_render`、`stream_io`：分别持有流式事件、
-  状态、渲染和记录职责，共同服务 Rich 与 TUI 输出。
+- 使用 pytest 风格；异步测试使用 pytest 的异步标记，mock 可以使用 `unittest.mock`。
+- 测试优先比较完整对象，不为静态定义值、已删除逻辑或低价值实现细节机械增加用例。
+- 新增功能或复杂行为变化覆盖核心主流程和关键失败路径；小改动不机械新增测试。
+- 测试不要直接修改进程环境；优先从上层传入环境派生值或依赖。
+- 先运行受影响模块的定向测试；修改共享配置、协议、控制器或公共契约时再扩大范围。
 
-### TUI 分层
+## 验证
 
-- `tui/core` 持有单一 prompt_toolkit Application、布局、正文、输入、菜单、审批和动画状态。
-- `tui/adapters` 把共享 frontend/output 契约接入 core，不分派命令，不创建第二个 Application。
-- `tui/features` 实现 shell、diff、history、MCP、permissions、tools 等用户功能，
-  不管理主 Application 生命周期，不直接修改正文内部状态。
-- `tui/session` 管理长期交互循环和单轮模型调用，可以依赖 features/core，其他层不得反向依赖 session。
-- `tui/prompting` 只持有 TUI 输入补全、ghost suggestion 和 skill token lexer。
-- `tui/core` 不得导入 `features`、`session` 或 Mind 主控制器。
+- 修改后运行与影响范围匹配的测试，并执行 `python -m py_compile` 或等价语法检查。
+- 使用根目录脚本运行 PyCharm 离线检查：
 
-TUI 状态所有权：
+```powershell
+.\inspect-ide-warnings.ps1 mind_app/tui/core/runtime.py
+```
 
-- 正文块和空行规则只属于 `TuiDocument`。
-- 输入 buffer、补全、历史和按键绑定只属于输入模型与主 TextArea。
-- footer 是布局最后一行，不进入正文换行状态。
-- 动画只写入专属状态区域，不追加正文块。
-- 菜单和审批各自持有 Future、选择位置和局部按键绑定。
-- 输入提交只写入消息队列，不启动新的 Application。
+- 参数可以是项目内文件或目录；默认使用 `.idea/inspectionProfiles/Project_Default.xml`。
+- 报告写入 `.ide-inspection/reports/<模块名>`，原始输出写入
+  `.ide-inspection/inspect.log`，索引和 IDE 日志位于 `.ide-inspection/system`。
+- 需要查看完整启动输出时使用 `-ShowInspectorOutput`：
 
-### 模块规则
+```powershell
+.\inspect-ide-warnings.ps1 mind_app/tui/core/runtime.py -ShowInspectorOutput
+```
 
-- 包级 `__init__.py` 只导出稳定且轻量的契约，不聚合具体实现或启动运行时。
-- 实现工厂从所属模块显式导入，例如 `output.rich`、`output.text`、`output.jsonl`。
-- 类型契约与具体实现分离，导入协议不得加载工具注册表、终端实现或本地配置。
-- 不增加只转发一次调用的 display、factory、facade 或兼容模块。
-- 不按文件行数拆分；只有状态所有权、独立生命周期或依赖方向明确时才新增模块。
-- 多个输出模式共用的 ContentSink 或 PresentationSink 放在 `mind_app.output` 或
-  `mind_app.presentation`，不得复制 TUI 专用版本。
-- 新视觉块通过应用或输出适配器进入 `TuiDocument`，不得直接写 stdout。
-- 只有需要接管真实终端的外部交互程序可以通过 `run_modal()` 暂时让出终端。
-- 新 TUI 命令优先放入现有 `features` 域模块，避免继续扩大 `session/loop.py`。
-- `stream_events/state/render/io` 暂不增加共同父包，避免没有边界收益的机械移动。
+- 脚本只清理当前报告的旧 XML，不修改 `venv` 或项目配置；检查失败时查看
+  `.ide-inspection/inspect.log`。
 
-## 工具与环境
+## 编辑与安全
 
-- Mind 侧 shell 工具只接 `rg`、`jq`、`ast-grep`。
-- `rg`、`jq`、`ast-grep` 来自 Mind 的 `schematic/supports` 时，`source` 使用 `bundled`。
-- Helix `requires` 下的工具不叫 `bundled`，使用 provider 语义。
-- Helix 的 `adb`、`ffmpeg`、`ffprobe`、`k6`、`framix`、`memrix` 不上报到 Mind 顶层工具。
-- 常见本地运行时只由 Mind 顶层上报，Helix 不重复上报。
-
-## Coding 工具
-
-- Mind 内置 coding 工具放在 `mind_app/native_coding` 和 `mind_app/client_tools/coding`。
-- `shell_command`、`apply_patch` 是 Mind 内置 client tools。
-- backend 不再注册 coding 工具，但 backend 原有代码可保留为 provider 侧代码。
-- `apply_patch` 的失败原因必须通过工具结果返回，不在控制台打调试或 warning 日志。
+- 搜索优先使用 `rg`；结构化数据使用解析器或项目现有 API，不做脆弱的字符串拼接。
+- 使用 `apply_patch` 编辑文件，不用 shell 重定向或临时脚本覆盖源码。
+- 保留用户已有改动，不回退无关文件；不要使用破坏性的 `git reset --hard` 或
+  `git checkout --`。
+- `apply_patch` 工具失败原因通过工具结果返回，不向控制台写调试或 warning 日志。
