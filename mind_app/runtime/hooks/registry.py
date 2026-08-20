@@ -48,29 +48,13 @@ class HookRegistry:
     def __init__(
         self,
         *,
-        command_runner: HookCommandRunner | None = None
+        command_runner: HookCommandRunner | None = None,
+        bypass_hook_trust: bool = False
     ) -> None:
-        self._command_runner = command_runner or HookCommandExecutor()
+        self._command_runner    = command_runner or HookCommandExecutor()
+        self._bypass_hook_trust = bool(bypass_hook_trust)
+
         self._observed_warnings: set[str] = set()
-
-    @staticmethod
-    def _resolve(
-        definitions: typing.Iterable[HookDefinitionConfig],
-        hook_states: HookStateTable
-    ) -> tuple[_ResolvedHook, ...]:
-        """统一解析 Hook 信任和激活状态。"""
-        resolved: list[_ResolvedHook] = []
-
-        for definition in definitions:
-            state = resolve_hook_state(definition, hook_states)
-            resolved.append(_ResolvedHook(
-                definition=definition,
-                trust_state=state.trust_state,
-                enabled=state.enabled,
-                active=state.active,
-            ))
-
-        return tuple(resolved)
 
     @staticmethod
     def _runtime_entry(item: _ResolvedHook) -> HookRuntimeEntry:
@@ -93,7 +77,7 @@ class HookRegistry:
     def _catalog_entry(
         item: _ResolvedHook,
         *,
-        display_order: int,
+        display_order: int
     ) -> HookCatalogEntry:
         """把解析结果转换为管理视图条目。"""
         definition = item.definition
@@ -125,6 +109,37 @@ class HookRegistry:
             display_order=display_order,
         )
 
+    @staticmethod
+    def _unsupported_warnings(
+        resolved: typing.Iterable[_ResolvedHook]
+    ) -> tuple[str, ...]:
+        """生成当前运行时无法执行的活动 Hook 告警。"""
+        warnings: list[str] = []
+        for item in resolved:
+            if not item.active or item.definition.handler.type == "command":
+                continue
+
+            source_path = (
+                str(item.definition.source_path)
+                if item.definition.source_path
+                else "hooks configuration"
+            )
+            handler_type = item.definition.handler.type
+            if handler_type == "mcp_tool":
+                message = (
+                    f"skipping MCP tool hook in {source_path}: "
+                    "MCP invocation is not available yet"
+                )
+            else:
+                message = (
+                    f"active {handler_type} hook is available for management "
+                    "but is not executable by the local command runtime"
+                )
+            if message not in warnings:
+                warnings.append(message)
+
+        return tuple(warnings)
+
     def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
         """记录当前进程中尚未报告过的 discovery warning。"""
         for warning in warnings:
@@ -136,6 +151,47 @@ class HookRegistry:
                 level="WARNING",
                 warning=warning,
             )
+
+    def _resolve(
+        self,
+        definitions: typing.Iterable[HookDefinitionConfig],
+        hook_states: HookStateTable
+    ) -> tuple[_ResolvedHook, ...]:
+        """统一解析 Hook 信任和激活状态。"""
+        resolved: list[_ResolvedHook] = []
+
+        for definition in definitions:
+            state = resolve_hook_state(definition, hook_states)
+            resolved.append(_ResolvedHook(
+                definition=definition,
+                trust_state=state.trust_state,
+                enabled=state.enabled,
+                active=(
+                    state.active
+                    or (self._bypass_hook_trust and state.enabled)
+                ),
+            ))
+
+        return tuple(resolved)
+
+    def startup_warnings(
+        self,
+        definitions: typing.Iterable[HookDefinitionConfig],
+        *,
+        hook_states: HookStateTable | None = None,
+        warnings: typing.Iterable[str] = (),
+    ) -> tuple[str, ...]:
+        """返回当前非交互 Hook 初始化需要报告的告警。"""
+        resolved = self._resolve(definitions, hook_states or {})
+        warning_items = list(warnings)
+        warning_items.extend(
+            warning
+            for warning in self._unsupported_warnings(resolved)
+            if warning not in warning_items
+        )
+        result = tuple(warning_items)
+        self._observe_warnings(result)
+        return result
 
     def build(
         self,
@@ -149,18 +205,11 @@ class HookRegistry:
         resolved      = self._resolve(definitions, hook_states or {})
         warning_items = list(warnings)
 
-        unsupported_active = tuple(
-            item.definition.handler.type
-            for item in resolved
-            if item.active and item.definition.handler.type != "command"
+        warning_items.extend(
+            warning
+            for warning in self._unsupported_warnings(resolved)
+            if warning not in warning_items
         )
-        for handler_type in unsupported_active:
-            message = (
-                f"active {handler_type} hook is available for management but "
-                "is not executable by the local command runtime"
-            )
-            if message not in warning_items:
-                warning_items.append(message)
 
         warning_items = tuple(warning_items)
         self._observe_warnings(warning_items)
@@ -168,7 +217,8 @@ class HookRegistry:
         active = tuple(
             item.definition
             for item in resolved
-            if item.active and item.definition.handler.type == "command"
+            if item.active
+            and item.definition.handler.type == "command"
         )
 
         status = HookRuntimeStatus(

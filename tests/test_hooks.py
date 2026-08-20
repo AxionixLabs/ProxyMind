@@ -476,11 +476,53 @@ def test_registry_keeps_non_command_hooks_in_catalog_but_out_of_runtime() -> Non
     assert [item.handler.type for item in runtime.definitions] == ["command"]
     assert runtime.installed_count == 2
     assert runtime.active_count == 1
+    assert runtime.status().warnings == (
+        "skipping MCP tool hook in hooks configuration: "
+        "MCP invocation is not available yet",
+    )
     snapshot = registry.inspect(
         definitions,
         workspace=Path("."),
     )
     assert [item.handler_type for item in snapshot.hooks] == ["mcp_tool", "command"]
+
+
+def test_registry_reports_each_unsupported_mcp_hook_source_once(tmp_path) -> None:
+    first_path = tmp_path / "first.toml"
+    second_path = tmp_path / "second.toml"
+    definitions = (
+        *resolve_hook_definitions(
+            {"PreToolUse": [{"hooks": [
+                {"type": "mcp_tool", "server": "files", "tool": "read"},
+                {"type": "mcp_tool", "server": "files", "tool": "write"},
+            ]}]},
+            source_scope="user",
+            source_path=first_path,
+        ),
+        *resolve_hook_definitions(
+            {"PostToolUse": [{"hooks": [
+                {"type": "mcp_tool", "server": "files", "tool": "audit"},
+            ]}]},
+            source_scope="project",
+            source_path=second_path,
+        ),
+    )
+    states = {
+        item.key: {"trusted_hash": item.content_hash}
+        for item in definitions
+    }
+
+    warnings = HookRegistry().startup_warnings(
+        definitions,
+        hook_states=states,
+    )
+
+    assert warnings == (
+        f"skipping MCP tool hook in {first_path}: "
+        "MCP invocation is not available yet",
+        f"skipping MCP tool hook in {second_path}: "
+        "MCP invocation is not available yet",
+    )
 
 
 def test_non_session_async_hook_is_skipped_with_warning() -> None:

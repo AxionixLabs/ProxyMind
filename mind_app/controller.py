@@ -125,6 +125,9 @@ class Mind(object):
         self.hook_registry: HookRegistry = (
             kwargs.get("hook_registry") or HookRegistry()
         )
+        self.hook_startup_warnings = tuple(
+            kwargs.get("hook_startup_warnings") or ()
+        )
 
         self.hook_status = kwargs.get("hook_status")
 

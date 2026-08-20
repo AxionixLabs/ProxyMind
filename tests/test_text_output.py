@@ -20,8 +20,10 @@ from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,
+    ANSI_DIM,
     ANSI_MAGENTA,
     ANSI_RESET,
+    ANSI_WARNING,
     TextContentSink,
     TextOutputControl,
     TextOutputState,
@@ -86,7 +88,7 @@ class _Application(object):
         self.views.append(view)
 
 
-def _run_view():
+def _run_view(*, hook_warnings=()):
     return build_run_started_view(
         metadata={"cid": "cid-test", "sid": "sid-test"},
         message="What project is this?",
@@ -101,6 +103,7 @@ def _run_view():
         workdir=r"D:\PycharmProjects\Craft",
         permissions=preset_permissions("full-access"),
         turn_id="turn-test",
+        hook_warnings=hook_warnings,
     )
 
 
@@ -146,6 +149,29 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
     assert "codex" not in visible.lower()
     assert "\x1b[" not in recorded
     assert stdout.getvalue() == "Mind project.\n"
+
+
+@pytest.mark.anyio
+async def test_text_hook_startup_warning_matches_codex_exec_stderr() -> None:
+    stderr = io.StringIO()
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=True,
+    )
+
+    await TextPresentationSink(state).emit(_run_view(hook_warnings=(
+        "skipping MCP tool hook in config.toml: "
+        "MCP invocation is not available yet",
+    )))
+
+    assert (
+        f"{ANSI_WARNING}warning:{ANSI_RESET} skipping MCP tool hook "
+        "in config.toml: MCP invocation is not available yet\n"
+    ) in stderr.getvalue()
+    assert "warning: skipping MCP tool hook" in "".join(record.parts)
 
 
 @pytest.mark.anyio
@@ -257,7 +283,7 @@ async def test_text_tool_events_color_only_the_tool_name() -> None:
 
 
 @pytest.mark.anyio
-async def test_text_hook_and_policy_approval_are_progress_on_stderr() -> None:
+async def test_text_hook_lifecycle_matches_codex_exec_stderr() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
     state = TextOutputState(
@@ -294,11 +320,45 @@ async def test_text_hook_and_policy_approval_are_progress_on_stderr() -> None:
 
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == (
-        "• Running UserPromptSubmit hook: Checking prompt\n"
-        "• UserPromptSubmit hook: Checking prompt\n"
-        "└ completed · 25ms\n"
-        "  hook context: safe context\n"
+        "hook: UserPromptSubmit\n"
+        "hook: UserPromptSubmit Completed\n"
         "• Approval policy denied pytest -q\n"
+    )
+
+
+@pytest.mark.anyio
+async def test_text_hook_lifecycle_matches_codex_exec_colors() -> None:
+    stderr = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=True,
+    )
+    sink = TextPresentationSink(state)
+
+    await sink.emit(HookRunView(
+        id="hook-1",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="started",
+        status="running",
+    ))
+    await sink.emit(HookRunView(
+        id="hook-1",
+        hook_key="project:prompt",
+        event="UserPromptSubmit",
+        phase="completed",
+        status="completed",
+    ))
+
+    assert stderr.getvalue() == (
+        f"{ANSI_BOLD}hook:{ANSI_RESET} "
+        f"{ANSI_DIM}UserPromptSubmit"
+        f"{ANSI_RESET}\n"
+        f"{ANSI_BOLD}hook:{ANSI_RESET} "
+        f"{ANSI_DIM}UserPromptSubmit"
+        f"{ANSI_RESET} Completed\n"
     )
 
 

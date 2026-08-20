@@ -148,13 +148,14 @@ class JsonOutputState:
 
         self._invalidated_assistant_item_ids: set[str] = set()
 
-    async def open(self) -> None:
-        """打开输出记录。"""
-        await self.record_writer.open()
-
-    async def close(self) -> None:
-        """关闭输出记录。"""
-        await self.record_writer.close()
+    def _next_item_id(self) -> str:
+        """生成尚未使用的项目 ID。"""
+        while True:
+            value = f"item_{self.next_item}"
+            self.next_item += 1
+            if value not in self.reserved_item_ids:
+                self.reserved_item_ids.add(value)
+                return value
 
     def item_id(self, preferred: str = "") -> str:
         """返回稳定的事件项目 ID。"""
@@ -171,15 +172,6 @@ class JsonOutputState:
             return value
 
         return self._next_item_id()
-
-    def _next_item_id(self) -> str:
-        """生成尚未使用的项目 ID。"""
-        while True:
-            value = f"item_{self.next_item}"
-            self.next_item += 1
-            if value not in self.reserved_item_ids:
-                self.reserved_item_ids.add(value)
-                return value
 
     def emit(self, event: dict[str, typing.Any]) -> None:
         """写出一行 JSON 事件。"""
@@ -247,6 +239,14 @@ class JsonOutputState:
             self._invalidated_assistant_item_ids.add(item_id)
             invalidated.append(item_id)
         return invalidated
+
+    async def open(self) -> None:
+        """打开输出记录。"""
+        await self.record_writer.open()
+
+    async def close(self) -> None:
+        """关闭输出记录。"""
+        await self.record_writer.close()
 
 
 class JsonOutputControl(OutputControlPort, OutputStatusPort):
@@ -406,13 +406,50 @@ class JsonPresentationSink(PresentationSink):
         """绑定展示事件使用的结构化输出状态。"""
         self.state = state
 
+    def _item_completed(self, item_id: str, item: dict[str, typing.Any]) -> None:
+        """写出 item.completed。"""
+        item = {"id": self.state.item_id(item_id), **item}
+        self.state.emit({"type": "item.completed", "item": item})
+
+    def _message_completed(self, text: str) -> None:
+        """写出过程消息项目。"""
+        self._item_completed("", {"type": "agent_message", "text": str(text or "")})
+
+    def _warning_completed(self, message: str) -> None:
+        """把运行时告警写成 Codex exec 的错误项目。"""
+        self._item_completed("", {"type": "error", "message": str(message)})
+
+    def _native_result(self, view: NativeToolResultView) -> None:
+        """编码原生 coding 工具结果。"""
+        data = _data_payload(view.data)
+        if view.name == "apply_patch":
+            item = {
+                "type": "file_change",
+                "status": "completed" if view.ok else "failed",
+                "patch": str(view.arguments.get("patch") or ""),
+                "files": data.get("files", []),
+            }
+        else:
+            item = {
+                "type": "command_execution",
+                "command": _command(view.arguments, data),
+                "aggregated_output": _aggregated_output(data),
+                "exit_code": data.get("exit_code") if not view.ok else data.get("exit_code", 0),
+                "status": "completed" if view.ok else "failed",
+            }
+
+        self._item_completed(view.call_id, item)
+
     async def emit(self, view: PresentationView) -> None:
         """写出一项结构化展示事件。"""
         if isinstance(view, RunStartedView):
             thread_id = view.thread_id or "thread_unknown"
             self.state.emit({"type": "thread.started", "thread_id": thread_id})
+            for warning in view.hook_warnings:
+                self._warning_completed(warning)
             self.state.emit({"type": "turn.started"})
             return None
+
         if isinstance(view, RunCompletedView):
             self.state.flush_assistant()
             self.state.emit({
@@ -420,6 +457,7 @@ class JsonPresentationSink(PresentationSink):
                 **_terminal_payload(view, status="completed"),
             })
             return None
+
         if isinstance(view, RunIncompleteView):
             self.state.flush_assistant()
             self.state.emit({
@@ -427,6 +465,7 @@ class JsonPresentationSink(PresentationSink):
                 **_terminal_payload(view, status="incomplete"),
             })
             return None
+
         if isinstance(view, FailureView):
             self.state.flush_assistant()
             incomplete = view.phase == "turn.incomplete"
@@ -440,11 +479,14 @@ class JsonPresentationSink(PresentationSink):
                 ),
             })
             return None
+
         if isinstance(view, ToolStartView):
             return None
+
         if isinstance(view, NativeToolResultView):
             self._native_result(view)
             return None
+
         if isinstance(view, GenericToolResultView):
             self._item_completed(view.call_id, {
                 "type": _tool_item_type(view.name),
@@ -453,12 +495,15 @@ class JsonPresentationSink(PresentationSink):
                 "status": "completed" if view.ok else "failed",
             })
             return None
+
         if isinstance(view, LifecycleView):
             self._message_completed(view.text)
             return None
+
         if isinstance(view, ProgressView):
             self._message_completed(view.text)
             return None
+
         if isinstance(view, ApprovalView):
             self._item_completed(str(view.approval.get("id") or ""), {
                 "type": "approval",
@@ -469,9 +514,10 @@ class JsonPresentationSink(PresentationSink):
                 "source": view.source,
             })
             return None
+
         if isinstance(view, HookRunView):
-            self._hook_event(view)
             return None
+
         if isinstance(view, PlanStepsStartView):
             self._item_completed("", {
                 "type": "todo_list",
@@ -480,6 +526,7 @@ class JsonPresentationSink(PresentationSink):
                 "status": "in_progress",
             })
             return None
+
         if isinstance(view, PlanUpdateView):
             self._item_completed("", {
                 "type": "todo_list",
@@ -490,6 +537,7 @@ class JsonPresentationSink(PresentationSink):
                 "status": "completed",
             })
             return None
+
         if isinstance(view, BatchStartView):
             self._item_completed("", {
                 "type": "mcp_tool_call",
@@ -501,6 +549,7 @@ class JsonPresentationSink(PresentationSink):
                 "status": "in_progress",
             })
             return None
+
         if isinstance(view, BatchCompletedView):
             self._item_completed("", {
                 "type": "mcp_tool_call",
@@ -512,69 +561,14 @@ class JsonPresentationSink(PresentationSink):
                 "status": "completed",
             })
             return None
+
         raise TypeError(f"Unsupported presentation view: {type(view).__name__}")
-
-    def _item_completed(self, item_id: str, item: dict[str, typing.Any]) -> None:
-        """写出 item.completed。"""
-        item = {"id": self.state.item_id(item_id), **item}
-        self.state.emit({"type": "item.completed", "item": item})
-
-    def _message_completed(self, text: str) -> None:
-        """写出过程消息项目。"""
-        self._item_completed("", {"type": "agent_message", "text": str(text or "")})
-
-    def _hook_event(self, view: HookRunView) -> None:
-        """编码 Hook 生命周期事件。"""
-        item: dict[str, typing.Any] = {
-            "id": self.state.item_id(view.id),
-            "type": "hook",
-            "hook_key": view.hook_key,
-            "event": view.event,
-            "status": (
-                "in_progress" if view.phase == "started" else view.status
-            ),
-        }
-        if view.status_message:
-            item["status_message"] = view.status_message
-        if view.duration_ms is not None:
-            item["duration_ms"] = view.duration_ms
-        if view.entries:
-            item["entries"] = [
-                {"kind": entry.kind, "text": entry.text}
-                for entry in view.entries
-            ]
-        self.state.emit({
-            "type": (
-                "item.started" if view.phase == "started" else "item.completed"
-            ),
-            "item": item,
-        })
-
-    def _native_result(self, view: NativeToolResultView) -> None:
-        """编码原生 coding 工具结果。"""
-        data = _data_payload(view.data)
-        if view.name == "apply_patch":
-            item = {
-                "type"   : "file_change",
-                "status" : "completed" if view.ok else "failed",
-                "patch"  : str(view.arguments.get("patch") or ""),
-                "files"  : data.get("files", []),
-            }
-        else:
-            item = {
-                "type"              : "command_execution",
-                "command"           : _command(view.arguments, data),
-                "aggregated_output" : _aggregated_output(data),
-                "exit_code"         : data.get("exit_code") if not view.ok else data.get("exit_code", 0),
-                "status"            : "completed" if view.ok else "failed",
-            }
-        self._item_completed(view.call_id, item)
 
 
 def create_json_output_session(
     log_file: str,
     *,
-    animate: bool = True,
+    animate: bool = True
 ) -> OutputSession:
     """创建逐行结构化输出会话。"""
     _ = animate

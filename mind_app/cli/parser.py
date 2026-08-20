@@ -49,7 +49,7 @@ def _stream_is_interactive(stream: typing.TextIO) -> bool:
 def _read_exec_prompt(
     parser: argparse.ArgumentParser,
     prompt: str | None,
-    input_stream: typing.TextIO,
+    input_stream: typing.TextIO
 ) -> str:
     """解析位置参数或标准输入中的单次任务内容。"""
     stdin_is_interactive = _stream_is_interactive(input_stream)
@@ -87,7 +87,7 @@ def _read_exec_prompt(
 def _optional_string(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
-    key: str,
+    key: str
 ) -> str | None:
     """读取一个可选字符串参数。"""
     value = values.get(key)
@@ -99,7 +99,7 @@ def _optional_string(
 def _image_paths(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
-    key: str = "images",
+    key: str = "images"
 ) -> tuple[str, ...]:
     """读取并验证图片附件路径。"""
     images = values.get(key, [])
@@ -120,7 +120,7 @@ def _image_paths(
 
 def _merged_image_paths(
     parser: argparse.ArgumentParser,
-    values: dict[str, object],
+    values: dict[str, object]
 ) -> tuple[str, ...]:
     """按根选项和子命令选项的顺序合并图片路径。"""
     return (
@@ -131,7 +131,7 @@ def _merged_image_paths(
 
 def _selected_model(
     parser: argparse.ArgumentParser,
-    values: dict[str, object],
+    values: dict[str, object]
 ) -> str | None:
     """优先返回子命令模型，否则返回根命令模型。"""
     model = _optional_string(parser, values, "model")
@@ -142,7 +142,7 @@ def _selected_model(
 
 def _selected_helix_profile(
     parser: argparse.ArgumentParser,
-    values: dict[str, object],
+    values: dict[str, object]
 ) -> typing.Literal["app", "api"] | None:
     """优先返回子命令的 Helix 配置，否则返回根命令配置。"""
     profile = _optional_string(parser, values, "helix_profile")
@@ -156,12 +156,12 @@ def _selected_helix_profile(
 
 
 def _normalize_helix_arguments(
-    arguments: tuple[str, ...],
+    arguments: tuple[str, ...]
 ) -> tuple[str, ...]:
     """消除可选 Helix 配置与位置参数之间的解析歧义。"""
     normalized: list[str] = []
-    index = 0
 
+    index: int = 0
     while index < len(arguments):
         token = arguments[index]
         if token == "--":
@@ -185,7 +185,7 @@ def _normalize_helix_arguments(
 
 def _completion_shell(
     parser: argparse.ArgumentParser,
-    values: dict[str, object],
+    values: dict[str, object]
 ) -> CompletionShell:
     """读取并验证 shell 补全目标。"""
     value = _required_string(parser, values, "shell")
@@ -198,18 +198,21 @@ def _completion_shell(
 def _required_string(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
-    key: str,
+    key: str
 ) -> str:
     """读取并验证一个非空字符串参数。"""
     value = _optional_string(parser, values, key)
+
     normalized = str(value or "").strip()
     if normalized:
         return normalized
+
     parser.error(f"invalid {key}: expected non-empty string")
+
 
 def _help_topics(
     parser: argparse.ArgumentParser,
-    values: dict[str, object],
+    values: dict[str, object]
 ) -> tuple[str, ...]:
     """读取并验证帮助命令路径。"""
     value = values.get("help_topics")
@@ -227,7 +230,7 @@ def _help_topics(
 
 def _interactive_command(
     parser: CliArgumentParser,
-    arguments: tuple[str, ...],
+    arguments: tuple[str, ...]
 ) -> InteractiveCommand | None:
     """解析不含子命令的交互入口参数。"""
     if _contains_root_command(parser, arguments):
@@ -254,12 +257,12 @@ def _interactive_command(
 
 def _contains_root_command(
     parser: CliArgumentParser,
-    arguments: tuple[str, ...],
+    arguments: tuple[str, ...]
 ) -> bool:
     """判断参数中的首个位置项是否为已注册根命令。"""
     commands = root_command_names(parser)
 
-    index = 0
+    index: int = 0
     while index < len(arguments):
         token = arguments[index]
         if token == "--":
@@ -284,7 +287,7 @@ def _parse_cli_command(
     parser: CliArgumentParser,
     arguments: typing.Sequence[str],
     *,
-    input_stream: typing.TextIO | None = None,
+    input_stream: typing.TextIO | None = None
 ) -> ParsedCommand:
     """解析参数并返回强类型命令。"""
     raw_arguments       = _normalize_helix_arguments(tuple(arguments))
@@ -329,6 +332,7 @@ def _parse_cli_command(
             model=_selected_model(parser, values),
             output_format=output_format,
             helix_profile=_selected_helix_profile(parser, values),
+            bypass_hook_trust=bool(values["bypass_hook_trust"]),
         )
 
     if command == "resume":
@@ -383,10 +387,11 @@ def _parse_cli_command(
 
     parser.error(f"unsupported command: {command}")
 
+
 def parse_cli_invocation(
     arguments: typing.Sequence[str] | None = None,
     *,
-    input_stream: typing.TextIO | None = None,
+    input_stream: typing.TextIO | None = None
 ) -> CliInvocation:
     """解析命令及其进程级配置覆盖。"""
     raw_arguments = tuple(
@@ -414,7 +419,7 @@ def parse_cli_invocation(
 def parse_cli_command(
     arguments: typing.Sequence[str] | None = None,
     *,
-    input_stream: typing.TextIO | None = None,
+    input_stream: typing.TextIO | None = None
 ) -> ParsedCommand:
     """解析参数并返回强类型命令。"""
     return parse_cli_invocation(

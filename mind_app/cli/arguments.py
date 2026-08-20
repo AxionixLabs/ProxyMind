@@ -128,6 +128,15 @@ def create_cli_parser() -> CliArgumentParser:
         action="store_true",
         help="Print newline-delimited JSON events",
     )
+    exec_options.add_argument(
+        "--dangerously-bypass-hook-trust",
+        action="store_true",
+        dest="bypass_hook_trust",
+        help=(
+            "Run enabled hooks without requiring their current content to "
+            "be trusted"
+        ),
+    )
     _add_helix_option(exec_options)
     _add_prompt_context_options(exec_options)
     exec_options.add_argument(

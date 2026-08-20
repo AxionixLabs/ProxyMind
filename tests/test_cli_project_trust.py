@@ -434,7 +434,50 @@ async def test_bootstrap_forwards_hook_warnings_outside_config_resolution(
     assert resolution.startup_warnings == ()
     assert resolution.project_trust_warnings == ()
     assert len(resolution.hook_warnings) == 1
-    assert arguments["startup_warnings"] == resolution.hook_warnings
+    assert arguments["startup_warnings"] == ()
+    assert arguments["hook_startup_warnings"] == resolution.hook_warnings
+
+
+@pytest.mark.anyio
+async def test_exec_hook_trust_bypass_is_invocation_scoped(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".git").mkdir()
+    frontend = SimpleNamespace(application=SimpleNamespace(emit=Mock()))
+    config_path = tmp_path / "home" / "config.toml"
+    ConfigStore(config_path).update({
+        ("hooks", "SessionStart"): [{
+            "hooks": [{"type": "command", "command": "check-startup"}],
+        }],
+    })
+    _report, run_controller = _patch_application_bootstrap(
+        monkeypatch,
+        tmp_path,
+        frontend=frontend,
+        config_path=config_path,
+    )
+
+    result = await bootstrap._run_application(
+        ExecCommand("check hooks", bypass_hook_trust=True),
+        str(tmp_path / "mind.py"),
+        SimpleNamespace(),
+        (),
+        None,
+    )
+
+    assert result == 0
+    arguments = run_controller.await_args.kwargs
+    resolution = arguments["config_session"].resolve()
+    runtime_status = arguments["hook_registry"].build(
+        resolution.hooks,
+        hook_states=resolution.hook_states,
+    ).status()
+    assert runtime_status.active_count == 1
+    assert runtime_status.hooks[0].trust_state == "untrusted"
+    assert arguments["startup_warnings"] == ()
+    assert arguments["hook_startup_warnings"] == ()
 
 
 def test_startup_config_warnings_are_emitted_as_styled_application_views() -> None:

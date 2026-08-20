@@ -373,6 +373,57 @@ def test_trusted_project_layer_does_not_bypass_hook_content_trust(
     assert status.hooks[0].trust_state == "untrusted"
 
 
+def test_exec_hook_trust_bypass_runs_enabled_untrusted_hooks(tmp_path) -> None:
+    definition = resolve_hook_definitions(
+        {"SessionStart": [_hook("check-startup")]},
+        source_scope="user",
+        source_path=tmp_path / "config.toml",
+    )[0]
+
+    status = HookRegistry(bypass_hook_trust=True).build(
+        (definition,),
+        hook_states={},
+    ).status()
+
+    assert status.active_count == 1
+    assert status.hooks[0].trust_state == "untrusted"
+    assert status.hooks[0].enabled
+    assert status.hooks[0].active
+
+    disabled = HookRegistry(bypass_hook_trust=True).build(
+        (definition,),
+        hook_states={definition.key: {"enabled": False}},
+    ).status()
+
+    assert disabled.active_count == 0
+    assert not disabled.hooks[0].enabled
+    assert not disabled.hooks[0].active
+
+
+def test_exec_mcp_hook_warning_respects_trust_and_enabled_state(tmp_path) -> None:
+    definition = resolve_hook_definitions(
+        {"PreToolUse": [{"hooks": [{
+            "type": "mcp_tool",
+            "server": "files",
+            "tool": "read",
+        }]}]},
+        source_scope="user",
+        source_path=tmp_path / "config.toml",
+    )[0]
+
+    assert HookRegistry().startup_warnings((definition,)) == ()
+    assert HookRegistry(bypass_hook_trust=True).startup_warnings(
+        (definition,),
+    ) == (
+        f"skipping MCP tool hook in {definition.source_path}: "
+        "MCP invocation is not available yet",
+    )
+    assert HookRegistry(bypass_hook_trust=True).startup_warnings(
+        (definition,),
+        hook_states={definition.key: {"enabled": False}},
+    ) == ()
+
+
 def test_controller_reuses_root_hook_trust_across_linked_worktree(
     tmp_path,
 ) -> None:

@@ -46,11 +46,12 @@ from .contracts import (
     OutputStatusPort
 )
 from .session import OutputSession
-from mind_app.presentation.renderers.hook import render_hook_run_view
 from mind_app.presentation.renderers.approval import render_approval_view
 
 ANSI_RESET   = "\x1b[0m"
 ANSI_BOLD    = "\x1b[1m"
+ANSI_DIM     = "\x1b[2m"
+ANSI_WARNING = "\x1b[1;33m"
 ANSI_CYAN    = "\x1b[1;96m"
 ANSI_MAGENTA = "\x1b[1;95m"
 
@@ -69,6 +70,11 @@ class TextStream(typing.Protocol):
     def isatty(self) -> bool:
         """返回当前流是否连接交互终端。"""
         ...
+
+
+def _line(value: typing.Any) -> str:
+    """把值转换为单行文本。"""
+    return sanitize_terminal_line(value)
 
 
 def _write(stream: TextStream, text: str) -> None:
@@ -103,11 +109,6 @@ def _supports_color(stream: TextStream) -> bool:
         return True
 
     return stream.isatty()
-
-
-def _line(value: typing.Any) -> str:
-    """把值转换为单行文本。"""
-    return sanitize_terminal_line(value)
 
 
 def _tool_name(name: str) -> str:
@@ -177,6 +178,38 @@ class TextOutputState:
         _write(self.stderr, visible)
         self.record_writer.write(plain, block=True)
 
+    def hook(self, event: str, *, status: str | None = None) -> None:
+        """输出 Codex exec 形态的 Hook 生命周期。"""
+        event_text  = _line(event) or "Unknown"
+        status_text = _line(status) if status is not None else ""
+        suffix      = f" {status_text}" if status_text else ""
+        plain       = f"hook: {event_text}{suffix}\n"
+
+        if self.color:
+            visible = (
+                f"{ANSI_BOLD}hook:{ANSI_RESET} "
+                f"{ANSI_DIM}{event_text}{ANSI_RESET}{suffix}\n"
+            )
+        else:
+            visible = plain
+
+        _write(self.stderr, visible)
+        self.record_writer.write(plain, block=True)
+
+    def warning(self, message: str) -> None:
+        """输出 Codex exec 形态的运行时告警。"""
+        text = _line(message)
+        if not text:
+            return None
+        plain = f"warning: {text}\n"
+        visible = (
+            f"{ANSI_WARNING}warning:{ANSI_RESET} {text}\n"
+            if self.color
+            else plain
+        )
+        _write(self.stderr, visible)
+        self.record_writer.write(plain, block=True)
+
     def metadata(self, label: str, value: typing.Any) -> None:
         """输出一行带高亮字段名的启动元数据。"""
         self.process(f"{label}:", style=ANSI_BOLD)
@@ -226,6 +259,46 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         """绑定共享的文本输出状态。"""
         self.state = state
 
+    def record_tool_arguments(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+        *,
+        call_id: typing.Optional[str] = None
+    ) -> None:
+        """输出工具调用标题和参数摘要。"""
+        self.state.settle_assistant()
+
+        tool = _tool_name(name)
+        args = arguments if isinstance(arguments, dict) else {}
+
+        if tool in {"shell_command", "exec_command", "write_stdin"}:
+            command = _line(args.get("command") or args.get("cmd") or tool)
+            cwd     = _line(args.get("cwd") or ".")
+
+            self.state.process("exec", style=ANSI_CYAN)
+            self.state.process(f"\n{command} in {cwd}\n")
+
+        elif tool == "js_repl":
+            code = sanitize_terminal_text(args.get("code") or "").strip("\n")
+            self.state.process("JavaScript", style=ANSI_CYAN)
+            self.state.process(f"\n{code}\n" if code else "\n")
+
+        else:
+            self.state.process(tool, style=ANSI_CYAN)
+            self.state.process("\n")
+
+        safe_call_id = sanitize_terminal_line(call_id)
+
+        if safe_call_id:
+            self.state.record_writer.write_audit(
+                f"tool {tool} call_id={safe_call_id}"
+            )
+
+    def flush(self) -> None:
+        """刷新文本记录。"""
+        self.state.record_writer.flush()
+
     async def open(self) -> None:
         """打开文本输出。"""
         await self.state.open()
@@ -266,43 +339,6 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         if text:
             self.state.record_writer.write(_terminal_text(text), block=True)
 
-    def record_tool_arguments(
-        self,
-        name: str,
-        arguments: dict[str, typing.Any],
-        *,
-        call_id: typing.Optional[str] = None
-    ) -> None:
-        """输出工具调用标题和参数摘要。"""
-        self.state.settle_assistant()
-
-        tool = _tool_name(name)
-        args = arguments if isinstance(arguments, dict) else {}
-
-        if tool in {"shell_command", "exec_command", "write_stdin"}:
-            command = _line(args.get("command") or args.get("cmd") or tool)
-            cwd = _line(args.get("cwd") or ".")
-            self.state.process("exec", style=ANSI_CYAN)
-            self.state.process(f"\n{command} in {cwd}\n")
-        elif tool == "js_repl":
-            code = sanitize_terminal_text(args.get("code") or "").strip("\n")
-            self.state.process("JavaScript", style=ANSI_CYAN)
-            self.state.process(f"\n{code}\n" if code else "\n")
-        else:
-            self.state.process(tool, style=ANSI_CYAN)
-            self.state.process("\n")
-
-        safe_call_id = sanitize_terminal_line(call_id)
-
-        if safe_call_id:
-            self.state.record_writer.write_audit(
-                f"tool {tool} call_id={safe_call_id}"
-            )
-
-    def flush(self) -> None:
-        """刷新文本记录。"""
-        self.state.record_writer.flush()
-
 
 class TextContentSink(ContentSink):
     """把结构化正文写入文本输出流。"""
@@ -339,6 +375,35 @@ class TextPresentationSink(PresentationSink):
         """绑定展示事件使用的文本输出状态。"""
         self.state = state
 
+    def _native_result(self, view: NativeToolResultView) -> None:
+        """输出原生 coding 工具结果。"""
+        data = _payload(view.data)
+        if view.name == "apply_patch":
+            label = "completed" if view.ok else "failed"
+            self.state.process(f"patch: {label}\n")
+            for item in data.get("files", []) if isinstance(data.get("files"), list) else []:
+                if isinstance(item, dict) and item.get("path"):
+                    self.state.process(f"{item.get('path')}\n")
+            return None
+
+        elapsed = max(0, int(view.cost_ms or 0))
+        if view.ok:
+            status = f" succeeded in {elapsed}ms:"
+        else:
+            exit_code = data.get("exit_code")
+
+            status = (
+                f" exited {exit_code} in {elapsed}ms:"
+                if exit_code is not None
+                else f" failed in {elapsed}ms:"
+            )
+
+        self.state.process(status + "\n")
+
+        output = _tool_output(data)
+        if output:
+            self.state.process(output + "\n")
+
     async def emit(self, view: PresentationView) -> None:
         """输出一项结构化展示。"""
         if isinstance(view, RunStartedView):
@@ -358,6 +423,8 @@ class TextPresentationSink(PresentationSink):
             self.state.process("--------\n")
             self.state.process("user\n", style=ANSI_CYAN)
             self.state.process(f"{view.message}\n")
+            for warning in view.hook_warnings:
+                self.state.warning(warning)
             return None
         if isinstance(view, RunCompletedView):
             self.state.settle_assistant()
@@ -392,7 +459,12 @@ class TextPresentationSink(PresentationSink):
             self.state.process(f"{render_approval_view(view).plain_text}\n")
             return None
         if isinstance(view, HookRunView):
-            self.state.process(f"{render_hook_run_view(view).plain_text}\n")
+            status = (
+                None
+                if view.phase == "started"
+                else view.status.capitalize()
+            )
+            self.state.hook(view.event, status=status)
             return None
         if isinstance(view, PlanStepsStartView):
             self.state.process(f"todo: {view.step_count} steps\n")
@@ -410,35 +482,6 @@ class TextPresentationSink(PresentationSink):
             return None
 
         raise TypeError(f"Unsupported presentation view: {type(view).__name__}")
-
-    def _native_result(self, view: NativeToolResultView) -> None:
-        """输出原生 coding 工具结果。"""
-        data = _payload(view.data)
-        if view.name == "apply_patch":
-            label = "completed" if view.ok else "failed"
-            self.state.process(f"patch: {label}\n")
-            for item in data.get("files", []) if isinstance(data.get("files"), list) else []:
-                if isinstance(item, dict) and item.get("path"):
-                    self.state.process(f"{item.get('path')}\n")
-            return None
-
-        elapsed = max(0, int(view.cost_ms or 0))
-        if view.ok:
-            status = f" succeeded in {elapsed}ms:"
-        else:
-            exit_code = data.get("exit_code")
-
-            status = (
-                f" exited {exit_code} in {elapsed}ms:"
-                if exit_code is not None
-                else f" failed in {elapsed}ms:"
-            )
-
-        self.state.process(status + "\n")
-
-        output = _tool_output(data)
-        if output:
-            self.state.process(output + "\n")
 
 
 def create_text_output_session(

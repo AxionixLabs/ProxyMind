@@ -582,6 +582,12 @@ async def stream_turn(
             workdir=str(getattr(mind, "history_workspace", "") or ""),
             permissions=kwargs["permissions"],
             turn_id=str(kwargs.get("turn_id") or ""),
+            hook_warnings=(
+                getattr(mind, "hook_startup_warnings", ())
+                if turn_context.agent.depth == 0
+                and turn_context.session_started
+                else ()
+            ),
         ))
 
         tool_call_coordinator = ToolCallCoordinator(

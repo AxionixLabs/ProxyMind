@@ -112,6 +112,7 @@ def test_cli_parser_returns_typed_commands() -> None:
         "exec",
         "hello",
         "--json",
+        "--dangerously-bypass-hook-trust",
         "--helix",
         "--image",
         "screen.png",
@@ -123,6 +124,7 @@ def test_cli_parser_returns_typed_commands() -> None:
         model="exec-model",
         output_format="json",
         helix_profile="app",
+        bypass_hook_trust=True,
     )
 
 

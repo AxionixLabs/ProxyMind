@@ -24,6 +24,7 @@ from mind_app.presentation.models import (
     HookRunView,
     RunCompletedView,
     RunIncompleteView,
+    RunStartedView,
 )
 
 
@@ -39,6 +40,23 @@ class _RecordWriter(object):
 
     def flush(self) -> None:
         return None
+
+
+def _run_started_view(*, hook_warnings=()) -> RunStartedView:
+    return RunStartedView(
+        thread_id="thread_test",
+        turn_id="turn_test",
+        session_id="session_test",
+        message="inspect",
+        model="test-model",
+        provider="test-provider",
+        approval="never",
+        workdir="D:/workspace",
+        sandbox="read-only",
+        reasoning_effort="none",
+        reasoning_summaries="none",
+        hook_warnings=hook_warnings,
+    )
 
 
 def _identity(
@@ -69,6 +87,34 @@ async def test_json_output_initializes_and_flushes_assistant_state() -> None:
         key: event["item"][key]
         for key in ("turn_id", "presentation_epoch", "round", "attempt")
     } == _identity().as_dict()
+
+
+@pytest.mark.anyio
+async def test_json_hook_startup_warning_is_codex_error_item() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    presentation = JsonPresentationSink(state)
+
+    await presentation.emit(_run_started_view(hook_warnings=(
+        "skipping MCP tool hook in config.toml: "
+        "MCP invocation is not available yet",
+    )))
+
+    assert [json.loads(line) for line in stdout.getvalue().splitlines()] == [
+        {"type": "thread.started", "thread_id": "thread_test"},
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_0",
+                "type": "error",
+                "message": (
+                    "skipping MCP tool hook in config.toml: "
+                    "MCP invocation is not available yet"
+                ),
+            },
+        },
+        {"type": "turn.started"},
+    ]
 
 
 @pytest.mark.anyio
@@ -239,7 +285,7 @@ async def test_json_output_emits_terminal_status_and_metadata() -> None:
 
 
 @pytest.mark.anyio
-async def test_json_output_emits_structured_hook_and_approval_items() -> None:
+async def test_json_output_ignores_hook_lifecycle_like_codex_exec() -> None:
     stdout = io.StringIO()
     state = JsonOutputState(_RecordWriter(), stdout)
     presentation = JsonPresentationSink(state)
@@ -276,30 +322,6 @@ async def test_json_output_emits_structured_hook_and_approval_items() -> None:
     events = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert events == [
         {
-            "type": "item.started",
-            "item": {
-                "id": "hook-1",
-                "type": "hook",
-                "hook_key": "project:prompt",
-                "event": "UserPromptSubmit",
-                "status": "in_progress",
-                "status_message": "Checking prompt",
-            },
-        },
-        {
-            "type": "item.completed",
-            "item": {
-                "id": "hook-1",
-                "type": "hook",
-                "hook_key": "project:prompt",
-                "event": "UserPromptSubmit",
-                "status": "completed",
-                "status_message": "Checking prompt",
-                "duration_ms": 25,
-                "entries": [{"kind": "context", "text": "safe context"}],
-            },
-        },
-        {
             "type": "item.completed",
             "item": {
                 "id": "approval-1",
@@ -319,7 +341,7 @@ async def test_json_output_emits_structured_hook_and_approval_items() -> None:
 
 
 @pytest.mark.anyio
-async def test_json_hook_item_id_uses_shared_collision_registry() -> None:
+async def test_json_hook_lifecycle_does_not_reserve_item_ids() -> None:
     stdout = io.StringIO()
     state = JsonOutputState(_RecordWriter(), stdout)
     presentation = JsonPresentationSink(state)
@@ -342,5 +364,5 @@ async def test_json_hook_item_id_uses_shared_collision_registry() -> None:
         duration_ms=1,
     ))
 
-    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
-    assert [event["item"]["id"] for event in events] == ["item_1", "item_1"]
+    assert stdout.getvalue() == ""
+    assert state.item_id() == "item_1"

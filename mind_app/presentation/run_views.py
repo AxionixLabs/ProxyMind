@@ -27,12 +27,13 @@ def build_run_started_view(
     pref_config: dict[str, typing.Any],
     workdir: str,
     permissions: PermissionSettings,
-    turn_id: str
+    turn_id: str,
+    hook_warnings: typing.Iterable[str] = (),
 ) -> RunStartedView:
     """构建一次运行的启动展示数据。"""
-    primary  = pref_config.get("primary") if isinstance(pref_config, dict) else None
-    primary  = primary if isinstance(primary, dict) else {}
-    model    = primary.get("model")
+    primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
+    primary = primary if isinstance(primary, dict) else {}
+    model   = primary.get("model")
 
     provider = str(
         primary.get("name")
@@ -55,6 +56,11 @@ def build_run_started_view(
             primary.get("reasoning_summaries")
             or primary.get("reasoning_summary")
             or "none"
+        ),
+        hook_warnings=tuple(
+            str(warning)
+            for warning in hook_warnings
+            if str(warning)
         ),
     )
 

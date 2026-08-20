@@ -60,6 +60,7 @@ class ExecCommand(object):
     model: str | None = None
     output_format: OutputFormat = "text"
     helix_profile: ToolFilterMode | None = None
+    bypass_hook_trust: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,9 +179,7 @@ def command_uses_helix(command: RuntimeCommand) -> bool:
     return command.helix_profile is not None
 
 
-def command_helix_profile(
-    command: RuntimeCommand
-) -> ToolFilterMode | None:
+def command_helix_profile(command: RuntimeCommand) -> ToolFilterMode | None:
     """返回命令请求使用的 Helix 工具过滤配置。"""
     return command.helix_profile
 

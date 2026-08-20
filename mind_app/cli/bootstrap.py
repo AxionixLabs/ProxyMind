@@ -95,37 +95,6 @@ class _DirectoryTrustRuntime(typing.Protocol):
     def show_directory_trust_error(self, message: str) -> None: ...
 
 
-async def _confirm_tui_project_trust(
-    *,
-    runtime: _DirectoryTrustRuntime,
-    config_session: ConfigSession,
-    resolution: ConfigResolution,
-    workspace: Path
-) -> ConfigResolution | None:
-    """确认未知项目并保留界面，直到主画布上下文准备完成。"""
-    project_trust = resolution.project_trust
-    if project_trust is None or project_trust.level is not None:
-        return resolution
-
-    await runtime.begin_directory_trust(workspace, project_trust.trust_root)
-
-    while await runtime.wait_directory_trust():
-        try:
-            trusted_resolution = config_session.set_project_trust(
-                project_trust,
-                "trusted",
-            )
-        except (OSError, TypeError, ValueError) as error:
-            runtime.show_directory_trust_error(
-                f"Failed to set trust for {project_trust.trust_root}: {error}"
-            )
-            continue
-
-        return trusted_resolution
-
-    return None
-
-
 def _emit_startup_warnings(
     frontend: Frontend,
     warnings: typing.Iterable[str],
@@ -185,6 +154,37 @@ def _emit_helix_skipped(controller: Mind) -> None:
         ),
     ))
     controller.frontend.application.emit(ApplicationView(type="spacer"))
+
+
+async def _confirm_tui_project_trust(
+    *,
+    runtime: _DirectoryTrustRuntime,
+    config_session: ConfigSession,
+    resolution: ConfigResolution,
+    workspace: Path
+) -> ConfigResolution | None:
+    """确认未知项目并保留界面，直到主画布上下文准备完成。"""
+    project_trust = resolution.project_trust
+    if project_trust is None or project_trust.level is not None:
+        return resolution
+
+    await runtime.begin_directory_trust(workspace, project_trust.trust_root)
+
+    while await runtime.wait_directory_trust():
+        try:
+            trusted_resolution = config_session.set_project_trust(
+                project_trust,
+                "trusted",
+            )
+        except (OSError, TypeError, ValueError) as error:
+            runtime.show_directory_trust_error(
+                f"Failed to set trust for {project_trust.trust_root}: {error}"
+            )
+            continue
+
+        return trusted_resolution
+
+    return None
 
 
 async def _await_cleanup(
@@ -370,9 +370,27 @@ async def _run_application(
         raise
 
     try:
-        hook_registry    = HookRegistry()
+        hook_registry = HookRegistry(
+            bypass_hook_trust=(
+                command.bypass_hook_trust
+                if isinstance(command, ExecCommand)
+                else False
+            )
+        )
+
         agent_settings   = AgentSettings.from_config(config_resolution.config)
         feature_settings = FeatureSettings.from_config(config_resolution.config)
+
+        hook_startup_warnings = (
+            hook_registry.startup_warnings(
+                config_resolution.hooks,
+                hook_states=config_resolution.hook_states,
+                warnings=config_resolution.hook_warnings,
+            )
+            if isinstance(command, ExecCommand)
+            else ()
+        )
+
     except BaseException as error:
         observe_exception("app.bootstrap.failed", error)
         report.close()
@@ -398,6 +416,7 @@ async def _run_application(
             output_mode=output_mode,
             permissions=permissions,
             hook_registry=hook_registry,
+            hook_startup_warnings=hook_startup_warnings,
             agent_settings=agent_settings,
             feature_settings=feature_settings,
             startup_warnings=(
@@ -407,9 +426,14 @@ async def _run_application(
                     if isinstance(command, ExecCommand)
                     else ()
                 ),
-                *config_resolution.hook_warnings,
+                *(
+                    config_resolution.hook_warnings
+                    if not isinstance(command, ExecCommand)
+                    else ()
+                ),
             ),
         )
+
     except BaseException:
         if tui_runtime is not None:
             if tui_runtime.active:
@@ -434,12 +458,14 @@ async def _run_controller(
     output_mode: OutputMode,
     permissions: PermissionSettings,
     hook_registry: HookRegistry | None = None,
+    hook_startup_warnings: tuple[str, ...] = (),
     agent_settings: AgentSettings | None = None,
     feature_settings: FeatureSettings | None = None,
     startup_warnings: tuple[str, ...] = ()
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     hook_status = None
+
     if output_mode == "tui":
         from ..tui.adapters.hooks import TuiHookStatusAdapter
         from ..tui.core.runtime import require_tui_runtime
@@ -470,6 +496,7 @@ async def _run_controller(
             report=report,
             permissions=permissions,
             hook_registry=hook_registry or HookRegistry(),
+            hook_startup_warnings=hook_startup_warnings,
             hook_status=hook_status,
             agent_settings=agent_settings or AgentSettings(),
             feature_settings=feature_settings or FeatureSettings(),

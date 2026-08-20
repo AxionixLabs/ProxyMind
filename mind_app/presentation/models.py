@@ -99,6 +99,7 @@ class RunStartedView(object):
     sandbox: str
     reasoning_effort: str
     reasoning_summaries: str
+    hook_warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
