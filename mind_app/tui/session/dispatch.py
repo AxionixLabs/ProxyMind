@@ -22,6 +22,8 @@ from ..core.styles import (
     FAILURE_STYLE,
     MUTED_STYLE,
     command_result_block,
+    failure_text_block,
+    fragment_block,
     text_block
 )
 from ..features.context import ignored_tui_input
@@ -95,6 +97,7 @@ from ..features.tools import print_available_tools
 from ..prompting.commands import (
     command_spec,
     matches_command,
+    resolve_tui_command,
     slash_command_notice_message
 )
 from .barriers import TuiForegroundTasks
@@ -162,19 +165,28 @@ class TuiCommandDispatcher(object):
             self.mind.task_event.set()
             return DispatchAction.EXIT
 
-        if matches_command(command, "new"):
-            metadata = await self.mind.reset_conversation(
-                reason="command:/new",
-                source="tui:new",
-            )
+        new_command = resolve_tui_command(command)
+        if new_command is not None and new_command.key == "new":
+            parts = prompt_text.strip().split(maxsplit=1)
+            title = parts[1].strip() if len(parts) == 2 else ""
+            reset_kwargs = {
+                "reason": "command:/new",
+                "source": "tui:new",
+            }
+            if title:
+                reset_kwargs["title"] = title
+            try:
+                await self.mind.reset_conversation(**reset_kwargs)
+            except Exception as failure:
+                self._present(failure_text_block(
+                    f"Failed to start a fresh session: {failure}",
+                ))
+                self._present()
+                return DispatchAction.HANDLED
             self._clear_prompt_draft()
-            self._present(command_result_block(
-                "/new",
+            self._present(fragment_block(
+                TextSpan("• ", BODY_STYLE),
                 TextSpan("New conversation", BRIGHT_STYLE),
-                TextSpan(
-                    f" · cid={metadata['cid']} sid={metadata['sid']}",
-                    MUTED_STYLE,
-                ),
             ))
             self._present()
             return DispatchAction.HANDLED

@@ -806,7 +806,8 @@ class Mind(object):
         self,
         *,
         reason: str = "manual",
-        source: str = "reset"
+        source: str = "reset",
+        title: str = "",
     ) -> dict[str, str]:
         """开始一个新的模型对话。"""
         await self.end_conversation(reason="archive")
@@ -814,7 +815,7 @@ class Mind(object):
         self._conversation_lifecycle_id += 1
         self.last_assistant_reply = ""
 
-        self._touch_history_session(metadata, source=source)
+        self._touch_history_session(metadata, title=title, source=source)
 
         observe(
             "conversation.reset",

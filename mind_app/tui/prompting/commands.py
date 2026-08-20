@@ -31,6 +31,7 @@ class TuiCommandSpec(object):
     aliases: tuple[str, ...] = ()
     completion_text: str | None = None
     parameterized: bool = False
+    accepts_arguments: bool = False
     subcommands: tuple[str, ...] = ()
     surface_on_bare: bool = False
     stream_policy: StreamCommandPolicy = "reject"
@@ -49,6 +50,7 @@ class TuiCommandSpec(object):
 TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "new", "/new", "开始新对话",
+        accepts_arguments=True,
     ),
     TuiCommandSpec(
         "resume", "/resume", "恢复最近会话",
@@ -284,7 +286,11 @@ def resolve_tui_command(value: str) -> TuiCommandSpec | None:
 
     if command is None or not separator or not argument:
         return None
-    if command.parameterized or argument in command.subcommands:
+    if (
+        command.parameterized
+        or command.accepts_arguments
+        or argument in command.subcommands
+    ):
         return command
 
     return None

@@ -312,6 +312,10 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert stream_command_label("/mcp restart now") == "/mcp restart"
 
 
+def test_new_command_accepts_an_optional_session_name() -> None:
+    assert resolve_slash_command("/new review-auth") is not None
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -614,6 +618,80 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
     assert action is DispatchAction.HANDLED
     state.clear_pending_prompt_extras.assert_called_once_with()
     attach.clear_pending_attachments.assert_called_once_with()
+    result = next(view for view in views if view.type == "tui.output")
+    assert "".join(
+        text for _style, text in result.renderable.fragments
+    ) == "• New conversation"
+    assert result.renderable.fragments[0][0] == "fg:#DDE7EF"
+    assert "dim" not in result.renderable.fragments[0][0]
+    assert "dim" not in result.renderable.fragments[-1][0]
+
+
+@pytest.mark.anyio
+async def test_new_conversation_failure_uses_fresh_session_error_notice() -> None:
+    views = []
+    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    attach = SimpleNamespace(clear_pending_attachments=Mock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        attach=attach,
+        reset_conversation=AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        TuiRuntime(),
+        state,
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/new")
+
+    assert action is DispatchAction.HANDLED
+    assert not state.clear_pending_prompt_extras.called
+    assert not attach.clear_pending_attachments.called
+    result = next(
+        view for view in views
+        if view.renderable is not None
+    )
+    assert "".join(
+        text for _style, text in result.renderable.fragments
+    ) == "■ Failed to start a fresh session: boom"
+
+
+@pytest.mark.anyio
+async def test_named_new_conversation_persists_title_without_result_copy() -> None:
+    state = SimpleNamespace(
+        clear_pending_prompt_extras=Mock(),
+    )
+    attach = SimpleNamespace(clear_pending_attachments=Mock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+        attach=attach,
+        reset_conversation=AsyncMock(),
+    )
+    runtime = SimpleNamespace(
+        append_block=Mock(),
+        terminal_width=80,
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        state,
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/new review-auth")
+
+    assert action is DispatchAction.HANDLED
+    mind.reset_conversation.assert_awaited_once_with(
+        reason="command:/new",
+        source="tui:new",
+        title="review-auth",
+    )
 
 
 @pytest.mark.anyio
