@@ -310,9 +310,11 @@ def test_light_theme_uses_deep_cyan_for_selected_token_styles() -> None:
     assert fallback.color == "005F87"
     assert fallback_meta.color == "005F87"
     assert command_selected.color == "005F87"
+    assert command_selected.bgcolor == ""
     assert command_selected.bold
     assert not command_selected.dim
     assert command_meta_selected.color == "005F87"
+    assert command_meta_selected.bgcolor == ""
     assert command_meta_selected.bold
     assert not command_meta_selected.dim
 
@@ -333,13 +335,17 @@ def test_command_menu_matches_codex_default_and_selected_styles() -> None:
     )
 
     assert command.color == "default"
+    assert command.bgcolor == ""
     assert not command.bold
     assert command_selected.color == "ansicyan"
+    assert command_selected.bgcolor == ""
     assert command_selected.bold
     assert not command_selected.dim
     assert command_meta.color == "default"
+    assert command_meta.bgcolor == ""
     assert command_meta.dim
     assert command_meta_selected.color == "ansicyan"
+    assert command_meta_selected.bgcolor == ""
     assert command_meta_selected.bold
     assert not command_meta_selected.dim
 
@@ -1524,8 +1530,8 @@ async def test_exact_slash_completion_aligns_with_input_command() -> None:
 
         await runtime.open()
         try:
-            pipe_input.send_text("/skills")
-            await wait_for_input_text(runtime, "/skills")
+            pipe_input.send_text("/new")
+            await wait_for_input_text(runtime, "/new")
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
 
@@ -1539,17 +1545,17 @@ async def test_exact_slash_completion_aligns_with_input_command() -> None:
                 runtime.screen.completion_fallback_window
             ]
 
-            assert input_line == "› /skills"
-            assert completion_line.lstrip().startswith("/skills")
+            assert input_line == "› /new"
+            assert completion_line.lstrip().startswith("/new")
             assert input_line.index("/") == completion_line.index("/")
             assert fallback_position.xpos == 0
-            assert "class:completion-menu.completion.current" in (
+            assert "class:token-menu.command.current" in (
                 screen.data_buffer[fallback_position.ypos][
                     fallback_position.xpos + 2
                 ].style
             )
-            meta_column = input_line.index("/") + len("/skills") + 2
-            assert "class:completion-menu.meta.completion.current" in (
+            meta_column = input_line.index("/") + len("/new") + 2
+            assert "class:token-menu.meta.command.current" in (
                 screen.data_buffer[fallback_position.ypos][meta_column].style
             )
         finally:

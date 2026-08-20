@@ -62,7 +62,10 @@ from mind_core.design.terminal_capabilities import (
     TerminalKind
 )
 from mind_nova import const
-from ..prompting.commands import completion_changes_input
+from ..prompting.commands import (
+    completion_changes_input,
+    slash_command_query
+)
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .bottom_pane import (
@@ -2947,9 +2950,8 @@ class TuiScreen(object):
 
     def _completion_fallback_fragments(self) -> PromptFormattedText:
         """返回精确命令或空结果状态使用的展示片段。"""
-        completions = self.input_model.completion_menu_completions(
-            self.input.buffer.document
-        )
+        document    = self.input.buffer.document
+        completions = self.input_model.completion_menu_completions(document)
 
         if completions is None:
             return PromptFormattedText()
@@ -2964,14 +2966,15 @@ class TuiScreen(object):
 
         if (
             len(completions) != 1
-            or completion_changes_input(
-                self.input.buffer.document,
-                completions[0],
-            )
+            or completion_changes_input(document, completions[0])
         ):
             return PromptFormattedText()
 
-        completion    = completions[0]
+        completion = completions[0]
+
+        is_slash_command = (
+            slash_command_query(document) is not None
+        )
         display_width = get_cwidth(completion.display_text)
 
         command_width = max(
@@ -2985,14 +2988,22 @@ class TuiScreen(object):
 
         fragments: StyleAndTextTuples = [
             (
-                "class:completion-menu.completion.current",
+                (
+                    "class:token-menu.command.current"
+                    if is_slash_command
+                    else "class:completion-menu.completion.current"
+                ),
                 f"{' ' * TOKEN_MENU_LEFT_PADDING}{completion.display_text}{command_padding}",
             ),
         ]
 
         if completion.display_meta_text:
             fragments.append((
-                "class:completion-menu.meta.completion.current",
+                (
+                    "class:token-menu.meta.command.current"
+                    if is_slash_command
+                    else "class:completion-menu.meta.completion.current"
+                ),
                 f" {completion.display_meta_text} ",
             ))
 
