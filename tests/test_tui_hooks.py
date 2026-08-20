@@ -17,10 +17,11 @@ from mind_app.runtime.hooks.catalog import (
     HookCatalogStaleError,
     HookEventSummary
 )
+from mind_core.hook_discovery import resolve_hook_definitions
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.tui.features.hooks import (
     _hook_detail_body,
-    hook_detail_menu,
+    _display_source_path,
     hook_event_menu,
     hook_list_menu,
     manage_hooks,
@@ -490,6 +491,64 @@ async def test_hooks_browser_opens_and_returns_to_review_event(tmp_path) -> None
     await task
 
 
+@pytest.mark.anyio
+async def test_hooks_browser_ctrl_c_closes_all_pages_to_input(tmp_path) -> None:
+    catalog = _catalog(tmp_path, trust_state="trusted")
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        inspect_hooks=Mock(return_value=catalog),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+
+    task = asyncio.create_task(manage_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "PreToolUse hooks")
+
+    assert runtime.screen.menu.handle_key_event(
+        SimpleNamespace(key="c-c", data="")
+    )
+    await task
+
+    assert not runtime.screen.menu.active
+    assert runtime.screen.bottom_pane.input_visible
+
+
+@pytest.mark.anyio
+async def test_hooks_browser_escape_returns_to_events_before_closing(
+    tmp_path,
+) -> None:
+    catalog = _catalog(tmp_path, trust_state="trusted")
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        inspect_hooks=Mock(return_value=catalog),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+
+    task = asyncio.create_task(manage_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "PreToolUse hooks")
+
+    assert runtime.screen.menu.handle_key_event(
+        SimpleNamespace(key="escape", data="")
+    )
+    await _wait_for_menu(runtime, "Hooks")
+    assert runtime.screen.menu.active
+
+    runtime.screen.menu.handle_key_event(
+        SimpleNamespace(key="escape", data="")
+    )
+    await task
+    assert not runtime.screen.menu.active
+
+
 def test_hook_event_menu_shows_discovery_warnings(tmp_path) -> None:
     catalog = _catalog(
         tmp_path,
@@ -675,11 +734,12 @@ async def test_hook_views_clip_long_commands_at_narrow_widths(tmp_path, width) -
         focus_input=lambda: None,
         get_width=lambda: width,
     )
-    task = asyncio.create_task(menu.request(hook_detail_menu(entry)))
+    task = asyncio.create_task(menu.request(hook_list_menu(catalog, "PreToolUse")))
     await asyncio.sleep(0)
     lines = "".join(value for _style, value in menu.fragments()).splitlines()
     assert all(get_cwidth(line) <= width for line in lines)
-    assert any("Command   python -c" in line and "…" in line for line in lines)
+    assert any("Command   python -c" in line for line in lines)
+    assert any("…" in line for line in lines)
     menu.cancel()
     await task
 
@@ -761,9 +821,7 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
-    runtime.screen.menu._choose_index(0)
-    await _wait_for_menu(runtime, "Hook Details")
-    runtime.screen.menu._choose_index(1)
+    runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
     await _wait_for_call(mind.trust_hook)
 
     mind.trust_hook.assert_called_once_with(
@@ -811,9 +869,7 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
-    runtime.screen.menu._choose_index(0)
-    await _wait_for_menu(runtime, "Hook Details")
-    runtime.screen.menu._choose_index(1)
+    runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
     await _wait_for_menu(runtime, "Hook operation")
 
     assert mind.inspect_hooks.call_count == 1
@@ -827,45 +883,75 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     await task
 
 
-def test_hook_detail_menu_separates_trust_enabled_and_managed_states(
-    tmp_path,
-) -> None:
+def test_hook_detail_body_separates_trust_states(tmp_path) -> None:
     untrusted = _catalog(tmp_path, trust_state="untrusted").hooks[0]
     modified = replace(
         untrusted,
         trust_state="modified",
     )
-    trusted = _catalog(tmp_path, trust_state="trusted").hooks[0]
-    disabled = _catalog(
-        tmp_path,
-        trust_state="trusted",
-        enabled=False,
-    ).hooks[0]
     managed = _catalog(
         tmp_path,
         trust_state="managed",
         trust_policy="managed",
     ).hooks[0]
 
-    assert hook_detail_menu(untrusted).options[1].label == "Trust hook"
-    assert hook_detail_menu(modified).options[1].label == "Trust hook"
-    assert hook_detail_menu(modified).body[-1] == (
+    assert _hook_detail_body(untrusted)[-1] == (
+        "Trust     New hook - review required"
+    )
+    assert _hook_detail_body(modified)[-1] == (
         "Trust     Modified since last trusted - review required"
     )
-    assert hook_detail_menu(trusted).options[1].label == "Disable hook"
-    assert hook_detail_menu(disabled).options[1].label == "Enable hook"
-    assert hook_detail_menu(disabled).status == "PreToolUse | disabled"
-    assert hook_detail_menu(managed).options == ()
-    assert hook_detail_menu(managed).status == "PreToolUse | managed"
-    assert hook_detail_menu(managed).body == (
+    assert _hook_detail_body(managed) == (
         "Event     PreToolUse",
         "Matcher   shell_command",
-        f"Source    Project config - {tmp_path / '.codex' / 'config.toml'}",
+        "Source    Project config - "
+        f"{_display_source_path(str(tmp_path / '.codex' / 'config.toml'))}",
         "Command   python check_hook.py",
         "Mode      Sync",
         "Timeout   5s",
         "Context   limit: 2500 approximate tokens",
         "Trust     Managed",
+    )
+
+
+def test_hook_detail_body_omits_optional_fields_and_shortens_home_source(
+    tmp_path,
+) -> None:
+    entry = replace(
+        _catalog(tmp_path, trust_state="trusted").hooks[0],
+        matcher="",
+        additional_context_limit=None,
+        source_path=str(Path.home() / ".codex" / "hooks.json"),
+    )
+
+    body = _hook_detail_body(entry)
+
+    assert not any(line.startswith("Matcher") for line in body)
+    assert not any(line.startswith("Context") for line in body)
+    assert "Source    Project config - ~" in next(
+        line for line in body if line.startswith("Source")
+    )
+
+
+def test_hook_registry_keeps_default_context_optional_for_details(tmp_path) -> None:
+    definitions = resolve_hook_definitions(
+        {
+            "PreToolUse": [{
+                "hooks": [{"type": "command", "command": "check"}],
+            }],
+        },
+        source_scope="user",
+        source_path=Path.home() / ".codex" / "hooks.json",
+    )
+    entry = HookRegistry().inspect(
+        definitions,
+        workspace=tmp_path,
+    ).hooks[0]
+
+    assert entry.additional_context_limit is None
+    assert not any(
+        line.startswith("Context")
+        for line in _hook_detail_body(entry)
     )
 
 
@@ -1069,17 +1155,16 @@ async def test_hook_list_menu_t_is_noop_for_trusted_or_managed_hook(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("trust_state", "trust_policy", "expected_title"),
+    ("trust_state", "trust_policy"),
     (
-        ("untrusted", "content_hash", "Hook Details"),
-        ("managed", "managed", "Hook Details"),
+        ("untrusted", "content_hash"),
+        ("managed", "managed"),
     ),
 )
 async def test_hook_list_enter_and_space_do_not_toggle_read_only_hook(
     tmp_path,
     trust_state,
     trust_policy,
-    expected_title,
 ) -> None:
     initial = _catalog(
         tmp_path,
@@ -1105,8 +1190,11 @@ async def test_hook_list_enter_and_space_do_not_toggle_read_only_hook(
     await asyncio.sleep(0)
     mind.set_hook_enabled.assert_not_called()
 
-    runtime.screen.menu._choose_index(0)
-    await _wait_for_menu(runtime, expected_title)
+    runtime.screen.menu.handle_key_event(SimpleNamespace(key="enter", data=""))
+    await asyncio.sleep(0)
+    state = runtime.screen.menu.state
+    assert state is not None
+    assert state.request.title == "PreToolUse hooks"
     mind.set_hook_enabled.assert_not_called()
     mind.trust_hook.assert_not_called()
 
@@ -1165,7 +1253,7 @@ async def test_hook_list_enter_toggles_trusted_hook(
     await task
 
 
-def test_hook_detail_menu_only_shows_actionable_configuration(tmp_path) -> None:
+def test_hook_detail_body_only_shows_actionable_configuration(tmp_path) -> None:
     entry = replace(
         _catalog(tmp_path, trust_state="trusted").hooks[0],
         command_windows="py -3 check_hook.py",
@@ -1173,10 +1261,11 @@ def test_hook_detail_menu_only_shows_actionable_configuration(tmp_path) -> None:
         timeout_sec=10,
     )
 
-    assert hook_detail_menu(entry).body == (
+    assert _hook_detail_body(entry) == (
         "Event     PreToolUse",
         "Matcher   shell_command",
-        f"Source    Project config - {tmp_path / '.codex' / 'config.toml'}",
+        "Source    Project config - "
+        f"{_display_source_path(str(tmp_path / '.codex' / 'config.toml'))}",
         "Command   python check_hook.py",
         "Mode      Sync",
         "Timeout   10s",

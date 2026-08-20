@@ -11,6 +11,7 @@ from pathlib import Path
 from mind_core.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
+    _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT,
     HookConfigError,
     HookDefinitionConfig,
     HookEventName,
@@ -38,10 +39,9 @@ _HANDLER_FIELDS = frozenset({
     "tool",
 })
 
-_DEFAULT_HOOK_TIMEOUT_SEC               = 600
-_DEFAULT_SESSION_END_TIMEOUT_SEC        = 1
-_MAX_SESSION_END_TIMEOUT_SEC            = 3
-_DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT = 2500
+_DEFAULT_HOOK_TIMEOUT_SEC        = 600
+_DEFAULT_SESSION_END_TIMEOUT_SEC = 1
+_MAX_SESSION_END_TIMEOUT_SEC     = 3
 
 HOOKS_FILE_NAME = "hooks.json"
 
@@ -56,6 +56,7 @@ class _NormalizedHandler:
     """保存处理器的原始位置和规范配置。"""
     source_index: int
     config: dict[str, typing.Any]
+    additional_context_limit: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +180,7 @@ def resolve_hook_source(
                         timeout_sec=handler["timeout"],
                         run_async=handler["async"],
                         additional_context_limit=(
-                            handler["additionalContextLimit"]
+                            normalized_handler.additional_context_limit
                         ),
                     ),
                     matcher=group.matcher,
@@ -525,19 +526,29 @@ def _normalize_matcher_group(
         )
         return None
 
-    handlers = tuple(
-        _NormalizedHandler(hook_index, normalized)
-        for hook_index, handler in enumerate(hooks)
-        if (
-            normalized := _normalize_hook_handler(
-                handler,
-                dotted=f"{dotted}.hooks[{hook_index}]",
-                event=event,
-                warnings=warnings,
-                source=source,
-            )
-        ) is not None
-    )
+    normalized_handlers: list[_NormalizedHandler] = []
+
+    for hook_index, handler in enumerate(hooks):
+        normalized = _normalize_hook_handler(
+            handler,
+            dotted=f"{dotted}.hooks[{hook_index}]",
+            event=event,
+            warnings=warnings,
+            source=source,
+        )
+
+        if normalized is None:
+            continue
+        normalized_handlers.append(_NormalizedHandler(
+            source_index=hook_index,
+            config=normalized,
+            additional_context_limit=(
+                handler.get("additionalContextLimit")
+                if isinstance(handler, dict)
+                else None
+            ),
+        ))
+    handlers = tuple(normalized_handlers)
 
     return _NormalizedMatcherGroup(index, matcher, handlers)
 

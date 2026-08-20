@@ -33,8 +33,6 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ..core.runtime import TuiRuntime
 
-_BACK_ACTION = object()
-
 _TRUST_ACTION     = "trust"
 _ENABLE_ACTION    = "enable"
 _DISABLE_ACTION   = "disable"
@@ -72,15 +70,6 @@ def _trust_startup_hooks(
     )
 
 
-def _review_needed_message(count: int) -> str | None:
-    """返回待审核 Hook 的提示文本。"""
-    if count <= 0:
-        return None
-    if count == 1:
-        return "1 hook needs review before it can run."
-    return f"{count} hooks need review before they can run."
-
-
 def _startup_hooks_review_request(
     runtime: "TuiRuntime",
     mind: "Mind",
@@ -102,110 +91,6 @@ def _startup_hooks_review_request(
             catalog,
         ),
     )
-
-
-def startup_hooks_review_menu(
-    catalog: HookCatalogSnapshot,
-    *,
-    on_trust: typing.Callable[[], None] | None = None,
-    error: str = "",
-    trusting_all: bool = False
-) -> MenuRequest:
-    """生成启动阶段的 Hook 审核选择菜单。"""
-    review_count = sum(item.needs_review for item in catalog.hooks)
-
-    count_message = (
-        "1 hook is new or changed."
-        if review_count == 1
-        else f"{review_count} hooks are new or changed."
-    )
-
-    body        = ["Hooks can run outside the sandbox after you trust them."]
-    body_styles = ["class:tui-menu.detail"]
-
-    if trusting_all:
-        body.append("Trusting hooks...")
-        body_styles.append("class:tui-menu.detail")
-    if error:
-        body.append(error)
-        body_styles.append("class:tui-menu.error")
-
-    return MenuRequest(
-        title="Hooks need review",
-        view_id="hooks:startup-review",
-        status=count_message,
-        status_style="class:tui-menu.review",
-        body=tuple(body),
-        body_styles=tuple(body_styles),
-        options=(
-            MenuOption(
-                value=_STARTUP_REVIEW,
-                label="Review hooks",
-                disabled=trusting_all,
-            ),
-            MenuOption(
-                value=_STARTUP_CONTINUE,
-                label="Trust all and continue",
-                on_select=on_trust,
-                dismiss_on_select=on_trust is None,
-                disabled=trusting_all,
-            ),
-            MenuOption(
-                value=_STARTUP_CONTINUE,
-                label="Continue without trusting (hooks won't run)",
-                disabled=trusting_all,
-            ),
-        ),
-        help_text="",
-        footer_hint=STANDARD_MENU_FOOTER_HINT,
-        body_inset=False,
-    )
-
-
-async def _run_startup_hook_trust(
-    runtime: "TuiRuntime",
-    mind: "Mind",
-    workspace: Path,
-    catalog: HookCatalogSnapshot,
-    *,
-    session_id: int
-) -> None:
-    """执行启动阶段的批量信任并保护菜单会话。"""
-
-    try:
-        if not runtime.menu_session_is_active(session_id):
-            return None
-        mind.trust_hooks(
-            tuple(
-                (entry.key, entry.content_hash)
-                for entry in catalog.hooks
-                if entry.needs_review
-            ),
-            workspace=workspace,
-        )
-    except ValueError as trust_error:
-        if not runtime.menu_session_is_active(session_id):
-            return None
-        try:
-            refreshed = mind.inspect_hooks(workspace=workspace)
-        except (ConfigStoreError, ConfigValidationError):
-            refreshed = catalog
-        runtime.replace_active_menu_if_id(
-            "hooks:startup-review",
-            _startup_hooks_review_request(
-                runtime,
-                mind,
-                workspace,
-                refreshed,
-                error=f"Failed to trust hooks: {trust_error}",
-                trusting_all=False,
-            ),
-            session_id=session_id,
-        )
-        return None
-
-    if runtime.menu_session_is_active(session_id):
-        runtime.finish_menu(_STARTUP_CONTINUE)
 
 
 def _queue_batch_trust(
@@ -266,6 +151,28 @@ def _push_hook_list(
     )
 
 
+def _detail_line(label: str, value: str) -> str:
+    """生成 Codex 风格的对齐详情行。"""
+    return f"{label:<{max(10, len(label) + 1)}}{value}"
+
+
+def _close_hooks_browser(runtime: "TuiRuntime") -> bool:
+    """关闭 Hooks 浏览器的全部菜单层并恢复输入焦点。"""
+    return runtime.dismiss_menu_by_id(
+        "hooks:events",
+        session_id=runtime.active_menu_session_id(),
+    )
+
+
+def _review_needed_message(count: int) -> str | None:
+    """返回待审核 Hook 的提示文本。"""
+    if count <= 0:
+        return None
+    if count == 1:
+        return "1 hook needs review before it can run."
+    return f"{count} hooks need review before they can run."
+
+
 def _handler_detail_fields(entry: HookCatalogEntry) -> tuple[tuple[str, str], ...]:
     """返回按处理器类型排列的详情字段。"""
     if entry.handler_type == "command":
@@ -279,11 +186,6 @@ def _handler_detail_fields(entry: HookCatalogEntry) -> tuple[tuple[str, str], ..
             ("MCP Tool", entry.mcp_tool or ""),
         )
     return (("Handler", entry.handler_type.title()),)
-
-
-def _detail_line(label: str, value: str) -> str:
-    """生成 Codex 风格的对齐详情行。"""
-    return f"{label:<{max(10, len(label) + 1)}}{value}"
 
 
 def _handler_summary(entry: HookCatalogEntry) -> str:
@@ -302,49 +204,7 @@ def _hook_list_request(
     catalog: HookCatalogSnapshot,
     event: str
 ) -> MenuRequest:
-    """生成带有详情导航回调的 Hook 列表。"""
-
-    def open_hook_detail(entry: HookCatalogEntry) -> None:
-        """压入条目详情及其操作回调。"""
-
-        def start_hook_action(action: typing.Any) -> None:
-            """将条目操作排入菜单事件队列。"""
-
-            def start_detail_action() -> None:
-                """启动由界面生命周期管理的条目操作。"""
-                session_id = runtime.active_menu_session_id()
-                runtime.start_background_task(
-                    _run_hook_action(
-                        runtime,
-                        mind,
-                        workspace,
-                        catalog,
-                        entry,
-                        event,
-                        action,
-                        session_id=session_id,
-                    ),
-                    name="tui hook menu action",
-                )
-
-            runtime.emit_menu_action(
-                start_detail_action,
-                name="tui hook menu action",
-                kind=MenuActionKind.DOMAIN,
-            )
-
-        def push_hook_detail() -> None:
-            """压入当前条目的详情菜单。"""
-            runtime.push_menu(hook_detail_menu(
-                entry,
-                on_action=start_hook_action,
-            ))
-
-        runtime.emit_menu_action(
-            push_hook_detail,
-            name="tui hook navigation",
-            kind=MenuActionKind.NAVIGATION,
-        )
+    """生成带有选中详情和动作回调的 Hook 列表。"""
 
     def run_hook_action(entry: HookCatalogEntry, action: str) -> None:
         """把指定 Hook 的状态操作交给后台任务。"""
@@ -386,36 +246,35 @@ def _hook_list_request(
             None,
         )
 
-    def toggle_selected() -> None:
-        """切换当前选中且已审核 Hook 的启用状态。"""
-        entry = selected_hook()
-        if entry is None:
-            return None
+    def toggle_entry(entry: HookCatalogEntry) -> None:
+        """请求切换指定 Hook；不可切换状态由统一动作守卫忽略。"""
         run_hook_action(
             entry,
             _ENABLE_ACTION if not entry.enabled else _DISABLE_ACTION,
         )
 
-    def select_hook(entry: HookCatalogEntry) -> None:
-        """处理 L2 的 Enter：可信 Hook 切换，其余条目查看详情。"""
-        if entry.toggleable:
-            run_hook_action(
-                entry,
-                _ENABLE_ACTION if not entry.enabled else _DISABLE_ACTION,
-            )
+    def toggle_selected() -> None:
+        """切换当前选中且已审核 Hook 的启用状态。"""
+        entry = selected_hook()
+        if entry is None:
             return None
-        open_hook_detail(entry)
+        toggle_entry(entry)
+
+    def enter_selected(entry: HookCatalogEntry) -> None:
+        """处理 L2 的 Enter，并保持详情区留在当前列表页。"""
+        toggle_entry(entry)
 
     return hook_list_menu(
         catalog,
         event,
-        on_entry=select_hook,
+        on_entry=enter_selected,
         on_toggle=toggle_selected,
         on_trust=lambda: (
             run_hook_action(entry, _TRUST_ACTION)
             if (entry := selected_hook()) is not None
             else None
         ),
+        on_ctrl_c=lambda: _close_hooks_browser(runtime),
     )
 
 
@@ -441,15 +300,6 @@ def _hook_list_footer(entry: HookCatalogEntry | None) -> str:
     return "Press space or enter to toggle; esc to go back"
 
 
-def _hook_state(entry: HookCatalogEntry) -> str:
-    """返回 Hook 的简短运行状态。"""
-    if entry.active:
-        return "active"
-    if not entry.enabled:
-        return "disabled"
-    return entry.trust_state
-
-
 def _hook_detail_body(entry: HookCatalogEntry) -> tuple[str, ...]:
     """按固定字段顺序生成 Hook 详情。"""
     return tuple(
@@ -458,20 +308,22 @@ def _hook_detail_body(entry: HookCatalogEntry) -> tuple[str, ...]:
     )
 
 
-def _hook_detail_fields(entry: HookCatalogEntry,) -> tuple[tuple[str, str], ...]:
+def _hook_detail_fields(entry: HookCatalogEntry) -> tuple[tuple[str, str], ...]:
     """返回按固定顺序排列的详情字段。"""
     fields: list[tuple[str, str]] = [("Event", entry.event)]
-    if entry.matcher_subject is not None:
-        fields.append(("Matcher", entry.matcher or "*"))
+    if entry.matcher:
+        fields.append(("Matcher", entry.matcher))
 
     fields.append(("Source", _hook_source_label(entry)))
     fields.extend(_handler_detail_fields(entry))
     fields.append(("Timeout", f"{entry.timeout_sec:g}s"))
-    context = (
-        "unlimited" if entry.additional_context_limit == 0
-        else f"limit: {entry.additional_context_limit} approximate tokens"
-    )
-    fields.append(("Context", context))
+
+    if entry.additional_context_limit is not None:
+        context = (
+            "unlimited" if entry.additional_context_limit == 0
+            else f"limit: {entry.additional_context_limit} approximate tokens"
+        )
+        fields.append(("Context", context))
     fields.append(("Trust", _hook_trust_label(entry)))
 
     return tuple(fields)
@@ -491,20 +343,45 @@ def _hook_detail_fragments(entry: HookCatalogEntry) -> tuple[tuple[tuple[str, st
     )
 
 
+def _hook_detail_line_limits(entry: HookCatalogEntry) -> tuple[int | None, ...]:
+    """返回详情字段的换行上限；Command 按 Codex 最多显示三行。"""
+    return tuple(
+        3 if label == "Command" else None
+        for label, _value in _hook_detail_fields(entry)
+    )
+
+
 def _hook_source_label(entry: HookCatalogEntry) -> str:
     """返回来源标签及其可选路径。"""
     label = {
         "system": "Admin config",
         "mdm": "Admin config",
         "user": "User config",
+        "profile": "User config",
         "project": "Project config",
         "session flags": "Session flags",
+        "cli": "Session flags",
         "plugin": "Plugin",
         "cloud-managed": "Cloud-managed config",
     }.get(entry.source_scope, "Unknown source")
+
     if entry.source_path:
-        return f"{label} - {entry.source_path}"
+        return f"{label} - {_display_source_path(entry.source_path)}"
     return label
+
+
+def _display_source_path(source_path: str) -> str:
+    """按 Codex 规则把用户目录下的来源路径压缩为波浪号路径。"""
+    path = Path(source_path)
+
+    try:
+        relative = path.resolve().relative_to(Path.home().resolve())
+    except (OSError, ValueError):
+        return str(path)
+    if not relative.parts:
+        return "~"
+
+    return str(Path("~", *relative.parts))
 
 
 def _hook_trust_label(entry: HookCatalogEntry) -> str:
@@ -539,6 +416,7 @@ def _hook_root_request(
             workspace,
             catalog,
         ),
+        on_ctrl_c=lambda: _close_hooks_browser(runtime),
     )
 
 
@@ -546,11 +424,13 @@ def hook_event_menu(
     catalog: HookCatalogSnapshot,
     *,
     on_event: typing.Callable[[str], None] | None = None,
-    on_trust: typing.Callable[[], None] | None = None
+    on_trust: typing.Callable[[], None] | None = None,
+    on_ctrl_c: typing.Callable[[], bool] | None = None
 ) -> MenuRequest:
     """生成 Hook 事件汇总菜单。"""
-    review_count = sum(item.review_count for item in catalog.events)
+    review_count = sum(item.needs_review for item in catalog.hooks)
     show_review  = review_count > 0
+
     selected = next(
         (
             index
@@ -566,8 +446,9 @@ def hook_event_menu(
         else "Press enter to view hooks; esc to close"
     )
 
-    body: list[str] = [""]
+    body: list[str]        = [""]
     body_styles: list[str] = [""]
+
     review_message = _review_needed_message(review_count)
     if review_message is not None:
         body.extend((f"⚠ {review_message}", ""))
@@ -582,6 +463,7 @@ def hook_event_menu(
 
     columns = ("Event", "Installed", "Active")
     widths  = (22, 12, 12)
+
     if show_review:
         columns += ("Review",)
         widths += (12,)
@@ -646,6 +528,7 @@ def hook_event_menu(
         body_as_table_header=True,
         body_preserve_spacing=True,
         body_styles=tuple(body_styles),
+        on_ctrl_c=on_ctrl_c,
     )
 
 
@@ -655,7 +538,8 @@ def hook_list_menu(
     *,
     on_entry: typing.Callable[[HookCatalogEntry], None] | None = None,
     on_toggle: typing.Callable[[], None] | None = None,
-    on_trust: typing.Callable[[], None] | None = None
+    on_trust: typing.Callable[[], None] | None = None,
+    on_ctrl_c: typing.Callable[[], bool] | None = None
 ) -> MenuRequest:
     """生成指定事件的 Hook 条目菜单。"""
     hooks = tuple(
@@ -666,6 +550,7 @@ def hook_list_menu(
         )
         if item.event == event
     )
+
     review_count = sum(item.needs_review for item in hooks)
 
     return MenuRequest(
@@ -690,6 +575,7 @@ def hook_list_menu(
                 detail="",
                 selected_body=_hook_detail_body(item),
                 selected_body_fragments=_hook_detail_fragments(item),
+                selected_body_line_limits=_hook_detail_line_limits(item),
                 selected_footer_hint=_hook_list_footer(item),
                 row_style=(
                     "class:tui-menu.review" if item.needs_review
@@ -715,89 +601,20 @@ def hook_list_menu(
         show_option_gutter=False,
         body_inset=bool(hooks),
         body_preserve_spacing=True,
-    )
-
-
-def hook_detail_menu(
-    entry: HookCatalogEntry,
-    *,
-    on_action: typing.Callable[[typing.Any], None] | None = None
-) -> MenuRequest:
-    """生成单个 Hook 的详情和信任操作菜单。"""
-    body = _hook_detail_body(entry)
-    body_fragments = _hook_detail_fragments(entry)
-
-    if entry.trust_policy == "managed":
-        return MenuRequest(
-            title="Hook Details",
-            view_id=f"hooks:detail:{entry.key}",
-            status=f"{entry.event} | managed",
-            body=body,
-            body_fragments=body_fragments,
-            help_text="",
-            footer_hint="Managed hooks are always on; press esc to go back",
-            body_preserve_spacing=True,
-        )
-
-    if entry.trust_state == "trusted":
-        action = _DISABLE_ACTION if entry.enabled else _ENABLE_ACTION
-        label  = "Disable hook" if entry.enabled else "Enable hook"
-
-        detail = (
-            "keep trust but prevent this hook from running"
-            if entry.enabled
-            else "allow this trusted hook to run"
-        )
-
-    else:
-        action = _TRUST_ACTION
-        label  = "Trust hook"
-        detail = "allow this exact hook content to run"
-
-    review_message = _review_needed_message(int(entry.needs_review))
-    return MenuRequest(
-        title="Hook Details",
-        view_id=f"hooks:detail:{entry.key}",
-        status=review_message or f"{entry.event} | {_hook_state(entry)}",
-        status_style="class:tui-menu.review" if review_message else "",
-        body=body,
-        body_fragments=body_fragments,
-        selected=0,
-        help_text="",
-        footer_hint=STANDARD_MENU_FOOTER_HINT,
-        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
-        options=(
-            MenuOption(
-                value=_BACK_ACTION,
-                label="Back",
-                detail="keep the current trust state",
-            ),
-            MenuOption(
-                value=action,
-                label=label,
-                detail=detail,
-                on_select=(
-                    lambda: on_action(action)
-                    if on_action is not None
-                    else None
-                ),
-            ),
-        ),
-        on_t=(
-            (lambda: on_action(_TRUST_ACTION))
-            if entry.needs_review and on_action is not None
-            else None
-        ),
-        body_preserve_spacing=True,
+        body_wrap=bool(hooks),
+        on_ctrl_c=on_ctrl_c,
     )
 
 
 def hook_failure_panel(
     entry: HookCatalogEntry,
-    error: BaseException
+    error: BaseException,
+    *,
+    on_ctrl_c: typing.Callable[[], bool] | None = None
 ) -> MenuRequest:
     """生成 Hook 操作失败的只读子面板。"""
     message = str(error).strip() or type(error).__name__
+
     return MenuRequest(
         title="Hook operation",
         view_id=f"hooks:failure:{entry.key}",
@@ -805,6 +622,65 @@ def hook_failure_panel(
         body=(f"Failed: {message}",),
         help_text="",
         footer_hint=CLOSE_MENU_FOOTER_HINT,
+        on_ctrl_c=on_ctrl_c,
+    )
+
+
+def startup_hooks_review_menu(
+    catalog: HookCatalogSnapshot,
+    *,
+    on_trust: typing.Callable[[], None] | None = None,
+    error: str = "",
+    trusting_all: bool = False
+) -> MenuRequest:
+    """生成启动阶段的 Hook 审核选择菜单。"""
+    review_count = sum(item.needs_review for item in catalog.hooks)
+
+    count_message = (
+        "1 hook is new or changed."
+        if review_count == 1
+        else f"{review_count} hooks are new or changed."
+    )
+
+    body        = ["Hooks can run outside the sandbox after you trust them."]
+    body_styles = ["class:tui-menu.detail"]
+
+    if trusting_all:
+        body.append("Trusting hooks...")
+        body_styles.append("class:tui-menu.detail")
+    if error:
+        body.append(error)
+        body_styles.append("class:tui-menu.error")
+
+    return MenuRequest(
+        title="Hooks need review",
+        view_id="hooks:startup-review",
+        status=count_message,
+        status_style="class:tui-menu.review",
+        body=tuple(body),
+        body_styles=tuple(body_styles),
+        options=(
+            MenuOption(
+                value=_STARTUP_REVIEW,
+                label="Review hooks",
+                disabled=trusting_all,
+            ),
+            MenuOption(
+                value=_STARTUP_CONTINUE,
+                label="Trust all and continue",
+                on_select=on_trust,
+                dismiss_on_select=on_trust is None,
+                disabled=trusting_all,
+            ),
+            MenuOption(
+                value=_STARTUP_CONTINUE,
+                label="Continue without trusting (hooks won't run)",
+                disabled=trusting_all,
+            ),
+        ),
+        help_text="",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        body_inset=False,
     )
 
 
@@ -866,10 +742,6 @@ async def _run_hook_action(
             session_id=session_id,
         )
         if runtime.menu_session_is_active(session_id):
-            runtime.dismiss_menu_by_id(
-                f"hooks:detail:{entry.key}",
-                session_id=session_id,
-            )
             runtime.replace_present_menu_if_id(
                 "hooks:events",
                 _hook_root_request(runtime, mind, workspace, refreshed),
@@ -888,7 +760,11 @@ async def _run_hook_action(
             )
     except ValueError as error:
         if runtime.menu_session_is_active(session_id):
-            runtime.push_menu(hook_failure_panel(entry, error))
+            runtime.push_menu(hook_failure_panel(
+                entry,
+                error,
+                on_ctrl_c=lambda: _close_hooks_browser(runtime),
+            ))
 
 
 async def _run_batch_trust(
@@ -927,7 +803,11 @@ async def _run_batch_trust(
                 _hook_root_request(runtime, mind, workspace, refreshed),
                 session_id=session_id,
             )
-            runtime.push_menu(hook_failure_panel(pending[0], error))
+            runtime.push_menu(hook_failure_panel(
+                pending[0],
+                error,
+                on_ctrl_c=lambda: _close_hooks_browser(runtime),
+            ))
         return None
 
     refreshed = _refresh_catalog(
@@ -991,6 +871,54 @@ async def review_startup_hooks(
     finally:
         if owns_startup_gate:
             await runtime.finish_startup_gate()
+
+
+async def _run_startup_hook_trust(
+    runtime: "TuiRuntime",
+    mind: "Mind",
+    workspace: Path,
+    catalog: HookCatalogSnapshot,
+    *,
+    session_id: int
+) -> None:
+    """执行启动阶段的批量信任并保护菜单会话。"""
+
+    try:
+        if not runtime.menu_session_is_active(session_id):
+            return None
+        mind.trust_hooks(
+            tuple(
+                (entry.key, entry.content_hash)
+                for entry in catalog.hooks
+                if entry.needs_review
+            ),
+            workspace=workspace,
+        )
+    except ValueError as trust_error:
+        if not runtime.menu_session_is_active(session_id):
+            return None
+
+        try:
+            refreshed = mind.inspect_hooks(workspace=workspace)
+        except (ConfigStoreError, ConfigValidationError):
+            refreshed = catalog
+
+        runtime.replace_active_menu_if_id(
+            "hooks:startup-review",
+            _startup_hooks_review_request(
+                runtime,
+                mind,
+                workspace,
+                refreshed,
+                error=f"Failed to trust hooks: {trust_error}",
+                trusting_all=False,
+            ),
+            session_id=session_id,
+        )
+        return None
+
+    if runtime.menu_session_is_active(session_id):
+        runtime.finish_menu(_STARTUP_CONTINUE)
 
 
 if __name__ == '__main__':

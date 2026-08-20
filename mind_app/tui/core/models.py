@@ -102,6 +102,7 @@ class MenuOption(object):
     row_style: str = ""
     selected_row_style: str = ""
     selected_body_fragments: tuple[FormattedLine, ...] = ()
+    selected_body_line_limits: tuple[int | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +125,7 @@ class MenuAction(object):
 
 @dataclass(frozen=True, slots=True)
 class MenuRequest(object):
-    """描述运行期内嵌选择菜单。"""
+    """描述运行期内嵌选择菜单及其生命周期回调。"""
     title: str
     options: tuple[MenuOption, ...] = ()
     body: tuple[str, ...] = ()
@@ -149,6 +150,7 @@ class MenuRequest(object):
     body_warning: str = ""
     on_space: typing.Callable[[], None] | None = None
     on_t: typing.Callable[[], None] | None = None
+    on_ctrl_c: typing.Callable[[], bool] | None = None
     table_column_widths: tuple[int, ...] = ()
     show_option_gutter: bool = True
     show_all_options: bool = False
@@ -157,6 +159,8 @@ class MenuRequest(object):
     body_preserve_spacing: bool = False
     body_styles: tuple[str, ...] = ()
     body_fragments: tuple[FormattedLine, ...] = ()
+    body_wrap: bool = False
+    body_line_limits: tuple[int | None, ...] = ()
     status_style: str = ""
 
 

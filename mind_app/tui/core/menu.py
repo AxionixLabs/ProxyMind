@@ -385,7 +385,7 @@ class TuiMenu(object):
             ),)
             for index, line in enumerate(request.body)
         )
-        for line_fragments in lines:
+        for index, line_fragments in enumerate(lines):
             line = "".join(text for _style, text in line_fragments)
             if request.body_warning and line and not warning_used:
                 body_style = "class:tui-menu.body"
@@ -404,22 +404,53 @@ class TuiMenu(object):
                     ])
                 warning_used = True
                 continue
-            truncated = get_cwidth(line) > body_width
-            clipped = clip_fragments(
-                list(line_fragments),
-                width=max(0, body_width - int(truncated)),
-            )
-            if truncated and body_width > 0:
-                ellipsis_style = (
-                    clipped[-1][0]
-                    if clipped
-                    else line_fragments[-1][0]
+
+            if request.body_wrap:
+                rows = wrap_formatted_lines(
+                    list(line_fragments),
+                    width=max(1, body_width),
                 )
-                clipped.append((ellipsis_style, "…"))
-            indent_style = (
-                clipped[0][0] if clipped else "class:tui-menu.detail"
-            )
-            out.extend([(indent_style, body_indent), *clipped, ("", "\n")])
+                max_lines = (
+                    request.body_line_limits[index]
+                    if index < len(request.body_line_limits)
+                    else None
+                )
+                truncated = (
+                    max_lines is not None
+                    and 0 < max_lines < len(rows)
+                )
+                if truncated:
+                    rows = rows[:max_lines]
+                    clipped = clip_fragments(
+                        list(rows[-1]),
+                        width=max(0, body_width - 1),
+                    )
+                    ellipsis_style = (
+                        clipped[-1][0]
+                        if clipped
+                        else line_fragments[-1][0]
+                    )
+                    rows[-1] = [*clipped, (ellipsis_style, "…")]
+            else:
+                truncated = get_cwidth(line) > body_width
+                clipped = clip_fragments(
+                    list(line_fragments),
+                    width=max(0, body_width - int(truncated)),
+                )
+                if truncated and body_width > 0:
+                    ellipsis_style = (
+                        clipped[-1][0]
+                        if clipped
+                        else line_fragments[-1][0]
+                    )
+                    clipped.append((ellipsis_style, "…"))
+                rows = [clipped]
+
+            for row in rows:
+                indent_style = (
+                    row[0][0] if row else "class:tui-menu.detail"
+                )
+                out.extend([(indent_style, body_indent), *row, ("", "\n")])
         return out
 
     @staticmethod
@@ -735,7 +766,7 @@ class TuiMenu(object):
         return state.request.active_tab_id if state is not None else None
 
     def on_ctrl_c(self, state: MenuState | None = None) -> bool:
-        """处理菜单范围内的 Ctrl-C，并返回是否已消费。"""
+        """处理 Ctrl-C；请求回调可关闭整个菜单会话。"""
         current = state or self.state
         if (
             current is None
@@ -743,6 +774,8 @@ class TuiMenu(object):
             or not current.request.allow_cancel
         ):
             return False
+        if current.request.on_ctrl_c is not None:
+            return bool(current.request.on_ctrl_c())
         self.cancel()
         return True
 
@@ -992,6 +1025,7 @@ class TuiMenu(object):
                     request,
                     body=selected.selected_body,
                     body_fragments=selected.selected_body_fragments,
+                    body_line_limits=selected.selected_body_line_limits,
                 ),
                 width=content_width,
             ))
@@ -1480,6 +1514,7 @@ class TuiMenu(object):
                     request,
                     body=selected.selected_body,
                     body_fragments=selected.selected_body_fragments,
+                    body_line_limits=selected.selected_body_line_limits,
                 ),
                 width=content_width,
             ))
@@ -2157,6 +2192,7 @@ def _sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         ),
         on_space=request.on_space,
         on_t=request.on_t,
+        on_ctrl_c=request.on_ctrl_c,
         show_option_gutter=bool(request.show_option_gutter),
         show_all_options=bool(request.show_all_options),
         body_inset=bool(request.body_inset),
@@ -2175,6 +2211,11 @@ def _sanitize_menu_request(request: MenuRequest) -> MenuRequest:
                 for style, text in line
             )
             for line in request.body_fragments
+        ),
+        body_wrap=bool(request.body_wrap),
+        body_line_limits=tuple(
+            max(1, int(limit)) if limit is not None else None
+            for limit in request.body_line_limits
         ),
     )
 
@@ -2265,6 +2306,10 @@ def _sanitize_menu_option(option: MenuOption) -> MenuOption:
                 for style, text in line
             )
             for line in option.selected_body_fragments
+        ),
+        selected_body_line_limits=tuple(
+            max(1, int(limit)) if limit is not None else None
+            for limit in option.selected_body_line_limits
         ),
     )
 

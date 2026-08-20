@@ -534,7 +534,7 @@ class HookRuntime:
     ) -> HookNormalizedOutput:
         """按处理器阈值把过大的附加上下文写入临时文件。"""
         contexts = normalized.effect.additional_context
-        limit    = definition.handler.additional_context_limit
+        limit    = definition.handler.effective_additional_context_limit
         spiller  = self.context_spiller
 
         if not contexts or limit == 0 or spiller is None:
@@ -573,7 +573,7 @@ class HookRuntime:
     ) -> HookNormalizedOutput:
         """按处理器阈值把过大的续跑提示写入临时文件。"""
         prompt  = normalized.effect.continuation_prompt
-        limit   = definition.handler.additional_context_limit
+        limit   = definition.handler.effective_additional_context_limit
         spiller = self.context_spiller
 
         if (

@@ -46,6 +46,8 @@ HookHandlerType = typing.Literal[
 
 HookStateTable = dict[str, dict[str, bool | str]]
 
+_DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT = 2500
+
 SessionEndReason = typing.Literal[
     "exit",
     "archive",
@@ -234,7 +236,7 @@ class HookHandlerConfig:
     mcp_tool: str | None
     timeout_sec: int
     run_async: bool
-    additional_context_limit: int
+    additional_context_limit: int | None
 
     @property
     def selector(self) -> str:
@@ -242,6 +244,15 @@ class HookHandlerConfig:
         if self.type == "mcp_tool":
             return f"mcp_tool:{self.mcp_server or ''}/{self.mcp_tool or ''}"
         return self.type
+
+    @property
+    def effective_additional_context_limit(self) -> int:
+        """返回运行时使用的附加上下文阈值。"""
+        return (
+            self.additional_context_limit
+            if self.additional_context_limit is not None
+            else _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT
+        )
 
     def command_for_platform(self, platform: str) -> str:
         """返回当前平台应执行的命令。"""

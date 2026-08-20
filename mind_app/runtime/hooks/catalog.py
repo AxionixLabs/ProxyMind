@@ -33,7 +33,7 @@ class HookCatalogEntry:
     matcher_subject: HookMatcherSubject | None
     timeout_sec: int
     run_async: bool
-    additional_context_limit: int
+    additional_context_limit: int | None
     source_scope: str
     source_path: str | None
     trust_policy: HookTrustPolicy
