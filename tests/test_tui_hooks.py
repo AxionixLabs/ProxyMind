@@ -897,6 +897,13 @@ def test_hook_list_menu_uses_codex_rows_details_and_dynamic_footer(tmp_path) -> 
         assert menu.options[0].selected_body[0] == "Event     PreToolUse"
         assert menu.footer_hint == expected_footer
 
+    review_menu = hook_list_menu(
+        replace(_catalog(tmp_path, trust_state="untrusted"), hooks=(untrusted,)),
+        "PreToolUse",
+    )
+    assert review_menu.status == "1 hook needs review before it can run."
+    assert review_menu.status_style == "class:tui-menu.review"
+
 
 @pytest.mark.anyio
 async def test_hook_list_menu_renders_selected_detail_section(tmp_path) -> None:
@@ -906,9 +913,13 @@ async def test_hook_list_menu_renders_selected_detail_section(tmp_path) -> None:
         key="project:PreToolUse:1",
         command="python trusted_hook.py",
     )
+    third = replace(
+        _catalog(tmp_path, trust_state="managed", trust_policy="managed").hooks[0],
+        key="project:PreToolUse:2",
+    )
     catalog = replace(
         _catalog(tmp_path, trust_state="untrusted"),
-        hooks=(first, second),
+        hooks=(first, second, third),
     )
     menu = TuiMenu(
         invalidate=lambda: None,
@@ -935,12 +946,22 @@ async def test_hook_list_menu_renders_selected_detail_section(tmp_path) -> None:
         value for _style, value in menu.footer_fragments()
     )
 
+    menu._move(1)
+    assert "[x] Hook 3" in "".join(value for _style, value in menu.fragments())
+    assert "Managed hooks are always on; press esc to go back" in "".join(
+        value for _style, value in menu.footer_fragments()
+    )
+
     menu.cancel()
     await task
 
 
 @pytest.mark.anyio
-async def test_hook_list_menu_space_toggles_trusted_hook(tmp_path) -> None:
+@pytest.mark.parametrize("key", ("space", "enter"))
+async def test_hook_list_menu_space_or_enter_toggles_trusted_hook(
+    tmp_path,
+    key,
+) -> None:
     initial = _catalog(tmp_path, trust_state="trusted")
     updated = _catalog(tmp_path, trust_state="trusted", enabled=False)
     runtime = TuiRuntime()
@@ -958,7 +979,9 @@ async def test_hook_list_menu_space_toggles_trusted_hook(tmp_path) -> None:
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
-    runtime.screen.menu.handle_key_event(SimpleNamespace(key="space", data=" "))
+    runtime.screen.menu.handle_key_event(
+        SimpleNamespace(key=key, data=" " if key == "space" else "")
+    )
     await _wait_for_menu_action(mind.set_hook_enabled)
 
     mind.set_hook_enabled.assert_called_once_with(
@@ -999,6 +1022,46 @@ async def test_hook_list_menu_t_trusts_review_hook(tmp_path) -> None:
         expected_content_hash=initial.hooks[0].content_hash,
         workspace=tmp_path,
     )
+    runtime.cancel_menu()
+    runtime.cancel_menu()
+    await task
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("trust_state", "trust_policy"),
+    (("trusted", "content_hash"), ("managed", "managed")),
+)
+async def test_hook_list_menu_t_is_noop_for_trusted_or_managed_hook(
+    tmp_path,
+    trust_state,
+    trust_policy,
+) -> None:
+    initial = _catalog(
+        tmp_path,
+        trust_state=trust_state,
+        trust_policy=trust_policy,
+    )
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        inspect_hooks=Mock(return_value=initial),
+        trust_hook=Mock(),
+        set_hook_enabled=Mock(),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+
+    task = asyncio.create_task(manage_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks")
+    runtime.screen.menu._choose_index(0)
+    await _wait_for_menu(runtime, "PreToolUse hooks")
+    runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
+    await asyncio.sleep(0)
+
+    mind.trust_hook.assert_not_called()
+    mind.set_hook_enabled.assert_not_called()
     runtime.cancel_menu()
     runtime.cancel_menu()
     await task
@@ -1055,13 +1118,12 @@ async def test_hook_list_enter_and_space_do_not_toggle_read_only_hook(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("enabled", "action", "expected_enabled"),
-    ((True, "Disable hook", False), (False, "Enable hook", True)),
+    ("enabled", "expected_enabled"),
+    ((True, False), (False, True)),
 )
-async def test_hook_detail_menu_toggles_trusted_hook(
+async def test_hook_list_enter_toggles_trusted_hook(
     tmp_path,
     enabled,
-    action,
     expected_enabled,
 ) -> None:
     initial = _catalog(
@@ -1090,10 +1152,6 @@ async def test_hook_detail_menu_toggles_trusted_hook(
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu._choose_index(0)
-    await _wait_for_menu(runtime, "Hook Details")
-
-    assert runtime.screen.menu.state.request.options[1].label == action
-    runtime.screen.menu._choose_index(1)
     await _wait_for_call(mind.set_hook_enabled)
 
     mind.set_hook_enabled.assert_called_once_with(

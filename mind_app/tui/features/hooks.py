@@ -42,7 +42,34 @@ _STARTUP_REVIEW   = "review"
 _STARTUP_CONTINUE = "continue"
 
 
+def _trust_startup_hooks(
+    runtime: "TuiRuntime",
+    mind: "Mind",
+    workspace: Path,
+    catalog: HookCatalogSnapshot
+) -> None:
+    """按当前内容哈希信任启动审核菜单中的全部 Hook。"""
+    session_id = runtime.active_menu_session_id()
+    if session_id is None:
+        return None
 
+    runtime.update_menu(_startup_hooks_review_request(
+        runtime,
+        mind,
+        workspace,
+        catalog,
+        trusting_all=True,
+    ))
+    runtime.start_background_task(
+        _run_startup_hook_trust(
+            runtime,
+            mind,
+            workspace,
+            catalog,
+            session_id=session_id,
+        ),
+        name="tui startup hook trust",
+    )
 
 
 def _review_needed_message(count: int) -> str | None:
@@ -52,6 +79,29 @@ def _review_needed_message(count: int) -> str | None:
     if count == 1:
         return "1 hook needs review before it can run."
     return f"{count} hooks need review before they can run."
+
+
+def _startup_hooks_review_request(
+    runtime: "TuiRuntime",
+    mind: "Mind",
+    workspace: Path,
+    catalog: HookCatalogSnapshot,
+    *,
+    error: str = "",
+    trusting_all: bool = False
+) -> MenuRequest:
+    """绑定启动审核菜单的批量信任操作。"""
+    return startup_hooks_review_menu(
+        catalog,
+        error=error,
+        trusting_all=trusting_all,
+        on_trust=lambda: _trust_startup_hooks(
+            runtime,
+            mind,
+            workspace,
+            catalog,
+        ),
+    )
 
 
 def startup_hooks_review_menu(
@@ -112,59 +162,6 @@ def startup_hooks_review_menu(
     )
 
 
-def _startup_hooks_review_request(
-    runtime: "TuiRuntime",
-    mind: "Mind",
-    workspace: Path,
-    catalog: HookCatalogSnapshot,
-    *,
-    error: str = "",
-    trusting_all: bool = False
-) -> MenuRequest:
-    """绑定启动审核菜单的批量信任操作。"""
-    return startup_hooks_review_menu(
-        catalog,
-        error=error,
-        trusting_all=trusting_all,
-        on_trust=lambda: _trust_startup_hooks(
-            runtime,
-            mind,
-            workspace,
-            catalog,
-        ),
-    )
-
-
-def _trust_startup_hooks(
-    runtime: "TuiRuntime",
-    mind: "Mind",
-    workspace: Path,
-    catalog: HookCatalogSnapshot
-) -> None:
-    """按当前内容哈希信任启动审核菜单中的全部 Hook。"""
-    session_id = runtime.active_menu_session_id()
-    if session_id is None:
-        return None
-
-    runtime.update_menu(_startup_hooks_review_request(
-        runtime,
-        mind,
-        workspace,
-        catalog,
-        trusting_all=True,
-    ))
-    runtime.start_background_task(
-        _run_startup_hook_trust(
-            runtime,
-            mind,
-            workspace,
-            catalog,
-            session_id=session_id,
-        ),
-        name="tui startup hook trust",
-    )
-
-
 async def _run_startup_hook_trust(
     runtime: "TuiRuntime",
     mind: "Mind",
@@ -186,12 +183,12 @@ async def _run_startup_hook_trust(
             ),
             workspace=workspace,
         )
-    except Exception as trust_error:
+    except ValueError as trust_error:
         if not runtime.menu_session_is_active(session_id):
             return None
         try:
             refreshed = mind.inspect_hooks(workspace=workspace)
-        except Exception:
+        except (ConfigStoreError, ConfigValidationError):
             refreshed = catalog
         runtime.replace_active_menu_if_id(
             "hooks:startup-review",
@@ -209,173 +206,6 @@ async def _run_startup_hook_trust(
 
     if runtime.menu_session_is_active(session_id):
         runtime.finish_menu(_STARTUP_CONTINUE)
-
-
-async def _run_hook_action(
-    runtime: "TuiRuntime",
-    mind: "Mind",
-    workspace: Path,
-    catalog: HookCatalogSnapshot,
-    entry: HookCatalogEntry,
-    event: str,
-    action: typing.Any,
-    *,
-    session_id: int | None
-) -> None:
-    """执行 Hook 变更并按稳定标识刷新仍在栈中的菜单。"""
-    if (
-        session_id is None
-        or not runtime.menu_session_is_active(session_id)
-    ):
-        return None
-
-    try:
-        if action == _TRUST_ACTION:
-            mind.trust_hook(
-                entry.key,
-                expected_content_hash=entry.content_hash,
-                workspace=workspace,
-            )
-        else:
-            mind.set_hook_enabled(
-                entry.key,
-                expected_content_hash=entry.content_hash,
-                enabled=action == _ENABLE_ACTION,
-                workspace=workspace,
-            )
-        refreshed = _refresh_catalog(
-            mind,
-            workspace,
-            catalog,
-            runtime=runtime,
-            session_id=session_id,
-        )
-        if runtime.menu_session_is_active(session_id):
-            runtime.dismiss_menu_by_id(
-                f"hooks:detail:{entry.key}",
-                session_id=session_id,
-            )
-            runtime.replace_present_menu_if_id(
-                "hooks:events",
-                _hook_root_request(runtime, mind, workspace, refreshed),
-                session_id=session_id,
-            )
-            runtime.replace_present_menu_if_id(
-                f"hooks:list:{event}",
-                _hook_list_request(
-                    runtime,
-                    mind,
-                    workspace,
-                    refreshed,
-                    event,
-                ),
-                session_id=session_id,
-            )
-    except Exception as error:
-        if runtime.menu_session_is_active(session_id):
-            runtime.push_menu(hook_failure_panel(entry, error))
-
-
-async def _run_batch_trust(
-    runtime: "TuiRuntime",
-    mind: "Mind",
-    workspace: Path,
-    catalog: HookCatalogSnapshot,
-    *,
-    session_id: int | None
-) -> None:
-    """信任当前快照中所有待审核 Hook 并刷新事件页。"""
-    if (
-        session_id is None
-        or not runtime.menu_session_is_active(session_id)
-    ):
-        return None
-
-    pending = tuple(item for item in catalog.hooks if item.needs_review)
-
-    try:
-        mind.trust_hooks(
-            tuple((entry.key, entry.content_hash) for entry in pending),
-            workspace=workspace,
-        )
-    except Exception as error:
-        if runtime.menu_session_is_active(session_id):
-            refreshed = _refresh_catalog(
-                mind,
-                workspace,
-                catalog,
-                runtime=runtime,
-                session_id=session_id,
-            )
-            runtime.replace_present_menu_if_id(
-                "hooks:events",
-                _hook_root_request(runtime, mind, workspace, refreshed),
-                session_id=session_id,
-            )
-            runtime.push_menu(hook_failure_panel(pending[0], error))
-        return None
-
-    refreshed = _refresh_catalog(
-        mind,
-        workspace,
-        catalog,
-        runtime=runtime,
-        session_id=session_id,
-    )
-    if runtime.menu_session_is_active(session_id):
-        runtime.replace_present_menu_if_id(
-            "hooks:events",
-            _hook_root_request(runtime, mind, workspace, refreshed),
-            session_id=session_id,
-        )
-
-
-async def manage_hooks(
-    runtime: "TuiRuntime",
-    mind: "Mind",
-    *,
-    catalog: HookCatalogSnapshot | None = None
-) -> None:
-    """在主 TUI 中查看 Hook 并管理显式信任。"""
-    workspace = Path(mind.history_workspace)
-    if catalog is None:
-        try:
-            catalog = mind.inspect_hooks(workspace=workspace)
-        except (ConfigStoreError, ConfigValidationError) as error:
-            render_hooks_failure(mind.frontend.application, error)
-            return None
-
-    await runtime.select_menu(
-        _hook_root_request(runtime, mind, workspace, catalog)
-    )
-
-
-async def review_startup_hooks(
-    runtime: "TuiRuntime",
-    mind: "Mind"
-) -> HookCatalogSnapshot | None:
-    """在交互会话启动前选择是否打开 Hook 审核浏览器。"""
-    owns_startup_gate = not runtime.startup_gate_active
-    if owns_startup_gate:
-        runtime.begin_startup_gate()
-
-    try:
-        workspace = Path(mind.history_workspace)
-        try:
-            catalog = mind.inspect_hooks(workspace=workspace)
-        except (ConfigStoreError, ConfigValidationError):
-            return None
-
-        if not any(item.needs_review for item in catalog.hooks):
-            return None
-
-        selection = await runtime.select_menu(
-            _startup_hooks_review_request(runtime, mind, workspace, catalog)
-        )
-        return catalog if selection == _STARTUP_REVIEW else None
-    finally:
-        if owns_startup_gate:
-            await runtime.finish_startup_gate()
 
 
 def _queue_batch_trust(
@@ -566,10 +396,20 @@ def _hook_list_request(
             _ENABLE_ACTION if not entry.enabled else _DISABLE_ACTION,
         )
 
+    def select_hook(entry: HookCatalogEntry) -> None:
+        """处理 L2 的 Enter：可信 Hook 切换，其余条目查看详情。"""
+        if entry.toggleable:
+            run_hook_action(
+                entry,
+                _ENABLE_ACTION if not entry.enabled else _DISABLE_ACTION,
+            )
+            return None
+        open_hook_detail(entry)
+
     return hook_list_menu(
         catalog,
         event,
-        on_entry=open_hook_detail,
+        on_entry=select_hook,
         on_toggle=toggle_selected,
         on_trust=lambda: (
             run_hook_action(entry, _TRUST_ACTION)
@@ -791,7 +631,7 @@ def hook_event_menu(
                           "class:tui-menu.detail", "class:tui-menu.detail")
                 ),
                 on_select=(
-                    lambda selected=item.event: on_event(selected)
+                    lambda event_value=item.event: on_event(event_value)
                     if on_event is not None
                     else None
                 ),
@@ -984,6 +824,173 @@ def render_hooks_failure(
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))
+
+
+async def _run_hook_action(
+    runtime: "TuiRuntime",
+    mind: "Mind",
+    workspace: Path,
+    catalog: HookCatalogSnapshot,
+    entry: HookCatalogEntry,
+    event: str,
+    action: typing.Any,
+    *,
+    session_id: int | None
+) -> None:
+    """执行 Hook 变更并按稳定标识刷新仍在栈中的菜单。"""
+    if (
+        session_id is None
+        or not runtime.menu_session_is_active(session_id)
+    ):
+        return None
+
+    try:
+        if action == _TRUST_ACTION:
+            mind.trust_hook(
+                entry.key,
+                expected_content_hash=entry.content_hash,
+                workspace=workspace,
+            )
+        else:
+            mind.set_hook_enabled(
+                entry.key,
+                expected_content_hash=entry.content_hash,
+                enabled=action == _ENABLE_ACTION,
+                workspace=workspace,
+            )
+        refreshed = _refresh_catalog(
+            mind,
+            workspace,
+            catalog,
+            runtime=runtime,
+            session_id=session_id,
+        )
+        if runtime.menu_session_is_active(session_id):
+            runtime.dismiss_menu_by_id(
+                f"hooks:detail:{entry.key}",
+                session_id=session_id,
+            )
+            runtime.replace_present_menu_if_id(
+                "hooks:events",
+                _hook_root_request(runtime, mind, workspace, refreshed),
+                session_id=session_id,
+            )
+            runtime.replace_present_menu_if_id(
+                f"hooks:list:{event}",
+                _hook_list_request(
+                    runtime,
+                    mind,
+                    workspace,
+                    refreshed,
+                    event,
+                ),
+                session_id=session_id,
+            )
+    except ValueError as error:
+        if runtime.menu_session_is_active(session_id):
+            runtime.push_menu(hook_failure_panel(entry, error))
+
+
+async def _run_batch_trust(
+    runtime: "TuiRuntime",
+    mind: "Mind",
+    workspace: Path,
+    catalog: HookCatalogSnapshot,
+    *,
+    session_id: int | None
+) -> None:
+    """信任当前快照中所有待审核 Hook 并刷新事件页。"""
+    if (
+        session_id is None
+        or not runtime.menu_session_is_active(session_id)
+    ):
+        return None
+
+    pending = tuple(item for item in catalog.hooks if item.needs_review)
+
+    try:
+        mind.trust_hooks(
+            tuple((entry.key, entry.content_hash) for entry in pending),
+            workspace=workspace,
+        )
+    except ValueError as error:
+        if runtime.menu_session_is_active(session_id):
+            refreshed = _refresh_catalog(
+                mind,
+                workspace,
+                catalog,
+                runtime=runtime,
+                session_id=session_id,
+            )
+            runtime.replace_present_menu_if_id(
+                "hooks:events",
+                _hook_root_request(runtime, mind, workspace, refreshed),
+                session_id=session_id,
+            )
+            runtime.push_menu(hook_failure_panel(pending[0], error))
+        return None
+
+    refreshed = _refresh_catalog(
+        mind,
+        workspace,
+        catalog,
+        runtime=runtime,
+        session_id=session_id,
+    )
+    if runtime.menu_session_is_active(session_id):
+        runtime.replace_present_menu_if_id(
+            "hooks:events",
+            _hook_root_request(runtime, mind, workspace, refreshed),
+            session_id=session_id,
+        )
+
+
+async def manage_hooks(
+    runtime: "TuiRuntime",
+    mind: "Mind",
+    *,
+    catalog: HookCatalogSnapshot | None = None
+) -> None:
+    """在主 TUI 中查看 Hook 并管理显式信任。"""
+    workspace = Path(mind.history_workspace)
+    if catalog is None:
+        try:
+            catalog = mind.inspect_hooks(workspace=workspace)
+        except (ConfigStoreError, ConfigValidationError) as error:
+            render_hooks_failure(mind.frontend.application, error)
+            return None
+
+    await runtime.select_menu(
+        _hook_root_request(runtime, mind, workspace, catalog)
+    )
+
+
+async def review_startup_hooks(
+    runtime: "TuiRuntime",
+    mind: "Mind"
+) -> HookCatalogSnapshot | None:
+    """在交互会话启动前选择是否打开 Hook 审核浏览器。"""
+    owns_startup_gate = not runtime.startup_gate_active
+    if owns_startup_gate:
+        runtime.begin_startup_gate()
+
+    try:
+        workspace = Path(mind.history_workspace)
+        try:
+            catalog = mind.inspect_hooks(workspace=workspace)
+        except (ConfigStoreError, ConfigValidationError):
+            return None
+
+        if not any(item.needs_review for item in catalog.hooks):
+            return None
+
+        selection = await runtime.select_menu(
+            _startup_hooks_review_request(runtime, mind, workspace, catalog)
+        )
+        return catalog if selection == _STARTUP_REVIEW else None
+    finally:
+        if owns_startup_gate:
+            await runtime.finish_startup_gate()
 
 
 if __name__ == '__main__':
