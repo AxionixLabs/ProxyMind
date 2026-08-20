@@ -60,6 +60,8 @@ from ..runtime.tools.mode_policy import ToolFilterMode
 from .commands import (
     ApplicationCommand,
     ExecCommand,
+    InteractiveCommand,
+    ResumeCommand,
     RuntimeCommand,
     RuntimeUpgradeCommand,
     command_helix_profile,
@@ -265,6 +267,10 @@ async def _run_application(
                     "scrollback_reflow_line_limit"
                 ]
             )
+
+            if isinstance(command, (InteractiveCommand, ResumeCommand)):
+                tui_runtime.begin_startup_gate()
+
     except (OSError, TypeError, ValueError) as error:
         raise AppError(f"Configuration is invalid: {error}") from error
 
@@ -479,10 +485,20 @@ async def _run_controller(
 
     completed: bool = False
 
+    interactive_tui = bool(
+        output_mode == "tui"
+        and isinstance(command, (InteractiveCommand, ResumeCommand))
+    )
+
     try:
         if output_mode == "tui":
+            from ..tui.core.runtime import require_tui_runtime
             from ..tui.session.state import preload_tui_prompt_context
 
+            if interactive_tui:
+                require_tui_runtime(
+                    controller.frontend.runtime
+                ).begin_startup_gate()
             await preload_tui_prompt_context(controller)
 
         _emit_startup_warnings(
@@ -522,12 +538,14 @@ async def _run_controller(
         startup_tasks = (preference_task, domain_task)
 
         try:
-            if output_mode == "tui":
+            if output_mode == "tui" and not interactive_tui:
                 await start_tui_external_mcp(controller)
-            else:
+            elif output_mode != "tui":
                 await controller.start_external_mcp_runtime()
+
             await preference_task
             service_endpoints.configure(await domain_task)
+
             observe(
                 "startup.ready",
                 external_mcp=bool(
@@ -536,6 +554,7 @@ async def _run_controller(
                 ),
                 helix_linked=controller.is_service_mcp_linked(),
             )
+
         finally:
             for task in startup_tasks:
                 if not task.done():
@@ -545,15 +564,49 @@ async def _run_controller(
         if output_mode == "tui":
             from ..tui.core.runtime import require_tui_runtime
             from ..tui.features.helix import confirm_tui_service_runtime_startup
+            from ..tui.features.hooks import (
+                manage_hooks,
+                review_startup_hooks
+            )
 
             runtime = require_tui_runtime(controller.frontend.runtime)
 
             start_helix: bool = False
 
-            if helix_profile is not None:
-                start_helix = await confirm_tui_service_runtime_startup(controller)
-                if not start_helix:
-                    _emit_helix_skipped(controller)
+            try:
+                if interactive_tui:
+                    startup_hooks = await review_startup_hooks(
+                        runtime,
+                        controller,
+                    )
+                    if startup_hooks is not None:
+                        await runtime.settle_startup_gate()
+                        await manage_hooks(
+                            runtime,
+                            controller,
+                            catalog=startup_hooks,
+                        )
+                        runtime.start_background_task(
+                            start_tui_external_mcp(controller),
+                            name="tui external mcp startup",
+                        )
+
+                    if runtime.startup_gate_active:
+                        await runtime.finish_startup_gate()
+                    if startup_hooks is None:
+                        runtime.start_background_task(
+                            start_tui_external_mcp(controller),
+                            name="tui external mcp startup",
+                        )
+                    await asyncio.sleep(0)
+
+                if helix_profile is not None:
+                    start_helix = await confirm_tui_service_runtime_startup(controller)
+                    if not start_helix:
+                        _emit_helix_skipped(controller)
+            finally:
+                if runtime.startup_gate_active:
+                    await runtime.finish_startup_gate()
 
             if start_helix and helix_profile is not None:
                 runtime.start_background_task(
@@ -587,7 +640,7 @@ async def _run_controller(
 
 
 async def start_tui_external_mcp(controller: Mind) -> None:
-    """在 TUI 进入交互循环前启动外部 MCP。"""
+    """启动 TUI 外部 MCP 并提交最终状态。"""
     from ..tui.features.mcp import (
         finish_mcp_activity,
         render_external_mcp_start_status
@@ -610,7 +663,7 @@ async def start_tui_external_mcp(controller: Mind) -> None:
 async def start_tui_service_runtime(
     controller: Mind,
     *,
-    tool_profile: ToolFilterMode = "app",
+    tool_profile: ToolFilterMode = "app"
 ) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
     from ..tui.features.helix import (
@@ -693,6 +746,7 @@ async def finalize_application(
         from ..tui.core.runtime import require_tui_runtime
 
         runtime = require_tui_runtime(controller.frontend.runtime)
+
         conversation = controller.conversation
         if conversation.turn_count > 0 and conversation.sid:
             runtime.print_exit_summary(conversation.sid)

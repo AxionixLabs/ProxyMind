@@ -4,9 +4,12 @@ import asyncio
 from pathlib import Path
 from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 
 from mind_app.runtime.hooks.catalog import (
     HookCatalogEntry,
@@ -21,8 +24,11 @@ from mind_app.tui.features.hooks import (
     hook_event_menu,
     hook_list_menu,
     manage_hooks,
+    review_startup_hooks,
+    startup_hooks_review_menu,
 )
 from mind_app.tui.core.models import (
+    FragmentBlock,
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
@@ -58,6 +64,7 @@ def _catalog(
         enabled=enabled,
         active=active,
         content_hash="sha256:" + "a" * 64,
+        display_order=0,
     )
 
     return HookCatalogSnapshot(
@@ -127,6 +134,235 @@ async def _wait_for_menu_action(mock: Mock) -> None:
     await _wait_for_call(mock)
 
 
+async def _render_next_frame(runtime: TuiRuntime):
+    previous = runtime.screen.application.render_counter
+    runtime.invalidate()
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if runtime.screen.application.render_counter > previous:
+            return runtime.screen.application.renderer.last_rendered_screen
+    raise AssertionError("next frame was not rendered")
+
+
+def test_startup_hooks_review_menu_matches_codex_semantics(tmp_path) -> None:
+    menu = startup_hooks_review_menu(
+        _catalog(tmp_path, trust_state="untrusted")
+    )
+
+    assert menu.title == "Hooks need review"
+    assert menu.status == "1 hook is new or changed."
+    assert menu.status_style == "class:tui-menu.review"
+    assert menu.body == (
+        "Hooks can run outside the sandbox after you trust them.",
+    )
+    assert menu.body_styles == ("class:tui-menu.detail",)
+    assert [option.label for option in menu.options] == [
+        "Review hooks",
+        "Trust all and continue",
+        "Continue without trusting (hooks won't run)",
+    ]
+    assert menu.footer_hint == STANDARD_MENU_FOOTER_HINT
+
+
+@pytest.mark.anyio
+async def test_startup_review_surface_appears_as_one_padded_card(
+    tmp_path,
+) -> None:
+    catalog = _catalog(tmp_path, trust_state="untrusted")
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        runtime.begin_startup_gate()
+        renderer = runtime.screen.application.renderer
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=80),
+        ), patch.object(renderer, "clear", wraps=renderer.clear) as clear:
+            await runtime.open()
+            try:
+                assert runtime.screen._startup_dimension().preferred == 0
+                clear.assert_not_called()
+
+                task = asyncio.create_task(runtime.select_menu(
+                    startup_hooks_review_menu(catalog)
+                ))
+                await _wait_for_menu(runtime, "Hooks need review")
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if clear.call_count:
+                        break
+
+                clear.assert_called_once_with()
+                screen = renderer.last_rendered_screen
+                positions = screen.visible_windows_to_write_positions
+                top = positions[runtime.screen.startup_menu_top_padding]
+                content = positions[runtime.screen.startup_menu_window]
+                bottom = positions[runtime.screen.startup_menu_gap]
+                footer = positions[runtime.screen.startup_menu_footer_window]
+
+                assert top.ypos == 0
+                assert top.height == 1
+                assert content.ypos == top.ypos + top.height
+                assert bottom.ypos == content.ypos + content.height
+                assert footer.ypos == bottom.ypos + bottom.height
+                assert runtime.screen.startup_menu_top_padding.style == (
+                    "class:menu-card"
+                )
+
+                runtime.cancel_menu()
+                await task
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_review_browser_starts_with_static_logo_and_blank_row(
+    tmp_path,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        animation = AsyncMock()
+        runtime.set_startup_animation(
+            animation,
+            final_frame=lambda: runtime.append_block(
+                FragmentBlock((("", ">_ App"),)),
+                kind="system",
+            ),
+        )
+        runtime.begin_startup_gate()
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=24, columns=80),
+        ):
+            await runtime.open()
+            try:
+                startup_task = asyncio.create_task(runtime.select_menu(
+                    startup_hooks_review_menu(
+                        _catalog(tmp_path, trust_state="untrusted")
+                    )
+                ))
+                await _wait_for_menu(runtime, "Hooks need review")
+                await _render_next_frame(runtime)
+                runtime.cancel_menu()
+                await startup_task
+
+                assert runtime.startup_gate_active
+                await runtime.settle_startup_gate()
+                assert not runtime.startup_gate_active
+                browser_task = asyncio.create_task(runtime.select_menu(
+                    hook_event_menu(
+                        _catalog(tmp_path, trust_state="untrusted")
+                    )
+                ))
+                await _wait_for_menu(runtime, "Hooks")
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                transcript = positions[runtime.screen.transcript_window]
+                gap = positions[runtime.screen.bottom_pane_top_inset.content]
+                card_top = positions[runtime.screen.menu_top_padding]
+
+                animation.assert_not_awaited()
+                assert transcript.ypos == 0
+                assert transcript.height == 1
+                assert gap.ypos == transcript.ypos + transcript.height
+                assert gap.height == 1
+                assert card_top.ypos == gap.ypos + gap.height
+                assert runtime.screen.input.window not in positions
+
+                runtime.cancel_menu()
+                await browser_task
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_background_result_waits_until_hooks_browser_closes(
+    tmp_path,
+) -> None:
+    runtime = TuiRuntime()
+    task = asyncio.create_task(runtime.select_menu(
+        hook_event_menu(_catalog(tmp_path, trust_state="trusted"))
+    ))
+    await _wait_for_menu(runtime, "Hooks")
+
+    runtime.queue_background_block(FragmentBlock((("", "External MCP ready"),)))
+
+    assert runtime.document.blocks == []
+    assert len(runtime._background_blocks) == 1
+
+    runtime.cancel_menu()
+    await task
+
+    assert not runtime._background_blocks
+    assert "External MCP ready" in "".join(
+        text
+        for block in runtime.document.blocks
+        for _style, text in block.display_block.fragments
+    )
+
+
+@pytest.mark.anyio
+async def test_startup_hooks_review_trusts_current_hashes_in_one_update(
+    tmp_path,
+) -> None:
+    catalog = _catalog(tmp_path, trust_state="untrusted")
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        inspect_hooks=Mock(return_value=catalog),
+        trust_hooks=Mock(return_value=catalog),
+    )
+
+    task = asyncio.create_task(review_startup_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks need review")
+    assert runtime.startup_gate_active
+    assert (
+        runtime.screen.application.layout.current_control
+        is runtime.screen.startup_menu_control
+    )
+    runtime.screen.menu._choose_index(1)
+    await task
+
+    assert not runtime.startup_gate_active
+    mind.trust_hooks.assert_called_once_with(
+        ((catalog.hooks[0].key, catalog.hooks[0].content_hash),),
+        workspace=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_startup_hooks_review_returns_full_browser_catalog(tmp_path) -> None:
+    catalog = _catalog(tmp_path, trust_state="untrusted")
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        inspect_hooks=Mock(return_value=catalog),
+        trust_hook=Mock(),
+        set_hook_enabled=Mock(),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+
+    task = asyncio.create_task(review_startup_hooks(runtime, mind))
+    await _wait_for_menu(runtime, "Hooks need review")
+    assert runtime.startup_gate_active
+    runtime.screen.menu._choose_index(0)
+    selected_catalog = await task
+
+    assert selected_catalog is catalog
+    assert not runtime.startup_gate_active
+
+
 def test_hook_event_menu_uses_codex_descriptions_and_columns(
     tmp_path,
 ) -> None:
@@ -170,6 +406,88 @@ def test_hook_event_menu_uses_codex_descriptions_and_columns(
         menu.description_layout
         is MenuDescriptionLayout.COLUMNS
     )
+
+
+def test_hook_event_menu_selects_first_event_needing_review(tmp_path) -> None:
+    catalog = _catalog(tmp_path, trust_state="untrusted")
+    pre_tool, post_tool = catalog.events
+    stop = replace(
+        post_tool,
+        event="Stop",
+        description="Right before Codex ends its turn",
+        review_count=1,
+    )
+    catalog = replace(
+        catalog,
+        events=(
+            replace(pre_tool, review_count=0),
+            replace(post_tool, review_count=1),
+            stop,
+        ),
+    )
+
+    menu = hook_event_menu(catalog)
+
+    assert menu.selected == 1
+    assert menu.options[menu.selected].value == "PostToolUse"
+    assert hook_event_menu(
+        replace(
+            catalog,
+            events=tuple(
+                replace(event, review_count=0)
+                for event in catalog.events
+            ),
+        )
+    ).selected == 0
+
+
+@pytest.mark.anyio
+async def test_hooks_browser_opens_and_returns_to_review_event(tmp_path) -> None:
+    base = _catalog(tmp_path, trust_state="untrusted")
+    pre_tool, post_tool = base.events
+    changed = replace(
+        base.hooks[0],
+        key="project:PostToolUse:0",
+        event="PostToolUse",
+    )
+    catalog = replace(
+        base,
+        events=(
+            replace(
+                pre_tool,
+                installed_count=0,
+                review_count=0,
+            ),
+            replace(
+                post_tool,
+                installed_count=1,
+                review_count=1,
+            ),
+        ),
+        hooks=(changed,),
+    )
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 112,
+    )
+    task = asyncio.create_task(menu.request(hook_event_menu(
+        catalog,
+        on_event=lambda event: menu.push(hook_list_menu(catalog, event)),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state.request.options[menu.state.selected].value == "PostToolUse"
+    menu._choose_index(menu.state.selected)
+    assert menu.state.request.title == "PostToolUse hooks"
+    assert menu.state.request.options[menu.state.selected].value == changed.key
+
+    menu.cancel()
+    assert menu.state.request.title == "Hooks"
+    assert menu.state.request.options[menu.state.selected].value == "PostToolUse"
+    menu.cancel()
+    await task
 
 
 def test_hook_event_menu_shows_discovery_warnings(tmp_path) -> None:
@@ -312,6 +630,37 @@ async def test_hook_list_refresh_handles_deleted_selected_hook(tmp_path) -> None
     await task
 
 
+def test_hook_list_uses_display_order_without_prioritizing_review(tmp_path) -> None:
+    trusted = replace(
+        _catalog(tmp_path, trust_state="trusted").hooks[0],
+        key="project:PreToolUse:trusted",
+        command="python trusted.py",
+        display_order=0,
+    )
+    modified = replace(
+        _catalog(tmp_path, trust_state="modified").hooks[0],
+        key="project:PreToolUse:modified",
+        command="python modified.py",
+        display_order=1,
+    )
+    catalog = replace(
+        _catalog(tmp_path, trust_state="modified"),
+        hooks=(modified, trusted),
+    )
+
+    menu = hook_list_menu(catalog, "PreToolUse")
+
+    assert menu.selected == 0
+    assert [option.value for option in menu.options] == [
+        trusted.key,
+        modified.key,
+    ]
+    assert [option.label for option in menu.options] == [
+        "[x] Hook 1",
+        "[!] Hook 2 · modified",
+    ]
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("width", (40, 80))
 async def test_hook_views_clip_long_commands_at_narrow_widths(tmp_path, width) -> None:
@@ -370,6 +719,7 @@ async def test_hooks_menu_trusts_all_review_hooks_from_root(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
+        trust_hooks=Mock(),
         trust_hook=Mock(),
         set_hook_enabled=Mock(),
         frontend=SimpleNamespace(
@@ -380,16 +730,13 @@ async def test_hooks_menu_trusts_all_review_hooks_from_root(tmp_path) -> None:
     task = asyncio.create_task(manage_hooks(runtime, mind))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
-    await _wait_for_call(mind.trust_hook)
-    for _ in range(100):
-        if mind.trust_hook.call_count == 2:
-            break
-        await asyncio.sleep(0)
+    await _wait_for_call(mind.trust_hooks)
 
-    assert mind.trust_hook.call_count == 2
-    assert {
-        call.args[0] for call in mind.trust_hook.call_args_list
-    } == {initial.hooks[0].key, initial.hooks[1].key}
+    mind.trust_hooks.assert_called_once_with(
+        tuple((entry.key, entry.content_hash) for entry in initial.hooks),
+        workspace=tmp_path,
+    )
+    mind.trust_hook.assert_not_called()
     runtime.cancel_menu()
     await task
 

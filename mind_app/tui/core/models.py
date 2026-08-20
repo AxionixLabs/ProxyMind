@@ -130,7 +130,7 @@ class MenuRequest(object):
     body: tuple[str, ...] = ()
     selected: int = 0
     status: str = ""
-    help_text: str = "Up/Down select · Enter apply · Esc/q cancel"
+    help_text: str = ""
     view_id: str | None = None
     generation: int = 0
     searchable: bool = False

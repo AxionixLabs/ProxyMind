@@ -128,7 +128,7 @@ from .styles import (
 from .token_menu import (
     TOKEN_MENU_LEFT_PADDING,
     TokenCompletionMenuControl,
-    token_menu_display_height,
+    token_menu_display_height
 )
 from .transcript_overlay import TuiTranscriptOverlay
 
@@ -381,7 +381,8 @@ class TuiScreen(object):
             report_missing_transcript_backtrack
         )
 
-        self._export_transcript         = export_transcript
+        self._export_transcript = export_transcript
+
         self._observe_terminal_geometry = observe_terminal_geometry
         self._observe_render_revision   = observe_render_revision
 
@@ -389,7 +390,9 @@ class TuiScreen(object):
 
         self._validate_keymap(keymap)
 
-        self._transcript_only: bool = False
+        self._startup_gate_active: bool        = False
+        self._startup_surface_cleared: bool    = False
+        self._startup_transition_pending: bool = False
 
         self._visual_update_depth: int  = 0
         self._visual_update_dirty: bool = False
@@ -405,6 +408,7 @@ class TuiScreen(object):
 
         self._bottom_pane_frame_layout: BottomPaneLayout | None = None
 
+        self._transcript_only: bool                                 = False
         self._transcript_cache_key: tuple[int, int, int] | None     = None
         self._transcript_cache_fragments: FormattedText             = []
         self._transcript_assistant_lines: frozenset[int]            = frozenset()
@@ -525,6 +529,15 @@ class TuiScreen(object):
             key_bindings=self.menu.key_bindings,
         )
         self.menu_footer_control = FormattedTextControl(
+            self._menu_footer_fragments,
+        )
+        self.startup_menu_control = FormattedTextControl(
+            self._menu_view_fragments,
+            focusable=True,
+            modal=True,
+            key_bindings=self.menu.key_bindings,
+        )
+        self.startup_menu_footer_control = FormattedTextControl(
             self._menu_footer_fragments,
         )
         self.process_viewer = TuiProcessViewer(
@@ -725,6 +738,34 @@ class TuiScreen(object):
         )
         self.menu_footer_window = Window(
             content=self.menu_footer_control,
+            height=self._menu_footer_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+        )
+        self.startup_menu_window = Window(
+            content=self.startup_menu_control,
+            height=self._startup_menu_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+            style="class:menu-card",
+            char=" ",
+        )
+        self.startup_menu_top_padding = Window(
+            height=self._menu_top_padding_dimension,
+            char=" ",
+            style="class:menu-card",
+            dont_extend_height=True,
+        )
+        self.startup_menu_gap = Window(
+            height=self._menu_bottom_padding_dimension,
+            char=" ",
+            style="class:menu-card",
+            dont_extend_height=True,
+        )
+        self.startup_menu_footer_window = Window(
+            content=self.startup_menu_footer_control,
             height=self._menu_footer_dimension,
             wrap_lines=False,
             always_hide_cursor=True,
@@ -1001,12 +1042,24 @@ class TuiScreen(object):
             height=self._directory_trust_dimension,
             window_too_small=Window(),
         )
+        self.startup_canvas = HSplit(
+            [
+                self.startup_menu_top_padding,
+                self.startup_menu_window,
+                self.startup_menu_gap,
+                self.startup_menu_footer_window,
+            ],
+            align=VerticalAlign.TOP,
+            height=self._startup_dimension,
+            window_too_small=Window(),
+        )
         self.root = HSplit(
             [
                 ConditionalContainer(
                     self.canvas,
                     filter=Condition(lambda: (
-                        not self.transcript_overlay.active
+                        not self._startup_gate_active
+                        and not self.transcript_overlay.active
                         and not self.mailbox_overlay.active
                         and not self.directory_trust.active
                     )),
@@ -1014,7 +1067,8 @@ class TuiScreen(object):
                 ConditionalContainer(
                     self.transcript_overlay_canvas,
                     filter=Condition(lambda: (
-                        self.transcript_overlay.active
+                        not self._startup_gate_active
+                        and self.transcript_overlay.active
                         and not self.mailbox_overlay.active
                         and not self.directory_trust.active
                     )),
@@ -1022,7 +1076,8 @@ class TuiScreen(object):
                 ConditionalContainer(
                     self.mailbox_overlay_canvas,
                     filter=Condition(lambda: (
-                        self.mailbox_overlay.active
+                        not self._startup_gate_active
+                        and self.mailbox_overlay.active
                         and not self.transcript_overlay.active
                         and not self.directory_trust.active
                     )),
@@ -1030,6 +1085,15 @@ class TuiScreen(object):
                 ConditionalContainer(
                     self.directory_trust_canvas,
                     filter=Condition(lambda: self.directory_trust.active),
+                ),
+                ConditionalContainer(
+                    self.startup_canvas,
+                    filter=Condition(lambda: (
+                        self._startup_gate_active
+                        and not self.directory_trust.active
+                        and not self.transcript_overlay.active
+                        and not self.mailbox_overlay.active
+                    )),
                 ),
             ],
             align=VerticalAlign.TOP,
@@ -1101,18 +1165,10 @@ class TuiScreen(object):
             return geometry
         return self._read_frame_geometry(revision=0)
 
-    def output_geometry(self) -> tuple[int, int]:
-        """返回物理输出使用的终端列数和行数。"""
-        size = (
-            self._frame_output_size
-            if self._frame_geometry is not None
-            else None
-        )
-        if size is None:
-            width, height = self._output_size()
-        else:
-            width, height = size.columns, size.rows
-        return max(20, width), max(1, height)
+    @property
+    def startup_gate_active(self) -> bool:
+        """返回启动阶段是否仍隐藏主输入画布。"""
+        return self._startup_gate_active
 
     @staticmethod
     def _transcript_continuation_widths(
@@ -1192,16 +1248,18 @@ class TuiScreen(object):
 
         self._invalidate_now()
 
-    def _invalidate_now(self) -> None:
-        """立即向运行中的 Application 提交一次绘制请求。"""
-        application = getattr(self, "application", None)
-        if (
-            application is not None
-            and application.is_running
-            and not application.is_done
-        ):
-            with contextlib.suppress(Exception):
-                application.invalidate()
+    def output_geometry(self) -> tuple[int, int]:
+        """返回物理输出使用的终端列数和行数。"""
+        size = (
+            self._frame_output_size
+            if self._frame_geometry is not None
+            else None
+        )
+        if size is None:
+            width, height = self._output_size()
+        else:
+            width, height = size.columns, size.rows
+        return max(20, width), max(1, height)
 
     def visual_update(self) -> contextlib.AbstractContextManager[None]:
         """把一组同步画面状态变更合并为一次绘制请求。"""
@@ -1243,6 +1301,32 @@ class TuiScreen(object):
         """切换为只保留正文的终端画布。"""
         self._transcript_only = bool(active)
         self.invalidate()
+
+    def set_startup_gate(self, active: bool) -> None:
+        """切换启动阶段独占画布并路由键盘焦点。"""
+        active = bool(active)
+        if active == self._startup_gate_active:
+            return None
+
+        self._startup_gate_active = active
+        self._startup_surface_cleared = False
+        if active:
+            self.application.layout.focus(self.startup_menu_control)
+        else:
+            self._focus_input()
+        self.invalidate()
+
+    def clear_startup_surface(self) -> None:
+        """清理启动菜单首次出现前残留的终端画面。"""
+        if self._startup_surface_cleared:
+            return None
+        self._startup_surface_cleared = True
+        self.application.renderer.clear()
+
+    def prepare_startup_transition(self) -> None:
+        """请求在下一帧原子清理启动卡片并绘制主画布。"""
+        self._startup_transition_pending = True
+        self.synchronize_next_render()
 
     def refresh_input_layout(self) -> None:
         """按当前输入和补全状态请求重新计算布局。"""
@@ -1443,6 +1527,25 @@ class TuiScreen(object):
 
         return self._transcript_cache_fragments
 
+    def transcript_available_height(self) -> int:
+        """估算首帧渲染前正文可使用的终端行数。"""
+        return max(
+            0,
+            self.terminal_height
+            - self._bottom_pane_layout().total_height,
+        )
+
+    def _invalidate_now(self) -> None:
+        """立即向运行中的 Application 提交一次绘制请求。"""
+        application = getattr(self, "application", None)
+        if (
+            application is not None
+            and application.is_running
+            and not application.is_done
+        ):
+            with contextlib.suppress(Exception):
+                application.invalidate()
+
     def _transcript_text(self) -> str:
         """返回当前正文版本可复用的纯文本。"""
         fragments = self.transcript_fragments()
@@ -1490,6 +1593,14 @@ class TuiScreen(object):
 
         try:
             self._capture_frame_geometry(application)
+            if self._startup_transition_pending:
+                self._startup_transition_pending = False
+                self.application.renderer.clear()
+            elif (
+                self._startup_gate_active
+                and self.bottom_pane.is_active("menu")
+            ):
+                self.clear_startup_surface()
         except BaseException:
             self._finish_synchronized_frame()
             raise
@@ -1671,14 +1782,6 @@ class TuiScreen(object):
             reserved.append((action, tuple(fixed.bindings[-1].keys)))
         keymap.validate_main_conflicts(reserved)
 
-    def transcript_available_height(self) -> int:
-        """估算首帧渲染前正文可使用的终端行数。"""
-        return max(
-            0,
-            self.terminal_height
-            - self._bottom_pane_layout().total_height,
-        )
-
     def _focus_bottom_surface(self, surface: BottomSurface) -> None:
         """把焦点切换到指定的底部临时交互表面。"""
         self._clear_exit_confirmation()
@@ -1702,13 +1805,19 @@ class TuiScreen(object):
 
         controls = {
             "approval": self.approval_control,
-            "menu": self.menu_control,
+            "menu": (
+                self.startup_menu_control
+                if self._startup_gate_active
+                else self.menu_control
+            ),
             "process_viewer": self.process_viewer_control,
         }
         self.application.layout.focus(controls[surface])
 
     def _activate_bottom_surface(self, surface: BottomSurface) -> None:
         """激活底部临时表面并切换焦点。"""
+        if self._startup_gate_active and surface == "menu":
+            self.synchronize_next_render()
         self.bottom_pane.activate(surface)
 
     def _deactivate_bottom_surface(self, surface: BottomSurface) -> None:
@@ -1719,6 +1828,10 @@ class TuiScreen(object):
         """把焦点路由到当前顶层记录或主输入控件。"""
         if self.directory_trust.active:
             self._focus_directory_trust()
+            return None
+
+        if self._startup_gate_active:
+            self.application.layout.focus(self.startup_menu_control)
             return None
 
         if (
@@ -2267,6 +2380,8 @@ class TuiScreen(object):
         """返回当前主画布或全屏覆盖画布所需高度。"""
         if self.directory_trust.active:
             return self._directory_trust_dimension()
+        if self._startup_gate_active:
+            return self._startup_dimension()
         if self.transcript_overlay.active:
             return self._transcript_overlay_canvas_dimension()
         if self.mailbox_overlay.active:
@@ -2277,6 +2392,20 @@ class TuiScreen(object):
     def _directory_trust_dimension(self) -> Dimension:
         """返回启动阶段目录信任界面的显示高度。"""
         return Dimension.exact(self.directory_trust.height())
+
+    def _startup_dimension(self) -> Dimension:
+        """返回启动阶段独占菜单画布所需高度。"""
+        if not self.bottom_pane.is_active("menu"):
+            return Dimension.exact(0)
+        return Dimension.exact(self.terminal_height)
+
+    def _startup_menu_dimension(self) -> Dimension:
+        """返回启动阶段菜单或空闲输入屏障的显示高度。"""
+        return Dimension.exact(self._startup_menu_height())
+
+    def _startup_menu_height(self) -> int:
+        """计算启动阶段菜单内容占用的行数。"""
+        return self._menu_content_height()
 
     def _transcript_overlay_height(self) -> int:
         """返回完整记录正文区域可用高度。"""
@@ -2729,7 +2858,8 @@ class TuiScreen(object):
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""
         return bool(
-            self.directory_trust.active
+            self._startup_gate_active
+            or self.directory_trust.active
             or self.bottom_pane.transient_active
             or self._completion_visible()
         )
@@ -2744,7 +2874,8 @@ class TuiScreen(object):
     def _full_screen_overlay_blocked(self) -> bool:
         """判断当前临时表面是否禁止打开全屏覆盖层。"""
         return bool(
-            self.directory_trust.active
+            self._startup_gate_active
+            or self.directory_trust.active
             or self.bottom_pane.is_active("approval")
             or self.bottom_pane.is_active("menu")
             or self._completion_visible()
@@ -3086,6 +3217,8 @@ class TuiScreen(object):
         """返回整个底部面板固定使用的顶部外部间距。"""
         if not self._bottom_pane_visible():
             return 0
+        if self._startup_gate_active:
+            return 0
         return min(self.CONTENT_SURFACE_GAP_HEIGHT, self.terminal_height)
 
     def _bottom_pane_layout(self) -> BottomPaneLayout:
@@ -3250,11 +3383,12 @@ class TuiScreen(object):
             )
 
         elif surface == "menu":
-            top_padding = min(
+            vertical_inset = min(
                 TuiMenu.SURFACE_VERTICAL_INSET,
                 max(0, (available_height - 1) // 2),
             )
-            bottom_padding = top_padding
+            top_padding    = vertical_inset
+            bottom_padding = vertical_inset
             active_view = self.bottom_pane.active_view
             footer_height = min(
                 available_height,

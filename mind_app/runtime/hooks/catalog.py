@@ -41,6 +41,7 @@ class HookCatalogEntry:
     enabled: bool
     active: bool
     content_hash: str
+    display_order: int = 0
     handler_type: str = "command"
     mcp_server: str | None = None
     mcp_tool: str | None = None

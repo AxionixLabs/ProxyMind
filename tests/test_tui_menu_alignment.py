@@ -118,7 +118,7 @@ async def test_skills_and_resume_details_share_adaptive_terminal_width() -> None
         )
         task = asyncio.create_task(menu.request(request))
         await asyncio.sleep(0)
-        line = _fragments_text(menu.fragments()).splitlines()[3]
+        line = _fragments_text(menu.fragments()).splitlines()[2]
         menu.finish(None)
         await task
         return get_cwidth(line)
@@ -316,7 +316,7 @@ async def test_menu_height_caps_visible_options_at_eight_rows() -> None:
     start, visible = menu._visible_options(menu.state)
     assert start == 0
     assert len(visible) == 8
-    assert menu.height() == 11
+    assert menu.height() == 10
 
     menu.finish(None)
     await task
@@ -695,7 +695,7 @@ async def test_menu_footer_hint_is_hidden_when_cancellation_is_disabled() -> Non
     text = _fragments_text(menu.fragments())
     assert "Status" in text
     assert "Press enter" not in text
-    assert menu.height() == 6
+    assert menu.height() == 5
 
     menu.cancel()
     await task
@@ -816,7 +816,7 @@ async def test_default_menu_description_layout_remains_single_line() -> None:
     )))
     await asyncio.sleep(0)
 
-    assert len(_fragments_text(menu.fragments()).splitlines()[3:]) == 1
+    assert len(_fragments_text(menu.fragments()).splitlines()[2:]) == 1
 
     menu.cancel()
     assert await task is None
@@ -1273,7 +1273,6 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                     "  Columns",
-                    "  Up/Down select · Enter apply · Esc/…",
                     "",
                 "› 1. Short",
                 "     这是一个很长的中文描述",
@@ -1309,7 +1308,6 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             "\n".join((
                 "  Options",
                     "  ready",
-                    "  Up/Down select · Enter apply · Esc/q cancel",
                     "",
                     "  1. One      First",
                     "  ×  Blocked  Busy",
@@ -1340,7 +1338,6 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                     "  Long menu",
-                    "  Up/Down select · Enter apply · Esc/q cancel",
                     "",
                     "› 1. First option   A descriptive value",
                     "  2. Second option  Another descriptive value",
@@ -1358,7 +1355,6 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                 "  Empty",
-                "  Up/Down select · Enter apply · Esc/q cancel",
                 "    No options available",
                 "  ",
                 "    Press enter",
@@ -1376,7 +1372,6 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                     "  Disabled",
-                    "  Up/Down select · Enter apply · Esc/q cancel",
                     "",
                     "     A  Busy",
                 "     B",

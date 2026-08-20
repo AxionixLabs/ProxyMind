@@ -90,7 +90,11 @@ class HookRegistry:
         )
 
     @staticmethod
-    def _catalog_entry(item: _ResolvedHook) -> HookCatalogEntry:
+    def _catalog_entry(
+        item: _ResolvedHook,
+        *,
+        display_order: int,
+    ) -> HookCatalogEntry:
         """把解析结果转换为管理视图条目。"""
         definition = item.definition
         event_spec = HOOK_EVENT_CONFIG_SPECS[definition.event]
@@ -118,6 +122,7 @@ class HookRegistry:
             enabled=item.enabled,
             active=item.active,
             content_hash=definition.content_hash,
+            display_order=display_order,
         )
 
     def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
@@ -203,8 +208,8 @@ class HookRegistry:
         self._observe_warnings(warning_items)
 
         hooks = tuple(
-            self._catalog_entry(item)
-            for item in resolved
+            self._catalog_entry(item, display_order=display_order)
+            for display_order, item in enumerate(resolved)
         )
 
         events = tuple(

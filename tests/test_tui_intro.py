@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -73,6 +74,29 @@ async def test_tui_intro_cancellation_clears_active_block(monkeypatch) -> None:
 
     assert runtime.document.active_block is None
     assert runtime.document.blocks == []
+
+
+@pytest.mark.anyio
+async def test_startup_review_commits_final_intro_without_animation(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    sink = TuiApplicationSink(runtime)
+    delay = AsyncMock()
+    monkeypatch.setattr(tui_application.asyncio, "sleep", delay)
+
+    sink.emit(ApplicationView(type="intro"))
+    runtime.begin_startup_gate()
+
+    await runtime.settle_startup_gate()
+
+    assert not runtime.startup_gate_active
+    delay.assert_not_awaited()
+    assert runtime.document.active_block is None
+    assert [
+        fragments_text(item.display_block.fragments)
+        for item in runtime.document.blocks
+    ] == [f">_ {const.APP_DESC} (v{const.APP_VERSION})"]
 
 
 @pytest.mark.anyio

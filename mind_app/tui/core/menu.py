@@ -59,6 +59,7 @@ TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.review-selected": "bold ansiyellow",
     "tui-menu.detail-selected": "bold ansicyan",
     "tui-menu.warning": "ansired",
+    "tui-menu.error": "ansired",
     "tui-menu.label.disabled": "dim",
     "tui-menu.detail.disabled": "dim",
     "tui-menu.index.disabled": "dim",
@@ -403,7 +404,18 @@ class TuiMenu(object):
                     ])
                 warning_used = True
                 continue
-            clipped = clip_fragments(list(line_fragments), width=body_width)
+            truncated = get_cwidth(line) > body_width
+            clipped = clip_fragments(
+                list(line_fragments),
+                width=max(0, body_width - int(truncated)),
+            )
+            if truncated and body_width > 0:
+                ellipsis_style = (
+                    clipped[-1][0]
+                    if clipped
+                    else line_fragments[-1][0]
+                )
+                clipped.append((ellipsis_style, "…"))
             indent_style = (
                 clipped[0][0] if clipped else "class:tui-menu.detail"
             )

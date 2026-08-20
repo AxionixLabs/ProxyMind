@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -470,6 +471,11 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
     controller = SimpleNamespace(
         frontend=frontend,
+        history_workspace=str(tmp_path),
+        inspect_hooks=Mock(side_effect=lambda **_kwargs: (
+            events.append("hooks"),
+            SimpleNamespace(hooks=()),
+        )[1]),
         bind_server_manager=Mock(),
         bind_service_runtime_context=Mock(),
         start_config_service=AsyncMock(),
@@ -503,7 +509,19 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
     monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
     monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
-    monkeypatch.setattr(bootstrap, "start_tui_external_mcp", AsyncMock())
+
+    async def external_mcp_startup() -> None:
+        return None
+
+    def schedule_external_mcp(_controller):
+        events.append("external_mcp")
+        return external_mcp_startup()
+
+    monkeypatch.setattr(
+        bootstrap,
+        "start_tui_external_mcp",
+        schedule_external_mcp,
+    )
 
     from mind_app.tui.session import state as tui_state
 
@@ -535,10 +553,120 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
 
     assert events[:3] == ["preload", "warning", "open"]
+    assert events.index("hooks") < events.index("external_mcp")
     assert isinstance(
         controller_arguments["hook_status"],
         TuiHookStatusAdapter,
     )
+
+
+@pytest.mark.anyio
+async def test_tui_review_reveals_main_canvas_before_mcp_startup(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    events = []
+    browser_closed = False
+    runtime = TuiRuntime()
+    runtime.open = AsyncMock()
+    frontend = SimpleNamespace(
+        application=SimpleNamespace(emit=Mock()),
+        runtime=runtime,
+    )
+    controller = SimpleNamespace(
+        frontend=frontend,
+        history_workspace=str(tmp_path),
+        bind_server_manager=Mock(),
+        bind_service_runtime_context=Mock(),
+        start_config_service=AsyncMock(),
+        external_mcp=None,
+        is_service_mcp_linked=lambda: False,
+        set_history_workspace=Mock(),
+        exit_code=0,
+    )
+
+    monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
+    monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(bootstrap, "process_env", lambda: {})
+    monkeypatch.setattr(
+        bootstrap,
+        "fetch_runtime_workspace_root",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ServiceConfig",
+        lambda _session: SimpleNamespace(load_domain=AsyncMock(return_value="")),
+    )
+    monkeypatch.setattr(bootstrap.service_endpoints, "configure", Mock())
+    monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
+    monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
+    monkeypatch.setattr(
+        "mind_app.tui.session.state.preload_tui_prompt_context",
+        AsyncMock(),
+    )
+
+    async def start_external_mcp(_controller) -> None:
+        assert browser_closed
+        events.append("external_mcp")
+
+    monkeypatch.setattr(bootstrap, "start_tui_external_mcp", start_external_mcp)
+
+    from mind_app.tui.features import hooks as tui_hooks
+
+    startup_catalog = object()
+
+    async def review_hooks(review_runtime, _controller):
+        assert review_runtime.startup_gate_active
+        events.append("review")
+        return startup_catalog
+
+    async def open_hooks_browser(browser_runtime, _controller, *, catalog):
+        nonlocal browser_closed
+        assert catalog is startup_catalog
+        assert not browser_runtime.startup_gate_active
+        events.append("browser")
+        await asyncio.sleep(0)
+        browser_closed = True
+
+    monkeypatch.setattr(tui_hooks, "review_startup_hooks", review_hooks)
+    monkeypatch.setattr(tui_hooks, "manage_hooks", open_hooks_browser)
+
+    settle_startup_gate = runtime.settle_startup_gate
+
+    async def settle_review_startup() -> None:
+        events.append("static_intro")
+        await settle_startup_gate()
+
+    monkeypatch.setattr(runtime, "settle_startup_gate", settle_review_startup)
+
+    await bootstrap._run_controller(
+        InteractiveCommand(),
+        frontend=frontend,
+        design=None,
+        animation=SimpleNamespace(),
+        home=tmp_path,
+        reports=tmp_path,
+        preference=SimpleNamespace(load_pref=AsyncMock()),
+        config_session=SimpleNamespace(),
+        report=SimpleNamespace(close=Mock()),
+        runtime_spec=SimpleNamespace(
+            launch_command=[],
+            working_directory=str(tmp_path),
+        ),
+        service_context=SimpleNamespace(),
+        power=1,
+        output_mode="tui",
+        permissions=SimpleNamespace(),
+        startup_warnings=(),
+    )
+
+    assert events == [
+        "review",
+        "static_intro",
+        "browser",
+        "external_mcp",
+    ]
 
 
 @pytest.mark.anyio

@@ -61,7 +61,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
 
 
 @pytest.mark.anyio
-async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
+async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
     with create_pipe_input() as pipe_input:
         workspace = Path("/workspace/project")
         runtime = TuiRuntime(
@@ -74,6 +74,7 @@ async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
             played.append("intro")
 
         runtime.set_startup_animation(startup_animation)
+        runtime.begin_startup_gate()
         await runtime.begin_directory_trust(
             workspace,
             workspace,
@@ -112,11 +113,25 @@ async def test_first_trust_reveals_main_canvas_with_loaded_footer() -> None:
                 text for _style, text in runtime.screen._footer_fragments()
             )
             assert not runtime.directory_trust_active
+            assert runtime.startup_gate_active
+            assert (
+                runtime.screen.application.layout.current_control
+                is runtime.screen.startup_menu_control
+            )
             assert runtime.context.model == "gpt-test high"
             assert "gpt-test high" in footer
             assert "Ask for approval" in footer
             assert str(workspace.resolve()) in footer
             assert " · -" not in footer
+            assert played == []
+
+            await runtime.finish_startup_gate()
+
+            assert not runtime.startup_gate_active
+            assert (
+                runtime.screen.application.layout.current_control
+                is runtime.screen.input.control
+            )
             assert played == ["intro"]
         finally:
             await runtime.close()

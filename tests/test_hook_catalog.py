@@ -106,6 +106,7 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
     assert catalog.hooks[0].enabled
     assert catalog.hooks[1].trust_state == "trusted"
     assert catalog.hooks[1].active
+    assert [hook.display_order for hook in catalog.hooks] == [0, 1]
     assert catalog.events[0].review_count == 1
     assert catalog.events[2].review_count == 0
     assert catalog.warnings == ("skipping invalid hook",)
@@ -214,6 +215,32 @@ def test_controller_rejects_stale_hash_then_persists_trust(tmp_path) -> None:
     assert catalog.hooks[0].trust_state == "trusted"
     state = store.read_raw()["hooks"]["state"][changed.key]
     assert state == {"trusted_hash": changed.content_hash}
+
+
+def test_controller_validates_all_hashes_before_batch_trust(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.update({
+        ("hooks", "PreToolUse"): [_hook("check-user")],
+        ("hooks", "PostToolUse"): [_hook("audit-user")],
+    })
+    controller = _controller(tmp_path, ConfigSession(store))
+    first, second = controller.inspect_hooks().hooks
+
+    with pytest.raises(HookCatalogStaleError, match="content changed"):
+        controller.trust_hooks((
+            (first.key, first.content_hash),
+            (second.key, "sha256:stale"),
+        ))
+
+    assert "state" not in store.read_raw()["hooks"]
+
+    trusted = controller.trust_hooks((
+        (first.key, first.content_hash),
+        (second.key, second.content_hash),
+    ))
+
+    assert trusted.active_count == 2
+    assert all(item.trust_state == "trusted" for item in trusted.hooks)
 
 
 def test_controller_trusts_json_and_inline_hooks_independently(tmp_path) -> None:

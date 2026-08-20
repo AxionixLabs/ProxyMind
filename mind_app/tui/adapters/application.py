@@ -17,6 +17,7 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from mind_nova import const
+from ..core.document import TuiBlockKind
 from ..core.models import (
     FragmentBlock,
     LineFill
@@ -64,28 +65,14 @@ class TuiApplicationSink(ApplicationSink):
         """缓存启动前事件，并在运行期统一写入正文画布。"""
         if not self.runtime.active:
             if view.type == "intro":
-                self.runtime.set_startup_animation(self._animate_intro)
+                self.runtime.set_startup_animation(
+                    self._animate_intro,
+                    final_frame=self._commit_intro,
+                )
                 return None
             self.pending_views.append(view)
             return None
         self._emit_active(view)
-
-    async def _animate_intro(self) -> None:
-        """在主 TUI Application 中播放并定格启动标题。"""
-        frames = intro_frames(const.APP_DESC)
-        try:
-            for frame in frames:
-                self.runtime.set_active_renderable(
-                    _intro_frame_block(frame),
-                    kind="system",
-                )
-                await asyncio.sleep(frame.delay_after)
-        except BaseException:
-            self.runtime.clear_active_renderable()
-            raise
-        self.runtime.commit_active_renderable(
-            _intro_frame_block(frames[-1])
-        )
 
     def flush_pending(self) -> None:
         """按接收顺序提交启动前缓存的应用展示。"""
@@ -95,6 +82,10 @@ class TuiApplicationSink(ApplicationSink):
         self.pending_views = []
         for view in pending:
             self._emit_active(view)
+
+    def _commit_intro(self) -> None:
+        """不播放动画并直接提交启动标题最终帧。"""
+        self.runtime.append_block(_intro_block(), kind="system")
 
     def _emit_active(self, view: ApplicationView) -> None:
         """把单项应用展示写入已启动的 TUI。"""
@@ -121,7 +112,9 @@ class TuiApplicationSink(ApplicationSink):
             block = _error_block(str(view.renderable or ""))
             self.runtime.queue_background_block(block)
             return None
-        block_kind = "notice" if view.type == "tui.interrupted" else "system"
+        block_kind: TuiBlockKind = (
+            "notice" if view.type == "tui.interrupted" else "system"
+        )
         if isinstance(view.renderable, FragmentBlock):
             self._commit_block(view.type, view.renderable, block_kind)
             return None
@@ -161,13 +154,30 @@ class TuiApplicationSink(ApplicationSink):
         self,
         view_type: str,
         block: FragmentBlock,
-        block_kind: str,
+        block_kind: TuiBlockKind,
     ) -> None:
         """按展示类型提交正文块或延迟后台结果。"""
         if view_type in _BACKGROUND_VIEW_TYPES:
             self.runtime.queue_background_block(block)
             return None
         self.runtime.append_block(block, kind=block_kind)
+
+    async def _animate_intro(self) -> None:
+        """在主 TUI Application 中播放并定格启动标题。"""
+        frames = intro_frames(const.APP_DESC)
+        try:
+            for frame in frames:
+                self.runtime.set_active_renderable(
+                    _intro_frame_block(frame),
+                    kind="system",
+                )
+                await asyncio.sleep(frame.delay_after)
+        except BaseException:
+            self.runtime.clear_active_renderable()
+            raise
+        self.runtime.commit_active_renderable(
+            _intro_frame_block(frames[-1])
+        )
 
 
 def _intro_block() -> FragmentBlock:

@@ -254,9 +254,7 @@ class Mind(object):
             observe_exception("keepalive.task.failed", error, level="WARNING")
 
     @staticmethod
-    async def await_cleanup(
-        awaitable: typing.Awaitable[CleanupResult],
-    ) -> CleanupResult:
+    async def await_cleanup(awaitable: typing.Awaitable[CleanupResult]) -> CleanupResult:
         """在取消态下也等待清理逻辑执行完成。"""
         task = asyncio.ensure_future(awaitable)
         try:
@@ -264,6 +262,496 @@ class Mind(object):
         except asyncio.CancelledError:
             await task
             raise
+
+    def _session_hook_context(
+        self,
+        *,
+        cid: str,
+        sid: str
+    ) -> HookExecutionContext:
+        """构建根会话生命周期事件使用的固定上下文。"""
+        pref_config = self.pref.to_config()
+
+        primary = (
+            pref_config.get("primary")
+            if isinstance(pref_config, dict)
+            else None
+        )
+
+        model = (
+            str(primary.get("model") or "").strip()
+            if isinstance(primary, dict)
+            else ""
+        )
+
+        return HookExecutionContext(
+            session_id=sid,
+            root_session_id=sid,
+            conversation_id=cid,
+            turn_id="",
+            cwd=self.history_workspace,
+            model=model,
+            source="session",
+            sandbox_mode=self.permissions.sandbox_mode,
+            permission_mode=self.permissions.approval_policy,
+            agent_id="root",
+            agent_type="root",
+            agent_depth=0,
+        )
+
+    def _touch_history_session(
+        self,
+        metadata: dict[str, str],
+        *,
+        title: str = "",
+        source: str
+    ) -> None:
+        """把 cid/sid 写入本地 history SQLite。"""
+        try:
+            self.history_store.touch_session(
+                cid=metadata["cid"],
+                sid=metadata["sid"],
+                title=title,
+                workspace=self.history_workspace,
+                source=source
+            )
+        except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
+            observe_exception(
+                "history.write.failed",
+                exc,
+                level="WARNING",
+                source=source,
+            )
+
+    def _resolve_hook_state_target(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        workspace: Path | None
+    ) -> tuple[Path, HookDefinitionConfig]:
+        """解析并校验允许修改用户状态的 Hook。"""
+        target_workspace = self._hook_workspace(workspace)
+        resolution       = self.config_session.resolve(workspace=target_workspace)
+
+        definition = next(
+            (
+                item
+                for item in resolution.hooks
+                if item.key == hook_key
+            ),
+            None,
+        )
+        if definition is None:
+            raise HookCatalogStaleError(
+                f"hook is unavailable: {hook_key}"
+            )
+
+        expected_hash = str(expected_content_hash or "").strip().lower()
+        if definition.content_hash != expected_hash:
+            raise HookCatalogStaleError(
+                f"hook content changed: {hook_key}"
+            )
+        return target_workspace, definition
+
+    def _hook_workspace(self, workspace: Path | None) -> Path:
+        """返回 Hook 查询使用的绝对工作区路径。"""
+        target = workspace or Path(self.history_workspace)
+        return Path(target).expanduser().resolve()
+
+    def _native_coding_close_done(self, task: asyncio.Task[None]) -> None:
+        """回收工作区切换时启动的进程清理任务。"""
+        self._native_coding_close_tasks.discard(task)
+        if not task.cancelled():
+            task.exception()
+
+    def _build_client_tools(self) -> ClientToolRegistry:
+        """按当前工作区构建客户端工具注册表。"""
+        return default_client_tool_registry(
+            self.native_coding,
+            execution_root=self.history_workspace,
+            subagent_runtime=self.subagents,
+            approval_coordinator=self.approval_coordinator,
+            features=self.features,
+        )
+
+    def recent_conversation_sessions(
+        self,
+        *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None,
+        limit: int = HISTORY_LIMIT
+    ) -> list[dict[str, typing.Any]]:
+        """返回可恢复的本地会话游标。"""
+        try:
+            records = self.history_store.list_sessions(
+                workspace=workspace,
+                sources=sources,
+                limit=limit,
+            )
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            observe_exception("history.list.failed", exc, level="WARNING")
+            return []
+
+        return [
+            record for record in records
+            if valid_session_ids(record.get("cid"), record.get("sid"))
+        ]
+
+    def find_conversation_session(
+        self,
+        session_id: str,
+        *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None
+    ) -> dict[str, typing.Any] | None:
+        """按会话标识返回可恢复的本地会话游标。"""
+        try:
+            record = self.history_store.find_session(
+                session_id,
+                workspace=workspace,
+                sources=sources,
+            )
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            observe_exception("history.find.failed", exc, level="WARNING")
+            return None
+
+        if record is None or not valid_session_ids(
+            record.get("cid"),
+            record.get("sid"),
+        ):
+            return None
+        return record
+
+    def read_conversation_transcript(
+        self,
+        session_id: str
+    ) -> tuple[TranscriptEntry, ...]:
+        """读取指定会话已经持久化的结构化事件。"""
+        path = self.transcripts.existing_path_for_session(session_id)
+        if not path:
+            return ()
+        return self.transcripts.reader(path).read()
+
+    def prepare_conversation_fork(
+        self,
+        cid: str,
+        sid: str,
+        before_turn_id: str = ""
+    ) -> str:
+        """持久化并返回当前源会话的稳定分支请求标识。"""
+        candidate = f"fork_{short_uid(20)}"
+        try:
+            return self.history_store.get_or_create_fork_request(
+                cid=cid,
+                sid=sid,
+                request_id=candidate,
+                before_turn_id=before_turn_id,
+            )
+        except (OSError, sqlite3.Error, ValueError) as error:
+            observe_exception("conversation.fork.prepare_failed", error)
+            raise AppError("Unable to persist the conversation fork request.") from error
+
+    def clear_conversation_fork(
+        self,
+        cid: str,
+        sid: str,
+        request_id: str,
+        before_turn_id: str = ""
+    ) -> None:
+        """清除已完成或不可重试的本地分支请求。"""
+        try:
+            self.history_store.clear_fork_request(
+                cid=cid,
+                sid=sid,
+                request_id=request_id,
+                before_turn_id=before_turn_id,
+            )
+        except (OSError, sqlite3.Error, ValueError) as error:
+            observe_exception(
+                "conversation.fork.clear_failed",
+                error,
+                level="WARNING",
+            )
+
+    def bind_server_manager(self, server_manager: ServerManage) -> None:
+        """绑定本地后台服务管理器。"""
+        self.server_manager = server_manager
+
+    def bind_service_runtime_context(self, context: "ServiceRuntimeContext") -> None:
+        """绑定服务运行时准备上下文。"""
+        self.service_runtime_context = context
+
+    def require_service_runtime_context(self) -> "ServiceRuntimeContext":
+        """返回已绑定的服务运行时上下文，未绑定时抛出错误。"""
+        if self.service_runtime_context is None:
+            raise AppError("Service runtime context is not bound")
+        return self.service_runtime_context
+
+    def link_service_mcp(
+        self,
+        exec_env: typing.Optional[dict[str, typing.Any]] = None,
+        *,
+        tool_profile: ToolFilterMode = "app"
+    ) -> None:
+        """把本地服务 MCP 挂入当前工具会话。"""
+        normalized = _normalize_tool_profile(tool_profile)
+
+        self.service_mcp_linked   = True
+        self.service_tool_profile = normalized
+
+        self.service_exec_env = (
+            copy.deepcopy(exec_env)
+            if isinstance(exec_env, dict)
+            else None
+        )
+        observe(
+            "helix.linked",
+            tool_profile=normalized,
+            exec_env=bool(self.service_exec_env),
+        )
+
+    def set_service_tool_profile(self, tool_profile: ToolFilterMode) -> None:
+        """切换已经挂载的服务工具配置。"""
+        if not self.service_mcp_linked:
+            raise AppError("Helix MCP is not linked")
+
+        normalized = _normalize_tool_profile(tool_profile)
+        self.service_tool_profile = normalized
+        observe("helix.tool_profile.changed", tool_profile=normalized)
+
+    def set_history_workspace(self, workspace: typing.Any) -> str:
+        """更新 history 使用的真实工作区根目录。"""
+        normalized = normalize_workspace(workspace)
+
+        if normalized and normalized != self.history_workspace:
+
+            previous_native_coding = self.native_coding
+            self.history_workspace = normalized
+
+            self.command_hook_sessions.clear()
+
+            self.native_coding = NativeCoding(root=self.history_workspace)
+            self.client_tools  = self._build_client_tools()
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None:
+                task = loop.create_task(
+                    previous_native_coding.close(),
+                    name="coding workspace close",
+                )
+                self._native_coding_close_tasks.add(task)
+                task.add_done_callback(self._native_coding_close_done)
+
+            observe("workspace.changed", workspace=self.history_workspace)
+
+        return self.history_workspace
+
+    def unlink_service_mcp(self) -> None:
+        """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
+        was_linked = self.service_mcp_linked
+
+        self.service_mcp_linked   = False
+        self.service_tool_profile = None
+        self.service_exec_env     = None
+
+        if was_linked:
+            observe("helix.unlinked")
+
+    def is_service_mcp_linked(self) -> bool:
+        """判断当前工具会话是否挂载本地服务 MCP。"""
+        return bool(self.service_mcp_linked)
+
+    def tool_profile_for_turn(self) -> ToolFilterMode | None:
+        """返回当前模型请求使用的服务工具配置。"""
+        if not self.service_mcp_linked:
+            return None
+        if self.service_tool_profile is None:
+            raise AppError("Helix tool profile is not selected")
+        return self.service_tool_profile
+
+    def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
+        """返回本地服务运行时环境快照。"""
+        if not isinstance(self.service_exec_env, dict):
+            return None
+        return copy.deepcopy(self.service_exec_env)
+
+    def remember_last_assistant_reply(self, text: str) -> None:
+        """记录最近一次完整模型回复原文。"""
+        value = str(text or "").strip()
+        if value:
+            self.last_assistant_reply = value
+
+    def last_assistant_reply_snapshot(self) -> str:
+        """返回最近一次完整模型回复原文。"""
+        return self.last_assistant_reply
+
+    def start_keepalive_supervisor(self) -> None:
+        """启动应用生命周期内的本地后台服务保活任务。"""
+        if self.keepalive_task and not self.keepalive_task.done():
+            return None
+
+        self.keepalive_stop = asyncio.Event()
+
+        self.keepalive_task = asyncio.create_task(
+            run_keepalive(
+                self.keepalive_stop,
+                server_manager=self.server_manager
+            ),
+            name="local service keepalive"
+        )
+        self.keepalive_task.add_done_callback(self.keepalive_task_done)
+        observe("keepalive.started")
+
+    def start_subscription_listener(self) -> "AgentRuntime":
+        """启动或复用当前进程的远端请求监听器。"""
+        from .subscription.runtime import AgentRuntime
+
+        runtime = self.subscription_runtime
+        if runtime is None:
+            runtime = AgentRuntime(self)
+            self.subscription_runtime = runtime
+        runtime.start_background()
+        return runtime
+
+    def hook_scope(
+        self,
+        context: HookExecutionContext
+    ) -> HookExecutionScope:
+        """为指定执行上下文构建固定的 Hook 作用域。"""
+        workspace  = self._hook_workspace(Path(context.cwd))
+
+        resolution = self.config_session.resolve(
+            workspace=workspace
+        )
+
+        return HookExecutionScope(
+            context=context,
+            dispatcher=self.hook_registry.build(
+                resolution.hooks,
+                hook_states=resolution.hook_states,
+                warnings=resolution.hook_warnings,
+                status_port=getattr(self, "hook_status", None),
+            ),
+        )
+
+    def inspect_hooks(
+        self,
+        *,
+        workspace: Path | None = None
+    ) -> HookCatalogSnapshot:
+        """返回指定工作区的实时 Hook 管理快照。"""
+        target_workspace = self._hook_workspace(workspace)
+
+        resolution = self.config_session.resolve(
+            workspace=target_workspace
+        )
+
+        return self.hook_registry.inspect(
+            resolution.hooks,
+            hook_states=resolution.hook_states,
+            warnings=resolution.hook_warnings,
+            workspace=target_workspace,
+        )
+
+    def trust_hook(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        workspace: Path | None = None
+    ) -> HookCatalogSnapshot:
+        """信任指定 Hook 的当前内容。"""
+        return self.trust_hooks(
+            ((hook_key, expected_content_hash),),
+            workspace=workspace,
+        )
+
+    def trust_hooks(
+        self,
+        hooks: typing.Iterable[tuple[str, str]],
+        *,
+        workspace: Path | None = None
+    ) -> HookCatalogSnapshot:
+        """校验并批量信任多个 Hook 的当前内容。"""
+        target_workspace = self._hook_workspace(workspace)
+        resolution       = self.config_session.resolve(workspace=target_workspace)
+
+        definitions: dict[str, HookDefinitionConfig] = {}
+
+        for hook_definition in resolution.hooks:
+            definitions[hook_definition.key] = hook_definition
+        updates: dict[tuple[str, ...], str] = {}
+
+        for hook_key, expected_content_hash in hooks:
+            hook_definition = definitions.get(hook_key)
+            if hook_definition is None:
+                raise HookCatalogStaleError(
+                    f"hook is unavailable: {hook_key}"
+                )
+            expected_hash = str(expected_content_hash or "").strip().lower()
+            if hook_definition.content_hash != expected_hash:
+                raise HookCatalogStaleError(
+                    f"hook content changed: {hook_key}"
+                )
+            if hook_definition.trust_policy != "content_hash":
+                raise ValueError(
+                    f"{hook_definition.trust_policy} hook trust cannot be changed"
+                )
+            updates[(
+                "hooks",
+                "state",
+                hook_definition.key,
+                "trusted_hash",
+            )] = hook_definition.content_hash
+
+        if updates:
+            self.config_session.update_user(updates)
+        return self.inspect_hooks(workspace=target_workspace)
+
+    def set_hook_enabled(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        enabled: bool,
+        workspace: Path | None = None
+    ) -> HookCatalogSnapshot:
+        """更新指定 Hook 的独立启用状态。"""
+        target_workspace, definition = self._resolve_hook_state_target(
+            hook_key,
+            expected_content_hash=expected_content_hash,
+            workspace=workspace,
+        )
+        if definition.trust_policy == "managed":
+            raise ValueError(
+                "managed hook enabled state cannot be changed"
+            )
+
+        self.config_session.update_user({
+            (
+                "hooks",
+                "state",
+                definition.key,
+                "enabled",
+            ): bool(enabled),
+        })
+
+        return self.inspect_hooks(workspace=target_workspace)
+
+    def require_design(self) -> TerminalDesign:
+        """返回非 TUI 终端设计能力。"""
+        if self.design is None:
+            raise RuntimeError("terminal design is unavailable for this frontend")
+        return self.design
+
+    async def _close_repl_session(self, session_id: str) -> None:
+        """关闭指定执行会话持有的 JavaScript Kernel。"""
+        await self.native_coding.close_js_repl_session(session_id)
 
     async def begin_conversation_turn(
         self,
@@ -334,64 +822,6 @@ class Mind(object):
         )
 
         return metadata
-
-    def recent_conversation_sessions(
-        self,
-        *,
-        workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None,
-        limit: int = HISTORY_LIMIT
-    ) -> list[dict[str, typing.Any]]:
-        """返回可恢复的本地会话游标。"""
-        try:
-            records = self.history_store.list_sessions(
-                workspace=workspace,
-                sources=sources,
-                limit=limit,
-            )
-        except (OSError, sqlite3.Error, ValueError) as exc:
-            observe_exception("history.list.failed", exc, level="WARNING")
-            return []
-
-        return [
-            record for record in records
-            if valid_session_ids(record.get("cid"), record.get("sid"))
-        ]
-
-    def find_conversation_session(
-        self,
-        session_id: str,
-        *,
-        workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None
-    ) -> dict[str, typing.Any] | None:
-        """按会话标识返回可恢复的本地会话游标。"""
-        try:
-            record = self.history_store.find_session(
-                session_id,
-                workspace=workspace,
-                sources=sources,
-            )
-        except (OSError, sqlite3.Error, ValueError) as exc:
-            observe_exception("history.find.failed", exc, level="WARNING")
-            return None
-
-        if record is None or not valid_session_ids(
-            record.get("cid"),
-            record.get("sid"),
-        ):
-            return None
-        return record
-
-    def read_conversation_transcript(
-        self,
-        session_id: str
-    ) -> tuple[TranscriptEntry, ...]:
-        """读取指定会话已经持久化的结构化事件。"""
-        path = self.transcripts.existing_path_for_session(session_id)
-        if not path:
-            return ()
-        return self.transcripts.reader(path).read()
 
     async def resume_conversation(
         self,
@@ -513,229 +943,12 @@ class Mind(object):
         )
         await self.event_reports.close_session(cid, sid)
 
-    def _session_hook_context(
-        self,
-        *,
-        cid: str,
-        sid: str
-    ) -> HookExecutionContext:
-        """构建根会话生命周期事件使用的固定上下文。"""
-        pref_config = self.pref.to_config()
-        primary = (
-            pref_config.get("primary")
-            if isinstance(pref_config, dict)
-            else None
-        )
-        model = (
-            str(primary.get("model") or "").strip()
-            if isinstance(primary, dict)
-            else ""
-        )
-        return HookExecutionContext(
-            session_id=sid,
-            root_session_id=sid,
-            conversation_id=cid,
-            turn_id="",
-            cwd=self.history_workspace,
-            model=model,
-            source="session",
-            sandbox_mode=self.permissions.sandbox_mode,
-            permission_mode=self.permissions.approval_policy,
-            agent_id="root",
-            agent_type="root",
-            agent_depth=0,
-        )
-
-    def prepare_conversation_fork(
-        self,
-        cid: str,
-        sid: str,
-        before_turn_id: str = ""
-    ) -> str:
-        """持久化并返回当前源会话的稳定分支请求标识。"""
-        candidate = f"fork_{short_uid(20)}"
-        try:
-            return self.history_store.get_or_create_fork_request(
-                cid=cid,
-                sid=sid,
-                request_id=candidate,
-                before_turn_id=before_turn_id,
-            )
-        except (OSError, sqlite3.Error, ValueError) as error:
-            observe_exception("conversation.fork.prepare_failed", error)
-            raise AppError("Unable to persist the conversation fork request.") from error
-
-    def clear_conversation_fork(
-        self,
-        cid: str,
-        sid: str,
-        request_id: str,
-        before_turn_id: str = ""
-    ) -> None:
-        """清除已完成或不可重试的本地分支请求。"""
-        try:
-            self.history_store.clear_fork_request(
-                cid=cid,
-                sid=sid,
-                request_id=request_id,
-                before_turn_id=before_turn_id,
-            )
-        except (OSError, sqlite3.Error, ValueError) as error:
-            observe_exception(
-                "conversation.fork.clear_failed",
-                error,
-                level="WARNING",
-            )
-
-    def _touch_history_session(
-        self,
-        metadata: dict[str, str],
-        *,
-        title: str = "",
-        source: str
-    ) -> None:
-        """把 cid/sid 写入本地 history SQLite。"""
-        try:
-            self.history_store.touch_session(
-                cid=metadata["cid"],
-                sid=metadata["sid"],
-                title=title,
-                workspace=self.history_workspace,
-                source=source
-            )
-        except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
-            observe_exception(
-                "history.write.failed",
-                exc,
-                level="WARNING",
-                source=source,
-            )
-
-    def set_history_workspace(self, workspace: typing.Any) -> str:
-        """更新 history 使用的真实工作区根目录。"""
-        normalized = normalize_workspace(workspace)
-
-        if normalized and normalized != self.history_workspace:
-
-            previous_native_coding = self.native_coding
-            self.history_workspace = normalized
-            self.command_hook_sessions.clear()
-
-            self.native_coding = NativeCoding(root=self.history_workspace)
-            self.client_tools  = self._build_client_tools()
-
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop is not None:
-                task = loop.create_task(
-                    previous_native_coding.close(),
-                    name="coding workspace close",
-                )
-                self._native_coding_close_tasks.add(task)
-                task.add_done_callback(self._native_coding_close_done)
-
-            observe("workspace.changed", workspace=self.history_workspace)
-
-        return self.history_workspace
-
-    def _native_coding_close_done(self, task: asyncio.Task[None]) -> None:
-        """回收工作区切换时启动的进程清理任务。"""
-        self._native_coding_close_tasks.discard(task)
-        if not task.cancelled():
-            task.exception()
-
-    async def _close_repl_session(self, session_id: str) -> None:
-        """关闭指定执行会话持有的 JavaScript Kernel。"""
-        await self.native_coding.close_js_repl_session(session_id)
-
-    def _build_client_tools(self) -> ClientToolRegistry:
-        """按当前工作区构建客户端工具注册表。"""
-        return default_client_tool_registry(
-            self.native_coding,
-            execution_root=self.history_workspace,
-            subagent_runtime=self.subagents,
-            approval_coordinator=self.approval_coordinator,
-            features=self.features,
-        )
-
-    def bind_server_manager(self, server_manager: ServerManage) -> None:
-        """绑定本地后台服务管理器。"""
-        self.server_manager = server_manager
-
-    def bind_service_runtime_context(self, context: "ServiceRuntimeContext") -> None:
-        """绑定服务运行时准备上下文。"""
-        self.service_runtime_context = context
-
-    def require_service_runtime_context(self) -> "ServiceRuntimeContext":
-        """返回已绑定的服务运行时上下文，未绑定时抛出错误。"""
-        if self.service_runtime_context is None:
-            raise AppError("Service runtime context is not bound")
-        return self.service_runtime_context
-
-    def link_service_mcp(
-        self,
-        exec_env: typing.Optional[dict[str, typing.Any]] = None,
-        *,
-        tool_profile: ToolFilterMode = "app"
-    ) -> None:
-        """把本地服务 MCP 挂入当前工具会话。"""
-        normalized = _normalize_tool_profile(tool_profile)
-
-        self.service_mcp_linked   = True
-        self.service_tool_profile = normalized
-
-        self.service_exec_env = (
-            copy.deepcopy(exec_env)
-            if isinstance(exec_env, dict)
-            else None
-        )
-        observe(
-            "helix.linked",
-            tool_profile=normalized,
-            exec_env=bool(self.service_exec_env),
-        )
-
-    def set_service_tool_profile(self, tool_profile: ToolFilterMode) -> None:
-        """切换已经挂载的服务工具配置。"""
-        if not self.service_mcp_linked:
-            raise AppError("Helix MCP is not linked")
-
-        normalized = _normalize_tool_profile(tool_profile)
-        self.service_tool_profile = normalized
-        observe("helix.tool_profile.changed", tool_profile=normalized)
-
-    def unlink_service_mcp(self) -> None:
-        """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
-        was_linked = self.service_mcp_linked
-
-        self.service_mcp_linked   = False
-        self.service_tool_profile = None
-        self.service_exec_env     = None
-
-        if was_linked:
-            observe("helix.unlinked")
-
-    def is_service_mcp_linked(self) -> bool:
-        """判断当前工具会话是否挂载本地服务 MCP。"""
-        return bool(self.service_mcp_linked)
-
-    def tool_profile_for_turn(self) -> ToolFilterMode | None:
-        """返回当前模型请求使用的服务工具配置。"""
-        if not self.service_mcp_linked:
-            return None
-        if self.service_tool_profile is None:
-            raise AppError("Helix tool profile is not selected")
-        return self.service_tool_profile
-
     async def run_service_runtime_startup(
         self,
         operation: typing.Callable[
             [],
             typing.Coroutine[typing.Any, typing.Any, bool],
-        ],
+        ]
     ) -> bool:
         """复用正在执行的本地服务准备任务。"""
         async with self._service_start_lock:
@@ -768,39 +981,6 @@ class Mind(object):
 
         await asyncio.gather(task, return_exceptions=True)
 
-    def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
-        """返回本地服务运行时环境快照。"""
-        if not isinstance(self.service_exec_env, dict):
-            return None
-        return copy.deepcopy(self.service_exec_env)
-
-    def remember_last_assistant_reply(self, text: str) -> None:
-        """记录最近一次完整模型回复原文。"""
-        value = str(text or "").strip()
-        if value:
-            self.last_assistant_reply = value
-
-    def last_assistant_reply_snapshot(self) -> str:
-        """返回最近一次完整模型回复原文。"""
-        return self.last_assistant_reply
-
-    def start_keepalive_supervisor(self) -> None:
-        """启动应用生命周期内的本地后台服务保活任务。"""
-        if self.keepalive_task and not self.keepalive_task.done():
-            return None
-
-        self.keepalive_stop = asyncio.Event()
-
-        self.keepalive_task = asyncio.create_task(
-            run_keepalive(
-                self.keepalive_stop,
-                server_manager=self.server_manager
-            ),
-            name="local service keepalive"
-        )
-        self.keepalive_task.add_done_callback(self.keepalive_task_done)
-        observe("keepalive.started")
-
     async def start_config_service(self) -> None:
         """启动应用生命周期内的配置服务。"""
         if self.config_service is None:
@@ -815,7 +995,7 @@ class Mind(object):
 
     async def stop_config_service(self) -> None:
         """停止应用生命周期内的配置服务。"""
-        config_service      = self.config_service
+        config_service = self.config_service
         self.config_service = None
 
         if config_service is None:
@@ -823,17 +1003,6 @@ class Mind(object):
 
         await config_service.stop()
         observe("config_service.stopped")
-
-    def start_subscription_listener(self) -> "AgentRuntime":
-        """启动或复用当前进程的远端请求监听器。"""
-        from .subscription.runtime import AgentRuntime
-
-        runtime = self.subscription_runtime
-        if runtime is None:
-            runtime = AgentRuntime(self)
-            self.subscription_runtime = runtime
-        runtime.start_background()
-        return runtime
 
     async def pause_subscription_listener(self) -> None:
         """停止远端请求传输并保留当前进程的收件箱。"""
@@ -849,7 +1018,11 @@ class Mind(object):
             runtime.bind_inbox_changed(None)
             await runtime.shutdown()
 
-    async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
+    async def refresh_pref_if_stale(
+        self,
+        *,
+        ttl_sec: typing.Optional[float] = None
+    ) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
         refresh_ttl = self.pref_refresh_ttl_sec if ttl_sec is None else max(0.0, float(ttl_sec))
 
@@ -866,140 +1039,11 @@ class Mind(object):
 
         self.pref_refreshed_at = time.monotonic()
 
-    def hook_scope(
-        self,
-        context: HookExecutionContext
-    ) -> HookExecutionScope:
-        """为指定执行上下文构建固定的 Hook 作用域。"""
-        workspace  = self._hook_workspace(Path(context.cwd))
-
-        resolution = self.config_session.resolve(
-            workspace=workspace
-        )
-
-        return HookExecutionScope(
-            context=context,
-            dispatcher=self.hook_registry.build(
-                resolution.hooks,
-                hook_states=resolution.hook_states,
-                warnings=resolution.hook_warnings,
-                status_port=getattr(self, "hook_status", None),
-            ),
-        )
-
-    def inspect_hooks(
+    async def fresh_pref_config(
         self,
         *,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """返回指定工作区的实时 Hook 管理快照。"""
-        target_workspace = self._hook_workspace(workspace)
-
-        resolution = self.config_session.resolve(
-            workspace=target_workspace
-        )
-
-        return self.hook_registry.inspect(
-            resolution.hooks,
-            hook_states=resolution.hook_states,
-            warnings=resolution.hook_warnings,
-            workspace=target_workspace,
-        )
-
-    def trust_hook(
-        self,
-        hook_key: str,
-        *,
-        expected_content_hash: str,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """信任指定 Hook 的当前内容。"""
-        target_workspace, definition = self._resolve_hook_state_target(
-            hook_key,
-            expected_content_hash=expected_content_hash,
-            workspace=workspace,
-        )
-        if definition.trust_policy != "content_hash":
-            raise ValueError(
-                f"{definition.trust_policy} hook trust cannot be changed"
-            )
-
-        self.config_session.update_user({
-            (
-                "hooks",
-                "state",
-                definition.key,
-                "trusted_hash",
-            ): definition.content_hash,
-        })
-        return self.inspect_hooks(workspace=target_workspace)
-
-    def set_hook_enabled(
-        self,
-        hook_key: str,
-        *,
-        expected_content_hash: str,
-        enabled: bool,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """更新指定 Hook 的独立启用状态。"""
-        target_workspace, definition = self._resolve_hook_state_target(
-            hook_key,
-            expected_content_hash=expected_content_hash,
-            workspace=workspace,
-        )
-        if definition.trust_policy == "managed":
-            raise ValueError(
-                "managed hook enabled state cannot be changed"
-            )
-
-        self.config_session.update_user({
-            (
-                "hooks",
-                "state",
-                definition.key,
-                "enabled",
-            ): bool(enabled),
-        })
-
-        return self.inspect_hooks(workspace=target_workspace)
-
-    def _resolve_hook_state_target(
-        self,
-        hook_key: str,
-        *,
-        expected_content_hash: str,
-        workspace: Path | None,
-    ) -> tuple[Path, HookDefinitionConfig]:
-        """解析并校验允许修改用户状态的 Hook。"""
-        target_workspace = self._hook_workspace(workspace)
-        resolution = self.config_session.resolve(workspace=target_workspace)
-        definition = next(
-            (
-                item
-                for item in resolution.hooks
-                if item.key == hook_key
-            ),
-            None,
-        )
-        if definition is None:
-            raise HookCatalogStaleError(
-                f"hook is unavailable: {hook_key}"
-            )
-
-        expected_hash = str(expected_content_hash or "").strip().lower()
-        if definition.content_hash != expected_hash:
-            raise HookCatalogStaleError(
-                f"hook content changed: {hook_key}"
-            )
-        return target_workspace, definition
-
-    def _hook_workspace(self, workspace: Path | None) -> Path:
-        """返回 Hook 查询使用的绝对工作区路径。"""
-        target = workspace or Path(self.history_workspace)
-        return Path(target).expanduser().resolve()
-
-    async def fresh_pref_config(self, *, ttl_sec: typing.Optional[float] = None) -> dict[str, typing.Any]:
+        ttl_sec: typing.Optional[float] = None
+    ) -> dict[str, typing.Any]:
         """返回刷新后的偏好配置快照。"""
         await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
         return self.pref.to_config()
@@ -1008,7 +1052,7 @@ class Mind(object):
         self,
         *,
         include_disabled: bool = False,
-        defer_activity_stop: bool = False,
+        defer_activity_stop: bool = False
     ) -> None:
         """启动应用生命周期级外部 MCP 运行时。"""
         if self.external_mcp is None:
@@ -1140,7 +1184,7 @@ class Mind(object):
         self,
         kind: ActivityStatusKind | None = None,
         *,
-        settle: bool = True,
+        settle: bool = True
     ) -> None:
         """停止指定类型的活动动画。"""
         if self.frontend.runtime.active:
@@ -1158,15 +1202,7 @@ class Mind(object):
             return None
         await self.anim_manager.stop()
 
-    def require_design(self) -> TerminalDesign:
-        """返回非 TUI 终端设计能力。"""
-        if self.design is None:
-            raise RuntimeError("terminal design is unavailable for this frontend")
-        return self.design
-
-    async def start_anim(
-        self
-    ) -> None:
+    async def start_anim(self) -> None:
         """启动模型响应等待动画。"""
         if not self.animate:
             return None
