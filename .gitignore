@@ -36,6 +36,7 @@ htmlcov/
 
 # 编辑器配置
 .idea/
+.ide-inspection/
 .vscode/
 *.iml
 
