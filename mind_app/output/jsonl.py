@@ -416,7 +416,7 @@ class JsonPresentationSink(PresentationSink):
         self._item_completed("", {"type": "agent_message", "text": str(text or "")})
 
     def _warning_completed(self, message: str) -> None:
-        """把运行时告警写成 Codex exec 的错误项目。"""
+        """把运行时告警写成错误项目。"""
         self._item_completed("", {"type": "error", "message": str(message)})
 
     def _native_result(self, view: NativeToolResultView) -> None:

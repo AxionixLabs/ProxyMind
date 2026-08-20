@@ -152,7 +152,7 @@ def _push_hook_list(
 
 
 def _detail_line(label: str, value: str) -> str:
-    """生成 Codex 风格的对齐详情行。"""
+    """生成对齐的详情行。"""
     return f"{label:<{max(10, len(label) + 1)}}{value}"
 
 
@@ -279,7 +279,7 @@ def _hook_list_request(
 
 
 def _hook_row_label(entry: HookCatalogEntry, index: int) -> str:
-    """返回 Codex 风格的 Hook 列表行。"""
+    """返回 Hook 列表行。"""
     marker = "!" if entry.needs_review else ("x" if entry.computed_active else " ")
     suffix = (
         " · modified" if entry.trust_state == "modified"
@@ -344,7 +344,7 @@ def _hook_detail_fragments(entry: HookCatalogEntry) -> tuple[tuple[tuple[str, st
 
 
 def _hook_detail_line_limits(entry: HookCatalogEntry) -> tuple[int | None, ...]:
-    """返回详情字段的换行上限；Command 按 Codex 最多显示三行。"""
+    """返回详情字段的换行上限；命令字段最多显示三行。"""
     return tuple(
         3 if label == "Command" else None
         for label, _value in _hook_detail_fields(entry)
@@ -371,7 +371,7 @@ def _hook_source_label(entry: HookCatalogEntry) -> str:
 
 
 def _display_source_path(source_path: str) -> str:
-    """按 Codex 规则把用户目录下的来源路径压缩为波浪号路径。"""
+    """按统一规则把用户目录下的来源路径压缩为波浪号路径。"""
     path = Path(source_path)
 
     try:
@@ -385,7 +385,7 @@ def _display_source_path(source_path: str) -> str:
 
 
 def _hook_trust_label(entry: HookCatalogEntry) -> str:
-    """返回 Codex 风格的信任状态标签。"""
+    """返回信任状态标签。"""
     return {
         "managed": "Managed",
         "trusted": "Trusted",

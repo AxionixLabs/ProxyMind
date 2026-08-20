@@ -179,7 +179,7 @@ class TextOutputState:
         self.record_writer.write(plain, block=True)
 
     def hook(self, event: str, *, status: str | None = None) -> None:
-        """输出 Codex exec 形态的 Hook 生命周期。"""
+        """输出命令执行形态的 Hook 生命周期。"""
         event_text  = _line(event) or "Unknown"
         status_text = _line(status) if status is not None else ""
         suffix      = f" {status_text}" if status_text else ""
@@ -197,7 +197,7 @@ class TextOutputState:
         self.record_writer.write(plain, block=True)
 
     def warning(self, message: str) -> None:
-        """输出 Codex exec 形态的运行时告警。"""
+        """输出命令执行形态的运行时告警。"""
         text = _line(message)
         if not text:
             return None

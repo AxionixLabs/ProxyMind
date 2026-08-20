@@ -415,7 +415,7 @@ def test_hook_event_menu_selects_first_event_needing_review(tmp_path) -> None:
     stop = replace(
         post_tool,
         event="Stop",
-        description="Right before Codex ends its turn",
+        description="Right before Mind ends its turn",
         review_count=1,
     )
     catalog = replace(

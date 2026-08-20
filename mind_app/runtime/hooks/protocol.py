@@ -79,7 +79,7 @@ def _input_schema(
     required: typing.Iterable[str],
     include_model: bool = True
 ) -> JsonSchema:
-    """构建 Codex 命令 Hook 的事件输入 schema。"""
+    """构建命令 Hook 的事件输入结构。"""
     properties = dict(_SESSION_INPUT_PROPERTIES)
     if include_model:
         properties.update(_MODEL_INPUT_PROPERTIES)
@@ -296,7 +296,7 @@ def _output_schema(
     *groups: dict[str, JsonSchema],
     specific: dict[str, JsonSchema] | None = None
 ) -> JsonSchema:
-    """构建 Codex 命令 Hook 的事件输出 schema。"""
+    """构建命令 Hook 的事件输出结构。"""
     properties = dict(_COMMAND_OUTPUT_PROPERTIES)
 
     for group in groups:

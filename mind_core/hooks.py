@@ -200,7 +200,7 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
     ),
     "Stop": HookEventConfigSpec(
         name="Stop",
-        description="Right before Codex ends its turn",
+        description="Right before Mind ends its turn",
         matcher_subject=None,
         control_policy="notify",
         supports_additional_context=False,
