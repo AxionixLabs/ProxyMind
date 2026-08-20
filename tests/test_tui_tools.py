@@ -3,11 +3,19 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from mind_app.tui.features.tools import render_tools_summary
+import pytest
+
+from mind_app.tui.features.tools import (
+    print_available_tools,
+    render_tools_summary
+)
 
 
 def test_tools_summary_renders_as_one_compact_block() -> None:
-    application = SimpleNamespace(emit=Mock())
+    application = SimpleNamespace(
+        emit=Mock(),
+        viewport=SimpleNamespace(width=120),
+    )
     tools = [
         {
             "name": "external_search",
@@ -19,11 +27,19 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
         },
         {
             "name": "apply_patch",
-            "meta": {"domain": "coding", "class": "builtin"},
+            "meta": {
+                "client_builtin": True,
+                "domain": "coding",
+                "class": "workspace",
+            },
         },
         {
             "name": "shell_command",
-            "meta": {"domain": "coding", "class": "builtin"},
+            "meta": {
+                "client_builtin": True,
+                "domain": "coding",
+                "class": "shell",
+            },
         },
     ]
 
@@ -37,19 +53,27 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
 
     assert summary.type == "tui.tools.summary"
     assert text == (
-        "/tools · 3 available · external=1\n"
-        "search (external · stdio · 1)\n"
-        "  • external_search\n"
-        "coding (local · builtin · 2)\n"
-        "  • apply_patch\n"
-        "  • shell_command"
+        "/tools · 3 available · built-in=2 · external=1\n\n"
+        "🔌  Built-in Tools · 2\n\n"
+        "  • Mind Native · in-process · 2\n"
+        "    • Auth: N/A\n"
+        "    • Tools: apply_patch, shell_command\n\n"
+        "🔌  External MCP Tools · 1\n\n"
+        "  • search · stdio · 1\n"
+        "    • Auth: Unsupported\n"
+        "    • Tools: external_search"
     )
-    assert "\n\n" not in text
+    assert summary.renderable.fragments[0] == ("fg:ansimagenta", "/tools")
+    assert ("bold", "Built-in Tools") in summary.renderable.fragments
+    assert ("bold", "External MCP Tools") in summary.renderable.fragments
     assert gap.type == "tui.gap"
 
 
 def test_tools_summary_uses_supplied_catalog_without_implicit_filtering() -> None:
-    application = SimpleNamespace(emit=Mock())
+    application = SimpleNamespace(
+        emit=Mock(),
+        viewport=SimpleNamespace(width=120),
+    )
     tools = [
         {"name": "apply_patch", "meta": {"domain": "coding"}},
         {"name": "plan_steps", "meta": {"domain": "client", "class": "loop"}},
@@ -65,3 +89,63 @@ def test_tools_summary_uses_supplied_catalog_without_implicit_filtering() -> Non
     assert "apply_patch" in text
     assert "update_plan" in text
     assert "plan_steps" in text
+
+
+def test_tools_summary_wraps_tool_names_with_hanging_indent() -> None:
+    application = SimpleNamespace(
+        emit=Mock(),
+        viewport=SimpleNamespace(width=40),
+    )
+    tools = [
+        {"name": "browser_click", "meta": {"external": True, "server": "playwright"}},
+        {"name": "browser_close", "meta": {"external": True, "server": "playwright"}},
+        {"name": "browser_console_messages", "meta": {"external": True, "server": "playwright"}},
+    ]
+
+    render_tools_summary(application=application, tools=tools)
+
+    summary = application.emit.call_args_list[0].args[0]
+    text = "".join(value for _style, value in summary.renderable.fragments)
+
+    assert "    • Tools: browser_click," in text
+    assert "      browser_close," in text
+    assert "      browser_console_messages" in text
+
+
+@pytest.mark.anyio
+async def test_print_available_tools_uses_external_original_names() -> None:
+    application = SimpleNamespace(
+        emit=Mock(),
+        viewport=SimpleNamespace(width=120),
+    )
+    session = SimpleNamespace(
+        external_group=SimpleNamespace(tools={
+            "mcp__playwright__browser_click": SimpleNamespace(
+                name="browser_click",
+            ),
+        }),
+    )
+    catalog = [{
+        "name": "mcp__playwright__browser_click",
+        "meta": {
+            "external": True,
+            "server": "playwright",
+            "transport": "stdio",
+        },
+    }]
+
+    async def with_mcp_session(_pref_config, callback) -> None:
+        await callback(session, catalog)
+
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        with_mcp_session=with_mcp_session,
+    )
+
+    await print_available_tools(mind, pref_config={})
+
+    summary = application.emit.call_args_list[0].args[0]
+    text = "".join(value for _style, value in summary.renderable.fragments)
+
+    assert "browser_click" in text
+    assert "mcp__playwright__browser_click" not in text

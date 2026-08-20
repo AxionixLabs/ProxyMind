@@ -43,9 +43,7 @@ def _wire_effect_hint(tool: mcp_types.Tool) -> dict[str, str]:
     }
 
 
-def build_wire_tools(
-    list_tools: mcp_types.ListToolsResult,
-) -> list[dict[str, typing.Any]]:
+def build_wire_tools(list_tools: mcp_types.ListToolsResult) -> list[dict[str, typing.Any]]:
     """把 MCP 工具列表转换为传输层工具描述，保留 MCP schema 和 meta。"""
     tools: list[dict[str, typing.Any]] = []
 
@@ -72,7 +70,7 @@ def build_wire_tools(
 async def build_tool_context(
     service_session: ClientSession | None = None,
     external_group: typing.Any = None,
-    client_registry: typing.Any = None,
+    client_registry: typing.Any = None
 ) -> McpToolContext:
     """合并可用工具来源，并生成模型调用上下文。"""
     active_session = CompositeToolSession(

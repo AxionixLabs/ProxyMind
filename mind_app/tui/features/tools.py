@@ -3,32 +3,97 @@
 
 import typing
 from collections import defaultdict
+from prompt_toolkit.utils import get_cwidth
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
 from mind_app.mcp.contracts import McpSessionLike
-from mind_app.presentation.models import TextSpan
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from ..core.styles import (
-    ACCENT_STYLE,
-    BODY_STYLE,
-    BRIGHT_STYLE,
     FAILURE_STYLE,
-    MUTED_STYLE,
-    command_result_block
+    fragment_block
 )
 
-GROUP_DISPLAY_LIMIT = 12
+GROUP_DISPLAY_LIMIT    = 64
+DEFAULT_TERMINAL_WIDTH = 120
+TOOLS_COMMAND_STYLE    = TextStyle(foreground="ansimagenta")
+TOOLS_HEADING_STYLE    = TextStyle(bold=True)
+TOOLS_SECONDARY_STYLE  = TextStyle(dim=True)
+TOOLS_TEXT_STYLE       = TextStyle()
+TOOLS_EMPTY_STYLE      = TextStyle(italic=True)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 
+def _terminal_width(
+    application: ApplicationSink,
+    terminal_width: int | None
+) -> int:
+    """返回工具摘要使用的有效终端宽度。"""
+    if isinstance(terminal_width, int) and terminal_width > 0:
+        return terminal_width
+
+    viewport = getattr(application, "viewport", None)
+    width    = getattr(viewport, "width", None)
+
+    if isinstance(width, int) and width > 0:
+        return width
+
+    return DEFAULT_TERMINAL_WIDTH
+
+
+def _tool_name_lines(
+    names: list[str],
+    *,
+    terminal_width: int,
+    limit: int
+) -> list[str]:
+    """把工具名按终端宽度转换为带悬挂缩进的文本行。"""
+    visible_names = names[:max(0, int(limit))]
+    if not visible_names:
+        return ["    • Tools: (none)"]
+
+    first_prefix: str        = "    • Tools: "
+    continuation_prefix: str = "      "
+    lines: list[str]         = []
+    current_prefix: str      = first_prefix
+    current_names: list[str] = []
+
+    for index, name in enumerate(visible_names):
+
+        suffix    = "," if index < len(visible_names) - 1 else ""
+        token     = f"{name}{suffix}"
+        candidate = f"{current_prefix}{' '.join(current_names + [token])}"
+
+        if current_names and get_cwidth(candidate) > terminal_width:
+            lines.append(f"{current_prefix}{' '.join(current_names)}")
+            current_prefix = continuation_prefix
+            current_names = []
+
+        current_names.append(token)
+
+    if current_names:
+        lines.append(f"{current_prefix}{' '.join(current_names)}")
+
+    remaining = len(names) - len(visible_names)
+    if remaining > 0:
+        lines.append(f"{continuation_prefix}... and {remaining} more")
+
+    return lines
+
+
 def summarize_tool_groups(
     tools: list[dict[str, typing.Any]]
 ) -> list[dict[str, typing.Any]]:
-    """按 external/server 或 domain/class 汇总工具列表。"""
+    """按工具来源和提供者汇总工具列表。"""
     grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+
+    auth_by_group: dict[tuple[str, str, str], str] = {}
 
     for tool in tools:
         name = str(tool.get("name") or "").strip() if isinstance(tool, dict) else ""
@@ -39,11 +104,18 @@ def summarize_tool_groups(
         if bool(meta.get("external")):
             label     = str(meta.get("server") or "external").strip() or "external"
             transport = str(meta.get("transport") or "external").strip() or "external"
+            auth      = str(meta.get("auth") or "Unsupported").strip() or "Unsupported"
             key       = ("external", label, transport)
+
+            auth_by_group.setdefault(key, auth)
+
+        elif bool(meta.get("client_builtin")):
+            key = ("builtin", "Mind Native", "in-process")
+            auth_by_group[key] = "N/A"
+
         else:
-            domain = str(meta.get("domain") or "local").strip() or "local"
-            cls    = str(meta.get("class") or "tool").strip() or "tool"
-            key    = ("local", domain, cls)
+            key = ("builtin", "Helix MCP", "local")
+            auth_by_group[key] = "Managed"
 
         grouped[key].append(name)
 
@@ -51,16 +123,18 @@ def summarize_tool_groups(
 
     for (source, label, detail), names in grouped.items():
         result.append({
-            "source" : source,
-            "label"  : label,
-            "detail" : detail,
-            "tools"  : sorted(names)
+            "source": source,
+            "label": label,
+            "detail": detail,
+            "auth": auth_by_group.get((source, label, detail), "Unknown"),
+            "tools": sorted(names)
         })
 
     return sorted(
         result,
         key=lambda item: (
-            0 if item["source"] == "external" else 1,
+            0 if item["source"] == "builtin" else 1,
+            0 if item["label"] == "Mind Native" else 1,
             str(item["label"]),
             str(item["detail"])
         )
@@ -71,59 +145,117 @@ def render_tools_summary(
     *,
     application: ApplicationSink,
     tools: list[dict[str, typing.Any]],
-    limit: int = GROUP_DISPLAY_LIMIT
+    limit: int = GROUP_DISPLAY_LIMIT,
+    terminal_width: int | None = None
 ) -> None:
     """打印当前会话可见工具摘要。"""
     groups = summarize_tool_groups(tools)
     total  = sum(len(item["tools"]) for item in groups)
+    width  = _terminal_width(application, terminal_width)
 
+    builtin_total = sum(
+        len(item["tools"]) for item in groups
+        if item["source"] == "builtin"
+    )
     external_total = sum(
         len(item["tools"]) for item in groups
         if item["source"] == "external"
     )
 
     parts = [
+        TextSpan("/tools", TOOLS_COMMAND_STYLE),
+        TextSpan(" · ", TOOLS_SECONDARY_STYLE),
         TextSpan(
-            f"{total} available · external={external_total}",
-            MUTED_STYLE,
+            f"{total} available · built-in={builtin_total} · external={external_total}",
+            TOOLS_SECONDARY_STYLE,
         ),
     ]
 
     if not groups:
         parts.extend([
             TextSpan("\n"),
-            TextSpan("No visible tools.", MUTED_STYLE),
+            TextSpan("No visible tools.", TOOLS_EMPTY_STYLE),
         ])
 
+    current_source: str | None = None
     for group in groups:
         names  = group["tools"]
         label  = group["label"]
         detail = group["detail"]
         source = group["source"]
-        marker = "external" if source == "external" else "local"
+        auth   = group["auth"]
+
+        if source != current_source:
+            section = (
+                "Built-in Tools"
+                if source == "builtin"
+                else "External MCP Tools"
+            )
+            section_total = sum(
+                len(item["tools"])
+                for item in groups
+                if item["source"] == source
+            )
+            parts.extend([
+                TextSpan("\n\n🔌  ", TOOLS_TEXT_STYLE),
+                TextSpan(section, TOOLS_HEADING_STYLE),
+                TextSpan(f" · {section_total}", TOOLS_SECONDARY_STYLE),
+            ])
+            current_source = source
 
         parts.extend([
-            TextSpan("\n"),
-            TextSpan(f"{label} ", BRIGHT_STYLE),
-            TextSpan(f"({marker} · {detail} · {len(names)})", MUTED_STYLE),
+            TextSpan("\n\n  • ", TOOLS_TEXT_STYLE),
+            TextSpan(label, TOOLS_TEXT_STYLE),
+            TextSpan(f" · {detail} · {len(names)}", TOOLS_SECONDARY_STYLE),
+            TextSpan("\n    • Auth: ", TOOLS_TEXT_STYLE),
+            TextSpan(auth, TOOLS_TEXT_STYLE),
         ])
-        for name in names[:limit]:
+        for line in _tool_name_lines(
+            names,
+            terminal_width=width,
+            limit=limit,
+        ):
             parts.extend([
-                TextSpan("\n  • ", ACCENT_STYLE),
-                TextSpan(name, BODY_STYLE),
+                TextSpan("\n", TOOLS_TEXT_STYLE),
+                TextSpan(line, TOOLS_TEXT_STYLE),
             ])
-        if len(names) > limit:
-            parts.append(TextSpan(
-                f"\n  ... and {len(names) - limit} more",
-                MUTED_STYLE,
-            ))
 
     application.emit(ApplicationView(
         type="tui.tools.summary",
-        renderable=command_result_block("/tools", *parts),
+        renderable=fragment_block(*parts),
     ))
     application.emit(ApplicationView(type="tui.gap"))
     return None
+
+
+def _tools_for_display(
+    session: McpSessionLike,
+    tools: list[dict[str, typing.Any]]
+) -> list[dict[str, typing.Any]]:
+    """复制工具目录，并把外接工具限定名替换为服务原始名称。"""
+    external_group = getattr(session, "external_group", None)
+    source_tools   = getattr(external_group, "tools", {})
+
+    original_names = {
+        str(qualified_name): str(getattr(tool, "name", "") or "").strip()
+        for qualified_name, tool in dict(source_tools or {}).items()
+    }
+
+    display_tools: list[dict[str, typing.Any]] = []
+
+    for tool in tools:
+        name = str(tool.get("name") or "")
+
+        original_name = original_names.get(name, "")
+        if not original_name:
+            display_tools.append(tool)
+            continue
+
+        display_tool = dict(tool)
+        display_tool["name"] = original_name
+        display_tools.append(display_tool)
+
+    return display_tools
 
 
 async def print_available_tools(
@@ -136,10 +268,10 @@ async def print_available_tools(
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]]
     ) -> None:
-        _ = session
         render_tools_summary(
             application=mind.frontend.application,
-            tools=tools,
+            tools=_tools_for_display(session, tools),
+            terminal_width=mind.frontend.application.viewport.width,
         )
 
     try:
@@ -156,13 +288,16 @@ async def print_available_tools(
         )
 
         application = mind.frontend.application
+
         application.emit(ApplicationView(
             type="tui.command",
-            renderable=command_result_block(
-                "/tools",
+            renderable=fragment_block(
+                TextSpan("/tools", TOOLS_COMMAND_STYLE),
+                TextSpan(" · ", TOOLS_SECONDARY_STYLE),
                 TextSpan(f"Failed: {error}", FAILURE_STYLE),
             ),
         ))
+
         application.emit(ApplicationView(type="tui.gap"))
 
 

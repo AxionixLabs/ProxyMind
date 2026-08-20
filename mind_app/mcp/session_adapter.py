@@ -38,10 +38,10 @@ class CompositeToolSession(McpSessionLike):
         """生成用于模型侧展示的工具对象，保留原始输入 schema。"""
         return tool.model_copy(
             update={
-                "name"        : display_name,
-                "description" : truncate_text(description, 2048),
-                "inputSchema" : tool.inputSchema,
-                "meta"        : meta
+                "name": display_name,
+                "description": truncate_text(description, 2048),
+                "inputSchema": tool.inputSchema,
+                "meta": meta
             }
         )
 
@@ -73,8 +73,8 @@ class CompositeToolSession(McpSessionLike):
                     )
 
                     meta = dict(tool.meta or {})
-                    meta["external"]  = True
-                    meta["server"]    = alias
+                    meta["external"] = True
+                    meta["server"] = alias
                     meta["transport"] = str(meta.get("transport") or "external").strip().lower()
 
                     description      = str(tool.description or "").strip()
