@@ -182,6 +182,17 @@ HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
         },
         required=(*_PERMISSION_INPUT_PROPERTIES, "source"),
     ),
+    "SessionEnd": _input_schema(
+        "SessionEnd",
+        {
+            "reason": {
+                "type": "string",
+                "const": "other",
+            },
+        },
+        required=("reason",),
+        include_model=False,
+    ),
     "UserPromptSubmit": _input_schema(
         "UserPromptSubmit",
         _TURN_INPUT_PROPERTIES,
@@ -238,17 +249,6 @@ HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
             "stop_hook_active",
             "last_assistant_message",
         ),
-    ),
-    "SessionEnd": _input_schema(
-        "SessionEnd",
-        {
-            "reason": {
-                "type": "string",
-                "const": "other",
-            },
-        },
-        required=("reason",),
-        include_model=False,
     ),
 }
 
@@ -374,6 +374,7 @@ HOOK_OUTPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
         _COMMON_OUTPUT_PROPERTIES,
         specific=_CONTEXT_OUTPUT_PROPERTIES,
     ),
+    "SessionEnd": _output_schema("SessionEnd"),
     "UserPromptSubmit": _output_schema(
         "UserPromptSubmit",
         _COMMON_OUTPUT_PROPERTIES,
@@ -404,7 +405,6 @@ HOOK_OUTPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
             "reason": _STRING,
         },
     ),
-    "SessionEnd": _output_schema("SessionEnd"),
 }
 
 
@@ -483,10 +483,9 @@ def validate_hook_output(
 
 def validate_hook_protocol_catalog() -> None:
     """校验输入输出 schema 与事件目录保持一致。"""
-    configured = set(HOOK_EVENT_NAMES)
-    if configured != set(HOOK_INPUT_SCHEMAS):
+    if tuple(HOOK_INPUT_SCHEMAS) != HOOK_EVENT_NAMES:
         raise RuntimeError("hook input schema catalog mismatch")
-    if configured != set(HOOK_OUTPUT_SCHEMAS):
+    if tuple(HOOK_OUTPUT_SCHEMAS) != HOOK_EVENT_NAMES:
         raise RuntimeError("hook output schema catalog mismatch")
 
 

@@ -14,6 +14,7 @@ from mind_core.config_layers import PROJECT_CONFIG_DIR
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.hook_discovery import resolve_hook_definitions
+from mind_core.hooks import HOOK_EVENT_NAMES
 
 
 def _hook(command, *, matcher=None):
@@ -92,11 +93,11 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
         ("PreCompact", 0, 0, "Before context compaction"),
         ("PostCompact", 0, 0, "After context compaction"),
         ("SessionStart", 0, 0, "When a new session starts"),
+        ("SessionEnd", 0, 0, "Right before a session ends"),
         ("UserPromptSubmit", 0, 0, "When the user submits a prompt"),
         ("SubagentStart", 0, 0, "When a subagent is created"),
         ("SubagentStop", 0, 0, "Right before a subagent ends its turn"),
         ("Stop", 0, 0, "Right before Codex ends its turn"),
-        ("SessionEnd", 0, 0, "When a root session ends"),
     ]
     assert catalog.hooks[0].command == "check-project"
     assert catalog.hooks[0].matcher == "shell_command"
@@ -105,7 +106,69 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
     assert catalog.hooks[0].enabled
     assert catalog.hooks[1].trust_state == "trusted"
     assert catalog.hooks[1].active
+    assert catalog.events[0].review_count == 1
+    assert catalog.events[2].review_count == 0
     assert catalog.warnings == ("skipping invalid hook",)
+
+
+def test_hook_event_names_use_the_stable_codex_order() -> None:
+    assert HOOK_EVENT_NAMES == (
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "PreCompact",
+        "PostCompact",
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+    )
+
+
+@pytest.mark.parametrize(
+    ("trust_policy", "state", "enabled", "needs_review", "trusted", "toggleable", "active"),
+    [
+        ("managed", {}, True, False, True, False, True),
+        ("content_hash", {}, True, True, False, False, False),
+        ("content_hash", {"trusted_hash": "sha256:" + "0" * 64}, True, True, False, False, False),
+        ("content_hash", {"trusted_hash": "PLACEHOLDER"}, True, False, True, True, True),
+        ("content_hash", {"trusted_hash": "PLACEHOLDER", "enabled": False}, False, False, True, True, False),
+    ],
+)
+def test_catalog_entry_exposes_unified_hook_state(
+    tmp_path,
+    trust_policy,
+    state,
+    enabled,
+    needs_review,
+    trusted,
+    toggleable,
+    active,
+) -> None:
+    definition = resolve_hook_definitions(
+        {"PreToolUse": [_hook("state-hook")]},
+        source_scope="user",
+        source_path=tmp_path / "state.toml",
+        trust_policy=trust_policy,
+    )[0]
+    if state.get("trusted_hash") == "PLACEHOLDER":
+        state = {**state, "trusted_hash": definition.content_hash}
+
+    entry = HookRegistry().inspect(
+        (definition,),
+        hook_states={definition.key: state},
+        workspace=tmp_path,
+    ).hooks[0]
+
+    assert entry.stable_key == definition.key
+    assert entry.enabled is enabled
+    assert entry.needs_review is needs_review
+    assert entry.trusted is trusted
+    assert entry.toggleable is toggleable
+    assert entry.computed_active is active
+    assert entry.active is active
 
 
 def test_controller_inspection_uses_resolved_workspace(tmp_path) -> None:

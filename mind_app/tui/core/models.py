@@ -10,6 +10,7 @@ from dataclasses import (
 from pathlib import Path
 
 FormattedText: typing.TypeAlias = list[tuple[str, str]]
+FormattedLine: typing.TypeAlias = tuple[tuple[str, str], ...]
 
 TranscriptExportFormat: typing.TypeAlias = typing.Literal[
     "markdown",
@@ -94,6 +95,13 @@ class MenuOption(object):
     is_default: bool = False
     search_value: str | None = None
     disabled_gutter_marker: str = ""
+    selected_body: tuple[str, ...] = ()
+    selected_footer_hint: str = ""
+    columns: tuple[str, ...] = ()
+    column_styles: tuple[str, ...] = ()
+    row_style: str = ""
+    selected_row_style: str = ""
+    selected_body_fragments: tuple[FormattedLine, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +147,17 @@ class MenuRequest(object):
     name_column_width: int | None = None
     title_accent_suffix: str = ""
     body_warning: str = ""
+    on_space: typing.Callable[[], None] | None = None
+    on_t: typing.Callable[[], None] | None = None
+    table_column_widths: tuple[int, ...] = ()
+    show_option_gutter: bool = True
+    show_all_options: bool = False
+    body_inset: bool = True
+    body_as_table_header: bool = False
+    body_preserve_spacing: bool = False
+    body_styles: tuple[str, ...] = ()
+    body_fragments: tuple[FormattedLine, ...] = ()
+    status_style: str = ""
 
 
 @dataclass(frozen=True, slots=True)

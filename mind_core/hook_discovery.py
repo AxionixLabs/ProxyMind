@@ -25,7 +25,7 @@ _MATCHER_GROUP_FIELDS = frozenset({
     "hooks",
 })
 
-_COMMAND_HANDLER_FIELDS = frozenset({
+_HANDLER_FIELDS = frozenset({
     "type",
     "command",
     "commandWindows",
@@ -34,6 +34,8 @@ _COMMAND_HANDLER_FIELDS = frozenset({
     "timeout",
     "async",
     "additionalContextLimit",
+    "server",
+    "tool",
 })
 
 _DEFAULT_HOOK_TIMEOUT_SEC               = 600
@@ -150,21 +152,30 @@ def resolve_hook_source(
         for group in groups_by_event.get(event, ()):
             for normalized_handler in group.handlers:
                 handler = normalized_handler.config
+
                 content_hash = _content_hash({
                     "matcher": group.matcher,
                     "handler": handler,
                 })
+
                 definitions.append(HookDefinitionConfig(
                     key=(
-                        f"{source_key}:{event}:{group.source_index}:"
+                        f"{source_key}|{handler['type']}"
+                        + (
+                            f":{handler.get('server')}:{handler.get('tool')}"
+                            if handler["type"] == "mcp_tool" else ""
+                        )
+                        + f":{event}:{group.source_index}:"
                         f"{normalized_handler.source_index}"
                     ),
                     event=event,
                     handler=HookHandlerConfig(
                         type=handler["type"],
-                        command=handler["command"],
-                        command_windows=handler["commandWindows"],
+                        command=handler.get("command"),
+                        command_windows=handler.get("commandWindows"),
                         status_message=handler["statusMessage"],
+                        mcp_server=handler.get("server"),
+                        mcp_tool=handler.get("tool"),
                         timeout_sec=handler["timeout"],
                         run_async=handler["async"],
                         additional_context_limit=(
@@ -177,6 +188,7 @@ def resolve_hook_source(
                     trust_policy=trust_policy,
                     content_hash=content_hash,
                 ))
+
     return HookSourceResolution(
         definitions=tuple(definitions),
         has_events=_has_hook_events(raw),
@@ -293,30 +305,36 @@ def _validate_hook_file_handler(
         raise HookConfigError(f"{dotted} must be an object")
 
     handler_type = handler.get("type")
-    if handler_type not in ("command", "prompt", "agent"):
+    if handler_type not in ("command", "mcp_tool", "prompt", "agent"):
         raise HookConfigError(
-            f"{dotted}.type must be command, prompt, or agent"
-        )
-    if handler_type != "command":
-        return
-
-    command = handler.get("command")
-    if not isinstance(command, str):
-        raise HookConfigError(f"{dotted}.command must be a string")
-
-    if "commandWindows" in handler and "command_windows" in handler:
-        raise HookConfigError(
-            f"{dotted}.commandWindows and command_windows cannot both be set"
+            f"{dotted}.type must be command, mcp_tool, prompt, or agent"
         )
 
-    command_windows = handler.get(
-        "commandWindows",
-        handler.get("command_windows"),
-    )
-    if command_windows is not None and not isinstance(command_windows, str):
-        raise HookConfigError(
-            f"{dotted}.commandWindows must be a string"
+    if handler_type == "mcp_tool":
+        for field in ("server", "tool"):
+            value = handler.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise HookConfigError(f"{dotted}.{field} must be a non-empty string")
+
+    elif handler_type == "command":
+        command = handler.get("command")
+        if not isinstance(command, str):
+            raise HookConfigError(f"{dotted}.command must be a string")
+
+        if "commandWindows" in handler and "command_windows" in handler:
+            raise HookConfigError(
+                f"{dotted}.commandWindows and command_windows cannot both be set"
+            )
+
+        command_windows = handler.get(
+            "commandWindows",
+            handler.get("command_windows"),
         )
+
+        if command_windows is not None and not isinstance(command_windows, str):
+            raise HookConfigError(
+                f"{dotted}.commandWindows must be a string"
+            )
 
     timeout = handler.get("timeout")
     if timeout is not None and not _is_non_negative_integer(timeout):
@@ -541,14 +559,7 @@ def _normalize_hook_handler(
         return None
 
     handler_type = raw.get("type")
-    if handler_type in {"prompt", "agent"}:
-        _append_warning(
-            warnings,
-            f"skipping {handler_type} hook in {source}: "
-            f"{handler_type} hooks are not supported yet",
-        )
-        return None
-    if handler_type != "command":
+    if handler_type not in {"command", "mcp_tool", "prompt", "agent"}:
         _append_warning(
             warnings,
             f"skipping hook in {dotted} from {source}: unsupported handler type "
@@ -556,7 +567,7 @@ def _normalize_hook_handler(
         )
         return None
 
-    unknown = sorted(set(raw).difference(_COMMAND_HANDLER_FIELDS))
+    unknown = sorted(set(raw).difference(_HANDLER_FIELDS))
     if unknown:
         _append_warning(
             warnings,
@@ -564,17 +575,45 @@ def _normalize_hook_handler(
             f"{', '.join(unknown)}",
         )
 
-    command_fields = _normalize_command_fields(
-        raw,
-        dotted=dotted,
-        warnings=warnings,
-        source=source,
-    )
+    if handler_type == "command":
+        command_fields = _normalize_command_fields(
+            raw,
+            dotted=dotted,
+            warnings=warnings,
+            source=source,
+        )
+        if command_fields is None:
+            return None
+        command, command_windows, status_message = command_fields
+    else:
+        command = command_windows = None
+        status_message = raw.get("statusMessage")
+        if status_message is not None:
+            if not isinstance(status_message, str):
+                _append_warning(
+                    warnings,
+                    f"skipping hook in {dotted} from {source}: statusMessage must be a string",
+                )
+                return None
+            status_message = status_message.strip() or None
 
-    if command_fields is None:
-        return None
+    mcp_server = mcp_tool = None
 
-    command, command_windows, status_message = command_fields
+    if handler_type == "mcp_tool":
+        mcp_server = raw.get("server")
+        mcp_tool   = raw.get("tool")
+
+        if (
+            not isinstance(mcp_server, str) or not mcp_server.strip()
+            or not isinstance(mcp_tool, str) or not mcp_tool.strip()
+        ):
+            _append_warning(
+                warnings,
+                f"skipping mcp_tool hook in {dotted} from {source}: server and tool must be non-empty strings",
+            )
+            return None
+        mcp_server = mcp_server.strip()
+        mcp_tool = mcp_tool.strip()
 
     timeout = _normalize_timeout(
         event,
@@ -588,7 +627,7 @@ def _normalize_hook_handler(
 
     run_async = _normalize_async(
         event,
-        raw.get("async", False),
+        raw.get("async", False) if handler_type == "command" else False,
         dotted=dotted,
         warnings=warnings,
         source=source,
@@ -611,10 +650,12 @@ def _normalize_hook_handler(
         return None
 
     return {
-        "type": "command",
+        "type": handler_type,
         "command": command,
         "commandWindows": command_windows,
         "statusMessage": status_message,
+        "server": mcp_server,
+        "tool": mcp_tool,
         "timeout": timeout,
         "async": run_async,
         "additionalContextLimit": context_limit,

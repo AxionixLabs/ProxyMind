@@ -12,11 +12,11 @@ HookEventName = typing.Literal[
     "PreCompact",
     "PostCompact",
     "SessionStart",
+    "SessionEnd",
     "UserPromptSubmit",
     "SubagentStart",
     "SubagentStop",
     "Stop",
-    "SessionEnd",
 ]
 
 HookMatcherSubject = typing.Literal[
@@ -37,7 +37,12 @@ HookTrustPolicy = typing.Literal[
     "content_hash",
 ]
 
-HookHandlerType = typing.Literal["command"]
+HookHandlerType = typing.Literal[
+    "command",
+    "mcp_tool",
+    "prompt",
+    "agent"
+]
 
 HookStateTable = dict[str, dict[str, bool | str]]
 
@@ -69,13 +74,18 @@ COMPACT_TRIGGER_REASONS: tuple[CompactTriggerReason, ...] = (
     "overflow",
 )
 
-CompactTriggerSource = typing.Literal["client", "server"]
+CompactTriggerSource = typing.Literal[
+    "client",
+    "server"
+]
+
 COMPACT_TRIGGER_SOURCES: tuple[CompactTriggerSource, ...] = (
     "client",
     "server",
 )
 
 CompactResultSource = typing.Literal["server", "fallback"]
+
 COMPACT_RESULT_SOURCES: tuple[CompactResultSource, ...] = (
     "server",
     "fallback",
@@ -86,6 +96,7 @@ CompactOutcome = typing.Literal[
     "failed",
     "interrupted",
 ]
+
 COMPACT_OUTCOMES: tuple[CompactOutcome, ...] = (
     "completed",
     "failed",
@@ -96,6 +107,7 @@ HOOK_STATE_FIELDS = frozenset({
     "enabled",
     "trusted_hash",
 })
+
 HOOK_HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -156,6 +168,13 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         control_policy="notify",
         supports_additional_context=True,
     ),
+    "SessionEnd": HookEventConfigSpec(
+        name="SessionEnd",
+        description="Right before a session ends",
+        matcher_subject="session_reason",
+        control_policy="notify",
+        supports_additional_context=False,
+    ),
     "UserPromptSubmit": HookEventConfigSpec(
         name="UserPromptSubmit",
         description="When the user submits a prompt",
@@ -184,34 +203,56 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         control_policy="notify",
         supports_additional_context=False,
     ),
-    "SessionEnd": HookEventConfigSpec(
-        name="SessionEnd",
-        description="When a root session ends",
-        matcher_subject="session_reason",
-        control_policy="notify",
-        supports_additional_context=False,
-    ),
 }
 
-HOOK_EVENT_NAMES: tuple[HookEventName, ...] = tuple(HOOK_EVENT_CONFIG_SPECS)
+HOOK_EVENT_NAMES: tuple[HookEventName, ...] = (
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SessionStart",
+    "SessionEnd",
+    "UserPromptSubmit",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
+)
+
+if set(HOOK_EVENT_CONFIG_SPECS) != set(HOOK_EVENT_NAMES):
+    raise RuntimeError("hook event configuration does not match stable order")
 
 
 @dataclass(frozen=True, slots=True)
 class HookHandlerConfig:
     """描述 Hook 使用的执行处理器。"""
     type: HookHandlerType
-    command: str
+    command: str | None
     command_windows: str | None
     status_message: str | None
+    mcp_server: str | None
+    mcp_tool: str | None
     timeout_sec: int
     run_async: bool
     additional_context_limit: int
 
+    @property
+    def selector(self) -> str:
+        """返回用于稳定身份区分的处理器选择器。"""
+        if self.type == "mcp_tool":
+            return f"mcp_tool:{self.mcp_server or ''}/{self.mcp_tool or ''}"
+        return self.type
+
     def command_for_platform(self, platform: str) -> str:
         """返回当前平台应执行的命令。"""
+        if self.type != "command" or self.command is None:
+            raise HookConfigError(
+                f"handler type {self.type!r} does not provide a command"
+            )
         if platform == "nt" and self.command_windows:
             return self.command_windows
         return self.command
+
 
 
 @dataclass(frozen=True, slots=True)

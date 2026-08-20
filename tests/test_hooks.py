@@ -414,6 +414,75 @@ def test_matcher_group_expands_handlers_with_platform_commands() -> None:
     assert definitions[0].handler.command_for_platform("nt") == "check-windows"
 
 
+def test_discovery_supports_all_codex_handler_types_and_stable_selectors() -> None:
+    raw = {
+        "PreToolUse": [{
+            "matcher": "shell_command",
+            "hooks": [
+                {"type": "command", "command": "check"},
+                {"type": "mcp_tool", "server": "files", "tool": "read"},
+                {"type": "prompt"},
+                {"type": "agent"},
+            ],
+        }],
+    }
+    definitions = resolve_hook_definitions(
+        raw,
+        source_scope="project",
+        source_path=None,
+    )
+
+    assert [item.handler.type for item in definitions] == [
+        "command", "mcp_tool", "prompt", "agent",
+    ]
+    assert "|mcp_tool:files:read:" in definitions[1].key
+    assert "|prompt:" in definitions[2].key
+    assert definitions[1].handler.command is None
+    assert definitions[1].handler.mcp_server == "files"
+    assert definitions[1].handler.mcp_tool == "read"
+
+
+def test_handler_content_changes_update_content_hash() -> None:
+    first = resolve_hook_definitions(
+        {"PreToolUse": [{"hooks": [{"type": "prompt"}]}]},
+        source_scope="project",
+        source_path=None,
+    )[0]
+    second = resolve_hook_definitions(
+        {"PreToolUse": [{"hooks": [{"type": "agent"}]}]},
+        source_scope="project",
+        source_path=None,
+    )[0]
+    assert first.content_hash != second.content_hash
+
+
+def test_registry_keeps_non_command_hooks_in_catalog_but_out_of_runtime() -> None:
+    definitions = resolve_hook_definitions(
+        {"PreToolUse": [{"hooks": [
+            {"type": "mcp_tool", "server": "files", "tool": "read"},
+            {"type": "command", "command": "check"},
+        ]}]},
+        source_scope="project",
+        source_path=None,
+    )
+    registry = HookRegistry(command_runner=_CommandRunner())
+    runtime = registry.build(
+        definitions,
+        hook_states={
+            item.key: {"trusted_hash": item.content_hash}
+            for item in definitions
+        },
+    )
+    assert [item.handler.type for item in runtime.definitions] == ["command"]
+    assert runtime.installed_count == 2
+    assert runtime.active_count == 1
+    snapshot = registry.inspect(
+        definitions,
+        workspace=Path("."),
+    )
+    assert [item.handler_type for item in snapshot.hooks] == ["mcp_tool", "command"]
+
+
 def test_non_session_async_hook_is_skipped_with_warning() -> None:
     warnings = []
     definitions = resolve_hook_definitions(

@@ -2,15 +2,17 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import dataclass
 from engine.observability import observe
 from mind_core.hook_trust import (
     HookTrustState,
+    hook_needs_review,
     resolve_hook_state
 )
 from mind_core.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
+    HOOK_EVENT_NAMES,
     HookDefinitionConfig,
     HookStateTable
 )
@@ -50,114 +52,6 @@ class HookRegistry:
     ) -> None:
         self._command_runner = command_runner or HookCommandExecutor()
         self._observed_warnings: set[str] = set()
-
-    def build(
-        self,
-        definitions: typing.Iterable[HookDefinitionConfig],
-        *,
-        hook_states: HookStateTable | None = None,
-        warnings: typing.Iterable[str] = (),
-        status_port: HookStatusPort | None = None
-    ) -> HookRuntime:
-        """按当前信任状态构建一个独立运行时。"""
-        resolved = self._resolve(definitions, hook_states or {})
-        warning_items = tuple(warnings)
-        self._observe_warnings(warning_items)
-
-        active = tuple(
-            item.definition
-            for item in resolved
-            if item.active
-        )
-
-        status = HookRuntimeStatus(
-            installed_count=len(resolved),
-            active_count=len(active),
-            hooks=tuple(
-                self._runtime_entry(item)
-                for item in resolved
-            ),
-            warnings=warning_items,
-        )
-
-        return HookRuntime(
-            active,
-            command_runner=self._command_runner,
-            context_spiller=(
-                self._command_runner
-                if isinstance(self._command_runner, HookCommandExecutor)
-                else None
-            ),
-            status_port=status_port,
-            status=status,
-        )
-
-    async def cleanup_session(self, session_id: str) -> None:
-        """清理指定会话产生的 Hook 临时输出。"""
-        if isinstance(self._command_runner, HookCommandExecutor):
-            await self._command_runner.cleanup_session(session_id)
-
-    async def close(self) -> None:
-        """关闭 Hook 命令执行器持有的临时资源。"""
-        if isinstance(self._command_runner, HookCommandExecutor):
-            await self._command_runner.close()
-
-    def inspect(
-        self,
-        definitions: typing.Iterable[HookDefinitionConfig],
-        *,
-        hook_states: HookStateTable | None = None,
-        warnings: typing.Iterable[str] = (),
-        workspace: Path
-    ) -> HookCatalogSnapshot:
-        """返回指定工作区的 Hook 管理快照。"""
-        resolved = self._resolve(definitions, hook_states or {})
-        warning_items = tuple(warnings)
-        self._observe_warnings(warning_items)
-
-        hooks = tuple(
-            self._catalog_entry(item)
-            for item in resolved
-        )
-
-        events = tuple(
-            HookEventSummary(
-                event=event,
-                description=spec.description,
-                matcher_subject=spec.matcher_subject,
-                control_policy=spec.control_policy,
-                installed_count=sum(
-                    item.definition.event == event
-                    for item in resolved
-                ),
-                active_count=sum(
-                    item.definition.event == event and item.active
-                    for item in resolved
-                ),
-            )
-            for event, spec in HOOK_EVENT_CONFIG_SPECS.items()
-        )
-
-        return HookCatalogSnapshot(
-            workspace=str(Path(workspace).expanduser().resolve()),
-            installed_count=len(hooks),
-            active_count=sum(item.active for item in resolved),
-            events=events,
-            hooks=hooks,
-            warnings=warning_items,
-        )
-
-    def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
-        """记录当前进程中尚未报告过的 discovery warning。"""
-        for warning in warnings:
-            if warning in self._observed_warnings:
-                continue
-            self._observed_warnings.add(warning)
-            observe(
-                "hook.discovery.warning",
-                level="WARNING",
-                warning=warning,
-            )
 
     @staticmethod
     def _resolve(
@@ -204,9 +98,12 @@ class HookRegistry:
         return HookCatalogEntry(
             key=definition.key,
             event=definition.event,
+            handler_type=definition.handler.type,
             command=definition.handler.command,
             command_windows=definition.handler.command_windows,
             status_message=definition.handler.status_message,
+            mcp_server=definition.handler.mcp_server,
+            mcp_tool=definition.handler.mcp_tool,
             matcher=definition.matcher,
             matcher_subject=event_spec.matcher_subject,
             timeout_sec=definition.handler.timeout_sec,
@@ -222,6 +119,136 @@ class HookRegistry:
             active=item.active,
             content_hash=definition.content_hash,
         )
+
+    def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
+        """记录当前进程中尚未报告过的 discovery warning。"""
+        for warning in warnings:
+            if warning in self._observed_warnings:
+                continue
+            self._observed_warnings.add(warning)
+            observe(
+                "hook.discovery.warning",
+                level="WARNING",
+                warning=warning,
+            )
+
+    def build(
+        self,
+        definitions: typing.Iterable[HookDefinitionConfig],
+        *,
+        hook_states: HookStateTable | None = None,
+        warnings: typing.Iterable[str] = (),
+        status_port: HookStatusPort | None = None
+    ) -> HookRuntime:
+        """按当前信任状态构建一个独立运行时。"""
+        resolved      = self._resolve(definitions, hook_states or {})
+        warning_items = list(warnings)
+
+        unsupported_active = tuple(
+            item.definition.handler.type
+            for item in resolved
+            if item.active and item.definition.handler.type != "command"
+        )
+        for handler_type in unsupported_active:
+            message = (
+                f"active {handler_type} hook is available for management but "
+                "is not executable by the local command runtime"
+            )
+            if message not in warning_items:
+                warning_items.append(message)
+
+        warning_items = tuple(warning_items)
+        self._observe_warnings(warning_items)
+
+        active = tuple(
+            item.definition
+            for item in resolved
+            if item.active and item.definition.handler.type == "command"
+        )
+
+        status = HookRuntimeStatus(
+            installed_count=len(resolved),
+            active_count=len(active),
+            hooks=tuple(
+                self._runtime_entry(item)
+                for item in resolved
+            ),
+            warnings=warning_items,
+        )
+
+        return HookRuntime(
+            active,
+            command_runner=self._command_runner,
+            context_spiller=(
+                self._command_runner
+                if isinstance(self._command_runner, HookCommandExecutor)
+                else None
+            ),
+            status_port=status_port,
+            status=status,
+        )
+
+    def inspect(
+        self,
+        definitions: typing.Iterable[HookDefinitionConfig],
+        *,
+        hook_states: HookStateTable | None = None,
+        warnings: typing.Iterable[str] = (),
+        workspace: Path
+    ) -> HookCatalogSnapshot:
+        """返回指定工作区的 Hook 管理快照。"""
+        resolved      = self._resolve(definitions, hook_states or {})
+        warning_items = tuple(warnings)
+
+        self._observe_warnings(warning_items)
+
+        hooks = tuple(
+            self._catalog_entry(item)
+            for item in resolved
+        )
+
+        events = tuple(
+            HookEventSummary(
+                event=event,
+                description=spec.description,
+                matcher_subject=spec.matcher_subject,
+                control_policy=spec.control_policy,
+                installed_count=sum(
+                    item.definition.event == event
+                    for item in resolved
+                ),
+                active_count=sum(
+                    item.definition.event == event and item.active
+                    for item in resolved
+                ),
+                review_count=sum(
+                    item.definition.event == event
+                    and hook_needs_review(item.trust_state)
+                    for item in resolved
+                ),
+            )
+            for event in HOOK_EVENT_NAMES
+            for spec in (HOOK_EVENT_CONFIG_SPECS[event],)
+        )
+
+        return HookCatalogSnapshot(
+            workspace=str(Path(workspace).expanduser().resolve()),
+            installed_count=len(hooks),
+            active_count=sum(item.active for item in resolved),
+            events=events,
+            hooks=hooks,
+            warnings=warning_items,
+        )
+
+    async def cleanup_session(self, session_id: str) -> None:
+        """清理指定会话产生的 Hook 临时输出。"""
+        if isinstance(self._command_runner, HookCommandExecutor):
+            await self._command_runner.cleanup_session(session_id)
+
+    async def close(self) -> None:
+        """关闭 Hook 命令执行器持有的临时资源。"""
+        if isinstance(self._command_runner, HookCommandExecutor):
+            await self._command_runner.close()
 
 
 if __name__ == '__main__':

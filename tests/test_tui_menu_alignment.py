@@ -89,11 +89,7 @@ async def test_menu_rows_fit_terminal_width_with_wide_text() -> None:
     assert all(get_cwidth(line) <= width for line in lines)
     option_lines = lines[4:]
     assert "…" in option_lines[0]
-    separators = [
-        get_cwidth(line.split(" · ", 1)[0])
-        for line in option_lines
-    ]
-    assert len(set(separators)) == 1
+    assert all(get_cwidth(line) <= width for line in option_lines)
 
 
 @pytest.mark.anyio
@@ -1276,8 +1272,9 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 footer_hint="Press enter",
             ),
             "\n".join((
-                "  Columns",
-                "  Up/Down select · Enter apply · Esc/…",
+                    "  Columns",
+                    "  Up/Down select · Enter apply · Esc/…",
+                    "",
                 "› 1. Short",
                 "     这是一个很长的中文描述",
                 "  2. Long label",
@@ -1311,11 +1308,12 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                 "  Options",
-                "  ready",
-                "  Up/Down select · Enter apply · Esc/q cancel",
-                "  1. One     · First",
-                "  ×  Blocked · Busy",
-                "› 2. Two     · Second (current)",
+                    "  ready",
+                    "  Up/Down select · Enter apply · Esc/q cancel",
+                    "",
+                    "  1. One      First",
+                    "  ×  Blocked  Busy",
+                    "› 2. Two      Second (current)",
                 "  ",
                 "    Status",
                 "    Press enter",
@@ -1341,10 +1339,11 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 footer_hint="Press enter",
             ),
             "\n".join((
-                "  Long menu",
-                "  Up/Down select · Enter apply · Esc/q cancel",
-                "› 1. First option  · A descriptive value",
-                "  2. Second option · Another descriptive value",
+                    "  Long menu",
+                    "  Up/Down select · Enter apply · Esc/q cancel",
+                    "",
+                    "› 1. First option   A descriptive value",
+                    "  2. Second option  Another descriptive value",
                 "  ",
                 "    All options visible",
                 "    Press enter",
@@ -1376,9 +1375,10 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 footer_hint="Press enter",
             ),
             "\n".join((
-                "  Disabled",
-                "  Up/Down select · Enter apply · Esc/q cancel",
-                "     A · Busy",
+                    "  Disabled",
+                    "  Up/Down select · Enter apply · Esc/q cancel",
+                    "",
+                    "     A  Busy",
                 "     B",
                 "  ",
                 "    Press enter",

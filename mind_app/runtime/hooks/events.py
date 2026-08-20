@@ -53,11 +53,11 @@ HOOK_EVENT_SPECS: dict[HookEventName, HookEventSpec] = {
     "PreCompact": _event_spec("PreCompact"),
     "PostCompact": _event_spec("PostCompact"),
     "SessionStart": _event_spec("SessionStart"),
+    "SessionEnd": _event_spec("SessionEnd"),
     "UserPromptSubmit": _event_spec("UserPromptSubmit"),
     "SubagentStart": _event_spec("SubagentStart"),
     "SubagentStop": _event_spec("SubagentStop"),
     "Stop": _event_spec("Stop"),
-    "SessionEnd": _event_spec("SessionEnd"),
 }
 
 
@@ -74,10 +74,11 @@ def validate_hook_event_catalog() -> None:
     configured = set(HOOK_EVENT_NAMES)
     registered = set(HOOK_EVENT_SPECS)
 
-    if configured != registered:
+    if configured != registered or tuple(HOOK_EVENT_SPECS) != HOOK_EVENT_NAMES:
         missing = sorted(configured.difference(registered))
-        extra = sorted(registered.difference(configured))
-        detail = f"missing={missing}, extra={extra}"
+        extra   = sorted(registered.difference(configured))
+        detail  = f"missing={missing}, extra={extra}"
+
         raise RuntimeError(f"hook event catalog mismatch: {detail}")
 
 
