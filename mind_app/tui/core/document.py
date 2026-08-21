@@ -16,12 +16,12 @@ from .models import (
     FormattedText,
     FragmentBlock
 )
-from .render import (
+from ..rendering.fragments import (
     fill_fragments,
     join_formatted_lines,
-    sanitize_fragment_block,
     split_formatted_lines
 )
+from ..rendering.text_sanitize import sanitize_fragment_block
 
 if typing.TYPE_CHECKING:
     from mind_app.history.transcript import TranscriptEntry
@@ -252,6 +252,40 @@ class TuiDocument(object):
             out.pop()
         return out
 
+    @staticmethod
+    def _source_rendered_block(
+        cell: TranscriptBlock,
+        *,
+        width: int | None,
+        transcript: bool
+    ) -> FragmentBlock:
+        """按需生成指定宽度的正文块。"""
+        fallback = (
+            cell.transcript_block
+            if transcript
+            else cell.display_block
+        )
+
+        if not transcript and cell.display_renderer is not None:
+            if width is None or width == cell.display_render_width:
+                return fallback
+            return cell.display_renderer(width)
+
+        if (
+            width is None
+            or cell.source_renderer is None
+            or cell.raw_text is None
+            or width == cell.source_render_width
+        ):
+            return fallback
+
+        return cell.source_renderer(cell.raw_text, width)
+
+    @staticmethod
+    def _display_gap_height(item: TranscriptBlock) -> int:
+        """返回两个普通正文 cell 之间需要保留的空行数。"""
+        return max(0, int(item.gap_before))
+
     def _reset_active(self) -> None:
         """重置当前动态正文状态。"""
         self.active_block               = None
@@ -324,11 +358,6 @@ class TuiDocument(object):
                 leading_content_terminated = False
 
         return out
-
-    @staticmethod
-    def _display_gap_height(item: TranscriptBlock) -> int:
-        """返回两个普通正文 cell 之间需要保留的空行数。"""
-        return max(0, int(item.gap_before))
 
     def _last_rendered_kind(self) -> TuiBlockKind | None:
         """返回最后一个包含可见内容的稳定 cell 类型。"""
@@ -1166,35 +1195,6 @@ class TuiDocument(object):
         ]
 
         return join_formatted_lines(lines)
-
-    @staticmethod
-    def _source_rendered_block(
-        cell: TranscriptBlock,
-        *,
-        width: int | None,
-        transcript: bool
-    ) -> FragmentBlock:
-        """按需生成指定宽度的正文块。"""
-        fallback = (
-            cell.transcript_block
-            if transcript
-            else cell.display_block
-        )
-
-        if not transcript and cell.display_renderer is not None:
-            if width is None or width == cell.display_render_width:
-                return fallback
-            return cell.display_renderer(width)
-
-        if (
-            width is None
-            or cell.source_renderer is None
-            or cell.raw_text is None
-            or width == cell.source_render_width
-        ):
-            return fallback
-
-        return cell.source_renderer(cell.raw_text, width)
 
 
 if __name__ == '__main__':

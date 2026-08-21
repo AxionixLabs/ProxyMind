@@ -12,7 +12,7 @@ from engine.observability import (
 from engine.errors import AppError
 from mind_app.frontend.contracts import ActivityStatusKind
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
-from ..core.runtime import TuiRuntime
+from ..runtime.ports import ForegroundRuntimePort
 from ..core.styles import (
     MUTED_STYLE,
     text_block
@@ -57,7 +57,7 @@ CancelledHandler = typing.Callable[[], None]
 class TuiForegroundTasks(object):
     """管理可取消前台任务及下一轮模型调用屏障。"""
 
-    def __init__(self, runtime: TuiRuntime, mind: "Mind") -> None:
+    def __init__(self, runtime: ForegroundRuntimePort, mind: "Mind") -> None:
         self.runtime = runtime
         self.mind    = mind
 

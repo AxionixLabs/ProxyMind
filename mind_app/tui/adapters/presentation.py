@@ -33,7 +33,7 @@ from mind_app.presentation.renderers.dispatch import (
 from prompt_toolkit.utils import get_cwidth
 from ..core.document import TuiBlockKind
 from ..core.models import FragmentBlock
-from ..core.render import transcript_hint
+from ..rendering.fragments import transcript_hint
 from ..core.styles import styled_block_fragments
 
 if typing.TYPE_CHECKING:

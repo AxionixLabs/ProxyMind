@@ -27,7 +27,7 @@ from ..core.models import (
     FormattedText,
     FragmentBlock
 )
-from ..core.render import (
+from ..rendering.fragments import (
     join_formatted_lines,
     wrap_formatted_lines
 )

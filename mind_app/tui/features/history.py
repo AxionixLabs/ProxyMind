@@ -41,11 +41,11 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ..core.runtime import TuiRuntime
+    from ..runtime.ports import MenuSelectionPort
 
 
 async def choose_history_session(
-    runtime: "TuiRuntime",
+    runtime: "MenuSelectionPort",
     records: list[dict[str, typing.Any]],
     *,
     show_workspace: bool = False
@@ -109,7 +109,7 @@ def load_history_transcript(
 
 
 def _legacy_record_blocks(
-    record: typing.Mapping[str, typing.Any] | None,
+    record: typing.Mapping[str, typing.Any] | None
 ) -> tuple[TranscriptBlock, ...]:
     """从旧会话游标保留的标题恢复最小用户上下文。"""
     if record is None:

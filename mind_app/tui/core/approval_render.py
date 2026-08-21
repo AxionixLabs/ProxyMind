@@ -28,7 +28,7 @@ from mind_app.presentation.styles import (
     COMMAND_STRING_STYLE
 )
 from .styles import prompt_style
-from .render import sanitize_formatted_text
+from ..rendering.text_sanitize import sanitize_formatted_text
 
 TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card"              : "",

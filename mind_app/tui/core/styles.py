@@ -24,15 +24,15 @@ from ..prompting.commands import (
 )
 from .models import FragmentBlock
 from .hyperlinks import terminal_hyperlink_style
-from .render import (
+from ..rendering.fragments import (
     ZERO_WIDTH_ESCAPE_STYLE,
     clip_fragments,
     join_formatted_lines,
-    sanitize_fragment_block,
     split_formatted_lines,
     transcript_hint,
     wrap_formatted_lines
 )
+from ..rendering.text_sanitize import sanitize_fragment_block
 
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
 ACCENT_STYLE  = TextStyle(foreground="#AFC7D8", bold=True)

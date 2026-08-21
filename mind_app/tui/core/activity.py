@@ -28,7 +28,7 @@ from mind_core.mcp_status import (
 )
 from mind_core.design.terminal_capabilities import TerminalColorLevel
 from .models import FragmentBlock
-from .render import clip_fragments
+from ..rendering.fragments import clip_fragments
 from .styles import (
     BODY_STYLE,
     SUCCESS_STYLE,

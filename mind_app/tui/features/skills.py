@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 from mind_core.skills import SkillSpec
 from ..core.models import (
     MenuDescriptionLayout,
@@ -10,12 +9,10 @@ from ..core.models import (
     STANDARD_MENU_FOOTER_HINT
 )
 from ..prompting.skills import skill_description_text
-
-if typing.TYPE_CHECKING:
-    from ..core.runtime import TuiRuntime
+from ..runtime.ports import SkillRuntimePort
 
 
-async def choose_skill(runtime: "TuiRuntime") -> SkillSpec | None:
+async def choose_skill(runtime: SkillRuntimePort) -> SkillSpec | None:
     """选择一项可用 skill 并把引用写回主输入。"""
     skills = runtime.input_model.skills
 

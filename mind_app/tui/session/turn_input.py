@@ -21,7 +21,7 @@ from mind_nova.stream_events import (
 from mind_nova.turn_inputs import TurnInput
 from ...runtime.execution import TurnContext
 from ..core.queued import TuiSubmission
-from ..core.runtime import TuiRuntime
+from ..runtime.ports import TurnInputRuntimePort
 from .steer_ledger import PendingSteerLedger
 
 if typing.TYPE_CHECKING:
@@ -38,7 +38,7 @@ class TuiTurnInputControl(object):
     def __init__(
         self,
         controller: "Mind",
-        runtime: TuiRuntime,
+        runtime: TurnInputRuntimePort,
         state: "TuiSessionState",
         *,
         cid: str,

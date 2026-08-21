@@ -32,8 +32,7 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ..core.runtime import TuiRuntime
-
+    from ..runtime.ports import MenuSelectionPort
 
 MODEL_EFFORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("low", "Low", "低推理，优先速度"),
@@ -119,7 +118,7 @@ async def persist_primary_pref(
 
 
 async def choose_model_effort(
-    runtime: "TuiRuntime",
+    runtime: "MenuSelectionPort",
     current_effort: typing.Any
 ) -> str | None:
     """在主 TUI 中选择模型推理强度。"""
@@ -144,7 +143,7 @@ async def choose_model_effort(
 
 
 async def choose_provider(
-    runtime: "TuiRuntime",
+    runtime: "MenuSelectionPort",
     session: ConfigSession
 ) -> str | None:
     """从当前配置中选择一个 Provider Profile。"""

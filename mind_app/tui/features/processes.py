@@ -22,7 +22,7 @@ from ..core.models import (
     STANDARD_MENU_FOOTER_HINT
 )
 from ..core.process_viewer import ProcessViewerRequest
-from ..core.render import (
+from ..rendering.fragments import (
     clip_fragments,
     clip_text
 )
@@ -35,7 +35,7 @@ from .summary import (
 )
 
 if typing.TYPE_CHECKING:
-    from ..core.runtime import TuiRuntime
+    from ..runtime.ports import ProcessRuntimePort
 
 PS_PANEL_TICK_SEC: float         = 0.12
 PS_INTERRUPT_GRACE_SEC: float    = 0.05
@@ -61,7 +61,7 @@ _COMPLETED_ACTION = "completed"
 
 
 async def monitor_exec_status(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     mind: typing.Any
 ) -> None:
     """同步后台命令会话摘要到 TUI 专属状态行。"""
@@ -94,7 +94,7 @@ async def monitor_exec_status(
 
 
 def _set_exec_status(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     snapshot: typing.Any,
     *,
     excluded_session_id: str = ""
@@ -127,7 +127,7 @@ def _without_running_session(
 
 
 async def manage_exec_sessions(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     mind: typing.Any
 ) -> bool:
     """在主 TUI 中查看或停止后台命令会话。"""
@@ -271,7 +271,7 @@ def _completed_exec_panel(snapshot: dict[str, typing.Any]) -> MenuRequest:
 
 
 async def stop_all_exec_sessions(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     mind: typing.Any,
     *,
     sessions: list[dict[str, typing.Any]] | None = None
@@ -344,7 +344,7 @@ def render_no_background_terminals(
 
 
 async def append_exec_stream_snapshot(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     mind: typing.Any
 ) -> None:
     """在模型流式期间追加后台终端的近期输出摘要。"""
@@ -542,7 +542,7 @@ def render_exec_sessions_stopped(
 
 
 async def watch_exec_session(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     mind: typing.Any,
     session_id: str | None,
     *,
@@ -619,7 +619,7 @@ async def _watch_exec_session(
     session_id: str,
     state: dict[str, typing.Any],
     *,
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     announce_detach: bool,
     activate_immediately: bool,
     viewer_mode: ProcessViewerMode,
@@ -1050,7 +1050,7 @@ async def _interrupt_exec_session(
 
 
 async def _watch_detached_exec_session(
-    runtime: "TuiRuntime",
+    runtime: "ProcessRuntimePort",
     mind: typing.Any,
     session_id: str
 ) -> None:

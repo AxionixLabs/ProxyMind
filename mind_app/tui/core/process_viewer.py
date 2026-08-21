@@ -7,10 +7,8 @@ from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
-from .render import (
-    display_line_count,
-    sanitize_formatted_text
-)
+from ..rendering.fragments import display_line_count
+from ..rendering.text_sanitize import sanitize_formatted_text
 
 ProcessViewerAction: typing.TypeAlias = typing.Literal[
     "detach",
@@ -162,11 +160,11 @@ class TuiProcessViewer(object):
         @bindings.add("enter")
         @bindings.add(Keys.Escape, eager=True)
         @bindings.add("q")
-        def _(event) -> None:
+        def _(_event) -> None:
             self.resolve("detach")
 
         @bindings.add("c-c")
-        def _(event) -> None:
+        def _(_event) -> None:
             self.resolve("interrupt")
 
         return bindings

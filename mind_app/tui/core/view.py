@@ -2,18 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
-from .models import ViewCompletion
-
-
-@dataclass(frozen=True, slots=True)
-class ViewIdentity(object):
-    """描述一个底部选择视图的稳定身份和会话代数。"""
-    view_id: str | None
-    generation: int
-    session_id: int | None
+from ..contracts.views import (
+    ViewCompletion,
+    ViewIdentity
+)
 
 
 class BottomPaneView(typing.Protocol):

@@ -18,7 +18,7 @@ from .models import (
     FormattedText,
     TranscriptBacktrackRequest
 )
-from .render import (
+from ..rendering.fragments import (
     fragments_text,
     iter_formatted_text_units,
     iter_text_unit_ranges,

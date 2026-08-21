@@ -12,7 +12,7 @@ from prompt_toolkit.utils import get_cwidth
 from mind_nova.identifiers import short_uid
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
-from .render import clip_fragments
+from ..rendering.fragments import clip_fragments
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,7 +30,7 @@ from mind_app.presentation.styles import (
     PREVIEW_CODE_TEXT_STYLE
 )
 from ..core.models import FragmentBlock
-from ..core.render import iter_text_units
+from ..rendering.fragments import iter_text_units
 from ..core.styles import (
     assistant_block,
     assistant_continuation_block,

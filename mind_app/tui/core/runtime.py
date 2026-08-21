@@ -1,20 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import copy
 import typing
 import asyncio
 import contextlib
-import contextvars
 from collections import deque
 from functools import partial
-from dataclasses import dataclass
 from pathlib import Path
-from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.application import in_terminal
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
-from prompt_toolkit.patch_stdout import patch_stdout
 from mind_core.design.terminal_capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
@@ -61,7 +56,7 @@ from .input import TuiInputModel
 from .interrupt import TuiExitReason
 from .keymap import TuiRuntimeKeymap
 from .process_viewer import ProcessViewerRequest
-from .render import sanitize_fragment_block
+from ..rendering.text_sanitize import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
 from .view import ViewIdentity
@@ -85,70 +80,29 @@ from .submission import (
 )
 from .task_state import TuiTaskState
 from .viewport import TuiTranscriptViewport
-
-StartupAnimation: typing.TypeAlias = typing.Callable[
-    [], typing.Awaitable[None]
-]
-
-StartupFinalFrame: typing.TypeAlias = typing.Callable[[], None]
+from ..runtime.background import (
+    BackgroundTaskManager,
+    DeferredBlock,
+    DeferredBlockBuffer,
+)
+from ..runtime.lifecycle import ApplicationLifecycle
+from ..runtime.mailbox import MailboxOverlayCoordinator
+from ..runtime.startup import (
+    StartupAnimation,
+    StartupFinalFrame,
+    StartupPresentationQueue,
+)
+from ..runtime.state import (
+    ActivityHandoffState,
+    CommandLayoutState,
+    ProcessCompletionStore,
+)
+from ..runtime.transcript import (
+    TranscriptCoordinator,
+    TranscriptOverlayCoordinator,
+)
 
 ModalResult = typing.TypeVar("ModalResult")
-
-
-@dataclass(frozen=True, slots=True)
-class _DeferredBlock(object):
-    """保存等待安全边界提交的正文块和活动租约。"""
-    block: FragmentBlock
-    transcript_block: FragmentBlock
-    activity_lease: ActivityLease | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _StartupPresentation(object):
-    """保存启动动画及其可直接提交的最终帧。"""
-    animation: StartupAnimation
-    final_frame: StartupFinalFrame | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _ProcessCompletion(object):
-    """保存尚未由用户确认的后台进程完成状态。"""
-    snapshot: dict[str, typing.Any]
-    label: str
-
-
-class _ActivityHandoff(object):
-    """保存当前任务结果接管活动区域的状态。"""
-
-    __slots__ = (
-        "lease",
-        "deferred",
-        "consumed"
-    )
-
-    lease: ActivityLease | None
-    deferred: bool
-    consumed: bool
-
-    def __init__(
-        self,
-        lease: ActivityLease | None,
-        deferred: bool,
-    ) -> None:
-        self.lease    = lease
-        self.deferred = deferred
-        self.consumed = False
-
-
-class _CommandLayoutHandoff(object):
-    """保存命令结果接管活动区域前的业务同步状态。"""
-
-    __slots__ = ("consumed",)
-
-    consumed: bool
-
-    def __init__(self) -> None:
-        self.consumed = False
 
 
 class TuiRuntime(object):
@@ -181,38 +135,32 @@ class TuiRuntime(object):
         )
         self.document = TuiDocument()
 
-        self._application_task: asyncio.Task[None] | None = None
-        self._application_error: BaseException | None     = None
-        self._application_failure: asyncio.Event          = asyncio.Event()
-
         self._consumed_submission: TuiSubmission | None = None
 
-        self._background_tasks: set[asyncio.Task[None]]               = set()
-        self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
-        self._background_blocks: list[_DeferredBlock]                 = []
+        self._background_tasks = BackgroundTaskManager(
+            lambda error: self._report_runtime_error(
+                "Background task failed",
+                error,
+            ),
+        )
+        self._background_blocks = DeferredBlockBuffer()
 
         self._menu_actions: deque[MenuAction] = deque()
         self._menu_action_scheduled: bool     = False
 
         self._running_process_status_label: str = ""
 
-        self._process_completions: dict[str, _ProcessCompletion] = {}
+        self._process_completions = ProcessCompletionStore()
 
         self._process_routing_settled: asyncio.Event = asyncio.Event()
         self._process_routing_settled.set()
 
-        self._activity_handoff = contextvars.ContextVar[
-            _ActivityHandoff | None
-        ]("tui_activity_handoff", default=None)
-
-        self._command_layout = contextvars.ContextVar[
-            _CommandLayoutHandoff | None
-        ]("tui_command_layout", default=None)
-        self._command_layout_token: contextvars.Token | None = None
+        self._activity_handoff = ActivityHandoffState()
+        self._command_layout = CommandLayoutState()
 
         self._open_callbacks: list[typing.Callable[[], None]]          = []
         self._turn_finished_callbacks: list[typing.Callable[[], None]] = []
-        self._startup_presentations: list[_StartupPresentation]        = []
+        self._startup_presentations = StartupPresentationQueue()
 
         self._closing: bool = False
 
@@ -337,11 +285,58 @@ class TuiRuntime(object):
             color_level=terminal_capabilities.color_level,
         )
 
+        self._application_lifecycle = ApplicationLifecycle(
+            self.screen.application,
+            clear_pending_input=clear_pending_input,
+            finish_input=self.submissions.finish_input,
+            reset_synchronized_output=self.screen.reset_synchronized_output,
+        )
+        self._transcript = TranscriptCoordinator(
+            document=self.document,
+            viewport=self.viewport,
+            overlay=self.screen.transcript_overlay,
+            screen=self.screen,
+            flush_background_blocks=lambda: self._flush_background_blocks(),
+            discard_background_blocks=(
+                lambda: self._discard_background_blocks()
+            ),
+        )
+        self._transcript_overlay = TranscriptOverlayCoordinator(
+            overlay=self.screen.transcript_overlay,
+            viewport=self.viewport,
+            screen=self.screen,
+            cancel_history_backtrack=(
+                lambda: self.input_model.cancel_history_backtrack()
+            ),
+        )
+        self._mailbox_overlay = MailboxOverlayCoordinator(
+            overlay=self.screen.mailbox_overlay,
+            viewport=self.viewport,
+            screen=self.screen,
+            cancel_history_backtrack=(
+                lambda: self.input_model.cancel_history_backtrack()
+            ),
+        )
+
     @property
     def active(self) -> bool:
         """返回 TUI 应用是否正在运行。"""
-        task = self._application_task
-        return task is not None and not task.done()
+        return self._application_lifecycle.active
+
+    @property
+    def _application_task(self) -> asyncio.Task[None] | None:
+        """返回生命周期协作者当前拥有的任务（迁移期私有观察入口）。"""
+        return self._application_lifecycle.task
+
+    @property
+    def _application_error(self) -> BaseException | None:
+        """返回生命周期协作者记录的错误（迁移期私有观察入口）。"""
+        return self._application_lifecycle.error
+
+    @property
+    def _application_failure(self) -> asyncio.Event:
+        """返回生命周期协作者的失败事件（迁移期私有观察入口）。"""
+        return self._application_lifecycle.failure
 
     @property
     def execution_active(self) -> bool:
@@ -397,8 +392,7 @@ class TuiRuntime(object):
     @property
     def command_layout_pending(self) -> bool:
         """返回当前命令结果是否仍等待业务交接完成。"""
-        handoff = self._command_layout.get()
-        return handoff is not None and not handoff.consumed
+        return self._command_layout.pending
 
     @property
     def directory_trust_active(self) -> bool:
@@ -438,36 +432,12 @@ class TuiRuntime(object):
             or self.screen.menu.active
         )
 
-    def _application_task_exception(self) -> BaseException | None:
-        """返回输入应用已经产生的终止异常。"""
-        if self._application_error is not None:
-            return self._application_error
-        task = self._application_task
-        if task is None or not task.done() or task.cancelled():
-            return None
-        return task.exception()
-
-    def _application_task_done(self, task: asyncio.Task[None]) -> None:
-        """记录输入应用的终止状态并唤醒所有等待方。"""
-        if self._closing:
-            return None
-
-        task_error = None if task.cancelled() else task.exception()
-        if self._application_error is None:
-            self._application_error = (
-                task_error if task_error is not None else EOFError()
-            )
-
-        self._application_failure.set()
-        self.submissions.finish_input()
-
     def _flush_background_blocks(self) -> None:
         """在流式正文结束后提交已完成的后台摘要。"""
         if self.submission_deferred or self.document.active_block is not None:
             return None
 
-        blocks = tuple(self._background_blocks)
-        self._background_blocks.clear()
+        blocks = self._background_blocks.drain()
 
         with self.screen.visual_update():
             for deferred in blocks:
@@ -480,28 +450,12 @@ class TuiRuntime(object):
 
     def _discard_background_blocks(self) -> None:
         """丢弃延迟正文并释放其持有的活动区域。"""
-        blocks = tuple(self._background_blocks)
-        self._background_blocks.clear()
+        blocks = self._background_blocks.drain()
 
         with self.screen.visual_update():
             for deferred in blocks:
                 if deferred.activity_lease is not None:
                     self.activity.release(deferred.activity_lease)
-
-    def _background_task_done(self, task: asyncio.Task[None]) -> None:
-        """回收已完成的 TUI 后台任务。"""
-        self._background_tasks.discard(task)
-        for session_id, session_task in tuple(
-            self._background_session_tasks.items()
-        ):
-            if session_task is task:
-                self._background_session_tasks.pop(session_id, None)
-        if task.cancelled():
-            return None
-
-        error = task.exception()
-        if error is not None:
-            self._report_runtime_error("Background task failed", error)
 
     def _report_display_error(self, error: BaseException) -> None:
         """把可恢复的终端展示错误追加为稳定提示。"""
@@ -524,40 +478,9 @@ class TuiRuntime(object):
             f"{label}: {description}"[:280]
         ))
 
-    def _fail_application(self, error: BaseException) -> None:
-        """记录首个致命异步错误并结束当前输入应用。"""
-        if self._closing or self._application_error is not None:
-            return None
-
-        self._application_error = error
-        self._application_failure.set()
-
-        application = self.screen.application
-        if not application.is_running or application.is_done:
-            self.submissions.finish_input()
-            return None
-
-        application.exit(exception=error)
-
-    def _handle_event_loop_exception(
-        self,
-        _loop: asyncio.AbstractEventLoop,
-        context: dict[str, typing.Any],
-    ) -> None:
-        """把应用运行期间的事件循环异常收束到单一终止边界。"""
-        error = context.get("exception")
-        if not isinstance(error, BaseException):
-            message = str(context.get("message") or "Event loop callback failed")
-            error = RuntimeError(message)
-        self._fail_application(error)
-
     def _complete_command_layout(self) -> bool:
         """消费命令结果交接标记并报告是否发生状态变化。"""
-        handoff = self._command_layout.get()
-        if handoff is None or handoff.consumed:
-            return False
-        handoff.consumed = True
-        return True
+        return self._command_layout.consume()
 
     def _consume_activity_handoff(
         self,
@@ -565,21 +488,14 @@ class TuiRuntime(object):
         deferred: bool
     ) -> ActivityLease | None:
         """消费当前任务等待交接的活动租约。"""
-        handoff = self._activity_handoff.get()
-        if handoff is None or handoff.consumed:
-            return None
+        return self._activity_handoff.consume(
+            deferred=deferred,
+            freeze=self._freeze_activity_lease,
+        )
 
-        lease = handoff.lease
-        if lease is None:
-            handoff.consumed = True
-            return None
-
-        if deferred and not handoff.deferred:
-            self.activity.freeze(lease)
-            handoff.deferred = True
-
-        handoff.consumed = True
-        return lease
+    def _freeze_activity_lease(self, lease: ActivityLease) -> None:
+        """冻结活动租约并隐藏底层布尔返回值。"""
+        self.activity.freeze(lease)
 
     def _can_backtrack_history(self) -> bool:
         """返回主输入区是否可以开始历史编辑选择。"""
@@ -619,13 +535,11 @@ class TuiRuntime(object):
 
     def _refresh_process_status(self) -> None:
         """按完成通知优先级刷新专用进程状态行。"""
-        completion = next(reversed(self._process_completions.values()), None)
-        label = (
-            completion.label
-            if completion is not None
-            else self._running_process_status_label
+        self.screen.process_status.set_label(
+            self._process_completions.latest_label(
+                self._running_process_status_label,
+            ),
         )
-        self.screen.process_status.set_label(label)
 
     def _handle_input_interrupt(self) -> None:
         """按当前前台交互状态分派输入中断。"""
@@ -658,8 +572,7 @@ class TuiRuntime(object):
 
     def _settle_startup_presentation(self) -> None:
         """跳过动画并提交当前注册的启动最终帧。"""
-        presentations = tuple(self._startup_presentations)
-        self._startup_presentations.clear()
+        presentations = self._startup_presentations.take()
         for presentation in presentations:
             if presentation.final_frame is not None:
                 presentation.final_frame()
@@ -695,19 +608,6 @@ class TuiRuntime(object):
             help_text="",
             footer_hint=CLOSE_MENU_FOOTER_HINT,
         ))
-
-    def _open_transcript_overlay(self) -> bool:
-        """冻结原生滚屏后切换到完整记录画面。"""
-        self.viewport.pause_scrollback()
-        try:
-            opened = self.screen.set_transcript_overlay(True)
-        except BaseException:
-            self.viewport.schedule_scrollback_flush()
-            raise
-
-        if not opened:
-            self.viewport.schedule_scrollback_flush()
-        return opened
 
     def _append_block(
         self,
@@ -766,11 +666,10 @@ class TuiRuntime(object):
         """注册在 Application 首帧后播放的一次性启动动画。"""
         if self.active:
             raise RuntimeError("TUI startup animation requires an inactive runtime")
-        if not self._startup_presentations:
-            self._startup_presentations.append(_StartupPresentation(
-                animation,
-                final_frame,
-            ))
+        self._startup_presentations.register(
+            animation,
+            final_frame=final_frame,
+        )
 
     def bind_pending_attachment_check(
         self,
@@ -820,28 +719,19 @@ class TuiRuntime(object):
         label: str
     ) -> None:
         """保存一项需要通过进程面板确认的完成快照。"""
-        session_id = str(snapshot.get("session_id") or "").strip()
-        if not session_id:
-            return None
-
-        self._process_completions.pop(session_id, None)
-        self._process_completions[session_id] = _ProcessCompletion(
-            snapshot=copy.deepcopy(snapshot),
-            label=str(label or "").strip(),
-        )
-        self._refresh_process_status()
+        if self._process_completions.retain(
+            snapshot,
+            label=label,
+        ):
+            self._refresh_process_status()
 
     def process_completion_snapshots(self) -> tuple[dict[str, typing.Any], ...]:
         """返回尚未确认的后台进程完成快照。"""
-        return tuple(
-            copy.deepcopy(item.snapshot)
-            for item in self._process_completions.values()
-        )
+        return self._process_completions.snapshots()
 
     def acknowledge_process_completion(self, session_id: typing.Any) -> None:
         """移除一项已经查看的后台进程完成状态。"""
-        sid = str(session_id or "").strip()
-        if sid and self._process_completions.pop(sid, None) is not None:
+        if self._process_completions.acknowledge(session_id):
             self._refresh_process_status()
 
     def begin_terminal_progress(self) -> None:
@@ -1083,10 +973,7 @@ class TuiRuntime(object):
         name: str
     ) -> asyncio.Task[None]:
         """启动由 TUI 生命周期管理的后台任务。"""
-        task = asyncio.create_task(coroutine, name=name)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_task_done)
-        return task
+        return self._background_tasks.start(coroutine, name=name)
 
     def start_background_session_task(
         self,
@@ -1094,22 +981,11 @@ class TuiRuntime(object):
         coroutine: typing.Coroutine[typing.Any, typing.Any, None],
     ) -> None:
         """为指定进程会话启动唯一的后台监视任务。"""
-        sid = str(session_id or "").strip()
-        self.cancel_background_session_task(sid)
-        task = self.start_background_task(
-            coroutine,
-            name=f"process background {sid}",
-        )
-        self._background_session_tasks[sid] = task
+        self._background_tasks.start_session(session_id, coroutine)
 
     def cancel_background_session_task(self, session_id: str) -> None:
         """取消指定进程会话的后台监视任务。"""
-        task = self._background_session_tasks.pop(
-            str(session_id or "").strip(),
-            None,
-        )
-        if task is not None and not task.done():
-            task.cancel()
+        self._background_tasks.cancel_session(session_id)
 
     def queue_background_block(
         self,
@@ -1125,10 +1001,10 @@ class TuiRuntime(object):
             or self.screen.menu.active
         ):
             lease = self._consume_activity_handoff(deferred=True)
-            self._background_blocks.append(_DeferredBlock(
-                block,
-                transcript_block,
-                lease,
+            self._background_blocks.append(DeferredBlock(
+                block=block,
+                transcript_block=transcript_block,
+                activity_lease=lease,
             ))
             return None
 
@@ -1168,16 +1044,7 @@ class TuiRuntime(object):
 
     def replace_transcript(self, blocks: typing.Iterable[TranscriptBlock]) -> None:
         """用恢复内容替换当前记录并重置终端视口。"""
-        self.viewport.pause_scrollback()
-        self.document.replace_blocks(blocks)
-        self.viewport.prepare_restored_scrollback()
-
-        self._discard_background_blocks()
-
-        self.viewport.reset_view()
-        self.screen.transcript_overlay.content_replaced()
-        self.screen.clear_terminal_scrollback()
-        self.viewport.stable_content_changed()
+        self._transcript.replace(blocks)
 
     def discard_pending_submission(self) -> None:
         """清理由命令分派结束后仍未接管的暂存输入。"""
@@ -1186,18 +1053,12 @@ class TuiRuntime(object):
 
     def begin_command_layout(self) -> None:
         """标记命令结果开始接管当前活动区域。"""
-        self.cancel_command_layout()
+        self._command_layout.begin()
         self._process_routing_settled.clear()
-        self._command_layout_token = self._command_layout.set(
-            _CommandLayoutHandoff()
-        )
 
     def cancel_command_layout(self) -> None:
         """取消当前命令结果的业务交接标记。"""
-        token = self._command_layout_token
-        self._command_layout_token = None
-        if token is not None:
-            self._command_layout.reset(token)
+        self._command_layout.cancel()
         self._process_routing_settled.set()
 
     def finish_command_layout(self, *, force: bool = False) -> None:
@@ -1223,20 +1084,21 @@ class TuiRuntime(object):
                 self.execution_active
                 or self.document.active_block is not None
             )
-            handoff = _ActivityHandoff(lease, deferred)
 
             if lease is not None and deferred:
                 with self.screen.visual_update():
                     self.activity.freeze(lease)
 
-            token = self._activity_handoff.set(handoff)
-            try:
-                yield
-            finally:
-                self._activity_handoff.reset(token)
-                if lease is not None and not handoff.consumed:
-                    with self.screen.visual_update():
-                        self.activity.release(lease)
+            with self._activity_handoff.bind(
+                lease,
+                deferred=deferred,
+            ) as handoff:
+                try:
+                    yield
+                finally:
+                    if lease is not None and not handoff.consumed:
+                        with self.screen.visual_update():
+                            self.activity.release(lease)
 
         return transaction()
 
@@ -1448,18 +1310,14 @@ class TuiRuntime(object):
         gap_before: int | None = None
     ) -> None:
         """替换当前流式展示块。"""
-        with self.screen.visual_update():
-            self.document.set_active(
-                block,
-                kind=kind,
-                transcript_block=transcript_block,
-                raw_text=raw_text,
-                stream_continuation=stream_continuation,
-                gap_before=gap_before,
-            )
-
-            self.screen.transcript_overlay.content_changed()
-            self.invalidate()
+        self._transcript.set_active(
+            block,
+            kind=kind,
+            transcript_block=transcript_block,
+            raw_text=raw_text,
+            stream_continuation=stream_continuation,
+            gap_before=gap_before,
+        )
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
@@ -1467,15 +1325,7 @@ class TuiRuntime(object):
 
     def toggle_transcript_overlay(self) -> None:
         """切换完整会话记录并协调原生滚屏任务。"""
-        self.input_model.cancel_history_backtrack()
-        active = not self.screen.transcript_overlay.active
-
-        if active:
-            self._open_transcript_overlay()
-            return None
-
-        if self.screen.set_transcript_overlay(False):
-            self.viewport.schedule_scrollback_flush()
+        self._transcript_overlay.toggle()
 
     def set_mailbox_entries(
         self,
@@ -1484,14 +1334,14 @@ class TuiRuntime(object):
         listener_active: bool
     ) -> None:
         """把远端请求快照同步到静态收件箱画面。"""
-        self.screen.set_mailbox_entries(
+        self._mailbox_overlay.update(
             entries,
             listener_active=listener_active,
         )
 
     def mailbox_entries(self) -> tuple[MailboxEntry, ...]:
         """返回已经过终端文本过滤的收件箱展示快照。"""
-        return self.screen.mailbox_overlay.entries
+        return self._mailbox_overlay.entries
 
     def enqueue_mailbox_run(
         self,
@@ -1507,18 +1357,11 @@ class TuiRuntime(object):
 
     def close_mailbox_overlay(self) -> None:
         """关闭全屏消息详情并恢复等待中的菜单流程。"""
-        self.screen.set_mailbox_overlay(False)
+        self._mailbox_overlay.close()
 
     def open_transcript_backtrack(self) -> None:
         """从主输入区打开完整记录并选择最近用户轮次。"""
-        if not self._open_transcript_overlay():
-            return None
-
-        if self.screen.transcript_overlay.begin_or_step_backtrack():
-            return None
-
-        self.screen.set_transcript_overlay(False)
-        self.viewport.schedule_scrollback_flush()
+        self._transcript_overlay.open_backtrack()
 
     def commit_active_renderable(
         self,
@@ -1530,20 +1373,13 @@ class TuiRuntime(object):
         source_render_width: int | None = None
     ) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
-        with self.screen.visual_update():
-            assistant_stream = self.document.active_kind == "assistant"
-            self.document.commit_active(
-                block,
-                transcript_block=transcript_block,
-                raw_text=raw_text,
-                source_renderer=source_renderer,
-                source_render_width=source_render_width,
-            )
-            self.screen.transcript_overlay.content_changed()
-            if assistant_stream:
-                self.viewport.stream_finalized()
-            self.viewport.stable_content_changed()
-            self._flush_background_blocks()
+        self._transcript.commit_active(
+            block,
+            transcript_block=transcript_block,
+            raw_text=raw_text,
+            source_renderer=source_renderer,
+            source_render_width=source_render_width,
+        )
 
     def commit_active_stream_prefix(
         self,
@@ -1554,24 +1390,16 @@ class TuiRuntime(object):
         source_render_width: int | None = None
     ) -> None:
         """提交流式正文的稳定前缀并继续保留当前执行周期。"""
-        self.document.commit_active(
+        self._transcript.commit_stream_prefix(
             block,
             raw_text=raw_text,
             source_renderer=source_renderer,
             source_render_width=source_render_width,
         )
-        self.screen.transcript_overlay.content_changed()
-        self.viewport.stream_content_changed()
 
     def clear_active_renderable(self) -> None:
         """清空当前流式展示块。"""
-        assistant_stream = self.document.active_kind == "assistant"
-        self.document.clear_active()
-        self.screen.transcript_overlay.content_changed()
-        if assistant_stream:
-            self.viewport.stream_finalized()
-        self.viewport.stable_content_changed()
-        self._flush_background_blocks()
+        self._transcript.clear_active()
 
     def set_execution_active(self, active: bool) -> None:
         """更新模型轮次执行状态并切换输入区布局。"""
@@ -1687,55 +1515,13 @@ class TuiRuntime(object):
         """激活启动阶段独占画布并阻止主输入。"""
         self.screen.set_startup_gate(True)
 
-    async def _run_application(self) -> None:
-        """运行输入应用并传播终端结束状态。"""
-        application = self.screen.application
-        loop = asyncio.get_running_loop()
-
-        previous_exception_handler = loop.get_exception_handler()
-
-        exception_handler = self._handle_event_loop_exception
-        loop.set_exception_handler(exception_handler)
-
-        try:
-            with create_app_session(
-                input=application.input,
-                output=application.output,
-            ):
-                with patch_stdout(raw=True):
-                    await application.run_async(
-                        pre_run=lambda: clear_pending_input(application.input),
-                        set_exception_handler=False,
-                    )
-        except (EOFError, KeyboardInterrupt) as exc:
-            self._application_error = exc
-        finally:
-            if loop.get_exception_handler() is exception_handler:
-                loop.set_exception_handler(previous_exception_handler)
-
     async def _exit_application(self, *, erase: bool) -> None:
         """结束当前应用任务并按需清除画布。"""
-        task = self._application_task
-        if task is None:
-            return None
-
-        application = self.screen.application
-        application.erase_when_done = erase
-
-        if not application.is_done:
-            with contextlib.suppress(Exception):
-                application.exit(result=None)
-
-        await asyncio.gather(task, return_exceptions=True)
-        self.screen.reset_synchronized_output()
-
-        self._application_task      = None
-        application.erase_when_done = False
+        await self._application_lifecycle.stop(erase=erase)
 
     async def _play_startup_animation(self) -> None:
         """播放并清除当前注册的启动动画。"""
-        presentations = tuple(self._startup_presentations)
-        self._startup_presentations.clear()
+        presentations = self._startup_presentations.take()
         for presentation in presentations:
             await presentation.animation()
 
@@ -1759,8 +1545,7 @@ class TuiRuntime(object):
         self._closing = False
         self.terminal_progress.clear()
 
-        self._application_error = None
-        self._application_failure.clear()
+        self._application_lifecycle.reset_for_open()
 
         self.screen.set_transcript_only(False)
 
@@ -1768,22 +1553,18 @@ class TuiRuntime(object):
 
         previous_render_count = application.render_counter
 
-        self._application_task = asyncio.create_task(
-            self._run_application(),
-            name="tui application",
-        )
-        self._application_task.add_done_callback(self._application_task_done)
+        application_task = self._application_lifecycle.start()
 
         while (
             (
                 not application.is_running
                 or application.render_counter == previous_render_count
             )
-            and not self._application_task.done()
+            and not application_task.done()
         ):
             await asyncio.sleep(0)
 
-        application_error = self._application_task_exception()
+        application_error = self._application_lifecycle.exception()
         if application_error is not None:
             raise application_error
 
@@ -1801,6 +1582,7 @@ class TuiRuntime(object):
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+        self._application_lifecycle.mark_closing()
 
         self._menu_actions.clear()
 
@@ -1836,20 +1618,11 @@ class TuiRuntime(object):
         if self.screen.transcript_overlay.active:
             self.screen.set_transcript_overlay(False)
         if self.screen.mailbox_overlay.active:
-            self.screen.set_mailbox_overlay(False)
+            self._mailbox_overlay.close()
 
         self.screen.set_transcript_only(preserve_transcript)
 
-        background_tasks = tuple(self._background_tasks)
-
-        self._background_tasks.clear()
-        self._background_session_tasks.clear()
-
-        for task in background_tasks:
-            task.cancel()
-
-        if background_tasks:
-            await asyncio.gather(*background_tasks, return_exceptions=True)
+        await self._background_tasks.close()
 
         await self.viewport.close()
         await self._exit_application(erase=not preserve_transcript)
@@ -1865,30 +1638,10 @@ class TuiRuntime(object):
         allow_menu: bool = False
     ) -> bool:
         """冻结原生滚屏并等待单条消息详情关闭。"""
-        self.input_model.cancel_history_backtrack()
-        self.viewport.pause_scrollback()
-
-        try:
-            opened = self.screen.set_mailbox_overlay(
-                True,
-                entry_key=entry_key,
-                allow_menu=allow_menu,
-            )
-        except BaseException:
-            self.viewport.schedule_scrollback_flush()
-            raise
-
-        if not opened:
-            self.viewport.schedule_scrollback_flush()
-            return False
-
-        try:
-            await self.screen.mailbox_overlay.wait_closed()
-        finally:
-            if self.screen.mailbox_overlay.active:
-                self.screen.set_mailbox_overlay(False)
-            self.viewport.schedule_scrollback_flush()
-        return True
+        return await self._mailbox_overlay.view_entry(
+            entry_key,
+            allow_menu=allow_menu,
+        )
 
     async def finish_startup_gate(self) -> None:
         """释放启动阶段独占画布并恢复主输入焦点。"""
@@ -1936,7 +1689,7 @@ class TuiRuntime(object):
     async def wait_for_process_routing_boundary(self) -> None:
         """等待当前命令和临时交互结束后再决定进程结果落点。"""
         while (
-            self._command_layout_token is not None
+            self.command_layout_pending
             or self.screen.bottom_pane.transient_active
         ):
             self._process_routing_settled.clear()
@@ -1944,9 +1697,7 @@ class TuiRuntime(object):
 
     async def wait_for_application_failure(self) -> BaseException:
         """等待输入应用异常停止并返回原始错误。"""
-        await self._application_failure.wait()
-        error = self._application_error
-        return error if error is not None else EOFError()
+        return await self._application_lifecycle.wait_failure()
 
     async def begin_directory_trust(
         self,
@@ -1976,7 +1727,7 @@ class TuiRuntime(object):
         try:
             submission = await self.submissions.read_submission()
         except TuiInputClosed:
-            application_error = self._application_task_exception()
+            application_error = self._application_lifecycle.exception()
             if application_error is not None:
                 if isinstance(application_error, KeyboardInterrupt):
                     raise TuiInterruptRequested from application_error

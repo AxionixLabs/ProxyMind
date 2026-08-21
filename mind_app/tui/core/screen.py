@@ -6,10 +6,8 @@ import shutil
 import typing
 import asyncio
 import contextlib
-from dataclasses import dataclass
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.cursor_shapes import CursorShape
 from prompt_toolkit.data_structures import (
     Point,
     Size
@@ -46,22 +44,16 @@ from prompt_toolkit.layout.processors import (
     AfterInput,
     ConditionalProcessor
 )
-from prompt_toolkit.layout.screen import Screen
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
-from prompt_toolkit.output.plain_text import PlainTextOutput
-from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.shortcuts import print_formatted_text
-from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import TextArea
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from mind_core.design.terminal_capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
-    TerminalKind
 )
-from mind_nova import const
 from ..prompting.commands import (
     completion_changes_input,
     slash_command_query
@@ -114,9 +106,7 @@ from .queued import (
     TuiPendingSteers,
     TuiQueuedMessages
 )
-from .render import (
-    clip_fragments,
-    clip_text,
+from ..rendering.fragments import (
     cursor_point,
     cursor_point_for_display_row,
     display_line_count,
@@ -134,174 +124,48 @@ from .token_menu import (
     token_menu_display_height
 )
 from .transcript_overlay import TuiTranscriptOverlay
-
-
-def _queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
-    """返回当前终端适合展示的队尾编辑按键。"""
-    identity = capabilities.identity
-    if (
-        identity.multiplexer == TerminalKind.TMUX
-        or identity.kind in {
-            TerminalKind.APPLE_TERMINAL,
-            TerminalKind.ITERM2,
-            TerminalKind.VSCODE,
-            TerminalKind.WARP,
-        }
-    ):
-        return "shift + ←"
-    return "alt + ↑"
-
-
-def _supports_vt_control(output: Output) -> bool:
-    """判断输出对象是否可以安全接收 VT 控制序列。"""
-    if isinstance(output, (DummyOutput, PlainTextOutput)):
-        return False
-    if (
-        sys.platform == "win32"
-        and not isinstance(output, Vt100_Output)
-        and not hasattr(output, "vt100_output")
-    ):
-        return False
-    return True
-
-
-def _erase_terminal_scrollback(output: Output) -> None:
-    """清除支持 VT 擦除指令的终端滚屏缓冲区。"""
-    if not _supports_vt_control(output):
-        return None
-
-    output.write_raw("\x1b[3J")
-    output.flush()
-
-
-def _clear_terminal_for_resize_replay(output: Output) -> None:
-    """为尺寸重排清除可见画面和原生滚屏缓冲区。"""
-    if not _supports_vt_control(output):
-        return None
-
-    output.write_raw("\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H")
-
-
-def _set_synchronized_output(output: Output, active: bool) -> bool:
-    """切换支持终端的同步输出更新区间。"""
-    if not _supports_vt_control(output):
-        return False
-
-    output.write_raw("\x1b[?2026h" if active else "\x1b[?2026l")
-    output.flush()
-    return True
-
-
-def _set_alternate_scroll_mode(output: Output, active: bool) -> bool:
-    """切换 alternate screen 中的滚轮方向键转换。"""
-    if not _supports_vt_control(output):
-        return False
-
-    output.write_raw("\x1b[?1007h" if active else "\x1b[?1007l")
-    return True
-
-
-@dataclass(frozen=True, slots=True)
-class _InlineRendererState(object):
-    """保存进入完整终端画面前的 renderer diff 状态。"""
-    cursor_pos: Point
-    last_screen: Screen | None
-    last_size: Size | None
-    last_style: str | None
-    last_cursor_shape: CursorShape | None
-    min_available_height: int
-
-
-@dataclass(frozen=True, slots=True)
-class FrameGeometry(object):
-    """描述单次终端渲染使用的固定尺寸。"""
-    width: int
-    height: int
-    revision: int
-
-
-@dataclass(frozen=True, slots=True)
-class ComposerLayout(object):
-    """描述单帧输入表面、弹层和信息栏的高度预算。"""
-    input_top_padding_height: int
-    input_height: int
-    input_bottom_padding_height: int
-    popup_height: int
-    footer_height: int
-
-    @property
-    def input_surface_height(self) -> int:
-        """返回输入内容及其内部上下留白的总高度。"""
-        return (
-            self.input_top_padding_height
-            + self.input_height
-            + self.input_bottom_padding_height
-        )
-
-    @property
-    def input_stack_height(self) -> int:
-        """返回输入表面及其弹层或信息栏的总高度。"""
-        return (
-            self.input_surface_height
-            + self.popup_height
-            + self.footer_height
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ActiveViewLayout(object):
-    """描述单帧临时交互表面的高度预算。"""
-    surface: BottomSurface | None
-    available_height: int
-    top_padding_height: int
-    content_height: int
-    bottom_padding_height: int
-    footer_height: int
-
-    @property
-    def total_height(self) -> int:
-        """返回临时交互表面及其留白的总高度。"""
-        return (
-            self.top_padding_height
-            + self.content_height
-            + self.bottom_padding_height
-            + self.footer_height
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class BottomPaneLayout(object):
-    """描述单帧底部状态区与交互区域的统一高度预算。"""
-    outer_top_inset_height: int
-    status_height: int
-    process_status_height: int
-    queued_height: int
-    interaction_gap_height: int
-    composer: ComposerLayout
-    active_view: ActiveViewLayout
-
-    @property
-    def interaction_height(self) -> int:
-        """返回输入区或临时交互表面当前占用的高度。"""
-        if self.active_view.surface is not None:
-            return self.active_view.total_height
-        return self.composer.input_stack_height
-
-    @property
-    def content_height(self) -> int:
-        """返回不含外部顶部间距的底部面板高度。"""
-        return (
-            self.status_height
-            + self.process_status_height
-            + self.queued_height
-            + self.interaction_gap_height
-            + self.interaction_height
-        )
-
-    @property
-    def total_height(self) -> int:
-        """返回包含外部顶部间距的底部面板总高度。"""
-        return self.outer_top_inset_height + self.content_height
+from ..rendering.screen.geometry import (
+    ActiveViewLayout,
+    BottomPaneLayout,
+    ComposerLayout,
+    FrameGeometry,
+    InlineRendererState as _InlineRendererState,
+    OverlayLayout,
+)
+from ..rendering.screen.layout import (
+    allocate_approval_view_layout,
+    allocate_auxiliary_pane_layout,
+    allocate_menu_view_layout,
+    allocate_process_viewer_layout,
+    measure_composer_layout,
+    measure_overlay_layout,
+)
+from ..rendering.screen.overlays import (
+    mailbox_header_fragments,
+    mailbox_separator_fragments,
+    transcript_header_fragments,
+    transcript_separator_fragments,
+)
+from ..rendering.screen.surfaces import (
+    FooterMode,
+    completion_candidate_fragments,
+    completion_empty_fragments,
+    completion_hint_fragments,
+    footer_fragments as render_footer_fragments,
+    input_line_prefix_fragments,
+    join_queued_fragments,
+    placeholder_fragments,
+    queued_row_budget,
+    resolve_footer_mode,
+)
+from ..rendering.screen.terminal import (
+    clear_terminal_for_resize_replay as _clear_terminal_for_resize_replay,
+    erase_terminal_scrollback as _erase_terminal_scrollback,
+    queued_message_edit_binding as _queued_message_edit_binding,
+    set_alternate_scroll_mode as _set_alternate_scroll_mode,
+    set_synchronized_output as _set_synchronized_output,
+    supports_vt_control as _supports_vt_control,
+)
 
 
 class TuiScreen(object):
@@ -1393,7 +1257,7 @@ class TuiScreen(object):
         self,
         active: bool,
         *,
-        entry_key: str = "",
+        entry_key: str | None = None,
         allow_menu: bool = False,
     ) -> bool:
         """切换全屏收件箱、终端画面和键盘焦点。"""
@@ -1413,7 +1277,7 @@ class TuiScreen(object):
         if active:
             try:
                 self._enter_full_screen_overlay()
-                if not self.mailbox_overlay.open(entry_key):
+                if not self.mailbox_overlay.open(entry_key or ""):
                     self._leave_full_screen_overlay()
                     self._restore_overlay_focus()
                     return False
@@ -1864,11 +1728,11 @@ class TuiScreen(object):
         wrap_count: int
     ) -> StyleAndTextTuples:
         """生成输入首行和续行的无边框前缀。"""
-        if line_number == 0 and wrap_count == 0:
-            if self.input_model.shell_mode:
-                return [("class:shell-escape", "! ")]
-            return [("class:prompt.kicker", "› ")]
-        return [("class:prompt.kicker", ". ")]
+        return input_line_prefix_fragments(
+            shell_mode=self.input_model.shell_mode,
+            line_number=line_number,
+            wrap_count=wrap_count,
+        )
 
     def _transcript_line_prefix(
         self,
@@ -1895,7 +1759,7 @@ class TuiScreen(object):
 
     def _placeholder_fragments(self) -> StyleAndTextTuples:
         """返回当前输入轮次固定的占位文案。"""
-        return [("class:placeholder", f" {self._get_placeholder_text()}")]
+        return placeholder_fragments(self._get_placeholder_text())
 
     def _status_fragments(self) -> FormattedText:
         """生成动画专属区域的格式化片段。"""
@@ -1908,12 +1772,11 @@ class TuiScreen(object):
         queued_active  = self.queued_messages.active
         render_width   = self.terminal_width if width is None else max(1, width)
 
-        if pending_active and queued_active:
-            pending_rows = 3
-            queued_rows  = self.QUEUED_MAX_HEIGHT - pending_rows
-        else:
-            pending_rows = self.QUEUED_MAX_HEIGHT
-            queued_rows  = self.QUEUED_MAX_HEIGHT
+        pending_rows, queued_rows = queued_row_budget(
+            pending_active=pending_active,
+            queued_active=queued_active,
+            max_height=self.QUEUED_MAX_HEIGHT,
+        )
 
         pending = self.pending_steers.fragments(
             width=render_width,
@@ -1925,74 +1788,49 @@ class TuiScreen(object):
             edit_binding=self._queued_message_edit_binding,
         )
 
-        if pending and queued:
-            fragments = [*pending, ("", "\n"), *queued]
-        else:
-            fragments = pending or queued
-
-        if fragments and self._activity_queue_gap_visible(width=render_width):
-            return [("", "\n"), *fragments]
-        return fragments
+        return join_queued_fragments(
+            pending,
+            queued,
+            show_leading_gap=self._activity_queue_gap_visible(
+                width=render_width,
+            ),
+        )
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
-        if self.input_model.history_backtrack_primed:
-            return [
-                ("class:footer.exit-key", "Esc"),
-                ("class:footer.exit-hint", " again to edit previous message"),
-            ]
-        if self.interrupt_state.exit_armed:
-            return [
-                ("class:footer.exit-key", "Ctrl + C"),
-                ("class:footer.exit-hint", " again to exit"),
-            ]
-        if self._queue_submission_hint_visible():
-            full_hint = "  tab to queue message"
-            hint = (
-                full_hint
-                if get_cwidth(full_hint) <= self.terminal_width
-                else "  tab to queue"
+        mode = resolve_footer_mode(
+            history_backtrack_primed=(
+                self.input_model.history_backtrack_primed
+            ),
+            exit_armed=self.interrupt_state.exit_armed,
+            queue_submission_hint_visible=(
+                self._queue_submission_hint_visible()
+            ),
+            submission_pending=(
+                self.document.has_pending_submission
+                or self._get_surface_submission_pending()
+            ),
+        )
+        if mode is not FooterMode.DEFAULT:
+            return render_footer_fragments(
+                mode=mode,
+                width=self.terminal_width,
             )
-            return [("class:footer.queue-hint", hint)]
-        if (
-            self.document.has_pending_submission
-            or self._get_surface_submission_pending()
-        ):
-            return []
 
         context = self._get_context()
-        theme   = self.input_model.theme()
-
-        parts: FormattedText = [(f"fg:{theme['brand']}", const.APP_DESC)]
-
-        permissions_label = sanitize_terminal_text(context.permissions_label).strip()
-
-        access_style = (
-            "class:footer.access.full"
-            if permissions_label.lower() == "full access"
-            else "class:footer.access"
-        )
-        values = [
-            (
-                "class:footer.mailbox",
-                (
-                    f"Mailbox {format_mailbox_count(self.mailbox_overlay.pending_count)}"
-                    if self.mailbox_overlay.pending_count
-                    else ""
-                ),
+        return render_footer_fragments(
+            mode=mode,
+            width=self.terminal_width,
+            brand_color=self.input_model.theme()["brand"],
+            mailbox_label=(
+                f"Mailbox {format_mailbox_count(self.mailbox_overlay.pending_count)}"
+                if self.mailbox_overlay.pending_count
+                else ""
             ),
-            ("class:footer.model", context.model or "-"),
-            (access_style, permissions_label),
-            ("class:footer.workspace", context.workspace_label),
-        ]
-        for style, value in values:
-            text = sanitize_terminal_text(value).strip()
-            if text:
-                parts.extend([
-                    ("class:footer.separator", " · "),
-                    (style, text),
-                ])
-        return clip_fragments(parts, width=self.terminal_width)
+            model_label=context.model,
+            permissions_label=context.permissions_label,
+            workspace_label=context.workspace_label,
+        )
 
     def _transcript_cursor(self) -> Point:
         """让会话内容视口跟随最新输出。"""
@@ -2412,20 +2250,22 @@ class TuiScreen(object):
 
     def _transcript_overlay_height(self) -> int:
         """返回完整记录正文区域可用高度。"""
-        return max(
-            0,
-            self.terminal_height
-            - self._transcript_overlay_header_height()
-            - self._transcript_overlay_footer_height(),
+        return self._transcript_overlay_layout().content_height
+
+    def _transcript_overlay_layout(self) -> OverlayLayout:
+        """返回完整记录 overlay 的统一高度预算。"""
+        return measure_overlay_layout(
+            total_height=self.terminal_height,
+            footer_max_height=4,
         )
 
     def _transcript_overlay_header_height(self) -> int:
         """返回完整记录标题区域高度。"""
-        return min(1, self.terminal_height)
+        return self._transcript_overlay_layout().header_height
 
     def _transcript_overlay_footer_height(self) -> int:
         """返回完整记录底栏高度。"""
-        return min(4, max(0, self.terminal_height - 1))
+        return self._transcript_overlay_layout().footer_height
 
     def _transcript_overlay_header_dimension(self) -> Dimension:
         """返回完整记录标题区域尺寸。"""
@@ -2445,38 +2285,17 @@ class TuiScreen(object):
 
     def _transcript_overlay_header_fragments(self) -> FormattedText:
         """生成标题覆盖在装饰图案上的单行页眉。"""
-        width   = self.terminal_width
-        pattern = ("/ " * ((width + 1) // 2))[:width]
-
-        title = (
-            "/ R A W   T R A N S C R I P T"
-            if self.transcript_overlay.raw_mode
-            else "/ T R A N S C R I P T"
+        return transcript_header_fragments(
+            width=self.terminal_width,
+            raw_mode=self.transcript_overlay.raw_mode,
         )
-
-        if len(title) >= width:
-            return [("class:transcript.overlay.title", title[:width])]
-
-        return [
-            ("class:transcript.overlay.title", title),
-            ("class:transcript.overlay.rule", pattern[len(title):]),
-        ]
 
     def _transcript_overlay_separator_fragments(self) -> FormattedText:
         """生成包含滚动百分比的底栏分隔线。"""
-        width          = self.terminal_width
-        percentage     = self.transcript_overlay.scroll_percentage()
-        progress       = f" {percentage}% "
-        progress_start = max(0, width - len(progress) - 1)
-
-        return [
-            ("class:transcript.overlay.rule", "─" * progress_start),
-            ("class:transcript.overlay.progress", progress),
-            (
-                "class:transcript.overlay.rule",
-                "─" * max(0, width - progress_start - len(progress)),
-            ),
-        ]
+        return transcript_separator_fragments(
+            width=self.terminal_width,
+            percentage=self.transcript_overlay.scroll_percentage(),
+        )
 
     def _transcript_overlay_primary_help_fragments(self) -> FormattedText:
         """生成完整记录的滚动提示。"""
@@ -2594,20 +2413,22 @@ class TuiScreen(object):
 
     def _mailbox_overlay_height(self) -> int:
         """返回收件箱正文区域可用高度。"""
-        return max(
-            0,
-            self.terminal_height
-            - self._mailbox_overlay_header_height()
-            - self._mailbox_overlay_footer_height(),
+        return self._mailbox_overlay_layout().content_height
+
+    def _mailbox_overlay_layout(self) -> OverlayLayout:
+        """返回收件箱 overlay 的统一高度预算。"""
+        return measure_overlay_layout(
+            total_height=self.terminal_height,
+            footer_max_height=3,
         )
 
     def _mailbox_overlay_header_height(self) -> int:
         """返回收件箱标题区域高度。"""
-        return min(1, self.terminal_height)
+        return self._mailbox_overlay_layout().header_height
 
     def _mailbox_overlay_footer_height(self) -> int:
         """返回收件箱底栏高度。"""
-        return min(3, max(0, self.terminal_height - 1))
+        return self._mailbox_overlay_layout().footer_height
 
     def _mailbox_overlay_header_dimension(self) -> Dimension:
         """返回收件箱标题区域尺寸。"""
@@ -2627,58 +2448,23 @@ class TuiScreen(object):
 
     def _mailbox_overlay_header_fragments(self) -> FormattedText:
         """生成收件箱标题、数量和监听状态。"""
-        width = self.terminal_width
-        count = format_mailbox_count(self.mailbox_overlay.pending_count)
-
-        state = (
-            "listening"
-            if self.mailbox_overlay.listener_active
-            else "stopped"
-        )
-        status  = f" {count} pending · {state} "
-        title   = "/ M A I L B O X "
-        pattern = ("/ " * ((width + 1) // 2))[:width]
-
-        available  = max(0, width - get_cwidth(status))
-        heading    = clip_text(title, width=available)
-        fill_width = max(0, available - get_cwidth(heading))
-
-        return [
-            ("class:mailbox.title", heading),
-            ("class:mailbox.rule", pattern[:fill_width]),
-            (
-                "class:mailbox.status",
-                clip_text(
-                    status,
-                    width=width - get_cwidth(heading) - fill_width,
-                ),
+        return mailbox_header_fragments(
+            width=self.terminal_width,
+            pending_count_label=format_mailbox_count(
+                self.mailbox_overlay.pending_count,
             ),
-        ]
+            listener_active=self.mailbox_overlay.listener_active,
+        )
 
     def _mailbox_overlay_separator_fragments(self) -> FormattedText:
         """生成包含消息正文页码的底栏分隔线。"""
-        width = self.terminal_width
-
         current, total = self.mailbox_overlay.message_progress()
-
-        progress = (
-            f" {format_mailbox_count(current)}/"
-            f"{format_mailbox_count(total)} "
-            if total > 1
-            else ""
+        return mailbox_separator_fragments(
+            width=self.terminal_width,
+            current_label=format_mailbox_count(current),
+            total_label=format_mailbox_count(total),
+            has_multiple=total > 1,
         )
-
-        progress_width = get_cwidth(progress)
-        prefix_width   = max(0, width - progress_width - int(bool(progress)))
-
-        return [
-            ("class:mailbox.filler", "─" * prefix_width),
-            ("class:mailbox.progress", progress),
-            (
-                "class:mailbox.filler",
-                "─" * max(0, width - prefix_width - progress_width),
-            ),
-        ]
 
     def _mailbox_overlay_primary_help_fragments(self) -> FormattedText:
         """生成消息正文滚动和翻页提示。"""
@@ -2933,20 +2719,9 @@ class TuiScreen(object):
         """返回 skill 补全使用的底部提示文本。"""
         if not self._completion_hint_visible():
             return PromptFormattedText()
-
-        return PromptFormattedText([
-            (
-                "class:token-menu.hint",
-                f"{' ' * TOKEN_MENU_LEFT_PADDING}Press ",
-            ),
-            ("class:token-menu.hint.key", "enter"),
-            (
-                "class:token-menu.hint",
-                " to insert or ",
-            ),
-            ("class:token-menu.hint.key", "esc"),
-            ("class:token-menu.hint", " to close"),
-        ])
+        return PromptFormattedText(completion_hint_fragments(
+            left_padding=TOKEN_MENU_LEFT_PADDING,
+        ))
 
     def _completion_fallback_fragments(self) -> PromptFormattedText:
         """返回精确命令或空结果状态使用的展示片段。"""
@@ -2957,12 +2732,9 @@ class TuiScreen(object):
             return PromptFormattedText()
 
         if not completions:
-            return PromptFormattedText([
-                (
-                    "class:completion-menu.empty",
-                    f"{' ' * TOKEN_MENU_LEFT_PADDING}no matches",
-                ),
-            ])
+            return PromptFormattedText(completion_empty_fragments(
+                left_padding=TOKEN_MENU_LEFT_PADDING,
+            ))
 
         if (
             len(completions) != 1
@@ -2971,43 +2743,16 @@ class TuiScreen(object):
             return PromptFormattedText()
 
         completion = completions[0]
-
         is_slash_command = (
             slash_command_query(document) is not None
         )
-        display_width = get_cwidth(completion.display_text)
-
-        command_width = max(
-            self.COMPLETION_COLUMN_MIN_WIDTH,
-            display_width + TOKEN_MENU_LEFT_PADDING + 1,
-        )
-
-        command_padding = " " * (
-            command_width - display_width - TOKEN_MENU_LEFT_PADDING
-        )
-
-        fragments: StyleAndTextTuples = [
-            (
-                (
-                    "class:token-menu.command.current"
-                    if is_slash_command
-                    else "class:completion-menu.completion.current"
-                ),
-                f"{' ' * TOKEN_MENU_LEFT_PADDING}{completion.display_text}{command_padding}",
-            ),
-        ]
-
-        if completion.display_meta_text:
-            fragments.append((
-                (
-                    "class:token-menu.meta.command.current"
-                    if is_slash_command
-                    else "class:completion-menu.meta.completion.current"
-                ),
-                f" {completion.display_meta_text} ",
-            ))
-
-        return PromptFormattedText(fragments)
+        return PromptFormattedText(completion_candidate_fragments(
+            display_text=completion.display_text,
+            display_meta_text=completion.display_meta_text,
+            is_slash_command=is_slash_command,
+            left_padding=TOKEN_MENU_LEFT_PADDING,
+            column_min_width=self.COMPLETION_COLUMN_MIN_WIDTH,
+        ))
 
     def _expected_completion_count(self) -> int:
         """同步计算当前输入应展示的补全项数量。"""
@@ -3048,51 +2793,16 @@ class TuiScreen(object):
 
     def _measure_composer_layout(self, *, available_height: int) -> ComposerLayout:
         """在给定底部面板预算内计算输入区域高度。"""
-        minimum_surface_height = self.INPUT_SURFACE_PADDING_HEIGHT * 2 + 1
-
-        popup_visible = self._completion_visible()
-        hint_height   = self._completion_hint_height()
-
-        footer_height = int(
-            not popup_visible
-            and available_height >= minimum_surface_height + 1
-        )
-
-        input_available_height = max(
-            1,
-            available_height
-            - self.INPUT_SURFACE_PADDING_HEIGHT * 2
-            - footer_height,
-        )
-
-        input_height = min(
-            self._input_content_height(width=self.terminal_width),
-            input_available_height,
-        )
-
-        popup_available_height = max(
-            0,
-            available_height
-            - self.INPUT_SURFACE_PADDING_HEIGHT * 2
-            - input_height,
-        )
-
-        popup_height = (
-            min(
-                self.COMPLETION_MAX_HEIGHT + hint_height,
-                self._completion_candidate_count() + hint_height,
-                popup_available_height,
-            )
-            if popup_visible
-            else 0
-        )
-
-        return ComposerLayout(
-            input_top_padding_height=self.INPUT_SURFACE_PADDING_HEIGHT,
-            input_height=input_height,
-            input_bottom_padding_height=self.INPUT_SURFACE_PADDING_HEIGHT,
-            popup_height=popup_height,
-            footer_height=footer_height,
+        return measure_composer_layout(
+            available_height=available_height,
+            input_content_height=self._input_content_height(
+                width=self.terminal_width,
+            ),
+            popup_visible=self._completion_visible(),
+            completion_hint_height=self._completion_hint_height(),
+            completion_candidate_count=self._completion_candidate_count(),
+            input_surface_padding_height=self.INPUT_SURFACE_PADDING_HEIGHT,
+            completion_max_height=self.COMPLETION_MAX_HEIGHT,
         )
 
     def _completion_height(self) -> int:
@@ -3292,53 +3002,25 @@ class TuiScreen(object):
                 composer = self._measure_composer_layout(
                     available_height=available_height,
                 )
-                remaining_height = max(
-                    0,
-                    available_height - composer.input_stack_height,
-                )
-
                 natural_status_height = self._status_natural_height()
-
-                status_height = min(
-                    natural_status_height,
-                    remaining_height,
-                )
-
-                remaining_height -= status_height
-
                 natural_process_status_height = (
                     self._process_status_natural_height()
                 )
-                process_status_height = min(
-                    natural_process_status_height,
-                    remaining_height,
-                )
-
-                remaining_height -= process_status_height
-
                 natural_queued_height = self._queued_natural_height()
-
-                queued_height = min(
-                    natural_queued_height,
-                    remaining_height,
-                )
-                remaining_height -= queued_height
-
-                interaction_gap_height = int(
-                    natural_queued_height == 0
-                    and bool(
-                        natural_status_height
-                        or natural_process_status_height
-                    )
-                    and remaining_height > 0
+                auxiliary = allocate_auxiliary_pane_layout(
+                    available_height=available_height,
+                    composer_height=composer.input_stack_height,
+                    natural_status_height=natural_status_height,
+                    natural_process_status_height=natural_process_status_height,
+                    natural_queued_height=natural_queued_height,
                 )
 
                 layout = BottomPaneLayout(
                     outer_top_inset_height=outer_top_inset_height,
-                    status_height=status_height,
-                    process_status_height=process_status_height,
-                    queued_height=queued_height,
-                    interaction_gap_height=interaction_gap_height,
+                    status_height=auxiliary.status_height,
+                    process_status_height=auxiliary.process_status_height,
+                    queued_height=auxiliary.queued_height,
+                    interaction_gap_height=auxiliary.interaction_gap_height,
                     composer=composer,
                     active_view=empty_active_view,
                 )
@@ -3365,83 +3047,52 @@ class TuiScreen(object):
         available_height: int
     ) -> ActiveViewLayout:
         """在给定底部面板预算内计算临时交互表面高度。"""
-        top_padding: int    = 0
-        content_height: int = 0
-        bottom_padding: int = 0
-        footer_height: int  = 0
-
         if surface == "approval":
             card_text   = fragments_text(self.approval.fragments())
             footer_text = fragments_text(self.approval.footer_fragments())
-
             natural_card_height = (
                 display_line_count(card_text, width=self.terminal_width)
                 if card_text
                 else 0
             )
-
             natural_footer_height = (
                 display_line_count(footer_text, width=self.terminal_width)
                 if footer_text
                 else 0
             )
-
-            footer_height = min(available_height, natural_footer_height)
-
-            content_height = min(
-                natural_card_height,
-                max(0, available_height - footer_height),
+            return allocate_approval_view_layout(
+                available_height=available_height,
+                natural_content_height=natural_card_height,
+                natural_footer_height=natural_footer_height,
             )
 
-        elif surface == "menu":
-            vertical_inset = min(
-                TuiMenu.SURFACE_VERTICAL_INSET,
-                max(0, (available_height - 1) // 2),
-            )
-            top_padding    = vertical_inset
-            bottom_padding = vertical_inset
+        if surface == "menu":
             active_view = self.bottom_pane.active_view
-            footer_height = min(
-                available_height,
-                (
-                    active_view.footer_height(self.terminal_width)
-                    if active_view is not None
-                    else 0
-                ),
+            natural_footer_height = (
+                active_view.footer_height(self.terminal_width)
+                if active_view is not None
+                else 0
             )
-            content_height = min(
-                (
-                    active_view.desired_height(self.terminal_width)
-                    if active_view is not None
-                    else 0
-                ),
-                max(
-                    0,
-                    available_height
-                    - top_padding
-                    - bottom_padding
-                    - footer_height,
-                ),
+            natural_content_height = (
+                active_view.desired_height(self.terminal_width)
+                if active_view is not None
+                else 0
+            )
+            return allocate_menu_view_layout(
+                available_height=available_height,
+                natural_content_height=natural_content_height,
+                natural_footer_height=natural_footer_height,
+                vertical_inset=TuiMenu.SURFACE_VERTICAL_INSET,
             )
 
-        elif surface == "process_viewer":
-            top_padding = min(
-                self.INPUT_SURFACE_PADDING_HEIGHT,
-                max(0, available_height - 1),
-            )
-            content_height = min(
-                self.process_viewer.height(),
-                max(0, available_height - top_padding),
+        if surface == "process_viewer":
+            return allocate_process_viewer_layout(
+                available_height=available_height,
+                natural_content_height=self.process_viewer.height(),
+                top_padding=self.INPUT_SURFACE_PADDING_HEIGHT,
             )
 
-        return ActiveViewLayout(
-            surface,
-            available_height,
-            top_padding,
-            content_height,
-            bottom_padding,
-            footer_height,
-        )
+        raise ValueError(f"Unsupported bottom surface: {surface}")
 
     def _interaction_height(self) -> int:
         """返回输入区或临时交互表面当前占用的高度。"""

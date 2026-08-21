@@ -10,7 +10,7 @@ from mind_app.frontend import (
 )
 from mind_app.presentation.models import TextStyle
 from ..core.models import FragmentBlock
-from ..core.render import clip_text
+from ..rendering.fragments import clip_text
 from ..core.styles import prompt_style
 
 COMMAND_SUMMARY_DEFAULT_WIDTH: int = 100

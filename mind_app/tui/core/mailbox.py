@@ -11,7 +11,7 @@ from .models import (
     FormattedText,
     MailboxEntry
 )
-from .render import (
+from ..rendering.fragments import (
     clip_text,
     join_formatted_lines,
     wrap_formatted_lines

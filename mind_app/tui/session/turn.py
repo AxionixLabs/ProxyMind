@@ -22,7 +22,7 @@ from ...runtime.turns.executor import (
     execute_turn,
     resolve_turn_hook_scope
 )
-from ..core.runtime import TuiRuntime
+from ..runtime.ports import TurnRuntimePort
 from .turn_input import TuiTurnInputControl
 from ..core.styles import (
     BODY_STYLE,
@@ -38,7 +38,7 @@ if typing.TYPE_CHECKING:
 
 async def execute_tui_model_turn(
     application: ApplicationSink,
-    runtime: TuiRuntime,
+    runtime: TurnRuntimePort,
     turn: typing.Coroutine[typing.Any, typing.Any, "RunResult | None"],
     *,
     turn_input_control: TuiTurnInputControl | None = None,

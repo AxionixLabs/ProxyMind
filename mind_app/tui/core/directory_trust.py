@@ -10,7 +10,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.utils import get_cwidth
 from mind_app.presentation.terminal_text import sanitize_terminal_text
-from .render import (
+from ..rendering.fragments import (
     fragments_text,
     iter_text_units
 )
@@ -18,7 +18,7 @@ from .render import (
 DirectoryTrustChoice: typing.TypeAlias = typing.Literal["trust", "quit"]
 
 
-@dataclass(slots=True)
+@dataclass
 class DirectoryTrustState(object):
     """保存目录信任界面的路径、选择和等待结果。"""
     cwd: str
@@ -279,7 +279,7 @@ def _wrap_words(text: str, *, width: int) -> list[str]:
 
     rows: list[str] = []
 
-    current = ""
+    current: str = ""
 
     for word in " ".join(text.split()).split(" "):
         candidate = f"{current} {word}" if current else word
