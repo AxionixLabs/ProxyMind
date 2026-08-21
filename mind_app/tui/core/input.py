@@ -5,8 +5,7 @@ import random
 import typing
 from dataclasses import dataclass
 from prompt_toolkit.auto_suggest import (
-    AutoSuggest,
-    Suggestion
+    AutoSuggest
 )
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import CompletionState
@@ -163,11 +162,6 @@ class TuiInputHistory(InMemoryHistory):
 class TuiAutoSuggest(AutoSuggest):
     """生成 TUI 输入区的行内命令建议。"""
 
-    SLASH_HINTS: typing.Final[dict[str, str]] = {
-        "/model": " <model-id>",
-        "/model ": "<model-id>",
-    }
-
     def __init__(self) -> None:
         self.shell_mode: bool = False
 
@@ -187,9 +181,6 @@ class TuiAutoSuggest(AutoSuggest):
             current_line = ""
         if not current_line:
             return None
-        if current_line.startswith("/"):
-            hint = self.SLASH_HINTS.get(current_line)
-            return Suggestion(hint) if hint else None
         return None
 
 

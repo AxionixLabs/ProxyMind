@@ -617,7 +617,7 @@ async def test_slash_completion_only_opens_on_the_first_input_line() -> None:
             await runtime.close()
 
 
-def test_slash_suggestion_only_appears_on_the_first_input_line() -> None:
+def test_slash_suggestion_is_not_shown_on_any_input_line() -> None:
     runtime = TuiRuntime()
     buffer = runtime.screen.input.buffer
 
@@ -625,7 +625,7 @@ def test_slash_suggestion_only_appears_on_the_first_input_line() -> None:
     assert runtime.input_model.auto_suggest.get_suggestion(
         buffer,
         buffer.document,
-    ) is not None
+    ) is None
 
     buffer.document = Document("draft\n/model", cursor_position=12)
     assert runtime.input_model.auto_suggest.get_suggestion(
@@ -1465,7 +1465,7 @@ async def test_input_prompt_uses_single_space_before_placeholder() -> None:
 
 
 @pytest.mark.anyio
-async def test_inline_command_hint_keeps_leading_space() -> None:
+async def test_model_command_does_not_show_inline_hint() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -1473,13 +1473,11 @@ async def test_inline_command_hint_keeps_leading_space() -> None:
         try:
             pipe_input.send_text("/model ")
             await wait_for_input_text(runtime, "/model ")
-            await wait_for_suggestion(runtime)
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
 
-            assert runtime.screen.input.buffer.suggestion is not None
-            assert runtime.screen.input.buffer.suggestion.text == "<model-id>"
-            assert rendered_input_line(runtime) == "› /model <model-id>"
+            assert runtime.screen.input.buffer.suggestion is None
+            assert rendered_input_line(runtime) == "› /model"
         finally:
             await runtime.close()
 
@@ -1636,8 +1634,7 @@ async def test_slash_key_completes_selected_slash_command_without_submitting() -
             await wait_for_input_text(runtime, "/model ")
 
             assert runtime.submissions.message_queue.empty()
-            assert runtime.screen.input.buffer.suggestion is not None
-            assert runtime.screen.input.buffer.suggestion.text == "<model-id>"
+            assert runtime.screen.input.buffer.suggestion is None
         finally:
             await runtime.close()
 
@@ -1710,8 +1707,7 @@ async def test_enter_opens_parameter_input_for_complete_command() -> None:
 
             assert runtime.submissions.message_queue.empty()
             assert not runtime.screen._completion_visible()
-            assert runtime.screen.input.buffer.suggestion is not None
-            assert runtime.screen.input.buffer.suggestion.text == "<model-id>"
+            assert runtime.screen.input.buffer.suggestion is None
         finally:
             await runtime.close()
 
