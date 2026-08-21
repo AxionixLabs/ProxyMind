@@ -344,6 +344,11 @@ class TuiRuntime(object):
         return self.task_state.turn_running
 
     @property
+    def turn_start_pending(self) -> bool:
+        """返回用户输入是否已提交但模型轮次尚未开始。"""
+        return self.task_state.turn_start_pending
+
+    @property
     def foreground_active(self) -> bool:
         """返回是否正在等待下一轮开始前的前台屏障。"""
         return self.task_state.foreground_running
@@ -351,7 +356,10 @@ class TuiRuntime(object):
     @property
     def submission_deferred(self) -> bool:
         """返回新输入是否需要延迟到下一模型轮次。"""
-        return self.execution_active or self.foreground_active
+        return (
+            self.task_state.turn_active
+            or self.foreground_active
+        )
 
     @property
     def task_running(self) -> bool:
@@ -1403,7 +1411,10 @@ class TuiRuntime(object):
 
     def set_execution_active(self, active: bool) -> None:
         """更新模型轮次执行状态并切换输入区布局。"""
-        was_active = self.execution_active
+        was_active = (
+            self.execution_active
+            or self.task_state.turn_finishing
+        )
         active     = bool(active)
 
         with self.screen.visual_update():
@@ -1419,6 +1430,14 @@ class TuiRuntime(object):
 
         if not self.execution_active:
             self.viewport.schedule_scrollback_flush()
+
+    def set_turn_start_pending(self, pending: bool) -> None:
+        """更新已提交但尚未开始的模型轮次状态。"""
+        self.task_state.set_turn_start_pending(pending)
+
+    def finish_turn_wait(self) -> None:
+        """结束模型轮次等待状态的生命周期所有权。"""
+        self.task_state.finish_turn_wait()
 
     def set_foreground_active(self, active: bool) -> None:
         """更新下一轮开始前的前台屏障状态。"""
@@ -1749,7 +1768,16 @@ class TuiRuntime(object):
             value = str(submission)
             visible = value
 
-        await self.detach_inline_process_viewer()
+        model_submission = self._is_model_submission(value)
+        if model_submission:
+            self.set_turn_start_pending(True)
+
+        try:
+            await self.detach_inline_process_viewer()
+        except BaseException:
+            if model_submission:
+                self.set_turn_start_pending(False)
+            raise
 
         self.viewport.reset_view()
 
@@ -1772,6 +1800,16 @@ class TuiRuntime(object):
         self.submissions.clear_surface_submission_pending()
 
         return value
+
+    def _is_model_submission(self, value: str) -> bool:
+        """判断提交是否应进入模型轮次等待交接。"""
+        normalized = str(value or "").strip()
+        if not normalized:
+            return self.has_pending_attachments
+        return not normalized.startswith(("/", "!")) and normalized not in {
+            "$",
+            "\\",
+        }
 
     async def select_menu(
         self,
@@ -1842,7 +1880,16 @@ class TuiRuntime(object):
 
     async def begin_wait_status(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
+        if self.task_state.turn_wait_active:
+            await self.activity.ensure_wait()
+            return None
         await self.activity.begin_wait()
+
+    async def ensure_wait_status_for_turn(self) -> None:
+        """在活动交接到模型轮次前确保等待动画已经接管。"""
+        if not self.task_state.turn_wait_active:
+            return None
+        await self.activity.ensure_wait()
 
     async def begin_upload_status(
         self,

@@ -1192,6 +1192,10 @@ class Mind(object):
     ) -> None:
         """停止指定类型的活动动画。"""
         if self.frontend.runtime.active:
+            if kind == "wait":
+                self.frontend.runtime.finish_turn_wait()
+            elif self.animate and kind not in {None, "wait"}:
+                await self.frontend.runtime.ensure_wait_status_for_turn()
             await self.frontend.runtime.end_activity_status(
                 kind,
                 settle=settle,

@@ -49,6 +49,7 @@ async def execute_tui_model_turn(
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
 ) -> "RunResult | None":
     """执行可由主输入区定向取消的单个模型轮次。"""
+    runtime.set_turn_start_pending(True)
     task = asyncio.create_task(turn, name="tui model turn")
 
     application_failure = asyncio.create_task(
@@ -73,6 +74,7 @@ async def execute_tui_model_turn(
 
     try:
         runtime.set_execution_active(True)
+        runtime.set_turn_start_pending(False)
         runtime.bind_interrupt_handler(cancel_turn)
 
         if turn_input_control is not None:
@@ -135,6 +137,7 @@ async def execute_tui_model_turn(
             runtime.bind_queued_restore_handler(None)
 
         runtime.set_execution_active(False)
+        runtime.set_turn_start_pending(False)
 
     if fatal_error is not None:
         raise fatal_error

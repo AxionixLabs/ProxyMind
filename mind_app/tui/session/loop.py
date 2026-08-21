@@ -117,10 +117,15 @@ async def run_tui_loop(
 
         if attachment_start_pending:
             attachment_start_pending = False
-            await state.refresh_for_prompt(mind)
-            state.apply_prompt_context(runtime)
             prompt_text = ""
             action = DispatchAction.MODEL_TURN
+            runtime.set_turn_start_pending(True)
+            try:
+                await state.refresh_for_prompt(mind)
+                state.apply_prompt_context(runtime)
+            except BaseException:
+                runtime.set_turn_start_pending(False)
+                raise
         else:
             prompt_task = asyncio.create_task(
                 mind.frontend.interaction.read_message(state.prompt_context()),
@@ -138,6 +143,7 @@ async def run_tui_loop(
                 mind.task_event.set()
                 break
             except UnicodeDecodeError:
+                runtime.set_turn_start_pending(False)
                 continue
             except TuiTranscriptBacktrackRequested as requested:
                 await _handle_transcript_backtrack(
@@ -156,6 +162,9 @@ async def run_tui_loop(
                     requested.request,
                 )
                 continue
+            except BaseException:
+                runtime.set_turn_start_pending(False)
+                raise
             finally:
                 if not prompt_task.done():
                     prompt_task.cancel()
@@ -179,20 +188,28 @@ async def run_tui_loop(
                 )
             except BaseException:
                 runtime.cancel_command_layout()
+                runtime.set_turn_start_pending(False)
                 raise
             finally:
                 runtime.discard_pending_submission()
 
         if action is DispatchAction.EXIT:
+            runtime.set_turn_start_pending(False)
             runtime.finish_command_layout()
             break
         if action is DispatchAction.HANDLED:
+            runtime.set_turn_start_pending(False)
             runtime.finish_command_layout()
             continue
 
         runtime.cancel_command_layout()
+        runtime.set_turn_start_pending(True)
 
-        await state.refresh_preferences(mind, ttl_sec=0.0)
+        try:
+            await state.refresh_preferences(mind, ttl_sec=0.0)
+        except BaseException:
+            runtime.set_turn_start_pending(False)
+            raise
         application.emit(ApplicationView(type="tui.gap"))
 
         mind.native_coding.reset_patch_diff()
@@ -253,6 +270,7 @@ async def run_tui_loop(
             stream_command_handler=dispatcher.handle_stream_command,
             show_interrupt_notice=lambda: not mind.task_event.is_set(),
         )
+        runtime.set_turn_start_pending(False)
         exit_reason = runtime.consume_exit_request()
         if exit_reason is not None:
             if exit_reason == "interrupt":

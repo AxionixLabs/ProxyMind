@@ -68,6 +68,10 @@ class TurnRuntimePort(typing.Protocol):
         """更新模型轮次执行状态。"""
         ...
 
+    def set_turn_start_pending(self, pending: bool) -> None:
+        """更新已提交但尚未开始的模型轮次状态。"""
+        ...
+
     def bind_interrupt_handler(
         self,
         handler: typing.Callable[[], bool] | None,

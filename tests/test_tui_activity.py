@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from prompt_toolkit.data_structures import Size
@@ -12,6 +12,7 @@ from prompt_toolkit.layout.screen import Screen, WritePosition
 from prompt_toolkit.output import DummyOutput
 
 from mind_app.approval.coordinator import ApprovalCoordinator
+from mind_app.controller import Mind
 from mind_app.interaction import PromptContext
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.application import TuiApplicationSink
@@ -67,6 +68,172 @@ def test_task_state_aggregates_turn_and_activity_sources() -> None:
     activity_running[0] = False
 
     assert not state.running
+
+
+def test_pending_turn_is_busy_and_defers_submission() -> None:
+    runtime = TuiRuntime()
+
+    runtime.set_turn_start_pending(True)
+
+    assert runtime.task_running
+    assert runtime.submission_deferred
+
+    runtime.set_turn_start_pending(False)
+
+    assert not runtime.task_running
+    assert not runtime.submission_deferred
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("animate", "handoff_expected"),
+    ((False, False), (True, True)),
+)
+async def test_stop_anim_respects_animation_handoff(
+    animate: bool,
+    handoff_expected: bool,
+) -> None:
+    runtime = SimpleNamespace(
+        active=True,
+        execution_active=True,
+        turn_start_pending=False,
+        ensure_wait_status_for_turn=AsyncMock(),
+        end_activity_status=AsyncMock(),
+    )
+    mind = Mind.__new__(Mind)
+    mind.animate = animate
+    mind.frontend = SimpleNamespace(runtime=runtime)
+
+    await mind.stop_anim("inbuild", settle=False)
+
+    if handoff_expected:
+        runtime.ensure_wait_status_for_turn.assert_awaited_once_with()
+    else:
+        runtime.ensure_wait_status_for_turn.assert_not_awaited()
+    runtime.end_activity_status.assert_awaited_once_with(
+        "inbuild",
+        settle=False,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ("inbuild", "external_mcp"))
+async def test_query_during_startup_activity_hands_off_to_wait_status(
+    kind: str,
+) -> None:
+    runtime = TuiRuntime()
+
+    if kind == "inbuild":
+        await runtime.begin_inbuild_status(
+            lambda: {"state": "starting", "label": "Helix MCP"}
+        )
+    else:
+        await runtime.begin_external_mcp_status(
+            lambda: {
+                "done": False,
+                "items": [{"name": "docs", "state": "linking", "tools": 0}],
+            }
+        )
+
+    read_task = asyncio.create_task(runtime.read_message(PromptContext(
+        model="test-model",
+    )))
+    runtime.screen.input.buffer.text = "continue during startup"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+
+    assert await read_task == "continue during startup"
+    assert runtime.turn_start_pending
+
+    await runtime.ensure_wait_status_for_turn()
+    await runtime.end_activity_status(kind, settle=False)
+
+    assert runtime.task_running
+    assert "continue during startup" in "".join(
+        text for _style, text in runtime.document.fragments(width=80)
+    )
+    assert runtime.activity.lease(kind) is None
+    assert runtime.screen.activity_block is not None
+    assert "Thinking" in "".join(
+        text for _style, text in runtime.screen.activity_block.fragments
+    )
+
+    await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_finished_turn_does_not_recreate_wait_during_activity_cleanup() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+
+    await runtime.begin_external_mcp_status(
+        lambda: {
+            "done": False,
+            "items": [{"name": "docs", "state": "linking", "tools": 0}],
+        }
+    )
+    await runtime.begin_wait_status()
+
+    runtime.finish_turn_wait()
+    await runtime.end_activity_status("wait", settle=False)
+    await runtime.end_activity_status("external_mcp", settle=False)
+    await runtime.ensure_wait_status_for_turn()
+
+    assert runtime.task_running
+    assert runtime.activity.lease("wait") is None
+
+    runtime.set_execution_active(False)
+    assert not runtime.task_running
+
+
+@pytest.mark.anyio
+async def test_wait_handoff_preserves_paused_approval_wait() -> None:
+    runtime = TuiRuntime()
+    runtime.set_turn_start_pending(True)
+    await runtime.begin_wait_status()
+
+    runtime.activity._wait_elapsed_sec = 7.0
+    assert await runtime.activity.pause_wait()
+    elapsed = runtime.activity._wait_elapsed_sec
+
+    await runtime.ensure_wait_status_for_turn()
+
+    assert runtime.activity._wait_paused
+    assert runtime.activity._wait_elapsed_sec == elapsed
+    assert runtime.activity.lease("wait") is None
+
+    runtime.set_turn_start_pending(False)
+    await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_model_submission_marks_pending_before_process_viewer_detach(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    detach_started = asyncio.Event()
+    release_detach = asyncio.Event()
+
+    async def detach() -> None:
+        detach_started.set()
+        await release_detach.wait()
+
+    monkeypatch.setattr(runtime, "detach_inline_process_viewer", detach)
+
+    read_task = asyncio.create_task(runtime.read_message(PromptContext(
+        model="test-model",
+    )))
+    runtime.screen.input.buffer.text = "continue the task"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+
+    await detach_started.wait()
+    assert runtime.turn_start_pending
+    assert runtime.submission_deferred
+
+    release_detach.set()
+    assert await read_task == "continue the task"
+
+    runtime.set_turn_start_pending(False)
+    assert not runtime.turn_start_pending
 
 
 def test_visual_update_merges_nested_invalidation_requests() -> None:

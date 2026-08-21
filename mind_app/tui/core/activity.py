@@ -178,6 +178,12 @@ class TuiActivity(object):
             render=self._wait_block,
         ))
 
+    async def ensure_wait(self) -> None:
+        """在模型轮次已接管前台时确保等待动画槽存在。"""
+        if self._wait_paused or self.lease("wait") is not None:
+            return None
+        await self.begin_wait()
+
     async def begin_upload(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],

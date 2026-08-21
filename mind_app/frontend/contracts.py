@@ -33,7 +33,6 @@ WaitRetryState = typing.Literal[
 @dataclass(frozen=True, slots=True)
 class ApplicationView(object):
     """描述应用生命周期中的一项展示数据。"""
-
     type: str
     renderable: typing.Any = None
     end: str = "\n"
@@ -43,7 +42,6 @@ class ApplicationView(object):
 @dataclass(frozen=True, slots=True)
 class Viewport(object):
     """描述前端当前可用的展示尺寸。"""
-
     width: int | None = None
     height: int | None = None
 
@@ -79,6 +77,14 @@ class FrontendRuntime(typing.Protocol):
         """清除终端窗口的运行进度。"""
         ...
 
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """切换等待状态的重试来源。"""
+        ...
+
+    def finish_turn_wait(self) -> None:
+        """结束当前模型轮次对等待状态的生命周期所有权。"""
+        ...
+
     async def open(self) -> None:
         """启动交互前端运行期。"""
         ...
@@ -91,8 +97,8 @@ class FrontendRuntime(typing.Protocol):
         """显示覆盖当前交互周期的等待状态。"""
         ...
 
-    def set_wait_retry_state(self, state: WaitRetryState) -> None:
-        """切换等待状态的重试来源。"""
+    async def ensure_wait_status_for_turn(self) -> None:
+        """在活动结束前确保等待状态已经接管模型轮次。"""
         ...
 
     async def begin_upload_status(
@@ -162,12 +168,9 @@ class PassiveFrontendRuntime(object):
         """返回未接管终端状态。"""
         return False
 
-    async def open(self) -> None:
-        """忽略启动请求。"""
-        return None
-
-    async def close(self) -> None:
-        """忽略停止请求。"""
+    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+        """忽略等待状态的重试来源。"""
+        _ = state
         return None
 
     def begin_terminal_progress(self) -> None:
@@ -178,13 +181,24 @@ class PassiveFrontendRuntime(object):
         """忽略终端窗口进度清理请求。"""
         return None
 
+    def finish_turn_wait(self) -> None:
+        """忽略模型轮次等待状态生命周期结束请求。"""
+        return None
+
+    async def open(self) -> None:
+        """忽略启动请求。"""
+        return None
+
+    async def close(self) -> None:
+        """忽略停止请求。"""
+        return None
+
     async def begin_wait_status(self) -> None:
         """忽略等待状态请求。"""
         return None
 
-    def set_wait_retry_state(self, state: WaitRetryState) -> None:
-        """忽略等待状态的重试来源。"""
-        _ = state
+    async def ensure_wait_status_for_turn(self) -> None:
+        """忽略模型轮次等待状态交接请求。"""
         return None
 
     async def begin_upload_status(
