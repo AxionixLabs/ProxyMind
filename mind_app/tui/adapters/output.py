@@ -31,6 +31,7 @@ from ..rendering.fragments import (
     join_formatted_lines,
     wrap_formatted_lines
 )
+from ..rendering.separators import final_message_separator
 from ..core.styles import (
     assistant_block,
     assistant_continuation_block,
@@ -90,8 +91,15 @@ class TuiOutputControl(OutputControlPort):
         self._stream_visible_rows: int         = 0
 
         self._stream_oldest_pending_at: float | None = None
-        self._before_render_registered: bool         = True
-        self._final_render_active: bool               = False
+
+        self._before_render_registered: bool = True
+        self._final_render_active: bool      = False
+
+        self._turn_started_at: float | None = None
+
+        self._had_work_activity: bool = False
+
+        self._needs_final_message_separator: bool = False
 
         self.runtime.screen.application.before_render += (
             self._sync_stream_width
@@ -107,9 +115,24 @@ class TuiOutputControl(OutputControlPort):
         """返回当前 TUI 高度。"""
         return self.runtime.terminal_height
 
+    def note_work_activity(self) -> None:
+        self._had_work_activity = True
+        self._needs_final_message_separator = True
+
     async def open(self) -> None:
         """打开当前输出记录。"""
+        self._turn_started_at = time.perf_counter()
+        self._had_work_activity = False
+        self._needs_final_message_separator = False
         await self.record_writer.open()
+
+    async def complete_turn(self) -> None:
+        elapsed_sec = (
+            max(0.0, time.perf_counter() - self._turn_started_at)
+            if self._turn_started_at is not None
+            else None
+        )
+        await self._append_pending_separator(elapsed_sec=elapsed_sec)
 
     async def stop(self, *, blink: bool = True) -> None:
         """提交当前内容并关闭记录。"""
@@ -135,6 +158,7 @@ class TuiOutputControl(OutputControlPort):
         if not text:
             return None
 
+        await self._append_pending_separator(elapsed_sec=None)
         self.record_writer.write(text)
 
         if self.animate:
@@ -261,6 +285,19 @@ class TuiOutputControl(OutputControlPort):
             display_renderer=display_renderer,
             display_render_width=display_render_width,
         )
+
+    async def _append_pending_separator(self, *, elapsed_sec: float | None) -> bool:
+        if not self._had_work_activity or not self._needs_final_message_separator:
+            return False
+
+        await self._commit_current()
+        with self.runtime.screen.visual_update():
+            self.runtime.append_block(
+                final_message_separator(elapsed_sec),
+                kind="system",
+            )
+        self._needs_final_message_separator = False
+        return True
 
     def flush(self) -> None:
         """刷新当前输出记录。"""

@@ -20,6 +20,7 @@ from mind_app.presentation.models import (
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
+    RunCompletedView,
     RunIncompleteView,
     StyledBlock,
     TextSpan,
@@ -54,8 +55,15 @@ _WIDTH_AWARE_VIEWS = (
     GenericToolResultView,
     NativeToolResultView,
     FailureView,
-    RunIncompleteView,
+    RunIncompleteView
 )
+
+_WORK_COMPLETED_VIEWS = (
+    NativeToolResultView,
+    BatchCompletedView
+)
+
+_NON_WORK_COMPLETED_TOOL_NAMES = frozenset({"view_image"})
 
 _OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)$")
 
@@ -82,6 +90,10 @@ class TuiPresentationSink(PresentationSink):
 
     async def emit(self, view: PresentationView) -> None:
         """渲染并发送一项结构化展示数据。"""
+        if isinstance(view, RunCompletedView):
+            await self.output.complete_turn()
+            return None
+
         block_kind     = _presentation_block_kind(view)
         terminal_width = self.output.terminal_width
 
@@ -134,6 +146,12 @@ class TuiPresentationSink(PresentationSink):
                     terminal_width if width_aware else None
                 ),
             )
+
+        if isinstance(view, _WORK_COMPLETED_VIEWS) or (
+            isinstance(view, GenericToolResultView)
+            and view.name not in _NON_WORK_COMPLETED_TOOL_NAMES
+        ):
+            self.output.note_work_activity()
 
 
 def render_presentation_fragment_block(

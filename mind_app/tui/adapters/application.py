@@ -91,7 +91,7 @@ class TuiApplicationSink(ApplicationSink):
         """把单项应用展示写入已启动的 TUI。"""
         if view.type == "run.worked":
             with self.runtime.activity_handoff("wait"):
-                self._emit_view(view)
+                pass
             return None
         self._emit_view(view)
 

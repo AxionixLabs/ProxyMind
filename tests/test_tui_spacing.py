@@ -53,6 +53,7 @@ from mind_app.presentation.models import (
     NativeToolResultView,
     PlanItemView,
     PlanUpdateView,
+    RunCompletedView,
     ToolStartView,
 )
 from mind_app.presentation.terminal_text import sanitize_terminal_text
@@ -121,6 +122,7 @@ from mind_app.tui.core.styles import (
     failure_parts,
     query_block,
 )
+from mind_app.tui.rendering.separators import final_message_separator
 
 RESPONSE_IDENTITY = ResponseIdentity("turn_test", 1, 1, 1)
 
@@ -8994,6 +8996,148 @@ async def test_presentation_separates_consecutive_tool_groups() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("delta", ("after", "after\n", "\r\nafter"))
+async def test_completed_work_inserts_exact_separator_newline_layout(
+    delta: str,
+) -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await output.append_assistant_delta("before")
+    await output.prepare_external_output()
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "echo done"},
+        ok=True,
+        data={"command": "echo done", "output_lines": ["done"]},
+        call_id="done",
+    ))
+    await output.append_assistant_delta(delta)
+    await output.prepare_external_output()
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "assistant",
+        "operation",
+        "system",
+        "assistant",
+    ]
+    lines = [
+        fragments_text(line)
+        for line in split_formatted_lines(runtime.document.fragments(width=40))
+    ]
+    assert lines == [
+        "• before",
+        "",
+        "• Ran echo done",
+        "└ done",
+        "",
+        "─" * 40,
+        "",
+        "• after",
+    ]
+
+
+@pytest.mark.anyio
+async def test_view_image_does_not_insert_work_separator() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_generic_tool_result_view(
+        "view_image",
+        "C:/tmp/image.png",
+        ok=True,
+    ))
+    await output.append_assistant_delta("after")
+    await output.prepare_external_output()
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "operation",
+        "assistant",
+    ]
+    lines = [
+        fragments_text(line)
+        for line in split_formatted_lines(runtime.document.fragments(width=40))
+    ]
+    assert lines == [
+        "• Viewed",
+        "└ C:/tmp/image.png",
+        "",
+        "• after",
+    ]
+
+
+@pytest.mark.anyio
+async def test_pure_assistant_turn_does_not_insert_separator() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta("before")
+    await output.prepare_external_output()
+    await output.append_assistant_delta("after")
+    await output.prepare_external_output()
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "assistant",
+        "assistant",
+    ]
+
+
+@pytest.mark.anyio
+async def test_completed_work_adds_finished_label_only_at_turn_tail() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    output._turn_started_at = 0.0
+
+    with patch.object(tui_output_module.time, "perf_counter", return_value=61.0):
+        output.note_work_activity()
+        await presentation.emit(RunCompletedView(usage={}))
+
+    assert [item.kind for item in runtime.document.blocks] == ["system"]
+    rendered = fragments_text(runtime.document.fragments(width=60))
+    assert "Finished in 1m 01s" in rendered
+    assert get_cwidth(rendered) == 60
+
+
+@pytest.mark.anyio
+async def test_completed_work_tail_separator_has_exact_newline_layout() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "echo done"},
+        ok=True,
+        data={"command": "echo done", "output_lines": ["done"]},
+        call_id="done",
+    ))
+    await presentation.emit(RunCompletedView(usage={}))
+
+    lines = [
+        fragments_text(line)
+        for line in split_formatted_lines(runtime.document.fragments(width=60))
+    ]
+    assert lines == [
+        "• Ran echo done",
+        "└ done",
+        "",
+        "─" * 60,
+    ]
+
+
+def test_final_separator_uses_dim_style_and_hides_short_elapsed_label() -> None:
+    short = final_message_separator(60.0)
+    long = final_message_separator(61.0)
+
+    assert fragments_text(short.fragments) == "─"
+    assert fragments_text(long.fragments) == "─ Finished in 1m 01s ─"
+    assert all("dim" in style for style, _text in long.fragments)
+
+
+@pytest.mark.anyio
 async def test_tui_shell_titles_share_one_visual_row_budget() -> None:
     runtime = TuiRuntime()
     runtime.screen._output_size = lambda: (20, 24)
@@ -9883,7 +10027,8 @@ async def test_js_repl_query_padding_and_two_stage_display() -> None:
     await output.prepare_external_output()
 
     final_text = _document_text(runtime.document)
-    assert "JavaScript cell completed.\n\n• 已执行完成。" in final_text
+    assert "JavaScript cell completed.\n\n─" in final_text
+    assert "─\n\n• 已执行完成。" in final_text
 
 
 @pytest.mark.anyio

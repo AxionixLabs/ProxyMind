@@ -82,7 +82,7 @@ def test_visual_update_merges_nested_invalidation_requests() -> None:
 
 
 @pytest.mark.anyio
-async def test_worked_footer_atomically_replaces_frozen_wait() -> None:
+async def test_final_separator_atomically_replaces_frozen_wait() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -142,6 +142,8 @@ async def test_worked_footer_atomically_replaces_frozen_wait() -> None:
                 await output._commit_current()
                 await _render_next_frame(runtime)
 
+                output.note_work_activity()
+                await output.complete_turn()
                 emit_worked_footer(TuiApplicationSink(runtime), 1.2)
                 await _render_next_frame(runtime)
 
