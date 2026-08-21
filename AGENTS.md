@@ -49,7 +49,8 @@ mind_app -> mind_core -> mind_nova
 ## 验证
 
 - 修改后运行与影响范围匹配的测试，并执行 `python -m py_compile` 或等价语法检查。
-- 使用根目录脚本运行 PyCharm 离线检查：
+- 根目录提供 PyCharm 离线检查脚本，可在需要排查 IDE warning 时按需使用；
+  该工具不属于每次修改的强制验证步骤：
 
 ```powershell
 .\inspect-ide-warnings.ps1 mind_app/tui/core/runtime.py
