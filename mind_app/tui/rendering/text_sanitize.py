@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import re
 import typing
 from prompt_toolkit.utils import get_cwidth
 from mind_app.presentation.terminal_text import (
     TerminalTextFilter,
-    sanitize_terminal_hyperlink,
+    sanitize_terminal_hyperlink
 )
 from ..contracts.text import FormattedText, FragmentBlock
 from .fragments import ZERO_WIDTH_ESCAPE_STYLE
