@@ -940,7 +940,17 @@ def _render_block(
 ) -> list[list[TextSpan]]:
     """渲染一个块级 Markdown 节点。"""
     if node.type == "paragraph":
-        return _inline_lines(node.children)
+        lines = _inline_lines(node.children)
+        if width is None:
+            return lines
+        return [
+            wrapped
+            for line in lines
+            for wrapped in _wrap_spans(
+                line,
+                width=max(1, int(width)),
+            )
+        ]
     if node.type == "heading":
         return _heading_lines(node)
     if node.type in {"fence", "code_block"}:

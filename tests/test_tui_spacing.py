@@ -3025,6 +3025,29 @@ def test_markdown_uses_terminal_native_semantic_hierarchy() -> None:
     assert any(style == "" and "Body with " in value for style, value in fragments)
 
 
+def test_assistant_markdown_wraps_plain_paragraphs_before_prefixing() -> None:
+    source = (
+        "从量化指标来看，候选项集中在 app-qa（102 个文件，资产最多）、"
+        "ncc-desktop-testing（SKILL.md 16.7KB，最全面，包含 cases）和 "
+        "ntcpc-desktop-testing（结构最全面，包含 reports）。接下来阅读这几位候选人的 "
+        "SKILL.md 正文，以评估契约质量。"
+    )
+
+    rendered_lines = {}
+    for width in (48, 32):
+        lines = fragments_text(
+            render_tui_assistant_markdown(source, width=width).fragments
+        ).splitlines()
+
+        assert lines[0].startswith("• ")
+        assert len(lines) > 1
+        assert all(line.startswith("  ") for line in lines[1:])
+        assert all(get_cwidth(line) <= width for line in lines)
+        rendered_lines[width] = lines
+
+    assert len(rendered_lines[32]) >= len(rendered_lines[48])
+
+
 def test_multiline_list_items_align_wrapped_content_and_stay_separated() -> None:
     block = render_tui_markdown(
         "1. a deliberately long first list item for wrapping\n"
@@ -7905,12 +7928,17 @@ async def test_markdown_hyperlink_degrades_safely_in_dynamic_tui() -> None:
     await output.prepare_external_output()
 
     cell_fragments = runtime.document.blocks[-1].display_block.fragments
-    assert fragments_text(cell_fragments) == "• documentation-link-that-wraps"
-    assert any(
-        "underline" in style
-        and text == "documentation-link-that-wraps"
-        for style, text in cell_fragments
+    cell_lines = fragments_text(cell_fragments).splitlines()
+    assert cell_lines[0].startswith("• ")
+    assert all(line.startswith("  ") for line in cell_lines[1:])
+    assert "".join(line[2:] for line in cell_lines) == (
+        "documentation-link-that-wraps"
     )
+    assert "".join(
+        text
+        for style, text in cell_fragments
+        if "underline" in style
+    ) == "documentation-link-that-wraps"
     assert all(
         style != "[ZeroWidthEscape]"
         for style, _text in cell_fragments
@@ -7954,7 +7982,7 @@ def test_markdown_hyperlink_metadata_survives_wrap_and_clip() -> None:
         if terminal_hyperlink_from_style(style)
     ]
 
-    assert fragments_text(block.fragments) == "• 中文链接 plain"
+    assert fragments_text(block.fragments) == "• 中文链\n  接\n  plain"
     assert "".join(text for _style, text in linked) == "中文链接"
     assert {
         terminal_hyperlink_from_style(style)
@@ -7970,11 +7998,13 @@ def test_markdown_hyperlink_metadata_survives_wrap_and_clip() -> None:
         style != "[ZeroWidthEscape]"
         for style, _text in block.fragments
     )
-    assert [
+    copied_links = [
         terminal_hyperlink_from_style(style)
         for style, _text in deepcopy(block).fragments
         if terminal_hyperlink_from_style(style)
-    ] == ["https://example.com/docs"]
+    ]
+    assert copied_links
+    assert set(copied_links) == {"https://example.com/docs"}
 
 
 def test_terminal_hyperlink_style_is_an_immutable_cache_key() -> None:
@@ -10225,7 +10255,10 @@ async def test_tui_stream_keeps_long_live_line_without_rich_clipping() -> None:
 
     await output.prepare_external_output()
 
-    assert _document_text(runtime.document) == f"• {source}"
+    final_lines = _document_text(runtime.document).splitlines()
+    assert final_lines[0].startswith("• ")
+    assert all(line.startswith("  ") for line in final_lines[1:])
+    assert "".join(line[2:] for line in final_lines) == source
 
 
 @pytest.mark.anyio
