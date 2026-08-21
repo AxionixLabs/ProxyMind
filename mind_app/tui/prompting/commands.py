@@ -47,6 +47,13 @@ class TuiCommandSpec(object):
         return self.completion_text or self.command
 
 
+@dataclass(frozen=True, slots=True)
+class SlashCommandQuery(object):
+    """记录斜杠命令补全查询。"""
+    token: str
+    start_position: int
+
+
 TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "new", "/new", "开始新对话",
@@ -168,16 +175,30 @@ _COMMAND_BY_NAME: typing.Final[dict[str, TuiCommandSpec]] = {
 }
 
 
-def is_first_input_line(document) -> bool:
-    """判断光标是否位于输入文档首行。"""
-    return document.cursor_position_row == 0
+def _completion_items() -> tuple[dict[str, str], ...]:
+    """生成补全器使用的有序命令条目。"""
+    items: list[dict[str, str]] = []
 
+    for command in TUI_COMMANDS:
+        item = {
+            "text": command.insertion_text,
+            "display": command.command,
+            "meta": command.completion_meta
+        }
 
-@dataclass(frozen=True, slots=True)
-class SlashCommandQuery(object):
-    """记录斜杠命令补全查询。"""
-    token: str
-    start_position: int
+        items.append(item)
+
+        items.extend(
+            {
+                "text": alias,
+                "display": alias,
+                "meta": command.completion_meta
+            }
+            for alias in command.aliases
+            if alias.startswith("/")
+        )
+
+    return tuple(items)
 
 
 def _slash_command_bounds(document) -> tuple[str, int, int, int] | None:
@@ -207,11 +228,10 @@ def _slash_command_token(document) -> tuple[str, int, int] | None:
         first_line_end = len(text)
 
     first_line = text[:first_line_end]
-    stripped   = first_line.lstrip()
-
-    slash_start = len(first_line) - len(stripped)
-    if not stripped.startswith("/"):
+    if not first_line.startswith("/"):
         return None
+
+    slash_start: int = 0
 
     token_end = next(
         (
@@ -252,6 +272,11 @@ def slash_command_dismissal_token(document) -> str | None:
     first_line, slash_start, token_end = token
 
     return first_line[slash_start:token_end]
+
+
+def is_first_input_line(document) -> bool:
+    """判断光标是否位于输入文档首行。"""
+    return document.cursor_position_row == 0
 
 
 def command_spec(key: str) -> TuiCommandSpec:
@@ -411,30 +436,26 @@ def submission_replaces_query(value: str) -> bool:
     return str(value or "").startswith("!")
 
 
-def _completion_items() -> tuple[dict[str, str], ...]:
-    """生成补全器使用的有序命令条目。"""
-    items: list[dict[str, str]] = []
+def completion_changes_input(document, completion: Completion) -> bool:
+    """判断补全项是否会改写光标前的匹配文本。"""
+    slash_bounds = _slash_command_bounds(document)
+    if slash_bounds is not None:
 
-    for command in TUI_COMMANDS:
-        item = {
-            "text": command.insertion_text,
-            "display": command.command,
-            "meta": command.completion_meta
-        }
+        token_end = slash_bounds[2]
+        cursor    = slash_bounds[3]
 
-        items.append(item)
+        if cursor < token_end:
+            return True
 
-        items.extend(
-            {
-                "text": alias,
-                "display": alias,
-                "meta": command.completion_meta
-            }
-            for alias in command.aliases
-            if alias.startswith("/")
-        )
+        cursor = document.cursor_position
+        start  = cursor + completion.start_position
 
-    return tuple(items)
+        return document.text[:start] + completion.text != document.text
+
+    before = document.text_before_cursor
+    start  = len(before) + completion.start_position
+
+    return before[start:] != completion.text
 
 
 class SlashCommandCompleter(Completer):
@@ -522,20 +543,6 @@ class SlashCommandCompleter(Completer):
             )
             for item in candidates[:visible_limit]
         )
-
-
-def completion_changes_input(document, completion: Completion) -> bool:
-    """判断补全项是否会改写光标前的匹配文本。"""
-    if slash_command_query(document) is not None:
-        cursor = document.cursor_position
-        start  = cursor + completion.start_position
-
-        return document.text[:start] + completion.text != document.text
-
-    before = document.text_before_cursor
-    start  = len(before) + completion.start_position
-
-    return before[start:] != completion.text
 
 
 if __name__ == '__main__':

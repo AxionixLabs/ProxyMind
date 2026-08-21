@@ -255,9 +255,7 @@ class TuiInputModel(object):
 
         self._history_entries: tuple[TuiInputHistoryEntry, ...] = ()
         self._history_index: int | None                         = None
-        self._history_draft: Document | None                    = None
-        self._history_draft_shell_mode: bool                    = False
-        self._history_draft_paste_store: dict[str, str]         = {}
+        self._history_completion_dismissed: bool                = False
 
         self._token_menu_state = TokenMenuState()
 
@@ -452,6 +450,11 @@ class TuiInputModel(object):
             cursor_position=delete_start,
         )
         return True
+
+    @staticmethod
+    def _history_cursor_at_boundary(buffer) -> bool:
+        """判断光标是否位于整个输入文本的首尾。"""
+        return buffer.cursor_position in (0, len(buffer.text))
 
     def _selected_menu_completion(self, buffer) -> Completion | None:
         """返回当前补全菜单中准备确认的候选项。"""
@@ -679,44 +682,23 @@ class TuiInputModel(object):
 
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
-        self._history_entries           = ()
-        self._history_index             = None
-        self._history_draft             = None
-        self._history_draft_shell_mode  = False
-        self._history_draft_paste_store = {}
+        self._history_entries              = ()
+        self._history_index                = None
+        self._history_completion_dismissed = False
 
-    def _start_history_navigation(self, buffer) -> None:
-        """根据当前草稿创建输入历史导航快照。"""
-        prefix = buffer.document.text_before_cursor
-        if self.shell_mode:
-            prefix = f"! {prefix}" if prefix else "!"
-
-        self._history_draft             = buffer.document
-        self._history_draft_shell_mode  = self.shell_mode
-        self._history_draft_paste_store = dict(self.paste_store)
-
-        self._history_entries = tuple(
-            entry
-            for entry in self.history.entries()
-            if entry.visible_text.startswith(prefix)
-        )
+    def _start_history_navigation(self) -> None:
+        """开始遍历完整输入历史。"""
+        self._history_entries = self.history.entries()
 
         self._history_index = len(self._history_entries)
 
     def _history_navigation_matches_buffer(self, buffer) -> bool:
         """判断输入框是否仍处于当前输入历史位置。"""
         index = self._history_index
-        draft = self._history_draft
-
-        if index is None or draft is None:
+        if index is None:
             return False
-
-        if index == len(self._history_entries):
-            return (
-                buffer.text == draft.text
-                and self.shell_mode == self._history_draft_shell_mode
-                and self.paste_store == self._history_draft_paste_store
-            )
+        if index >= len(self._history_entries):
+            return False
 
         entry = self._history_entries[index]
 
@@ -728,15 +710,30 @@ class TuiInputModel(object):
             and self.paste_store == entry.paste_store
         )
 
+    def _recalled_history_entry_at_boundary(self, buffer) -> bool:
+        """判断当前输入是否仍是历史项且光标位于首尾。"""
+        index = self._history_index
+        return bool(
+            index is not None
+            and index < len(self._history_entries)
+            and buffer.cursor_position in (0, len(buffer.text))
+            and self._history_navigation_matches_buffer(buffer)
+        )
+
     def _navigate_history(self, buffer, *, step: int, count: int) -> None:
-        """在真实输入历史和当前草稿之间导航。"""
+        """在输入历史项之间导航。"""
+        if not self._history_navigation_allowed(buffer):
+            return None
+
         if not self._history_navigation_matches_buffer(buffer):
-            self._start_history_navigation(buffer)
+            if self._history_index is None:
+                self._start_history_navigation()
+            elif buffer.text:
+                return None
 
         index = self._history_index
-        draft = self._history_draft
 
-        if index is None or draft is None:
+        if index is None:
             return None
 
         target = min(
@@ -749,10 +746,12 @@ class TuiInputModel(object):
         self._history_index = target
 
         if target == len(self._history_entries):
-            self.set_shell_mode(self._history_draft_shell_mode)
-            self.restore_submission_state(self._history_draft_paste_store)
-            buffer.document = draft
+            self.set_shell_mode(False)
+            self.restore_submission_state({})
+            buffer.document = Document("", cursor_position=0)
+            self._token_menu_state.clear_command_dismissal()
             self.dismiss_completion_menu(buffer)
+            self._reset_history_navigation()
             self.notify_input_layout()
             return None
 
@@ -765,7 +764,24 @@ class TuiInputModel(object):
 
         buffer.document = Document(text, cursor_position=len(text))
         self.dismiss_completion_menu(buffer)
+        self._history_completion_dismissed = (
+            slash_command_query(buffer.document) is not None
+        )
         self.notify_input_layout()
+
+    def _history_navigation_allowed(self, buffer) -> bool:
+        """判断当前输入是否允许继续历史导航。"""
+        if not self._history_cursor_at_boundary(buffer):
+            return False
+
+        if not buffer.text:
+            return bool(self.history.entries())
+
+        index = self._history_index
+        if index is None or index >= len(self._history_entries):
+            return False
+
+        return self._history_navigation_matches_buffer(buffer)
 
     def _build_key_bindings(self) -> KeyBindings:
         """创建 TUI 输入区按键绑定。"""
@@ -1114,7 +1130,10 @@ class TuiInputModel(object):
                 self._select_completion(buffer, -max(1, event.arg))
             elif buffer.document.cursor_position_row > 0:
                 buffer.cursor_up(count=max(1, event.arg))
-            elif not buffer.selection_state:
+            elif (
+                not buffer.selection_state
+                and self._history_navigation_allowed(buffer)
+            ):
                 self._navigate_history(
                     buffer,
                     step=-1,
@@ -1130,7 +1149,10 @@ class TuiInputModel(object):
                 self._select_completion(buffer, max(1, event.arg))
             elif buffer.document.cursor_position_row < buffer.document.line_count - 1:
                 buffer.cursor_down(count=max(1, event.arg))
-            elif not buffer.selection_state:
+            elif (
+                not buffer.selection_state
+                and self._history_navigation_allowed(buffer)
+            ):
                 self._navigate_history(
                     buffer,
                     step=1,
@@ -1143,11 +1165,13 @@ class TuiInputModel(object):
             filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
-            self._navigate_history(
-                event.app.current_buffer,
-                step=-1,
-                count=max(1, event.arg),
-            )
+            buffer = event.app.current_buffer
+            if self._history_navigation_allowed(buffer):
+                self._navigate_history(
+                    buffer,
+                    step=-1,
+                    count=max(1, event.arg),
+                )
 
         @bindings.add(
             Keys.ControlDown,
@@ -1155,11 +1179,13 @@ class TuiInputModel(object):
             filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
-            self._navigate_history(
-                event.app.current_buffer,
-                step=1,
-                count=max(1, event.arg),
-            )
+            buffer = event.app.current_buffer
+            if self._history_navigation_allowed(buffer):
+                self._navigate_history(
+                    buffer,
+                    step=1,
+                    count=max(1, event.arg),
+                )
 
         return bindings
 
@@ -1178,6 +1204,25 @@ class TuiInputModel(object):
             buffer.cursor_right(count=count)
 
         if buffer.cursor_position != previous_position:
+            if (
+                self._history_completion_dismissed
+                and not self._recalled_history_entry_at_boundary(buffer)
+            ):
+                self._token_menu_state.clear_command_dismissal()
+                self._history_completion_dismissed = False
+            elif self._recalled_history_entry_at_boundary(buffer):
+                slash_token = slash_command_dismissal_token(buffer.document)
+                if (
+                    slash_token is not None
+                    and slash_command_query(buffer.document) is not None
+                ):
+                    if (
+                        self._token_menu_state.command_dismissal_token()
+                        != slash_token
+                    ):
+                        self._token_menu_state.dismiss_command(slash_token)
+                        self._history_completion_dismissed = True
+                    buffer.cancel_completion()
             self.sync_completion_menu(buffer)
 
     def new_placeholder(self) -> str:
@@ -1264,9 +1309,13 @@ class TuiInputModel(object):
 
     def reopen_completion_menu(self, buffer) -> None:
         """在输入内容变化后允许补全菜单重新显示。"""
+        history_dismissed = self._history_completion_dismissed
+        self._history_completion_dismissed = False
         self._update_committed_skill(buffer.text)
         token = slash_command_dismissal_token(buffer.document)
-        if token != self._token_menu_state.command_dismissal_token():
+        if history_dismissed:
+            self._token_menu_state.clear_command_dismissal()
+        elif token != self._token_menu_state.command_dismissal_token():
             self._token_menu_state.clear_command_dismissal()
 
     def confirm_selected_skill(self, buffer) -> None:
@@ -1294,6 +1343,7 @@ class TuiInputModel(object):
 
     def dismiss_completion_menu(self, buffer) -> None:
         """关闭当前补全菜单并保留输入内容。"""
+        self._history_completion_dismissed = False
         document = getattr(buffer, "document", None)
         if document is not None:
             slash_token = slash_command_dismissal_token(document)

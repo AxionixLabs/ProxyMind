@@ -41,7 +41,7 @@ def test_deleted_history_entry_is_available_without_submit() -> None:
     buffer.document = Document("", cursor_position=0)
     press_history_key(model, Keys.Up, buffer)
 
-    assert buffer.text == "second input"
+    assert buffer.text == "first input"
     assert model.history.get_strings() == ["first input", "second input"]
 
 
@@ -59,32 +59,35 @@ def test_rollback_latest_removes_storage_and_navigation_entry() -> None:
     ]
 
 
-def test_history_navigation_restores_draft_and_cursor() -> None:
-    model = TuiInputModel()
-    model.history.append_string("previous input")
-    buffer = Buffer(history=model.history)
-    buffer.document = Document("draft", cursor_position=3)
-
-    model._navigate_history(buffer, step=-1, count=1)
-    model._navigate_history(buffer, step=1, count=1)
-
-    assert buffer.text == "draft"
-    assert buffer.cursor_position == 3
-
-
-def test_history_navigation_filters_by_current_prefix() -> None:
+def test_history_navigation_ignores_interior_cursor_for_normal_up() -> None:
     model = TuiInputModel()
     model.history.append_string("first input")
     model.history.append_string("second input")
     buffer = Buffer(history=model.history)
-    buffer.document = Document("sec", cursor_position=3)
 
-    model._navigate_history(buffer, step=-1, count=1)
+    press_history_key(model, Keys.Up, buffer)
+    press_history_key(model, Keys.Left, buffer)
+    press_history_key(model, Keys.Up, buffer)
 
     assert buffer.text == "second input"
+    assert buffer.cursor_position == len("second input") - 1
 
 
-def test_history_navigation_suppresses_slash_menu_until_edit() -> None:
+def test_history_navigation_stops_after_returning_to_nonempty_draft() -> None:
+    model = TuiInputModel()
+    model.history.append_string("first input")
+    buffer = Buffer(history=model.history)
+    buffer.document = Document("draft", cursor_position=len("draft"))
+
+    press_history_key(model, Keys.Up, buffer)
+    assert buffer.text == "draft"
+    press_history_key(model, Keys.Down, buffer)
+    press_history_key(model, Keys.Up, buffer)
+
+    assert buffer.text == "draft"
+
+
+def test_history_navigation_reopens_slash_menu_after_cursor_motion() -> None:
     model = TuiInputModel()
     model.history.append_string("first query")
     model.history.append_string("/skills")
@@ -104,21 +107,105 @@ def test_history_navigation_suppresses_slash_menu_until_edit() -> None:
     assert buffer.text == "first query"
 
     press_history_key(model, Keys.Down, buffer)
-    buffer.cursor_left()
+    press_history_key(model, Keys.Left, buffer)
 
     assert buffer.text == "/skills"
-    assert model.completion_menu_completions(buffer.document) is None
-
-    buffer.document = Document("/skill", cursor_position=len("/skill"))
-    model.reopen_completion_menu(buffer)
-    model.refresh_completion_menu(buffer)
-
     assert model.completion_menu_completions(buffer.document) is not None
     assert buffer.complete_state is not None
     assert [
         completion.display_text
         for completion in buffer.complete_state.completions
     ] == ["/skills"]
+
+
+def test_history_slash_menu_filters_by_cursor_prefix() -> None:
+    model = TuiInputModel()
+    model.history.append_string("/permissions")
+    buffer = Buffer(
+        history=model.history,
+        completer=model.completer,
+        complete_while_typing=True,
+    )
+
+    press_history_key(model, Keys.Up, buffer)
+    assert model.completion_menu_completions(buffer.document) is None
+
+    for _ in range(10):
+        press_history_key(model, Keys.Left, buffer)
+    assert buffer.cursor_position == 2
+    assert [
+        completion.display_text
+        for completion in buffer.complete_state.completions
+    ] == ["/permissions", "/provider", "/preferences", "/ps"]
+
+    press_history_key(model, Keys.Right, buffer)
+    assert buffer.cursor_position == 3
+    assert [
+        completion.display_text
+        for completion in buffer.complete_state.completions
+    ] == ["/permissions"]
+
+    for _ in range(3):
+        press_history_key(model, Keys.Left, buffer)
+    assert buffer.cursor_position == 0
+    assert model.completion_menu_completions(buffer.document) is None
+
+
+def test_slash_menu_requires_command_at_first_column() -> None:
+    model = TuiInputModel()
+    buffer = Buffer(
+        completer=model.completer,
+        complete_while_typing=True,
+        document=Document(" /skills", cursor_position=len(" /skills")),
+    )
+
+    model.refresh_completion_menu(buffer)
+
+    assert model.completion_menu_completions(buffer.document) is None
+    assert buffer.complete_state is None
+
+
+def test_history_down_clears_after_newest_entry() -> None:
+    model = TuiInputModel()
+    model.history.append_string("/skills")
+    buffer = Buffer(
+        history=model.history,
+        completer=model.completer,
+        complete_while_typing=True,
+    )
+
+    press_history_key(model, Keys.Up, buffer)
+    assert buffer.text == "/skills"
+    assert model.completion_menu_completions(buffer.document) is None
+
+    press_history_key(model, Keys.Down, buffer)
+
+    assert buffer.text == ""
+    assert buffer.complete_state is None
+
+    buffer.document = Document("/skills", cursor_position=len("/skills"))
+    model.reopen_completion_menu(buffer)
+    model.refresh_completion_menu(buffer)
+
+    assert model.completion_menu_completions(buffer.document) is not None
+
+
+def test_history_slash_dismissal_clears_after_editing_arguments() -> None:
+    model = TuiInputModel()
+    model.history.append_string("/skills")
+    buffer = Buffer(
+        history=model.history,
+        completer=model.completer,
+        complete_while_typing=True,
+    )
+
+    press_history_key(model, Keys.Up, buffer)
+    buffer.document = Document("/skills ", cursor_position=len("/skills "))
+    model.reopen_completion_menu(buffer)
+
+    press_history_key(model, Keys.Left, buffer)
+
+    assert model.completion_menu_completions(buffer.document) is not None
 
 
 @pytest.mark.parametrize(
@@ -165,7 +252,7 @@ def test_ctrl_u_preserves_folded_paste_state_on_other_lines() -> None:
     assert model.restore_submission(buffer.text) == first_text
 
 
-def test_shell_history_restores_prefix_mode() -> None:
+def test_shell_history_does_not_restart_after_deleting_current_entry() -> None:
     model = TuiInputModel()
     model.history.append_string("! rg TODO")
     buffer = Buffer(history=model.history)
@@ -179,7 +266,7 @@ def test_shell_history_restores_prefix_mode() -> None:
     model._navigate_history(buffer, step=-1, count=1)
 
     assert model.shell_mode
-    assert buffer.text == "rg TODO"
+    assert buffer.text == ""
 
 
 @pytest.mark.anyio
@@ -246,38 +333,6 @@ async def test_multiple_folded_pastes_keep_surrounding_editable_text() -> None:
     assert buffer.text == editable
     assert set(runtime.input_model.submission_state()) == {first, second}
     assert await submit(runtime) == expected
-
-
-@pytest.mark.anyio
-async def test_history_navigation_restores_folded_paste_draft_state() -> None:
-    runtime = TuiRuntime()
-    buffer = runtime.screen.input.buffer
-    historical = "historical paste " * 80
-    historical_placeholder = runtime.input_model._display_paste(
-        historical,
-        "review ",
-    )
-    historical_editable = f"review {historical_placeholder} old"
-    buffer.text = historical_editable
-    assert await submit(runtime) == f"review {historical} old"
-
-    draft = "draft paste " * 100
-    draft_placeholder = runtime.input_model._display_paste(draft, "")
-    draft_text = f"review {draft_placeholder} later"
-    buffer.document = Document(draft_text, cursor_position=7)
-
-    runtime.input_model._navigate_history(buffer, step=-1, count=1)
-    assert buffer.text == historical_editable
-    assert runtime.input_model.restore_submission(buffer.text) == (
-        f"review {historical} old"
-    )
-
-    runtime.input_model._navigate_history(buffer, step=1, count=1)
-    assert buffer.text == draft_text
-    assert buffer.cursor_position == 7
-    assert runtime.input_model.restore_submission(buffer.text) == (
-        f"review {draft} later"
-    )
 
 
 @pytest.mark.anyio
