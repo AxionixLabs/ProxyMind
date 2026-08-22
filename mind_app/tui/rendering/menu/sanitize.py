@@ -39,6 +39,8 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         search_matcher=request.search_matcher,
         search_prompt_prefix=sanitize_inline_text(request.search_prompt_prefix),
         search_help_text=sanitize_terminal_line(request.search_help_text),
+        search_query_style=sanitize_terminal_line(request.search_query_style),
+        search_empty_text=sanitize_terminal_line(request.search_empty_text),
         footer_note=sanitize_terminal_line(request.footer_note),
         footer_hint=sanitize_terminal_line(request.footer_hint),
         footer_right=sanitize_inline_text(request.footer_right),
@@ -66,6 +68,7 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         show_option_gutter=bool(request.show_option_gutter),
         show_all_options=bool(request.show_all_options),
         body_as_table_header=bool(request.body_as_table_header),
+        separate_options=bool(request.separate_options),
         body_preserve_spacing=bool(request.body_preserve_spacing),
         body_styles=tuple(
             sanitize_terminal_line(style) for style in request.body_styles

@@ -16,6 +16,7 @@ from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.skills import SkillSpec
 from mind_app.tui.core.input import TuiInputModel
+from mind_app.tui.core.menu import TUI_MENU_STYLE, TuiMenu
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import skills as skills_feature
 from mind_app.tui.rendering.fragments import fragments_text
@@ -107,13 +108,20 @@ async def test_manage_skills_toggles_persist_and_refresh_input_snapshot(
     await skills_feature.choose_skill(runtime, session)
 
     manage_request = requests[1]
+    assert manage_request.title == "Enable/Disable Skills"
     assert manage_request.help_text.startswith("Turn skills on or off")
     assert manage_request.footer_hint == (
         "Press space or enter to toggle; esc to close"
     )
     assert manage_request.search_help_text == "Type to search skills"
     assert manage_request.search_prompt_prefix == "> "
+    assert manage_request.search_query_style == (
+        "class:tui-menu.search.placeholder"
+    )
+    assert manage_request.search_empty_text == "no matches"
+    assert not manage_request.separate_options
     assert manage_request.options[0].label == "[x] APP QA"
+    assert manage_request.options[0].detail == "通过截图测试灯具业务。"
 
     manage_request.options[0].on_select()
 
@@ -124,6 +132,72 @@ async def test_manage_skills_toggles_persist_and_refresh_input_snapshot(
 
     assert store.read_raw()["skills"]["disabled"] == []
     assert runtime.input_model.skills == (skill,)
+
+
+@pytest.mark.anyio
+async def test_manage_skills_uses_compact_search_layout_and_empty_state(
+    tmp_path: Path,
+) -> None:
+    skill = _skill(tmp_path, "Browser")
+    request = skills_feature._manage_request(
+        (skill,),
+        {"browser": True},
+        lambda _skill: None,
+    )
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(request))
+    await asyncio.sleep(0)
+
+    assert fragments_text(menu.fragments()) == "\n".join((
+        "  Enable/Disable Skills",
+        "  Turn skills on or off. Your changes are saved automatically.",
+        "  ",
+        "  Type to search skills",
+        "  > ",
+        "\u203a [x] Browser  通过截图测试灯具业务。",
+        "  ",
+        "  Press space or enter to toggle; esc to close",
+    ))
+
+    menu._update_query("q")
+    fragments = menu.fragments()
+    assert fragments_text(fragments) == "\n".join((
+        "  Enable/Disable Skills",
+        "  Turn skills on or off. Your changes are saved automatically.",
+        "  ",
+        "  Type to search skills",
+        "  > q",
+        "  no matches",
+        "  ",
+        "  Press space or enter to toggle; esc to close",
+    ))
+    assert (
+        "class:tui-menu.search.placeholder",
+        "q",
+    ) in fragments
+    assert (
+        "class:tui-menu.search.empty",
+        "  no matches",
+    ) in fragments
+
+    help_style = TUI_MENU_STYLE.get_attrs_for_style_str(
+        "class:tui-menu.search.placeholder"
+    )
+    empty_style = TUI_MENU_STYLE.get_attrs_for_style_str(
+        "class:tui-menu.search.empty"
+    )
+    assert help_style.color == empty_style.color
+    assert help_style.dim
+    assert empty_style.dim
+    assert empty_style.italic
+
+    menu.cancel()
+    assert await task is None
 
 
 def test_at_query_keeps_the_default_input_style() -> None:

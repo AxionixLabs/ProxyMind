@@ -95,6 +95,8 @@ class MenuRequest(object):
     search_matcher: typing.Callable[[str, MenuOption], bool] | None = None
     search_prompt_prefix: str = "  Search: "
     search_help_text: str = ""
+    search_query_style: str = ""
+    search_empty_text: str = ""
     footer_note: str = ""
     footer_hint: str = ""
     footer_right: str = ""
@@ -118,6 +120,7 @@ class MenuRequest(object):
     show_option_gutter: bool = True
     show_all_options: bool = False
     body_as_table_header: bool = False
+    separate_options: bool = True
     body_preserve_spacing: bool = False
     body_styles: tuple[str, ...] = ()
     body_fragments: tuple[FormattedLine, ...] = ()

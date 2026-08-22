@@ -63,6 +63,7 @@ TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.help": "dim",
     "tui-menu.search": "",
     "tui-menu.search.placeholder": "dim",
+    "tui-menu.search.empty": "dim italic",
     "tui-menu.tab": "dim",
     "tui-menu.tab-selected": "bold ansicyan",
     "tui-menu.index": "",

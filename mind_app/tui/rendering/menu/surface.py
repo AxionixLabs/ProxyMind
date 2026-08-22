@@ -108,7 +108,8 @@ def surface_fragments(
     header.extend(body_fragments(request, width=content_width))
     if request.searchable:
         if request.search_help_text:
-            header.append(("", "\n"))
+            if header:
+                header.append(("", "\n"))
             header.extend([
                 (
                     "class:tui-menu.search.placeholder",
@@ -118,15 +119,19 @@ def surface_fragments(
             ])
         query = state.query or request.search_placeholder
         query_style = (
-            "class:tui-menu.search"
+            request.search_query_style or "class:tui-menu.search"
             if state.query
             else "class:tui-menu.search.placeholder"
         )
+        prompt_prefix = request.search_prompt_prefix
         header.extend([
-            (query_style, "  Search: "),
+            (query_style, prompt_prefix),
             (
                 query_style,
-                clip_text(query, width=max(1, content_width - 10)),
+                clip_text(
+                    query,
+                    width=max(1, content_width - get_cwidth(prompt_prefix)),
+                ),
             ),
             ("", "\n"),
         ])
@@ -168,6 +173,20 @@ def surface_fragments(
             rows_out.extend(clip_fragments(row, width=available_rows_width))
             rows_out.append(("", "\n"))
 
+    if (
+        request.searchable
+        and request.search_empty_text
+        and state.query
+        and not visible_indices
+    ):
+        rows_out.extend([
+            (
+                "class:tui-menu.search.empty",
+                f"{' ' * config.horizontal_inset}{request.search_empty_text}",
+            ),
+            ("", "\n"),
+        ])
+
     selected = _selected_option(state)
     if selected is not None and (
         selected.selected_body or selected.selected_body_fragments
@@ -192,7 +211,7 @@ def surface_fragments(
             inset=config.horizontal_inset,
         ),
         rows_out,
-        separate=not request.body_as_table_header,
+        separate=not request.body_as_table_header and request.separate_options,
     )
 
 

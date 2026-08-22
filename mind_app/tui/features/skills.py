@@ -124,9 +124,12 @@ def _manage_request(
         search_matcher=_skill_search_match,
         search_prompt_prefix="> ",
         search_help_text="Type to search skills",
+        search_query_style="class:tui-menu.search.placeholder",
+        search_empty_text="no matches",
         footer_hint=_SKILL_MANAGE_FOOTER,
         description_layout=MenuDescriptionLayout.COLUMNS,
         column_width_mode=MenuColumnWidthMode.AUTO_VISIBLE,
+        separate_options=False,
         options=tuple(
             MenuOption(
                 value=skill,
