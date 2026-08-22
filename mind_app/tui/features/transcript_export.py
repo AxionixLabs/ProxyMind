@@ -11,16 +11,11 @@ from pathlib import Path
 from mind_app.paths import mind_reports_dir
 from mind_nova import const
 from ..core.document import TranscriptBlock
-from ..core.models import TranscriptExportFormat
+from ..core.models import (
+    TranscriptExportFormat,
+    TranscriptExportResult
+)
 from ..rendering.fragments import fragments_text
-
-
-@dataclass(frozen=True, slots=True)
-class TranscriptExportResult(object):
-    """描述一次记录导出的文件和内容规模。"""
-    path: Path
-    format: TranscriptExportFormat
-    cell_count: int
 
 
 @dataclass(frozen=True, slots=True)

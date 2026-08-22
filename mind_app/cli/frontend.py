@@ -91,8 +91,8 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
 
 
 def resolve_cli_design(
-    frontend: Frontend,
-    output_mode: OutputMode,
+    _frontend: Frontend,
+    output_mode: OutputMode
 ) -> TerminalDesign | None:
     """按输出模式创建非 TUI 终端设计能力。"""
     if output_mode == "tui":

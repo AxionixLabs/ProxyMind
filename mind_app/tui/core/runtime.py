@@ -126,7 +126,7 @@ class TuiRuntime(object):
         ),
         keymap: TuiRuntimeKeymap | None = None,
         export_transcript: typing.Callable[
-            [tuple[TranscriptBlock, ...], TranscriptExportFormat],
+            [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
             TranscriptExportResult,
         ] | None = None
     ) -> None:

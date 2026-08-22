@@ -221,7 +221,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         ],
         report_missing_transcript_backtrack: typing.Callable[[], None],
         export_transcript: typing.Callable[
-            [tuple[TranscriptBlock, ...], TranscriptExportFormat],
+            [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
             TranscriptExportResult,
         ] | None,
         observe_terminal_geometry: typing.Callable[[int, int], None],

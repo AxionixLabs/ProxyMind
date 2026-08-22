@@ -58,7 +58,7 @@ if typing.TYPE_CHECKING:
     from ..runtime.ports import ResumePickerPort
 
 
-class HistoryResumePreviewLoader(object):
+class HistoryResumePreviewLoader(ResumePreviewLoader):
     """从本地 history transcript 生成 picker 使用的只读预览。"""
 
     PREVIEW_BLOCK_LIMIT: typing.Final[int] = 6
@@ -100,7 +100,7 @@ class HistoryResumePreviewLoader(object):
         )
 
 
-class HistoryResumeTranscriptLoader(object):
+class HistoryResumeTranscriptLoader(ResumeTranscriptLoader):
     """从本地 history transcript 生成全屏 pager 使用的完整内容。"""
 
     def __init__(self, controller: "Mind") -> None:
