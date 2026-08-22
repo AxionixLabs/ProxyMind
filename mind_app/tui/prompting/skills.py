@@ -12,8 +12,17 @@ from mind_core.skills import SkillSpec
 from .paste import iter_paste_placeholders
 
 SKILL_NAME_TRUNCATE_WIDTH = 28
-SKILL_CATEGORY_TAG        = "[Skill]"
-SKILL_PREFIX_RE           = re.compile(r"^\$[A-Za-z0-9_.-]*$")
+
+SKILL_CATEGORY_TAG = "Skill"
+SKILL_SIGILS       = frozenset(("$", "@"))
+SKILL_PREFIX_RE    = re.compile(r"^[$@][A-Za-z0-9_.-]*$")
+MENTION_PREFIX_RE  = re.compile(r"^@\S*$")
+
+# 这些 token 属于 shell 参数展开，不应被 skill 菜单接管。
+_COMMON_SHELL_VARIABLES = frozenset({
+    "PATH", "HOME", "USER", "SHELL", "PWD", "TMPDIR", "TEMP", "TMP",
+    "LANG", "TERM", "XDG_CONFIG_HOME",
+})
 
 
 class SkillTokenLexer(Lexer):
@@ -99,7 +108,7 @@ def match_known_skill_at(
     skills: typing.Iterable[SkillSpec] = ()
 ) -> tuple[int, str] | None:
     """在指定位置匹配一个白名单 skill token。"""
-    if start < 0 or start >= len(text) or text[start] != "$":
+    if start < 0 or start >= len(text) or text[start] not in SKILL_SIGILS:
         return None
 
     if not is_skill_boundary(text, start - 1):
@@ -108,10 +117,14 @@ def match_known_skill_at(
     lower_text = text.lower()
 
     for name in sorted_known_skill_names(skills):
-        token = f"${name}"
+        token = f"{text[start]}{name}"
         end   = start + len(token)
 
-        if lower_text.startswith(token, start) and is_skill_boundary(text, end):
+        if (
+            lower_text.startswith(token, start)
+            and is_skill_boundary(text, end)
+            and not _is_shell_variable_token(text[start:end])
+        ):
             return end, name
 
     return None
@@ -127,9 +140,14 @@ def iter_known_skill_tokens(
     cursor: int = 0
 
     while True:
-        start = text.find("$", cursor)
-        if start < 0:
+        sigil_positions = [
+            position
+            for sigil in SKILL_SIGILS
+            if (position := text.find(sigil, cursor)) >= 0
+        ]
+        if not sigil_positions:
             return
+        start = min(sigil_positions)
 
         matched = match_known_skill_at(text, start, skills=skills)
         if matched is None:
@@ -139,6 +157,26 @@ def iter_known_skill_tokens(
         end, name = matched
         yield offset + start, offset + end, name
         cursor = end
+
+
+def iter_skill_query_tokens(
+    text: str,
+    *,
+    offset: int = 0,
+) -> typing.Iterator[tuple[int, int, str]]:
+    """迭代当前输入中可搜索的 `$`/`@` token。"""
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_-])(?:@\S*|\$[A-Za-z0-9_.-]*)"
+    )
+    for match in pattern.finditer(text):
+        token = match.group(0)
+        if _is_shell_variable_token(token):
+            continue
+        yield (
+            offset + match.start(),
+            offset + match.end(),
+            token[1:],
+        )
 
 
 def iter_paste_placeholder_tokens(
@@ -199,11 +237,29 @@ def skill_query_token(text: str) -> str | None:
         return None
 
     token = current_line.split()[-1] if current_line.split() else current_line
-    if not token.startswith("$"):
+    if not token or token[0] not in SKILL_SIGILS:
         return None
-    if not SKILL_PREFIX_RE.fullmatch(token):
+    if token.startswith("@"):
+        if not MENTION_PREFIX_RE.fullmatch(token):
+            return None
+    elif not SKILL_PREFIX_RE.fullmatch(token):
+        return None
+    if _is_shell_variable_token(token):
         return None
     return token
+
+
+def _is_shell_variable_token(token: str) -> bool:
+    """判断 token 是否属于 shell 变量或位置参数语法。"""
+    if not token.startswith("$"):
+        return False
+    name = token[1:]
+    if not name:
+        return False
+    if name == "_" or name.startswith("-") or name[0].isdigit():
+        return True
+    # 仅排除大写的常见环境变量，保留 lowercase skill 名称（例如 `$home`）。
+    return name.upper() == name and name in _COMMON_SHELL_VARIABLES
 
 
 def skill_completions(
@@ -214,6 +270,7 @@ def skill_completions(
     token = skill_query_token(text)
     if token is None:
         return
+    sigil = token[0]
     query = token[1:].strip().lower()
 
     matches = sorted(
@@ -231,8 +288,14 @@ def skill_completions(
     )
 
     for _rank, skill in matches:
+        category = skill_meta_text(skill).split(None, 1)[0]
+        insert_sigil = (
+            "$"
+            if sigil == "@" and category == SKILL_CATEGORY_TAG
+            else sigil
+        )
         yield Completion(
-            f"${skill.name} ",
+            f"{insert_sigil}{skill.name} ",
             start_position=-len(token),
             display=skill_display_text(skill.name),
             display_meta=skill_meta_text(skill),
@@ -290,7 +353,12 @@ def skill_display_text(name: str) -> str:
 
 def skill_meta_text(skill: SkillSpec) -> str:
     """返回 skill 菜单说明列。"""
-    return combined_skill_meta_text(SKILL_CATEGORY_TAG, skill.description)
+    category = (
+        "Plugin"
+        if str(skill.source or "").casefold() == "plugin"
+        else SKILL_CATEGORY_TAG
+    )
+    return combined_skill_meta_text(category, skill.description)
 
 
 def combined_skill_meta_text(category_tag: str, description: str) -> str:

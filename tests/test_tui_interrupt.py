@@ -292,19 +292,24 @@ def test_ctrl_c_during_foreground_barrier_clears_without_interrupt() -> None:
     assert runtime.submissions.interrupt_state.exit_armed
 
 
-def test_ctrl_c_closes_completion_before_global_interrupt() -> None:
-    model = TuiRuntime().input_model
-    interrupt = Mock()
-    model.bind_interrupt(interrupt)
-    buffer = SimpleNamespace(
-        complete_state=object(),
-        cancel_completion=Mock(),
-    )
+def test_ctrl_c_clears_at_query_and_completion_without_interrupt() -> None:
+    runtime = TuiRuntime()
+    interrupt = Mock(return_value=True)
+    runtime.bind_interrupt_handler(interrupt)
+    model = runtime.input_model
+    buffer = runtime.screen.input.buffer
+    buffer.text = "@aaa"
+    buffer.cursor_position = len(buffer.text)
+
+    assert model.completion_menu_completions(buffer.document) == ()
 
     model.handle_interrupt(buffer)
 
-    buffer.cancel_completion.assert_called_once_with()
+    assert buffer.text == ""
+    assert buffer.complete_state is None
+    assert model.completion_menu_completions(buffer.document) is None
     interrupt.assert_not_called()
+    assert not runtime.submissions.interrupt_state.exit_armed
 
 
 @pytest.mark.anyio

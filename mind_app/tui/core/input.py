@@ -4,10 +4,12 @@
 import random
 import typing
 from dataclasses import dataclass
-from prompt_toolkit.auto_suggest import (
-    AutoSuggest
+from pathlib import Path
+from prompt_toolkit.auto_suggest import AutoSuggest
+from prompt_toolkit.application.current import (
+    get_app,
+    get_app_or_none
 )
-from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import CompletionState
 from prompt_toolkit.completion import (
     CompleteEvent,
@@ -43,6 +45,10 @@ from ..prompting.commands import (
     slash_command_dismissal_token,
     slash_command_query
 )
+from ..prompting.files import (
+    FileSearchManager,
+    file_category,
+)
 from ..prompting.paste import (
     format_paste_placeholder,
     iter_paste_placeholders,
@@ -50,12 +56,19 @@ from ..prompting.paste import (
     paste_line_count
 )
 from ..prompting.skills import (
+    SKILL_SIGILS,
     SkillTokenLexer,
     iter_known_skill_tokens,
     skill_query_token
 )
 
 INPUT_BUFFER_NAME = "prompt-input"
+
+SKILL_SEARCH_MODES: typing.Final[tuple[str, ...]] = (
+    "All Results",
+    "Filesystem Only",
+    "Plugins",
+)
 
 
 def _ignore_action() -> None:
@@ -212,12 +225,22 @@ class TuiInputModel(object):
     PASTE_CHAR_THRESHOLD: typing.Final[int] = 1200
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
-    def __init__(self) -> None:
+    def __init__(self, *, workspace_root: Path | str | None = None) -> None:
         self.paste_store: dict[str, str]   = {}
         self.skills: tuple[SkillSpec, ...] = ()
+        self.workspace_root: Path | None = (
+            Path(workspace_root).expanduser().resolve()
+            if workspace_root is not None
+            else None
+        )
 
+        self.file_search = FileSearchManager()
         self.history   = TuiInputHistory()
-        self.completer = SlashCommandCompleter(lambda: self.skills)
+        self.completer = SlashCommandCompleter(
+            lambda: self.skills,
+            lambda: self.workspace_root,
+            self.file_search,
+        )
 
         self.auto_suggest = TuiAutoSuggest()
 
@@ -258,6 +281,7 @@ class TuiInputModel(object):
         self._history_completion_dismissed: bool                = False
 
         self._token_menu_state = TokenMenuState()
+        self._skill_search_mode_index: int = 0
 
         self.key_bindings = self._build_key_bindings()
 
@@ -274,7 +298,7 @@ class TuiInputModel(object):
             "prompt.exec.command": "dim #A8B1BB",
             "placeholder": "#727983",
             "auto-suggestion": "#5A616A",
-            "skill-token": "bold #8FD7FF",
+            "skill-token": "nodim fg:ansicyan",
             "shell-escape": "bold #FF6B6B",
             "paste-placeholder": "bold #D3C27C",
             "completion-menu": "bg:default #B8C0C9",
@@ -283,19 +307,37 @@ class TuiInputModel(object):
             "completion-menu.meta.completion": "#707A84",
             "completion-menu.meta.completion.current": "bg:default bold ansicyan",
             "completion-menu.empty": "dim italic #59616A",
+            "completion-menu.empty.mention": "italic nodim #B8C0C9",
             "token-menu": "#B8C0C9",
             "token-menu.command": "fg:default",
             "token-menu.command.current": "bold nodim ansicyan",
-            "token-menu.skill": "bg:default bold #8FD7FF",
-            "token-menu.skill.current": "bg:default bold ansicyan",
-            "token-menu.completion": "bg:default bold #B8C0C9",
-            "token-menu.completion.current": "bg:default bold ansicyan",
+            "token-menu.skill": "dim #B8C0C9",
+            "token-menu.skill.current": "bold nodim ansicyan",
+            "token-menu.skill-mention": "dim #B8C0C9",
+            "token-menu.skill-mention.current": "bold nodim ansicyan",
+            "token-menu.plugin-mention": "ansimagenta",
+            "token-menu.plugin-mention.current": "bold nodim ansicyan",
+            "token-menu.file-mention": "ansicyan",
+            "token-menu.file-mention.current": "bold nodim ansicyan",
+            "token-menu.directory-mention": "#B8C0C9",
+            "token-menu.directory-mention.current": "bold nodim ansicyan",
+            "token-menu.completion": "bold #B8C0C9",
+            "token-menu.completion.current": "bold nodim ansicyan",
             "token-menu.meta.command": "fg:default dim",
             "token-menu.meta.command.current": "bold nodim ansicyan",
-            "token-menu.meta.skill": "#7B838E",
-            "token-menu.meta.skill.current": "bg:default bold ansicyan",
-            "token-menu.meta.completion": "#707A84",
-            "token-menu.meta.completion.current": "bg:default bold ansicyan",
+            "token-menu.meta.skill": "dim #7B838E",
+            "token-menu.meta.skill.current": "bold nodim ansicyan",
+            "token-menu.meta.skill-mention": "dim #7B838E",
+            "token-menu.meta.skill-mention.current": "bold nodim ansicyan",
+            "token-menu.meta.plugin-mention": "dim #7B838E",
+            "token-menu.meta.plugin-mention.current": "bold nodim ansicyan",
+            "token-menu.meta.file-mention": "dim #7B838E",
+            "token-menu.meta.file-mention.current": "bold nodim ansicyan",
+            "token-menu.meta.directory-mention": "dim #7B838E",
+            "token-menu.meta.directory-mention.current": "bold nodim ansicyan",
+            "token-menu.meta.completion": "dim #707A84",
+            "token-menu.meta.completion.current": "bold nodim ansicyan",
+            "tui-menu.footer.right.plugins.current": "bold nodim ansimagenta",
         })
 
     @staticmethod
@@ -353,22 +395,45 @@ class TuiInputModel(object):
         return True
 
     @staticmethod
-    def _token_menu_kind(completion: Completion) -> TokenMenuKind:
+    def _token_menu_kind(
+        document: Document,
+        completion: Completion,
+    ) -> TokenMenuKind:
         """返回补全候选在 token 菜单中的类型。"""
-        if completion.text.startswith("$"):
+        query = skill_query_token(document.text_before_cursor)
+        category = file_category(completion.display_meta_text)
+        tool_category = completion.display_meta_text.split(None, 1)[0]
+        if query and query.startswith("@") and category == "File":
+            return "file-mention"
+        if query and query.startswith("@") and category == "Dir":
+            return "directory-mention"
+
+        if completion.text[:1] in SKILL_SIGILS:
+            if query and query.startswith("@"):
+                if tool_category == "Plugin":
+                    return "plugin-mention"
+                return "skill-mention"
             return "skill"
         if completion.text.startswith("/"):
             return "command"
         return "completion"
 
-    @staticmethod
     def _token_menu_match_indices(
+        self,
         document: Document,
         completion: Completion,
     ) -> tuple[int, ...] | None:
         """返回补全候选中需要高亮的位置。"""
-        if completion.text.startswith("$"):
-            query = skill_query_token(document.text_before_cursor)
+        query = skill_query_token(document.text_before_cursor)
+        category = file_category(completion.display_meta_text)
+        if query and query.startswith("@") and category in {"File", "Dir"}:
+            return self.file_search.match_indices(
+                completion.text.strip(),
+                completion.display_text,
+                query[1:].strip(),
+            )
+
+        if completion.text[:1] in SKILL_SIGILS:
             if query is None:
                 return None
             return subsequence_match_indices(
@@ -404,13 +469,20 @@ class TuiInputModel(object):
         token_start = document.cursor_position - len(prefix)
         text        = document.text
 
-        if token_start < 0 or token_start >= len(text) or text[token_start] != "$":
+        if (
+            token_start < 0
+            or token_start >= len(text)
+            or text[token_start] not in SKILL_SIGILS
+        ):
             return None
 
         token_end = token_start + 1
         while token_end < len(text):
             char = text[token_end]
-            if not (char.isalnum() or char in "_.-"):
+            allowed = "_.-"
+            if text[token_start] == "@":
+                allowed += "/\\"
+            if not (char.isalnum() or char in allowed):
                 break
             token_end += 1
 
@@ -472,12 +544,15 @@ class TuiInputModel(object):
         original = buffer.document
         self.apply_completion(buffer, completion)
 
-        if completion.text.startswith("$") and completion.text != "$":
+        if (
+            completion.text[:1] in SKILL_SIGILS
+            and completion.text != completion.text[:1]
+        ):
             self.confirm_selected_skill(buffer)
 
         if buffer.document == original:
             self.dismiss_completion_menu(buffer)
-        elif completion.text == "$":
+        elif completion.text in SKILL_SIGILS:
             buffer.start_completion(
                 select_first=False,
                 complete_event=CompleteEvent(text_inserted=True),
@@ -609,7 +684,7 @@ class TuiInputModel(object):
             self._token_menu_state.set_committed_skill(None)
             return None
 
-        if start < 0 or start >= len(text) or text[start] != "$":
+        if start < 0 or start >= len(text) or text[start] not in SKILL_SIGILS:
             self._token_menu_state.set_committed_skill(None)
             return None
 
@@ -849,6 +924,13 @@ class TuiInputModel(object):
                 ) is not None
             )
         )
+        completion_candidates_open = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(
+                self.completion_menu_completions(
+                    get_app().current_buffer.document
+                )
+            )
+        )
 
         @bindings.add("escape", eager=True, filter=completion_menu_open)
         def _(event) -> None:
@@ -938,6 +1020,9 @@ class TuiInputModel(object):
 
         @bindings.add("left", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
         def _(event) -> None:
+            if self._skill_mention_popup_open(event.app.current_buffer):
+                self.cycle_skill_search_mode(-1)
+                return None
             self._move_cursor_with_completion_menu(
                 event.app.current_buffer,
                 step=-1,
@@ -946,6 +1031,9 @@ class TuiInputModel(object):
 
         @bindings.add("right", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
         def _(event) -> None:
+            if self._skill_mention_popup_open(event.app.current_buffer):
+                self.cycle_skill_search_mode(1)
+                return None
             self._move_cursor_with_completion_menu(
                 event.app.current_buffer,
                 step=1,
@@ -1043,8 +1131,8 @@ class TuiInputModel(object):
 
             menu_completion = self._selected_menu_completion(buffer)
 
-            completion_menu_opened = (
-                self.completion_menu_completions(buffer.document) is not None
+            completion_menu_opened = bool(
+                self.completion_menu_completions(buffer.document)
             )
 
             if menu_completion is not None:
@@ -1104,8 +1192,12 @@ class TuiInputModel(object):
             if completion is not None:
                 self._apply_menu_completion(buffer, completion)
                 if (
-                    completion.text == "$"
-                    or completion.text.startswith("$")
+                    completion.text in SKILL_SIGILS
+                    or completion.text[:1] in SKILL_SIGILS
+                    or file_category(completion.display_meta_text) in {
+                        "File",
+                        "Dir",
+                    }
                     or completion.text in self.PARAMETERIZED_COMMANDS
                 ):
                     return
@@ -1115,7 +1207,7 @@ class TuiInputModel(object):
                 if state is not None and state.current_completion is not None:
                     completion = state.current_completion
                     self.apply_completion(buffer, completion)
-                    if completion.text.startswith("$"):
+                    if completion.text[:1] in SKILL_SIGILS:
                         return
 
             buffer.validate_and_handle()
@@ -1124,7 +1216,7 @@ class TuiInputModel(object):
         def _(event) -> None:
             buffer = event.app.current_buffer
 
-            if self.completion_menu_completions(buffer.document) is not None:
+            if self.completion_menu_completions(buffer.document):
                 self._select_completion(buffer, -max(1, event.arg))
             elif buffer.complete_state:
                 self._select_completion(buffer, -max(1, event.arg))
@@ -1143,7 +1235,7 @@ class TuiInputModel(object):
         @bindings.add("down")
         def _(event) -> None:
             buffer = event.app.current_buffer
-            if self.completion_menu_completions(buffer.document) is not None:
+            if self.completion_menu_completions(buffer.document):
                 self._select_completion(buffer, max(1, event.arg))
             elif buffer.complete_state:
                 self._select_completion(buffer, max(1, event.arg))
@@ -1158,6 +1250,20 @@ class TuiInputModel(object):
                     step=1,
                     count=max(1, event.arg),
                 )
+
+        @bindings.add("c-p", eager=True, filter=completion_candidates_open)
+        def _(event) -> None:
+            self._select_completion(
+                event.app.current_buffer,
+                -max(1, event.arg),
+            )
+
+        @bindings.add("c-n", eager=True, filter=completion_candidates_open)
+        def _(event) -> None:
+            self._select_completion(
+                event.app.current_buffer,
+                max(1, event.arg),
+            )
 
         @bindings.add(
             Keys.ControlUp,
@@ -1244,7 +1350,7 @@ class TuiInputModel(object):
                 TokenMenuItem(
                     display_text=completion.display_text,
                     meta_text=completion.display_meta_text,
-                    kind=self._token_menu_kind(completion),
+                    kind=self._token_menu_kind(buffer.document, completion),
                     match_indices=self._token_menu_match_indices(
                         buffer.document,
                         completion,
@@ -1258,6 +1364,61 @@ class TuiInputModel(object):
     def set_skills(self, skills: typing.Iterable[SkillSpec]) -> None:
         """更新输入补全和高亮使用的 skill 快照。"""
         self.skills = tuple(skills)
+
+        app = get_app_or_none()
+        if app is None:
+            return None
+
+        buffer = app.current_buffer
+        if getattr(buffer, "name", None) != INPUT_BUFFER_NAME:
+            return None
+
+        self.reopen_completion_menu(buffer)
+        self.sync_completion_menu(buffer)
+        self.notify_input_layout()
+
+    def set_workspace_root(self, workspace_root: Path | str) -> None:
+        """更新 `@` 文件搜索使用的工作区根目录。"""
+        resolved = Path(workspace_root).expanduser().resolve()
+        if resolved == self.workspace_root:
+            return None
+        self.file_search.cancel()
+        self.workspace_root = resolved
+
+        app = get_app_or_none()
+        if app is None:
+            return None
+        buffer = app.current_buffer
+        if getattr(buffer, "name", None) != INPUT_BUFFER_NAME:
+            return None
+        self.sync_completion_menu(buffer)
+        self.notify_input_layout()
+
+    @property
+    def skill_search_mode(self) -> str:
+        """返回 `@` popup 当前搜索模式名称。"""
+        return SKILL_SEARCH_MODES[self._skill_search_mode_index]
+
+    def cycle_skill_search_mode(self, step: int) -> None:
+        """循环切换 `@` popup 搜索模式并刷新布局。"""
+        self._skill_search_mode_index = (
+            self._skill_search_mode_index + (1 if step >= 0 else -1)
+        ) % len(SKILL_SEARCH_MODES)
+        app = get_app_or_none()
+        if app is not None:
+            buffer = app.current_buffer
+            if getattr(buffer, "name", None) == INPUT_BUFFER_NAME:
+                self.refresh_completion_menu(buffer)
+        self.notify_input_layout()
+
+    def _skill_mention_popup_open(self, buffer) -> bool:
+        """判断当前是否正在展示 `@` skill popup。"""
+        query = skill_query_token(buffer.document.text_before_cursor)
+        return bool(
+            query
+            and query.startswith("@")
+            and self.completion_menu_completions(buffer.document) is not None
+        )
 
     def set_shell_mode(self, active: bool) -> None:
         """更新输入框的 Shell 前缀模式。"""
@@ -1273,19 +1434,27 @@ class TuiInputModel(object):
         """绑定输入内容变化后的当前帧布局刷新动作。"""
         self._input_layout_handler = handler
 
+    def bind_file_search_refresh(self, handler: typing.Callable[[], None]) -> None:
+        """绑定后台文件搜索结果到达后的线程安全刷新动作。"""
+        self.file_search.bind_refresh(handler)
+
+    def close_file_search(self) -> None:
+        """关闭当前后台文件搜索会话。"""
+        self.file_search.close()
+
+    def completion_empty_message(self, document: Document) -> str:
+        """返回当前补全空状态应展示的文字。"""
+        query = skill_query_token(document.text_before_cursor)
+        if query and query.startswith("@"):
+            return self.file_search.empty_message(document.text_before_cursor)
+        return "no matches"
+
     def notify_input_layout(self) -> None:
         """通知布局层按当前输入和补全状态刷新画面。"""
         self._input_layout_handler()
 
     def handle_interrupt(self, buffer) -> None:
-        """优先关闭补全，再把取消操作交给主运行时。"""
-        if (
-            buffer.complete_state is not None
-            or self.completion_menu_completions(buffer.document) is not None
-        ):
-            self.dismiss_completion_menu(buffer)
-            return None
-
+        """把 Ctrl+C 交给主运行时统一清理草稿或中断任务。"""
         self.interrupt_handler()
         self.notify_input_layout()
 
@@ -1297,14 +1466,39 @@ class TuiInputModel(object):
             or self._committed_skill_completion_dismissed(document)
         ):
             return None
-        return self.completer.menu_completions(document)
+        completions = self.completer.menu_completions(document)
+        if completions is None:
+            return None
+
+        query = skill_query_token(document.text_before_cursor)
+        if not query or not query.startswith("@"):
+            return completions
+
+        if self.skill_search_mode == "Filesystem Only":
+            return tuple(
+                completion
+                for completion in completions
+                if file_category(completion.display_meta_text) in {"File", "Dir"}
+            )
+
+        if self.skill_search_mode == "Plugins":
+            return tuple(
+                completion
+                for completion in completions
+                if file_category(completion.display_meta_text) is None
+            )
+
+        return completions
 
     def completion_menu_has_skill_items(self, document: Document) -> bool:
         """判断当前补全菜单是否包含 skill 候选。"""
         completions = self.completion_menu_completions(document)
         return bool(
             completions
-            and any(completion.text.startswith("$") for completion in completions)
+            and any(
+                completion.text[:1] in SKILL_SIGILS
+                for completion in completions
+            )
         )
 
     def reopen_completion_menu(self, buffer) -> None:
@@ -1312,6 +1506,10 @@ class TuiInputModel(object):
         history_dismissed = self._history_completion_dismissed
         self._history_completion_dismissed = False
         self._update_committed_skill(buffer.text)
+        query = skill_query_token(buffer.document.text_before_cursor)
+        if not query or not query.startswith("@"):
+            self._skill_search_mode_index = 0
+            self.file_search.cancel()
         token = slash_command_dismissal_token(buffer.document)
         if history_dismissed:
             self._token_menu_state.clear_command_dismissal()
@@ -1392,7 +1590,16 @@ class TuiInputModel(object):
             buffer.cancel_completion()
             return None
 
-        completions = self.completer.matching_completions(buffer.document)
+        completions = self.completion_menu_completions(buffer.document)
+        if not completions:
+            buffer.cancel_completion()
+            return None
+        if len(completions) == 1:
+            completions = tuple(
+                completion
+                for completion in completions
+                if completion_changes_input(buffer.document, completion)
+            )
         if not completions:
             buffer.cancel_completion()
             return None

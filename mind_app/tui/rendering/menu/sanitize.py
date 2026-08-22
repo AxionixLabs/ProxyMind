@@ -36,14 +36,21 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         generation=max(0, int(request.generation)),
         searchable=request.searchable,
         search_placeholder=sanitize_terminal_line(request.search_placeholder),
+        search_matcher=request.search_matcher,
+        search_prompt_prefix=sanitize_inline_text(request.search_prompt_prefix),
+        search_help_text=sanitize_terminal_line(request.search_help_text),
         footer_note=sanitize_terminal_line(request.footer_note),
         footer_hint=sanitize_terminal_line(request.footer_hint),
+        footer_right=sanitize_inline_text(request.footer_right),
+        footer_right_active=sanitize_inline_text(request.footer_right_active),
         allow_cancel=request.allow_cancel,
         description_layout=sanitize_description_layout(request.description_layout),
         description_separator=sanitize_inline_text(request.description_separator),
         min_description_width=max(1, int(request.min_description_width)),
         tabs=tuple(sanitize_menu_tab(tab) for tab in request.tabs),
         active_tab_id=sanitize_terminal_line(request.active_tab_id or "") or None,
+        tabs_in_header=bool(request.tabs_in_header),
+        surface_style=sanitize_inline_text(request.surface_style),
         column_width_mode=sanitize_column_width_mode(request.column_width_mode),
         name_column_width=(
             max(1, int(request.name_column_width))
@@ -75,6 +82,7 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
             max(1, int(limit)) if limit is not None else None
             for limit in request.body_line_limits
         ),
+        selection_marker=sanitize_inline_text(request.selection_marker) or "›",
     )
 
 
@@ -157,6 +165,8 @@ def sanitize_menu_option(option: MenuOption) -> MenuOption:
             max(1, int(limit)) if limit is not None else None
             for limit in option.selected_body_line_limits
         ),
+        category=sanitize_terminal_line(option.category),
+        category_style=sanitize_terminal_line(option.category_style),
     )
 
 

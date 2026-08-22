@@ -82,12 +82,18 @@ def surface_fragments(
         max_detail_reserve=config.max_detail_reserve,
     )
 
-    header: StyleAndTextTuples = header_fragments(
-        request,
-        width=content_width,
+    header: StyleAndTextTuples = (
+        header_fragments(request, width=content_width)
+        if request.title or request.status
+        else []
     )
-    header.append(("", "\n"))
-    tabs = tab_fragments(request, width=content_width)
+    if header:
+        header.append(("", "\n"))
+    tabs = (
+        tab_fragments(request, width=content_width)
+        if request.tabs_in_header
+        else []
+    )
     if tabs:
         header.extend(tabs)
         header.append(("", "\n"))
@@ -101,6 +107,15 @@ def surface_fragments(
         ])
     header.extend(body_fragments(request, width=content_width))
     if request.searchable:
+        if request.search_help_text:
+            header.append(("", "\n"))
+            header.extend([
+                (
+                    "class:tui-menu.search.placeholder",
+                    clip_text(request.search_help_text, width=content_width),
+                ),
+                ("", "\n"),
+            ])
         query = state.query or request.search_placeholder
         query_style = (
             "class:tui-menu.search"
@@ -108,7 +123,7 @@ def surface_fragments(
             else "class:tui-menu.search.placeholder"
         )
         header.extend([
-            ("class:tui-menu.search", "  Search: "),
+            (query_style, "  Search: "),
             (
                 query_style,
                 clip_text(query, width=max(1, content_width - 10)),
@@ -117,9 +132,11 @@ def surface_fragments(
         ])
 
     rows_out: StyleAndTextTuples = []
+
     for offset, option in enumerate(options):
-        index = visible_indices[offset]
+        index  = visible_indices[offset]
         active = index == state.selected and not option_is_disabled(option)
+
         index_style = (
             "class:tui-menu.index.disabled"
             if option_is_disabled(option)
@@ -127,6 +144,7 @@ def surface_fragments(
             if active
             else "class:tui-menu.index"
         )
+
         prefix = option_prefix(
             state,
             index,
@@ -134,6 +152,7 @@ def surface_fragments(
             number_width=number_width,
             surface_inset=config.horizontal_inset,
         )
+
         rows = option_fragments(
             option,
             available=max(1, available_rows_width - get_cwidth(prefix)),
@@ -181,7 +200,7 @@ def footer_fragments(
     state: MenuState,
     *,
     width: int,
-    inset: int = 0,
+    inset: int = 0
 ) -> StyleAndTextTuples:
     """生成指定菜单状态的透明 footer 片段。"""
     return _inset_footer_fragments(
@@ -195,7 +214,7 @@ def surface_footer_fragments(
     state: MenuState,
     *,
     width: int,
-    config: MenuRenderConfig,
+    config: MenuRenderConfig
 ) -> StyleAndTextTuples:
     """生成兼容独立菜单文本的 surface 内 footer。"""
     request = _request_with_selected_footer(state)
@@ -209,13 +228,15 @@ def menu_fragments(
     state: MenuState,
     *,
     width: int,
-    config: MenuRenderConfig,
+    config: MenuRenderConfig
 ) -> StyleAndTextTuples:
     """生成包含独立 footer 的完整菜单片段。"""
     surface = surface_fragments(state, width=width, config=config)
-    footer = surface_footer_fragments(state, width=width, config=config)
+    footer  = surface_footer_fragments(state, width=width, config=config)
+
     if not footer:
         return surface
+
     surface.append(("", "\n"))
     surface.extend([
         ("class:tui-menu.surface", "  "),
@@ -225,6 +246,7 @@ def menu_fragments(
         footer,
         inset=config.horizontal_inset,
     ))
+
     return surface
 
 
@@ -240,31 +262,92 @@ def _request_with_selected_footer(state: MenuState) -> MenuRequest:
 def _request_footer_fragments(
     request: MenuRequest,
     *,
-    width: int,
+    width: int
 ) -> StyleAndTextTuples:
     """生成可选 footer note 和 hint 的包裹片段。"""
     out: StyleAndTextTuples = []
+
     inner_width = max(1, int(width))
+
     if request.footer_note:
         out.extend(wrapped_text_fragments(
             request.footer_note,
             style="class:tui-menu.footer.note",
             width=inner_width,
         ))
+
     if request.footer_hint and request.allow_cancel:
-        out.extend(wrapped_text_fragments(
-            request.footer_hint,
-            style="class:tui-menu.footer.hint",
-            width=inner_width,
-        ))
+        right_text, right_active = _footer_right_content(request)
+        if right_text:
+
+            right       = clip_text(right_text, width=inner_width)
+            right_width = get_cwidth(right)
+            left_width  = max(1, inner_width - right_width - 1)
+            left        = clip_text(request.footer_hint, width=left_width)
+            gap         = max(1, inner_width - get_cwidth(left) - right_width)
+
+            out.extend([
+                ("class:tui-menu.footer.hint", left),
+                ("class:tui-menu.footer.hint", " " * gap),
+                *_right_footer_fragments(right, active=right_active),
+                ("", "\n"),
+            ])
+
+        else:
+            out.extend(wrapped_text_fragments(
+                request.footer_hint,
+                style="class:tui-menu.footer.hint",
+                width=inner_width,
+            ))
+
     return out
+
+
+def _right_footer_fragments(
+    text: str,
+    *,
+    active: str = ""
+) -> StyleAndTextTuples:
+    """生成右侧模式栏并高亮当前模式。"""
+    if not active or active not in text:
+        return [("class:tui-menu.footer.right", text)]
+
+    start = text.index(active)
+    end   = start + len(active)
+
+    return [
+        ("class:tui-menu.footer.right", text[:start]),
+        ("class:tui-menu.footer.right.current", text[start:end]),
+        ("class:tui-menu.footer.right", text[end:]),
+    ]
+
+
+def _footer_right_content(request: MenuRequest) -> tuple[str, str]:
+    """返回 footer 右侧模式文本及当前模式标记。"""
+    if not request.tabs:
+        return request.footer_right, request.footer_right_active
+
+    active_id    = request.active_tab_id
+    active_label = ""
+
+    labels: list[str] = []
+
+    for tab in request.tabs:
+        active = tab.tab_id == active_id
+        if active:
+            active_label = f"[{tab.label}]"
+            labels.append(active_label)
+        else:
+            labels.append(tab.label)
+
+    return "  ".join(labels), active_label
 
 
 def _inset_footer_fragments(
     request: MenuRequest,
     *,
     width: int,
-    inset: int,
+    inset: int
 ) -> StyleAndTextTuples:
     """按共享 surface inset 生成 footer 内容。"""
     content_width = max(1, int(width) - max(0, int(inset)))

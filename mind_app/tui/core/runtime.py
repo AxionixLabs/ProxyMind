@@ -8,6 +8,7 @@ from collections import deque
 from functools import partial
 from pathlib import Path
 from prompt_toolkit.application import in_terminal
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
 from mind_core.design.terminal_capabilities import (
@@ -285,6 +286,9 @@ class TuiRuntime(object):
             self._report_missing_backtrack,
         )
         self.input_model.bind_input_layout(self.screen.refresh_input_layout)
+        self.input_model.bind_file_search_refresh(
+            self._schedule_file_search_refresh
+        )
 
         self.activity = TuiActivity(
             set_renderable=lambda block: self.screen.set_activity_renderable(
@@ -1180,6 +1184,16 @@ class TuiRuntime(object):
         self.input_model.notify_input_layout()
         self.invalidate()
 
+    def open_skill_search(self) -> None:
+        """在主输入框中放入 `@` 并打开原生 skill 补全。"""
+        self.replace_input_text("@")
+        self.screen.input.buffer.start_completion(
+            select_first=False,
+            complete_event=CompleteEvent(text_inserted=True),
+        )
+        self.input_model.notify_input_layout()
+        self.invalidate()
+
     def bind_submitted_turn(
         self,
         turn_id: str,
@@ -1380,6 +1394,23 @@ class TuiRuntime(object):
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
         self.screen.invalidate()
+
+    def _schedule_file_search_refresh(self) -> None:
+        """把后台文件搜索更新投递到 TUI 事件循环。"""
+        application = self.screen.application
+        loop = application.loop
+        if not application.is_running or loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(self._refresh_file_search_results)
+
+    def _refresh_file_search_results(self) -> None:
+        """在 TUI 线程应用最新文件搜索快照。"""
+        if self._closing:
+            return
+        buffer = self.screen.input.buffer
+        self.input_model.sync_completion_menu(buffer)
+        self.input_model.notify_input_layout()
+        self.invalidate()
 
     def toggle_transcript_overlay(self) -> None:
         """切换完整会话记录并协调原生滚屏任务。"""
@@ -1615,6 +1646,9 @@ class TuiRuntime(object):
         if self.active:
             return None
 
+        if self.input_model.workspace_root is None:
+            self.input_model.set_workspace_root(Path.cwd())
+
         self._closing = False
         self.terminal_progress.clear()
 
@@ -1656,6 +1690,7 @@ class TuiRuntime(object):
         """停止输入应用和全部动态任务。"""
         self._closing = True
         self._application_lifecycle.mark_closing()
+        self.input_model.close_file_search()
 
         self._menu_actions.clear()
 
@@ -1879,6 +1914,8 @@ class TuiRuntime(object):
     ) -> typing.Any:
         """在主 Application 画布内读取菜单选择。"""
         self.discard_pending_submission()
+        if not self.screen.menu.active:
+            await self.viewport.settle_scrollback_before_overlay()
         self._process_routing_settled.clear()
         try:
             return await self.screen.menu.request(request)

@@ -600,10 +600,11 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "skills"):
-            await choose_skill(typing.cast(
+            skill_runtime = typing.cast(
                 "SkillRuntimePort",
                 typing.cast(object, self.runtime),
-            ))
+            )
+            await choose_skill(skill_runtime, self.mind.config_session)
             return DispatchAction.HANDLED
 
         if matches_command(command, "effort"):

@@ -72,11 +72,17 @@ def project_skills() -> tuple[SkillSpec, ...]:
 @lru_cache(maxsize=1)
 def available_skills() -> tuple[SkillSpec, ...]:
     """返回按来源优先级去重后的可用 skills。"""
-    by_name: dict[str, SkillSpec] = {}
-    for skill in bundled_skills() + user_skills() + project_skills():
-        by_name[skill.name] = skill
-
     source_order = {"project": 0, "user": 1, "bundled": 2}
+    by_name: dict[str, SkillSpec] = {}
+
+    for skill in bundled_skills() + user_skills() + project_skills():
+        key = skill.name.strip().casefold()
+        current = by_name.get(key)
+        if current is None or (
+            source_order.get(skill.source, 99)
+            <= source_order.get(current.source, 99)
+        ):
+            by_name[key] = skill
 
     return tuple(
         sorted(

@@ -117,6 +117,10 @@ class MenuView(object):
     def active_tab_id(self) -> str | None:
         return self.state.request.active_tab_id
 
+    def surface_style(self) -> str:
+        """返回当前菜单 surface 使用的窗口样式。"""
+        return self.state.request.surface_style
+
     def handle_key_event(self, event: typing.Any) -> bool:
         """把按键交给菜单局部绑定处理。"""
         return self.owner.handle_key_event(event)

@@ -14,12 +14,22 @@ from prompt_toolkit.utils import get_cwidth
 TokenMenuKind = typing.Literal[
     "command",
     "skill",
+    "skill-mention",
+    "plugin-mention",
+    "file-mention",
+    "directory-mention",
     "completion"
 ]
 
 TOKEN_MENU_LEFT_PADDING           = 2
 TOKEN_MENU_META_WIDTH_NUMERATOR   = 7
 TOKEN_MENU_META_WIDTH_DENOMINATOR = 10
+MENTION_MENU_KINDS = frozenset({
+    "skill-mention",
+    "plugin-mention",
+    "file-mention",
+    "directory-mention",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +240,18 @@ def subsequence_match_indices(
     return tuple(indices)
 
 
+def _skill_meta_text(meta_text: str) -> str:
+    """返回 `$` skill 菜单使用的带中括号类别说明。"""
+    text = str(meta_text or "").strip()
+    if not text or text.startswith("["):
+        return text
+
+    category, separator, detail = text.partition(" ")
+    if not separator:
+        return f"[{category}]"
+    return f"[{category}] {detail}".rstrip()
+
+
 class TokenCompletionMenuControl(UIControl):
     """绘制输入 token 补全菜单。"""
 
@@ -253,12 +275,19 @@ class TokenCompletionMenuControl(UIControl):
             return 0
 
         meta_texts = [
-            item.meta_text
+            (
+                _skill_meta_text(item.meta_text)
+                if item.kind == "skill"
+                else item.meta_text
+            )
             for item in items
             if item.meta_text
         ]
         if not meta_texts:
             return 0
+
+        if any(item.kind in MENTION_MENU_KINDS for item in items):
+            return max_width
 
         meta_limit = (
             max(0, total_width)
@@ -343,10 +372,16 @@ class TokenCompletionMenuControl(UIControl):
         meta_style = f"class:token-menu.meta.{item.kind}{suffix}"
 
         display_width = max(0, main_width - TOKEN_MENU_LEFT_PADDING - 1)
+        marker = "> " if current and item.kind in {
+            "skill-mention",
+            "plugin-mention",
+            "file-mention",
+            "directory-mention",
+        } else "  "
 
         if item.match_indices:
             fragments: StyleAndTextTuples = [
-                (item_style, " " * TOKEN_MENU_LEFT_PADDING),
+                (item_style, marker),
             ]
             fragments.extend(
                 self._field_fragments(
@@ -360,12 +395,54 @@ class TokenCompletionMenuControl(UIControl):
         else:
             display = _field(item.display_text, display_width)
             fragments = [
-                (item_style, f"{' ' * TOKEN_MENU_LEFT_PADDING}{display} "),
+                (item_style, f"{marker}{display} "),
             ]
 
         if meta_width > 0:
-            meta = _field(item.meta_text, max(0, meta_width - 2))
-            fragments.append((meta_style, f" {meta} "))
+            if item.kind in {"skill-mention", "plugin-mention"} and item.meta_text:
+                category, _separator, detail = item.meta_text.partition(" ")
+                detail_width = max(
+                    0,
+                    meta_width - get_cwidth(category) - 4,
+                )
+                category_style = (
+                    item_style
+                    if item.kind == "plugin-mention"
+                    else meta_style
+                )
+                fragments.extend([
+                    (
+                        meta_style,
+                        f" {_field(detail, detail_width)}  ",
+                    ),
+                    (category_style, f"{category} "),
+                ])
+            elif item.kind in {"file-mention", "directory-mention"}:
+                meta = item.meta_text.strip()
+                category = meta.rsplit(None, 1)[-1] if meta else ""
+                parent = meta[:-(len(category) + 1)] if category else meta
+                inner_width = max(0, meta_width - 2)
+                category_width = min(
+                    get_cwidth(category),
+                    max(0, inner_width - 1),
+                )
+                parent_width = max(0, inner_width - category_width - 1)
+                category_style = item_style
+                fragments.extend([
+                    (meta_style, " "),
+                    (meta_style, _field(parent, parent_width)),
+                    (meta_style, " "),
+                    (category_style, _field(category, category_width)),
+                    (meta_style, " "),
+                ])
+            else:
+                meta = (
+                    _skill_meta_text(item.meta_text)
+                    if item.kind == "skill"
+                    else item.meta_text
+                )
+                meta = _field(meta, max(0, meta_width - 2))
+                fragments.append((meta_style, f" {meta} "))
 
         return fragments
 
@@ -376,6 +453,9 @@ class TokenCompletionMenuControl(UIControl):
         snapshot = self._snapshot()
         if snapshot is None or not snapshot.items:
             return 0
+
+        if any(item.kind in MENTION_MENU_KINDS for item in snapshot.items):
+            return max(0, int(max_available_width))
 
         main_width = self._main_width(max_available_width, snapshot.items)
 

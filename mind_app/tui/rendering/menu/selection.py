@@ -151,13 +151,19 @@ def filtered_indices(state: MenuState) -> tuple[int, ...]:
     options = state.request.options
     if not state.request.searchable or not state.query:
         return tuple(range(len(options)))
+
     needle = state.query.casefold()
+
     return tuple(
         index
         for index, option in enumerate(options)
-        if needle in (
-            option.search_value or f"{option.label} {option.detail}"
-        ).casefold()
+        if (
+            state.request.search_matcher(needle, option)
+            if state.request.search_matcher is not None
+            else needle in (
+                option.search_value or f"{option.label} {option.detail}"
+            ).casefold()
+        )
     )
 
 

@@ -44,6 +44,10 @@ class SkillInputModelPort(typing.Protocol):
         """返回当前已配置的 skill 快照。"""
         ...
 
+    def set_skills(self, skills: typing.Iterable[SkillSpec]) -> None:
+        """刷新输入补全使用的 skill 快照。"""
+        ...
+
 
 class SkillRuntimePort(MenuSelectionPort, typing.Protocol):
     """描述 skills feature 所需的菜单和输入能力。"""
@@ -60,6 +64,14 @@ class SkillRuntimePort(MenuSelectionPort, typing.Protocol):
         selected_skill: bool = False,
     ) -> None:
         """替换主输入内容并记录 skill 选择。"""
+        ...
+
+    def open_skill_search(self) -> None:
+        """在主输入框中放入 `@` 并打开原生 skill 补全。"""
+        ...
+
+    def update_menu(self, request: MenuRequest) -> None:
+        """刷新当前 skill 管理菜单的选项状态。"""
         ...
 
 

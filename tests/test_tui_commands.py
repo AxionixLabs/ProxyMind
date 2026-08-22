@@ -103,7 +103,9 @@ def test_command_labels_use_canonical_names(value: str, expected: str) -> None:
 
 
 @pytest.mark.anyio
-async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
+async def test_skills_command_opens_native_skill_input(
+    tmp_path: Path,
+) -> None:
     runtime = TuiRuntime()
     skill = SkillSpec(
         name="review",
@@ -116,54 +118,29 @@ async def test_skills_command_opens_menu_and_restores_selected_token() -> None:
         entry=Path("skills/review/SKILL.md"),
     )
     runtime.input_model.set_skills((skill,))
-    runtime.select_menu = AsyncMock(return_value=skill)
+    runtime.select_menu = AsyncMock(return_value="list")
+    session = ConfigSession(ConfigStore(tmp_path / "config.toml"))
 
-    selected = await choose_skill(runtime)
+    selected = await choose_skill(runtime, session)
 
-    assert selected is skill
-    assert runtime.screen.input.buffer.text == "$review "
-    request = runtime.select_menu.await_args.args[0]
-    assert request.title == "Skills"
-    assert request.options[0].label == "review"
-    assert request.options[0].detail == (
-        "Review the current changes and report every important issue "
-        "without omitting details"
-    )
-    assert request.view_id == "skills:root"
-    assert request.help_text == ""
-    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
-    assert (
-        request.description_layout
-        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
-    )
-
-    buffer = runtime.screen.input.buffer
-    buffer.cursor_position = len("$review")
-    assert runtime.input_model.completion_menu_completions(
-        buffer.document
-    ) is None
-
-    buffer.cursor_position = len(buffer.text)
-    buffer.delete_before_cursor()
-    assert buffer.text == "$review"
-    assert runtime.input_model.completion_menu_completions(
-        buffer.document
-    ) is None
-
-    buffer.cursor_position = 4
-    buffer.delete_before_cursor()
-    assert buffer.text == "$reiew"
-    assert runtime.input_model.completion_menu_completions(
-        buffer.document
-    ) is None
+    assert selected is None
+    assert runtime.screen.input.buffer.text == "@"
+    assert runtime.screen.input.buffer.cursor_position == 1
+    root_request = runtime.select_menu.await_args.args[0]
+    assert root_request.title == "Skills"
+    assert root_request.options[0].label == "List skills"
+    assert root_request.view_id == "skills:root"
+    assert root_request.help_text == "Choose an action"
+    assert root_request.footer_hint == STANDARD_MENU_FOOTER_HINT
 
 
 @pytest.mark.anyio
-async def test_cancelled_skills_menu_keeps_input_empty() -> None:
+async def test_cancelled_skills_menu_keeps_input_empty(tmp_path: Path) -> None:
     runtime = TuiRuntime()
     runtime.select_menu = AsyncMock(return_value=None)
+    session = ConfigSession(ConfigStore(tmp_path / "config.toml"))
 
-    assert await choose_skill(runtime) is None
+    assert await choose_skill(runtime, session) is None
     assert runtime.screen.input.buffer.text == ""
 
 
@@ -1322,10 +1299,12 @@ async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
     from mind_app.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
+    config_session = SimpleNamespace()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
+        config_session=config_session,
     )
     choose = AsyncMock()
     monkeypatch.setattr(dispatch_module, "choose_skill", choose)
@@ -1339,7 +1318,7 @@ async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
     action = await dispatcher.dispatch("/skills")
 
     assert action is DispatchAction.HANDLED
-    choose.assert_awaited_once_with(runtime)
+    choose.assert_awaited_once_with(runtime, config_session)
 
 
 @pytest.mark.anyio

@@ -298,7 +298,7 @@ def test_approval_surface_uses_no_background() -> None:
     ("kind", "name", "background"),
     (
         (TerminalKind.WINDOWS_TERMINAL, "Windows Terminal", "1F1F1F"),
-        (TerminalKind.APPLE_TERMINAL, "Apple Terminal", ""),
+        (TerminalKind.APPLE_TERMINAL, "Apple Terminal", "default"),
     ),
 )
 def test_surface_background_depends_on_terminal_support(
@@ -376,7 +376,7 @@ def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() ->
         ),
     ),
 )
-def test_incomplete_terminal_capability_keeps_surfaces_transparent(
+def test_incomplete_terminal_capability_keeps_non_input_surfaces_transparent(
     capabilities,
 ) -> None:
     empty = Style.from_dict({})
@@ -389,7 +389,7 @@ def test_incomplete_terminal_capability_keeps_surfaces_transparent(
 
     assert style.get_attrs_for_style_str(
         "class:input-surface"
-    ).bgcolor == ""
+    ).bgcolor == "default"
     assert style.get_attrs_for_style_str(
         "class:approval-card"
     ).bgcolor == ""

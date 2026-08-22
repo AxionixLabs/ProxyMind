@@ -58,6 +58,7 @@ from ..prompting.commands import (
     completion_changes_input,
     slash_command_query
 )
+from ..prompting.skills import skill_query_token
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .bottom_pane import (
@@ -151,6 +152,7 @@ from ..rendering.screen.surfaces import (
     completion_candidate_fragments,
     completion_empty_fragments,
     completion_hint_fragments,
+    mention_completion_hint_fragments,
     footer_fragments as render_footer_fragments,
     input_line_prefix_fragments,
     join_queued_fragments,
@@ -816,15 +818,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
 
         self.completion_menu_row = ConditionalContainer(
-            HSplit(
-                [
-                    self.completion_menu,
-                    self.completion_menu_hint_spacer,
-                    self.completion_menu_hint,
-                ],
-                align=VerticalAlign.TOP,
-                window_too_small=Window(),
-            ),
+            self.completion_menu,
             filter=Condition(self._native_completion_visible),
         )
 
@@ -875,6 +869,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 self.input_surface,
                 self.completion_menu_row,
                 self.completion_fallback_row,
+                self.completion_menu_hint_spacer,
+                self.completion_menu_hint,
                 self.input_footer,
             ],
             align=VerticalAlign.TOP,
@@ -1821,10 +1817,14 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         if self._startup_gate_active and surface == "menu":
             self.synchronize_next_render()
         self.bottom_pane.activate(surface)
+        if surface == "menu" and hasattr(self, "menu_window"):
+            self._sync_menu_surface_style()
 
     def _deactivate_bottom_surface(self, surface: BottomSurface) -> None:
         """撤下底部临时表面并按当前表面重新计算布局。"""
         self.bottom_pane.deactivate(surface)
+        if surface == "menu" and hasattr(self, "menu_window"):
+            self._sync_menu_surface_style()
 
     def _focus_input(self) -> None:
         """把焦点路由到当前顶层记录或主输入控件。"""
@@ -2837,11 +2837,19 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _completion_hint_visible(self) -> bool:
         """判断 skill 补全是否应显示底部提示行。"""
+        document = self.input.buffer.document
+        query = skill_query_token(document.text_before_cursor)
+        mention_popup = bool(
+            query
+            and query.startswith("@")
+            and self.bottom_pane.input_visible
+            and not self._get_surface_submission_pending()
+            and self.input_model.completion_menu_completions(document) is not None
+        )
         return bool(
             self._native_completion_visible()
-            and self.input_model.completion_menu_has_skill_items(
-                self.input.buffer.document
-            )
+            and self.input_model.completion_menu_has_skill_items(document)
+            or mention_popup
         )
 
     def _native_completion_visible(self) -> bool:
@@ -2869,6 +2877,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """返回 skill 补全使用的底部提示文本。"""
         if not self._completion_hint_visible():
             return PromptFormattedText()
+        query = skill_query_token(self.input.buffer.document.text_before_cursor)
+        if query and query.startswith("@"):
+            return PromptFormattedText(mention_completion_hint_fragments(
+                left_padding=TOKEN_MENU_LEFT_PADDING,
+                width=self.terminal_width,
+                active_mode=self.input_model.skill_search_mode,
+            ))
         return PromptFormattedText(completion_hint_fragments(
             left_padding=TOKEN_MENU_LEFT_PADDING,
         ))
@@ -2882,8 +2897,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return PromptFormattedText()
 
         if not completions:
+            query = skill_query_token(document.text_before_cursor)
             return PromptFormattedText(completion_empty_fragments(
                 left_padding=TOKEN_MENU_LEFT_PADDING,
+                mention=bool(query and query.startswith("@")),
+                message=self.input_model.completion_empty_message(document),
             ))
 
         if (
@@ -3024,6 +3042,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _menu_content_height(self) -> int:
         """返回菜单内容在当前帧中的显示行数。"""
+        self._sync_menu_surface_style()
         return (
             self._active_view_layout().content_height
             if self.bottom_pane.is_active("menu")
@@ -3032,8 +3051,25 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _menu_view_fragments(self) -> StyleAndTextTuples:
         """从底部面板对象栈渲染当前选择 view。"""
+        self._sync_menu_surface_style()
         view = self.bottom_pane.active_view
         return view.fragments() if view is not None else []
+
+    def _menu_surface_style(self) -> str:
+        """返回当前菜单窗口使用的 surface 样式。"""
+        view = self.bottom_pane.active_view
+        return view.surface_style() if view is not None else "class:menu-card"
+
+    def _sync_menu_surface_style(self) -> None:
+        """按当前 view 同步菜单窗口和上下留白的背景样式。"""
+        style = self._menu_surface_style()
+        for window in (
+            self.menu_window,
+            self.menu_top_padding,
+            self.menu_bottom_padding,
+        ):
+            if window.style != style:
+                window.style = style
 
     def _menu_footer_fragments(self) -> StyleAndTextTuples:
         """生成当前菜单表面下方的透明提示片段。"""
@@ -3042,6 +3078,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _menu_top_padding_height(self) -> int:
         """返回菜单表面顶部留白在当前帧中的显示行数。"""
+        self._sync_menu_surface_style()
         return (
             self._active_view_layout().top_padding_height
             if self.bottom_pane.is_active("menu")
@@ -3050,6 +3087,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _menu_bottom_padding_height(self) -> int:
         """返回菜单表面底部留白在当前帧中的显示行数。"""
+        self._sync_menu_surface_style()
         return (
             self._active_view_layout().bottom_padding_height
             if self.bottom_pane.is_active("menu")

@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+from pathlib import Path
 from mind_core.skills import SkillSpec
 from prompt_toolkit.completion import (
     Completer,
@@ -11,6 +12,10 @@ from prompt_toolkit.completion import (
 from .skills import (
     skill_completions,
     skill_query_token
+)
+from .files import (
+    FileSearchManager,
+    file_completions,
 )
 
 StreamCommandPolicy = typing.Literal[
@@ -472,9 +477,13 @@ class SlashCommandCompleter(Completer):
 
     def __init__(
         self,
-        skills: typing.Callable[[], tuple[SkillSpec, ...]] | None = None
+        skills: typing.Callable[[], tuple[SkillSpec, ...]] | None = None,
+        workspace_root: typing.Callable[[], Path | str | None] | None = None,
+        file_search: FileSearchManager | None = None,
     ) -> None:
         self._skills = skills or (lambda: ())
+        self._workspace_root = workspace_root or (lambda: Path.cwd())
+        self._file_search = file_search or FileSearchManager()
 
     def get_completions(self, document, complete_event):
         """根据当前输入内容生成补全项。"""
@@ -505,8 +514,18 @@ class SlashCommandCompleter(Completer):
     def skill_completions(self, document) -> tuple[Completion, ...] | None:
         """返回 skill 查询阶段的全部匹配项。"""
         text = document.text_before_cursor
-        if skill_query_token(text) is None:
+        token = skill_query_token(text)
+        if token is None:
             return None
+        if token.startswith("@"):
+            return tuple(
+                (*skill_completions(text, self._skills()),
+                 *file_completions(
+                     text,
+                     workspace_root=self._workspace_root(),
+                     search=self._file_search,
+                 ))
+            )
         return tuple(skill_completions(text, self._skills()))
 
     def slash_completions(self, document) -> tuple[Completion, ...] | None:

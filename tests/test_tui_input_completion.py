@@ -40,6 +40,8 @@ from mind_app.tui.core.token_menu import (
 from mind_app.tui.prompting.skills import (
     skill_display_text,
     skill_meta_text,
+    skill_completions,
+    skill_query_token,
 )
 from mind_app.tui.session.barriers import TuiForegroundTasks
 
@@ -181,7 +183,76 @@ def test_skill_menu_text_matches_codex_row_shape() -> None:
 
     assert skill_display_text("alpha") == "alpha"
     assert skill_display_text(skill.name) == "abcdefghijklmnopqrstuvwxy..."
-    assert skill_meta_text(skill) == "[Skill] write tests quickly"
+    assert skill_meta_text(skill) == "Skill write tests quickly"
+
+
+def test_skill_query_does_not_claim_shell_parameters() -> None:
+    assert skill_query_token("$HOME") is None
+    assert skill_query_token("$PATH") is None
+    assert skill_query_token("$1") is None
+    assert skill_query_token("$-") is None
+    assert skill_query_token("$_") is None
+    assert skill_query_token("$home") == "$home"
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "@İstanbul",
+        "@testЙЦУ.rs",
+        "@诶",
+        "@👍",
+    ),
+)
+def test_at_query_token_accepts_codex_unicode_boundaries(text: str) -> None:
+    assert skill_query_token(text) == text
+
+
+def test_at_skill_completion_switches_to_dollar_sigil() -> None:
+    skill = skill_spec("review")
+    assert [completion.text for completion in skill_completions("@rev", (skill,))] == [
+        "$review ",
+    ]
+
+
+def test_at_plugin_completion_preserves_at_sigil() -> None:
+    plugin = SkillSpec(
+        name="visualize",
+        description="Create visuals",
+        source="plugin",
+        root=Path("visualize"),
+        entry=Path("visualize/SKILL.md"),
+    )
+    assert [completion.text for completion in skill_completions(
+        "@vis",
+        (plugin,),
+    )] == ["@visualize "]
+
+
+def test_dollar_skill_rows_bracket_category_labels() -> None:
+    items = (
+        TokenMenuItem(
+            display_text="Visualize",
+            meta_text="Plugin Turn ideas into visuals",
+            kind="skill",
+        ),
+        TokenMenuItem(
+            display_text="APP QA",
+            meta_text="Skill 通过截图测试灯具业务。",
+            kind="skill",
+        ),
+    )
+    control = TokenCompletionMenuControl(
+        lambda: TokenMenuSnapshot(items=items)
+    )
+    content = control.create_content(100, 2)
+
+    assert "[Plugin] Turn ideas into visuals" in "".join(
+        text for _style, text in content.get_line(0)
+    )
+    assert "[Skill] 通过截图测试灯具业务。" in "".join(
+        text for _style, text in content.get_line(1)
+    )
 
 
 def test_token_menu_caps_long_meta_width() -> None:
@@ -1793,6 +1864,41 @@ async def test_skill_menu_sorts_empty_query_by_name() -> None:
                 completion.text
                 for completion in buffer.complete_state.completions
             ] == ["$alpha ", "$beta ", "$zeta "]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_skill_menu_ctrl_p_and_ctrl_n_wrap_selection() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("beta"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("$")
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.current_completion.text == "$alpha "
+
+            pipe_input.send_text("\x10")
+            for _ in range(100):
+                if buffer.complete_state.current_completion.text == "$beta ":
+                    break
+                await asyncio.sleep(0.001)
+            assert buffer.complete_state.current_completion.text == "$beta "
+
+            pipe_input.send_text("\x0e")
+            for _ in range(100):
+                if buffer.complete_state.current_completion.text == "$alpha ":
+                    break
+                await asyncio.sleep(0.001)
+            assert buffer.complete_state.current_completion.text == "$alpha "
         finally:
             await runtime.close()
 

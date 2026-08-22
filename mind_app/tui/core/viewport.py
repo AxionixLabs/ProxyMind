@@ -680,6 +680,27 @@ class TuiTranscriptViewport(object):
         self._cancel_stream_scrollback()
         self._start_scrollback_flush()
 
+    async def settle_scrollback_before_overlay(self) -> None:
+        """在打开临时覆盖层前提交已经渲染的稳定正文。"""
+        if (
+            self.document.stable_line_count
+            <= self.document.visible_prefix_line_count
+        ):
+            return None
+
+        for _ in range(100):
+            self.schedule_scrollback_flush()
+            task = self._scrollback_task
+            if task is not None and task is not asyncio.current_task():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+                return None
+            if self._scrollback_render_revision is None:
+                return None
+            if self._is_closing() or not self._is_application_active():
+                return None
+            await asyncio.sleep(0)
+
     def pause_scrollback(self) -> None:
         """取消正在等待的原生滚屏提交。"""
         self._cancel_stream_scrollback()

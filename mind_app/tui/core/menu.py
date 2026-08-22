@@ -84,6 +84,9 @@ TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.footer": "dim",
     "tui-menu.footer.note": "dim",
     "tui-menu.footer.hint": "dim",
+    "tui-menu.footer.right": "dim",
+    "tui-menu.footer.right.current": "bold nodim ansicyan",
+    "tui-menu.category": "dim",
 })
 
 class TuiMenu(object):
@@ -97,12 +100,14 @@ class TuiMenu(object):
         max_detail_reserve=24,
     )
 
-    VISIBLE_ROWS: typing.Final[int]             = _RENDER_CONFIG.visible_rows
+    VISIBLE_ROWS: typing.Final[int] = _RENDER_CONFIG.visible_rows
+
     SURFACE_HORIZONTAL_INSET: typing.Final[int] = _RENDER_CONFIG.horizontal_inset
     SURFACE_VERTICAL_INSET: typing.Final[int]   = 1
-    MIN_LABEL_WIDTH: typing.Final[int]          = _RENDER_CONFIG.min_label_width
-    MIN_DETAIL_WIDTH: typing.Final[int]         = _RENDER_CONFIG.min_detail_width
-    MAX_DETAIL_RESERVE: typing.Final[int]       = _RENDER_CONFIG.max_detail_reserve
+
+    MIN_LABEL_WIDTH: typing.Final[int]    = _RENDER_CONFIG.min_label_width
+    MIN_DETAIL_WIDTH: typing.Final[int]   = _RENDER_CONFIG.min_detail_width
+    MAX_DETAIL_RESERVE: typing.Final[int] = _RENDER_CONFIG.max_detail_reserve
 
     def __init__(
         self,
@@ -627,10 +632,7 @@ class TuiMenu(object):
             self._update_query(delete_previous_query_word(state.query))
         elif key in (Keys.BracketedPaste,) and state.request.searchable:
             self.handle_paste(data, state)
-        elif (
-            key in (Keys.Escape, "escape", "q")
-            and state.request.allow_cancel
-        ):
+        elif key in (Keys.Escape, "escape") and state.request.allow_cancel:
             self.cancel()
         elif key in (Keys.ControlC, "c-c"):
             return self.on_ctrl_c(state)
@@ -819,6 +821,14 @@ class TuiMenu(object):
             state = self.state
             if state is not None and state.request.on_space is not None:
                 state.request.on_space()
+            elif state is not None and has_selectable(
+                state.request.options,
+                filtered_indices(state),
+            ):
+                # 非 dismiss 选项可复用空格执行 toggle；普通菜单仍保持原语义。
+                option = state.request.options[state.selected]
+                if not option.dismiss_on_select:
+                    self._choose_index(state.selected)
 
         @bindings.add("t")
         def _(_event) -> None:
@@ -902,7 +912,6 @@ class TuiMenu(object):
                 self._update_query(state.query + data)
 
         @bindings.add(Keys.Escape, eager=True)
-        @bindings.add("q")
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.allow_cancel:

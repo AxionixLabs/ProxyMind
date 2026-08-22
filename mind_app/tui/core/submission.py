@@ -427,6 +427,7 @@ class TuiSubmissionFlow(object):
 
         self.input_model.cancel_history_backtrack()
 
+        buffer.cancel_completion()
         buffer.text = ""
         buffer.cursor_position = 0
 

@@ -563,7 +563,7 @@ def render_resume_transcript(
     width: int,
     height: int
 ) -> FormattedText:
-    """生成与 Codex 对齐的全屏 transcript pager 画布。"""
+    """生成全屏 transcript pager 画布。"""
     canvas_width  = max(1, int(width))
     canvas_height = max(1, int(height))
     body_height   = _resume_transcript_body_height(canvas_height)
@@ -953,7 +953,7 @@ def _comfortable_meta_lines(
     *,
     width: int
 ) -> list[FormattedText]:
-    """按 Codex 的固定日期/CWD 列拼接 comfortable 行元数据。"""
+    """按固定日期/CWD 列拼接紧凑行元数据。"""
     date  = _relative_time(state, _row_sort_timestamp(state, row))
     style = "class:resume-picker.meta"
 
@@ -1019,7 +1019,7 @@ def _comfortable_meta_lines(
 
 
 def _cwd_column_width(width: int) -> int:
-    """计算 Codex comfortable 行的固定 CWD 列宽。"""
+    """计算紧凑行的固定 CWD 列宽。"""
     available = max(
         0,
         int(width)

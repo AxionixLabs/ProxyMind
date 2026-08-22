@@ -122,6 +122,35 @@ def option_fragments(
     separator_width = get_cwidth(separator)
     label = clip_text(option.label, width=label_width)
     padding = " " * max(0, label_width - get_cwidth(label))
+
+    if option.category:
+        category_style = (
+            "class:tui-menu.detail-selected"
+            if active
+            else option.category_style or "class:tui-menu.category"
+        )
+        category_width = get_cwidth(option.category)
+        detail_width = max(
+            1,
+            available
+            - label_width
+            - separator_width * 2
+            - category_width,
+        )
+        detail_text = clip_text(detail, width=detail_width)
+        detail_padding = " " * max(
+            0,
+            detail_width - get_cwidth(detail_text),
+        )
+        return [[
+            (index_style, prefix),
+            (label_style, f"{label}{padding}"),
+            (detail_style, separator),
+            (detail_style, f"{detail_text}{detail_padding}"),
+            (detail_style, separator),
+            (category_style, option.category),
+        ]]
+
     detail_width = available - label_width - separator_width
     return [[
         (index_style, prefix),
@@ -183,7 +212,7 @@ def option_prefix(
     """生成候选项的选择标记和可执行序号 gutter。"""
     if not state.request.show_option_gutter:
         return " " * surface_inset
-    marker = "›" if active else " "
+    marker = state.request.selection_marker if active else " "
     if state.request.searchable:
         return f"{marker} "
     option = state.request.options[index]
@@ -239,9 +268,23 @@ def label_column_width(
         detail_width,
         max(min_detail_width, min(max_detail_reserve, available // 3)),
     )
+    separator_width = get_cwidth(request.description_separator)
+    category_width = max(
+        (
+            get_cwidth(option.category)
+            for option in measurement_options
+            if option.category
+        ),
+        default=0,
+    )
+    suffix_width = separator_width + (
+        separator_width + category_width
+        if category_width
+        else 0
+    )
     max_label_width = (
         available
-        - get_cwidth(request.description_separator)
+        - suffix_width
         - detail_reserve
     )
     if max_label_width < min_label_width:

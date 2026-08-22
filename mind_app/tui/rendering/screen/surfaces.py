@@ -151,11 +151,70 @@ def completion_hint_fragments(*, left_padding: int) -> FormattedText:
     ]
 
 
-def completion_empty_fragments(*, left_padding: int) -> FormattedText:
+def mention_completion_hint_fragments(
+    *,
+    left_padding: int,
+    width: int,
+    active_mode: str
+) -> FormattedText:
+    """生成 `@` popup 使用的搜索模式提示行。"""
+    left = (
+        f"{' ' * max(0, int(left_padding))}"
+        "enter insert · esc close · ←/→ switch search modes"
+    )
+
+    modes = ("All Results", "Filesystem Only", "Plugins")
+    right_parts: list[tuple[str, str]] = []
+    right_text = ""
+    slot_widths = {
+        mode: get_cwidth(f"[{mode}]")
+        for mode in modes
+    }
+
+    for index, mode in enumerate(modes):
+        if index:
+            right_parts.append(("class:tui-menu.footer.right", "  "))
+        active = mode == active_mode
+        label = f"[{mode}]" if active else mode.center(slot_widths[mode])
+        style = (
+            "class:tui-menu.footer.right.plugins.current"
+            if active and mode == "Plugins"
+            else
+            "class:tui-menu.footer.right.current"
+            if active
+            else "class:tui-menu.footer.right"
+        )
+        right_parts.append((style, label))
+        right_text += ("  " if index else "") + label
+
+    gap = max(1, int(width) - get_cwidth(left) - get_cwidth(right_text))
+
+    left_fragments: FormattedText = [
+        ("class:tui-menu.footer.hint", " " * max(0, int(left_padding))),
+        ("class:tui-menu.footer.hint", "enter"),
+        ("class:tui-menu.footer.hint", " insert · "),
+        ("class:tui-menu.footer.hint", "esc"),
+        ("class:tui-menu.footer.hint", " close · ←/→ switch search modes"),
+    ]
+
+    return [
+        *left_fragments,
+        ("class:token-menu.hint", " " * gap),
+        *right_parts,
+    ]
+
+
+def completion_empty_fragments(
+    *,
+    left_padding: int,
+    mention: bool = False,
+    message: str = "no matches",
+) -> FormattedText:
     """生成 completion 没有匹配项时的单行提示。"""
     return [(
-        "class:completion-menu.empty",
-        f"{' ' * max(0, int(left_padding))}no matches",
+        "class:completion-menu.empty.mention"
+        if mention else "class:completion-menu.empty",
+        f"{' ' * max(0, int(left_padding))}{message}",
     )]
 
 
@@ -165,18 +224,21 @@ def completion_candidate_fragments(
     display_meta_text: str,
     is_slash_command: bool,
     left_padding: int,
-    column_min_width: int,
+    column_min_width: int
 ) -> FormattedText:
     """生成精确匹配的单个 completion 候选行。"""
     padding_width = max(0, int(left_padding))
     display_width = get_cwidth(display_text)
+
     command_width = max(
         max(0, int(column_min_width)),
         display_width + padding_width + 1,
     )
+
     command_padding = " " * (
         command_width - display_width - padding_width
     )
+
     fragments: FormattedText = [(
         (
             "class:token-menu.command.current"
@@ -185,6 +247,7 @@ def completion_candidate_fragments(
         ),
         f"{' ' * padding_width}{display_text}{command_padding}",
     )]
+
     if display_meta_text:
         fragments.append((
             (
@@ -194,6 +257,7 @@ def completion_candidate_fragments(
             ),
             f" {display_meta_text} ",
         ))
+
     return fragments
 
 

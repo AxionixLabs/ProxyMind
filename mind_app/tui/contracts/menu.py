@@ -57,6 +57,8 @@ class MenuOption(object):
     selected_row_style: str = ""
     selected_body_fragments: tuple[FormattedLine, ...] = ()
     selected_body_line_limits: tuple[int | None, ...] = ()
+    category: str = ""
+    category_style: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,14 +92,21 @@ class MenuRequest(object):
     generation: int = 0
     searchable: bool = False
     search_placeholder: str = "Search"
+    search_matcher: typing.Callable[[str, MenuOption], bool] | None = None
+    search_prompt_prefix: str = "  Search: "
+    search_help_text: str = ""
     footer_note: str = ""
     footer_hint: str = ""
+    footer_right: str = ""
+    footer_right_active: str = ""
     allow_cancel: bool = True
     description_layout: MenuDescriptionLayout = MenuDescriptionLayout.COLUMNS
     description_separator: str = "  "
     min_description_width: int = 24
     tabs: tuple[MenuTab, ...] = ()
     active_tab_id: str | None = None
+    tabs_in_header: bool = True
+    surface_style: str = "class:menu-card"
     column_width_mode: MenuColumnWidthMode = MenuColumnWidthMode.AUTO_ALL_ROWS
     name_column_width: int | None = None
     title_accent_suffix: str = ""
@@ -115,6 +124,7 @@ class MenuRequest(object):
     body_wrap: bool = False
     body_line_limits: tuple[int | None, ...] = ()
     status_style: str = ""
+    selection_marker: str = "›"
 
 
 if __name__ == '__main__':

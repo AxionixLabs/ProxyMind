@@ -96,6 +96,8 @@ class TuiSessionState(object):
         runtime_workspace_root = await fetch_runtime_workspace_root()
         if runtime_workspace_root is not None:
             mind.set_history_workspace(runtime_workspace_root)
+            runtime = require_tui_runtime(mind.frontend.runtime)
+            runtime.input_model.set_workspace_root(runtime_workspace_root)
 
         self.workspace_label = workspace_display_label(runtime_workspace_root)
         self.workspace_refreshed_at = now
@@ -175,6 +177,7 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
     runtime.input_model.set_skills(configured_skills(
         mind.config_session.load()
     ))
+    runtime.input_model.set_workspace_root(mind.history_workspace)
 
     pref_result, workspace_result, exec_result = await asyncio.gather(
         mind.fresh_pref_config(ttl_sec=0.0),
@@ -194,6 +197,7 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
 
     if runtime_workspace_root is not None:
         mind.set_history_workspace(runtime_workspace_root)
+        runtime.input_model.set_workspace_root(runtime_workspace_root)
 
     runtime.set_prompt_context(PromptContext(
         model=primary_model_prompt_label(pref_config),
