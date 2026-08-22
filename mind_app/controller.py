@@ -385,6 +385,7 @@ class Mind(object):
         *,
         workspace: str | Path | None = None,
         sources: typing.Collection[str] | None = None,
+        status: str | None = None,
         limit: int = HISTORY_LIMIT
     ) -> list[dict[str, typing.Any]]:
         """返回可恢复的本地会话游标。"""
@@ -392,6 +393,7 @@ class Mind(object):
             records = self.history_store.list_sessions(
                 workspace=workspace,
                 sources=sources,
+                status=status,
                 limit=limit,
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
@@ -408,7 +410,8 @@ class Mind(object):
         session_id: str,
         *,
         workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None
+        sources: typing.Collection[str] | None = None,
+        status: str | None = None
     ) -> dict[str, typing.Any] | None:
         """按会话标识返回可恢复的本地会话游标。"""
         try:
@@ -416,6 +419,7 @@ class Mind(object):
                 session_id,
                 workspace=workspace,
                 sources=sources,
+                status=status,
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
             observe_exception("history.find.failed", exc, level="WARNING")
@@ -774,7 +778,7 @@ class Mind(object):
                     or external_sid != self.conversation.sid
                 )
             ):
-                await self.end_conversation(reason="archive")
+                await self.end_conversation(reason="switch")
                 self._conversation_lifecycle_id += 1
                 self.last_assistant_reply = ""
 
@@ -803,10 +807,10 @@ class Mind(object):
         *,
         reason: str = "manual",
         source: str = "reset",
-        title: str = "",
+        title: str = ""
     ) -> dict[str, str]:
         """开始一个新的模型对话。"""
-        await self.end_conversation(reason="archive")
+        await self.end_conversation(reason="reset")
         metadata = self.conversation.reset(reason=reason)
         self._conversation_lifecycle_id += 1
         self.last_assistant_reply = ""
@@ -853,7 +857,7 @@ class Mind(object):
         cid: str,
         sid: str,
         *,
-        source: str = "bind",
+        source: str = "bind"
     ) -> typing.Optional[dict[str, str]]:
         """把当前运行绑定到一组已存在的远端会话标识。"""
         if not valid_session_ids(cid, sid):
@@ -868,13 +872,14 @@ class Mind(object):
             return None
 
         if self.conversation.cid == cid and self.conversation.sid == sid:
+            self.conversation.session_bound = True
             self.conversation.fork_source_available = True
             metadata = self.conversation.snapshot()
             self._touch_history_session(metadata, source=source)
             observe("conversation.reused", cid=cid, sid=sid, source=source)
             return metadata
 
-        await self.end_conversation(reason="archive")
+        await self.end_conversation(reason="switch")
         self.conversation = ConversationState(
             cid=cid,
             sid=sid,
@@ -893,13 +898,13 @@ class Mind(object):
         return metadata
 
     async def end_conversation(self, *, reason: SessionEndReason) -> None:
-        """结束当前已经开始的根会话。"""
+        """结束当前已绑定的根会话生命周期。"""
         conversation = self.conversation
 
         cid = str(conversation.cid or "").strip()
         sid = str(conversation.sid or "").strip()
 
-        if conversation.turn_count <= 0 or not valid_session_ids(cid, sid):
+        if not conversation.session_bound or not valid_session_ids(cid, sid):
             return None
 
         transcript_path = self.transcripts.path_for_session(sid)
@@ -942,6 +947,58 @@ class Mind(object):
             before_dispatch=record_session_end,
         )
         await self.event_reports.close_session(cid, sid)
+
+    async def archive_conversation(self) -> dict[str, typing.Any]:
+        """将当前根会话迁移到 archived 集合并结束其生命周期。"""
+        conversation = self.conversation
+
+        cid = str(conversation.cid or "").strip()
+        sid = str(conversation.sid or "").strip()
+
+        if not conversation.session_bound or not valid_session_ids(cid, sid):
+            raise LookupError("conversation session is not started")
+
+        archived = self.history_store.archive_session(cid=cid, sid=sid)
+        try:
+            await self.end_conversation(reason="archive")
+        except BaseException:
+            try:
+                self.history_store.unarchive_session(cid=cid, sid=sid)
+            except Exception as rollback_error:
+                observe_exception(
+                    "history.archive.rollback.failed",
+                    rollback_error,
+                    level="ERROR",
+                    cid=cid,
+                    sid=sid,
+                )
+            raise
+        return archived
+
+    async def archive_conversation_session(
+        self,
+        cid: str,
+        sid: str
+    ) -> dict[str, typing.Any]:
+        """把指定的非当前会话迁移到 archived 集合。"""
+        if not valid_session_ids(cid, sid):
+            raise ValueError("valid cid and sid are required")
+        if (str(self.conversation.cid), str(self.conversation.sid)) == (
+            str(cid),
+            str(sid),
+        ):
+            raise ValueError(
+                "Use /archive to archive the current session and exit."
+            )
+        return self.history_store.archive_session(cid=cid, sid=sid)
+
+    async def unarchive_conversation(
+        self,
+        cid: str,
+        sid: str
+    ) -> dict[str, typing.Any]:
+        """把指定 archived 会话迁移回 active 集合。"""
+        return self.history_store.unarchive_session(cid=cid, sid=sid)
 
     async def run_service_runtime_startup(
         self,

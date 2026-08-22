@@ -42,6 +42,7 @@ def test_snapshot_preserves_initial_boundary_for_first_turn() -> None:
     state = ConversationState()
     metadata = state.snapshot()
 
+    assert state.session_bound is False
     started = state.begin_turn()
 
     assert started.metadata() == metadata
@@ -58,6 +59,7 @@ def test_bound_conversation_starts_on_first_model_turn() -> None:
         start_reason="tui:resume",
     )
 
+    assert state.session_bound is True
     started = state.begin_turn()
 
     assert started.metadata() == {"cid": cid, "sid": sid}

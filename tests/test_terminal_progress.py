@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from mind_nova import const
 
 from mind_app.runtime.support.calling import run_turn_lifecycle
 from mind_app.interaction.contracts import PromptContext
@@ -69,9 +70,9 @@ def test_osc_terminal_progress_writes_state_changes() -> None:
     progress.clear()
 
     assert stream.getvalue() == (
-        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} Mind\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} {const.APP_DESC}\x07"
         f"\x1b]0;{TERMINAL_TITLE_ACTION_PREFIXES[0]}\x07"
-        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} Mind\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} {const.APP_DESC}\x07"
         "\x1b]0;\x07"
     )
     assert stream.flush_count == 4
@@ -142,8 +143,8 @@ async def test_osc_terminal_progress_animates_title() -> None:
     progress.clear()
 
     assert stream.getvalue().startswith(
-        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} Mind\x07"
-        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[1]} Mind\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} {const.APP_DESC}\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[1]} {const.APP_DESC}\x07"
     )
     assert stream.getvalue().endswith("\x1b]0;\x07")
 

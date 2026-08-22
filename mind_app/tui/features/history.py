@@ -140,6 +140,8 @@ async def choose_history_session(
     show_workspace: bool = False,
     preview_loader: ResumePreviewLoader | None = None,
     transcript_loader: ResumeTranscriptLoader | None = None,
+    archive_session: typing.Callable[[ResumeRow], typing.Awaitable[None]] | None = None,
+    unarchive_session: typing.Callable[[ResumeRow], typing.Awaitable[ResumeRow]] | None = None
 ) -> dict[str, typing.Any] | None:
     """规范化历史记录，通过专用 picker 选择并映射回原始记录。"""
     record_by_key: dict[tuple[str, str], dict[str, typing.Any]] = {}
@@ -188,10 +190,18 @@ async def choose_history_session(
         launch_context=ResumeLaunchContext.EXISTING_SESSION,
         preview_loader=preview_loader,
         transcript_loader=transcript_loader,
+        archive_session=archive_session,
+        unarchive_session=unarchive_session,
     ))
     if selected is None:
         return None
-    return record_by_key.get(selected.key)
+    record = record_by_key.get(selected.key)
+    if record is None:
+        return None
+    if selected.status is ResumeSessionStatus.ACTIVE:
+        record = dict(record)
+        record["status"] = ResumeSessionStatus.ACTIVE.value
+    return record
 
 
 def _optional_timestamp(value: typing.Any) -> int | None:

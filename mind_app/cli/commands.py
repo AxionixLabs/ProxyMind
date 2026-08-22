@@ -11,6 +11,11 @@ OutputFormat = typing.Literal[
     "json"
 ]
 
+SessionArchiveAction = typing.Literal[
+    "archive",
+    "unarchive"
+]
+
 CompletionShell = typing.Literal[
     "bash",
     "elvish",
@@ -50,6 +55,13 @@ class ResumeCommand(object):
     all_workspaces: bool = False
     include_non_interactive: bool = False
     helix_profile: ToolFilterMode | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionArchiveCommand(object):
+    """描述本地会话归档或恢复命令。"""
+    action: SessionArchiveAction
+    target: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +167,7 @@ McpRegistryCommand: typing.TypeAlias = (
 
 CliCommand: typing.TypeAlias = (
     ApplicationCommand
+    | SessionArchiveCommand
     | DoctorCommand
     | McpRegistryCommand
 )

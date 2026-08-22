@@ -31,6 +31,13 @@ class ResumeSessionStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class ResumeArchiveStatus(str, Enum):
+    """描述 picker 当前归档动作的生命周期。"""
+    IDLE = "idle"
+    PENDING = "pending"
+    RESTORING = "restoring"
+
+
 class ResumeLaunchContext(str, Enum):
     """描述 Resume picker 的退出语义来源。"""
     EXISTING_SESSION = "existing_session"
@@ -125,6 +132,8 @@ class ResumePickerRequest(object):
     launch_context: ResumeLaunchContext = ResumeLaunchContext.EXISTING_SESSION
     preview_loader: ResumePreviewLoader | None = None
     transcript_loader: ResumeTranscriptLoader | None = None
+    archive_session: typing.Callable[[ResumeRow], typing.Awaitable[None]] | None = None
+    unarchive_session: typing.Callable[[ResumeRow], typing.Awaitable[ResumeRow]] | None = None
 
 
 ResumePickerResult: typing.TypeAlias = ResumeRow | None

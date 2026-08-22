@@ -49,11 +49,12 @@ class ConversationState(object):
             if not valid_session_ids(self.cid, self.sid):
                 raise ValueError("valid cid and sid are required")
 
-        self.created_at   = float(created_at or 0.0)
-        self.turn_count   = int(turn_count or 0)
-        self.reset_count  = int(reset_count or 0)
-        self.reset_reason = str(reset_reason or "")
-        self.start_reason = str(start_reason or "").strip()
+        self.created_at    = float(created_at or 0.0)
+        self.turn_count    = int(turn_count or 0)
+        self.reset_count   = int(reset_count or 0)
+        self.reset_reason  = str(reset_reason or "")
+        self.start_reason  = str(start_reason or "").strip()
+        self.session_bound = valid_session_ids(self.cid, self.sid)
 
         self.fork_source_available = bool(
             fork_source_available or self.turn_count > 0
@@ -91,6 +92,7 @@ class ConversationState(object):
             boundary_reason = self.start_reason.strip() or "bound"
 
         self.turn_count += 1
+        self.session_bound = True
         self.fork_source_available = True
         metadata = self.snapshot()
 
@@ -116,6 +118,7 @@ class ConversationState(object):
 
         self.created_at = time.time()
         self.turn_count = 0
+        self.session_bound = False
 
         self.fork_source_available = False
 
@@ -196,6 +199,7 @@ class ConversationState(object):
 
             self.created_at  = time.time()
             self.turn_count  = 0
+            self.session_bound = True
             self.start_reason = str(start_reason or "").strip() or "external"
 
             self._pending_context.clear()
@@ -209,6 +213,7 @@ class ConversationState(object):
             self.cid = new_cid()
 
         self.sid = sid or self.sid or new_sid(self.cid)
+        self.session_bound = True
         if not self.created_at:
             self.created_at = time.time()
 

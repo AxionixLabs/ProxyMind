@@ -132,7 +132,12 @@ class ConversationHistoryStore(object):
                             THEN excluded.branch
                             ELSE {TABLE_SESSION_CURSORS}.branch
                         END,
-                        status         = excluded.status,
+                        status         = CASE
+                            WHEN {TABLE_SESSION_CURSORS}.status = 'archived'
+                                 AND excluded.status <> 'archived'
+                            THEN 'archived'
+                            ELSE excluded.status
+                        END,
                         title          = CASE
                             WHEN {TABLE_SESSION_CURSORS}.title = ''
                                  AND excluded.title <> ''
@@ -156,16 +161,59 @@ class ConversationHistoryStore(object):
                     )
                 )
                 self._trim(conn)
+                row = conn.execute(
+                    f"""
+                    SELECT cid, sid, workspace, source,
+                           title, created_at, updated_at, expires_at,
+                           branch, status
+                    FROM {TABLE_SESSION_CURSORS}
+                    WHERE cid = ? AND sid = ?
+                    """,
+                    (record["cid"], record["sid"]),
+                ).fetchone()
         finally:
             conn.close()
 
-        return record
+        if row is None:
+            raise sqlite3.DatabaseError("session was not persisted")
+        return _row_to_dict(row)
+
+    def archive_session(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        now_ms: typing.Optional[int] = None,
+    ) -> dict[str, typing.Any]:
+        """把已有会话原子迁移到 archived 集合。"""
+        return self._set_session_status(
+            cid=cid,
+            sid=sid,
+            status="archived",
+            now_ms=now_ms,
+        )
+
+    def unarchive_session(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        now_ms: typing.Optional[int] = None,
+    ) -> dict[str, typing.Any]:
+        """把已有会话原子迁移回 active 集合。"""
+        return self._set_session_status(
+            cid=cid,
+            sid=sid,
+            status="active",
+            now_ms=now_ms,
+        )
 
     def list_sessions(
         self,
         *,
         workspace: str | Path | None = None,
         sources: typing.Collection[str] | None = None,
+        status: str | None = None,
         limit: int = HISTORY_MENU_LIMIT,
         now_ms: typing.Optional[int] = None
     ) -> list[dict[str, typing.Any]]:
@@ -173,6 +221,7 @@ class ConversationHistoryStore(object):
         return self._select_sessions(
             workspace=workspace,
             sources=sources,
+            status=status,
             limit=limit,
             now_ms=now_ms,
         )
@@ -183,6 +232,7 @@ class ConversationHistoryStore(object):
         *,
         workspace: str | Path | None = None,
         sources: typing.Collection[str] | None = None,
+        status: str | None = None,
         now_ms: typing.Optional[int] = None
     ) -> dict[str, typing.Any] | None:
         """按会话标识查找一个未过期的会话游标。"""
@@ -194,6 +244,7 @@ class ConversationHistoryStore(object):
             session_id=sid,
             workspace=workspace,
             sources=sources,
+            status=status,
             limit=1,
             now_ms=now_ms,
         )
@@ -304,6 +355,7 @@ class ConversationHistoryStore(object):
         session_id: str | None = None,
         workspace: str | Path | None,
         sources: typing.Collection[str] | None,
+        status: str | None,
         limit: int,
         now_ms: typing.Optional[int]
     ) -> list[dict[str, typing.Any]]:
@@ -322,6 +374,10 @@ class ConversationHistoryStore(object):
         if workspace is not None:
             clauses.append("workspace = ?")
             params.append(normalize_workspace(workspace))
+
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(_normalize_status(status))
 
         if sources is not None:
             source_values_list: list[str] = []
@@ -359,6 +415,73 @@ class ConversationHistoryStore(object):
             conn.close()
 
         return [_row_to_dict(row) for row in rows]
+
+    def _set_session_status(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        status: str,
+        now_ms: typing.Optional[int],
+    ) -> dict[str, typing.Any]:
+        """在同一事务中校验、迁移并返回会话状态。"""
+        cid_text = _clean(cid)
+        sid_text = _clean(sid)
+        if not valid_session_ids(cid_text, sid_text):
+            raise ValueError("valid cid and sid are required")
+
+        target_status = _normalize_status(status)
+
+        now  = _now_ms() if now_ms is None else int(now_ms)
+        conn = self._connect()
+
+        try:
+            with conn:
+                self._init_schema(conn)
+                self._prune_expired(conn, now_ms=now)
+                row = conn.execute(
+                    f"""
+                    SELECT cid, sid, workspace, source,
+                           title, created_at, updated_at, expires_at,
+                           branch, status
+                    FROM {TABLE_SESSION_CURSORS}
+                    WHERE cid = ? AND sid = ?
+                    """,
+                    (cid_text, sid_text),
+                ).fetchone()
+                if row is None:
+                    raise LookupError("conversation session was not found")
+
+                conn.execute(
+                    f"""
+                    UPDATE {TABLE_SESSION_CURSORS}
+                    SET status = ?, updated_at = ?, expires_at = ?
+                    WHERE cid = ? AND sid = ?
+                    """,
+                    (
+                        target_status,
+                        now,
+                        now + self.ttl_ms,
+                        cid_text,
+                        sid_text,
+                    ),
+                )
+                updated = conn.execute(
+                    f"""
+                    SELECT cid, sid, workspace, source,
+                           title, created_at, updated_at, expires_at,
+                           branch, status
+                    FROM {TABLE_SESSION_CURSORS}
+                    WHERE cid = ? AND sid = ?
+                    """,
+                    (cid_text, sid_text),
+                ).fetchone()
+        finally:
+            conn.close()
+
+        if updated is None:
+            raise sqlite3.DatabaseError("session status was not persisted")
+        return _row_to_dict(updated)
 
     def _connect(self) -> sqlite3.Connection:
         """建立历史库连接。"""

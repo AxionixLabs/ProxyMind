@@ -4,6 +4,7 @@
 import re
 import typing
 from dataclasses import dataclass
+from mind_nova import const
 
 HookEventName = typing.Literal[
     "PreToolUse",
@@ -51,6 +52,8 @@ _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT = 2500
 SessionEndReason = typing.Literal[
     "exit",
     "archive",
+    "reset",
+    "switch",
     "idle",
     "deleted",
     "error",
@@ -59,6 +62,8 @@ SessionEndReason = typing.Literal[
 SESSION_END_REASONS: tuple[SessionEndReason, ...] = (
     "exit",
     "archive",
+    "reset",
+    "switch",
     "idle",
     "deleted",
     "error",
@@ -200,7 +205,7 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
     ),
     "Stop": HookEventConfigSpec(
         name="Stop",
-        description="Right before Mind ends its turn",
+        description=f"Right before {const.APP_DESC} ends its turn",
         matcher_subject=None,
         control_policy="notify",
         supports_additional_context=False,

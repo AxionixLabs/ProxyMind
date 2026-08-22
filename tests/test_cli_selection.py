@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from mind_nova import const
 
 from mind_app.cli import (
     bootstrap,
@@ -28,6 +29,7 @@ from mind_app.cli.commands import (
     McpServerCommand,
     ResumeCommand,
     RuntimeUpgradeCommand,
+    SessionArchiveCommand,
 )
 from mind_app.cli.frontend import (
     resolve_cli_design,
@@ -88,6 +90,14 @@ def test_cli_parser_returns_typed_commands() -> None:
     assert parse_cli_command([]) == InteractiveCommand()
     assert parse_cli_command(["exec", "hello"]) == ExecCommand(prompt="hello")
     assert parse_cli_command(["resume"]) == ResumeCommand()
+    assert parse_cli_command(["archive", "sid_archive_1_abcdef"]) == SessionArchiveCommand(
+        action="archive",
+        target="sid_archive_1_abcdef",
+    )
+    assert parse_cli_command(["unarchive", "A saved session"]) == SessionArchiveCommand(
+        action="unarchive",
+        target="A saved session",
+    )
     assert parse_cli_command(["completion"]) == CompletionCommand()
     assert parse_cli_command([
         "completion",
@@ -279,7 +289,7 @@ def test_cli_help_uses_unified_plain_layout(monkeypatch) -> None:
     help_text = create_cli_parser().format_help()
 
     assert help_text.startswith(
-        "Mind CLI\n\n"
+        f"{const.APP_DESC} CLI\n\n"
         "If no subcommand is specified, options will be forwarded to the "
         "interactive CLI.\n\n"
         "Usage: mind [OPTIONS] [PROMPT]\n"
@@ -343,7 +353,7 @@ def test_cli_help_uses_accent_and_muted_terminal_colors(monkeypatch) -> None:
 
     help_text = create_cli_parser().format_help()
 
-    assert f"{ANSI_ACCENT}Mind CLI" in help_text
+    assert f"{ANSI_ACCENT}{const.APP_DESC} CLI" in help_text
     assert f"{ANSI_HEADER}Commands:" in help_text
     assert f"{ANSI_MUTED}If no subcommand is specified" in help_text
     assert f"{ANSI_MUTED}Run a task non-interactively" in help_text
@@ -364,7 +374,9 @@ def test_root_help_flags_share_output(monkeypatch, capsys, flag: str) -> None:
         create_cli_parser().parse_args([flag])
 
     assert exit_info.value.code == 0
-    assert capsys.readouterr().out.startswith("Mind CLI\n\n")
+    assert capsys.readouterr().out.startswith(
+        f"{const.APP_DESC} CLI\n\n"
+    )
 
 
 def test_root_help_does_not_expose_removed_flow_command(monkeypatch, capsys) -> None:
@@ -642,6 +654,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         workspace=r"D:\workspace",
         sources=("tui", "tui:resume"),
         limit=1,
+        status="active",
     )
     load_history_transcript.assert_called_once_with(
         mind,
@@ -856,6 +869,7 @@ def test_upgrade_uses_text_frontend_without_tui_runtime() -> None:
         (ExecCommand(prompt="inspect", output_format="json"), "json"),
         (AgentListenCommand(), "tui"),
         (RuntimeUpgradeCommand(), "text"),
+        (SessionArchiveCommand(action="archive", target="session"), "text"),
         (DoctorCommand(), "text"),
         (DoctorCommand(output_format="json"), "json"),
         (McpListCommand(), "text"),

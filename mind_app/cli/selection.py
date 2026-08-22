@@ -14,7 +14,8 @@ from .commands import (
     McpRemoveCommand,
     McpSetEnabledCommand,
     ResumeCommand,
-    RuntimeUpgradeCommand
+    RuntimeUpgradeCommand,
+    SessionArchiveCommand
 )
 
 OutputMode = typing.Literal[
@@ -32,6 +33,8 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
         case McpAddCommand() | McpRemoveCommand() | McpSetEnabledCommand():
             return "text"
         case RuntimeUpgradeCommand():
+            return "text"
+        case SessionArchiveCommand():
             return "text"
         case ExecCommand() as output_command:
             return output_command.output_format

@@ -85,12 +85,15 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
 
 
 @pytest.mark.anyio
-async def test_controller_session_end_uses_current_root_snapshot() -> None:
+@pytest.mark.parametrize("turn_count", [0, 2])
+async def test_controller_session_end_uses_current_root_snapshot(
+    turn_count: int,
+) -> None:
     controller = Mind.__new__(Mind)
     controller.conversation = ConversationState(
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
-        turn_count=2,
+        turn_count=turn_count,
     )
     controller._conversation_lifecycle_id = 4
     controller.last_assistant_reply = "final answer"
@@ -173,6 +176,114 @@ async def test_controller_session_end_uses_current_root_snapshot() -> None:
 
 
 @pytest.mark.anyio
+async def test_controller_archive_migrates_then_ends_current_session() -> None:
+    controller = Mind.__new__(Mind)
+    controller.conversation = ConversationState(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        turn_count=1,
+    )
+    events = []
+    controller.end_conversation = AsyncMock(
+        side_effect=lambda **_kwargs: events.append("end")
+    )
+    controller.history_store = SimpleNamespace(
+        archive_session=Mock(
+            side_effect=lambda **_kwargs: (
+                events.append("archive")
+                or {
+                    "cid": "cid_test_12345678",
+                    "sid": "sid_test_1_abcdef",
+                    "status": "archived",
+                }
+            ),
+        ),
+        unarchive_session=Mock(),
+    )
+
+    result = await Mind.archive_conversation(controller)
+
+    assert result["status"] == "archived"
+    assert events == ["archive", "end"]
+    controller.end_conversation.assert_awaited_once_with(reason="archive")
+    controller.history_store.archive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+
+
+@pytest.mark.anyio
+async def test_controller_archive_rolls_back_when_lifecycle_end_fails() -> None:
+    controller = Mind.__new__(Mind)
+    controller.conversation = ConversationState(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        turn_count=1,
+    )
+    controller.end_conversation = AsyncMock(
+        side_effect=RuntimeError("end failed")
+    )
+    controller.history_store = SimpleNamespace(
+        archive_session=Mock(return_value={"status": "archived"}),
+        unarchive_session=Mock(return_value={"status": "active"}),
+    )
+
+    with pytest.raises(RuntimeError, match="end failed"):
+        await Mind.archive_conversation(controller)
+
+    controller.history_store.archive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+    controller.history_store.unarchive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+
+
+@pytest.mark.anyio
+async def test_controller_archive_rejects_unstarted_session() -> None:
+    controller = Mind.__new__(Mind)
+    controller.conversation = ConversationState()
+    controller.conversation.snapshot()
+    controller.end_conversation = AsyncMock()
+    controller.history_store = SimpleNamespace(archive_session=Mock())
+
+    with pytest.raises(LookupError, match="session is not started"):
+        await Mind.archive_conversation(controller)
+
+    controller.end_conversation.assert_not_awaited()
+    controller.history_store.archive_session.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_controller_archive_allows_resumed_session_without_local_turn() -> None:
+    controller = Mind.__new__(Mind)
+    controller.conversation = ConversationState(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+    controller.end_conversation = AsyncMock()
+    controller.history_store = SimpleNamespace(
+        archive_session=Mock(return_value={
+            "cid": "cid_test_12345678",
+            "sid": "sid_test_1_abcdef",
+            "status": "archived",
+        }),
+        unarchive_session=Mock(),
+    )
+
+    result = await Mind.archive_conversation(controller)
+
+    assert result["status"] == "archived"
+    controller.history_store.archive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+    controller.end_conversation.assert_awaited_once_with(reason="archive")
+
+
+@pytest.mark.anyio
 async def test_controller_reuses_binding_for_same_session() -> None:
     controller = Mind.__new__(Mind)
     conversation = ConversationState(
@@ -224,4 +335,5 @@ async def test_controller_marks_new_binding_as_forkable_history() -> None:
         "sid": "sid_test_1_abcdef",
     }
     assert controller.conversation.turn_count == 0
+    assert controller.conversation.session_bound is True
     assert controller.conversation.fork_source_available is True

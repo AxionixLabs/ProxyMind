@@ -3,20 +3,24 @@
 
 import typing
 import asyncio
+from dataclasses import replace
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from ..contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
+    ResumeArchiveStatus,
     ResumePreview,
     ResumePreviewStatus,
-    ResumeRow
+    ResumeRow,
+    ResumeSessionStatus
 )
 from ..contracts.text import FormattedText
 from ..rendering.menu.resume_picker import (
     ResumePickerState,
     append_resume_query,
+    begin_resume_archive,
     backspace_resume_query,
     change_resume_toolbar_value,
     create_resume_picker_state,
@@ -27,6 +31,8 @@ from ..rendering.menu.resume_picker import (
     focus_resume_toolbar,
     move_resume_transcript,
     move_resume_selection,
+    finish_resume_archive,
+    remove_resume_row,
     render_resume_picker,
     resume_picker_list_height,
     selected_resume_row,
@@ -62,6 +68,8 @@ class TuiResumePicker(object):
         self.state: ResumePickerState | None = None
 
         self._future: asyncio.Future[ResumePickerResult] | None = None
+
+        self._archive_task: asyncio.Task[None] | None = None
 
         self.key_bindings = self._build_key_bindings()
 
@@ -119,7 +127,35 @@ class TuiResumePicker(object):
             if state is not None and not state.transcript_mode:
                 row = selected_resume_row(state)
                 if row is not None:
+                    if row.status is ResumeSessionStatus.ARCHIVED:
+                        if state.request.unarchive_session is not None:
+                            self._start_archive_action(row, restoring=True)
+                        else:
+                            pending = begin_resume_archive(
+                                state,
+                                row,
+                                restoring=True,
+                            )
+                            self._set_state(finish_resume_archive(
+                                pending,
+                                row_key=row.key,
+                                error="Archived session restore is unavailable",
+                            ))
+                        return None
                     self.finish(row)
+
+        @bindings.add("c-a")
+        def archive(_event) -> None:
+            state = self.state
+            if state is None or state.transcript_mode:
+                return None
+            row = selected_resume_row(state)
+            if (
+                row is not None
+                and row.status is ResumeSessionStatus.ACTIVE
+                and state.request.archive_session is not None
+            ):
+                self._start_archive_action(row, restoring=False)
 
         @bindings.add(
             "q",
@@ -309,6 +345,7 @@ class TuiResumePicker(object):
             generation=generation,
         )
         self._future = loop.create_future()
+        self._archive_task = None
         self.active = True
         self._invalidate()
         return True
@@ -316,6 +353,10 @@ class TuiResumePicker(object):
     def close(self) -> None:
         """关闭 picker 并以取消结果解除仍在等待的调用方。"""
         self.active = False
+        task = self._archive_task
+        self._archive_task = None
+        if task is not None and not task.done():
+            task.cancel()
         future = self._future
         if future is not None and not future.done():
             future.set_result(None)
@@ -361,6 +402,85 @@ class TuiResumePicker(object):
         if future is None:
             return None
         return await future
+
+    def _start_archive_action(self, row: ResumeRow, *, restoring: bool) -> None:
+        """启动一次与当前 picker generation 绑定的归档操作。"""
+        state = self.state
+        if (
+            not self.active
+            or state is None
+            or state.archive_status is not ResumeArchiveStatus.IDLE
+        ):
+            return None
+
+        callback = (
+            state.request.unarchive_session
+            if restoring
+            else state.request.archive_session
+        )
+        if callback is None:
+            return None
+
+        self._set_state(begin_resume_archive(
+            state,
+            row,
+            restoring=restoring,
+        ))
+        task = asyncio.create_task(
+            self._run_archive_action(callback, row, restoring=restoring),
+            name="resume picker archive action",
+        )
+        self._archive_task = task
+        task.add_done_callback(self._archive_done)
+
+    async def _run_archive_action(
+        self,
+        callback: typing.Callable[..., typing.Awaitable[typing.Any]],
+        row: ResumeRow,
+        *,
+        restoring: bool,
+    ) -> None:
+        """执行归档回调并把结果投影回当前 picker。"""
+        try:
+            result = await callback(row)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as error:
+            state = self.state
+            if state is not None:
+                self._set_state(finish_resume_archive(
+                    state,
+                    row_key=row.key,
+                    error=str(error).strip() or type(error).__name__,
+                ))
+            return None
+
+        state = self.state
+        if not self.active or state is None:
+            return None
+        if restoring:
+            restored = result if isinstance(result, ResumeRow) else replace(
+                row,
+                status=ResumeSessionStatus.ACTIVE,
+            )
+            self._set_state(finish_resume_archive(
+                state,
+                row_key=row.key,
+            ))
+            self.finish(restored)
+            return None
+
+        self._set_state(remove_resume_row(
+            state,
+            row_key=row.key,
+        ))
+
+    def _archive_done(self, task: asyncio.Task[None]) -> None:
+        """回收完成的归档任务并消费未处理异常。"""
+        if self._archive_task is task:
+            self._archive_task = None
+        if not task.cancelled():
+            task.exception()
 
 
 if __name__ == '__main__':

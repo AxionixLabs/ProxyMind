@@ -16,6 +16,7 @@ from engine.errors import AppError
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.skills import SkillSpec
+from mind_nova import const
 from mind_app.history.transcript import TranscriptEntry
 from mind_app.tui.core.models import (
     MenuDescriptionLayout,
@@ -32,6 +33,7 @@ from mind_app.tui.features.context import save_primary_pref_field
 from mind_app.tui.features.transcript_export import TranscriptExporter
 from mind_app.tui.features.skills import choose_skill
 from mind_app.tui.features.conversation import ForkLiveStatus
+from mind_app.tui.features.conversation import confirm_archive_session
 from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
     canonical_command_label,
@@ -55,6 +57,7 @@ def test_root_command_completion_order_is_stable() -> None:
     assert [item.display_text for item in completions] == [
         "/new",
         "/resume",
+        "/archive",
         "/fork",
         "/permissions",
         "/model",
@@ -625,6 +628,101 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
     assert result.renderable.fragments[0][0] == "fg:#DDE7EF"
     assert "dim" not in result.renderable.fragments[0][0]
     assert "dim" not in result.renderable.fragments[-1][0]
+
+
+@pytest.mark.anyio
+async def test_archive_confirmation_matches_codex_menu_contract() -> None:
+    runtime = SimpleNamespace(select_menu=AsyncMock(return_value=False))
+
+    assert await confirm_archive_session(runtime) is False
+
+    request = runtime.select_menu.await_args.args[0]
+    assert request.title == "Archive this session?"
+    assert request.body == (
+        f"Are you sure? This will archive the current session "
+        f"and exit {const.APP_DESC}",
+    )
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert request.selected == 0
+    assert request.description_layout is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    assert [(option.value, option.label, option.detail) for option in request.options] == [
+        (False, "No, don't archive", "Return to the current session"),
+        (True, "Yes, archive and exit", "Archive this session now"),
+    ]
+
+
+@pytest.mark.anyio
+async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        archive_conversation=AsyncMock(),
+    )
+    confirm = AsyncMock(return_value=False)
+    monkeypatch.setattr(dispatch_module, "confirm_archive_session", confirm)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/archive")
+
+    assert action is DispatchAction.HANDLED
+    confirm.assert_awaited_once_with(dispatcher.runtime)
+    mind.archive_conversation.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    (
+        (
+            LookupError("conversation session is not started"),
+            "■ A thread must start before it can be archived.",
+        ),
+        (
+            RuntimeError("failed to archive session"),
+            "■ Failed to archive current thread: failed to archive session",
+        ),
+    ),
+)
+async def test_archive_command_uses_codex_failure_messages(
+    monkeypatch,
+    failure,
+    expected,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        archive_conversation=AsyncMock(side_effect=failure),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "confirm_archive_session",
+        AsyncMock(return_value=True),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/archive")
+
+    assert action is DispatchAction.HANDLED
+    result = next(view for view in views if view.renderable is not None)
+    assert "".join(text for _style, text in result.renderable.fragments) == expected
 
 
 @pytest.mark.anyio

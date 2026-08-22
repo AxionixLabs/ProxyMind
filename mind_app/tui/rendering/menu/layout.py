@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
 from ...contracts.menu import (
@@ -11,6 +12,9 @@ from ..fragments import (
     join_formatted_lines,
     split_formatted_lines
 )
+
+
+MENU_SURFACE_HORIZONTAL_INSET: typing.Final[int] = 2
 
 
 def should_stack_description(
@@ -47,9 +51,9 @@ def surface_content_width(width: int, *, inset: int) -> int:
     return max(1, int(width) - inset * 2)
 
 
-def rows_width(width: int) -> int:
+def rows_width(width: int, *, inset: int = MENU_SURFACE_HORIZONTAL_INSET) -> int:
     """返回选项行可用的绘制宽度。"""
-    return max(1, int(width) - 2)
+    return max(1, int(width) - max(0, int(inset)))
 
 
 def surface_inset_fragments(

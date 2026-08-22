@@ -64,6 +64,9 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         surface_on_bare=True,
     ),
     TuiCommandSpec(
+        "archive", "/archive", "归档当前会话并退出",
+    ),
+    TuiCommandSpec(
         "fork", "/fork", "复制当前对话上下文",
     ),
     TuiCommandSpec(

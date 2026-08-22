@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from mind_nova import const
 
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.models import (
@@ -92,7 +93,7 @@ async def test_full_access_opens_confirmation_child_and_applies_mode() -> None:
     assert child.request.view_id == "permissions:confirm:full-access"
     assert child.request.title == "Enable full access?"
     assert child.request.body == (
-        "When Mind runs with full access, it can edit any file on your computer "
+        f"When {const.APP_DESC} runs with full access, it can edit any file on your computer "
         "and run commands with network, without your approval.",
         "",
     )

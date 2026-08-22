@@ -20,7 +20,7 @@ from .commands import (
     McpServerCommand,
     McpSetEnabledCommand,
     ParsedCommand,
-    RuntimeUpgradeCommand
+    SessionArchiveCommand
 )
 from .parser import parse_cli_invocation
 
@@ -194,6 +194,11 @@ async def main(
             config_overrides=config_overrides,
             config_profile=config_profile,
         )
+
+    if isinstance(command, SessionArchiveCommand):
+        from .session_archive import run_session_archive_command
+
+        return run_session_archive_command(command)
 
     from .bootstrap import run_application
 

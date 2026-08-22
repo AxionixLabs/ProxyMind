@@ -16,6 +16,8 @@ from .invocation import (
 
 EXEC_HELP          = "Run a task non-interactively"
 RESUME_HELP        = "Resume a previous interactive session"
+ARCHIVE_HELP       = "Archive a previous interactive session"
+UNARCHIVE_HELP     = "Restore an archived interactive session"
 COMPLETION_HELP    = "Generate shell completion scripts"
 AGENT_HELP         = "Manage remote task subscriptions"
 AGENT_LISTEN_HELP  = "Listen for remotely dispatched tasks"
@@ -196,6 +198,37 @@ def create_cli_parser() -> CliArgumentParser:
         action="help",
         help=OPTION_HELP,
     )
+
+    archive_parsers: dict[str, CliArgumentParser] = {}
+    for archive_action, archive_help in (
+        ("archive", ARCHIVE_HELP),
+        ("unarchive", UNARCHIVE_HELP),
+    ):
+        archive_parser = subparsers.add_parser(
+            archive_action,
+            prog=f"{const.APP_NAME} {archive_action}",
+            help=archive_help,
+            description=(
+                f"{archive_help}. The target may be a session id or its title."
+            ),
+            help_title=f"{const.APP_DESC} {archive_action.title()}",
+            usage="%(prog)s SESSION_ID_OR_TITLE",
+            add_help=False,
+        )
+        archive_arguments = archive_parser.add_argument_group("Arguments")
+        archive_arguments.add_argument(
+            "target",
+            metavar="SESSION_ID_OR_TITLE",
+            help="Session id or exact history title",
+        )
+        archive_options = archive_parser.add_argument_group("Options")
+        archive_options.add_argument(
+            "-h",
+            "--help",
+            action="help",
+            help=OPTION_HELP,
+        )
+        archive_parsers[archive_action] = archive_parser
 
     agent_parser = subparsers.add_parser(
         "agent",
@@ -690,6 +723,8 @@ def create_cli_parser() -> CliArgumentParser:
         ("exec",): exec_parser,
         ("e",): exec_parser,
         ("resume",): resume_parser,
+        ("archive",): archive_parsers["archive"],
+        ("unarchive",): archive_parsers["unarchive"],
         ("agent",): agent_parser,
         ("agent", "listen"): listen_parser,
         ("upgrade",): upgrade_parser,

@@ -10,6 +10,7 @@ from dataclasses import (
 from enum import Enum
 from prompt_toolkit.utils import get_cwidth
 from ...contracts.resume import (
+    ResumeArchiveStatus,
     ResumeDensity,
     ResumeFilterMode,
     ResumePickerRequest,
@@ -27,6 +28,10 @@ from ..fragments import (
     join_formatted_lines,
     wrap_formatted_lines
 )
+from .layout import (
+    MENU_SURFACE_HORIZONTAL_INSET,
+    surface_content_width
+)
 from ..screen.overlays import (
     transcript_header_fragments,
     transcript_separator_fragments
@@ -35,7 +40,6 @@ from ..text_sanitize import sanitize_formatted_text
 
 PICKER_CHROME_HEIGHT: typing.Final[int]         = 8
 PICKER_FOOTER_HEIGHT: typing.Final[int]         = 4
-PICKER_LIST_INSET: typing.Final[int]            = 2
 SESSION_META_INDENT_WIDTH: typing.Final[int]    = 2
 SESSION_META_DATE_WIDTH: typing.Final[int]      = 12
 SESSION_META_FIELD_GAP_WIDTH: typing.Final[int] = 2
@@ -71,6 +75,9 @@ class ResumePickerState(object):
     transcript_mode: bool
     transcript_scroll_top: int
     transcript_follow_bottom: bool
+    archive_status: ResumeArchiveStatus = ResumeArchiveStatus.IDLE
+    archive_row_key: tuple[str, str] | None = None
+    archive_error: str | None = None
 
 
 def create_resume_picker_state(
@@ -106,9 +113,71 @@ def create_resume_picker_state(
     return _clamp_selection(state)
 
 
+def begin_resume_archive(
+    state: ResumePickerState,
+    row: ResumeRow,
+    *,
+    restoring: bool
+) -> ResumePickerState:
+    """标记一次带 picker 生命周期的归档或恢复操作。"""
+    return replace(
+        state,
+        archive_status=(
+            ResumeArchiveStatus.RESTORING
+            if restoring
+            else ResumeArchiveStatus.PENDING
+        ),
+        archive_row_key=row.key,
+        archive_error=None,
+    )
+
+
+def finish_resume_archive(
+    state: ResumePickerState,
+    *,
+    row_key: tuple[str, str],
+    error: str | None = None
+) -> ResumePickerState:
+    """结束当前归档动作并在失败时保留错误提示。"""
+    if state.archive_row_key != row_key:
+        return state
+    return replace(
+        state,
+        archive_status=ResumeArchiveStatus.IDLE,
+        archive_row_key=None,
+        archive_error=(str(error).strip() or None) if error else None,
+    )
+
+
+def remove_resume_row(
+    state: ResumePickerState,
+    *,
+    row_key: tuple[str, str]
+) -> ResumePickerState:
+    """从当前 picker 快照中移除已成功归档的会话。"""
+    if state.archive_row_key != row_key:
+        return state
+    rows = tuple(row for row in state.request.rows if row.key != row_key)
+    return _clamp_selection(replace(
+        state,
+        request=replace(state.request, rows=rows),
+        archive_status=ResumeArchiveStatus.IDLE,
+        archive_row_key=None,
+        archive_error=None,
+        expanded_row_key=(
+            None if state.expanded_row_key == row_key else state.expanded_row_key
+        ),
+        preview=(
+            None
+            if state.preview is not None and state.preview.row_key == row_key
+            else state.preview
+        ),
+    ))
+
+
 def filtered_resume_rows(state: ResumePickerState) -> tuple[ResumeRow, ...]:
     """返回按当前 query、工作区和排序条件生成的稳定行快照。"""
-    query = state.query.casefold().strip()
+    query     = state.query.casefold().strip()
     workspace = _workspace_key(state.request.filter_workspace)
 
     rows = (
@@ -319,7 +388,10 @@ def ensure_resume_selection_visible(
             rows,
             scroll_top,
             selected,
-            width=max(1, int(width) - PICKER_LIST_INSET * 2),
+            width=surface_content_width(
+                width,
+                inset=MENU_SURFACE_HORIZONTAL_INSET,
+            ),
         )
         if height <= available:
             break
@@ -727,7 +799,10 @@ def _list_lines(
     if height <= 0:
         return []
 
-    content_width = max(1, width - PICKER_LIST_INSET * 2)
+    content_width = surface_content_width(
+        width,
+        inset=MENU_SURFACE_HORIZONTAL_INSET,
+    )
 
     rows = filtered_resume_rows(state)
     if not rows:
@@ -1018,7 +1093,10 @@ def _expanded_lines(
 
 
 def _preview_lines(preview: ResumePreview, *, width: int) -> list[FormattedText]:
-    content_width = max(1, width - 4)
+    content_width = surface_content_width(
+        width,
+        inset=MENU_SURFACE_HORIZONTAL_INSET,
+    )
     wrapped: list[FormattedText] = []
     for block in preview.blocks:
         fragments = sanitize_formatted_text(list(block))
@@ -1058,7 +1136,10 @@ def _footer_lines(
         state,
         rows,
         list_height=list_height,
-        width=max(1, width - PICKER_LIST_INSET * 2),
+        width=surface_content_width(
+            width,
+            inset=MENU_SURFACE_HORIZONTAL_INSET,
+        ),
     )
     progress = f" {position} / {len(rows)} · {percent}% "
     progress_width = get_cwidth(progress)
@@ -1123,12 +1204,34 @@ def _footer_lines(
             ("←/→", ""),
         )
         secondary = (("^o", ""), ("^t", ""), ("^e", ""), ("↑/↓", ""))
+    action_line = _archive_action_line(state, width=width)
     return [
         _fit_line(separator, width=width),
         _footer_help_line(primary, width=width),
         _footer_help_line(secondary, width=width),
-        _blank_line(width),
+        action_line,
     ]
+
+
+def _archive_action_line(
+    state: ResumePickerState,
+    *,
+    width: int,
+) -> FormattedText:
+    """显示归档动作的进行中或失败状态。"""
+    if state.archive_error:
+        return _fit_line([
+            ("class:resume-picker.error", f" {state.archive_error}"),
+        ], width=width)
+    if state.archive_status is ResumeArchiveStatus.PENDING:
+        return _fit_line([
+            ("class:resume-picker.meta", " Archiving session..."),
+        ], width=width)
+    if state.archive_status is ResumeArchiveStatus.RESTORING:
+        return _fit_line([
+            ("class:resume-picker.meta", " Restoring archived session..."),
+        ], width=width)
+    return _blank_line(width)
 
 
 def _footer_help_line(
@@ -1351,9 +1454,12 @@ def _chrome_line(parts: FormattedText, *, width: int) -> FormattedText:
 
 
 def _inset_list_line(parts: FormattedText, *, width: int) -> FormattedText:
-    content_width = max(1, width - PICKER_LIST_INSET * 2)
+    content_width = surface_content_width(
+        width,
+        inset=MENU_SURFACE_HORIZONTAL_INSET,
+    )
     return _fit_line([
-        ("", " " * PICKER_LIST_INSET),
+        ("", " " * MENU_SURFACE_HORIZONTAL_INSET),
         *_fit_line(parts, width=content_width),
     ], width=width)
 

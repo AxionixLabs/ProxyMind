@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 
 import anyio
 import pytest
+from mind_nova import const
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -309,7 +310,7 @@ async def test_mind_mcp_stdio_handshake(tmp_path) -> None:
                 tools = await session.list_tools()
                 result = await session.call_tool("mind_exec", {"prompt": ""})
 
-    assert initialized.serverInfo.name == "Mind"
+    assert initialized.serverInfo.name == const.APP_DESC
     assert [tool.name for tool in tools.tools] == ["mind_exec"]
     assert result.isError is False
     assert result.structuredContent is not None

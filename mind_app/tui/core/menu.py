@@ -51,6 +51,7 @@ from ..rendering.menu.tabs import (
     switched_tab_request
 )
 from ..rendering.menu.measure import line_count
+from ..rendering.menu.layout import MENU_SURFACE_HORIZONTAL_INSET
 from .view import BottomPaneViewStack
 
 TUI_MENU_STYLE = Style.from_dict({
@@ -90,7 +91,7 @@ class TuiMenu(object):
 
     _RENDER_CONFIG: typing.Final[MenuRenderConfig] = MenuRenderConfig(
         visible_rows=8,
-        horizontal_inset=2,
+        horizontal_inset=MENU_SURFACE_HORIZONTAL_INSET,
         min_label_width=8,
         min_detail_width=12,
         max_detail_reserve=24,
@@ -320,6 +321,7 @@ class TuiMenu(object):
         return render_footer_fragments(
             state,
             width=self.get_width() if width is None else width,
+            inset=self._RENDER_CONFIG.horizontal_inset,
         )
 
     def content_height_for_state(self, state: MenuState, *, width: int) -> int:
@@ -334,7 +336,11 @@ class TuiMenu(object):
         """生成当前菜单表面下方的透明 footer 片段。"""
         state = self.state
         return (
-            render_footer_fragments(state, width=self.get_width())
+            render_footer_fragments(
+                state,
+                width=self.get_width(),
+                inset=self._RENDER_CONFIG.horizontal_inset,
+            )
             if state is not None
             else []
         )
@@ -368,10 +374,13 @@ class TuiMenu(object):
         )
         return line_count(content)
 
-    @staticmethod
-    def _footer_height(state: MenuState, *, width: int) -> int:
+    def _footer_height(self, state: MenuState, *, width: int) -> int:
         """返回指定菜单透明 footer 占用的显示行数。"""
-        footer = render_footer_fragments(state, width=width)
+        footer = render_footer_fragments(
+            state,
+            width=width,
+            inset=self._RENDER_CONFIG.horizontal_inset,
+        )
         return line_count(footer)
 
     def desired_height(self, width: int) -> int:

@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from dataclasses import replace
 import pytest
 from prompt_toolkit.styles import Style
 from mind_app.tui.contracts.resume import (
     ResumeDensity,
     ResumeFilterMode,
     ResumeLaunchContext,
+    ResumeArchiveStatus,
     ResumePickerRequest,
     ResumePreview,
     ResumePreviewStatus,
@@ -21,6 +23,7 @@ from mind_app.tui.rendering.fragments import (
 from mind_app.tui.rendering.menu.resume_picker import (
     ResumeToolbarFocus,
     change_resume_toolbar_value,
+    begin_resume_archive,
     create_resume_picker_state,
     enter_resume_transcript,
     exit_resume_transcript,
@@ -28,6 +31,8 @@ from mind_app.tui.rendering.menu.resume_picker import (
     move_resume_transcript,
     focus_resume_toolbar,
     move_resume_selection,
+    finish_resume_archive,
+    remove_resume_row,
     render_resume_picker,
     set_resume_preview,
     set_resume_query,
@@ -124,6 +129,28 @@ def test_resume_picker_filters_searches_and_sorts_stably() -> None:
     created = change_resume_toolbar_value(sort_focused)
     assert created.sort_key is ResumeSortKey.CREATED
     assert filtered_resume_rows(created) == (newest_created, second, first)
+
+
+def test_resume_picker_archive_state_keeps_failure_and_removes_success() -> None:
+    row = _row()
+    state = create_resume_picker_state(ResumePickerRequest(rows=(row,)))
+    pending = begin_resume_archive(state, row, restoring=False)
+
+    assert pending.archive_status is ResumeArchiveStatus.PENDING
+    assert pending.archive_row_key == row.key
+
+    failed = finish_resume_archive(
+        pending,
+        row_key=row.key,
+        error="archive denied",
+    )
+    assert failed.archive_status is ResumeArchiveStatus.IDLE
+    assert failed.archive_error == "archive denied"
+    assert failed.request.rows == (row,)
+
+    removed = remove_resume_row(pending, row_key=row.key)
+    assert removed.request.rows == ()
+    assert removed.archive_status is ResumeArchiveStatus.IDLE
 
 
 def test_resume_picker_navigation_density_and_expansion_keep_selection() -> None:
@@ -665,6 +692,69 @@ async def test_runtime_resume_picker_preview_and_close_cancel_tasks() -> None:
         assert output.quit_count == 1
         assert not runtime.screen.resume_picker.active
         assert not runtime.screen.application.renderer.full_screen
+
+
+@pytest.mark.anyio
+async def test_runtime_resume_picker_archive_keeps_picker_open_after_success() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput()
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        row = _row()
+        called = asyncio.Event()
+        calls = []
+
+        async def archive(selected: ResumeRow) -> None:
+            calls.append(selected)
+            called.set()
+
+        await runtime.open()
+        task = asyncio.create_task(runtime.view_resume_picker(
+            ResumePickerRequest(rows=(row,), archive_session=archive),
+        ))
+        await _wait_until(lambda: runtime.screen.resume_picker.active)
+
+        pipe_input.send_text("\x01")
+        await asyncio.wait_for(called.wait(), timeout=1)
+        await _wait_until(lambda: (
+            runtime.screen.resume_picker.state is not None
+            and runtime.screen.resume_picker.state.request.rows == ()
+        ))
+
+        assert calls == [row]
+        assert not task.done()
+        await runtime.close()
+        assert await asyncio.wait_for(task, timeout=1) is None
+
+
+@pytest.mark.anyio
+async def test_runtime_resume_picker_unarchives_before_returning_row() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _AlternateScreenOutput()
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        row = _row(status=ResumeSessionStatus.ARCHIVED)
+        calls = []
+
+        async def unarchive(selected: ResumeRow) -> ResumeRow:
+            calls.append(selected)
+            return replace(selected, status=ResumeSessionStatus.ACTIVE)
+
+        await runtime.open()
+        task = asyncio.create_task(runtime.view_resume_picker(
+            ResumePickerRequest(
+                rows=(row,),
+                initial_status=ResumeSessionStatus.ARCHIVED,
+                unarchive_session=unarchive,
+            ),
+        ))
+        await _wait_until(lambda: runtime.screen.resume_picker.active)
+
+        pipe_input.send_text("\r")
+        selected = await asyncio.wait_for(task, timeout=1)
+
+        assert calls == [row]
+        assert selected is not None
+        assert selected.status is ResumeSessionStatus.ACTIVE
+        await runtime.close()
 
 
 @pytest.mark.anyio

@@ -25,12 +25,19 @@ from mind_nova.requests.fork import (
     ResubmittablePrompt,
     request_conversation_fork
 )
+from mind_nova import const
 from ...runtime.conversation import (
     CompactResult,
     compact_conversation
 )
 
 from ..core.models import FragmentBlock
+from ..core.models import (
+    MenuDescriptionLayout,
+    MenuOption,
+    MenuRequest,
+    STANDARD_MENU_FOOTER_HINT
+)
 from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
@@ -41,6 +48,7 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
+    from ..runtime.ports import MenuSelectionPort
 
 
 def _present(
@@ -66,6 +74,34 @@ def render_compact_result(mind: "Mind", status: "CompactLiveStatus") -> None:
 
     _present(mind, block, view_type="tui.compact.status")
     _present(mind, view_type="tui.gap")
+
+
+async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
+    """显示当前会话归档确认菜单并返回用户是否确认。"""
+    selected = await runtime.select_menu(MenuRequest(
+        title="Archive this session?",
+        body=(
+            f"Are you sure? This will archive the current session "
+            f"and exit {const.APP_DESC}",
+        ),
+        view_id="conversation:archive-confirm",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=(
+            MenuOption(
+                value=False,
+                label="No, don't archive",
+                detail="Return to the current session",
+            ),
+            MenuOption(
+                value=True,
+                label="Yes, archive and exit",
+                detail="Archive this session now",
+            ),
+        ),
+        selected=0,
+    ))
+    return selected is True
 
 
 class CompactLiveStatus(object):

@@ -5,6 +5,7 @@ import re
 import enum
 import typing
 import asyncio
+from dataclasses import replace
 from engine.file_assist import FileAssist
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from mind_app.frontend import ApplicationView
@@ -26,11 +27,16 @@ from ..core.styles import (
     fragment_block,
     text_block
 )
+from ..contracts.resume import (
+    ResumeRow,
+    ResumeSessionStatus
+)
 from ..features.context import ignored_tui_input
 from ..features.agents import manage_agents
 from ..features.conversation import (
     ForkLiveStatus,
     compact_current_conversation,
+    confirm_archive_session,
     copy_last_assistant_reply,
     fork_current_conversation,
     render_compact_failure,
@@ -142,6 +148,312 @@ class TuiCommandDispatcher(object):
         self._process_snapshot_task: asyncio.Task[None] | None = None
         self._agent_menu_task: asyncio.Task[None] | None       = None
 
+    def _present(
+        self,
+        renderable: FragmentBlock | StyledBlock | None = None,
+        *,
+        view_type: str = "tui.output"
+    ) -> None:
+        """发送命令分派产生的正文展示。"""
+        resolved_type = view_type
+
+        if renderable is None and view_type == "tui.output":
+            resolved_type = "tui.gap"
+        self.application.emit(ApplicationView(
+            type=resolved_type,
+            renderable=renderable,
+        ))
+
+    def _finish_conversation_fork(self, status: ForkLiveStatus) -> None:
+        """在普通会话分支成功后清理旧草稿并展示结果。"""
+        if status.succeeded:
+            self._clear_prompt_draft()
+        render_fork_result(self.mind, status)
+
+    def _clear_prompt_draft(self) -> None:
+        """清除当前会话尚未提交的结构化草稿。"""
+        self.state.clear_pending_prompt_extras()
+        self.mind.attach.clear_pending_attachments()
+
+    def _start_process_snapshot(self) -> None:
+        """启动不接管输入焦点的后台终端快照任务。"""
+        previous = self._process_snapshot_task
+        if previous is not None and not previous.done():
+            previous.cancel()
+
+        task = self.runtime.start_background_task(
+            append_exec_stream_snapshot(
+                typing.cast(
+                    "ProcessRuntimePort",
+                    typing.cast(object, self.runtime),
+                ),
+                self.mind,
+            ),
+            name="tui background terminals snapshot",
+        )
+        self._process_snapshot_task = task
+        task.add_done_callback(self._forget_process_snapshot)
+
+    def _forget_process_snapshot(self, task: asyncio.Task[None]) -> None:
+        """回收已完成的后台终端快照任务。"""
+        if self._process_snapshot_task is task:
+            self._process_snapshot_task = None
+
+    def _start_agent_menu(self) -> None:
+        """在流式期间启动可交互的子执行线程菜单。"""
+        previous = self._agent_menu_task
+        if previous is not None and not previous.done():
+            previous.cancel()
+
+        task = self.runtime.start_background_task(
+            manage_agents(self.runtime, self.mind),
+            name="tui agents menu",
+        )
+        self._agent_menu_task = task
+        task.add_done_callback(self._forget_agent_menu)
+
+    def _forget_agent_menu(self, task: asyncio.Task[None]) -> None:
+        """回收已完成的子执行线程菜单任务。"""
+        if self._agent_menu_task is task:
+            self._agent_menu_task = None
+
+    def handle_stream_command(
+        self,
+        value: str,
+        cancel_turn: typing.Callable[[], bool]
+    ) -> bool:
+        """分派模型流式期间可执行的本地命令。"""
+        command = str(value or "").strip().casefold()
+        if matches_command(command, "ps"):
+            self._start_process_snapshot()
+            return True
+        if matches_command(command, "agent"):
+            self._start_agent_menu()
+            return True
+
+        return self.foreground_tasks.handle_stream_command(value, cancel_turn)
+
+    async def _choose_effort(self) -> None:
+        """选择并持久化模型推理强度。"""
+        await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+        primary = self.state.pref_config.get("primary")
+        current = primary if isinstance(primary, dict) else {}
+
+        selected = await choose_model_effort(
+            self.runtime,
+            current.get("reasoning_effort"),
+        )
+
+        if selected is None:
+            self._present()
+            return None
+
+        saved = await persist_primary_pref(
+            self.mind,
+            command_name="model-effort",
+            field_name="reasoning_effort",
+            field_value=selected,
+        )
+        if saved is None:
+            return None
+
+        effort = saved.get("reasoning_effort") or selected
+
+        self.state.merge_primary(saved, overrides={"reasoning_effort": effort})
+        self.state.apply_prompt_context(self.runtime)
+        render_model_effort_status(self.application, effort)
+
+    async def _save_model(self, matcher: re.Match[str]) -> None:
+        """解析并持久化模型命令。"""
+        if not matcher.group(1):
+            await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+            primary = self.state.pref_config.get("primary")
+            current = primary if isinstance(primary, dict) else {}
+            self._present(command_result_block(
+                "/model",
+                TextSpan(str(current.get("model") or "(not configured)"), BRIGHT_STYLE),
+            ))
+            self._present()
+            return None
+
+        model_value = await exchange_pref_value(
+            self.application,
+            matcher,
+            pref_command="model",
+        )
+        if model_value is None:
+            return None
+
+        saved = await persist_primary_pref(
+            self.mind,
+            command_name="model",
+            field_name="model",
+            field_value=model_value,
+        )
+        if saved is None:
+            return None
+
+        model = str(saved.get("model") or model_value)
+
+        self.state.merge_primary(saved, overrides={"model": model})
+        self.state.apply_prompt_context(self.runtime)
+        self._present(command_result_block(
+            "/model",
+            TextSpan(model or "(empty)", BRIGHT_STYLE),
+        ))
+        self._present()
+
+    async def _switch_provider(self) -> None:
+        """选择并持久化当前 Provider Profile。"""
+        try:
+            selected = await choose_provider(
+                self.runtime,
+                self.mind.config_session,
+            )
+            if selected is None:
+                self._present()
+                return None
+            saved = await save_active_provider(
+                self.mind.config_session,
+                selected,
+            )
+            await self.mind.refresh_pref_if_stale(ttl_sec=0.0)
+        except (OSError, TypeError, ValueError) as error:
+            self._present(command_result_block(
+                "/provider",
+                TextSpan(f"Failed: {error}", FAILURE_STYLE),
+            ))
+            self._present()
+            return None
+
+        primary = saved.get("primary") if isinstance(saved, dict) else {}
+        current = primary if isinstance(primary, dict) else {}
+
+        self.state.merge_primary(current)
+        self.state.apply_prompt_context(self.runtime)
+
+        self._present(command_result_block(
+            "/provider",
+            TextSpan(str(current.get("name") or selected), BRIGHT_STYLE),
+            TextSpan(
+                f" · {current.get('kind') or ''}/{current.get('model') or ''}",
+                MUTED_STYLE,
+            ),
+        ))
+        self._present()
+
+    async def _dispatch_mcp(self, mcp_action: McpAction | None) -> None:
+        """执行即时 MCP 操作或建立可取消前台任务。"""
+        action = mcp_action
+        if action is None:
+            action = await choose_mcp_action(self.runtime, self.mind)
+
+        if action is None:
+            self._present()
+            return None
+
+        if action == "status":
+            render_mcp_status(self.mind)
+            return None
+
+        self.foreground_tasks.start_external_mcp(action)
+        await self.foreground_tasks.wait()
+
+    async def _resume_conversation(self) -> None:
+        """选择并恢复最近的会话。"""
+        records = self.mind.recent_conversation_sessions(
+            workspace=self.mind.history_workspace,
+            sources=INTERACTIVE_HISTORY_SOURCES,
+        )
+        selected = await choose_history_session(
+            self.runtime,
+            records,
+            filter_workspace=self.mind.history_workspace,
+            preview_loader=HistoryResumePreviewLoader(self.mind),
+            transcript_loader=HistoryResumeTranscriptLoader(self.mind),
+            archive_session=self._archive_resume_row,
+            unarchive_session=self._unarchive_resume_row,
+        )
+        if selected is None:
+            self._present()
+            return None
+
+        session_id = str(selected.get("sid") or "").strip()
+
+        replay_blocks = await asyncio.to_thread(
+            load_history_transcript,
+            self.mind,
+            session_id,
+            terminal_width=self.runtime.terminal_width,
+            hyperlinks=self.runtime.hyperlinks_enabled,
+            record=selected,
+        )
+
+        resume_error: str | None = None
+        try:
+            resumed = await self.mind.resume_conversation(
+                selected,
+                source="tui:resume",
+            )
+        except Exception as error:
+            resumed = None
+            resume_error = str(error).strip() or type(error).__name__
+
+        if resumed is None:
+            target_label = str(selected.get("title") or session_id).strip()
+            detail = resume_error or "invalid session cursor."
+            self._present(failure_text_block(
+                f"Failed to resume session from {target_label}: {detail}"
+            ))
+            self._present()
+            return None
+
+        self._clear_prompt_draft()
+        self.runtime.replace_transcript(replay_blocks)
+
+    async def _archive_resume_row(self, row: "ResumeRow") -> None:
+        """归档 Resume picker 中的非当前会话。"""
+        current = (self.mind.conversation.cid, self.mind.conversation.sid)
+        if row.key == current:
+            raise ValueError("Use /archive to archive the current session and exit.")
+        await self.mind.archive_conversation_session(row.cid, row.sid)
+
+    async def _unarchive_resume_row(self, row: "ResumeRow") -> "ResumeRow":
+        """恢复 Resume picker 中的 archived 会话。"""
+        await self.mind.unarchive_conversation(row.cid, row.sid)
+        return replace(row, status=ResumeSessionStatus.ACTIVE)
+
+    async def _download_missing_helix_runtime(self, command: str) -> bool:
+        """发现缺失运行时时完成下载并结束当前命令。"""
+        context = self.mind.require_service_runtime_context()
+        if not service_runtime_asset_missing(context):
+            return False
+
+        if not await confirm_runtime_download(self.runtime, context):
+            self._present()
+            return True
+
+        self.foreground_tasks.start(
+            "Helix runtime download",
+            lambda: download_service_runtime(self.mind, context),
+            activity_kind="download",
+            on_succeeded=lambda _downloaded: render_helix_download_result(
+                self.mind,
+                command,
+            ),
+            on_failed=lambda error: render_helix_command_failure(
+                self.mind,
+                command,
+                error,
+            ),
+            on_cancelled=lambda: render_helix_interrupted(
+                self.mind,
+                label="Helix download",
+            ),
+        )
+        await self.foreground_tasks.wait()
+        return True
+
     async def dispatch(self, prompt_text: str) -> DispatchAction:
         """处理一项输入并返回会话循环的下一步。"""
         slash_notice = slash_command_notice_message(prompt_text)
@@ -164,6 +476,28 @@ class TuiCommandDispatcher(object):
             self._present()
 
         if matches_command(command, "quit"):
+            self.mind.task_event.set()
+            return DispatchAction.EXIT
+
+        if matches_command(command, "archive"):
+            try:
+                if not await confirm_archive_session(self.runtime):
+                    return DispatchAction.HANDLED
+                await self.mind.archive_conversation()
+            except Exception as failure:
+                message = str(failure).strip()
+                if message == "conversation session is not started":
+                    message = "A thread must start before it can be archived."
+                else:
+                    message = (
+                        "Failed to archive current thread: "
+                        f"{message or type(failure).__name__}"
+                    )
+                self._present(failure_text_block(
+                    message,
+                ))
+                self._present()
+                return DispatchAction.HANDLED
             self.mind.task_event.set()
             return DispatchAction.EXIT
 
@@ -449,298 +783,6 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         return DispatchAction.MODEL_TURN
-
-    async def _download_missing_helix_runtime(self, command: str) -> bool:
-        """发现缺失运行时时完成下载并结束当前命令。"""
-        context = self.mind.require_service_runtime_context()
-        if not service_runtime_asset_missing(context):
-            return False
-
-        if not await confirm_runtime_download(self.runtime, context):
-            self._present()
-            return True
-
-        self.foreground_tasks.start(
-            "Helix runtime download",
-            lambda: download_service_runtime(self.mind, context),
-            activity_kind="download",
-            on_succeeded=lambda _downloaded: render_helix_download_result(
-                self.mind,
-                command,
-            ),
-            on_failed=lambda error: render_helix_command_failure(
-                self.mind,
-                command,
-                error,
-            ),
-            on_cancelled=lambda: render_helix_interrupted(
-                self.mind,
-                label="Helix download",
-            ),
-        )
-        await self.foreground_tasks.wait()
-        return True
-
-    def handle_stream_command(
-        self,
-        value: str,
-        cancel_turn: typing.Callable[[], bool]
-    ) -> bool:
-        """分派模型流式期间可执行的本地命令。"""
-        command = str(value or "").strip().casefold()
-        if matches_command(command, "ps"):
-            self._start_process_snapshot()
-            return True
-        if matches_command(command, "agent"):
-            self._start_agent_menu()
-            return True
-
-        return self.foreground_tasks.handle_stream_command(value, cancel_turn)
-
-    def _start_process_snapshot(self) -> None:
-        """启动不接管输入焦点的后台终端快照任务。"""
-        previous = self._process_snapshot_task
-        if previous is not None and not previous.done():
-            previous.cancel()
-
-        task = self.runtime.start_background_task(
-            append_exec_stream_snapshot(
-                typing.cast(
-                    "ProcessRuntimePort",
-                    typing.cast(object, self.runtime),
-                ),
-                self.mind,
-            ),
-            name="tui background terminals snapshot",
-        )
-        self._process_snapshot_task = task
-        task.add_done_callback(self._forget_process_snapshot)
-
-    def _forget_process_snapshot(self, task: asyncio.Task[None]) -> None:
-        """回收已完成的后台终端快照任务。"""
-        if self._process_snapshot_task is task:
-            self._process_snapshot_task = None
-
-    def _start_agent_menu(self) -> None:
-        """在流式期间启动可交互的子执行线程菜单。"""
-        previous = self._agent_menu_task
-        if previous is not None and not previous.done():
-            previous.cancel()
-
-        task = self.runtime.start_background_task(
-            manage_agents(self.runtime, self.mind),
-            name="tui agents menu",
-        )
-        self._agent_menu_task = task
-        task.add_done_callback(self._forget_agent_menu)
-
-    def _forget_agent_menu(self, task: asyncio.Task[None]) -> None:
-        """回收已完成的子执行线程菜单任务。"""
-        if self._agent_menu_task is task:
-            self._agent_menu_task = None
-
-    async def _choose_effort(self) -> None:
-        """选择并持久化模型推理强度。"""
-        await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
-        primary = self.state.pref_config.get("primary")
-        current = primary if isinstance(primary, dict) else {}
-
-        selected = await choose_model_effort(
-            self.runtime,
-            current.get("reasoning_effort"),
-        )
-
-        if selected is None:
-            self._present()
-            return None
-
-        saved = await persist_primary_pref(
-            self.mind,
-            command_name="model-effort",
-            field_name="reasoning_effort",
-            field_value=selected,
-        )
-        if saved is None:
-            return None
-
-        effort = saved.get("reasoning_effort") or selected
-
-        self.state.merge_primary(saved, overrides={"reasoning_effort": effort})
-        self.state.apply_prompt_context(self.runtime)
-        render_model_effort_status(self.application, effort)
-
-    async def _save_model(self, matcher: re.Match[str]) -> None:
-        """解析并持久化模型命令。"""
-        if not matcher.group(1):
-            await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
-            primary = self.state.pref_config.get("primary")
-            current = primary if isinstance(primary, dict) else {}
-            self._present(command_result_block(
-                "/model",
-                TextSpan(str(current.get("model") or "(not configured)"), BRIGHT_STYLE),
-            ))
-            self._present()
-            return None
-
-        model_value = await exchange_pref_value(
-            self.application,
-            matcher,
-            pref_command="model",
-        )
-        if model_value is None:
-            return None
-
-        saved = await persist_primary_pref(
-            self.mind,
-            command_name="model",
-            field_name="model",
-            field_value=model_value,
-        )
-        if saved is None:
-            return None
-
-        model = str(saved.get("model") or model_value)
-
-        self.state.merge_primary(saved, overrides={"model": model})
-        self.state.apply_prompt_context(self.runtime)
-        self._present(command_result_block(
-            "/model",
-            TextSpan(model or "(empty)", BRIGHT_STYLE),
-        ))
-        self._present()
-
-    async def _switch_provider(self) -> None:
-        """选择并持久化当前 Provider Profile。"""
-        try:
-            selected = await choose_provider(
-                self.runtime,
-                self.mind.config_session,
-            )
-            if selected is None:
-                self._present()
-                return None
-            saved = await save_active_provider(
-                self.mind.config_session,
-                selected,
-            )
-            await self.mind.refresh_pref_if_stale(ttl_sec=0.0)
-        except (OSError, TypeError, ValueError) as error:
-            self._present(command_result_block(
-                "/provider",
-                TextSpan(f"Failed: {error}", FAILURE_STYLE),
-            ))
-            self._present()
-            return None
-
-        primary = saved.get("primary") if isinstance(saved, dict) else {}
-        current = primary if isinstance(primary, dict) else {}
-
-        self.state.merge_primary(current)
-        self.state.apply_prompt_context(self.runtime)
-
-        self._present(command_result_block(
-            "/provider",
-            TextSpan(str(current.get("name") or selected), BRIGHT_STYLE),
-            TextSpan(
-                f" · {current.get('kind') or ''}/{current.get('model') or ''}",
-                MUTED_STYLE,
-            ),
-        ))
-        self._present()
-
-    async def _dispatch_mcp(self, mcp_action: McpAction | None) -> None:
-        """执行即时 MCP 操作或建立可取消前台任务。"""
-        action = mcp_action
-        if action is None:
-            action = await choose_mcp_action(self.runtime, self.mind)
-
-        if action is None:
-            self._present()
-            return None
-
-        if action == "status":
-            render_mcp_status(self.mind)
-            return None
-
-        self.foreground_tasks.start_external_mcp(action)
-        await self.foreground_tasks.wait()
-
-    async def _resume_conversation(self) -> None:
-        """选择并恢复最近的会话。"""
-        records = self.mind.recent_conversation_sessions(
-            workspace=self.mind.history_workspace,
-            sources=INTERACTIVE_HISTORY_SOURCES,
-        )
-        selected = await choose_history_session(
-            self.runtime,
-            records,
-            filter_workspace=self.mind.history_workspace,
-            preview_loader=HistoryResumePreviewLoader(self.mind),
-            transcript_loader=HistoryResumeTranscriptLoader(self.mind),
-        )
-        if selected is None:
-            self._present()
-            return None
-
-        session_id = str(selected.get("sid") or "").strip()
-
-        replay_blocks = await asyncio.to_thread(
-            load_history_transcript,
-            self.mind,
-            session_id,
-            terminal_width=self.runtime.terminal_width,
-            hyperlinks=self.runtime.hyperlinks_enabled,
-            record=selected,
-        )
-
-        resume_error: str | None = None
-        try:
-            resumed = await self.mind.resume_conversation(
-                selected,
-                source="tui:resume",
-            )
-        except Exception as error:
-            resumed = None
-            resume_error = str(error).strip() or type(error).__name__
-
-        if resumed is None:
-            target_label = str(selected.get("title") or session_id).strip()
-            detail = resume_error or "invalid session cursor."
-            self._present(failure_text_block(
-                f"Failed to resume session from {target_label}: {detail}"
-            ))
-            self._present()
-            return None
-
-        self._clear_prompt_draft()
-        self.runtime.replace_transcript(replay_blocks)
-
-    def _finish_conversation_fork(self, status: ForkLiveStatus) -> None:
-        """在普通会话分支成功后清理旧草稿并展示结果。"""
-        if status.succeeded:
-            self._clear_prompt_draft()
-        render_fork_result(self.mind, status)
-
-    def _clear_prompt_draft(self) -> None:
-        """清除当前会话尚未提交的结构化草稿。"""
-        self.state.clear_pending_prompt_extras()
-        self.mind.attach.clear_pending_attachments()
-
-    def _present(
-        self,
-        renderable: FragmentBlock | StyledBlock | None = None,
-        *,
-        view_type: str = "tui.output",
-    ) -> None:
-        """发送命令分派产生的正文展示。"""
-        resolved_type = view_type
-
-        if renderable is None and view_type == "tui.output":
-            resolved_type = "tui.gap"
-        self.application.emit(ApplicationView(
-            type=resolved_type,
-            renderable=renderable,
-        ))
 
 
 if __name__ == '__main__':

@@ -524,7 +524,6 @@ def hook_event_menu(
         on_t=on_trust if show_review else None,
         show_option_gutter=False,
         show_all_options=True,
-        body_inset=False,
         body_as_table_header=True,
         body_preserve_spacing=True,
         body_styles=tuple(body_styles),
@@ -599,7 +598,6 @@ def hook_list_menu(
         on_space=on_toggle,
         on_t=on_trust,
         show_option_gutter=False,
-        body_inset=bool(hooks),
         body_preserve_spacing=True,
         body_wrap=bool(hooks),
         on_ctrl_c=on_ctrl_c,
@@ -680,7 +678,6 @@ def startup_hooks_review_menu(
         ),
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
-        body_inset=False,
     )
 
 

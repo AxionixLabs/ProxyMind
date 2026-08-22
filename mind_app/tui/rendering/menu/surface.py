@@ -61,7 +61,10 @@ def surface_fragments(
         width,
         inset=config.horizontal_inset,
     )
-    available_rows_width = rows_width(width)
+    available_rows_width = rows_width(
+        width,
+        inset=config.horizontal_inset,
+    )
     _start, visible_indices = visible_window(
         state,
         visible_rows=config.visible_rows,
@@ -151,14 +154,17 @@ def surface_fragments(
         selected.selected_body or selected.selected_body_fragments
     ):
         rows_out.append(("", "\n"))
-        rows_out.extend(body_fragments(
-            replace(
-                request,
-                body=selected.selected_body,
-                body_fragments=selected.selected_body_fragments,
-                body_line_limits=selected.selected_body_line_limits,
+        rows_out.extend(surface_inset_fragments(
+            body_fragments(
+                replace(
+                    request,
+                    body=selected.selected_body,
+                    body_fragments=selected.selected_body_fragments,
+                    body_line_limits=selected.selected_body_line_limits,
+                ),
+                width=content_width,
             ),
-            width=content_width,
+            inset=config.horizontal_inset,
         ))
 
     return join_surface_sections(
@@ -175,11 +181,13 @@ def footer_fragments(
     state: MenuState,
     *,
     width: int,
+    inset: int = 0,
 ) -> StyleAndTextTuples:
     """生成指定菜单状态的透明 footer 片段。"""
-    return _request_footer_fragments(
+    return _inset_footer_fragments(
         _request_with_selected_footer(state),
         width=max(1, int(width)),
+        inset=inset,
     )
 
 
@@ -190,12 +198,10 @@ def surface_footer_fragments(
     config: MenuRenderConfig,
 ) -> StyleAndTextTuples:
     """生成兼容独立菜单文本的 surface 内 footer。"""
+    request = _request_with_selected_footer(state)
     return _request_footer_fragments(
-        _request_with_selected_footer(state),
-        width=surface_content_width(
-            width,
-            inset=config.horizontal_inset,
-        ),
+        request,
+        width=max(1, int(width) - config.horizontal_inset),
     )
 
 
@@ -238,7 +244,7 @@ def _request_footer_fragments(
 ) -> StyleAndTextTuples:
     """生成可选 footer note 和 hint 的包裹片段。"""
     out: StyleAndTextTuples = []
-    inner_width = max(1, width - 2)
+    inner_width = max(1, int(width))
     if request.footer_note:
         out.extend(wrapped_text_fragments(
             request.footer_note,
@@ -252,6 +258,20 @@ def _request_footer_fragments(
             width=inner_width,
         ))
     return out
+
+
+def _inset_footer_fragments(
+    request: MenuRequest,
+    *,
+    width: int,
+    inset: int,
+) -> StyleAndTextTuples:
+    """按共享 surface inset 生成 footer 内容。"""
+    content_width = max(1, int(width) - max(0, int(inset)))
+    return surface_inset_fragments(
+        _request_footer_fragments(request, width=content_width),
+        inset=max(0, int(inset)),
+    )
 
 
 def _selected_option(state: MenuState) -> MenuOption | None:

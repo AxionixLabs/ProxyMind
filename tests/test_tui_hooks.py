@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from mind_nova import const
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -415,7 +416,7 @@ def test_hook_event_menu_selects_first_event_needing_review(tmp_path) -> None:
     stop = replace(
         post_tool,
         event="Stop",
-        description="Right before Mind ends its turn",
+        description=f"Right before {const.APP_DESC} ends its turn",
         review_count=1,
     )
     catalog = replace(
@@ -582,6 +583,8 @@ async def test_hook_event_menu_renders_review_column_and_fixed_rows(tmp_path) ->
     await asyncio.sleep(0)
 
     text = "".join(value for _style, value in menu.fragments())
+    visible_lines = text.splitlines()
+    assert all(not line or line.startswith("  ") for line in visible_lines)
     assert "Event                 Installed   Active      Review      Description" in text
     assert "PreToolUse" in text
     assert "Press t to trust all; enter to review hooks; esc to close" in "".join(
@@ -1018,8 +1021,10 @@ async def test_hook_list_menu_renders_selected_detail_section(tmp_path) -> None:
 
     text = "".join(value for _style, value in menu.fragments())
     assert "[!] Hook 1 · new" in text
-    assert "Event     PreToolUse" in text
-    assert "Trust     New hook - review required" in text
+    detail_lines = text.splitlines()
+    assert "  Event     PreToolUse" in detail_lines
+    assert "  Trust     New hook - review required" in detail_lines
+    assert not any(line.startswith("Event") for line in detail_lines)
     assert "Press t to trust; esc to go back" in "".join(
         value for _style, value in menu.footer_fragments()
     )

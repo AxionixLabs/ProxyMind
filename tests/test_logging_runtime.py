@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from loguru import logger
+from mind_nova import const
 
 from mind_app.reporting import RunReport
 from engine.observability import observe, observe_exception
@@ -59,7 +60,7 @@ def test_observable_events_use_stable_single_line_fields(tmp_path: Path) -> None
     lines = Path(report.debug_log).read_text(encoding="utf-8").splitlines()
 
     assert lines
-    assert all(line.startswith("Mind :: ") for line in lines)
+    assert all(line.startswith(f"{const.APP_DESC} :: ") for line in lines)
     assert any(
         "event=tool.complete | tool=shell_command | ok=true | elapsed_ms=42"
         in line

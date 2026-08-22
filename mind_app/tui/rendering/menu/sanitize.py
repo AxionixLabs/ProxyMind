@@ -58,7 +58,6 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         on_ctrl_c=request.on_ctrl_c,
         show_option_gutter=bool(request.show_option_gutter),
         show_all_options=bool(request.show_all_options),
-        body_inset=bool(request.body_inset),
         body_as_table_header=bool(request.body_as_table_header),
         body_preserve_spacing=bool(request.body_preserve_spacing),
         body_styles=tuple(

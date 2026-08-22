@@ -199,6 +199,7 @@ async def _select_resume_session(
             command.session_id,
             workspace=workspace,
             sources=sources,
+            status="active",
         )
         if record is None:
             raise AppError(
@@ -206,11 +207,14 @@ async def _select_resume_session(
             )
         return record
 
-    records = mind.recent_conversation_sessions(
-        workspace=workspace,
-        sources=sources,
-        limit=1 if command.last else HISTORY_LIMIT,
-    )
+    history_kwargs: dict[str, typing.Any] = {
+        "workspace": workspace,
+        "sources": sources,
+        "limit": 1 if command.last else HISTORY_LIMIT,
+    }
+    if command.last:
+        history_kwargs["status"] = "active"
+    records = mind.recent_conversation_sessions(**history_kwargs)
     if command.last:
         if not records:
             raise AppError("No resumable sessions were found.")
@@ -222,6 +226,17 @@ async def _select_resume_session(
         HistoryResumeTranscriptLoader,
         choose_history_session
     )
+    from ..tui.contracts.resume import ResumeRow, ResumeSessionStatus
+    from dataclasses import replace
+
+    async def archive_session(row: ResumeRow) -> None:
+        """归档 CLI picker 中的活动会话。"""
+        await mind.archive_conversation_session(row.cid, row.sid)
+
+    async def unarchive_session(row: ResumeRow) -> ResumeRow:
+        """恢复 CLI picker 中选择的 archived 会话。"""
+        await mind.unarchive_conversation(row.cid, row.sid)
+        return replace(row, status=ResumeSessionStatus.ACTIVE)
 
     return await choose_history_session(
         require_tui_runtime(mind.frontend.runtime),
@@ -230,6 +245,8 @@ async def _select_resume_session(
         show_workspace=command.all_workspaces,
         preview_loader=HistoryResumePreviewLoader(mind),
         transcript_loader=HistoryResumeTranscriptLoader(mind),
+        archive_session=archive_session,
+        unarchive_session=unarchive_session,
     )
 
 

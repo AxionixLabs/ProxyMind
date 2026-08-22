@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from mind_nova import const
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -331,7 +332,7 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     view = application.emit.call_args.args[0]
     assert view.type == "tui.interrupted"
     assert _fragments_text(view.renderable.fragments) == (
-        "■ Response interrupted · Tell Mind what to do differently."
+        f"■ Response interrupted · Tell {const.APP_DESC} what to do differently."
     )
 
     TuiApplicationSink(runtime)._emit_active(view)

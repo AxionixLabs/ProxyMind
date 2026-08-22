@@ -7,6 +7,7 @@ import pytest
 
 from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.keys import Keys
+from mind_nova import const
 
 from mind_app.tui.core.menu import (
     TUI_MENU_STYLE,
@@ -187,6 +188,55 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     ).bold
 
 
+@pytest.mark.anyio
+async def test_archive_confirmation_renders_codex_text_and_spacing() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 100,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Archive this session?",
+        body=(
+            f"Are you sure? This will archive the current session "
+            f"and exit {const.APP_DESC}",
+        ),
+        footer_hint="Press enter to confirm or esc to go back",
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=(
+            MenuOption(
+                False,
+                "No, don't archive",
+                "Return to the current session",
+            ),
+            MenuOption(
+                True,
+                "Yes, archive and exit",
+                "Archive this session now",
+            ),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert [
+        line.rstrip()
+        for line in _fragments_text(menu.fragments()).splitlines()
+    ] == [
+        "  Archive this session?",
+        f"  Are you sure? This will archive the current session "
+        f"and exit {const.APP_DESC}",
+        "",
+        "› 1. No, don't archive      Return to the current session",
+        "  2. Yes, archive and exit  Archive this session now",
+        "",
+        "  Press enter to confirm or esc to go back",
+    ]
+
+    menu.finish(None)
+    await task
+
+
 def test_menu_style_matches_codex_semantics_without_selected_row_background() -> None:
     title = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.title")
     status = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.status")
@@ -258,7 +308,7 @@ async def test_menu_normalizes_external_fields_to_single_rows() -> None:
         "  Remote title",
         "  listener active",
         "  Enter to view",
-        "    first second",
+        "  first second",
         "",
         "› 1. Summary continued  call 1",
     ]
@@ -663,10 +713,10 @@ async def test_menu_footer_wraps_and_contributes_to_desired_height() -> None:
     text = _fragments_text(menu.fragments())
     lines = text.splitlines()
 
-    assert "    A long note that w" in lines
+    assert "  A long note that wraps" in lines
     assert lines[-2:] == [
-        "    firm or esc to go ",
-        "    back",
+        "  Press enter to confirm",
+        "  or esc to go back",
     ]
     assert all(get_cwidth(line) <= 24 for line in lines)
     assert menu.height() == len(lines)
@@ -724,7 +774,7 @@ async def test_menu_can_replace_legacy_help_row_with_footer_only() -> None:
         "",
         "› 1. One",
         "  ",
-        "    Press enter to confirm or esc to go back",
+        "  Press enter to confirm or esc to go back",
     ]
     assert menu.height() == 5
 
@@ -1272,14 +1322,14 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 footer_hint="Press enter",
             ),
             "\n".join((
-                    "  Columns",
-                    "",
+                "  Columns",
+                "",
                 "› 1. Short",
                 "     这是一个很长的中文描述",
                 "  2. Long label",
                 "     description",
                 "  ",
-                "    Press enter",
+                "  Press enter",
             )),
         ),
         (
@@ -1307,14 +1357,14 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                 "  Options",
-                    "  ready",
-                    "",
-                    "  1. One      First",
-                    "  ×  Blocked  Busy",
-                    "› 2. Two      Second (current)",
+                "  ready",
+                "",
+                "  1. One      First",
+                "  ×  Blocked  Busy",
+                "› 2. Two      Second (current)",
                 "  ",
-                "    Status",
-                "    Press enter",
+                "  Status",
+                "  Press enter",
             )),
         ),
         (
@@ -1337,13 +1387,13 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 footer_hint="Press enter",
             ),
             "\n".join((
-                    "  Long menu",
-                    "",
-                    "› 1. First option   A descriptive value",
-                    "  2. Second option  Another descriptive value",
+                "  Long menu",
+                "",
+                "› 1. First option   A descriptive value",
+                "  2. Second option  Another descriptive value",
                 "  ",
-                "    All options visible",
-                "    Press enter",
+                "  All options visible",
+                "  Press enter",
             )),
         ),
         (
@@ -1355,9 +1405,9 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
             ),
             "\n".join((
                 "  Empty",
-                "    No options available",
+                "  No options available",
                 "  ",
-                "    Press enter",
+                "  Press enter",
             )),
         ),
         (
@@ -1371,12 +1421,12 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 footer_hint="Press enter",
             ),
             "\n".join((
-                    "  Disabled",
-                    "",
-                    "     A  Busy",
+                "  Disabled",
+                "",
+                "     A  Busy",
                 "     B",
                 "  ",
-                "    Press enter",
+                "  Press enter",
             )),
         ),
     ),

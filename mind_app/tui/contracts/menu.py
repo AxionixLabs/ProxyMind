@@ -108,7 +108,6 @@ class MenuRequest(object):
     table_column_widths: tuple[int, ...] = ()
     show_option_gutter: bool = True
     show_all_options: bool = False
-    body_inset: bool = True
     body_as_table_header: bool = False
     body_preserve_spacing: bool = False
     body_styles: tuple[str, ...] = ()

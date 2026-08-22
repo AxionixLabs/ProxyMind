@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from mind_nova import const
 
 from mind_app.tui.features.tools import (
     print_available_tools,
@@ -55,7 +56,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
     assert text == (
         "/tools · 3 available · built-in=2 · external=1\n\n"
         "🔌  Built-in Tools · 2\n\n"
-        "  • Mind Native · in-process · 2\n"
+        f"  • {const.APP_DESC} Native · in-process · 2\n"
         "    • Auth: N/A\n"
         "    • Tools: apply_patch, shell_command\n\n"
         "🔌  External MCP Tools · 1\n\n"

@@ -61,11 +61,10 @@ def wrapped_text_fragments(
     style: str,
     width: int,
 ) -> StyleAndTextTuples:
-    """把一段 footer 文本按内容宽度拆成带内缩的显示行。"""
+    """把一段 footer 文本按内容宽度拆成显示行。"""
     rows = wrap_formatted_lines([(style, text)], width=max(1, width))
     out: StyleAndTextTuples = []
     for row in rows:
-        out.append((style, "  "))
         out.extend(strip_leading_spaces(row))
         out.append(("", "\n"))
     return out
@@ -75,8 +74,8 @@ def body_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
     """生成正文及可选警示尾段。"""
     out: StyleAndTextTuples = []
     warning_used = False
-    body_indent = "  " if request.body_inset and not request.body_warning else ""
-    body_width = max(1, width - get_cwidth(body_indent))
+    body_indent = ""
+    body_width = max(1, width)
 
     lines = request.body_fragments or tuple(
         ((

@@ -85,6 +85,60 @@ def test_history_persists_branch_and_status(tmp_path) -> None:
     assert record["status"] == "archived"
 
 
+def test_history_archive_and_unarchive_are_idempotent(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+    session = {
+        "cid": "cid_archive_12345678",
+        "sid": "sid_archive_1_abcdef",
+    }
+
+    store.touch_session(**session, title="archive me", now_ms=100)
+
+    archived = store.archive_session(**session, now_ms=200)
+    repeated_archive = store.archive_session(**session, now_ms=300)
+    assert archived["status"] == "archived"
+    assert repeated_archive["status"] == "archived"
+    assert repeated_archive["title"] == "archive me"
+
+    active = store.unarchive_session(**session, now_ms=400)
+    repeated_unarchive = store.unarchive_session(**session, now_ms=500)
+    assert active["status"] == "active"
+    assert repeated_unarchive["status"] == "active"
+
+
+def test_history_touch_does_not_restore_archived_session(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+    session = {
+        "cid": "cid_archive_12345678",
+        "sid": "sid_archive_1_abcdef",
+    }
+
+    store.touch_session(**session, now_ms=100)
+    store.archive_session(**session, now_ms=200)
+
+    touched = store.touch_session(**session, source="tui:resume", now_ms=300)
+    assert touched["status"] == "archived"
+    assert store.list_sessions(status="active", now_ms=301) == []
+    assert [row["sid"] for row in store.list_sessions(
+        status="archived",
+        now_ms=301,
+    )] == [session["sid"]]
+
+
+def test_history_status_migration_requires_existing_session(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db")
+
+    try:
+        store.archive_session(
+            cid="cid_missing_12345678",
+            sid="sid_missing_1_abcdef",
+        )
+    except LookupError as error:
+        assert str(error) == "conversation session was not found"
+    else:
+        raise AssertionError("missing sessions must not be implicitly created")
+
+
 def test_history_reuses_pending_fork_request_until_cleared(tmp_path) -> None:
     store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
     source = {

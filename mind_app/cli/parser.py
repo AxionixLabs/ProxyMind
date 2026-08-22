@@ -28,7 +28,8 @@ from .commands import (
     OutputFormat,
     ParsedCommand,
     ResumeCommand,
-    RuntimeUpgradeCommand
+    RuntimeUpgradeCommand,
+    SessionArchiveCommand
 )
 from .help import CliArgumentParser
 from .invocation import extract_invocation_options
@@ -359,6 +360,12 @@ def _parse_cli_command(
             all_workspaces=bool(values["all_workspaces"]),
             include_non_interactive=bool(values["include_non_interactive"]),
             helix_profile=_selected_helix_profile(parser, values),
+        )
+
+    if command in {"archive", "unarchive"}:
+        return SessionArchiveCommand(
+            action=command,
+            target=_required_string(parser, values, "target"),
         )
 
     if command == "agent" and values.get("agent_command") == "listen":

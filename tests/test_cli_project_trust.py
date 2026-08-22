@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from mind_nova import const
 
 from mind_app.cli import bootstrap
 from mind_app.cli.commands import (
@@ -947,7 +948,7 @@ def test_console_application_error_does_not_emit_rich_markup() -> None:
 
     application.emit(ApplicationView(type="error", renderable="failed"))
 
-    assert output.getvalue() == "Mind :: ERROR: failed\n"
+    assert output.getvalue() == f"{const.APP_DESC} :: ERROR: failed\n"
 
 
 if __name__ == '__main__':

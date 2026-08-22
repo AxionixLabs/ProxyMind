@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from mind_nova import const
 
 from mind_app.controller import Mind
 from mind_app.runtime.hooks.catalog import HookCatalogStaleError
@@ -97,7 +98,7 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
         ("UserPromptSubmit", 0, 0, "When the user submits a prompt"),
         ("SubagentStart", 0, 0, "When a subagent is created"),
         ("SubagentStop", 0, 0, "Right before a subagent ends its turn"),
-        ("Stop", 0, 0, "Right before Mind ends its turn"),
+        ("Stop", 0, 0, f"Right before {const.APP_DESC} ends its turn"),
     ]
     assert catalog.hooks[0].command == "check-project"
     assert catalog.hooks[0].matcher == "shell_command"

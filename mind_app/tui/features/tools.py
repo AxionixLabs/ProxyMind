@@ -4,6 +4,7 @@
 import typing
 from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
+from mind_nova import const
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -25,6 +26,7 @@ TOOLS_HEADING_STYLE    = TextStyle(bold=True)
 TOOLS_SECONDARY_STYLE  = TextStyle(dim=True)
 TOOLS_TEXT_STYLE       = TextStyle()
 TOOLS_EMPTY_STYLE      = TextStyle(italic=True)
+BUILTIN_TOOL_LABEL     = f"{const.APP_DESC} Native"
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -87,6 +89,36 @@ def _tool_name_lines(
     return lines
 
 
+def _tools_for_display(
+    session: McpSessionLike,
+    tools: list[dict[str, typing.Any]]
+) -> list[dict[str, typing.Any]]:
+    """复制工具目录，并把外接工具限定名替换为服务原始名称。"""
+    external_group = getattr(session, "external_group", None)
+    source_tools   = getattr(external_group, "tools", {})
+
+    original_names = {
+        str(qualified_name): str(getattr(tool, "name", "") or "").strip()
+        for qualified_name, tool in dict(source_tools or {}).items()
+    }
+
+    display_tools: list[dict[str, typing.Any]] = []
+
+    for tool in tools:
+        name = str(tool.get("name") or "")
+
+        original_name = original_names.get(name, "")
+        if not original_name:
+            display_tools.append(tool)
+            continue
+
+        display_tool = dict(tool)
+        display_tool["name"] = original_name
+        display_tools.append(display_tool)
+
+    return display_tools
+
+
 def summarize_tool_groups(
     tools: list[dict[str, typing.Any]]
 ) -> list[dict[str, typing.Any]]:
@@ -110,7 +142,7 @@ def summarize_tool_groups(
             auth_by_group.setdefault(key, auth)
 
         elif bool(meta.get("client_builtin")):
-            key = ("builtin", "Mind Native", "in-process")
+            key = ("builtin", BUILTIN_TOOL_LABEL, "in-process")
             auth_by_group[key] = "N/A"
 
         else:
@@ -134,7 +166,7 @@ def summarize_tool_groups(
         result,
         key=lambda item: (
             0 if item["source"] == "builtin" else 1,
-            0 if item["label"] == "Mind Native" else 1,
+            0 if item["label"] == BUILTIN_TOOL_LABEL else 1,
             str(item["label"]),
             str(item["detail"])
         )
@@ -226,36 +258,6 @@ def render_tools_summary(
     ))
     application.emit(ApplicationView(type="tui.gap"))
     return None
-
-
-def _tools_for_display(
-    session: McpSessionLike,
-    tools: list[dict[str, typing.Any]]
-) -> list[dict[str, typing.Any]]:
-    """复制工具目录，并把外接工具限定名替换为服务原始名称。"""
-    external_group = getattr(session, "external_group", None)
-    source_tools   = getattr(external_group, "tools", {})
-
-    original_names = {
-        str(qualified_name): str(getattr(tool, "name", "") or "").strip()
-        for qualified_name, tool in dict(source_tools or {}).items()
-    }
-
-    display_tools: list[dict[str, typing.Any]] = []
-
-    for tool in tools:
-        name = str(tool.get("name") or "")
-
-        original_name = original_names.get(name, "")
-        if not original_name:
-            display_tools.append(tool)
-            continue
-
-        display_tool = dict(tool)
-        display_tool["name"] = original_name
-        display_tools.append(display_tool)
-
-    return display_tools
 
 
 async def print_available_tools(
