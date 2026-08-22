@@ -59,6 +59,8 @@ from ..features.helix import (
     unlink_helix_runtime
 )
 from ..features.history import (
+    HistoryResumePreviewLoader,
+    HistoryResumeTranscriptLoader,
     choose_history_session,
     load_history_transcript
 )
@@ -105,6 +107,7 @@ from .state import TuiSessionState
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
+    from ..runtime.ports import ProcessRuntimePort, SkillRuntimePort
 
 MODEL_COMMAND_PATTERN = re.compile(
     rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
@@ -113,7 +116,6 @@ MODEL_COMMAND_PATTERN = re.compile(
 
 class DispatchAction(enum.Enum):
     """描述一项输入完成命令分派后的下一步。"""
-
     HANDLED = "handled"
     MODEL_TURN = "model_turn"
     EXIT = "exit"
@@ -264,7 +266,10 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "skills"):
-            await choose_skill(self.runtime)
+            await choose_skill(typing.cast(
+                "SkillRuntimePort",
+                typing.cast(object, self.runtime),
+            ))
             return DispatchAction.HANDLED
 
         if matches_command(command, "effort"):
@@ -276,7 +281,13 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "ps"):
-            if await manage_exec_sessions(self.runtime, self.mind):
+            if await manage_exec_sessions(
+                typing.cast(
+                    "ProcessRuntimePort",
+                    typing.cast(object, self.runtime),
+                ),
+                self.mind,
+            ):
                 self._present()
             return DispatchAction.HANDLED
 
@@ -493,7 +504,13 @@ class TuiCommandDispatcher(object):
             previous.cancel()
 
         task = self.runtime.start_background_task(
-            append_exec_stream_snapshot(self.runtime, self.mind),
+            append_exec_stream_snapshot(
+                typing.cast(
+                    "ProcessRuntimePort",
+                    typing.cast(object, self.runtime),
+                ),
+                self.mind,
+            ),
             name="tui background terminals snapshot",
         )
         self._process_snapshot_task = task
@@ -654,18 +671,13 @@ class TuiCommandDispatcher(object):
             workspace=self.mind.history_workspace,
             sources=INTERACTIVE_HISTORY_SOURCES,
         )
-        if not records:
-            self._present(command_result_block(
-                "/resume",
-                TextSpan(
-                    "No resumable conversations in the last 24 hours.",
-                    MUTED_STYLE,
-                ),
-            ))
-            self._present()
-            return None
-
-        selected = await choose_history_session(self.runtime, records)
+        selected = await choose_history_session(
+            self.runtime,
+            records,
+            filter_workspace=self.mind.history_workspace,
+            preview_loader=HistoryResumePreviewLoader(self.mind),
+            transcript_loader=HistoryResumeTranscriptLoader(self.mind),
+        )
         if selected is None:
             self._present()
             return None

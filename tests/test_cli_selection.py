@@ -718,6 +718,65 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
 
 
 @pytest.mark.anyio
+async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
+    monkeypatch,
+) -> None:
+    from mind_app.cli import dispatch as dispatch_module
+    from mind_app.tui.core import runtime as runtime_module
+    from mind_app.tui.features import history as history_module
+
+    runtime = object()
+    choose = AsyncMock(return_value=None)
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=object()),
+        history_workspace=r"D:\workspace",
+        recent_conversation_sessions=Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "require_tui_runtime",
+        Mock(return_value=runtime),
+    )
+    monkeypatch.setattr(history_module, "choose_history_session", choose)
+
+    selected = await dispatch_module._select_resume_session(
+        mind,
+        ResumeCommand(),
+    )
+
+    assert selected is None
+    mind.recent_conversation_sessions.assert_called_once_with(
+        workspace=r"D:\workspace",
+        sources=("tui", "tui:resume"),
+        limit=200,
+    )
+    call = choose.await_args
+    assert call.args == (runtime, [])
+    assert call.kwargs["filter_workspace"] == r"D:\workspace"
+    assert not call.kwargs["show_workspace"]
+    assert isinstance(
+        call.kwargs["preview_loader"],
+        history_module.HistoryResumePreviewLoader,
+    )
+
+
+@pytest.mark.anyio
+async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
+    from mind_app.cli import dispatch as dispatch_module
+
+    mind = SimpleNamespace(
+        history_workspace="D:/workspace",
+        recent_conversation_sessions=Mock(return_value=[]),
+    )
+
+    with pytest.raises(AppError, match="No resumable sessions were found"):
+        await dispatch_module._select_resume_session(
+            mind,
+            ResumeCommand(last=True),
+        )
+
+
+@pytest.mark.anyio
 async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
     listener = object()
     run_tui_loop = AsyncMock()

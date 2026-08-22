@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
     title          TEXT NOT NULL DEFAULT '',
     workspace      TEXT NOT NULL DEFAULT '',
     source         TEXT NOT NULL DEFAULT '',
+    branch         TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'active',
     created_at     INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL,
     expires_at     INTEGER NOT NULL,
@@ -79,6 +81,8 @@ class ConversationHistoryStore(object):
         title: str = "",
         workspace: str = "",
         source: str = "",
+        branch: str = "",
+        status: str = "active",
         now_ms: typing.Optional[int] = None
     ) -> dict[str, typing.Any]:
         """记录最近出现过的 cid/sid；不读取消息内容。"""
@@ -96,6 +100,8 @@ class ConversationHistoryStore(object):
             "title"      : _clean_title(title),
             "workspace"  : normalize_workspace(workspace),
             "source"     : _clean(source),
+            "branch"     : _clean(branch),
+            "status"     : _normalize_status(status),
             "updated_at" : now,
             "expires_at" : now + self.ttl_ms
         }
@@ -108,10 +114,10 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     INSERT INTO {TABLE_SESSION_CURSORS} (
-                        cid, sid, workspace, source,
+                        cid, sid, workspace, source, branch, status,
                         title, created_at, updated_at, expires_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cid, sid) DO UPDATE SET
                         workspace      = excluded.workspace,
                         source         = CASE
@@ -120,6 +126,13 @@ class ConversationHistoryStore(object):
                             THEN excluded.source
                             ELSE {TABLE_SESSION_CURSORS}.source
                         END,
+                        branch         = CASE
+                            WHEN {TABLE_SESSION_CURSORS}.branch = ''
+                                 AND excluded.branch <> ''
+                            THEN excluded.branch
+                            ELSE {TABLE_SESSION_CURSORS}.branch
+                        END,
+                        status         = excluded.status,
                         title          = CASE
                             WHEN {TABLE_SESSION_CURSORS}.title = ''
                                  AND excluded.title <> ''
@@ -134,6 +147,8 @@ class ConversationHistoryStore(object):
                         record["sid"],
                         record["workspace"],
                         record["source"],
+                        record["branch"],
+                        record["status"],
                         record["title"],
                         now,
                         record["updated_at"],
@@ -331,7 +346,8 @@ class ConversationHistoryStore(object):
                 rows = conn.execute(
                     f"""
                     SELECT cid, sid, workspace, source,
-                           title, created_at, updated_at, expires_at
+                           title, created_at, updated_at, expires_at,
+                           branch, status
                     FROM {TABLE_SESSION_CURSORS}
                     WHERE {" AND ".join(clauses)}
                     ORDER BY updated_at DESC
@@ -463,6 +479,12 @@ def _clean_title(value: typing.Any) -> str:
     """把首条 query 压缩成短标题。"""
     text = " ".join(str(value or "").split())
     return text[:TITLE_MAX_CHARS]
+
+
+def _normalize_status(value: typing.Any) -> str:
+    """把历史状态限制为 picker 可识别的活动或归档值。"""
+    status = _clean(value).casefold()
+    return "archived" if status == "archived" else "active"
 
 
 if __name__ == '__main__':

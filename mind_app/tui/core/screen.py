@@ -95,13 +95,13 @@ from .menu import (
 from .models import (
     FormattedText,
     FragmentBlock,
-    MailboxEntry,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
     TranscriptExportResult
 )
 from .process_status import TuiProcessStatus
 from .process_viewer import TuiProcessViewer
+from .resume_picker import TuiResumePicker
 from .queued import (
     TuiPendingSteers,
     TuiQueuedMessages
@@ -164,11 +164,22 @@ from ..rendering.screen.terminal import (
     queued_message_edit_binding as _queued_message_edit_binding,
     set_alternate_scroll_mode as _set_alternate_scroll_mode,
     set_synchronized_output as _set_synchronized_output,
-    supports_vt_control as _supports_vt_control,
+    supports_vt_control as _supports_vt_control
+)
+from ..contracts.resume import (
+    ResumePickerRequest,
+    ResumePickerResult,
+    ResumePreview,
+    ResumeRow
+)
+from ..contracts.transcript import MailboxEntry
+from ..contracts.screen import (
+    MailboxScreenPort,
+    ResumePickerScreenPort
 )
 
 
-class TuiScreen(object):
+class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
@@ -201,6 +212,9 @@ class TuiScreen(object):
         scroll_transcript_page: typing.Callable[[int], None],
         toggle_transcript_overlay: typing.Callable[[], None],
         close_mailbox_overlay: typing.Callable[[], None],
+        request_resume_preview: typing.Callable[[ResumeRow, int, int], None],
+        request_resume_transcript: typing.Callable[[ResumeRow, int, int], None],
+        cancel_resume_preview: typing.Callable[[], None],
         request_transcript_backtrack: typing.Callable[
             [TranscriptBacktrackRequest],
             None,
@@ -242,6 +256,9 @@ class TuiScreen(object):
         self._scroll_transcript_page       = scroll_transcript_page
         self._toggle_transcript_overlay    = toggle_transcript_overlay
         self._close_mailbox_overlay        = close_mailbox_overlay
+        self._request_resume_preview       = request_resume_preview
+        self._request_resume_transcript    = request_resume_transcript
+        self._cancel_resume_preview        = cancel_resume_preview
         self._request_transcript_backtrack = request_transcript_backtrack
 
         self._report_missing_transcript_backtrack = (
@@ -432,6 +449,14 @@ class TuiScreen(object):
             get_height=lambda: self._mailbox_overlay_height(),
             invalidate=self.invalidate,
         )
+        self.resume_picker = TuiResumePicker(
+            invalidate=self.invalidate,
+            get_width=lambda: self.terminal_width,
+            get_height=lambda: self.terminal_height,
+            request_preview=self._request_resume_preview,
+            request_transcript=self._request_resume_transcript,
+            cancel_preview=self._cancel_resume_preview,
+        )
         self.transcript_overlay_control = FormattedTextControl(
             self.transcript_overlay.visible_fragments,
             focusable=True,
@@ -443,6 +468,12 @@ class TuiScreen(object):
             focusable=True,
             modal=True,
             key_bindings=self._mailbox_overlay_key_bindings(),
+        )
+        self.resume_picker_control = FormattedTextControl(
+            self.resume_picker.fragments,
+            focusable=True,
+            modal=True,
+            key_bindings=self.resume_picker.key_bindings,
         )
 
         self.transcript_window = TerminalHyperlinkWindow(
@@ -544,6 +575,14 @@ class TuiScreen(object):
             ],
             height=self._mailbox_overlay_footer_dimension,
             window_too_small=Window(),
+        )
+        self.resume_picker_window = Window(
+            content=self.resume_picker_control,
+            height=self._resume_picker_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+            char=" ",
         )
         self.status_window = Window(
             content=self.status_control,
@@ -903,6 +942,12 @@ class TuiScreen(object):
             height=self._mailbox_overlay_canvas_dimension,
             window_too_small=Window(),
         )
+        self.resume_picker_canvas = HSplit(
+            [self.resume_picker_window],
+            align=VerticalAlign.TOP,
+            height=self._resume_picker_dimension,
+            window_too_small=Window(),
+        )
         self.directory_trust_canvas = HSplit(
             [self.directory_trust_window],
             align=VerticalAlign.TOP,
@@ -928,6 +973,7 @@ class TuiScreen(object):
                         not self._startup_gate_active
                         and not self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.resume_picker.active
                         and not self.directory_trust.active
                     )),
                 ),
@@ -937,6 +983,7 @@ class TuiScreen(object):
                         not self._startup_gate_active
                         and self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.resume_picker.active
                         and not self.directory_trust.active
                     )),
                 ),
@@ -946,6 +993,17 @@ class TuiScreen(object):
                         not self._startup_gate_active
                         and self.mailbox_overlay.active
                         and not self.transcript_overlay.active
+                        and not self.resume_picker.active
+                        and not self.directory_trust.active
+                    )),
+                ),
+                ConditionalContainer(
+                    self.resume_picker_canvas,
+                    filter=Condition(lambda: (
+                        not self._startup_gate_active
+                        and self.resume_picker.active
+                        and not self.transcript_overlay.active
+                        and not self.mailbox_overlay.active
                         and not self.directory_trust.active
                     )),
                 ),
@@ -960,6 +1018,7 @@ class TuiScreen(object):
                         and not self.directory_trust.active
                         and not self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.resume_picker.active
                     )),
                 ),
             ],
@@ -1206,6 +1265,7 @@ class TuiScreen(object):
             return False
         if active and (
             self.mailbox_overlay.active
+            or self.resume_picker.active
             or self._full_screen_overlay_blocked()
         ):
             return False
@@ -1267,6 +1327,7 @@ class TuiScreen(object):
         menu_only = allow_menu and self.bottom_pane.is_active("menu")
         if active and (
             self.transcript_overlay.active
+            or self.resume_picker.active
             or (
                 self._full_screen_overlay_blocked()
                 and not menu_only
@@ -1299,6 +1360,73 @@ class TuiScreen(object):
                     self._restore_overlay_focus()
         self.invalidate()
         return True
+
+    def set_resume_picker(
+        self,
+        active: bool,
+        *,
+        request: ResumePickerRequest | None = None,
+        generation: int = 0,
+    ) -> bool:
+        """切换全屏 Resume picker、终端画面和键盘焦点。"""
+        active = bool(active)
+        if active == self.resume_picker.active:
+            return False
+        if active and (
+            self.transcript_overlay.active
+            or self.mailbox_overlay.active
+            or self._full_screen_overlay_blocked()
+        ):
+            return False
+        if active and request is None:
+            raise ValueError("resume picker request is required")
+
+        if active:
+            try:
+                self._enter_full_screen_overlay()
+                if not self.resume_picker.open(
+                    request,
+                    generation=generation,
+                ):
+                    self._leave_full_screen_overlay()
+                    self._restore_overlay_focus()
+                    return False
+                self.application.layout.focus(self.resume_picker_control)
+            except BaseException:
+                try:
+                    self.resume_picker.close()
+                finally:
+                    try:
+                        self._leave_full_screen_overlay()
+                    finally:
+                        self._restore_overlay_focus()
+                raise
+        else:
+            try:
+                self.resume_picker.close()
+            finally:
+                try:
+                    self._leave_full_screen_overlay()
+                finally:
+                    self._restore_overlay_focus()
+        self.invalidate()
+        return True
+
+    async def wait_resume_picker(self) -> ResumePickerResult:
+        """等待当前 Resume picker 返回选择或取消。"""
+        return await self.resume_picker.wait()
+
+    def set_resume_preview(
+        self,
+        preview: ResumePreview,
+        *,
+        generation: int,
+    ) -> bool:
+        """提交属于当前 picker generation 的 preview 结果。"""
+        return self.resume_picker.update_preview(
+            preview,
+            generation=generation,
+        )
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
@@ -1658,6 +1786,13 @@ class TuiScreen(object):
             return None
 
         if (
+            hasattr(self, "resume_picker")
+            and self.resume_picker.active
+        ):
+            self.application.layout.focus(self.resume_picker_control)
+            return None
+
+        if (
             hasattr(self, "transcript_overlay")
             and self.transcript_overlay.active
         ):
@@ -1699,6 +1834,13 @@ class TuiScreen(object):
 
         if self._startup_gate_active:
             self.application.layout.focus(self.startup_menu_control)
+            return None
+
+        if (
+            hasattr(self, "resume_picker")
+            and self.resume_picker.active
+        ):
+            self.application.layout.focus(self.resume_picker_control)
             return None
 
         if (
@@ -1859,6 +2001,7 @@ class TuiScreen(object):
             lambda: (
                 not self.transcript_overlay.active
                 and not self.mailbox_overlay.active
+                and not self.resume_picker.active
                 and not self._full_screen_overlay_blocked()
             )
         )
@@ -2227,8 +2370,14 @@ class TuiScreen(object):
             return self._transcript_overlay_canvas_dimension()
         if self.mailbox_overlay.active:
             return self._mailbox_overlay_canvas_dimension()
+        if self.resume_picker.active:
+            return self._resume_picker_dimension()
 
         return self._canvas_dimension()
+
+    def _resume_picker_dimension(self) -> Dimension:
+        """返回 Resume picker 独占的物理终端高度。"""
+        return Dimension.exact(self.terminal_height)
 
     def _directory_trust_dimension(self) -> Dimension:
         """返回启动阶段目录信任界面的显示高度。"""
@@ -2658,6 +2807,7 @@ class TuiScreen(object):
         return bool(
             self.transcript_overlay.active
             or self.mailbox_overlay.active
+            or self.resume_picker.active
         )
 
     def _full_screen_overlay_blocked(self) -> bool:

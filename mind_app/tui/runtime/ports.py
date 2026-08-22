@@ -5,6 +5,10 @@ import typing
 import asyncio
 import contextlib
 from ..contracts.menu import MenuRequest
+from ..contracts.resume import (
+    ResumePickerRequest,
+    ResumePickerResult
+)
 from ..contracts.text import FragmentBlock
 from mind_app.frontend.contracts import ActivityStatusKind
 from ..core.document import TuiBlockKind
@@ -18,6 +22,17 @@ class MenuSelectionPort(typing.Protocol):
 
     async def select_menu(self, request: MenuRequest) -> typing.Any:
         """打开菜单并返回用户选择。"""
+        ...
+
+
+class ResumePickerPort(typing.Protocol):
+    """描述 history feature 所需的全屏 Resume 选择能力。"""
+
+    async def view_resume_picker(
+        self,
+        request: ResumePickerRequest,
+    ) -> ResumePickerResult:
+        """打开 Resume picker 并返回选择或取消。"""
         ...
 
 

@@ -316,7 +316,9 @@ class Mind(object):
                 sid=metadata["sid"],
                 title=title,
                 workspace=self.history_workspace,
-                source=source
+                source=source,
+                branch=metadata.get("branch", ""),
+                status=metadata.get("status", "active"),
             )
         except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
             observe_exception(

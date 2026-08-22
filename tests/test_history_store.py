@@ -67,6 +67,24 @@ def test_history_keeps_the_original_session_source(tmp_path) -> None:
     assert record["source"] == "tui"
 
 
+def test_history_persists_branch_and_status(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+
+    store.touch_session(
+        cid="cid_branch_12345678",
+        sid="sid_branch_1_abcdef",
+        branch="feature/resume",
+        status="archived",
+        now_ms=100,
+    )
+
+    record = store.find_session("sid_branch_1_abcdef", now_ms=200)
+
+    assert record is not None
+    assert record["branch"] == "feature/resume"
+    assert record["status"] == "archived"
+
+
 def test_history_reuses_pending_fork_request_until_cleared(tmp_path) -> None:
     store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
     source = {

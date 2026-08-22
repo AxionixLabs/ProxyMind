@@ -57,6 +57,36 @@ def test_runtime_state_does_not_import_screen_or_runtime() -> None:
     )
 
 
+def test_resume_runtime_coordinator_uses_narrow_ports() -> None:
+    """保证 Resume coordinator 不依赖具体 Screen、Runtime 或 Viewport。"""
+    path = TUI_PACKAGE / "runtime" / "resume_picker.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    module_parts = tuple(path.relative_to(TUI_PACKAGE).with_suffix("").parts)
+    forbidden: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            forbidden.extend(
+                alias.name
+                for alias in node.names
+                if alias.name.startswith((
+                    "mind_app.tui.core.screen",
+                    "mind_app.tui.core.runtime",
+                    "mind_app.tui.core.viewport",
+                ))
+            )
+        elif isinstance(node, ast.ImportFrom):
+            target = _resolved_import(module_parts, node.level, node.module)
+            if target[:2] in {
+                ("core", "screen"),
+                ("core", "runtime"),
+                ("core", "viewport"),
+            }:
+                forbidden.append(".".join(target))
+
+    assert not forbidden
+
+
 def test_process_feature_uses_capability_port() -> None:
     """保证进程 feature 不再把具体 TuiRuntime 作为类型依赖。"""
     path = TUI_PACKAGE / "features" / "processes.py"
@@ -196,7 +226,7 @@ def test_turn_input_uses_capability_port() -> None:
 def test_read_only_features_use_capability_ports() -> None:
     """保证只读菜单 feature 不再把具体 TuiRuntime 作为类型依赖。"""
     expected = {
-        "features/history.py": "MenuSelectionPort",
+        "features/history.py": "ResumePickerPort",
         "features/model.py": "MenuSelectionPort",
         "features/skills.py": "SkillRuntimePort",
     }

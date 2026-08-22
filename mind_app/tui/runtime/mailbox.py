@@ -2,32 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from ..contracts.screen import MailboxScreenPort
 from ..contracts.transcript import MailboxEntry
 from ..core.mailbox import TuiMailboxOverlay
 from ..core.viewport import TuiTranscriptViewport
-
-
-class MailboxScreenPort(typing.Protocol):
-    """描述单个 Runtime 会话内 Screen 提供的 mailbox 画面能力。"""
-
-    def set_mailbox_entries(
-        self,
-        entries: typing.Iterable[MailboxEntry],
-        *,
-        listener_active: bool,
-    ) -> bool:
-        """更新当前 Screen 的 mailbox 快照并返回是否变化。"""
-        ...
-
-    def set_mailbox_overlay(
-        self,
-        active: bool,
-        *,
-        entry_key: str | None = None,
-        allow_menu: bool = False,
-    ) -> bool:
-        """切换当前 Screen 的 mailbox overlay 并返回是否发生变化。"""
-        ...
 
 
 class MailboxOverlayCoordinator(object):
@@ -39,11 +17,12 @@ class MailboxOverlayCoordinator(object):
         overlay: TuiMailboxOverlay,
         viewport: TuiTranscriptViewport,
         screen: MailboxScreenPort,
-        cancel_history_backtrack: typing.Callable[[], None],
+        cancel_history_backtrack: typing.Callable[[], None]
     ) -> None:
-        self._overlay = overlay
+        self._overlay  = overlay
         self._viewport = viewport
-        self._screen = screen
+        self._screen   = screen
+
         self._cancel_history_backtrack = cancel_history_backtrack
 
     @property

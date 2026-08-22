@@ -141,30 +141,61 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "mailbox.help": "fg:#87919D",
     "mailbox.progress": "fg:#DDE7EF bold",
     "mailbox.filler": "fg:#69727D dim",
+    "resume-picker.title": "bold ansicyan",
+    "resume-picker.rule": "fg:#69727D dim",
+    "resume-picker.search": "fg:#F4F7FA",
+    "resume-picker.search.placeholder": "fg:#87919D dim",
+    "resume-picker.toolbar": "fg:#87919D dim",
+    "resume-picker.toolbar.active": "fg:#DDE7EF nodim",
+    "resume-picker.toolbar.focused": "ansimagenta nodim",
+    "resume-picker.marker": "ansiyellow bold",
+    "resume-picker.title.selected": "ansiyellow",
+    "resume-picker.meta": "fg:#87919D dim",
+    "resume-picker.meta.placeholder": "fg:#87919D dim italic",
+    "resume-picker.row.selected": "",
+    "resume-picker.row.zebra": "",
+    "resume-picker.empty": "fg:#87919D dim italic",
+    "resume-picker.error": "fg:#FF6B6B italic",
+    "resume-picker.help": "fg:#87919D dim",
+    "resume-picker.help.key": "fg:#DDE7EF nodim",
+    "resume-picker.progress": "fg:#DDE7EF bold",
+    "resume-picker.preview.user": "fg:#B8C0C9 italic",
+    "resume-picker.preview.assistant": "fg:#707A84",
 })
 
 
 def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
-    """根据终端主题创建输入区和审批卡表面样式。"""
+    """根据终端主题创建动态表面和前景样式。"""
     if not capabilities.dynamic_surfaces:
         return Style.from_dict({})
 
     terminal_background = capabilities.theme.background
 
-    light = _is_light_color(terminal_background)
+    light   = _is_light_color(terminal_background)
+    overlay = (0, 0, 0) if light else (255, 255, 255)
 
     surface_background = (
-        _blend_color((0, 0, 0), terminal_background, 0.04)
+        _blend_color(overlay, terminal_background, 0.04)
         if light
-        else _blend_color((255, 255, 255), terminal_background, 0.12)
+        else _blend_color(overlay, terminal_background, 0.12)
     )
+    selected_background = _hex_color(
+        _blend_color(overlay, terminal_background, 0.12)
+    )
+    zebra_background = _hex_color(_blend_color(
+        overlay,
+        terminal_background,
+        0.04 if light else 0.055,
+    ))
 
     background = f"bg:{_hex_color(surface_background)}"
 
     styles = {
-    "input-surface": background,
-    "approval-card": background,
-    "menu-card": background,
+        "input-surface": background,
+        "approval-card": background,
+        "menu-card": background,
+        "resume-picker.row.selected": f"bg:{selected_background}",
+        "resume-picker.row.zebra": f"bg:{zebra_background}",
     }
 
     if light:
@@ -216,6 +247,23 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "tui-menu.index.active": "bold #005F87",
             "tui-menu.label.active": "bold #005F87",
             "tui-menu.detail-selected": "bold #005F87",
+            "resume-picker.title": "bold #006400",
+            "resume-picker.rule": "#68737D dim",
+            "resume-picker.search": "#20262C",
+            "resume-picker.search.placeholder": "#68737D dim",
+            "resume-picker.toolbar": "#68737D dim",
+            "resume-picker.toolbar.active": "#20262C nodim",
+            "resume-picker.marker": "ansimagenta bold",
+            "resume-picker.title.selected": "ansimagenta",
+            "resume-picker.meta": "#68737D dim",
+            "resume-picker.meta.placeholder": "#68737D dim italic",
+            "resume-picker.empty": "#68737D dim italic",
+            "resume-picker.error": "#B42318 italic",
+            "resume-picker.help": "#68737D dim",
+            "resume-picker.help.key": "#20262C nodim",
+            "resume-picker.progress": "#20262C bold",
+            "resume-picker.preview.user": "#596570 italic",
+            "resume-picker.preview.assistant": "#68737D",
         })
     return Style.from_dict(styles)
 

@@ -2,13 +2,20 @@
 # Notes: ==== Mind™ ====
 
 import json
-import time
 import typing
+import asyncio
 from functools import partial
+from pathlib import Path
 from prompt_toolkit.utils import get_cwidth
+from mind_app.history import normalize_workspace
+from mind_app.history.ids import valid_session_ids
 from mind_app.history.transcript import (
     TranscriptEntry,
     TranscriptReplay
+)
+from mind_app.presentation.terminal_text import (
+    sanitize_terminal_line,
+    sanitize_terminal_text
 )
 from mind_app.presentation.renderers.dispatch import (
     render_presentation_raw_view,
@@ -24,13 +31,20 @@ from mind_app.stream_events.tool_trace import coding_trace_tool
 from ..adapters.markdown import render_tui_assistant_markdown
 from ..adapters.presentation import render_presentation_fragment_block
 from ..core.document import TranscriptBlock
-from ..core.models import (
-    FragmentBlock,
-    MenuDescriptionLayout,
-    MenuOption,
-    MenuRequest,
-    STANDARD_MENU_FOOTER_HINT
+from ..contracts.resume import (
+    ResumeDensity,
+    ResumeFilterMode,
+    ResumeLaunchContext,
+    ResumePickerRequest,
+    ResumePreview,
+    ResumePreviewLoader,
+    ResumePreviewStatus,
+    ResumeRow,
+    ResumeSessionStatus,
+    ResumeSortKey,
+    ResumeTranscriptLoader
 )
+from ..core.models import FragmentBlock
 from ..core.styles import (
     MUTED_STYLE,
     failure_text_block,
@@ -41,38 +55,164 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ..runtime.ports import MenuSelectionPort
+    from ..runtime.ports import ResumePickerPort
+
+
+class HistoryResumePreviewLoader(object):
+    """从本地 history transcript 生成 picker 使用的只读预览。"""
+
+    PREVIEW_BLOCK_LIMIT: typing.Final[int] = 6
+
+    def __init__(self, controller: "Mind") -> None:
+        self._controller = controller
+
+    async def load(
+        self,
+        row: ResumeRow,
+        *,
+        width: int,
+    ) -> ResumePreview:
+        """在线程边界读取并规范化最近的用户和助手正文。"""
+        blocks = await asyncio.to_thread(
+            load_history_transcript,
+            self._controller,
+            row.sid,
+            terminal_width=max(1, int(width) - 4),
+            hyperlinks=False,
+        )
+        preview_blocks = tuple(
+            (
+                (
+                    "class:resume-picker.preview.user"
+                    if block.kind == "user"
+                    else "class:resume-picker.preview.assistant",
+                    sanitize_terminal_text(block.raw_text or ""),
+                ),
+            )
+            for block in blocks
+            if block.kind in {"user", "assistant"}
+            and str(block.raw_text or "").strip()
+        )[-self.PREVIEW_BLOCK_LIMIT:]
+        return ResumePreview(
+            row_key=row.key,
+            status=ResumePreviewStatus.READY,
+            blocks=preview_blocks,
+        )
+
+
+class HistoryResumeTranscriptLoader(object):
+    """从本地 history transcript 生成全屏 pager 使用的完整内容。"""
+
+    def __init__(self, controller: "Mind") -> None:
+        self._controller = controller
+
+    async def load(
+        self,
+        row: ResumeRow,
+        *,
+        width: int,
+    ) -> ResumePreview:
+        """在线程边界读取全部 transcript，并保留已有渲染 fragment。"""
+        blocks = await asyncio.to_thread(
+            load_history_transcript,
+            self._controller,
+            row.sid,
+            terminal_width=max(1, int(width)),
+            hyperlinks=False,
+        )
+        transcript_blocks = tuple(
+            tuple(block.transcript_block.fragments)
+            for block in blocks
+            if block.transcript_block.fragments
+        )
+        return ResumePreview(
+            row_key=row.key,
+            status=ResumePreviewStatus.READY,
+            blocks=transcript_blocks,
+        )
 
 
 async def choose_history_session(
-    runtime: "MenuSelectionPort",
+    runtime: "ResumePickerPort",
     records: list[dict[str, typing.Any]],
     *,
-    show_workspace: bool = False
+    filter_workspace: str | Path | None = None,
+    show_workspace: bool = False,
+    preview_loader: ResumePreviewLoader | None = None,
+    transcript_loader: ResumeTranscriptLoader | None = None,
 ) -> dict[str, typing.Any] | None:
-    """在主 TUI 中选择一项历史会话。"""
-    if not records:
+    """规范化历史记录，通过专用 picker 选择并映射回原始记录。"""
+    record_by_key: dict[tuple[str, str], dict[str, typing.Any]] = {}
+
+    rows: list[ResumeRow] = []
+
+    for record in records:
+        cid = str(record.get("cid") or "").strip()
+        sid = str(record.get("sid") or "").strip()
+        if not valid_session_ids(cid, sid):
+            continue
+
+        title = sanitize_terminal_line(record.get("title") or cid or "-") or "-"
+
+        row = ResumeRow(
+            cid=cid,
+            sid=sid,
+            title=title,
+            workspace=sanitize_terminal_line(record.get("workspace") or ""),
+            source=sanitize_terminal_line(record.get("source") or ""),
+            created_at_ms=_optional_timestamp(record.get("created_at")),
+            updated_at_ms=_optional_timestamp(record.get("updated_at")),
+            branch=sanitize_terminal_line(
+                record.get("branch") or record.get("git_branch") or ""
+            ),
+            status=_resume_session_status(record.get("status")),
+        )
+        if row.key in record_by_key:
+            continue
+        record_by_key[row.key] = record
+        rows.append(row)
+
+    normalized_workspace = normalize_workspace(filter_workspace)
+
+    selected = await runtime.view_resume_picker(ResumePickerRequest(
+        rows=tuple(rows),
+        filter_workspace=normalized_workspace or None,
+        show_workspace=show_workspace,
+        initial_filter=(
+            ResumeFilterMode.CWD
+            if normalized_workspace
+            else ResumeFilterMode.ALL
+        ),
+        initial_sort=ResumeSortKey.UPDATED,
+        initial_density=ResumeDensity.DENSE,
+        launch_context=ResumeLaunchContext.EXISTING_SESSION,
+        preview_loader=preview_loader,
+        transcript_loader=transcript_loader,
+    ))
+    if selected is None:
+        return None
+    return record_by_key.get(selected.key)
+
+
+def _optional_timestamp(value: typing.Any) -> int | None:
+    """把缺失或非法 history 时间转换为 None。"""
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
         return None
 
-    return await runtime.select_menu(MenuRequest(
-        title="Resume conversation",
-        view_id="history:resume",
-        status=f"items={len(records)}",
-        help_text="",
-        footer_hint=STANDARD_MENU_FOOTER_HINT,
-        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
-        options=tuple(
-            MenuOption(
-                value=record,
-                label=_record_prefix(record),
-                detail=_record_detail(
-                    record,
-                    show_workspace=show_workspace,
-                ),
-            )
-            for record in records
-        ),
-    ))
+
+def _resume_session_status(value: typing.Any) -> ResumeSessionStatus:
+    """把历史记录状态规范化为 Resume 可识别的枚举。"""
+    if isinstance(value, ResumeSessionStatus):
+        return value
+    return (
+        ResumeSessionStatus.ARCHIVED
+        if str(value or "").strip().casefold() == "archived"
+        else ResumeSessionStatus.ACTIVE
+    )
 
 
 def load_history_transcript(
@@ -386,42 +526,6 @@ def _tool_succeeded(entry: TranscriptEntry) -> bool:
     if isinstance(value, bool):
         return value
     return entry.event == "tool.completed"
-
-
-def _record_detail(
-    record: dict[str, typing.Any],
-    *,
-    show_workspace: bool
-) -> str:
-    """返回包含可选工作区的会话说明。"""
-    title = _record_title(record)
-    if not show_workspace:
-        return title
-
-    workspace = str(record.get("workspace") or "-").strip() or "-"
-    return f"{title} · {workspace}"
-
-
-def _record_title(record: dict[str, typing.Any]) -> str:
-    """返回历史会话的展示标题。"""
-    title = str(record.get("title") or "").strip()
-    if not title:
-        title = str(record.get("cid") or "-").strip()
-    return title
-
-
-def _record_prefix(record: dict[str, typing.Any]) -> str:
-    """返回历史会话的更新时间。"""
-    return _format_updated_at(record.get("updated_at"))
-
-
-def _format_updated_at(value: typing.Any) -> str:
-    """格式化毫秒时间戳。"""
-    try:
-        timestamp = int(value) / 1000
-    except (TypeError, ValueError):
-        return "-"
-    return time.strftime("%m-%d %H:%M", time.localtime(timestamp))
 
 
 if __name__ == '__main__':

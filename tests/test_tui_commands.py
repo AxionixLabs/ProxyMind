@@ -744,6 +744,42 @@ async def test_resume_conversation_clears_structured_prompt_draft(
 
 
 @pytest.mark.anyio
+async def test_resume_conversation_opens_picker_for_empty_snapshot(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    choose = AsyncMock(return_value=None)
+    runtime = SimpleNamespace()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+        history_workspace="D:/workspace",
+        recent_conversation_sessions=Mock(return_value=[]),
+        resume_conversation=AsyncMock(),
+    )
+    monkeypatch.setattr(dispatch_module, "choose_history_session", choose)
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    await dispatcher._resume_conversation()
+
+    call = choose.await_args
+    assert call.args == (runtime, [])
+    assert call.kwargs["filter_workspace"] == "D:/workspace"
+    assert isinstance(
+        call.kwargs["preview_loader"],
+        dispatch_module.HistoryResumePreviewLoader,
+    )
+    mind.resume_conversation.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
     from mind_app.tui.session import dispatch as dispatch_module
 

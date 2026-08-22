@@ -26,6 +26,11 @@ from mind_app.frontend.contracts import (
 )
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_line
+from ..contracts.resume import (
+    ResumePickerRequest,
+    ResumePickerResult,
+    ResumeRow
+)
 from .models import (
     CLOSE_MENU_FOOTER_HINT,
     FragmentBlock,
@@ -87,6 +92,7 @@ from ..runtime.background import (
 )
 from ..runtime.lifecycle import ApplicationLifecycle
 from ..runtime.mailbox import MailboxOverlayCoordinator
+from ..runtime.resume_picker import ResumePickerCoordinator
 from ..runtime.startup import (
     StartupAnimation,
     StartupFinalFrame,
@@ -193,6 +199,7 @@ class TuiRuntime(object):
                 lambda: (
                     self.screen.transcript_overlay.active
                     or self.screen.mailbox_overlay.active
+                    or self.screen.resume_picker.active
                 )
             ),
             is_closing=lambda: self._closing,
@@ -250,6 +257,9 @@ class TuiRuntime(object):
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_transcript_overlay=self.toggle_transcript_overlay,
             close_mailbox_overlay=self.close_mailbox_overlay,
+            request_resume_preview=self._request_resume_preview,
+            request_resume_transcript=self._request_resume_transcript,
+            cancel_resume_preview=self._cancel_resume_preview,
             request_transcript_backtrack=(
                 self.submissions.enqueue_transcript_backtrack
             ),
@@ -311,6 +321,13 @@ class TuiRuntime(object):
         )
         self._mailbox_overlay = MailboxOverlayCoordinator(
             overlay=self.screen.mailbox_overlay,
+            viewport=self.viewport,
+            screen=self.screen,
+            cancel_history_backtrack=(
+                lambda: self.input_model.cancel_history_backtrack()
+            ),
+        )
+        self._resume_picker = ResumePickerCoordinator(
             viewport=self.viewport,
             screen=self.screen,
             cancel_history_backtrack=(
@@ -431,6 +448,38 @@ class TuiRuntime(object):
         """通过单次尺寸快照返回物理终端宽高。"""
         return self.screen.output_geometry()
 
+    def _request_resume_preview(
+        self,
+        row: ResumeRow,
+        generation: int,
+        width: int,
+    ) -> None:
+        """把 Screen 的 preview 请求转交给已组合的运行时协作者。"""
+        coordinator = getattr(self, "_resume_picker", None)
+        if coordinator is not None:
+            coordinator.request_preview(row, generation=generation, width=width)
+
+    def _request_resume_transcript(
+        self,
+        row: ResumeRow,
+        generation: int,
+        width: int,
+    ) -> None:
+        """把 Screen 的全屏 transcript 请求转交给运行时协作者。"""
+        coordinator = getattr(self, "_resume_picker", None)
+        if coordinator is not None:
+            coordinator.request_transcript(
+                row,
+                generation=generation,
+                width=width,
+            )
+
+    def _cancel_resume_preview(self) -> None:
+        """取消 picker 当前的 preview 或 transcript 读取任务。"""
+        coordinator = getattr(self, "_resume_picker", None)
+        if coordinator is not None:
+            coordinator.cancel_preview()
+
     def _native_scrollback_deferred(self) -> bool:
         """判断当前运行状态是否禁止提交原生终端滚屏。"""
         return bool(
@@ -438,6 +487,7 @@ class TuiRuntime(object):
             or self.foreground_active
             or self.screen.startup_gate_active
             or self.screen.menu.active
+            or self.screen.resume_picker.active
         )
 
     def _flush_background_blocks(self) -> None:
@@ -1613,6 +1663,7 @@ class TuiRuntime(object):
         self._startup_presentations.clear()
         self.terminal_progress.close()
 
+        await self._resume_picker.close()
         await self.submissions.close()
         await self.activity.clear()
 
@@ -1649,6 +1700,13 @@ class TuiRuntime(object):
         self.screen.directory_trust.close()
         self.screen.set_startup_gate(False)
         self._directory_trust_preserved_startup_gate = False
+
+    async def view_resume_picker(
+        self,
+        request: ResumePickerRequest,
+    ) -> ResumePickerResult:
+        """打开全屏 Resume picker 并返回选择或取消。"""
+        return await self._resume_picker.view(request)
 
     async def view_mailbox_entry(
         self,

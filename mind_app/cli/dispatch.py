@@ -211,18 +211,25 @@ async def _select_resume_session(
         sources=sources,
         limit=1 if command.last else HISTORY_LIMIT,
     )
-    if not records:
-        raise AppError("No resumable sessions were found.")
     if command.last:
+        if not records:
+            raise AppError("No resumable sessions were found.")
         return records[0]
 
     from ..tui.core.runtime import require_tui_runtime
-    from ..tui.features.history import choose_history_session
+    from ..tui.features.history import (
+        HistoryResumePreviewLoader,
+        HistoryResumeTranscriptLoader,
+        choose_history_session
+    )
 
     return await choose_history_session(
         require_tui_runtime(mind.frontend.runtime),
         records,
+        filter_workspace=mind.history_workspace,
         show_workspace=command.all_workspaces,
+        preview_loader=HistoryResumePreviewLoader(mind),
+        transcript_loader=HistoryResumeTranscriptLoader(mind),
     )
 
 

@@ -8,77 +8,168 @@ from mind_app.tui.core.document import TuiDocument
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.features import history
 from mind_app.tui.core.hyperlinks import terminal_hyperlink_from_style
-from mind_app.tui.core.models import (
-    MenuDescriptionLayout,
-    STANDARD_MENU_FOOTER_HINT,
+from mind_app.tui.contracts.resume import (
+    ResumeDensity,
+    ResumeFilterMode,
+    ResumePreviewStatus,
+    ResumeRow,
+    ResumeSessionStatus,
+    ResumeSortKey,
 )
 
 
 @pytest.mark.anyio
-async def test_history_menu_displays_date_then_query(monkeypatch) -> None:
+async def test_history_session_builds_resume_request_and_maps_row() -> None:
     record = {
-        "cid": "conversation-id",
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
         "title": "explain the current architecture",
         "workspace": r"D:\PycharmProjects\ProxyMind",
+        "source": "tui",
+        "branch": "feature/resume",
+        "status": "archived",
+        "created_at": 1,
         "updated_at": 1,
     }
     requests = []
 
     class Runtime(object):
-        async def select_menu(self, request):
+        async def view_resume_picker(self, request):
             requests.append(request)
-            return request.options[0].value
+            return request.rows[0]
 
-    monkeypatch.setattr(
-        history,
-        "_format_updated_at",
-        lambda _value: "07-21 14:30",
+    selected = await history.choose_history_session(
+        Runtime(),
+        [record],
+        filter_workspace=r"D:\PycharmProjects\ProxyMind",
     )
-
-    selected = await history.choose_history_session(Runtime(), [record])
 
     assert selected is record
-    option = requests[0].options[0]
-    assert option.label == "07-21 14:30"
-    assert option.detail == "explain the current architecture"
-    assert requests[0].view_id == "history:resume"
-    assert requests[0].help_text == ""
-    assert requests[0].footer_hint == STANDARD_MENU_FOOTER_HINT
-    assert (
-        requests[0].description_layout
-        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
-    )
+    request = requests[0]
+    assert request.rows[0].cid == record["cid"]
+    assert request.rows[0].sid == record["sid"]
+    assert request.rows[0].title == record["title"]
+    assert request.rows[0].workspace == record["workspace"]
+    assert request.rows[0].source == "tui"
+    assert request.rows[0].created_at_ms == 1
+    assert request.rows[0].updated_at_ms == 1
+    assert request.rows[0].branch == "feature/resume"
+    assert request.rows[0].status is ResumeSessionStatus.ARCHIVED
+    assert request.filter_workspace == "d:/PycharmProjects/ProxyMind"
+    assert request.initial_filter is ResumeFilterMode.CWD
+    assert request.initial_sort is ResumeSortKey.UPDATED
+    assert request.initial_density is ResumeDensity.DENSE
 
 
 @pytest.mark.anyio
-async def test_history_menu_can_include_workspace(monkeypatch) -> None:
+async def test_history_session_empty_and_invalid_records_still_open_picker() -> None:
     record = {
-        "cid": "conversation-id",
-        "title": "continue the task",
-        "workspace": r"D:\PycharmProjects\ProxyMind",
-        "updated_at": 1,
+        "cid": "invalid",
+        "sid": "invalid",
     }
     requests = []
 
     class Runtime(object):
-        async def select_menu(self, request):
+        async def view_resume_picker(self, request):
             requests.append(request)
-            return request.options[0].value
+            return None
 
-    monkeypatch.setattr(
-        history,
-        "_format_updated_at",
-        lambda _value: "07-21 14:30",
-    )
-
-    await history.choose_history_session(
+    selected = await history.choose_history_session(
         Runtime(),
         [record],
         show_workspace=True,
     )
 
-    assert requests[0].options[0].detail == (
-        r"continue the task · D:\PycharmProjects\ProxyMind"
+    assert selected is None
+    assert requests[0].rows == ()
+    assert requests[0].show_workspace
+    assert requests[0].initial_filter is ResumeFilterMode.ALL
+
+
+@pytest.mark.anyio
+async def test_history_resume_preview_loader_returns_recent_conversation() -> None:
+    row = ResumeRow(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        title="continue",
+        workspace="D:/workspace",
+        source="tui",
+        created_at_ms=1,
+        updated_at_ms=2,
+    )
+    entries = tuple(
+        TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event="message.created",
+            session_id=row.sid,
+            turn_id=f"turn_{index}",
+            actor=actor,
+            payload={"content": text},
+        )
+        for index, (actor, text) in enumerate((
+            ("user", "recent user"),
+            ("assistant", "recent assistant"),
+        ))
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return entries
+
+    preview = await history.HistoryResumePreviewLoader(Controller()).load(
+        row,
+        width=40,
+    )
+
+    assert preview.row_key == row.key
+    assert preview.status is ResumePreviewStatus.READY
+    assert preview.blocks == (
+        (("class:resume-picker.preview.user", "recent user"),),
+        (("class:resume-picker.preview.assistant", "recent assistant"),),
+    )
+
+
+@pytest.mark.anyio
+async def test_history_resume_transcript_loader_preserves_full_rendered_blocks() -> None:
+    row = ResumeRow(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        title="continue",
+        workspace="D:/workspace",
+        source="tui",
+        created_at_ms=1,
+        updated_at_ms=2,
+    )
+    entries = tuple(
+        TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event="message.created",
+            session_id=row.sid,
+            turn_id=f"turn_{index}",
+            actor=actor,
+            payload={"content": text},
+        )
+        for index, (actor, text) in enumerate((
+            ("user", "recent user"),
+            ("assistant", "recent assistant"),
+        ))
+    )
+
+    class Controller(object):
+        @staticmethod
+        def read_conversation_transcript(_session_id):
+            return entries
+
+    transcript = await history.HistoryResumeTranscriptLoader(
+        Controller()
+    ).load(row, width=40)
+
+    assert transcript.row_key == row.key
+    assert transcript.status is ResumePreviewStatus.READY
+    assert len(transcript.blocks) == 2
+    assert "recent user" in history.sanitize_terminal_text(
+        "".join(value for _style, value in transcript.blocks[0])
     )
 
 
