@@ -141,15 +141,29 @@ async def test_bracketed_paste_sanitizes_control_characters() -> None:
 
 def rendered_input_line(runtime: TuiRuntime) -> str:
     """返回最近一次渲染中的首行输入文本。"""
+    return rendered_input_lines(runtime)[0]
+
+
+def rendered_input_lines(runtime: TuiRuntime) -> list[str]:
+    """返回最近一次渲染中的完整输入区域文本。"""
     screen = runtime.screen.application.renderer.last_rendered_screen
-    position = screen.visible_windows_to_write_positions[
+    prompt_position = screen.visible_windows_to_write_positions[
+        runtime.screen.input_prompt_window
+    ]
+    input_position = screen.visible_windows_to_write_positions[
         runtime.screen.input.window
     ]
-    row = screen.data_buffer[position.ypos]
-    return "".join(
-        row[column].char
-        for column in range(position.xpos, position.xpos + position.width)
-    ).rstrip()
+    end_column = input_position.xpos + input_position.width
+    return [
+        "".join(
+            screen.data_buffer[row][column].char
+            for column in range(prompt_position.xpos, end_column)
+        ).rstrip()
+        for row in range(
+            input_position.ypos,
+            input_position.ypos + input_position.height,
+        )
+    ]
 
 
 def rendered_window_line(runtime: TuiRuntime, window) -> str:
@@ -1530,9 +1544,91 @@ async def test_input_prompt_uses_single_space_before_placeholder() -> None:
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
 
-            assert rendered_input_line(runtime) == "›  Write tests for @filename"
+            assert rendered_input_line(runtime) == "› Write tests for @filename"
         finally:
             await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("shell_mode", "prompt"),
+    (
+        (False, "›"),
+        (True, "!"),
+    ),
+)
+async def test_input_prompt_is_separate_from_multiline_and_wrapped_text(
+    shell_mode: bool,
+    prompt: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=20),
+        ):
+            await runtime.open()
+            try:
+                runtime.input_model.set_shell_mode(shell_mode)
+                runtime.screen.input.buffer.document = Document(
+                    "abcdefghijklmnopqrs\nsecond",
+                    cursor_position=len("abcdefghijklmnopqrs\nsecond"),
+                )
+
+                screen = await render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                prompt_position = positions[
+                    runtime.screen.input_prompt_window
+                ]
+                input_position = positions[runtime.screen.input.window]
+                cursor = screen.get_cursor_position(runtime.screen.input.window)
+
+                assert prompt_position.width == 2
+                assert input_position.xpos == prompt_position.xpos + 2
+                assert input_position.width == 18
+                assert runtime.screen.input.window.get_line_prefix is None
+                assert rendered_input_lines(runtime) == [
+                    f"{prompt} abcdefghijklmnopqr",
+                    "  s",
+                    "  second",
+                ]
+                assert cursor.x - input_position.xpos == len("second")
+                assert cursor.y - input_position.ypos == 2
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_input_prompt_stays_single_when_textarea_scrolls() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=8, columns=20),
+        ):
+            await runtime.open()
+            try:
+                text = "\n".join(f"line {index}" for index in range(12))
+                runtime.screen.input.buffer.document = Document(
+                    text,
+                    cursor_position=len(text),
+                )
+
+                await render_next_frame(runtime)
+                lines = rendered_input_lines(runtime)
+
+                assert len(lines) < len(text.splitlines())
+                assert lines[0].startswith("› ")
+                assert lines[-1] == "  line 11"
+                assert all(line.startswith("  ") for line in lines[1:])
+                assert sum(line.count("›") for line in lines) == 1
+                assert not any(line.startswith((". ", "! ")) for line in lines)
+            finally:
+                await runtime.close()
 
 
 @pytest.mark.anyio
@@ -2727,8 +2823,9 @@ async def test_destructive_edit_promotes_revealed_shell_prefix(
 
             await render_next_frame(runtime)
             assert rendered_input_line(runtime) == "!"
-            assert runtime.screen._input_line_prefix(0, 0) == [
-                ("class:shell-escape", "! ")
+            assert runtime.screen.input.window.get_line_prefix is None
+            assert runtime.screen._input_prompt_fragments() == [
+                ("class:shell-escape", "!")
             ]
         finally:
             await runtime.close()

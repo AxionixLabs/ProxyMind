@@ -37,6 +37,7 @@ from prompt_toolkit.layout.containers import (
     HSplit,
     ScrollOffsets,
     VerticalAlign,
+    VSplit,
     Window
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -131,7 +132,7 @@ from ..rendering.screen.geometry import (
     ComposerLayout,
     FrameGeometry,
     InlineRendererState as _InlineRendererState,
-    OverlayLayout,
+    OverlayLayout
 )
 from ..rendering.screen.layout import (
     allocate_approval_view_layout,
@@ -139,13 +140,13 @@ from ..rendering.screen.layout import (
     allocate_menu_view_layout,
     allocate_process_viewer_layout,
     measure_composer_layout,
-    measure_overlay_layout,
+    measure_overlay_layout
 )
 from ..rendering.screen.overlays import (
     mailbox_header_fragments,
     mailbox_separator_fragments,
     transcript_header_fragments,
-    transcript_separator_fragments,
+    transcript_separator_fragments
 )
 from ..rendering.screen.surfaces import (
     FooterMode,
@@ -154,11 +155,11 @@ from ..rendering.screen.surfaces import (
     completion_hint_fragments,
     mention_completion_hint_fragments,
     footer_fragments as render_footer_fragments,
-    input_line_prefix_fragments,
+    input_prompt_fragments,
     join_queued_fragments,
     placeholder_fragments,
     queued_row_budget,
-    resolve_footer_mode,
+    resolve_footer_mode
 )
 from ..rendering.screen.terminal import (
     clear_terminal_for_resize_replay as _clear_terminal_for_resize_replay,
@@ -184,6 +185,7 @@ from ..contracts.screen import (
 class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
+    INPUT_TEXT_LEFT_MARGIN: typing.Final[int]        = 2
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
     COMPLETION_HINT_HEIGHT: typing.Final[int]        = 2
@@ -326,7 +328,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             wrap_lines=True,
             height=self._input_dimension,
             dont_extend_height=True,
-            get_line_prefix=self._input_line_prefix,
             input_processors=[
                 ConditionalProcessor(
                     AfterInput(self._placeholder_fragments),
@@ -336,6 +337,23 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                     ),
                 )
             ],
+        )
+
+        self.input_prompt_control = FormattedTextControl(
+            self._input_prompt_fragments,
+        )
+        self.input_prompt_window = Window(
+            content=self.input_prompt_control,
+            width=Dimension.exact(self.INPUT_TEXT_LEFT_MARGIN),
+            height=self._input_dimension,
+            dont_extend_width=True,
+            dont_extend_height=True,
+            style="class:input-surface",
+        )
+        self.input_editor = VSplit(
+            [self.input_prompt_window, self.input],
+            height=self._input_dimension,
+            window_too_small=self.input.window,
         )
 
         self.input.buffer.enable_history_search = to_filter(True)
@@ -841,7 +859,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.input_surface = HSplit(
             [
                 self.input_top_padding,
-                self.input,
+                self.input_editor,
                 self.input_bottom_padding,
             ],
             align=VerticalAlign.TOP,
@@ -850,9 +868,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
         self.compact_input_surface = ConditionalContainer(
             HSplit(
-                [self.input],
+                [self.input_editor],
                 align=VerticalAlign.BOTTOM,
-                window_too_small=self.input.window,
+                window_too_small=self.input_editor,
             ),
             filter=Condition(lambda: bool(
                 getattr(self, "application", None)
@@ -1864,16 +1882,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         if application is not None:
             application.layout.focus(self.directory_trust_control)
 
-    def _input_line_prefix(
-        self,
-        line_number: int,
-        wrap_count: int
-    ) -> StyleAndTextTuples:
-        """生成输入首行和续行的无边框前缀。"""
-        return input_line_prefix_fragments(
+    def _input_prompt_fragments(self) -> StyleAndTextTuples:
+        """生成输入区域首行的独立模式提示符。"""
+        return input_prompt_fragments(
             shell_mode=self.input_model.shell_mode,
-            line_number=line_number,
-            wrap_count=wrap_count,
         )
 
     def _transcript_line_prefix(
@@ -3018,7 +3030,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _input_content_height(self, *, width: int) -> int:
         """按指定终端宽度计算输入内容的自然显示行数。"""
         text = self.input.buffer.text
-        rows = display_line_count(text, width=max(1, width - 2))
+        rows = display_line_count(
+            text,
+            width=max(1, width - self.INPUT_TEXT_LEFT_MARGIN),
+        )
 
         if text.endswith("\n"):
             rows += 1
