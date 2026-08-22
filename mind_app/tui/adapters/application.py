@@ -90,8 +90,7 @@ class TuiApplicationSink(ApplicationSink):
     def _emit_active(self, view: ApplicationView) -> None:
         """把单项应用展示写入已启动的 TUI。"""
         if view.type == "run.worked":
-            with self.runtime.activity_handoff("wait"):
-                pass
+            # 耗时页脚只提交完成信息；wait 由轮次生命周期统一清理。
             return None
         self._emit_view(view)
 

@@ -393,6 +393,16 @@ class TuiActivity(object):
 
         return True
 
+    def finish_wait(self) -> bool:
+        """结束当前轮次等待槽位且不影响其他活动。"""
+        lease = self.lease("wait")
+        if lease is not None:
+            return self.release(lease)
+
+        was_paused = self._wait_paused
+        self._reset_wait()
+        return was_paused
+
     def refresh(self, kind: ActivityStatusKind) -> bool:
         """按最新快照同步刷新指定活动槽位。"""
         key = _SLOT_KEYS[kind]

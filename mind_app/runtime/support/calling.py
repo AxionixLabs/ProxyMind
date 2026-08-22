@@ -45,6 +45,14 @@ async def run_turn_lifecycle(
 
     finally:
         try:
+            if completed:
+                finish_turn_wait = getattr(
+                    frontend_runtime,
+                    "finish_turn_wait",
+                    None,
+                )
+                if callable(finish_turn_wait):
+                    finish_turn_wait()
             if completed and mind.animate:
                 emit_worked_footer(
                     mind.frontend.application, time.perf_counter() - started_at

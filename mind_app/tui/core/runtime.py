@@ -1465,9 +1465,12 @@ class TuiRuntime(object):
             self.execution_active
             or self.task_state.turn_finishing
         )
-        active     = bool(active)
+
+        active = bool(active)
 
         with self.screen.visual_update():
+            if not active:
+                self.finish_turn_wait()
             self.execution_active = active
             if not self.execution_active:
                 if was_active:
@@ -1488,6 +1491,7 @@ class TuiRuntime(object):
     def finish_turn_wait(self) -> None:
         """结束模型轮次等待状态的生命周期所有权。"""
         self.task_state.finish_turn_wait()
+        self.activity.finish_wait()
 
     def set_foreground_active(self, active: bool) -> None:
         """更新下一轮开始前的前台屏障状态。"""

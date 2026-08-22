@@ -776,7 +776,7 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
 
 
 @pytest.mark.anyio
-async def test_done_freezes_animation_before_logical_settlement(monkeypatch) -> None:
+async def test_done_finishes_animation_before_logical_settlement(monkeypatch) -> None:
     stream_advanced = asyncio.Event()
     mind = _mind()
 
@@ -793,8 +793,8 @@ async def test_done_freezes_animation_before_logical_settlement(monkeypatch) -> 
     ))
     await stream_advanced.wait()
 
-    mind.freeze_anim.assert_awaited_once_with("wait")
-    mind.stop_anim.assert_not_awaited()
+    mind.stop_anim.assert_awaited_once_with("wait", settle=False)
+    mind.freeze_anim.assert_not_awaited()
     assert mind.output_session.status.end_calls == [True]
 
     task.cancel()

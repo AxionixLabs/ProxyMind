@@ -13,6 +13,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.controller import Mind
+from mind_app.frontend.contracts import ApplicationView
 from mind_app.interaction import PromptContext
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.application import TuiApplicationSink
@@ -85,13 +86,9 @@ def test_pending_turn_is_busy_and_defers_submission() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("animate", "handoff_expected"),
-    ((False, False), (True, True)),
-)
-async def test_stop_anim_respects_animation_handoff(
+@pytest.mark.parametrize("animate", (False, True))
+async def test_stop_anim_does_not_restore_wait_for_auxiliary_activity(
     animate: bool,
-    handoff_expected: bool,
 ) -> None:
     runtime = SimpleNamespace(
         active=True,
@@ -106,10 +103,7 @@ async def test_stop_anim_respects_animation_handoff(
 
     await mind.stop_anim("inbuild", settle=False)
 
-    if handoff_expected:
-        runtime.ensure_wait_status_for_turn.assert_awaited_once_with()
-    else:
-        runtime.ensure_wait_status_for_turn.assert_not_awaited()
+    runtime.ensure_wait_status_for_turn.assert_not_awaited()
     runtime.end_activity_status.assert_awaited_once_with(
         "inbuild",
         settle=False,
@@ -183,6 +177,84 @@ async def test_finished_turn_does_not_recreate_wait_during_activity_cleanup() ->
 
     runtime.set_execution_active(False)
     assert not runtime.task_running
+
+
+@pytest.mark.anyio
+async def test_execution_deactivation_clears_wait_without_touching_auxiliary(
+) -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    await runtime.begin_external_mcp_status(
+        lambda: {
+            "done": False,
+            "items": [{"name": "docs", "state": "linking", "tools": 0}],
+        }
+    )
+
+    runtime.set_execution_active(False)
+
+    assert runtime.activity.lease("wait") is None
+    assert runtime.activity.lease("external_mcp") is not None
+    await runtime.activity.clear()
+
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    await runtime.freeze_activity_status("wait")
+    runtime.set_execution_active(False)
+    assert runtime.activity.lease("wait") is None
+
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    assert await runtime.activity.pause_wait()
+    runtime.set_execution_active(False)
+    assert runtime.activity.lease("wait") is None
+    assert not runtime.activity._wait_paused
+
+
+@pytest.mark.anyio
+async def test_worked_view_does_not_release_wait_lease() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    lease = runtime.activity.lease("wait")
+    assert lease is not None
+
+    TuiApplicationSink(runtime)._emit_active(ApplicationView(type="run.worked"))
+
+    assert runtime.activity.lease("wait") == lease
+    runtime.set_execution_active(False)
+    assert runtime.activity.lease("wait") is None
+
+
+@pytest.mark.anyio
+async def test_stale_external_mcp_lease_cannot_clear_new_startup_activity() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=lambda block: rendered.__setitem__(slice(None), [block]),
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    await activity.begin_external_mcp(lambda: {
+        "done": False,
+        "items": [{"name": "docs", "state": "linking", "tools": 0}],
+    })
+    stale_lease = activity.lease("external_mcp")
+    assert stale_lease is not None
+
+    await activity.begin_external_mcp(lambda: {
+        "done": False,
+        "items": [{"name": "docs", "state": "ready", "tools": 1}],
+    })
+    replacement_lease = activity.lease("external_mcp")
+    assert replacement_lease is not None
+    assert replacement_lease != stale_lease
+
+    assert not activity.release(stale_lease)
+    assert "External MCP" in "".join(
+        text for _style, text in rendered[-1].fragments
+    )
+    await activity.clear()
 
 
 @pytest.mark.anyio
@@ -311,6 +383,7 @@ async def test_final_separator_atomically_replaces_frozen_wait() -> None:
 
                 output.note_work_activity()
                 await output.complete_turn()
+                runtime.finish_turn_wait()
                 emit_worked_footer(TuiApplicationSink(runtime), 1.2)
                 await _render_next_frame(runtime)
 

@@ -1247,8 +1247,6 @@ class Mind(object):
         if self.frontend.runtime.active:
             if kind == "wait":
                 self.frontend.runtime.finish_turn_wait()
-            elif self.animate and kind not in {None, "wait"}:
-                await self.frontend.runtime.ensure_wait_status_for_turn()
             await self.frontend.runtime.end_activity_status(
                 kind,
                 settle=settle,
