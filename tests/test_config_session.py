@@ -1351,7 +1351,7 @@ def test_user_hooks_json_keeps_file_source_identity(tmp_path) -> None:
     ]
     assert resolution.hooks[0].source_scope == "user"
     assert resolution.hooks[0].source_path == str(hook_file.resolve())
-    assert resolution.hooks[0].key.startswith(f"{hook_file.resolve()}:")
+    assert resolution.hooks[0].key.startswith(f"{hook_file.resolve()}|command:")
 
 
 def test_hook_layer_loads_json_before_inline_and_warns(tmp_path) -> None:
@@ -1507,11 +1507,15 @@ def test_dual_source_warning_uses_nonempty_event_sources(tmp_path) -> None:
 
     resolution = ConfigSession(store).resolve()
 
-    assert [hook.handler.command for hook in resolution.hooks] == [
-        "check-inline",
+    assert [
+        (hook.handler.type, hook.handler.command)
+        for hook in resolution.hooks
+    ] == [
+        ("prompt", None),
+        ("command", "check-inline"),
     ]
     warnings = "\n".join(resolution.hook_warnings)
-    assert "skipping prompt hook" in warnings
+    assert "skipping prompt hook" not in warnings
     assert "loading hooks from both" in warnings
 
 
@@ -1945,6 +1949,8 @@ def test_hook_handler_timeout_is_normalized() -> None:
         "command": "check",
         "commandWindows": None,
         "statusMessage": None,
+        "server": None,
+        "tool": None,
         "timeout": 2,
         "async": False,
         "additionalContextLimit": 2500,
@@ -2029,7 +2035,7 @@ def test_hook_matcher_group_expands_multiple_command_handlers() -> None:
     assert handlers[0]["additionalContextLimit"] == 800
 
 
-def test_discovery_skips_unsupported_handlers_and_keeps_valid_hook(
+def test_discovery_retains_catalog_handlers_and_keeps_valid_hook(
     tmp_path,
 ) -> None:
     store = ConfigStore(tmp_path / "config.toml")
@@ -2057,11 +2063,18 @@ def test_discovery_skips_unsupported_handlers_and_keeps_valid_hook(
 
     resolution = ConfigSession(store).resolve()
 
-    assert [hook.handler.command for hook in resolution.hooks] == ["valid"]
-    assert resolution.hooks[0].key.endswith(":PreToolUse:0:5")
+    assert [
+        (hook.handler.type, hook.handler.command)
+        for hook in resolution.hooks
+    ] == [
+        ("prompt", None),
+        ("agent", None),
+        ("command", "valid"),
+    ]
+    assert resolution.hooks[-1].key.endswith(":PreToolUse:0:5")
     warnings = "\n".join(resolution.hook_warnings)
-    assert "skipping prompt hook" in warnings
-    assert "skipping agent hook" in warnings
+    assert "skipping prompt hook" not in warnings
+    assert "skipping agent hook" not in warnings
     assert "unsupported handler type 'custom'" in warnings
     assert "skipping empty hook command" in warnings
     assert "skipping async hook" in warnings
