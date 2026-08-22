@@ -1,8 +1,8 @@
 # Codex 全面对齐设计与实施计划
 
-> 复核基线：2026-08-22  
-> 参照源码：`D:\codex-main\codex-rs`  
-> 目标源码：`D:\PycharmProjects\ProxyMind`  
+> 复核基线：2026-08-23
+> 参照源码：工作区内置副本 `codex-main/codex-rs`
+> 目标源码：当前 ProxyMind 工作区
 > 文档性质：实现设计、行为契约和分阶段实施计划；本文件不直接修改运行代码。
 
 ## 1. 目标与边界
@@ -14,8 +14,8 @@
 
 - 同一条命令只有一个稳定的执行 cell，不因开始、输出、完成事件产生重复块。
 - `!shell` 使用 Codex 的用户 Shell 输入和队列语义。
-- 前台 Shell 使用 ExecCell 风格展示，不再使用独立 ProcessViewer。
-- 命令转后台后才进入进程查看菜单；`/ps` 不重新执行命令，也不打开 Viewer。
+- 用户 Shell 使用 ExecCell 风格展示，不再借用 ProcessViewer 生命周期。
+- 用户 Shell 不转为后台终端；`/ps` 只投影 unified-exec 后台进程，并写入一次性历史摘要。
 - 长输出按终端显示行限制，保留头尾并明确显示省略信息，不能持续刷屏。
 - 后台状态由一个明确的生命周期模型拥有，不能通过 Viewer 是否存在来推断。
 - 审批保留现有决策契约，并重构为 Codex 风格的独立 ApprovalOverlay。
@@ -35,6 +35,8 @@
 | 能力 | Codex 参照 |
 | --- | --- |
 | `!` 输入和队列 | `codex-rs/tui/src/chatwidget/input_submission.rs`、`input_flow.rs` |
+| TUI 到 app-server | `codex-rs/tui/src/app/thread_routing.rs`、`app_server_session.rs` |
+| app-server Shell 路由 | `codex-rs/app-server/src/request_processors/thread_processor.rs` |
 | 用户 Shell 执行 | `codex-rs/core/src/tasks/user_shell.rs`、`session/handlers.rs` |
 | 前台命令 cell | `codex-rs/tui/src/exec_cell/render.rs`、`exec_cell/model.rs` |
 | 命令输出增量生命周期 | `codex-rs/tui/src/chatwidget/command_lifecycle.rs` |
@@ -48,16 +50,55 @@
 | 能力 | 当前入口 | 当前问题 |
 | --- | --- | --- |
 | `!` 输入 | `mind_app/tui/core/input.py`、`core/submission.py` | Shell 在活动轮次中被延迟，缺少 Codex 的即时辅助动作 |
-| Shell 启动 | `mind_app/tui/features/shell.py:56` | 简单命令可能绕过 Shell，固定 root/idle timeout，使用 Viewer 启动 |
+| Shell 启动 | `mind_app/tui/features/shell.py:56` | 简单命令可能绕过 Shell，固定 timeout，并启动 Viewer-backed watcher |
 | 进程会话 | `mind_app/native_coding/exec/process_session.py` | 只有 running/exited，没有前台/后台状态 |
-| 前台展示 | `mind_app/tui/features/processes.py:544` | 依赖 `TuiProcessViewer`，每 0.12 秒轮询并更新动态块 |
-| `/ps` | `mind_app/tui/features/processes.py:129` | 运行项选择后再次进入 Viewer |
+| 前台展示 | `mind_app/tui/features/processes.py:544` | 内部依赖 `TuiProcessViewer`，但以 inline active block 展示并保留主输入 |
+| `/ps` | `mind_app/tui/features/processes.py:129` | 使用可交互菜单，运行项选择后再次进入 Viewer；与 Codex 历史摘要不同 |
 | 进程状态 | `mind_app/tui/core/process_status.py` | 只展示第一条命令和 `+N`，未统一 `/stop` 契约 |
 | 审批 | `mind_app/tui/core/approval.py` | 自制独立 card，单一当前状态，队列由 coordinator 锁隐藏处理 |
 
+### 2.3 手动 Shell 表面复核结论
+
+ProxyMind 当前的 `!command` 不能简单归类为“走模态框”，准确描述是：
+
+1. `run_shell_escape()` 调用 `watch_exec_session(..., viewer_mode="inline",
+   capture_input=False)`。
+2. `TuiProcessViewer.begin()` 仍创建独占 viewer state/future，因此执行生命周期和单实例约束
+   依赖 Viewer。
+3. `capture_input=False` 时不会调用 `focus_viewer()`，`BottomSurface` 也不会激活
+   `process_viewer`；对应 card 的条件不成立，主输入和 footer 保持可见。
+4. 命令输出实际写入 transcript/document 的 `active_renderable`，不是显示在可见的
+   process viewer card 中。
+
+所以当前实现是 **Viewer-backed inline cell**：实现层走 Viewer，用户可见层不是 modal。
+`FormattedTextControl(modal=True)` 只说明该 control 激活时会成为 prompt_toolkit modal；不能据此
+判定 `capture_input=False` 的手动 Shell 正在显示模态框。
+
+Codex 不走这条路径：
+
+```text
+!command
+  -> AppCommand::RunUserShellCommand
+  -> thread/shellCommand
+  -> Op::RunUserShellCommand
+  -> CommandExecution(source=UserShell) start/delta/completed
+  -> transcript.active_cell: ExecCell
+```
+
+- `thread/shellCommand` 是用户主动的 full-access、unsandboxed Shell escape，不继承线程
+  sandbox policy；它不是模型 `command/exec`。
+- TUI 收到 `CommandExecution` 后创建或更新 transcript 的 active `ExecCell`，没有
+  ProcessViewer、dialog、popup 或 approval modal。
+- 运行中标题为 `Running`，结束后 UserShell 标题为 `You ran`；输出增量只 bump active-cell
+  revision。
+- UserShell 事件的 `process_id` 为 `None`，不会进入 `unified_exec_processes`，因此不会被
+  `/ps` 管理或 detach 到后台。
+- Codex `/ps` 直接插入 `UnifiedExecProcessesCell` 历史单元，只列正在运行的 unified-exec
+  进程及最近 3 个输出片段；它不是菜单，也没有进程详情 Viewer。
+
 ## 3. 目标用户行为
 
-### 3.1 前台 `!adb logcat`
+### 3.1 用户 Shell `!adb logcat`
 
 ```text
 用户输入 !adb logcat
@@ -71,12 +112,12 @@
         │
         ├─ 用户输入另一个 !shell：立即作为辅助 Shell 执行
         │
-        ├─ 用户输入 /ps：先提交当前 Shell cell，再打开后台菜单
+        ├─ 用户输入 /ps：插入 unified-exec 后台终端快照，不 detach 该 UserShell
         │
-        └─ Ctrl+C：中断该进程并提交完成/失败状态
+        └─ Ctrl+C：通过当前 turn cancellation 中断命令并提交失败状态
 ```
 
-前台 cell 的目标标题：
+运行中 cell 的目标标题：
 
 ```text
 • Running adb logcat
@@ -96,69 +137,51 @@
   └ latest visible line
 ```
 
-### 3.2 从前台转后台
+### 3.2 UserShell 与后台终端分流
 
-前台进程只能通过以下事件进入后台：
-
-- 用户提交 `/ps` 或其他会结束当前前台展示的本地命令。
-- 用户执行显式的 detach/background action。
-- 当前 Shell cell 完成后仍需要保留后台会话的情况。
-
-转后台必须是一次状态迁移，而不是关闭 Viewer 后启动另一个隐式 watcher：
+Codex 不把 `!command` 从前台 detach 到后台。UserShell 和 background terminal 是两个来源
+不同、生命周期不同的集合：
 
 ```text
-FOREGROUND_RUNNING
-        │ detach
+USER_SHELL_CREATED
+        │ CommandExecution started
+        ▼
+USER_SHELL_RUNNING
+        ├─ output delta -> USER_SHELL_RUNNING
+        ├─ exit         -> USER_SHELL_COMPLETED/FAILED
+        └─ Ctrl+C       -> USER_SHELL_CANCELLED
+
+UNIFIED_EXEC_STARTED
+        │ process_id available
         ▼
 BACKGROUND_RUNNING
-        │ process exit
-        ▼
-BACKGROUND_COMPLETED
-        │ acknowledge
-        ▼
-RETAINED/REMOVED
+        ├─ output delta -> update recent chunks
+        ├─ exit         -> remove from running set
+        └─ /stop        -> terminate all background terminals
 ```
+
+`/ps` 只读取第二个集合。若 ProxyMind 继续保留“把用户 Shell detach 到后台”或“单进程详情
+菜单”，应明确标记为 ProxyMind 扩展，不能作为 Codex 对齐验收条件。本计划的默认验收采用
+Codex 严格语义。
 
 ### 3.3 `/ps`
 
-空闲状态下 `/ps` 使用现有 `MenuRequest`，但菜单只展示后台进程和已完成记录：
+`/ps` 在空闲或流式期间都插入一次性历史摘要，只展示当前正在运行的 unified-exec 后台
+进程，不展示 UserShell，也不展示已完成记录：
 
 ```text
-/ps · Background terminals
+/ps
+Background terminals
 
-› adb logcat                         Shell · pid=1234
-  npm run dev                        Exec  · pid=5678
-  adb logcat completed               exit=0
-  Stop all background terminals
-```
-
-选择运行中的进程后进入“进程详情菜单”，不是 ProcessViewer：
-
-```text
-Background terminal
-
-Command   adb logcat
-PID       1234
-Status    running
-Output    最近 50 个显示行
-
-› Back
-  Stop process
-  Interrupt process
-```
-
-详情菜单允许动态刷新快照，但不夺取主输入区、不创建独立动态正文、不重新启动进程。
-
-流式期间的 `/ps` 保持 Codex 风格的一次性历史摘要：
-
-```text
-/ps · Background terminals
-
-  • adb logcat
-    ↳ latest output line
   • npm run dev
-    ↳ latest output line
+    ↳ ready on http://localhost:3000
+  • python worker.py
+    ↳ processing job 42
 ```
+
+每次 `/ps` 都只创建一个稳定历史 cell：不打开 `MenuRequest`，不激活 modal，不启动或重新
+执行进程，也不建立持续刷新 watcher。`/stop` 负责停止全部后台终端。Codex TUI 当前没有从
+`/ps` 选择单个进程进入详情或终止单个进程的交互。
 
 ### 3.4 审批
 
@@ -185,42 +208,35 @@ UNIFIED_EXEC     可进入后台 footer 的统一执行命令
 ### 4.2 执行状态
 
 ```text
-CREATED
-  └─ start accepted -> FOREGROUND_RUNNING
+USER_SHELL_CREATED
+  └─ start accepted -> USER_SHELL_RUNNING
 
-FOREGROUND_RUNNING
-  ├─ output delta     -> FOREGROUND_RUNNING
-  ├─ interrupt        -> FOREGROUND_STOPPING
-  ├─ command exit     -> FOREGROUND_COMPLETED
-  └─ detach           -> BACKGROUND_RUNNING
-
-FOREGROUND_STOPPING
-  ├─ exited           -> FOREGROUND_COMPLETED
-  └─ grace timeout    -> FORCE_STOPPING
+USER_SHELL_RUNNING
+  ├─ output delta -> USER_SHELL_RUNNING
+  ├─ command exit -> USER_SHELL_COMPLETED/FAILED
+  └─ cancellation -> USER_SHELL_CANCELLED
 
 BACKGROUND_RUNNING
-  ├─ output delta     -> BACKGROUND_RUNNING
-  ├─ stop             -> BACKGROUND_STOPPING
-  └─ command exit     -> BACKGROUND_COMPLETED
-
-BACKGROUND_COMPLETED
-  ├─ same conversation -> queued history result
-  └─ other conversation -> retained completion store
+  ├─ output delta -> BACKGROUND_RUNNING
+  ├─ stop all     -> BACKGROUND_STOPPING
+  └─ command exit -> REMOVED
 ```
 
-状态所有权放在 TUI runtime 的进程生命周期协作者中；`ProcessSessionManager` 只负责实际
-进程和输出，不判断当前展示表面。
+UserShell 的展示状态由 active `ExecCell` 拥有；后台集合按 unified-exec 的 `process_id`
+维护。`ProcessSessionManager` 只负责实际进程和输出，不用 Viewer 是否存在推断来源或状态。
 
-### 4.3 前台唯一性
+### 4.3 来源隔离
 
-每个 TUI 会话最多一个 `foreground_session_id`。后台可以有多个会话。
+Codex 允许活动模型轮次中启动辅助 UserShell，连续提交 `!command` 时可以有多个运行中的
+UserShell call；不能引入“全局唯一前台 session”约束。目标状态至少分开保存：
 
 ```text
-foreground_session_id: str | None
-background_session_ids: tuple[str, ...]
+active_user_shell_calls: dict[call_id, ExecCallState]
+background_terminals: dict[process_id, BackgroundTerminalState]
 ```
 
-禁止再通过 `process_viewer.active` 或 `input_passthrough` 推断前台状态。
+UserShell call 不进入 `background_terminals`，后台进程也不能借用 UserShell cell 的取消或完成
+语义。禁止再通过 `process_viewer.active`、`input_passthrough` 或当前焦点推断任何执行状态。
 
 ## 5. 执行语义设计
 
@@ -245,7 +261,7 @@ background_session_ids: tuple[str, ...]
 
 - 通过 Shell capability 判断是否支持 stdin/PTY。
 - 不支持交互时给出统一的 `interactive command unavailable` 结果。
-- `Ctrl+C` 统一走进程控制端口。
+- UserShell 的 `Ctrl+C` 走当前 session/turn cancellation；后台 `/stop` 走独立终止接口。
 - 不把启动失败、交互不支持和用户中断混成同一个文本状态。
 
 ## 6. 输出与性能设计
@@ -265,8 +281,8 @@ ProcessSession
 
 | 用途 | 上限 |
 | --- | ---: |
-| 用户 Shell 前台 cell | 50 个终端显示行 |
-| 普通工具前台 cell | 5 个终端显示行 |
+| 用户 Shell cell | 50 个终端显示行 |
+| 普通工具 ExecCell | 5 个终端显示行 |
 | 后台 footer/`/ps` | 每个进程 3 个摘要片段 |
 | 完整快照 | 保持现有审计上限，不能直接灌入屏幕 |
 
@@ -283,7 +299,7 @@ ProcessSession
 
 - 轮询只生成结构化 `ProcessSnapshot`。
 - snapshot 与上次相同则不触发渲染。
-- 前台 cell 和后台摘要分别计算，不重复构造完整 transcript 文本。
+- UserShell cell 和后台摘要分别计算，不重复构造完整 transcript 文本。
 - 进程退出只提交一次完成事件。
 - 高频 `adb logcat` 输出不能触发全屏 layout/animation 重启。
 
@@ -311,20 +327,21 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 ### 7.2 保留和增强的表面
 
 - 主 transcript/document：承载稳定 ExecCell 风格命令记录。
-- `TuiMenu`：承载 `/ps` 根菜单、进程详情和停止确认。
+- `TuiMenu`：继续承载其他既有选择交互，不参与 Codex 严格语义下的 `/ps`。
+- `/ps` history cell：承载 unified-exec 后台进程的一次性快照。
 - `ApprovalOverlay`：承载 Codex 风格的审批请求、审批队列和决策快捷键。
 - process status footer：展示后台终端数量、`/ps` 和 `/stop`。
 - 现有 activity handoff：只保留一次稳定的输入/输出交接。
 
-### 7.3 菜单动态刷新
+### 7.3 `/ps` 稳定投影
 
-复用现有 `MenuRequest.view_id` 和 `replace_present_menu_if_id`。后台详情菜单的刷新规则：
+`/ps` 直接从 `background_terminals` 生成一个历史 cell：
 
-1. 菜单打开时加载一次 snapshot。
-2. 仅当 `status`、输出摘要或控制结果变化时替换 request。
-3. 取消/返回时停止该 session 的详情轮询。
-4. 进程退出时提交完成状态并回到根菜单或关闭菜单。
-5. 不创建 `active_renderable`，不进入 process viewer surface。
+1. 提交命令时读取一次当前快照。
+2. 每个进程只投影命令和最多 3 个 recent chunks。
+3. 空集合显示 `No background terminals running.`。
+4. cell 提交后保持稳定，不建立菜单 session、轮询或替换任务。
+5. 不创建 process viewer surface，也不混入 UserShell 和已完成记录。
 
 ## 8. 分阶段实施计划
 
@@ -334,9 +351,10 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 ### Phase 0：基线冻结和行为测试
 
 - [ ] 新增 `!adb logcat`、`!echo hi`、`!`、活动轮次 Shell、普通文本排队的行为测试。
-- [ ] 新增前台/后台状态迁移测试。
-- [ ] 新增 `/ps` 不打开 Viewer、不重复启动进程的测试。
-- [ ] 新增 50 行前台输出、3 片段后台摘要、长行换行和省略数量测试。
+- [ ] 固化当前 `capture_input=False` 路径：Viewer state 活跃，但 bottom-pane modal 未激活且输入可见。
+- [ ] 新增 UserShell 与 unified-exec 后台来源隔离测试。
+- [ ] 新增 `/ps` 不打开 Viewer/Menu、不启动进程且不包含 UserShell 的目标测试。
+- [ ] 新增 50 行 UserShell 输出、3 片段后台摘要、长行换行和省略数量测试。
 - [ ] 记录当前旧 Viewer/审批卡测试，迁移前不删除。
 
 验收：测试能明确区分“当前实现行为”和“目标行为”，后续失败不会被旧快照掩盖。
@@ -344,12 +362,13 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 ### Phase 1：命令来源和生命周期状态
 
 - [ ] 定义 `ProcessOrigin`/来源适配和 `ProcessLifecycleState`。
-- [ ] 在 TUI runtime 增加唯一前台 session 和后台 session 集合。
-- [ ] 将 detach、stop、interrupt、exit 统一为状态迁移事件。
-- [ ] `running_snapshot()` 不再承担前台/后台判断。
+- [ ] 以 call/session id 保存可并发 UserShell call，以 process id 保存 unified-exec 后台集合。
+- [ ] 将 UserShell cancellation/exit 与后台 stop/exit 分成独立状态迁移。
+- [ ] `running_snapshot()` 不再把所有运行会话默认视为 `/ps` 后台项。
 - [ ] 保留 `ProcessSessionManager` 的启动、输出和终止能力。
 
-验收：任何时刻能通过结构化状态判断 `/ps` 是否可展示某进程。
+验收：任何时刻能通过来源和 process id 判断 `/ps` 是否可展示某进程；UserShell 永不进入
+后台集合。
 
 ### Phase 2：Codex Shell 输入和执行语义
 
@@ -363,30 +382,30 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 验收：Codex 对应的 `bang_shell_enter_while_task_running`、普通文本排队和 Shell 历史行为全部
 有 ProxyMind 等价测试。
 
-### Phase 3：ExecCell 前台展示
+### Phase 3：UserShell ExecCell 展示
 
 - [ ] 新增结构化 `ExecCellState`，保存 call/session、命令、状态、输出、退出码和耗时。
 - [ ] 实现 `Running`、`You ran`、失败、中断和无输出标题。
-- [ ] 前台用户 Shell 显示最多 50 个屏幕行。
+- [ ] UserShell 显示最多 50 个屏幕行。
 - [ ] 输出按宽度换行后 head/tail 截断，带省略信息。
-- [ ] 前台输出只更新 active cell，不更新完整 transcript 快照。
-- [ ] `Ctrl+C` 走统一进程控制端口。
+- [ ] UserShell 输出只更新 active cell revision，不重建完整 transcript 快照。
+- [ ] `Ctrl+C` 走 UserShell 所属 session/turn cancellation，不复用后台 `/stop`。
 
 验收：`!adb logcat` 始终只有一个动态 cell，没有 Viewer、没有重复 `$ command` 块，
 高频输出不会触发全屏动画重启。
 
 ### Phase 4：移除 ProcessViewer，迁移 `/ps`
 
-- [ ] `/ps` 根菜单只读取后台会话和已完成记录。
-- [ ] 运行中进程进入动态详情菜单，不进入 Viewer。
-- [ ] 详情菜单提供 Back、Stop、Interrupt。
+- [ ] `/ps` 只读取正在运行的 unified-exec 后台集合，不读取 UserShell 或已完成记录。
+- [ ] `/ps` 直接提交一个 `UnifiedExecProcessesCell` 等价历史块，不打开菜单或 Viewer。
+- [ ] 空后台集合显示 `No background terminals running.`。
 - [ ] `/ps` 不重新执行、不创建新的 ProcessSession。
-- [ ] 前台 Shell 在 `/ps` 提交边界完成 foreground -> background 迁移。
+- [ ] `/stop` 与统一后台控制服务绑定，并停止全部后台终端。
 - [ ] 删除 Viewer runtime port、screen window、layout 和专用样式。
-- [ ] 删除旧 Viewer 测试，替换为菜单和状态迁移测试。
+- [ ] 删除旧 Viewer 测试，替换为 ExecCell 和稳定历史摘要测试。
 
-验收：用户执行 `!adb logcat` 后提交 `/ps`，看到的是后台菜单；选择进程后仍是菜单详情，
-可以停止或返回，输入区不会被 Viewer 替换。
+验收：用户执行 `!adb logcat` 后提交 `/ps`，UserShell 继续独立运行；`/ps` 只增加一条后台
+终端历史摘要，输入区不被替换，也不存在详情选择交互。
 
 ### Phase 5：Codex 后台 footer 和 `/ps` 摘要
 
@@ -394,10 +413,11 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 - [ ] 统一使用 `Background terminals`，删除 `Background Commands` 分叉文案。
 - [ ] 每个后台进程保存最多 3 个 recent chunks。
 - [ ] `/ps` 流式路径和空闲路径使用同一份摘要模型。
-- [ ] 保留 ProxyMind 的跨会话完成记录能力，但投影对齐 Codex。
-- [ ] `/stop` 与菜单 Stop All 使用同一控制服务。
+- [ ] ProxyMind 的跨会话完成记录如需保留，使用独立入口，不混入 Codex `/ps` 投影。
+- [ ] `/stop` 与后台终端集合使用同一控制服务。
 
-验收：中断模型轮次、完成模型轮次后，后台进程仍能通过 `/ps` 查看；完成状态只出现一次。
+验收：中断模型轮次、完成模型轮次后，仍在运行的后台进程能通过 `/ps` 查看；已退出进程
+从下一次 `/ps` 快照中移除。
 
 ### Phase 6：Codex ApprovalOverlay
 
@@ -431,12 +451,12 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 | 活动轮次输入 `!echo hi` | 立即提交 Shell auxiliary action |
 | Shell 运行中普通文本 | 排队，不 steering 当前 Shell |
 | Shell 运行中第二条 `!` | 立即执行第二个 Shell |
-| 前台输出 | 最多 50 个显示行，头尾保留 |
-| Shell detach | 状态变为 BACKGROUND_RUNNING |
-| `/ps` | 只列后台，不打开 Viewer、不启动新进程 |
-| 进程详情 | 菜单动态刷新，可 Back/Stop/Interrupt |
-| 后台完成 | 只提交一次完成摘要 |
-| `/stop` | 与菜单 Stop All 结果一致 |
+| UserShell 输出 | 最多 50 个显示行，头尾保留 |
+| UserShell 与后台隔离 | UserShell 无 `process_id`，不进入 `/ps` |
+| `/ps` | 只列运行中 unified-exec，不打开 Viewer/Menu、不启动进程 |
+| `/ps` 重复执行 | 每次生成独立稳定快照，不建立持续 watcher |
+| 后台完成 | 从后续 `/ps` 快照和 footer 中移除 |
+| `/stop` | 停止全部 unified-exec 后台终端 |
 | 连续审批 | 当前完成后自动显示下一条 |
 
 ### 9.2 需要替换的旧测试
@@ -447,8 +467,8 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 - `tests/test_tui_approval.py` 中审批 card 的实现细节测试，按独立审批文档迁移为 overlay 行为测试。
 - `tests/test_tui_activity.py` 中 approval/process handoff 的测试，按独立审批文档保留 overlay 生命周期断言。
 
-旧测试不能简单删除，必须转化为行为断言：状态、菜单 view id、稳定正文、焦点恢复、输入
-是否可见以及后台任务是否清理。
+旧测试不能简单删除，必须转化为行为断言：来源状态、稳定正文、焦点恢复、输入是否可见以及
+后台任务是否清理。`/ps` 测试不再断言菜单 view id。
 
 ## 10. 兼容和风险控制
 
@@ -456,6 +476,8 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 
 - 不保留“前台 Viewer + 新 ExecCell”双轨展示。
 - 不让 `/ps` 通过重新调用 `start_user_shell_session()` 查看输出。
+- 不把 UserShell detach 后伪装成 unified-exec 后台终端。
+- 不为 `/ps` 增加 Codex 不存在的单进程详情菜单作为默认对齐目标。
 - 不把所有进程输出直接追加到 transcript。
 - 不用 `process_viewer.active` 作为后台状态源。
 - 不通过新增宽型 `TuiRuntime` facade 解决端口依赖。
@@ -465,10 +487,10 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 
 | 风险 | 控制措施 |
 | --- | --- |
-| 移除 Viewer 后丢失单进程停止能力 | Phase 4 先完成详情菜单控制，再删除 Viewer |
+| 移除 Viewer 后改变 ProxyMind 既有单进程详情能力 | 若产品确认保留，明确放到 Codex 对齐范围外的扩展入口 |
 | Shell 语义改变导致 Windows 命令回归 | 分平台 Shell adapter 和命令语义测试 |
 | 高频输出继续触发渲染抖动 | active cell revision、有界行缓冲、快照去重 |
-| 审批队列改变决策顺序 | 保留 coordinator lock，先补队列行为测试 |
+| 审批队列改变决策顺序 | 由交互前端 FIFO 队列拥有顺序，先补队列行为测试 |
 | 旧 spacing 测试阻碍迁移 | 从窗口几何断言改为可观察行为断言 |
 | 跨会话完成状态丢失 | 保留 `ProcessCompletionStore`，只替换投影层 |
 
@@ -477,11 +499,11 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 只有同时满足以下条件，才算完成全面对齐：
 
 - `!shell` 的输入、历史、活动轮次和队列行为与 Codex 一致。
-- 前台 Shell 使用单一 ExecCell，不存在 ProcessViewer。
-- 前台/后台状态是显式结构化状态，不由 UI surface 推断。
-- `/ps` 只查看后台进程和完成记录，不重新执行、不打开 Viewer。
-- 后台详情、Stop、Interrupt、Stop All 全部通过统一菜单完成。
-- 前台输出最多 50 个显示行，后台摘要最多 3 个片段，长输出有明确省略信息。
+- UserShell 使用 active ExecCell，不存在 ProcessViewer 或可见 modal。
+- UserShell call 与 unified-exec 后台集合显式隔离，不由 UI surface 推断。
+- `/ps` 只生成运行中 unified-exec 的稳定历史摘要，不重新执行、不打开 Viewer/Menu。
+- `/stop` 停止全部后台终端；单进程详情/终止不属于 Codex 严格对齐范围。
+- UserShell 输出最多 50 个显示行，后台摘要每个进程最多 3 个片段，长输出有明确省略信息。
 - footer、`/ps` 标题、命令状态和颜色语义统一使用 Codex 词汇。
 - 审批使用 Codex 风格独立 ApprovalOverlay，但不分叉业务审批协调、决策和过期语义。
 - MCP、Helix、Thinking、Shell 和后台进程不会因多个动态 surface 争夺同一帧而卡住。
@@ -491,11 +513,11 @@ Codex 风格 `ApprovalOverlay`；不删除审批领域模型、审批策略、�
 
 实际开始编码时，第一批只做以下内容，避免同时改变 Shell 语义和审批交互：
 
-1. 新增结构化进程状态和前台唯一性测试。
+1. 新增 UserShell call 与 unified-exec 后台集合的来源隔离测试。
 2. 将 `!shell` 活动轮次输入改为即时 Shell action。
-3. 引入 ExecCell 风格的有界前台输出模型，但暂时保留旧 Viewer 作为兼容实现。
-4. 把 `/ps` 的运行项改为后台状态筛选，并先实现详情菜单的只读快照。
-5. 验证 `!adb logcat -> /ps -> 详情 -> Back` 全链路后，再删除 Viewer。
+3. 引入 ExecCell 风格的有界 UserShell 输出模型，但暂时保留旧 Viewer 作为兼容实现。
+4. 把 `/ps` 改为 unified-exec 后台集合的一次性历史快照，不再打开详情菜单。
+5. 验证 `!adb logcat` 与 `/ps` 互不改变对方状态后，再删除 Viewer。
 
 ApprovalOverlay 迁移放在进程链路稳定之后单独实施，避免一次变更同时影响 Shell 输出、活动
 handoff 和审批暂停恢复。

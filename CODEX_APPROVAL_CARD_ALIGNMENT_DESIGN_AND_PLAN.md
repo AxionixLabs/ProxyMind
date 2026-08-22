@@ -1,519 +1,206 @@
-# Codex 审批交互对齐设计与实施计划
+# Codex 审批行为对齐设计与实施记录
 
-> 复核基线：2026-08-22  
-> Codex 参照：`D:\codex-main\codex-rs\tui\src\bottom_pane\approval_overlay.rs`  
-> ProxyMind 参照：`D:\PycharmProjects\ProxyMind\mind_app\tui\core\approval.py`  
-> 文档性质：审批交互表面、队列和生命周期的独立设计；本文件不直接修改运行代码。
+> 复核基线：2026-08-23  
+> Codex 参照：`codex-main/codex-rs/tui/src/bottom_pane/approval_overlay.rs`  
+> ProxyMind 实现：`mind_app/tui/core/approval.py`、`mind_app/tui/core/runtime.py`
 
-## 1. 文档边界
+## 1. 结论
 
-本文件只处理“审批卡如何对齐 Codex 并重构为独立 ApprovalOverlay”这一件事：
+当前阶段只对齐 Codex 的审批行为，不重写 ProxyMind 的审批视觉结构，也不把
+`TuiApproval` 改名为 `ApprovalOverlay`。
 
-- 当前 `TuiApproval` 专用 card 的替换。
-- Codex `ApprovalOverlay` 的 current/queue 生命周期对齐。
-- Exec、Permissions、ApplyPatch、MCP elicitation 等审批请求的统一投影。
-- 审批选项、快捷键、过期、取消、TUI close 和 activity handoff。
-- 审批相关 runtime、screen、layout、port 和测试迁移。
+ProxyMind 当前审批卡在交互语义上是模态表面：审批激活后，`BottomPane` 的
+`BottomSurface="approval"` 成为唯一活动表面，审批按键绑定接管输入，原输入区和其他
+bottom surface 暂时失活。它不是第二个 prompt-toolkit `Application`，也不是覆盖整个终端的
+全屏 overlay。
 
-以下内容不在本文件内：
+Codex 的 `ApprovalOverlay` 同样位于 bottom pane，源码称其为 modal overlay。两者的核心
+差异主要是请求排队和生命周期，而不是是否叫 “card” 或 “overlay”。因此没有必要仅为名称
+或控件形态重建现有审批卡。
 
-- `Approve for me` 的 reviewer、Guardian、自动审核和权限 preset 语义。
-- 审批策略、Hook allow/deny、ApprovalStore 的业务规则重写。
-- Native Coding 协议字段和远端审批协议升级。
+本次对齐保留：
 
-`Approve for me` 的独立 reviewer 方案继续维护在：
-`codex_approve_for_me_alignment.md`。
+- `TuiApproval` 及现有 prompt-toolkit control tree。
+- `BottomSurface = "approval"` 和现有焦点恢复机制。
+- `approval_render.py` 的内容投影、样式和尺寸预算。
+- 现有 `ApprovalDecisionValue`、审批过期语义和策略模型。
 
-## 2. 结论
+本次对齐改变：
 
-ProxyMind 不需要保留自制审批 card，也不需要额外创建一个 Application。目标是：
+- 活动审批可以接收并保存并发请求。
+- 当前请求完成后，在同一审批表面直接推进下一项。
+- 整批审批只暂停、恢复一次 Thinking 和终端进度。
+- Ctrl-C 和 TUI close 能收束全部未决 future。
+- 调用方取消只移除属于该调用方的请求。
 
-```text
-当前：ApprovalCoordinator -> TuiApproval card -> input key bindings
-目标：ApprovalCoordinator -> Approval queue -> ApprovalOverlay -> decision future
-```
+## 2. Codex 源码事实
 
-业务决策和审批一致性继续复用现有实现；只替换交互表面和排队方式。
-
-Codex 的关键经验不是“做一个更漂亮的卡片”，而是：
-
-- current request 和 waiting queue 有明确所有权。
-- 请求类型统一进入同一个 overlay 生命周期。
-- 选择结果通过稳定 request identity 回写，不依赖当前屏幕对象。
-- 请求完成后自动推进下一项。
-- 过期、关闭和外部已解决事件都能使当前请求安全出队。
-
-## 3. 当前实现复核
-
-### 3.1 ProxyMind 当前链路
-
-| 阶段 | 当前实现 | 差异 |
-| --- | --- | --- |
-| 请求入口 | `mind_app/tui/core/runtime.py:1891` | runtime 直接操作 `screen.approval` |
-| 审批状态 | `mind_app/tui/core/approval.py:21` | 只有一个 `ApprovalState` |
-| 并发协调 | `mind_app/approval/coordinator.py:13` | `asyncio.Lock` 串行化，等待请求不展示在 UI 队列 |
-| 展示 | `approval_render.py` | 专用 card、专用 footer、专用样式 |
-| 布局 | `screen.py`、`rendering/screen/layout.py` | `approval` 是独立 BottomSurface |
-| 决策 | `ApprovalDecisionValue` | 业务值完整，可以继续复用 |
-| 过期 | `TuiApproval._expire()` | 独立 expiry task，每次刷新 card |
-| 关闭 | `TuiApproval.dismiss/close()` | runtime 直接依赖 approval 对象 |
-
-### 3.2 Codex 当前链路
-
-Codex 使用 `ApprovalOverlay`，它仍然是一个暂时的 modal，但行为上是一个带队列的选择
-视图，而不是 ProxyMind 的静态 card：
-
-| 能力 | Codex 实现 |
-| --- | --- |
-| 当前请求 | `current_request: Option<ApprovalRequest>` |
-| 等待队列 | `queue: Vec<ApprovalRequest>` |
-| 请求类型 | Exec、Permissions、ApplyPatch、McpElicitation |
-| 选项 | `ApprovalOption` + 类型化 decision |
-| 请求完成 | `current_complete` 后 `advance_queue()` |
-| 外部解决 | 按 request id/call id 匹配并出队 |
-| 展示 | header、body、options、footer 组成统一 selection view |
-| 输入 | list keymap + approval keymap |
-| 关闭 | 当前请求和队列都能安全清理 |
-
-## 4. 目标交互行为
-
-### 4.1 单条 Shell 审批
-
-目标显示结构使用 Codex overlay 的 header/body/options/footer：
+`ApprovalOverlay` 自己持有：
 
 ```text
-Would you like to run the following command?
-
-Environment: workspace
-Reason: The model wants to run this command
-
-  $ adb logcat -v time
-
-› 1. Yes, proceed (y)
-  2. Yes, for this session (s)
-  3. Yes, and don't ask again for this command prefix (p)
-  4. No, and tell {APP_DESC} what to do differently (n/esc)
-
-Press enter to confirm or esc to go back · expires in 30s
+current_request: Option<ApprovalRequest>
+queue: Vec<ApprovalRequest>
+current_complete: bool
+done: bool
 ```
 
-具体标题和选项文本继续由 `approval_policy.py` 的决策模型提供，产品名使用
-`mind_nova.const.APP_DESC`；不在 `TuiMenu` 中写死 Shell 分支。
+其关键行为为：
 
-### 4.2 连续审批
+1. 活动 overlay 通过 `enqueue_request()` 吸收后续请求。
+2. 当前请求完成后调用 `advance_queue()`，不先关闭再创建新 overlay。
+3. Ctrl-C 调用 `cancel_current_request()`，并清空等待队列。
+4. 外部已解决事件可以按请求身份移除 current 或 queued request。
+5. current 和 queue 都为空后，overlay 才进入完成状态。
 
-当第一个审批尚未完成时，第二个请求不能丢弃或静默阻塞：
+需要明确的实现细节：Codex 当前使用 `Vec::push()` 加 `Vec::pop()`，实际等待顺序为 LIFO；
+源码没有展示 queue count，也没有 ProxyMind 的审批倒计时。ProxyMind 不机械复制这两点。
+
+## 3. ProxyMind 对齐后的状态所有权
+
+### 3.1 `TuiApproval`
+
+交互前端拥有实际审批队列：
 
 ```text
-当前审批：apply_patch
-等待中：2 个请求
-
-› 1. Yes, proceed
-  2. No, and tell {APP_DESC} what to do differently
-
-2 approvals waiting · Enter to confirm · Esc to decline current
+TuiApproval
+├── state: ApprovalState | None
+├── _pending: deque[ApprovalState]
+├── selected_index
+└── expiry_task
 ```
 
-当前请求完成后：
+每个 `ApprovalState` 都有独立 future。`request()`/`wait(state=...)` 只等待该请求的 future，
+不会因为屏幕已经推进到下一项而读取错误的决策。
 
-1. 先完成当前 future。
-2. 记录 decision/source/elapsed。
-3. 从队列取下一项。
-4. 用同一个 approval overlay id 替换内容。
-5. 不关闭主 TUI、不恢复输入焦点、不重置 Thinking 状态。
+### 3.2 `ApprovalCoordinator`
 
-### 4.3 过期、取消和关闭
+`ApprovalCoordinator` 不再用 `asyncio.Lock` 把等待请求隐藏在交互前端之外。它保留稳定业务
+入口，直接把并发请求转交给实现 `InteractionPort` 的前端。
 
-| 事件 | 当前请求结果 | 队列行为 | 输入焦点 |
+这是有意的单一所有权：队列只存在于负责展示和完成请求的交互实现中，不在 coordinator
+和 TUI 两边各维护一份。
+
+### 3.3 `TuiRuntime`
+
+runtime 只拥有整批审批的 activity 生命周期：
+
+```text
+first request
+  -> activate approval session
+  -> terminal progress warning
+  -> pause Thinking once
+  -> wait until all current/pending approvals settle
+  -> resume Thinking or terminal progress once
+```
+
+批次初始化使用共享 ready event；并发请求在首个 `pause_wait()` 完成前不会越过初始化。
+批次切换和 close 使用局部异步锁保护，防止取消或关闭在初始化中途提前恢复 activity。
+
+## 4. 用户可观察行为
+
+| 事件 | 当前请求 | 等待请求 | 表面与 activity |
 | --- | --- | --- | --- |
-| approval 已过期 | `expired` | 继续下一项 | 保持审批 overlay |
-| Esc/n | `decline` | 继续下一项 | 保持审批 overlay |
-| Ctrl-C | `cancel` | 当前请求取消，队列按关闭策略处理 | 恢复原 surface |
-| TUI close | `decline` 或 `cancel`，按现有契约 | 全部 future 收束 | 恢复输入/退出 |
-| 外部已解决 | 当前 request 出队 | 不重复提交 | 保持当前 queue |
-
-不会把“审批过期”渲染成普通失败，也不会在过期时追加第二个 approval card。
-
-## 5. 目标状态模型
-
-### 5.1 请求身份
-
-每个审批请求都必须有稳定的匹配身份：
-
-```text
-ApprovalRequestKey
-├── approval_id
-├── call_id
-├── tool
-└── request_kind
-```
-
-如果远端只提供部分字段，适配层生成稳定的本地 key；不得使用选项数组下标作为身份。
-
-### 5.2 队列状态
-
-```text
-EMPTY
-  │ request
-  ▼
-CURRENT_VISIBLE
-  ├─ enqueue        -> CURRENT_VISIBLE + QUEUED[n]
-  ├─ decision       -> ADVANCING
-  ├─ expiry         -> ADVANCING
-  ├─ external_done  -> ADVANCING
-  └─ close          -> CLOSED
-
-ADVANCING
-  ├─ queue nonempty -> CURRENT_VISIBLE(next)
-  └─ queue empty    -> EMPTY
-
-CLOSED
-  └─ all unresolved futures receive safe terminal result
-```
-
-### 5.3 队列所有权
-
-队列只能有一个所有者。推荐让 `ApprovalCoordinator` 拥有顺序和 future，交互端只负责
-展示当前请求和报告用户动作：
-
-```text
-ApprovalCoordinator
-├── current request
-├── pending deque
-├── request futures
-└── decision source
-
-ApprovalOverlay interaction
-├── current view model
-├── queue count/status
-├── overlay request identity
-└── user action -> decision
-```
-
-现有 `asyncio.Lock` 不能继续作为唯一队列实现，因为它会把等待请求隐藏在锁后面。可以
-保留串行决策保证，但必须改成可观察的 current/deque 模型：
-
-- 新请求先进入 coordinator 队列。
-- 当前没有请求时启动交互 worker。
-- 当前请求完成后 worker 自动处理下一项。
-- UI 收到 queue count 或完整 queue snapshot，用于更新 menu status。
-- worker 关闭时所有未决 future 都返回一致的安全结果。
-
-## 6. 独立 ApprovalOverlay 设计
-
-ApprovalOverlay 是一个独立的审批交互 surface，但不拥有审批业务决策。它复用现有
-BottomPane、activity 和 Screen 生命周期，视觉和行为对齐 Codex，不复用普通 TuiMenu 的
-导航栈。
+| 新请求到达空闲状态 | 立即显示 | 无 | 激活审批表面，暂停一次 |
+| 新请求到达活动状态 | 保持显示 | FIFO 入队 | 表面和 activity 不切换 |
+| accept/decline | 返回对应决策 | 展示下一项 | 队列非空时不恢复输入 |
+| 当前请求过期 | 返回 `expired` | 展示下一项 | 队列非空时保持审批表面 |
+| 排队请求等待时过期 | 推进时跳过 | 返回 `expired` | 继续寻找下一项 |
+| Ctrl-C | 返回 `cancel` | 全部返回 `cancel` | 结束整批并恢复原表面 |
+| TUI close/dismiss | 返回 `decline` | 全部返回 `decline` | 安全关闭，不重启进度 |
+| 当前调用方取消 | 取消当前 future | 推进下一项 | 队列非空时保持审批表面 |
+| 排队调用方取消 | 当前不变 | 只移除该项 | 不影响其他请求 |
 
-### 6.1 Overlay 请求
+Esc/n 仍表示拒绝当前请求并继续队列；Ctrl-C 才取消整批。这与现有
+`ApprovalDecisionValue` 契约一致，不引入 Codex 中更细的 deny/decline 类型。
 
-推荐的稳定请求身份：
+## 5. 有意保留的差异
 
-```text
-overlay_id = "approval:active"
-generation = coordinator queue revision
-```
+### FIFO 顺序
 
-请求字段职责：
+ProxyMind 使用 `deque.popleft()`，按请求到达顺序处理。虽然 Codex 当前 `Vec::pop()` 是
+LIFO，但 FIFO 更符合并发工具调用的时间顺序，也保留 ProxyMind 已有的串行直觉。
 
-| 字段 | 用途 |
-| --- | --- |
-| `title` | Codex 对齐问题标题 |
-| `body_fragments` | 环境、原因、来源、命令和结构化详情 |
-| `options` | 当前 approval decisions |
-| `status` | 队列数量、过期时间、来源 |
-| `footer_hint` | Enter/Esc/快捷键提示 |
-| `overlay_id` | 防止陈旧异步更新覆盖当前请求 |
-| `generation` | 当前 queue revision |
-| `body_wrap` | 长命令和长路径宽度适配 |
-| `allow_cancel` | Ctrl-C/Esc 行为 |
+### 审批过期
 
-不要把 approval dict 原样交给 overlay renderer。先转换成中立的 ApprovalViewModel，再生成
-ApprovalOverlayRequest。
+ProxyMind 保留 `expires_at_ms`、当前倒计时和排队期间过期检查。expiry task 绑定具体
+`ApprovalState`，旧任务不能结束已经切换后的新请求。
 
-### 6.2 选项映射
+### 展示结构
 
-现有 decision value 保持不变：
+当前 card/footer、bottom-pane 高度计算和样式继续使用。行为对齐不要求删除
+`approval-card` 样式，也不要求增加 overlay id、generation 或 queue-count UI。
 
-| decision | Codex 风格展示 | 快捷键 |
-| --- | --- | --- |
-| `accept` | Yes, proceed | `y` |
-| `acceptForSession` | Yes, for this session | `s` |
-| `acceptWithExecpolicyAmendment` | Yes, and don't ask again for this command prefix | `p` |
-| `decline` | No, and tell `{APP_DESC}` what to do differently | `n`/`Esc` |
-| `cancel` | 不作为普通 option 展示 | `Ctrl-C` |
-| `expired` | 不作为普通 option 展示 | timer |
+### 决策模型
 
-如果某个请求不支持某个 decision，必须从模型生成选项，而不是显示后在 callback 中拒绝。
+继续使用 `accept`、`acceptForSession`、`acceptWithExecpolicyAmendment`、`decline`、
+`cancel` 和 `expired`。不因为 Codex 的 Rust 枚举不同而扩大本次业务协议。
 
-### 6.3 内容投影
+## 6. 关闭与异常规则
 
-现有 `approval_render.py` 中有价值的内容提取逻辑继续复用：
+1. `TuiApproval.close()` 和 `dismiss()` 必须完成 current 与全部 pending future。
+2. `TuiRuntime.close()` 先阻止新审批进入，再等待批次初始化落稳，然后收束审批。
+3. close 期间不恢复 Thinking，也不重新启动 terminal progress。
+4. `pause_wait()` 失败时，整批请求统一结束；首请求保留原异常，已排队请求返回安全的
+   `decline`。
+5. 调用方取消时按 `ApprovalState` 对象身份移除请求，不依赖当前屏幕内容或选项下标。
+6. 已完成 future 的重复 finish/cancel 不得覆盖原决策。
 
-- approval question
-- Agent/source
-- Environment
-- Reason/justification
-- command preview
-- expiry label
-- canonical arguments 或 MCP 字段
+## 7. 已实施范围
 
-需要迁移的是表面 token 和布局边界：
+- [x] `TuiApproval` 增加 current + pending deque。
+- [x] 并发请求各自等待独立 future。
+- [x] 当前请求完成后在同一表面 FIFO 推进。
+- [x] Ctrl-C 取消 current 和全部 pending。
+- [x] dismiss/close 拒绝并收束全部未决请求。
+- [x] 调用方取消可以区分 current 与 queued request。
+- [x] 当前及排队请求过期后安全推进。
+- [x] `ApprovalCoordinator` 移除 lock-only 串行化。
+- [x] `InteractionPort` 明确前端的排队、取消和关闭责任。
+- [x] runtime 用一个 session 覆盖整批审批的 Thinking/终端进度切换。
+- [x] close 和初始化失败路径具有确定的批次收束行为。
 
-- 删除旧 `approval-card` 的装饰性背景和自定义卡片边框语义。
-- 使用 Codex overlay 的标题、body、option、status、footer token。
-- 命令预览沿用统一命令高亮，但不重复输出 `$` 或 tool 名。
-- overlay 内容区域使用当前终端宽度，命令和 reason 使用同一个 wrap width。
-- 窄终端时选项 detail 堆叠在 label 下方，overlay 高度随内容重新测量。
-- 不引入新的 Application、输入 buffer 或焦点系统。
+## 8. 测试覆盖
 
-## 7. Runtime 与 activity 生命周期
+行为测试覆盖：
 
-### 7.1 请求入口
+- FIFO 推进时审批表面连续存在。
+- 第二条请求出现前不恢复输入或 Thinking。
+- Ctrl-C 对 current/pending 返回一致的 `cancel`。
+- close 对 current/pending 返回一致的 `decline`。
+- 当前调用方取消后推进 queued request。
+- queued 调用方取消不改变 current request。
+- 排队期间过期的请求被跳过并返回 `expired`。
+- `pause_wait()` 失败时并发请求全部收束。
+- 一批审批只调用一次 terminal warning 和一次恢复。
+- runtime close 不遗留审批 future 或 session 状态。
 
-`TuiRuntime.request_approval()` 保留为稳定 runtime 入口，但内部顺序调整为：
+主要测试文件：
 
-```text
-request_approval(approval)
-  -> coordinator.enqueue(approval)
-  -> activity.pause_wait()
-  -> ApprovalOverlay worker presents current request
-  -> await request future
-  -> activity.resume_wait()
-  -> return decision
-```
+- `tests/test_tui_approval.py`
+- `tests/test_tui_activity.py`
+- `tests/test_terminal_progress.py`
+- `tests/test_approval_coordinator.py`
+- `tests/test_tui_bottom_pane.py`
 
-暂停范围必须覆盖等待审批的整个过程，包括队列切换；不能在 current decision 后、下一条
-审批显示前恢复 Thinking 再马上暂停。
+## 9. 后续可选对齐项
 
-### 7.2 Overlay session 防护
+以下不是本次“先对齐行为”的完成条件：
 
-每次 current request 替换都增加 generation：
+- 按 request id/call id 接收外部 resolved 事件并移除队列项。
+- Codex 的跨 thread 来源展示、打开 thread 和全屏查看动作。
+- Exec、Permissions、ApplyPatch、MCP elicitation 的类型化 view model。
+- Codex selection view 的精确视觉、快捷键配置和历史 decision cell。
 
-1. `request_key` 不匹配的异步结果丢弃。
-2. 旧 expiry task 不能结束新请求。
-3. 旧 overlay 关闭回调不能恢复主输入焦点。
-4. 当前请求完成后，只能由 coordinator 推进下一项。
-5. TUI close 取消全部 pending overlay actions。
+如果后续实施这些能力，应继续复用现有 `BottomSurface="approval"`；只有确有布局或交互
+能力缺口时再调整控件结构，不以重命名为 `ApprovalOverlay` 作为对齐目标。
 
-复用现有 `BottomPane` surface stack、generation 和 runtime handoff；不把审批请求塞进
-`TuiMenu` 的 view stack。
+## 10. 完成定义
 
-### 7.3 不再使用的生命周期
+本阶段完成需同时满足：
 
-迁移完成后，审批路径不能再依赖旧 card 实现：
-
-- `TuiApproval` 的单一 `ApprovalState`。
-- card window 是否存在来判断 activity 是否暂停。
-- card 是否可见来判断请求是否已处理。
-- 独立 input buffer 或第二套焦点系统。
-
-目标 API 可以保留 `screen.approval_overlay.begin/wait/resolve/settle`，但状态必须由
-current/deque overlay coordinator 拥有。
-
-## 8. 架构调整清单
-
-### 8.1 保留模块
-
-- `mind_app/approval/models.py`：决策值和审批记录。
-- `mind_app/approval/policy.py`：决策集合、标签、过期和策略。
-- `mind_app/approval/coordinator.py`：改为可观察队列协调器。
-- `mind_app/stream_events/approval_trace.py`：请求内容和命令预览提取。
-- `mind_app/stream_events/command_preview.py`：命令片段解析。
-- `mind_app/tui/core/bottom_pane.py`：审批 overlay surface 栈和焦点恢复。
-- `mind_app/tui/core/screen.py`：审批 overlay 的控件树和高度预算协调。
-
-### 8.2 新增或迁移模块
-
-建议按职责增加窄模块，不创建宽型 facade：
-
-| 模块 | 职责 |
-| --- | --- |
-| `mind_app/tui/contracts/approval.py` | ApprovalRequestKey、ApprovalViewModel、queue snapshot |
-| `mind_app/tui/features/approval.py` | ApprovalViewModel -> ApprovalOverlayRequest、decision mapping |
-| `mind_app/runtime/approval_queue.py` 或等价 runtime 协作者 | current/deque/future/expiry 顺序 |
-| `mind_app/tui/rendering/approval.py` | Codex overlay 的纯 Fragment 内容投影，不能读取 TuiScreen |
-| `mind_app/tui/core/approval_overlay.py` | overlay 控件、输入绑定、current request 和 settle 生命周期 |
-
-如果现有模块边界已经能承载职责，不强制创建所有文件；禁止为了拆文件增加只转发一次
-调用的 facade。
-
-### 8.3 重构模块耦合
-
-保留并重构：
-
-- `BottomSurface = "approval"`，但 surface 对象改为 `ApprovalOverlay`。
-- `screen.approval_control`、`approval_window`、`approval_footer_window`，改为 Codex
-  overlay 的 header/body/options/footer 控件组合。
-- `allocate_approval_view_layout`，改为 Codex overlay 的统一内容高度预算。
-- `TuiRuntime.request_approval()`，改为调用 queue-aware ApprovalOverlay。
-
-删除或替换：
-
-- `TuiApproval` 的单请求 card 状态和单独 key binding 实现。
-- `approval-card` 的装饰性背景、卡片边框和非 Codex spacing。
-- runtime 通过 `screen.approval.state` 直接读取审批业务状态的耦合。
-
-审批领域模型、`ApprovalCoordinator` 公共入口和审批 surface 本身不能删除或移动到
-rendering 层；目标是把旧 card 重构为 Codex 风格 overlay。
-
-## 9. Codex 对齐与 ProxyMind 保留项
-
-### 9.1 必须对齐 Codex
-
-- current + queue 的可观察生命周期，使用独立 ApprovalOverlay 承载。
-- 一个请求一个稳定身份。
-- header/body/options/footer 的选择视图布局。
-- 完成后自动推进下一项。
-- 快捷键、取消、过期和关闭的语义。
-- 长命令、长 reason、窄宽度下的换行。
-- stale result 防护。
-- 审批等待期间不重复启动 Thinking/动画。
-
-### 9.2 可以保留的 ProxyMind 能力
-
-- Hook allow/deny 优先级。
-- `ApprovalStore` 的 approval id、tool、canonical arguments 校验。
-- `ApprovalDecisionValue` 和现有 decision source telemetry。
-- 子执行线程 agent source 展示。
-- `ApprovalCoordinator` 的跨请求串行决策保证。
-- 当前项目已有的 activity lease、transcript 和菜单 session 机制。
-
-### 9.3 不在本计划中偷换的语义
-
-- `Approve for me` 不能因为改了审批 overlay 就假装具备自动 reviewer。
-- `cancel` 不能被 overlay Esc 自动改写成 `decline`，除非当前业务契约明确要求。
-- Hook 拒绝不能经过 UI overlay 二次批准。
-- `approval_policy=never` 不应打开审批 overlay。
-- 已经发起的审批不能因为用户修改下一轮权限而改变 reviewer/决策上下文。
-
-## 10. 分阶段实施计划
-
-### Phase A：审批行为基线
-
-- [ ] 固定当前 `ApprovalDecisionValue`、source、expiry 和 close 行为测试。
-- [ ] 增加两个并发审批请求的顺序测试。
-- [ ] 增加请求在第一条审批等待时进入 queue 的测试。
-- [ ] 增加不同 tool/kind 的 request identity 测试。
-- [ ] 增加外部 resolved、重复 resolved 和 stale result 测试。
-
-验收：不改 UI 的前提下，先证明队列顺序和 future 收束规则。
-
-### Phase B：中立 ViewModel 和 Overlay 渲染
-
-- [ ] 定义 `ApprovalRequestKey` 和 `ApprovalViewModel`。
-- [ ] 将 `approval_render.py` 的内容提取逻辑转换为纯 view model/fragment 生成。
-- [ ] 生成 `ApprovalOverlayRequest`，使用稳定 `overlay_id` 和 generation。
-- [ ] 对齐 Codex 标题、选项、快捷键、footer 和窄宽布局。
-- [ ] 增加 40、60、80、120 列快照测试。
-
-验收：overlay 显示与 Codex 业务内容和布局一致，但不依赖旧 card style。
-
-### Phase C：Queue worker 与 runtime 接入
-
-- [ ] 将 lock-only coordinator 改为 current/deque/future worker。
-- [ ] 将 queue count/status 传递给 overlay view model。
-- [ ] `TuiRuntime.request_approval()` 改为 enqueue + await future。
-- [ ] 将 pause/resume wait 包在整个 queue 生命周期中。
-- [ ] 增加 overlay session/generation 的 stale callback 防护。
-
-验收：连续审批只存在一个 ApprovalOverlay，当前完成后自动显示下一项，Thinking 不重复启动。
-
-### Phase D：重构为 Codex ApprovalOverlay
-
-- [ ] 将 stream approval event 改为调用 queue-aware ApprovalOverlay。
-- [ ] 保留 `screen.approval` surface，替换为 `ApprovalOverlay` 控件组合。
-- [ ] 删除旧 card 的 layout/window/control/key binding 专用分支。
-- [ ] 关闭 runtime 时通过 coordinator 收束全部 approval futures。
-- [ ] 迁移 activity、bottom pane、spacing 和 approval 测试。
-
-验收：代码中不再创建旧 `TuiApproval` card；审批只能通过 Codex 风格 ApprovalOverlay 呈现。
-
-### Phase E：全链路与性能复核
-
-- [ ] 审批和 MCP/Helix 状态同时更新时只产生一个稳定 active surface。
-- [ ] 审批完成后不重启 Thinking/启动动画。
-- [ ] 长命令和长 reason 不触发全屏重排抖动。
-- [ ] 过期倒计时按秒更新，不以高频 timer 重建整棵控件树。
-- [ ] 执行 TUI 全量回归、resize、窄终端、Ctrl-C、close 和异常路径测试。
-
-验收：审批卡迁移不会复现“Thinking 停止时卡住”或两个状态落版时等待不返回的问题。
-
-## 11. 测试迁移矩阵
-
-### 11.1 必须新增
-
-| 场景 | 必须断言 |
-| --- | --- |
-| 单条审批 | 一个 ApprovalOverlayRequest，一个 decision future |
-| 连续两条审批 | FIFO，第二条可见 queue 状态 |
-| 三种 tool kind | Exec/ApplyPatch/MCP 使用同一生命周期，内容投影不同 |
-| Enter | 选择当前 option 并只提交一次 |
-| y/s/p/n/Esc | 映射到正确 decision value |
-| Ctrl-C | 返回 cancel，队列按关闭策略收束 |
-| expiry | 返回 expired，自动推进下一项 |
-| stale update | 旧 request 不能覆盖新 overlay |
-| external resolve | 不重复提交 decision |
-| TUI close | 所有 future 都可收束，不遗留 expiry task |
-| narrow width | 标题、命令、reason、options 和 footer 不溢出 |
-| activity handoff | 审批等待期间 Thinking 不恢复，完成后只恢复一次 |
-
-### 11.2 需要迁移的现有测试
-
-- `tests/test_tui_approval.py`：从旧 card/style/window 断言迁移为 ApprovalOverlay 和行为断言。
-- `tests/test_approval_coordinator.py`：增加 FIFO queue、future 收束和 stale request。
-- `tests/test_tui_activity.py`：从 `screen.approval.active` 改为 overlay session/queue 状态。
-- `tests/test_tui_bottom_pane.py`：验证 approval overlay surface 和焦点恢复。
-- `tests/test_tui_spacing.py`：保留 overlay 高度、窄宽和恢复焦点断言。
-- `tests/test_run_result.py`：保留 Hook/policy/store 决策回归，不绑定 card 实现。
-
-旧测试不能直接删除；凡是验证用户可观察行为的断言都要保留，只替换实现细节断言。
-
-## 12. 风险和禁止事项
-
-### 12.1 主要风险
-
-| 风险 | 控制措施 |
-| --- | --- |
-| coordinator lock 隐藏等待请求 | 先落地 current/deque，再迁移 overlay |
-| overlay close 误恢复输入 | 统一由 queue worker 拥有焦点恢复 |
-| expiry task 结束新请求 | 每个请求绑定 key + generation |
-| decision 重复提交 | future done 检查和 request key 校验 |
-| 审批暂停期间动画恢复 | pause lease 覆盖整个 queue worker 生命周期 |
-| card 样式删除导致内容丢失 | 先建立 ApprovalViewModel 快照，再替换旧 surface |
-| reviewer 语义混入 UI 迁移 | 与 `codex_approve_for_me_alignment.md` 分离 |
-
-### 12.2 禁止事项
-
-- 不在 `ApprovalOverlay` 内判断 tool 名或 approval policy。
-- 不把审批 dict 直接拼成字符串传给 renderer。
-- 不新增第二个 Application 或第二套焦点系统。
-- 不让 `ApprovalCoordinator` 和 `ApprovalOverlay` 同时拥有 queue。
-- 不通过全局变量或隐式单例保存当前审批。
-- 不用 overlay 选项下标作为 approval identity。
-- 不以删除测试来证明 card 已移除。
-
-## 13. 完成定义
-
-审批卡对齐完成必须同时满足：
-
-- 运行期不再创建旧 `TuiApproval` card。
-- 所有审批类型都通过 Codex 风格独立 `ApprovalOverlay` 呈现。
-- current/queue 有明确单一所有者，连续请求 FIFO 且可观察。
-- decision、source、expiry、cancel 和 Hook/policy 优先级保持正确。
-- stale menu、重复 resolved、TUI close 和进程异常都不会遗留 future/task。
-- 长命令、长 reason、窄终端和 resize 不造成重叠或截断错误。
-- 审批等待、完成和下一条请求之间不重复启动 Thinking 或动画。
-- 相关 approval、coordinator、activity、menu、turn execution 测试通过。
-
-## 14. 首个实施批次
-
-第一批只建立不改变展示表面的基础：
-
-1. 给现有审批请求补充稳定 `ApprovalRequestKey`。
-2. 将 `ApprovalCoordinator` 从 lock-only 模型改为可测试的 current/deque/future 模型。
-3. 增加连续审批、过期、取消、close 和 stale result 测试。
-4. 实现 ApprovalViewModel 到 ApprovalOverlayRequest 的纯转换，并增加快照。
-5. 暂时保留旧 `TuiApproval` 作为适配入口，确认 overlay 数据和队列行为稳定后再替换旧 card。
-
-这样可以先验证审批顺序和决策安全，再进行高风险的 Screen/BottomSurface 删除。
+- 并发审批不会因 coordinator lock 而隐藏在 UI 生命周期之外。
+- current 完成后连续显示 pending，所有请求 future 与自身决策一一对应。
+- Ctrl-C、调用方取消、expiry、pause 失败和 TUI close 均不会遗留 future/task。
+- 整批审批只暂停和恢复一次 activity/terminal progress。
+- 保留现有审批 card、bottom pane、决策模型和 FIFO/expiry 产品语义。
+- 相关定向测试、受影响回归测试和语法检查全部通过。
