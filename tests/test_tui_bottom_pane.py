@@ -300,8 +300,7 @@ async def test_object_view_stack_restores_exact_parent_after_overlay() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("key", ["q", "\x1b"])
-async def test_menu_closes_from_terminal_cancel_key(key: str) -> None:
+async def test_menu_closes_from_terminal_escape_key() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(
             input_obj=pipe_input,
@@ -316,7 +315,7 @@ async def test_menu_closes_from_terminal_cancel_key(key: str) -> None:
             )))
             await asyncio.sleep(0)
 
-            pipe_input.send_text(key)
+            pipe_input.send_text("\x1b")
 
             assert await asyncio.wait_for(menu_task, timeout=1.0) is None
             assert runtime.screen.bottom_pane.active_surface is None

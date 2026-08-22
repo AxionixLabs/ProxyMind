@@ -18,6 +18,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     runtime = TuiRuntime()
     workspace_updates = []
     mind = SimpleNamespace(
+        history_workspace=Path("D:/workspace"),
         frontend=SimpleNamespace(runtime=runtime),
         config_session=SimpleNamespace(load=lambda: {
             "skills": {"enabled": [], "disabled": []},
@@ -86,6 +87,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             assert played == []
 
             mind = SimpleNamespace(
+                history_workspace=workspace,
                 frontend=SimpleNamespace(runtime=runtime),
                 config_session=SimpleNamespace(load=lambda: {
                     "skills": {"enabled": [], "disabled": []},

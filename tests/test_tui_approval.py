@@ -295,16 +295,27 @@ def test_approval_surface_uses_no_background() -> None:
 
 
 @pytest.mark.parametrize(
-    ("kind", "name", "background"),
+    ("kind", "name", "input_background", "card_background"),
     (
-        (TerminalKind.WINDOWS_TERMINAL, "Windows Terminal", "1F1F1F"),
-        (TerminalKind.APPLE_TERMINAL, "Apple Terminal", "default"),
+        (
+            TerminalKind.WINDOWS_TERMINAL,
+            "Windows Terminal",
+            "1F1F1F",
+            "1F1F1F",
+        ),
+        (
+            TerminalKind.APPLE_TERMINAL,
+            "Apple Terminal",
+            "default",
+            "",
+        ),
     ),
 )
 def test_surface_background_depends_on_terminal_support(
     kind: TerminalKind,
     name: str,
-    background: str,
+    input_background: str,
+    card_background: str,
 ) -> None:
     empty = Style.from_dict({})
     style = build_tui_application_style(
@@ -323,13 +334,13 @@ def test_surface_background_depends_on_terminal_support(
 
     assert style.get_attrs_for_style_str(
         "class:input-surface"
-    ).bgcolor == background
+    ).bgcolor == input_background
     assert style.get_attrs_for_style_str(
         "class:approval-card"
-    ).bgcolor == background
+    ).bgcolor == card_background
     assert style.get_attrs_for_style_str(
         "class:menu-card"
-    ).bgcolor == background
+    ).bgcolor == card_background
 
 
 def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() -> None:
