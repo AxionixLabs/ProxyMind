@@ -2908,6 +2908,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         if completions is None:
             return PromptFormattedText()
 
+        # 精确 slash 命令由原生 token 菜单渲染，fallback 行仅用于非命令的单项补全。
+        if (
+            slash_command_query(document) is not None
+            and self.input.buffer.complete_state is not None
+        ):
+            return PromptFormattedText()
+
         if not completions:
             query = skill_query_token(document.text_before_cursor)
             return PromptFormattedText(completion_empty_fragments(
@@ -2926,12 +2933,16 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         is_slash_command = (
             slash_command_query(document) is not None
         )
+        column_min_width = max(
+            self.COMPLETION_COLUMN_MIN_WIDTH,
+            TokenCompletionMenuControl.MIN_WIDTH if is_slash_command else 0,
+        )
         return PromptFormattedText(completion_candidate_fragments(
             display_text=completion.display_text,
             display_meta_text=completion.display_meta_text,
             is_slash_command=is_slash_command,
             left_padding=TOKEN_MENU_LEFT_PADDING,
-            column_min_width=self.COMPLETION_COLUMN_MIN_WIDTH,
+            column_min_width=column_min_width,
         ))
 
     def _expected_completion_count(self) -> int:
@@ -2960,7 +2971,15 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """返回当前已经加载或同步可得的菜单显示行数。"""
         snapshot = self.input_model.token_menu_snapshot(self.input.buffer)
         if snapshot is not None:
-            return token_menu_display_height(snapshot, self.terminal_width)
+            menu_width = self.completion_menu.content.preferred_width(
+                self.terminal_width,
+            )
+            if menu_width is None:
+                menu_width = self.terminal_width
+            return token_menu_display_height(
+                snapshot,
+                max(1, min(self.terminal_width, menu_width)),
+            )
 
         state        = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0

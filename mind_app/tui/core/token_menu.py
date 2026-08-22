@@ -183,16 +183,76 @@ def _field(text: str, width: int) -> str:
     return fitted + " " * max(0, width - get_cwidth(fitted))
 
 
+def _take_display_width(text: str, width: int) -> tuple[str, str]:
+    """从文本开头取出不超过指定显示宽度的部分。"""
+    limit = max(0, int(width))
+    used = 0
+    end = 0
+
+    for index, char in enumerate(str(text)):
+        char_width = max(0, get_cwidth(char))
+        if used + char_width > limit:
+            break
+        used += char_width
+        end = index + 1
+
+    value = str(text)
+    if end == 0 and value:
+        end = 1
+    return value[:end], value[end:]
+
+
+def _wrap_display_text(text: str, width: int) -> tuple[str, ...]:
+    """按终端显示宽度拆分说明文本，并优先在空格处换行。"""
+    limit = max(1, int(width))
+    remaining = " ".join(str(text or "").split())
+    if not remaining:
+        return ("",)
+
+    rows: list[str] = []
+    while remaining:
+        head, tail = _take_display_width(remaining, limit)
+        if not tail:
+            rows.append(head)
+            break
+
+        break_at = head.rfind(" ")
+        if break_at > 0:
+            row = head[:break_at].rstrip()
+            remaining = remaining[break_at + 1:].lstrip()
+        else:
+            row = head
+            remaining = tail
+
+        if not row:
+            row, remaining = _take_display_width(remaining, limit)
+        rows.append(row)
+
+    return tuple(rows)
+
+
+def _skill_meta_text(meta_text: str) -> str:
+    """返回 `$` skill 菜单使用的带中括号类别说明。"""
+    text = str(meta_text or "").strip()
+    if not text or text.startswith("["):
+        return text
+
+    category, separator, detail = text.partition(" ")
+    if not separator:
+        return f"[{category}]"
+    return f"[{category}] {detail}".rstrip()
+
+
 def token_menu_display_height(
     snapshot: TokenMenuSnapshot | None,
     width: int,
 ) -> int:
     """返回当前 token 菜单的显示行数。"""
-    _ = width
     if snapshot is None or not snapshot.items:
         return 0
 
-    return len(snapshot.items)
+    control = TokenCompletionMenuControl(lambda: snapshot)
+    return control.display_height(width)
 
 
 def prefix_match_indices(
@@ -240,18 +300,6 @@ def subsequence_match_indices(
     return tuple(indices)
 
 
-def _skill_meta_text(meta_text: str) -> str:
-    """返回 `$` skill 菜单使用的带中括号类别说明。"""
-    text = str(meta_text or "").strip()
-    if not text or text.startswith("["):
-        return text
-
-    category, separator, detail = text.partition(" ")
-    if not separator:
-        return f"[{category}]"
-    return f"[{category}] {detail}".rstrip()
-
-
 class TokenCompletionMenuControl(UIControl):
     """绘制输入 token 补全菜单。"""
 
@@ -268,7 +316,8 @@ class TokenCompletionMenuControl(UIControl):
         max_width: int,
         items: tuple[TokenMenuItem, ...],
         *,
-        total_width: int
+        total_width: int,
+        ensure_content_width: bool = False,
     ) -> int:
         """返回候选说明列宽。"""
         if max_width <= 0:
@@ -295,11 +344,11 @@ class TokenCompletionMenuControl(UIControl):
             // TOKEN_MENU_META_WIDTH_DENOMINATOR
         )
 
-        return min(
-            max_width,
-            meta_limit,
-            max(get_cwidth(text) for text in meta_texts) + 2,
-        )
+        content_width = max(get_cwidth(text) for text in meta_texts) + 2
+        if ensure_content_width:
+            meta_limit = max(meta_limit, content_width)
+
+        return min(max_width, meta_limit, content_width)
 
     @staticmethod
     def _field_fragments(
@@ -343,6 +392,43 @@ class TokenCompletionMenuControl(UIControl):
 
         return fragments
 
+    def _name_fragments(
+        self,
+        item: TokenMenuItem,
+        *,
+        current: bool,
+        main_width: int
+    ) -> StyleAndTextTuples:
+        """返回候选名称列的渲染片段。"""
+        suffix        = ".current" if current else ""
+        item_style    = f"class:token-menu.{item.kind}{suffix}"
+        display_width = max(0, main_width - TOKEN_MENU_LEFT_PADDING - 1)
+
+        marker = "> " if current and item.kind in {
+            "skill-mention",
+            "plugin-mention",
+            "file-mention",
+            "directory-mention",
+        } else "  "
+
+        if item.match_indices:
+            fragments: StyleAndTextTuples = [
+                (item_style, marker),
+            ]
+            fragments.extend(
+                self._field_fragments(
+                    item.display_text,
+                    display_width,
+                    item_style,
+                    item.match_indices,
+                )
+            )
+            fragments.append((item_style, " "))
+            return fragments
+
+        display = _field(item.display_text, display_width)
+        return [(item_style, f"{marker}{display} ")]
+
     def _main_width(
         self,
         max_width: int,
@@ -371,36 +457,16 @@ class TokenCompletionMenuControl(UIControl):
         item_style = f"class:token-menu.{item.kind}{suffix}"
         meta_style = f"class:token-menu.meta.{item.kind}{suffix}"
 
-        display_width = max(0, main_width - TOKEN_MENU_LEFT_PADDING - 1)
-        marker = "> " if current and item.kind in {
-            "skill-mention",
-            "plugin-mention",
-            "file-mention",
-            "directory-mention",
-        } else "  "
-
-        if item.match_indices:
-            fragments: StyleAndTextTuples = [
-                (item_style, marker),
-            ]
-            fragments.extend(
-                self._field_fragments(
-                    item.display_text,
-                    display_width,
-                    item_style,
-                    item.match_indices,
-                )
-            )
-            fragments.append((item_style, " "))
-        else:
-            display = _field(item.display_text, display_width)
-            fragments = [
-                (item_style, f"{marker}{display} "),
-            ]
+        fragments = list(self._name_fragments(
+            item,
+            current=current,
+            main_width=main_width,
+        ))
 
         if meta_width > 0:
             if item.kind in {"skill-mention", "plugin-mention"} and item.meta_text:
                 category, _separator, detail = item.meta_text.partition(" ")
+
                 detail_width = max(
                     0,
                     meta_width - get_cwidth(category) - 4,
@@ -418,16 +484,20 @@ class TokenCompletionMenuControl(UIControl):
                     (category_style, f"{category} "),
                 ])
             elif item.kind in {"file-mention", "directory-mention"}:
-                meta = item.meta_text.strip()
-                category = meta.rsplit(None, 1)[-1] if meta else ""
-                parent = meta[:-(len(category) + 1)] if category else meta
+
+                meta        = item.meta_text.strip()
+                category    = meta.rsplit(None, 1)[-1] if meta else ""
+                parent      = meta[:-(len(category) + 1)] if category else meta
                 inner_width = max(0, meta_width - 2)
+
                 category_width = min(
                     get_cwidth(category),
                     max(0, inner_width - 1),
                 )
-                parent_width = max(0, inner_width - category_width - 1)
+
+                parent_width   = max(0, inner_width - category_width - 1)
                 category_style = item_style
+
                 fragments.extend([
                     (meta_style, " "),
                     (meta_style, _field(parent, parent_width)),
@@ -445,6 +515,96 @@ class TokenCompletionMenuControl(UIControl):
                 fragments.append((meta_style, f" {meta} "))
 
         return fragments
+
+    def _row_fragments(
+        self,
+        item: TokenMenuItem,
+        *,
+        current: bool,
+        main_width: int,
+        meta_width: int,
+        total_width: int
+    ) -> list[StyleAndTextTuples]:
+        """返回一项候选在当前宽度下占用的全部渲染行。"""
+        if item.kind != "command" or not item.meta_text:
+            return [self._line_fragments(
+                item,
+                current=current,
+                main_width=main_width,
+                meta_width=meta_width,
+            )]
+
+        content_width = max(
+            1,
+            min(
+                max(0, meta_width - 2),
+                max(1, total_width - main_width - 1),
+            ),
+        )
+        if get_cwidth(item.meta_text) <= content_width:
+            return [self._line_fragments(
+                item,
+                current=current,
+                main_width=main_width,
+                meta_width=meta_width,
+            )]
+
+        suffix     = ".current" if current else ""
+        meta_style = f"class:token-menu.meta.{item.kind}{suffix}"
+        rows       = _wrap_display_text(item.meta_text, content_width)
+
+        first = list(self._name_fragments(
+            item,
+            current=current,
+            main_width=main_width,
+        ))
+        first.append((meta_style, f" {_field(rows[0], content_width)} "))
+
+        return [
+            first,
+            *[
+                [
+                    (meta_style, " " * main_width),
+                    (meta_style, f" {row}"),
+                ]
+                for row in rows[1:]
+            ],
+        ]
+
+    def _layout_widths(
+        self,
+        width: int,
+        items: tuple[TokenMenuItem, ...]
+    ) -> tuple[int, int]:
+        """根据当前窗口宽度计算名称列和说明列宽度。"""
+        main_width = self._main_width(width, items)
+
+        meta_width = TokenCompletionMenuControl._meta_width(
+            width - main_width,
+            items,
+            total_width=width,
+            ensure_content_width=True,
+        )
+
+        return main_width, meta_width
+
+    def display_height(self, width: int) -> int:
+        """返回当前候选快照在指定宽度下的实际行数。"""
+        snapshot = self._snapshot()
+        if snapshot is None or not snapshot.items:
+            return 0
+
+        main_width, meta_width = self._layout_widths(width, snapshot.items)
+        return sum(
+            len(self._row_fragments(
+                item,
+                current=False,
+                main_width=main_width,
+                meta_width=meta_width,
+                total_width=width,
+            ))
+            for item in snapshot.items
+        )
 
     def preferred_width(
         self,
@@ -490,15 +650,10 @@ class TokenCompletionMenuControl(UIControl):
         if snapshot is None or not snapshot.items:
             return UIContent()
 
-        items      = snapshot.items
-        selected   = snapshot.normalized_selected
-        main_width = self._main_width(width, items)
+        items    = snapshot.items
+        selected = snapshot.normalized_selected
 
-        meta_width = TokenCompletionMenuControl._meta_width(
-            width - main_width,
-            items,
-            total_width=width,
-        )
+        main_width, meta_width = self._layout_widths(width, items)
 
         rendered_lines: list[StyleAndTextTuples] = []
 
@@ -508,12 +663,13 @@ class TokenCompletionMenuControl(UIControl):
             if index == selected:
                 selected_line = len(rendered_lines)
 
-            rendered_lines.append(
-                self._line_fragments(
+            rendered_lines.extend(
+                self._row_fragments(
                     item,
                     current=index == selected,
                     main_width=main_width,
                     meta_width=meta_width,
+                    total_width=width,
                 )
             )
 

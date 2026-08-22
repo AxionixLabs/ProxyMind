@@ -11,6 +11,7 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.document import Document
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.utils import get_cwidth
 
 from mind_core.design.terminal_capabilities import (
     TerminalCapabilities,
@@ -295,6 +296,32 @@ def test_token_menu_keeps_short_meta_content_width() -> None:
     assert control.preferred_width(100) == 21
 
 
+def test_token_menu_wraps_command_meta_to_terminal_width() -> None:
+    item = TokenMenuItem(
+        display_text="/mcp",
+        meta_text="管理外部 MCP 服务",
+        kind="command",
+    )
+    control = TokenCompletionMenuControl(
+        lambda: TokenMenuSnapshot(items=(item,))
+    )
+
+    content = control.create_content(24, 2)
+    lines = [
+        fragments_text(content.get_line(index))
+        for index in range(content.line_count)
+    ]
+
+    assert content.line_count == 2
+    assert "管理外部 MCP" in lines[0]
+    assert lines[1].rstrip().endswith("服务")
+    assert all(get_cwidth(line) <= 24 for line in lines)
+    assert control.preferred_height(24, 2, False, None) == 2
+
+    wide_content = control.create_content(control.preferred_width(80), 1)
+    assert "管理外部 MCP 服务" in fragments_text(wide_content.get_line(0))
+
+
 def test_token_menu_render_snapshot_for_mixed_rows() -> None:
     items = (
         TokenMenuItem(
@@ -548,14 +575,30 @@ def test_completion_surface_has_no_async_footer_gap() -> None:
     assert not runtime.screen._footer_visible()
 
     buffer.document = Document("/mcp", cursor_position=4)
+    runtime.input_model.refresh_completion_menu(buffer)
 
     assert runtime.screen._completion_visible()
     assert runtime.screen._completion_height() == 1
     assert not runtime.screen._footer_visible()
-    assert "".join(
-        text
-        for _style, text in runtime.screen._completion_fallback_fragments()
-    ).lstrip().startswith("/mcp")
+    snapshot = runtime.input_model.token_menu_snapshot(buffer)
+    assert snapshot is not None
+    assert snapshot.items[0].display_text == "/mcp"
+    assert runtime.screen._completion_fallback_fragments() == []
+
+
+def test_exact_slash_completion_keeps_native_menu_when_reapplied() -> None:
+    runtime = TuiRuntime()
+    buffer = runtime.screen.input.buffer
+    buffer.document = Document("/mcp", cursor_position=4)
+    runtime.input_model.refresh_completion_menu(buffer)
+
+    completion = runtime.input_model._selected_menu_completion(buffer)
+    assert completion is not None
+    runtime.input_model._apply_menu_completion(buffer, completion)
+
+    assert buffer.text == "/mcp"
+    assert runtime.screen._native_completion_visible()
+    assert runtime.screen._completion_fallback_fragments() == []
 
 
 @pytest.mark.parametrize(
@@ -1689,39 +1732,40 @@ async def test_slash_completion_aligns_with_input_command() -> None:
 
 
 @pytest.mark.anyio
-async def test_exact_slash_completion_aligns_with_input_command() -> None:
+@pytest.mark.parametrize("command", ["/new", "/mcp"])
+async def test_exact_slash_completion_uses_same_menu_as_prefix_command(
+    command: str,
+) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         await runtime.open()
         try:
-            pipe_input.send_text("/new")
-            await wait_for_input_text(runtime, "/new")
+            pipe_input.send_text(command)
+            await wait_for_input_text(runtime, command)
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
 
             input_line = rendered_input_line(runtime)
-            completion_line = rendered_window_line(
-                runtime,
-                runtime.screen.completion_fallback_window,
-            )
+            menu_window = runtime.screen.completion_menu
+            completion_line = rendered_window_line(runtime, menu_window)
             screen = runtime.screen.application.renderer.last_rendered_screen
-            fallback_position = screen.visible_windows_to_write_positions[
-                runtime.screen.completion_fallback_window
+            menu_position = screen.visible_windows_to_write_positions[
+                menu_window
             ]
 
-            assert input_line == "› /new"
-            assert completion_line.lstrip().startswith("/new")
+            assert input_line == f"› {command}"
+            assert completion_line.lstrip().startswith(command)
             assert input_line.index("/") == completion_line.index("/")
-            assert fallback_position.xpos == 0
+            assert menu_position.xpos == 0
             assert "class:token-menu.command.current" in (
-                screen.data_buffer[fallback_position.ypos][
-                    fallback_position.xpos + 2
+                screen.data_buffer[menu_position.ypos][
+                    menu_position.xpos + 2
                 ].style
             )
-            meta_column = input_line.index("/") + len("/new") + 2
+            meta_column = input_line.index("/") + len(command) + 2
             assert "class:token-menu.meta.command.current" in (
-                screen.data_buffer[fallback_position.ypos][meta_column].style
+                screen.data_buffer[menu_position.ypos][meta_column].style
             )
         finally:
             await runtime.close()
@@ -1759,11 +1803,12 @@ async def test_tab_completes_selected_slash_command_without_submitting() -> None
             await wait_for_input_text(runtime, "/fork")
 
             assert runtime.submissions.message_queue.empty()
-            assert runtime.screen._completion_fallback_visible()
-            assert "".join(
-                text
-                for _style, text in runtime.screen._completion_fallback_fragments()
-            ).lstrip().startswith("/fork")
+            assert runtime.screen._native_completion_visible()
+            snapshot = runtime.input_model.token_menu_snapshot(
+                runtime.screen.input.buffer,
+            )
+            assert snapshot is not None
+            assert snapshot.items[0].display_text == "/fork"
         finally:
             await runtime.close()
 

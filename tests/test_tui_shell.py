@@ -79,7 +79,8 @@ async def test_ps_without_sessions_renders_command_and_empty_terminal_state() ->
     assert handled
     fragments = application.views[-1].renderable.fragments
     assert "".join(text for _style, text in fragments) == (
-        "/ps · Background terminals\n\n"
+        "/ps\n\n"
+        "Background terminals\n\n"
         "  • No background terminals running."
     )
     assert fragments[0] == ("class:prompt.command.slash", "/ps")

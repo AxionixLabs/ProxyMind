@@ -551,7 +551,10 @@ class TuiInputModel(object):
             self.confirm_selected_skill(buffer)
 
         if buffer.document == original:
-            self.dismiss_completion_menu(buffer)
+            if slash_command_query(buffer.document) is not None:
+                self.refresh_completion_menu(buffer, selected_text=completion.text)
+            else:
+                self.dismiss_completion_menu(buffer)
         elif completion.text in SKILL_SIGILS:
             buffer.start_completion(
                 select_first=False,
@@ -563,6 +566,10 @@ class TuiInputModel(object):
                 buffer.document,
             )
             buffer.on_suggestion_set.fire()
+        elif slash_command_query(buffer.document) is not None:
+            # 让已接受的前缀命令与精确命令继续使用同一个原生菜单。
+            # 上面的参数命令已经插入分隔空格，因此不会进入此分支。
+            self.refresh_completion_menu(buffer, selected_text=completion.text)
 
     def _promote_shell_prefix(
         self,
@@ -1594,7 +1601,10 @@ class TuiInputModel(object):
         if not completions:
             buffer.cancel_completion()
             return None
-        if len(completions) == 1:
+        if (
+            len(completions) == 1
+            and slash_command_query(buffer.document) is None
+        ):
             completions = tuple(
                 completion
                 for completion in completions

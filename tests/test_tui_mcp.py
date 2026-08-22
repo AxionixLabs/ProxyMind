@@ -538,10 +538,15 @@ def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
 
     mcp.render_mcp_status(mind)
 
-    text = views[0].renderable.plain_text
+    text = "".join(
+        value for _style, value in views[0].renderable.fragments
+    )
     assert max(map(len, text.splitlines())) <= width
     assert all(name in text for name in names)
     assert "    • Tools: browser_click," in text
     assert "      browser_wait_for" in text
     assert ("fg:#DDE7EF", "    • Tools: ") in views[0].renderable.fragments
-    assert ("dim fg:#7F8C9A", "browser_click,") in views[0].renderable.fragments
+    assert (
+        "dim fg:#7F8C9A",
+        "browser_click, browser_close,",
+    ) in views[0].renderable.fragments

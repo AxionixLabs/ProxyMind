@@ -498,6 +498,12 @@ class SlashCommandCompleter(Completer):
         if len(completions) > 1:
             return completions
 
+        # 非立即派发的 slash 命令让精确候选与前缀候选共用同一个 popup。
+        # Enter 提交未改写的命令，Tab 保持 popup；`/skills` 仍是立即派发的
+        # 特例。fallback 渲染器会产生不同的列布局和对齐位置。
+        if slash_command_query(document) is not None:
+            return completions
+
         return tuple(
             completion
             for completion in completions

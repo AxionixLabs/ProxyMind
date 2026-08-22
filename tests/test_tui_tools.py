@@ -76,9 +76,26 @@ def test_tools_summary_uses_supplied_catalog_without_implicit_filtering() -> Non
         viewport=SimpleNamespace(width=120),
     )
     tools = [
-        {"name": "apply_patch", "meta": {"domain": "coding"}},
-        {"name": "plan_steps", "meta": {"domain": "client", "class": "loop"}},
-        {"name": "update_plan", "meta": {"domain": "client", "class": "plan"}},
+        {
+            "name": "apply_patch",
+            "meta": {"client_builtin": True, "domain": "coding"},
+        },
+        {
+            "name": "plan_steps",
+            "meta": {
+                "client_builtin": True,
+                "domain": "client",
+                "class": "loop",
+            },
+        },
+        {
+            "name": "update_plan",
+            "meta": {
+                "client_builtin": True,
+                "domain": "client",
+                "class": "plan",
+            },
+        },
     ]
 
     render_tools_summary(application=application, tools=tools)

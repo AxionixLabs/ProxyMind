@@ -271,7 +271,7 @@ def test_provider_completion_opens_bare_secondary_menu() -> None:
 
 def test_complete_command_remains_available_to_the_menu() -> None:
     assert [item.display_text for item in _completions("/mc")] == ["/mcp"]
-    assert _completions("/mcp") == []
+    assert [item.display_text for item in _completions("/mcp")] == ["/mcp"]
     assert [
         item.display_text for item in _slash_completions("/mcp")
     ] == ["/mcp"]
