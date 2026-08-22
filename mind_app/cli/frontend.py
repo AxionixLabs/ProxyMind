@@ -72,7 +72,6 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         JsonApplicationSink,
     )
     from mind_app.output.jsonl import create_json_output_session
-    from mind_app.output.rich import create_rich_output_session
     from mind_app.output.text import create_text_output_session
 
     if output_mode == "json":
@@ -83,18 +82,11 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         )
 
     application = ConsoleApplicationSink()
-    if output_mode == "rich":
-        session_factory = functools.partial(
-            create_rich_output_session,
-            console=application.console,
-        )
-    else:
-        session_factory = create_text_output_session
 
     return Frontend(
         application=application,
         interaction=NonInteractiveInteraction(),
-        session_factory=session_factory
+        session_factory=create_text_output_session,
     )
 
 
@@ -107,8 +99,7 @@ def resolve_cli_design(
         return None
     from mind_core.design import Design
 
-    console = getattr(frontend.application, "console", None)
-    return Design(console=console)
+    return Design()
 
 
 if __name__ == '__main__':

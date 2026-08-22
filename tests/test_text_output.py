@@ -6,16 +6,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind_app.cli import entry
-from mind_app.cli.commands import (
-    AgentListenCommand,
-    ExecCommand,
-    RuntimeUpgradeCommand,
-)
-from mind_app.cli.entry import (
-    command_requests_outro,
-    emit_entry_outro,
-)
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.output.text import (
     ANSI_BOLD,
@@ -398,20 +388,6 @@ async def test_text_hidden_output_is_safe_for_display_logs() -> None:
     assert "".join(record.parts) == "47031FDAQ001MK  device"
 
 
-def test_only_interactive_rich_commands_request_entry_outro() -> None:
-    terminal = SimpleNamespace(isatty=lambda: True)
-
-    assert not command_requests_outro(
-        AgentListenCommand(),
-        output_stream=terminal,
-    )
-    assert command_requests_outro(RuntimeUpgradeCommand(), output_stream=terminal)
-    assert not command_requests_outro(
-        ExecCommand(prompt="hello"),
-        output_stream=terminal,
-    )
-
-
 def test_elapsed_footer_uses_finished_label() -> None:
     footer = worked_footer_text(1.25, width=40)
 
@@ -427,25 +403,6 @@ def test_elapsed_footer_emits_responsive_line_metadata() -> None:
     worked = application.views[0]
     assert worked.type == "run.worked"
     assert worked.payload == {"line_fill_character": "─"}
-
-
-def test_non_interactive_rich_mode_disables_entry_outro() -> None:
-    output = SimpleNamespace(isatty=lambda: False)
-
-    assert not command_requests_outro(
-        AgentListenCommand(),
-        output_stream=output,
-    )
-
-
-def test_tui_agent_listen_does_not_emit_rich_outro(monkeypatch) -> None:
-    application = _Application()
-    terminal = SimpleNamespace(isatty=lambda: True)
-    monkeypatch.setattr(entry, "_entry_application", lambda _command: application)
-
-    emit_entry_outro(AgentListenCommand(), output_stream=terminal)
-
-    assert application.views == []
 
 
 @pytest.mark.anyio

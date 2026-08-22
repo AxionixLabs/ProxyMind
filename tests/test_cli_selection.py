@@ -459,11 +459,9 @@ def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
     invocation = CliInvocation(command=command)
     parse = Mock(return_value=invocation)
     route = AsyncMock(return_value=0)
-    outro = Mock()
 
     monkeypatch.setattr(entry, "parse_cli_invocation", parse)
     monkeypatch.setattr(entry, "main", route)
-    monkeypatch.setattr(entry, "emit_entry_outro", outro)
 
     result = entry.run(
         entry_file=str(tmp_path / "mind.py"),
@@ -478,7 +476,6 @@ def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
         config_overrides=(),
         config_profile=None,
     )
-    outro.assert_called_once_with(command)
 
 
 def test_exec_reads_prompt_from_standard_input() -> None:
@@ -837,14 +834,14 @@ async def test_failed_exec_sets_nonzero_exit_code() -> None:
     assert mind.exit_code == 1
 
 
-def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
+def test_upgrade_uses_text_frontend_without_tui_runtime() -> None:
     command = RuntimeUpgradeCommand()
 
     output_mode = resolve_cli_output_mode(command)
     frontend = resolve_cli_frontend(output_mode)
     design = resolve_cli_design(frontend, output_mode)
 
-    assert output_mode == "rich"
+    assert output_mode == "text"
     assert isinstance(frontend.application, ConsoleApplicationSink)
     assert isinstance(frontend.runtime, PassiveFrontendRuntime)
     assert design is not None
@@ -858,7 +855,7 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
         (ExecCommand(prompt="inspect"), "text"),
         (ExecCommand(prompt="inspect", output_format="json"), "json"),
         (AgentListenCommand(), "tui"),
-        (RuntimeUpgradeCommand(), "rich"),
+        (RuntimeUpgradeCommand(), "text"),
         (DoctorCommand(), "text"),
         (DoctorCommand(output_format="json"), "json"),
         (McpListCommand(), "text"),
@@ -1056,7 +1053,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     )
 
     assert result == 0
-    assert application_views == ["intro"]
+    assert application_views == []
     assert len(upgrade_calls) == 1
     _context, kwargs = upgrade_calls[0]
     assert kwargs["explicit_upgrade"] is True

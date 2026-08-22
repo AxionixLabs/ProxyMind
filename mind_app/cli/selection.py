@@ -19,7 +19,6 @@ from .commands import (
 
 OutputMode = typing.Literal[
     "tui",
-    "rich",
     "text",
     "json"
 ]
@@ -33,7 +32,7 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
         case McpAddCommand() | McpRemoveCommand() | McpSetEnabledCommand():
             return "text"
         case RuntimeUpgradeCommand():
-            return "rich"
+            return "text"
         case ExecCommand() as output_command:
             return output_command.output_format
         case AgentListenCommand() | InteractiveCommand() | ResumeCommand():
@@ -44,7 +43,7 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
 
 def output_mode_uses_animation(mode: OutputMode) -> bool:
     """判断命令行输出模式是否使用终端动态展示。"""
-    return mode in {"tui", "rich"}
+    return mode == "tui"
 
 
 if __name__ == '__main__':

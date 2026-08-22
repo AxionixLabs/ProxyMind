@@ -14,7 +14,7 @@ class IntroFrame(object):
 
 
 def intro_frames(title: str) -> tuple[IntroFrame, ...]:
-    """生成 Rich 与 TUI 共用的启动标题帧计划。"""
+    """生成 TUI 启动标题使用的帧计划。"""
     title_length = len(str(title or ""))
 
     frames = [

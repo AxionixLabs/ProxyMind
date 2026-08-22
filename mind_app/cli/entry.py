@@ -88,14 +88,16 @@ class _InterruptController(object):
 
 def _entry_application(command: ParsedCommand) -> "ApplicationSink":
     """创建入口异常和退场展示使用的输出端。"""
-    from rich.console import Console
     from mind_app.frontend.sinks import (
         ConsoleApplicationSink,
         JsonApplicationSink
     )
 
     if isinstance(command, McpServerCommand):
-        return ConsoleApplicationSink(Console(file=sys.stderr))
+        return ConsoleApplicationSink(
+            console=sys.stderr,
+            error_console=sys.stderr,
+        )
     if command_requests_json(command):
         return JsonApplicationSink(sys.stdout)
 
@@ -113,36 +115,6 @@ def command_requests_json(command: ParsedCommand) -> bool:
         ))
         and command.output_format == "json"
     )
-
-
-def command_requests_outro(
-    command: ParsedCommand,
-    *,
-    output_stream: object | None = None
-) -> bool:
-    """判断命令是否需要 Rich 退场展示。"""
-    if not isinstance(command, RuntimeUpgradeCommand):
-        return False
-
-    from .frontend import stream_is_interactive
-
-    stream = sys.stdout if output_stream is None else output_stream
-
-    return stream_is_interactive(stream)
-
-
-def emit_entry_outro(
-    command: ParsedCommand,
-    *,
-    output_stream: object | None = None
-) -> None:
-    """为需要动态展示的命令发送退场视图。"""
-    if not command_requests_outro(command, output_stream=output_stream):
-        return None
-
-    from mind_app.frontend.contracts import ApplicationView
-
-    _entry_application(command).emit(ApplicationView(type="outro"))
 
 
 def emit_entry_failure(
@@ -284,17 +256,14 @@ def run(
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")
-        emit_entry_outro(command)
         return 1
     except (KeyboardInterrupt, asyncio.CancelledError):
         emit_entry_interruption(command)
-        emit_entry_outro(command)
         return 130
     finally:
         if interrupts is not None:
             interrupts.restore(previous_interrupt_handler)
 
-    emit_entry_outro(command)
     return exit_code
 
 

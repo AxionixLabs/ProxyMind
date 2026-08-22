@@ -2,11 +2,33 @@
 
 import asyncio
 import threading
+from unittest.mock import AsyncMock
 
 import pytest
 
 from engine import upgrade as upgrade_module
 from engine.upgrade import Upgrade
+from mind_core.design import Design
+from mind_core.design import facade as design_facade
+
+
+@pytest.mark.anyio
+async def test_download_animation_remains_the_terminal_design_boundary(
+    monkeypatch,
+) -> None:
+    render = AsyncMock()
+    console = object()
+    stop_event = asyncio.Event()
+    state = {"stage": "downloading"}
+    monkeypatch.setattr(design_facade, "design_download_animation", render)
+
+    await Design(console=console).download_animation(state, stop_event)
+
+    render.assert_awaited_once_with(
+        console=console,
+        state=state,
+        stop_event=stop_event,
+    )
 
 
 @pytest.mark.anyio

@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
+import sys
 import json
+import shutil
 import typing
-from rich.console import Console
-from mind_core.design import Design
-from mind_app.presentation.models import StyledBlock
-from mind_app.presentation.rich.styles import rich_style
+from mind_app.presentation.models import (
+    StyledBlock,
+    TextStyle
+)
+from mind_app.presentation.terminal_text import sanitize_styled_block
 from mind_nova import const
 from .contracts import (
     ApplicationSink,
@@ -14,60 +18,143 @@ from .contracts import (
     Viewport
 )
 
+ANSI_RESET = "\x1b[0m"
+
+
+def _stream(value: object | None, fallback: typing.TextIO) -> typing.TextIO:
+    """从兼容的终端对象中提取纯文本流。"""
+    if value is None:
+        return fallback
+    candidate = getattr(value, "file", value)
+    return candidate if callable(getattr(candidate, "write", None)) else fallback
+
+
+def _supports_color(stream: typing.TextIO) -> bool:
+    """判断应用级输出是否可以使用 ANSI 样式。"""
+    if "NO_COLOR" in os.environ:
+        return False
+    if os.environ.get("FORCE_COLOR") not in {None, "", "0"}:
+        return True
+    isatty = getattr(stream, "isatty", None)
+    return bool(isatty()) if callable(isatty) else False
+
+
+def _ansi_style(style: TextStyle) -> str:
+    """把中立样式转换为 ANSI 前缀。"""
+    codes: list[str] = []
+    if style.bold:
+        codes.append("1")
+    if style.dim:
+        codes.append("2")
+    if style.italic:
+        codes.append("3")
+    if style.underline:
+        codes.append("4")
+    if style.reverse:
+        codes.append("7")
+    if style.strikethrough:
+        codes.append("9")
+    if style.foreground:
+        color = _ansi_color(style.foreground, background=False)
+        if color:
+            codes.append(color)
+    if style.background:
+        color = _ansi_color(style.background, background=True)
+        if color:
+            codes.append(color)
+    return f"\x1b[{';'.join(codes)}m" if codes else ""
+
+
+def _ansi_color(value: str, *, background: bool) -> str | None:
+    """把十六进制颜色转换为 ANSI 真彩色代码。"""
+    text = str(value or "").strip()
+    if len(text) != 7 or not text.startswith("#"):
+        return None
+    try:
+        red, green, blue = (
+            int(text[index:index + 2], 16)
+            for index in (1, 3, 5)
+        )
+    except ValueError:
+        return None
+    channel = 48 if background else 38
+    return f"{channel};2;{red};{green};{blue}"
+
+
+def _write(stream: typing.TextIO, text: str) -> None:
+    """写入并刷新应用级文本。"""
+    stream.write(text)
+    stream.flush()
+
 
 class ConsoleApplicationSink(ApplicationSink):
-    """通过指定终端控制台输出应用级展示数据。"""
+    """通过纯文本流输出应用级展示数据。"""
 
     def __init__(
         self,
-        console: Console | None = None,
-        error_console: Console | None = None
+        console: object | None = None,
+        error_console: object | None = None,
     ) -> None:
-        self.console       = console or Console()
-        self.error_console = error_console or Console(stderr=True)
+        # 保留属性名作为现有组合根的稳定标识，但不再依赖 Rich。
+        self.console = console or sys.stdout
+        self.error_console = error_console or sys.stderr
+        self._stream = _stream(self.console, sys.stdout)
+        self._error_stream = _stream(self.error_console, sys.stderr)
 
     @property
     def viewport(self) -> Viewport:
-        """返回控制台当前尺寸。"""
-        return Viewport(
-            width=getattr(self.console, "width", None),
-            height=getattr(self.console, "height", None),
-        )
+        """返回当前终端尺寸。"""
+        size = shutil.get_terminal_size(fallback=(80, 24))
+        return Viewport(width=size.columns, height=size.lines)
 
     def emit(self, view: ApplicationView) -> None:
         """输出一项应用级终端展示。"""
-        if view.type == "intro":
-            Design.show_intro(self.console)
-            return None
-        if view.type == "outro":
-            Design.show_outro(self.console)
-            return None
-        if view.type == "startup_logo":
-            Design.startup_logo(self.console)
-            return None
-        console = (
-            self.error_console
+        stream = (
+            self._error_stream
             if view.payload.get("stream") == "stderr"
-            else self.console
+            else self._stream
         )
+        color = _supports_color(stream)
+
+        if view.type in {"intro", "outro", "startup_logo", "spacer"}:
+            return None
         if view.type == "error":
-            console.print(const.PRINT_HEAD, f"{const.ERR}{view.renderable}")
+            head = f"{const.APP_DESC} ::"
+            label = "ERROR"
+            if color:
+                head_style = _ansi_style(TextStyle(
+                    foreground="#8B8B8B",
+                    bold=True,
+                ))
+                label_style = _ansi_style(TextStyle(
+                    foreground="#FFFFFF",
+                    background="#FF6347",
+                    bold=True,
+                ))
+                head = f"{head_style}{head}{ANSI_RESET}"
+                label = f"{label_style} {label} {ANSI_RESET}"
+            _write(stream, f"{head} {label}: {view.renderable}\n")
             return None
         if view.type == "json" and isinstance(view.renderable, dict):
-            console.print_json(data=view.renderable)
+            _write(stream, json.dumps(
+                view.renderable,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            ) + "\n")
             return None
         if isinstance(view.renderable, StyledBlock):
-            from rich.text import Text
-
-            out = Text()
-            if view.renderable.spans:
-                for span in view.renderable.spans:
-                    out.append(span.text, style=rich_style(span.style))
-            else:
-                out.append(view.renderable.plain_text)
-            console.print(out, end=view.end)
+            block = sanitize_styled_block(view.renderable)
+            parts: list[str] = []
+            for span in block.spans or ():
+                prefix = _ansi_style(span.style) if color else ""
+                suffix = ANSI_RESET if prefix else ""
+                parts.append(f"{prefix}{span.text}{suffix}")
+            _write(stream, "".join(parts) or block.plain_text)
+            if view.end:
+                _write(stream, view.end)
             return None
-        console.print(view.renderable or "", end=view.end)
+        _write(stream, f"{view.renderable or ''}{view.end}")
 
 
 class JsonApplicationSink(ApplicationSink):

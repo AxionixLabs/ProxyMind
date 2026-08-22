@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from rich.console import Console
 
 from mind_app.cli import bootstrap
 from mind_app.cli.commands import (
@@ -21,6 +20,7 @@ from mind_app.frontend.sinks import (
     ConsoleApplicationSink,
     JsonApplicationSink,
 )
+from mind_app.frontend.contracts import ApplicationView
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime
@@ -916,10 +916,7 @@ def test_trusted_project_automation_has_no_skip_warning(tmp_path) -> None:
 def test_startup_warning_uses_stderr_and_structured_json() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
-    human = ConsoleApplicationSink(
-        Console(file=stdout, force_terminal=False),
-        Console(file=stderr, force_terminal=False),
-    )
+    human = ConsoleApplicationSink(stdout, stderr)
 
     bootstrap._emit_startup_warnings(
         SimpleNamespace(application=human),
@@ -942,6 +939,15 @@ def test_startup_warning_uses_stderr_and_structured_json() -> None:
         "type": "config.warning",
         "message": "project automation was skipped",
     }
+
+
+def test_console_application_error_does_not_emit_rich_markup() -> None:
+    output = io.StringIO()
+    application = ConsoleApplicationSink(output, output)
+
+    application.emit(ApplicationView(type="error", renderable="failed"))
+
+    assert output.getvalue() == "Mind :: ERROR: failed\n"
 
 
 if __name__ == '__main__':

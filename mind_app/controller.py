@@ -748,12 +748,6 @@ class Mind(object):
 
         return self.inspect_hooks(workspace=target_workspace)
 
-    def require_design(self) -> TerminalDesign:
-        """返回非 TUI 终端设计能力。"""
-        if self.design is None:
-            raise RuntimeError("terminal design is unavailable for this frontend")
-        return self.design
-
     async def _close_repl_session(self, session_id: str) -> None:
         """关闭指定执行会话持有的 JavaScript Kernel。"""
         await self.native_coding.close_js_repl_session(session_id)
@@ -1218,13 +1212,7 @@ class Mind(object):
             return None
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_wait_status()
-            return None
-
-        design = self.require_design()
-
-        await self.anim_manager.start(
-            lambda stop_event: design.stream_wait_live(stop_event)
-        )
+        return None
 
     async def start_upload_anim(
         self,
@@ -1235,13 +1223,7 @@ class Mind(object):
             return None
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_upload_status(snapshot)
-            return None
-
-        design = self.require_design()
-
-        await self.anim_manager.start(
-            lambda stop_event: design.upload_progress_live(stop_event, snapshot)
-        )
+        return None
 
     async def start_inbuild_startup_anim(
         self,
@@ -1252,13 +1234,7 @@ class Mind(object):
             return None
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_inbuild_status(snapshot)
-            return None
-
-        design = self.require_design()
-
-        await self.anim_manager.start(
-            lambda stop_event: design.inbuild_startup_live(stop_event, snapshot)
-        )
+        return None
 
     async def start_external_mcp_anim(
         self,
@@ -1269,13 +1245,7 @@ class Mind(object):
             return None
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_external_mcp_status(snapshot)
-            return None
-
-        design = self.require_design()
-
-        await self.anim_manager.start(
-            lambda stop_event: design.external_mcp_live(stop_event, snapshot)
-        )
+        return None
 
     async def start_compact_anim(
         self,
@@ -1286,13 +1256,7 @@ class Mind(object):
             return None
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_compact_status(snapshot)
-            return None
-
-        design = self.require_design()
-
-        await self.anim_manager.start(
-            lambda stop_event: design.external_mcp_live(stop_event, snapshot)
-        )
+        return None
 
     async def with_mcp_session(
         self,
