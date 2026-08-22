@@ -179,6 +179,41 @@ def test_profile_can_switch_mcp_transport(tmp_path) -> None:
     }
 
 
+def test_permission_update_reports_profile_shadow_before_write(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.ensure()
+    (tmp_path / "remote.config.toml").write_text(
+        'sandbox_mode = "read-only"\n',
+        encoding="utf-8",
+    )
+    session = ConfigSession(store, profile="remote")
+
+    with pytest.raises(ConfigStoreError, match="shadowed"):
+        session.update_user(
+            {("sandbox_mode",): "workspace-write"},
+            ensure_effective={("sandbox_mode",): "workspace-write"},
+        )
+
+    assert store.read_raw().get("sandbox_mode") != "workspace-write"
+
+
+def test_permission_update_reports_cli_shadow_before_write(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.ensure()
+    session = ConfigSession(
+        store,
+        (config_override(("sandbox_mode",), "read-only"),),
+    )
+
+    with pytest.raises(ConfigStoreError, match="shadowed"):
+        session.update_user(
+            {("sandbox_mode",): "workspace-write"},
+            ensure_effective={("sandbox_mode",): "workspace-write"},
+        )
+
+    assert store.read_raw().get("sandbox_mode") != "workspace-write"
+
+
 def test_unknown_config_field_is_rejected() -> None:
     with pytest.raises(ConfigValidationError, match="config.typo"):
         normalize_config({"typo": True})

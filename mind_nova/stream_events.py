@@ -191,11 +191,41 @@ class ToolApprovalRequiredEvent(ToolEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ToolApprovalReviewEvent(StreamEvent):
+    """描述服务端自动审批的持久裁决和解释。"""
+    name: str = ""
+    call_id: str = ""
+    arguments: dict[str, typing.Any] = field(default_factory=dict)
+    approval: dict[str, typing.Any] = field(default_factory=dict)
+    reviewer: str = "auto_review"
+    decision: typing.Literal["allow", "deny", "failed"] = "failed"
+    status: typing.Literal["approved", "denied", "failed"] = "failed"
+    rationale: str = ""
+    failure_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        """复制自动审批事件中的可变映射字段。"""
+        object.__setattr__(self, "arguments", copy.deepcopy(dict(self.arguments or {})))
+        object.__setattr__(self, "approval", copy.deepcopy(dict(self.approval or {})))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ToolCallEvent(ToolEvent):
     """描述服务端下发的客户端工具调用。"""
     approval_id: str = ""
     approved: bool = False
     approval_required: bool = False
+    approval: dict[str, typing.Any] | None = None
+
+    def __post_init__(self) -> None:
+        """复制已批准调用携带的审批证明。"""
+        ToolEvent.__post_init__(self)
+        if self.approval is not None:
+            object.__setattr__(
+                self,
+                "approval",
+                copy.deepcopy(dict(self.approval)),
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -378,6 +408,25 @@ def parse_stream_event(
             **_tool_fields(raw),
             approval=_dict(raw.get("approval")),
         )
+    if event_type == "tool.approval_review":
+        decision = _text(raw.get("decision") or "failed").lower()
+        status = _text(raw.get("status") or "failed").lower()
+        if decision not in {"allow", "deny", "failed"}:
+            raise ValueError("tool.approval_review decision is invalid")
+        if status not in {"approved", "denied", "failed"}:
+            raise ValueError("tool.approval_review status is invalid")
+        return ToolApprovalReviewEvent(
+            **common,
+            name=_text(raw.get("name") or raw.get("tool")),
+            call_id=_text(raw.get("call_id")),
+            arguments=_dict(raw.get("arguments")),
+            approval=_dict(raw.get("approval")),
+            reviewer=_text(raw.get("reviewer") or "auto_review"),
+            decision=typing.cast(typing.Literal["allow", "deny", "failed"], decision),
+            status=typing.cast(typing.Literal["approved", "denied", "failed"], status),
+            rationale=_text(raw.get("rationale")),
+            failure_reason=_optional_text(raw.get("failure_reason")),
+        )
     if event_type == "tool.call":
         tool_fields = _tool_fields(raw)
 
@@ -391,6 +440,11 @@ def parse_stream_event(
             approval_id=_text(raw.get("approval_id")),
             approved=_truthy(raw.get("approved")),
             approval_required=_approval_required(raw),
+            approval=(
+                _dict(raw.get("approval"))
+                if isinstance(raw.get("approval"), Mapping)
+                else None
+            ),
         )
 
     if event_type == "tool.output":

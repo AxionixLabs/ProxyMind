@@ -63,7 +63,9 @@ class ConfigSession(object):
 
     def update_user(
         self,
-        values: dict[tuple[str, ...], object]
+        values: dict[tuple[str, ...], object],
+        *,
+        ensure_effective: dict[tuple[str, ...], object] | None = None,
     ) -> dict[str, typing.Any]:
         """完整校验后更新用户级配置并返回有效快照。"""
         validated = {
@@ -72,7 +74,10 @@ class ConfigSession(object):
         }
         self.store.update(
             validated,
-            validate=self._validate_user_candidate,
+            validate=lambda candidate: self._validate_user_candidate(
+                candidate,
+                expected_effective=ensure_effective,
+            ),
         )
         return self.load()
 
@@ -132,9 +137,24 @@ class ConfigSession(object):
     def _validate_user_candidate(
         self,
         candidate: dict[str, object],
+        *,
+        expected_effective: dict[tuple[str, ...], object] | None = None,
     ) -> None:
         """验证候选用户配置在当前分层上下文中有效。"""
-        self.resolver.resolve_user_config(dict(candidate))
+        resolution = self.resolver.resolve_user_config(dict(candidate))
+        for path, expected in (expected_effective or {}).items():
+            actual: object = resolution.config
+            for part in path:
+                if not isinstance(actual, dict):
+                    actual = None
+                    break
+                actual = actual.get(part)
+            if actual != expected:
+                dotted_path = ".".join(path)
+                raise ConfigStoreError(
+                    f"configuration update is shadowed by the active profile "
+                    f"or CLI overrides: {dotted_path}"
+                )
 
 
 if __name__ == "__main__":

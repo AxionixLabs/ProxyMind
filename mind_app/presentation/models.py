@@ -27,6 +27,7 @@ ApprovalSource = typing.Literal[
     "user",
     "hook",
     "policy",
+    "auto_review",
 ]
 
 ProgressSource = typing.Literal[

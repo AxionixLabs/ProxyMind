@@ -33,6 +33,7 @@ from mind_nova.stream_events import (
     PresentationSupersededEvent,
     StreamEvent,
     ToolApprovalRequiredEvent,
+    ToolApprovalReviewEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
     ToolEvent,
@@ -1068,6 +1069,19 @@ async def stream_turn(
                     await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
+            if isinstance(event, ToolApprovalReviewEvent):
+                approval = dict(event.approval)
+                if event.rationale:
+                    approval["rationale"] = event.rationale
+                if event.failure_reason:
+                    approval["failure_reason"] = event.failure_reason
+                await presentation.emit(build_approval_view(
+                    approval,
+                    decision="accept" if event.status == "approved" else "decline",
+                    source="auto_review",
+                ))
+                continue
+
             if isinstance(event, ToolCallEvent):
                 name      = event.name
                 arguments = dict(event.arguments)
@@ -1142,6 +1156,13 @@ async def stream_turn(
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
+
+                if event.approved and event.approval:
+                    approvals.mark_decision(
+                        call_id=event.call_id,
+                        approval=event.approval,
+                        decision="accept",
+                    )
 
                 approval_decision = validate_tool_approval(
                     event=event,

@@ -54,19 +54,19 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
 
     assert summary.type == "tui.tools.summary"
     assert text == (
-        "/tools · 3 available · built-in=2 · external=1\n\n"
-        "🔌  Built-in Tools · 2\n\n"
-        f"  • {const.APP_DESC} Native · in-process · 2\n"
+        "/tools\n\n"
+        "🔌  Tools\n\n"
+        f"  • {const.APP_DESC} Native\n"
         "    • Auth: N/A\n"
+        "    • Transport: in-process\n"
         "    • Tools: apply_patch, shell_command\n\n"
-        "🔌  External MCP Tools · 1\n\n"
-        "  • search · stdio · 1\n"
+        "  • search\n"
         "    • Auth: Unsupported\n"
+        "    • Transport: stdio\n"
         "    • Tools: external_search"
     )
     assert summary.renderable.fragments[0] == ("fg:ansimagenta", "/tools")
-    assert ("bold", "Built-in Tools") in summary.renderable.fragments
-    assert ("bold", "External MCP Tools") in summary.renderable.fragments
+    assert ("bold", "🔌  Tools") in summary.renderable.fragments
     assert gap.type == "tui.gap"
 
 
@@ -86,10 +86,29 @@ def test_tools_summary_uses_supplied_catalog_without_implicit_filtering() -> Non
     summary = application.emit.call_args_list[0].args[0]
     text = "".join(value for _style, value in summary.renderable.fragments)
 
-    assert "3 available" in text
+    assert "🔌  Tools" in text
+    assert f"  • {const.APP_DESC} Native" in text
     assert "apply_patch" in text
     assert "update_plan" in text
     assert "plan_steps" in text
+
+
+def test_tools_summary_renders_empty_state_in_codex_layout() -> None:
+    application = SimpleNamespace(
+        emit=Mock(),
+        viewport=SimpleNamespace(width=120),
+    )
+
+    render_tools_summary(application=application, tools=[])
+
+    summary = application.emit.call_args_list[0].args[0]
+    text = "".join(value for _style, value in summary.renderable.fragments)
+
+    assert text == (
+        "/tools\n\n"
+        "🔌  Tools\n\n"
+        "  • No tools available."
+    )
 
 
 def test_tools_summary_wraps_tool_names_with_hanging_indent() -> None:

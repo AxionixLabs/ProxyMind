@@ -182,75 +182,48 @@ def render_tools_summary(
 ) -> None:
     """打印当前会话可见工具摘要。"""
     groups = summarize_tool_groups(tools)
-    total  = sum(len(item["tools"]) for item in groups)
     width  = _terminal_width(application, terminal_width)
-
-    builtin_total = sum(
-        len(item["tools"]) for item in groups
-        if item["source"] == "builtin"
-    )
-    external_total = sum(
-        len(item["tools"]) for item in groups
-        if item["source"] == "external"
-    )
 
     parts = [
         TextSpan("/tools", TOOLS_COMMAND_STYLE),
-        TextSpan(" · ", TOOLS_SECONDARY_STYLE),
-        TextSpan(
-            f"{total} available · built-in={builtin_total} · external={external_total}",
-            TOOLS_SECONDARY_STYLE,
-        ),
+        TextSpan("\n\n", TOOLS_TEXT_STYLE),
+        TextSpan("🔌  Tools", TOOLS_HEADING_STYLE),
+        TextSpan("\n\n", TOOLS_TEXT_STYLE),
     ]
 
     if not groups:
-        parts.extend([
-            TextSpan("\n"),
-            TextSpan("No visible tools.", TOOLS_EMPTY_STYLE),
-        ])
+        parts.append(TextSpan(
+            "  • No tools available.",
+            TOOLS_EMPTY_STYLE,
+        ))
+    else:
+        for index, group in enumerate(groups):
+            if index:
+                parts.append(TextSpan("\n\n", TOOLS_TEXT_STYLE))
 
-    current_source: str | None = None
-    for group in groups:
-        names  = group["tools"]
-        label  = group["label"]
-        detail = group["detail"]
-        source = group["source"]
-        auth   = group["auth"]
+            names  = group["tools"]
+            label  = group["label"]
+            detail = group["detail"]
+            auth   = group["auth"]
 
-        if source != current_source:
-            section = (
-                "Built-in Tools"
-                if source == "builtin"
-                else "External MCP Tools"
-            )
-            section_total = sum(
-                len(item["tools"])
-                for item in groups
-                if item["source"] == source
-            )
             parts.extend([
-                TextSpan("\n\n🔌  ", TOOLS_TEXT_STYLE),
-                TextSpan(section, TOOLS_HEADING_STYLE),
-                TextSpan(f" · {section_total}", TOOLS_SECONDARY_STYLE),
+                TextSpan("  • ", TOOLS_TEXT_STYLE),
+                TextSpan(label, TOOLS_TEXT_STYLE),
+                TextSpan("\n    • Auth: ", TOOLS_TEXT_STYLE),
+                TextSpan(auth, TOOLS_TEXT_STYLE),
+                TextSpan("\n    • Transport: ", TOOLS_TEXT_STYLE),
+                TextSpan(detail, TOOLS_TEXT_STYLE),
             ])
-            current_source = source
 
-        parts.extend([
-            TextSpan("\n\n  • ", TOOLS_TEXT_STYLE),
-            TextSpan(label, TOOLS_TEXT_STYLE),
-            TextSpan(f" · {detail} · {len(names)}", TOOLS_SECONDARY_STYLE),
-            TextSpan("\n    • Auth: ", TOOLS_TEXT_STYLE),
-            TextSpan(auth, TOOLS_TEXT_STYLE),
-        ])
-        for line in _tool_name_lines(
-            names,
-            terminal_width=width,
-            limit=limit,
-        ):
-            parts.extend([
-                TextSpan("\n", TOOLS_TEXT_STYLE),
-                TextSpan(line, TOOLS_TEXT_STYLE),
-            ])
+            for line in _tool_name_lines(
+                names,
+                terminal_width=width,
+                limit=limit,
+            ):
+                parts.extend([
+                    TextSpan("\n", TOOLS_TEXT_STYLE),
+                    TextSpan(line, TOOLS_TEXT_STYLE),
+                ])
 
     application.emit(ApplicationView(
         type="tui.tools.summary",

@@ -11,6 +11,7 @@ from engine.observability import observe_exception
 from mind_core.permissions import PermissionSettings
 from mind_nova.requests.permissions import (
     normalize_approval_policy,
+    normalize_approval_reviewer,
     normalize_sandbox_mode
 )
 from mind_app.paths import agent_graph_db_path
@@ -398,6 +399,7 @@ def _record_payload(record: AgentGraphRecord) -> dict[str, typing.Any]:
             "permissions": {
                 "sandbox_mode": thread.permissions.sandbox_mode,
                 "approval_policy": thread.permissions.approval_policy,
+                "approvals_reviewer": thread.permissions.approvals_reviewer,
             },
             "pref_config": thread.config_snapshot(),
             "spawn_turn_id": thread.spawn_turn_id,
@@ -578,6 +580,9 @@ def _thread_from_payload(payload: typing.Any) -> AgentThreadContext:
             ),
             approval_policy=normalize_approval_policy(
                 permission_data.get("approval_policy")
+            ),
+            approvals_reviewer=normalize_approval_reviewer(
+                permission_data.get("approvals_reviewer")
             ),
         ),
         pref_config=pref_config,

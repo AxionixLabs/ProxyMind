@@ -157,6 +157,7 @@ def _default_effective_config() -> dict[str, typing.Any]:
     return {
         "sandbox_mode": "",
         "approval_policy": "",
+        "approvals_reviewer": "user",
         "service" : {
             "domain" : ""
         },
@@ -208,6 +209,10 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     return {
         "sandbox_mode": _as_str(data.get("sandbox_mode")).strip(),
         "approval_policy": _as_str(data.get("approval_policy")).strip(),
+        "approvals_reviewer": (
+            _as_str(data.get("approvals_reviewer"), "user").strip()
+            or "user"
+        ),
         "service": {
             "domain": _as_str(
                 service.get("domain"),
@@ -272,6 +277,7 @@ STRING_CONFIG_PATHS = frozenset({
     ("service", "domain"),
     ("sandbox_mode",),
     ("approval_policy",),
+    ("approvals_reviewer",),
 })
 
 BOOL_CONFIG_PATHS = frozenset({
@@ -314,6 +320,7 @@ TABLE_CONFIG_PATHS = (
 ROOT_CONFIG_FIELDS = frozenset({
     "sandbox_mode",
     "approval_policy",
+    "approvals_reviewer",
     "model_provider",
     "model_providers",
     "project_root_markers",
@@ -508,6 +515,12 @@ def validate_config_value(
         }:
             raise ConfigValidationError(
                 f"{dotted} must be one of: untrusted, on-request, never"
+            )
+        if path == ("approvals_reviewer",) and value not in {
+            "user", "auto_review", "guardian_subagent"
+        }:
+            raise ConfigValidationError(
+                f"{dotted} must be one of: user, auto_review"
             )
         return None
 

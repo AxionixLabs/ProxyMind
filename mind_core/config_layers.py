@@ -51,6 +51,7 @@ PROJECT_USER_ONLY_ROOTS = frozenset({
     "projects",
     "service",
     "tui",
+    "approvals_reviewer",
 })
 
 MCP_STDIO_FIELDS = frozenset({

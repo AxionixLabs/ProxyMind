@@ -43,7 +43,7 @@ async def test_permissions_menu_uses_primary_selection_contract() -> None:
     )
     assert [option.is_current for option in request.options] == [
         False,
-        False,
+        True,
         False,
         False,
     ]

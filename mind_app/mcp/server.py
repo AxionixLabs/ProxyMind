@@ -44,6 +44,7 @@ from mind_app.runtime.hooks.registry import HookRegistry
 from mind_core.service_config import ServiceConfig
 from mind_nova.requests.permissions import (
     ApprovalPolicy,
+    ApprovalReviewer,
     SandboxMode
 )
 from mind_nova.services import service_endpoints
@@ -190,19 +191,26 @@ class MindMcpRuntime(object):
 
         request = _McpRequestState()
 
+        current_permissions = getattr(self.mind, "permissions", None)
         effective_sandbox_mode: SandboxMode = (
-            self.mind.permissions.sandbox_mode
+            getattr(current_permissions, "sandbox_mode", "read-only")
             if sandbox_mode is None
             else sandbox_mode
         )
         effective_approval_policy: ApprovalPolicy = (
-            self.mind.permissions.approval_policy
+            getattr(current_permissions, "approval_policy", "on-request")
             if approval_policy is None
             else approval_policy
+        )
+        effective_approval_reviewer: ApprovalReviewer = getattr(
+            current_permissions,
+            "approvals_reviewer",
+            "user",
         )
         permissions = PermissionSettings(
             sandbox_mode=effective_sandbox_mode,
             approval_policy=effective_approval_policy,
+            approvals_reviewer=effective_approval_reviewer,
         )
 
         try:

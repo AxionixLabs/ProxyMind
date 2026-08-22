@@ -326,25 +326,25 @@ def test_listener_result_is_a_compact_stable_block(
             False,
             False,
             0,
-            "/listen status · running=false ready=false pending=0\n"
-            "Listener transport is stopped.\n"
-            "No pending messages.",
+            "/listen status\n\n"
+            "Listener\n\n"
+            "  • Status: stopped · Pending: 0",
         ),
         (
             True,
             False,
             1,
-            "/listen status · running=true ready=false pending=1\n"
-            "Waiting for server readiness.\n"
-            "1 pending message retained in this process.",
+            "/listen status\n\n"
+            "Listener\n\n"
+            "  • Status: connecting · Pending: 1",
         ),
         (
             True,
             True,
             2,
-            "/listen status · running=true ready=true pending=2\n"
-            "Listener connected and ready.\n"
-            "2 pending messages retained in this process.",
+            "/listen status\n\n"
+            "Listener\n\n"
+            "  • Status: listening · Pending: 2",
         ),
     ),
 )

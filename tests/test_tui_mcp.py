@@ -122,6 +122,7 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
     assert summary["tool_groups"] == [{
         "server": "zentao",
         "transport": "stdio",
+        "auth": "Unknown",
         "tools": ["mcp__zentao__get_bug", "mcp__zentao__list_bug"],
         "discovered": 5,
         "exposed": 2,
@@ -457,9 +458,90 @@ def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
     assert "".join(
         text for _style, text in views[0].renderable.fragments
     ) == (
-        "/mcp status · started=false configured=2 tools=0 filtered=0\n"
-        "Configured servers\n"
-        "  • playwright (stdio · disabled)\n"
-        "  • docs (streamable_http · enabled)\n"
-        "No external MCP servers connected."
+        "/mcp status\n\n"
+        "🔌  MCP Tools\n\n"
+        "  • No MCP tools available.\n\n"
+        "  • docs\n"
+        "    • Status: enabled\n"
+        "    • Auth: Unknown\n"
+        "    • Transport: streamable_http\n"
+        "    • Tools: (none)\n\n"
+        "  • playwright\n"
+        "    • Status: disabled\n"
+        "    • Auth: Unknown\n"
+        "    • Transport: stdio\n"
+        "    • Tools: (none)"
     )
+    assert ("dim fg:#5FD7AF", "enabled") in views[0].renderable.fragments
+    assert ("dim fg:#FF6B6B", "disabled") in views[0].renderable.fragments
+
+
+def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
+    views = []
+    names = [
+        "browser_click",
+        "browser_close",
+        "browser_console_messages",
+        "browser_drag",
+        "browser_drop",
+        "browser_evaluate",
+        "browser_file_upload",
+        "browser_fill_form",
+        "browser_find",
+        "browser_handle_dialog",
+        "browser_hover",
+        "browser_navigate",
+        "browser_navigate_back",
+        "browser_network_request",
+        "browser_network_requests",
+        "browser_press_key",
+        "browser_resize",
+        "browser_run_code_unsafe",
+        "browser_select_option",
+        "browser_snapshot",
+        "browser_tabs",
+        "browser_take_screenshot",
+        "browser_type",
+        "browser_wait_for",
+    ]
+    width = 60
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=width),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        mcp,
+        "summarize_external_runtime",
+        lambda _mind: {
+            "started": True,
+            "configured": [{
+                "name": "playwright",
+                "transport": "stdio",
+                "enabled": True,
+            }],
+            "config_error": "",
+            "tool_groups": [{
+                "server": "playwright",
+                "transport": "stdio",
+                "auth": "Unknown",
+                "tools": names,
+                "filtered": 0,
+            }],
+            "tool_count": len(names),
+            "filtered_count": 0,
+        },
+    )
+
+    mcp.render_mcp_status(mind)
+
+    text = views[0].renderable.plain_text
+    assert max(map(len, text.splitlines())) <= width
+    assert all(name in text for name in names)
+    assert "    • Tools: browser_click," in text
+    assert "      browser_wait_for" in text
+    assert ("fg:#DDE7EF", "    • Tools: ") in views[0].renderable.fragments
+    assert ("dim fg:#7F8C9A", "browser_click,") in views[0].renderable.fragments

@@ -16,7 +16,10 @@ from mind_core.preference import Preferences
 from mind_core.config_session import ConfigSession
 from mind_core.agent_config import AgentSettings
 from mind_core.feature_config import FeatureSettings
-from mind_core.permissions import PermissionSettings
+from mind_core.permissions import (
+    PermissionSettings,
+    resolve_permissions
+)
 from mind_core.hooks import (
     HookDefinitionConfig,
     SessionEndReason
@@ -751,6 +754,24 @@ class Mind(object):
         })
 
         return self.inspect_hooks(workspace=target_workspace)
+
+    def apply_permissions(self, settings: PermissionSettings) -> PermissionSettings:
+        """原子保存权限设置并同步当前控制器状态。"""
+        if not isinstance(settings, PermissionSettings):
+            raise TypeError("permission settings are required")
+
+        effective_config = self.config_session.update_user({
+            ("sandbox_mode",): settings.sandbox_mode,
+            ("approval_policy",): settings.approval_policy,
+            ("approvals_reviewer",): settings.approvals_reviewer,
+        }, ensure_effective={
+            ("sandbox_mode",): settings.sandbox_mode,
+            ("approval_policy",): settings.approval_policy,
+            ("approvals_reviewer",): settings.approvals_reviewer,
+        })
+        effective = resolve_permissions(effective_config, interactive=True)
+        self.permissions = effective
+        return effective
 
     async def _close_repl_session(self, session_id: str) -> None:
         """关闭指定执行会话持有的 JavaScript Kernel。"""

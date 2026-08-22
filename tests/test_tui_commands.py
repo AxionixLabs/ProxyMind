@@ -205,6 +205,50 @@ async def test_model_commands_update_the_active_provider_profile(tmp_path) -> No
     assert effort_pref["primary"]["reasoning_effort"] == "high"
 
 
+@pytest.mark.anyio
+async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    runtime = TuiRuntime()
+    state = SimpleNamespace(
+        pref_config={"primary": {"model": "old-model"}},
+        merge_primary=Mock(),
+        apply_prompt_context=Mock(),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "persist_primary_pref",
+        AsyncMock(return_value={
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "medium",
+        }),
+    )
+
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        runtime,
+        state,
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/model gpt-5.6-sol")
+
+    assert action is DispatchAction.HANDLED
+    result = next(
+        view for view in views
+        if view.type == "tui.output" and view.renderable is not None
+    )
+    assert "".join(text for _style, text in result.renderable.fragments) == (
+        "• Model changed to gpt-5.6-sol medium"
+    )
+
+
 def test_helix_prefix_keeps_command_order() -> None:
     completions = _completions("/h")
 

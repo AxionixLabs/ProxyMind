@@ -33,6 +33,7 @@ TableLocation = tuple[Table, ConfigBody | None]
 
 DEFAULT_CONFIG_TEXT = f"""model_provider = "{DEFAULT_PROVIDER_ID}"
 project_root_markers = [".git"]
+approvals_reviewer = "user"
 
 [model_providers.{DEFAULT_PROVIDER_ID}]
 name = "{DEFAULT_PROVIDER_ID}"

@@ -6,6 +6,7 @@ from mind_nova.stream_events import (
     PresentationSupersededEvent,
     TextMetaEvent,
     ToolApprovalRequiredEvent,
+    ToolApprovalReviewEvent,
     ToolCallEvent,
     ToolOutputEvent,
     TurnDoneEvent,
@@ -62,6 +63,24 @@ def test_latest_tool_protocol_parses_effect_strictly() -> None:
     assert isinstance(event, ToolCallEvent)
     assert event.effect is not None
     assert event.effect.replay == "manual"
+
+
+def test_auto_approval_review_event_preserves_decision_and_rationale() -> None:
+    event = parse_stream_event({
+        "type": "tool.approval_review",
+        "name": "shell_command",
+        "call_id": "call_review",
+        "approval": {"id": "approval_review"},
+        "decision": "allow",
+        "status": "approved",
+        "rationale": "Workspace-scoped read-only command.",
+        "reviewer": "auto_review",
+    })
+
+    assert isinstance(event, ToolApprovalReviewEvent)
+    assert event.decision == "allow"
+    assert event.status == "approved"
+    assert event.rationale == "Workspace-scoped read-only command."
 
 
 @pytest.mark.parametrize("replay", ("safe", "manual"))

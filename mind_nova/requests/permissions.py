@@ -15,6 +15,11 @@ ApprovalPolicy = typing.Literal[
     "never",
 ]
 
+ApprovalReviewer = typing.Literal[
+    "user",
+    "auto_review",
+]
+
 SANDBOX_MODES: tuple[SandboxMode, ...] = (
     "read-only",
     "workspace-write",
@@ -25,6 +30,11 @@ APPROVAL_POLICIES: tuple[ApprovalPolicy, ...] = (
     "untrusted",
     "on-request",
     "never",
+)
+
+APPROVAL_REVIEWERS: tuple[ApprovalReviewer, ...] = (
+    "user",
+    "auto_review",
 )
 
 
@@ -44,18 +54,31 @@ def normalize_approval_policy(value: typing.Any) -> ApprovalPolicy:
     raise ValueError(f"invalid approval policy: {value}")
 
 
+def normalize_approval_reviewer(value: typing.Any) -> ApprovalReviewer:
+    """规范化审批裁决方。"""
+    normalized = str(value or "user").strip().lower()
+    if normalized == "guardian_subagent":
+        normalized = "auto_review"
+    if normalized in APPROVAL_REVIEWERS:
+        return typing.cast(ApprovalReviewer, normalized)
+    raise ValueError(f"invalid approval reviewer: {value}")
+
+
 def permission_payload(value: typing.Any) -> dict[str, str]:
     """把权限设置转换为请求协议字段。"""
     if isinstance(value, dict):
-        sandbox_mode    = value.get("sandbox_mode")
-        approval_policy = value.get("approval_policy")
+        sandbox_mode       = value.get("sandbox_mode")
+        approval_policy    = value.get("approval_policy")
+        approvals_reviewer = value.get("approvals_reviewer")
     else:
-        sandbox_mode    = getattr(value, "sandbox_mode", None)
-        approval_policy = getattr(value, "approval_policy", None)
+        sandbox_mode       = getattr(value, "sandbox_mode", None)
+        approval_policy    = getattr(value, "approval_policy", None)
+        approvals_reviewer = getattr(value, "approvals_reviewer", None)
 
     return {
-        "sandbox_mode"    : normalize_sandbox_mode(sandbox_mode),
-        "approval_policy" : normalize_approval_policy(approval_policy)
+        "sandbox_mode": normalize_sandbox_mode(sandbox_mode),
+        "approval_policy": normalize_approval_policy(approval_policy),
+        "approvals_reviewer": normalize_approval_reviewer(approvals_reviewer),
     }
 
 

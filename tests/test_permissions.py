@@ -145,8 +145,25 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
 
     assert payload["sandbox_mode"] == "workspace-write"
     assert payload["approval_policy"] == "on-request"
+    assert payload["approvals_reviewer"] == "user"
     assert "access_mode" not in payload
     assert "mode" not in payload
+
+
+@pytest.mark.anyio
+async def test_approve_for_me_payload_selects_auto_reviewer() -> None:
+    payload = await build_chat_payload(
+        {},
+        "inspect",
+        [],
+        permissions=PermissionSettings(
+            "workspace-write",
+            "on-request",
+            approvals_reviewer="auto_review",
+        ),
+    )
+
+    assert payload["approvals_reviewer"] == "auto_review"
 
 
 @pytest.mark.anyio

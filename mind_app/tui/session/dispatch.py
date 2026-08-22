@@ -10,6 +10,7 @@ from engine.file_assist import FileAssist
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from mind_app.frontend import ApplicationView
 from mind_app.history import INTERACTIVE_HISTORY_SOURCES
+from mind_core.config_store import ConfigStoreError
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
@@ -21,7 +22,6 @@ from ..core.styles import (
     BODY_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
-    MUTED_STYLE,
     command_result_block,
     failure_text_block,
     fragment_block,
@@ -87,7 +87,9 @@ from ..features.model import (
     choose_model_effort,
     choose_provider,
     exchange_pref_value,
+    model_changed_status_block,
     persist_primary_pref,
+    provider_changed_status_block,
     render_model_effort_status,
     save_active_provider
 )
@@ -297,9 +299,9 @@ class TuiCommandDispatcher(object):
 
         self.state.merge_primary(saved, overrides={"model": model})
         self.state.apply_prompt_context(self.runtime)
-        self._present(command_result_block(
-            "/model",
-            TextSpan(model or "(empty)", BRIGHT_STYLE),
+        self._present(model_changed_status_block(
+            model,
+            saved.get("reasoning_effort"),
         ))
         self._present()
 
@@ -332,13 +334,10 @@ class TuiCommandDispatcher(object):
         self.state.merge_primary(current)
         self.state.apply_prompt_context(self.runtime)
 
-        self._present(command_result_block(
-            "/provider",
-            TextSpan(str(current.get("name") or selected), BRIGHT_STYLE),
-            TextSpan(
-                f" · {current.get('kind') or ''}/{current.get('model') or ''}",
-                MUTED_STYLE,
-            ),
+        self._present(provider_changed_status_block(
+            current.get("name") or selected,
+            current.get("kind"),
+            current.get("model"),
         ))
         self._present()
 
@@ -545,12 +544,20 @@ class TuiCommandDispatcher(object):
             if selected is None:
                 self._present()
             else:
-                self.state.permissions = selected
-                self.state.apply_prompt_context(self.runtime)
-                render_permissions_status(
-                    self.application,
-                    self.state.permissions,
-                )
+                try:
+                    effective = self.mind.apply_permissions(selected)
+                except (ConfigStoreError, TypeError, ValueError) as failure:
+                    self._present(failure_text_block(
+                        f"Failed to update permissions: {failure}",
+                    ))
+                    self._present()
+                else:
+                    self.state.permissions = effective
+                    self.state.apply_prompt_context(self.runtime)
+                    render_permissions_status(
+                        self.application,
+                        self.state.permissions,
+                    )
             return DispatchAction.HANDLED
 
         if matches_command(command, "tools"):
