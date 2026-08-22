@@ -222,7 +222,7 @@ async def test_startup_review_surface_appears_as_one_padded_card(
 
 
 @pytest.mark.anyio
-async def test_review_browser_starts_with_static_logo_and_blank_row(
+async def test_review_browser_starts_with_blank_row_before_card(
     tmp_path,
 ) -> None:
     with create_pipe_input() as pipe_input:
@@ -268,14 +268,11 @@ async def test_review_browser_starts_with_static_logo_and_blank_row(
                 await _wait_for_menu(runtime, "Hooks")
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions
-                transcript = positions[runtime.screen.transcript_window]
                 gap = positions[runtime.screen.bottom_pane_top_inset.content]
                 card_top = positions[runtime.screen.menu_top_padding]
 
                 animation.assert_not_awaited()
-                assert transcript.ypos == 0
-                assert transcript.height == 1
-                assert gap.ypos == transcript.ypos + transcript.height
+                assert gap.ypos == 0
                 assert gap.height == 1
                 assert card_top.ypos == gap.ypos + gap.height
                 assert runtime.screen.input.window not in positions
