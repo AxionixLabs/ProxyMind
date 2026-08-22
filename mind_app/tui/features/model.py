@@ -9,6 +9,7 @@ from mind_app.frontend import (
     ApplicationView
 )
 from ..core.models import (
+    FragmentBlock,
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
@@ -23,10 +24,13 @@ from .context import (
 )
 from ..core.styles import (
     ACCENT_STYLE,
+    BODY_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
+    MUTED_STYLE,
     command_result_block,
     failure_text_block,
+    fragment_block,
     text_block
 )
 
@@ -217,15 +221,56 @@ def render_model_effort_status(
     effort: typing.Any
 ) -> None:
     """展示当前模型推理强度。"""
-    normalized = normalize_reasoning_effort(effort)
     application.emit(ApplicationView(
         type="tui.model_effort",
-        renderable=command_result_block(
-            "/effort",
-            TextSpan(normalized, BRIGHT_STYLE),
-        ),
+        renderable=reasoning_effort_changed_status_block(effort),
     ))
     application.emit(ApplicationView(type="tui.gap"))
+
+
+def provider_changed_status_block(
+    name: typing.Any,
+    kind: typing.Any,
+    model: typing.Any
+) -> FragmentBlock:
+    """生成 Provider 切换成功后的状态行。"""
+    provider_name  = str(name or "").strip() or "(unknown)"
+    provider_kind  = str(kind or "unknown").strip()
+    provider_model = str(model or "(incomplete)").strip()
+
+    return fragment_block(
+        TextSpan("• ", BODY_STYLE),
+        TextSpan("Provider changed to ", BRIGHT_STYLE),
+        TextSpan(provider_name, BRIGHT_STYLE),
+        TextSpan(
+            f" · {provider_kind}/{provider_model}",
+            MUTED_STYLE,
+        ),
+    )
+
+
+def reasoning_effort_changed_status_block(effort: typing.Any) -> FragmentBlock:
+    """生成推理强度切换成功后的状态行。"""
+    normalized = normalize_reasoning_effort(effort)
+    return fragment_block(
+        TextSpan("• ", BODY_STYLE),
+        TextSpan("Reasoning effort changed to ", BRIGHT_STYLE),
+        TextSpan(normalized, BRIGHT_STYLE),
+    )
+
+
+def model_changed_status_block(
+    model: typing.Any,
+    effort: typing.Any,
+) -> FragmentBlock:
+    """生成模型切换成功后的状态行。"""
+    model_name = str(model or "").strip() or "(empty)"
+    normalized_effort = normalize_reasoning_effort(effort)
+    return fragment_block(
+        TextSpan("• ", BODY_STYLE),
+        TextSpan("Model changed to ", BRIGHT_STYLE),
+        TextSpan(f"{model_name} {normalized_effort}", BRIGHT_STYLE),
+    )
 
 
 def _default_effort_index(current_effort: str) -> int:

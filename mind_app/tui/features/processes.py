@@ -472,7 +472,7 @@ def _no_background_terminals_block(
     if command:
         fragments.extend([
             ("class:prompt.command.slash", command),
-            ("class:ps.meta", " · "),
+            ("", "\n\n"),
             ("class:ps.title", "Background terminals"),
             ("", "\n\n"),
         ])

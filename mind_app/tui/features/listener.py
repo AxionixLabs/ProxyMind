@@ -21,8 +21,12 @@ from ..core.runtime import (
     require_tui_runtime
 )
 from ..core.styles import (
+    ACCENT_STYLE,
+    BODY_STYLE,
+    BRIGHT_STYLE,
+    COMMAND_STYLE,
     MUTED_STYLE,
-    command_result_block,
+    fragment_block,
     interrupted_status_block
 )
 
@@ -98,31 +102,18 @@ def render_listener_status(controller: "Mind") -> None:
     running  = listener is not None and listener.is_running()
     ready    = listener is not None and listener.is_ready()
     pending  = listener.inbox.pending_count() if listener is not None else 0
+    state = "listening" if ready else "connecting" if running else "stopped"
 
-    if ready:
-        transport = "Listener connected and ready."
-    elif running:
-        transport = "Waiting for server readiness."
-    else:
-        transport = "Listener transport is stopped."
-
-    mailbox = (
-        f"{pending} pending "
-        f"{'message' if pending == 1 else 'messages'} retained in this process."
-        if pending
-        else "No pending messages."
-    )
-    block = command_result_block(
-        "/listen status",
-        TextSpan(
-            f"running={str(running).lower()} "
-            f"ready={str(ready).lower()} pending={pending}",
-            MUTED_STYLE,
-        ),
-        TextSpan("\n"),
-        TextSpan(transport, MUTED_STYLE),
-        TextSpan("\n"),
-        TextSpan(mailbox, MUTED_STYLE),
+    block = fragment_block(
+        TextSpan("/listen status", COMMAND_STYLE),
+        TextSpan("\n\n"),
+        TextSpan("Listener", BRIGHT_STYLE),
+        TextSpan("\n\n"),
+        TextSpan("  • ", ACCENT_STYLE),
+        TextSpan("Status: ", BODY_STYLE),
+        TextSpan(state, MUTED_STYLE),
+        TextSpan(" · Pending: ", BODY_STYLE),
+        TextSpan(str(pending), MUTED_STYLE),
     )
     controller.frontend.application.emit(ApplicationView(
         type="tui.listener.status",

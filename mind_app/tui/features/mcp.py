@@ -3,9 +3,10 @@
 
 import typing
 from collections import defaultdict
+from prompt_toolkit.utils import get_cwidth
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
-from mind_app.presentation.models import TextSpan
+from mind_app.presentation.models import TextSpan, TextStyle
 from mind_core.mcp_status import (
     McpStatusDetail,
     McpStatusView,
@@ -22,10 +23,9 @@ from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
+    COMMAND_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    command_result_block,
-    failure_text_block,
     fragment_block,
     interrupted_status_block
 )
@@ -54,6 +54,10 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
     ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
     ("status", "status", "查看状态，不启动、不停止。"),
 )
+
+MCP_DEFAULT_TERMINAL_WIDTH = 120
+MCP_ENABLED_STATUS_STYLE = TextStyle(foreground="#5FD7AF", dim=True)
+MCP_DISABLED_STATUS_STYLE = TextStyle(foreground="#FF6B6B", dim=True)
 
 
 def _present(
@@ -114,43 +118,49 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     server_stats = getattr(group, "server_stats", {}) if group is not None else {}
 
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    auth_by_group: dict[tuple[str, str], str] = {}
 
     for name, tool in dict(tools or {}).items():
 
         meta      = dict(getattr(tool, "meta", None) or {})
         server    = str(meta.get("server") or "external").strip() or "external"
         transport = str(meta.get("transport") or "external").strip() or "external"
+        auth      = str(meta.get("auth") or "Unknown").strip() or "Unknown"
+        key       = (server, transport)
 
-        grouped[(server, transport)].append(str(name))
+        grouped[key].append(str(name))
+        auth_by_group.setdefault(key, auth)
 
     tool_groups: list[dict[str, typing.Any]] = []
     for stats in dict(server_stats or {}).values():
         server     = str(stats.get("server") or "external")
         transport  = str(stats.get("transport") or "external")
-        names      = grouped.pop((server, transport), [])
+        key        = (server, transport)
+        names      = sorted(grouped.pop(key, []))
         exposed    = len(names)
         discovered = max(exposed, int(stats.get("discovered") or 0))
 
         tool_groups.append({
             "server"     : server,
             "transport"  : transport,
+            "auth"       : auth_by_group.pop(key, "Unknown"),
             "tools"      : sorted(names),
             "discovered" : discovered,
             "exposed"    : exposed,
             "filtered"   : max(0, discovered - exposed),
         })
 
-    tool_groups.extend(
-        {
+    for (server, transport), raw_names in grouped.items():
+        names = sorted(raw_names)
+        tool_groups.append({
             "server"     : server,
             "transport"  : transport,
-            "tools"      : sorted(names),
+            "auth"       : auth_by_group.get((server, transport), "Unknown"),
+            "tools"      : names,
             "discovered" : len(names),
             "exposed"    : len(names),
             "filtered"   : 0,
-        }
-        for (server, transport), names in grouped.items()
-    )
+        })
     tool_groups.sort(key=lambda item: (str(item["server"]), str(item["transport"])))
 
     return {
@@ -161,6 +171,136 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
         "tool_count"     : sum(int(item["exposed"]) for item in tool_groups),
         "filtered_count" : sum(int(item["filtered"]) for item in tool_groups),
     }
+
+
+def _display_tool_name(name: typing.Any, server: str) -> str:
+    """移除外部工具名称中的服务前缀。"""
+    value  = str(name or "").strip()
+    prefix = f"mcp__{server}__"
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+
+def _filtered_count(value: typing.Any) -> int:
+    """把过滤工具数量规范化为非负整数。"""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _mcp_terminal_width(mind: typing.Any) -> int:
+    """返回 MCP 状态块使用的有效终端宽度。"""
+    application = getattr(getattr(mind, "frontend", None), "application", None)
+    viewport = getattr(application, "viewport", None)
+    width = getattr(viewport, "width", None)
+
+    if isinstance(width, int) and width > 0:
+        return width
+
+    return MCP_DEFAULT_TERMINAL_WIDTH
+
+
+def _mcp_tool_name_lines(
+    names: typing.Iterable[typing.Any],
+    *,
+    terminal_width: int,
+) -> list[str]:
+    """把 MCP 工具名按终端宽度转换为带悬挂缩进的文本行。"""
+    visible_names = [
+        str(name).strip()
+        for name in names
+        if str(name).strip()
+    ]
+    if not visible_names:
+        return ["    • Tools: (none)"]
+
+    first_prefix = "    • Tools: "
+    continuation_prefix = "      "
+    width = max(1, int(terminal_width))
+    lines: list[str] = []
+    current_prefix = first_prefix
+    current_names: list[str] = []
+
+    for index, name in enumerate(visible_names):
+        suffix = "," if index < len(visible_names) - 1 else ""
+        token = f"{name}{suffix}"
+        candidate = f"{current_prefix}{' '.join(current_names + [token])}"
+
+        if current_names and get_cwidth(candidate) > width:
+            lines.append(f"{current_prefix}{' '.join(current_names)}")
+            current_prefix = continuation_prefix
+            current_names = []
+
+        current_names.append(token)
+
+    if current_names:
+        lines.append(f"{current_prefix}{' '.join(current_names)}")
+
+    return lines
+
+
+def _mcp_status_rows(
+    configured: typing.Any,
+    tool_groups: typing.Any,
+) -> list[dict[str, typing.Any]]:
+    """合并配置服务器与运行时工具分组为状态行。"""
+    configured_servers = [
+        item for item in configured
+        if isinstance(item, dict)
+    ] if isinstance(configured, list) else []
+    active_groups = [
+        item for item in tool_groups
+        if isinstance(item, dict)
+    ] if isinstance(tool_groups, list) else []
+    active_by_key = {
+        (
+            str(item.get("server") or "server"),
+            str(item.get("transport") or "external"),
+        ): item
+        for item in active_groups
+    }
+
+    rows: list[dict[str, typing.Any]] = []
+
+    for server in configured_servers:
+        server_name = str(server.get("name") or "server")
+        transport = str(server.get("transport") or "streamable_http")
+        key       = (server_name, transport)
+        group     = active_by_key.pop(key, None)
+        names     = group.get("tools") if isinstance(group, dict) else ()
+        tools     = sorted(
+            _display_tool_name(raw_name, server_name)
+            for raw_name in names or ()
+            if str(raw_name)
+        )
+        filtered = group.get("filtered", 0) if isinstance(group, dict) else 0
+
+        rows.append({
+            "name": server_name,
+            "status": "enabled" if bool(server.get("enabled", True)) else "disabled",
+            "auth": str(group.get("auth") or "Unknown") if group else "Unknown",
+            "transport": transport,
+            "tools": tools,
+            "filtered": _filtered_count(filtered),
+        })
+
+    for group in active_by_key.values():
+        names = group.get("tools") or ()
+        group_name = str(group.get("server") or "server")
+        rows.append({
+            "name": group_name,
+            "status": "connected",
+            "auth": str(group.get("auth") or "Unknown"),
+            "transport": str(group.get("transport") or "external"),
+            "tools": sorted(
+                _display_tool_name(name, group_name)
+                for name in names
+                if str(name)
+            ),
+            "filtered": _filtered_count(group.get("filtered")),
+        })
+
+    return sorted(rows, key=lambda row: (str(row["name"]), str(row["transport"])))
 
 
 def external_status_line(summary: dict[str, typing.Any]) -> str:
@@ -316,83 +456,84 @@ def render_mcp_status(
     summary     = summarize_external_runtime(mind)
     configured  = summary["configured"]
     tool_groups = summary["tool_groups"]
-
-    if summary["config_error"]:
-        block = (
-            command_result_block(
-                command,
-                TextSpan(summary["config_error"], FAILURE_STYLE),
-            )
-            if command is not None
-            else failure_text_block(summary["config_error"])
-        )
-        _present(mind, block)
-        _present(mind, view_type="tui.gap")
-        return None
+    terminal_width = _mcp_terminal_width(mind)
+    display_command = command or "/mcp"
 
     parts = [
-        TextSpan(
-            f"started={str(summary['started']).lower()} "
-            f"configured={len(configured)} tools={summary['tool_count']} "
-            f"filtered={summary['filtered_count']}",
-            MUTED_STYLE,
-        ),
+        TextSpan(display_command, COMMAND_STYLE),
+        TextSpan("\n\n"),
+        TextSpan("🔌  MCP Tools", BRIGHT_STYLE),
+        TextSpan("\n\n"),
     ]
 
-    if configured:
-        parts.extend([
-            TextSpan("\n"),
-            TextSpan("Configured servers", BRIGHT_STYLE),
-        ])
-        for server in configured:
-            name      = str(server.get("name") or "server")
-            transport = str(server.get("transport") or "streamable_http")
-            enabled   = bool(server.get("enabled", True))
-            state     = "enabled" if enabled else "disabled"
-
-            parts.extend([
-                TextSpan("\n  • ", ACCENT_STYLE),
-                TextSpan(f"{name} ", BODY_STYLE),
-                TextSpan(f"({transport} · {state})", MUTED_STYLE),
-            ])
+    if summary["config_error"]:
+        parts.append(TextSpan(
+            f"  ■ {summary['config_error']}",
+            FAILURE_STYLE,
+        ))
     else:
-        parts.extend([
-            TextSpan("\n"),
-            TextSpan("No external MCP servers configured.", MUTED_STYLE),
-        ])
+        rows = _mcp_status_rows(configured, tool_groups)
 
-    if tool_groups:
-        parts.extend([
-            TextSpan("\n"),
-            TextSpan("Connected servers", BRIGHT_STYLE),
-        ])
-        for group in tool_groups:
-            names = group["tools"]
-            parts.extend([
-                TextSpan("\n  • ", ACCENT_STYLE),
-                TextSpan(f"{group['server']} ", BODY_STYLE),
-                TextSpan(
-                    f"({group['transport']} · "
-                    f"discovered={group['discovered']} "
-                    f"exposed={len(names)} filtered={group['filtered']})",
-                    MUTED_STYLE,
-                ),
-            ])
-    else:
-        parts.extend([
-            TextSpan("\n"),
-            TextSpan("No external MCP servers connected.", MUTED_STYLE),
-        ])
+        if not rows:
+            parts.append(TextSpan(
+                "  • No MCP servers configured.",
+                MUTED_STYLE,
+            ))
+        else:
+            if not any(row["tools"] for row in rows):
+                parts.extend([
+                    TextSpan("  • No MCP tools available.", MUTED_STYLE),
+                    TextSpan("\n\n"),
+                ])
 
-    block = (
-        command_result_block(command, *parts)
-        if command is not None
-        else fragment_block(
-            TextSpan("External MCP ", ACCENT_STYLE),
-            TextSpan("· ", MUTED_STYLE),
-            *parts,
-        )
-    )
+            for index, row in enumerate(rows):
+                if index:
+                    parts.append(TextSpan("\n\n"))
+
+                parts.extend([
+                    TextSpan("  • ", ACCENT_STYLE),
+                    TextSpan(row["name"], BODY_STYLE),
+                ])
+
+                status_style = (
+                    MCP_DISABLED_STATUS_STYLE
+                    if row["status"] == "disabled"
+                    else MCP_ENABLED_STATUS_STYLE
+                )
+
+                parts.extend([
+                    TextSpan("\n    • Status: ", BODY_STYLE),
+                    TextSpan(row["status"], status_style),
+                    TextSpan("\n    • Auth: ", BODY_STYLE),
+                    TextSpan(row["auth"], MUTED_STYLE),
+                    TextSpan("\n    • Transport: ", BODY_STYLE),
+                    TextSpan(row["transport"], MUTED_STYLE),
+                ])
+
+                for line_index, tool_line in enumerate(_mcp_tool_name_lines(
+                    row["tools"],
+                    terminal_width=terminal_width,
+                )):
+                    parts.append(TextSpan("\n", BODY_STYLE))
+                    if line_index == 0:
+                        tools_prefix = "    • Tools: "
+                        parts.extend([
+                            TextSpan(tools_prefix, BODY_STYLE),
+                            TextSpan(
+                                tool_line[len(tools_prefix):],
+                                MUTED_STYLE,
+                            ),
+                        ])
+                    else:
+                        parts.append(TextSpan(tool_line, MUTED_STYLE))
+
+                if row["filtered"] > 0:
+                    parts.extend([
+                        TextSpan("\n    • Filtered: ", BODY_STYLE),
+                        TextSpan(str(row["filtered"]), MUTED_STYLE),
+                    ])
+
+    block = fragment_block(*parts)
     _present(mind, block)
     _present(mind, view_type="tui.gap")
 

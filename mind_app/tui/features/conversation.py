@@ -39,10 +39,12 @@ from ..core.models import (
     STANDARD_MENU_FOOTER_HINT
 )
 from ..core.styles import (
+    BODY_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
-    MUTED_STYLE,
     command_result_block,
+    failure_text_block,
+    fragment_block,
     interrupted_status_block
 )
 
@@ -584,10 +586,7 @@ async def copy_last_assistant_reply(mind: "Mind") -> None:
     """复制最近一次模型回复到剪贴板。"""
     text = mind.last_assistant_reply_snapshot()
     if not text:
-        _present(mind, command_result_block(
-            "/copy",
-            TextSpan("No assistant message to copy.", MUTED_STYLE),
-        ))
+        _present(mind, failure_text_block("No agent response to copy"))
         _present(mind, view_type="tui.gap")
         return None
 
@@ -601,9 +600,9 @@ async def copy_last_assistant_reply(mind: "Mind") -> None:
         _present(mind, view_type="tui.gap")
         return None
 
-    _present(mind, command_result_block(
-        "/copy",
-        TextSpan("Copied", BRIGHT_STYLE),
+    _present(mind, fragment_block(
+        TextSpan("• ", BODY_STYLE),
+        TextSpan("Copied last message to clipboard", BRIGHT_STYLE),
     ))
     _present(mind, view_type="tui.gap")
 

@@ -70,11 +70,10 @@ def _permission_settings(value: PermissionMenuValue) -> PermissionSettings:
     """返回菜单项对应的权限设置。"""
     if value == "read-only":
         return preset_permissions("read-only", display_label="Read Only")
-    if value in ("auto", "ask-for-approval"):
-        label = "Ask for approval" if value == "ask-for-approval" else None
-        return preset_permissions("auto", display_label=label)
+    if value == "ask-for-approval":
+        return preset_permissions("auto", approvals_reviewer="user")
     if value == "approve-for-me":
-        return preset_permissions("auto", display_label="Approve for me")
+        return preset_permissions("auto", approvals_reviewer="auto_review")
     return preset_permissions("full-access", display_label="Full Access")
 
 
@@ -166,7 +165,7 @@ async def choose_permissions_mode(
             ),
             dismiss_on_select=not requires_confirmation,
             dismiss_parent_on_child_accept=requires_confirmation,
-            is_current=False,
+            is_current=settings == current,
         )
 
     selected = await runtime.select_menu(MenuRequest(
@@ -184,8 +183,8 @@ async def choose_permissions_mode(
         selected=next(
             (
                 index
-                for index, (_value, label, _detail) in enumerate(PERMISSION_OPTIONS)
-                if permission_label(current) == label
+                for index, (value, _label, _detail) in enumerate(PERMISSION_OPTIONS)
+                if _permission_settings(value) == current
             ),
             0,
         ),
