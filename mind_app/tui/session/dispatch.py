@@ -693,30 +693,27 @@ class TuiCommandDispatcher(object):
             record=selected,
         )
 
-        resumed = await self.mind.resume_conversation(
-            selected,
-            source="tui:resume",
-        )
+        resume_error: str | None = None
+        try:
+            resumed = await self.mind.resume_conversation(
+                selected,
+                source="tui:resume",
+            )
+        except Exception as error:
+            resumed = None
+            resume_error = str(error).strip() or type(error).__name__
+
         if resumed is None:
-            self._present(command_result_block(
-                "/resume",
-                TextSpan("Failed: invalid session cursor.", FAILURE_STYLE),
+            target_label = str(selected.get("title") or session_id).strip()
+            detail = resume_error or "invalid session cursor."
+            self._present(failure_text_block(
+                f"Failed to resume session from {target_label}: {detail}"
             ))
             self._present()
             return None
 
         self._clear_prompt_draft()
         self.runtime.replace_transcript(replay_blocks)
-
-        self._present(command_result_block(
-            "/resume",
-            TextSpan("Resumed", BRIGHT_STYLE),
-            TextSpan(
-                f" · cid={resumed['cid']} sid={resumed['sid']}",
-                MUTED_STYLE,
-            ),
-        ))
-        self._present()
 
     def _finish_conversation_fork(self, status: ForkLiveStatus) -> None:
         """在普通会话分支成功后清理旧草稿并展示结果。"""
