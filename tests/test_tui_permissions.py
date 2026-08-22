@@ -41,12 +41,7 @@ async def test_permissions_menu_uses_primary_selection_contract() -> None:
         request.description_layout
         is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
     )
-    assert [option.is_current for option in request.options] == [
-        False,
-        True,
-        False,
-        False,
-    ]
+    assert not any(option.is_current for option in request.options)
     assert [option.label for option in request.options] == [
         "Read Only",
         "Ask for approval",

@@ -95,7 +95,7 @@ def _permission_warning() -> str:
 
 def _permission_confirmation_menu(
     runtime: "TuiRuntime",
-    settings: PermissionSettings,
+    settings: PermissionSettings
 ) -> MenuRequest:
     """生成权限预设的二级确认菜单。"""
     def cancel_confirmation() -> None:
@@ -129,7 +129,7 @@ def _permission_confirmation_menu(
 
 def _queue_permission_confirmation(
     runtime: "TuiRuntime",
-    settings: PermissionSettings,
+    settings: PermissionSettings
 ) -> None:
     """把权限确认子菜单排入当前菜单会话。"""
     runtime.emit_menu_action(
@@ -149,11 +149,13 @@ async def choose_permissions_mode(
     def option_for(
         value: PermissionMenuValue,
         label: str,
-        detail: str,
+        detail: str
     ) -> MenuOption:
         """生成权限预设列表项及其必要的确认导航动作。"""
         settings = _permission_settings(value)
+
         requires_confirmation = value == "full-access"
+
         return MenuOption(
             value=value,
             label=label,
@@ -165,7 +167,6 @@ async def choose_permissions_mode(
             ),
             dismiss_on_select=not requires_confirmation,
             dismiss_parent_on_child_accept=requires_confirmation,
-            is_current=settings == current,
         )
 
     selected = await runtime.select_menu(MenuRequest(
