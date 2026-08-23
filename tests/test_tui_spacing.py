@@ -24,6 +24,7 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.utils import get_cwidth
 
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.frontend.contracts import ApplicationView
 from mind_core.design.terminal_capabilities import (
@@ -1647,15 +1648,15 @@ async def test_long_stream_grows_after_approval_and_consecutive_tools() -> None:
                     "show_timer": False,
                 }
                 approval_task = asyncio.create_task(
-                    runtime.request_approval(approval)
+                    ApprovalCoordinator(runtime).request(approval)
                 )
 
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if runtime.screen.approval.active:
+                    if runtime.screen.approval.state is not None:
                         break
 
-                assert runtime.screen.approval.active
+                assert runtime.screen.approval.state is not None
                 approval_screen = await _render_next_frame(runtime)
                 approval_positions = (
                     approval_screen.visible_windows_to_write_positions
@@ -6915,7 +6916,7 @@ async def test_approval_dismissal_restores_current_stream_layout(
                     + normal_input.ypos
                 )
 
-                approval_task = asyncio.create_task(runtime.request_approval({
+                approval_task = asyncio.create_task(ApprovalCoordinator(runtime).request({
                     "tool": "shell_command",
                     "command": "\n".join(
                         f"echo line-{index}" for index in range(20)
@@ -6929,7 +6930,7 @@ async def test_approval_dismissal_restores_current_stream_layout(
                         runtime.screen.application.renderer.last_rendered_screen
                     )
                     if (
-                        runtime.screen.approval.active
+                        runtime.screen.approval.state is not None
                         and runtime.screen.approval_window
                         in screen.visible_windows_to_write_positions
                     ):
@@ -7009,7 +7010,7 @@ async def test_approval_replaces_composer_after_query_enters_scrollback(
                 for call_args in print_text.call_args_list
             )
 
-            approval_task = asyncio.create_task(runtime.request_approval({
+            approval_task = asyncio.create_task(ApprovalCoordinator(runtime).request({
                 "tool": "shell_command",
                 "command": "adb devices",
                 "show_timer": False,
@@ -7018,7 +7019,7 @@ async def test_approval_replaces_composer_after_query_enters_scrollback(
             for _ in range(100):
                 await asyncio.sleep(0)
                 if (
-                    runtime.screen.approval.active
+                    runtime.screen.approval.state is not None
                     and runtime.screen.activity_block is None
                 ):
                     break
@@ -7054,7 +7055,7 @@ async def test_approval_replaces_composer_after_query_enters_scrollback(
             assert runtime.screen.canvas_spacer not in positions
             assert runtime.screen._bottom_pane_top_inset_height() == 1
         finally:
-            if runtime.screen.approval.active:
+            if runtime.screen.approval.state is not None:
                 runtime.screen.approval.finish("decline")
             if approval_task is not None:
                 await approval_task

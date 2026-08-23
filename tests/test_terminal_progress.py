@@ -9,6 +9,7 @@ import pytest
 from mind_nova import const
 
 from mind_app.runtime.support.calling import run_turn_lifecycle
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.design.terminal_progress import (
@@ -179,16 +180,60 @@ async def test_tui_approval_switches_terminal_progress_to_warning() -> None:
     runtime = TuiRuntime(terminal_progress=progress)
     runtime.begin_terminal_progress()
     progress.begin.reset_mock()
-    runtime.screen.approval.begin = Mock(return_value=True)
-    runtime.screen.approval.wait = AsyncMock(return_value="accept")
-    runtime.screen.approval.dismiss = AsyncMock()
+    runtime.screen.approval.request = AsyncMock(return_value="accept")
 
-    decision = await runtime.request_approval({})
+    decision = await ApprovalCoordinator(runtime).request({})
 
     assert decision == "accept"
     progress.warning.assert_called_once_with()
     progress.begin.assert_called_once_with()
-    runtime.screen.approval.dismiss.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+async def test_tui_approval_batch_switches_terminal_progress_once() -> None:
+    progress = SimpleNamespace(
+        begin=Mock(),
+        warning=Mock(),
+        clear=Mock(),
+    )
+    runtime = TuiRuntime(terminal_progress=progress)
+    coordinator = ApprovalCoordinator(runtime)
+    runtime.begin_terminal_progress()
+    progress.begin.reset_mock()
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    for _ in range(40):
+        state = runtime.screen.approval.state
+        if state is not None and state.approval.get("id") == "first":
+            break
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError("first approval was not presented")
+
+    runtime.screen.approval.finish("accept")
+    assert await first == "accept"
+    for _ in range(40):
+        state = runtime.screen.approval.state
+        if state is not None and state.approval.get("id") == "second":
+            break
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError("second approval was not presented")
+    runtime.screen.approval.finish("decline")
+
+    assert await second == "decline"
+    progress.warning.assert_called_once_with()
+    progress.begin.assert_called_once_with()
 
 
 @pytest.mark.anyio
@@ -208,17 +253,22 @@ async def test_tui_approval_does_not_restart_finished_terminal_progress() -> Non
 
     runtime = TuiRuntime(terminal_progress=Progress())
 
-    async def wait_for_decision() -> str:
+    async def wait_for_decision(approval) -> str:
         await decision_ready.wait()
         return "accept"
 
-    runtime.screen.approval.begin = Mock(return_value=True)
-    runtime.screen.approval.wait = wait_for_decision
-    runtime.screen.approval.dismiss = AsyncMock()
+    runtime.screen.approval.request = wait_for_decision
 
     runtime.begin_terminal_progress()
-    approval_task = asyncio.create_task(runtime.request_approval({}))
-    await asyncio.sleep(0)
+    approval_task = asyncio.create_task(
+        ApprovalCoordinator(runtime).request({})
+    )
+    for _ in range(40):
+        if "warning" in calls:
+            break
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError("approval session did not start")
 
     runtime.end_terminal_progress()
     decision_ready.set()

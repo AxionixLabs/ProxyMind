@@ -115,6 +115,8 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
 
     if "tool" not in approval:
         approval["tool"] = event.name
+    if "call_id" not in approval and event.call_id:
+        approval["call_id"] = event.call_id
 
     if "environment" not in approval and event.execution:
         target = str(event.execution.get("target") or "").strip()
@@ -236,7 +238,7 @@ def approval_expired(approval: dict[str, typing.Any] | None) -> bool:
 
 def approval_remaining_sec(approval: dict[str, typing.Any] | None) -> float | None:
     """返回审批剩余秒数；缺少过期时间时返回 None。"""
-    expires_at_ms = _approval_expires_at_ms(approval)
+    expires_at_ms = approval_expires_at_ms(approval)
     if expires_at_ms is None:
         return None
     return (expires_at_ms - int(time.time() * 1000)) / 1000.0
@@ -266,7 +268,7 @@ def approval_show_timer() -> bool:
     return SHOW_APPROVAL_TIMER
 
 
-def _approval_expires_at_ms(approval: dict[str, typing.Any] | None) -> int | None:
+def approval_expires_at_ms(approval: dict[str, typing.Any] | None) -> int | None:
     """读取审批过期时间毫秒时间戳。"""
     if not isinstance(approval, dict):
         return None

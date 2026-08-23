@@ -1192,6 +1192,13 @@ class Mind(object):
             await self.cancel_service_runtime_startup()
 
             await self.subagents.shutdown()
+            approval_coordinator = getattr(
+                self,
+                "approval_coordinator",
+                None,
+            )
+            if approval_coordinator is not None:
+                await approval_coordinator.close()
             self.command_hook_sessions.clear()
             await self.hook_registry.close()
             await self.event_reports.close()

@@ -762,6 +762,13 @@ async def finalize_application(
             raise
         finally:
             try:
+                approval_coordinator = getattr(
+                    controller,
+                    "approval_coordinator",
+                    None,
+                )
+                if approval_coordinator is not None:
+                    await approval_coordinator.close()
                 await controller.frontend.runtime.close()
             except BaseException as error:
                 observe_exception("frontend.close.failed", error)

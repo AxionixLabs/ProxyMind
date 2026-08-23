@@ -11,13 +11,14 @@ from mind_core.skills import (
 from ..core.models import (
     MenuColumnWidthMode,
     MenuDescriptionLayout,
+    MenuEmptyAcceptAction,
     MenuOption,
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
 )
 from ..prompting.skills import (
     skill_description_text,
-    skill_match_rank
+    skill_match_score
 )
 from ..runtime.ports import SkillRuntimePort
 
@@ -121,11 +122,12 @@ def _manage_request(
         ),
         searchable=True,
         search_placeholder="",
-        search_matcher=_skill_search_match,
+        search_ranker=_skill_search_rank,
         search_prompt_prefix="> ",
+        search_prompt_style="class:tui-menu.search.placeholder",
         search_help_text="Type to search skills",
-        search_query_style="class:tui-menu.search.placeholder",
         search_empty_text="no matches",
+        empty_accept_action=MenuEmptyAcceptAction.IGNORE,
         footer_hint=_SKILL_MANAGE_FOOTER,
         description_layout=MenuDescriptionLayout.COLUMNS,
         column_width_mode=MenuColumnWidthMode.AUTO_VISIBLE,
@@ -138,9 +140,7 @@ def _manage_request(
                     f"{skill.name}"
                 ),
                 detail=skill_description_text(skill.description),
-                search_value=(
-                    f"{skill.name} {skill_description_text(skill.description)}"
-                ),
+                search_value=skill.name,
                 on_select=lambda skill=skill: toggle(skill),
                 dismiss_on_select=False,
             )
@@ -170,13 +170,15 @@ def _sorted_skills(skills: typing.Iterable[SkillSpec]) -> tuple[SkillSpec, ...]:
     ))
 
 
-def _skill_search_match(query: str, option: MenuOption) -> bool:
-    """使用 skill 名称和说明执行模糊搜索。"""
-    name = option.search_value or option.label
-    return (
-        skill_match_rank(name, query) is not None
-        or skill_match_rank(option.detail, query) is not None
-    )
+def _skill_search_rank(
+    query: str,
+    option: MenuOption
+) -> tuple[int, str] | None:
+    """对 skill 名称执行模糊匹配并生成排序键。"""
+    name  = option.search_value or option.label
+    score = skill_match_score(name, query)
+
+    return (score, name) if score is not None else None
 
 
 def _save_skill_enabled(

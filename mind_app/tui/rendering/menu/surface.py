@@ -118,14 +118,18 @@ def surface_fragments(
                 ("", "\n"),
             ])
         query = state.query or request.search_placeholder
+
         query_style = (
             request.search_query_style or "class:tui-menu.search"
             if state.query
             else "class:tui-menu.search.placeholder"
         )
+
         prompt_prefix = request.search_prompt_prefix
+        prompt_style  = request.search_prompt_style or query_style
+
         header.extend([
-            (query_style, prompt_prefix),
+            (prompt_style, prompt_prefix),
             (
                 query_style,
                 clip_text(

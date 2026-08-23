@@ -13,6 +13,7 @@ import pytest
 
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.approval.coordinator import ApprovalCoordinator
+from mind_app.approval.models import ApprovalOutcome
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.runtime.turns import stream
 from mind_app.runtime.turns.result import RunResult
@@ -209,7 +210,10 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
 
     interaction = SimpleNamespace(
         approval_source="user",
-        request_approval=AsyncMock(return_value="accept"),
+        begin_approval_session=AsyncMock(),
+        approval_snapshot_changed=Mock(),
+        present_approval=AsyncMock(return_value="accept"),
+        end_approval_session=AsyncMock(),
     )
     transcripts = _TranscriptStore()
     return SimpleNamespace(
@@ -2040,7 +2044,8 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
     )
 
     assert result.status == "completed"
-    approval = mind.frontend.interaction.request_approval.await_args.args[0]
+    request = mind.frontend.interaction.present_approval.await_args.args[0]
+    approval = request.approval
     assert approval["agent_id"] == "agent_child"
     assert approval["agent_type"] == "worker"
     assert approval["agent_depth"] == 1
@@ -2101,7 +2106,7 @@ async def test_pre_tool_approval_denial_reports_additional_context(
     )
 
     assert result.status == "completed"
-    mind.frontend.interaction.request_approval.assert_not_awaited()
+    mind.frontend.interaction.present_approval.assert_not_awaited()
     approval_kwargs = dict(approval_posts[0][1])
     assert approval_kwargs.pop("turn_id")
     assert approval_kwargs == {
@@ -2164,7 +2169,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
     ])
 
     assert result.status == "completed"
-    mind.frontend.interaction.request_approval.assert_awaited_once()
+    mind.frontend.interaction.present_approval.assert_awaited_once()
     assert approval_posts[0][0] == (
         "cid_test",
         "sid_test",
@@ -2192,14 +2197,22 @@ async def test_stream_posts_only_amendment_id_for_policy_approval(
 ) -> None:
     approval_posts = []
 
-    async def request(_coordinator, approval):
+    async def request_outcome(_coordinator, approval):
         assert approval["proposed_execpolicy_amendment"]["display"] == "git clone"
-        return "acceptWithExecpolicyAmendment"
+        return ApprovalOutcome.create(
+            "acceptWithExecpolicyAmendment",
+            source="user",
+            reason="user",
+        )
 
     async def post_tool_approval(*args, **kwargs):
         approval_posts.append((args, kwargs))
 
-    monkeypatch.setattr(ApprovalCoordinator, "request", request)
+    monkeypatch.setattr(
+        ApprovalCoordinator,
+        "request_outcome",
+        request_outcome,
+    )
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
     result, _mind_state = await _run_stream(monkeypatch, [
@@ -2242,13 +2255,21 @@ async def test_stream_posts_only_amendment_id_for_policy_approval(
 async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> None:
     approval_posts = []
 
-    async def request(_coordinator, _approval):
-        return "decline"
+    async def request_outcome(_coordinator, _approval):
+        return ApprovalOutcome.create(
+            "decline",
+            source="user",
+            reason="user",
+        )
 
     async def post_tool_approval(*args, **kwargs):
         approval_posts.append((args, kwargs))
 
-    monkeypatch.setattr(ApprovalCoordinator, "request", request)
+    monkeypatch.setattr(
+        ApprovalCoordinator,
+        "request_outcome",
+        request_outcome,
+    )
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
     result, mind = await _run_stream(monkeypatch, [
@@ -2338,13 +2359,21 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
     approval_posts = []
     input_events = []
 
-    async def request(_coordinator, _approval):
-        return "cancel"
+    async def request_outcome(_coordinator, _approval):
+        return ApprovalOutcome.create(
+            "cancel",
+            source="user",
+            reason="batch_cancelled",
+        )
 
     async def post_tool_approval(*args, **kwargs):
         approval_posts.append((args, kwargs))
 
-    monkeypatch.setattr(ApprovalCoordinator, "request", request)
+    monkeypatch.setattr(
+        ApprovalCoordinator,
+        "request_outcome",
+        request_outcome,
+    )
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
     result, mind = await _run_stream(
@@ -2626,7 +2655,8 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     )
 
     assert result.status == "completed"
-    approval = mind.frontend.interaction.request_approval.await_args.args[0]
+    request = mind.frontend.interaction.present_approval.await_args.args[0]
+    approval = request.approval
     assert approval["arguments"] == expected_arguments
     if tool_name in {"shell_command", "apply_patch"}:
         command_field = "patch" if tool_name == "apply_patch" else "command"

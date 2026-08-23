@@ -9,6 +9,7 @@ from mind_app.presentation.terminal_text import (
 from ...contracts.menu import (
     MenuColumnWidthMode,
     MenuDescriptionLayout,
+    MenuEmptyAcceptAction,
     MenuOption,
     MenuRequest,
     MenuTab
@@ -37,10 +38,15 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         searchable=request.searchable,
         search_placeholder=sanitize_terminal_line(request.search_placeholder),
         search_matcher=request.search_matcher,
+        search_ranker=request.search_ranker,
         search_prompt_prefix=sanitize_inline_text(request.search_prompt_prefix),
+        search_prompt_style=sanitize_terminal_line(request.search_prompt_style),
         search_help_text=sanitize_terminal_line(request.search_help_text),
         search_query_style=sanitize_terminal_line(request.search_query_style),
         search_empty_text=sanitize_terminal_line(request.search_empty_text),
+        empty_accept_action=sanitize_empty_accept_action(
+            request.empty_accept_action
+        ),
         footer_note=sanitize_terminal_line(request.footer_note),
         footer_hint=sanitize_terminal_line(request.footer_hint),
         footer_right=sanitize_inline_text(request.footer_right),
@@ -95,6 +101,14 @@ def sanitize_description_layout(value: typing.Any) -> MenuDescriptionLayout:
         return MenuDescriptionLayout(value)
     except (TypeError, ValueError):
         return MenuDescriptionLayout.COLUMNS
+
+
+def sanitize_empty_accept_action(value: typing.Any) -> MenuEmptyAcceptAction:
+    """清理无结果确认行为并回退到关闭菜单。"""
+    try:
+        return MenuEmptyAcceptAction(value)
+    except (TypeError, ValueError):
+        return MenuEmptyAcceptAction.CANCEL
 
 
 def sanitize_inline_text(value: typing.Any) -> str:

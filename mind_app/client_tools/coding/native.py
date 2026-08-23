@@ -29,7 +29,11 @@ from .schemas import (
 if typing.TYPE_CHECKING:
     from mind_app.approval.coordinator import ApprovalCoordinator
 
-NESTED_PROCESS_TOOLS = {"shell_command", "exec_command", "write_stdin"}
+NESTED_PROCESS_TOOLS = {
+    "shell_command",
+    "exec_command",
+    "write_stdin"
+}
 
 JS_REPL_DESCRIPTION = (
     "在当前 sid 持有的持久 Node.js Kernel 中执行 JavaScript；顶层 await、fetch 和动态 "
@@ -95,7 +99,7 @@ def authorization_failure_result(
     *,
     tool: str,
     arguments: dict[str, typing.Any],
-    error: ExecutionAuthorizationError,
+    error: ExecutionAuthorizationError
 ) -> mcp_types.CallToolResult:
     """构造执行授权失败结果。"""
     raw = coding.fail_result(
@@ -120,7 +124,7 @@ def sandbox_failure_result(
     coding: NativeCoding,
     *,
     tool: str,
-    arguments: dict[str, typing.Any],
+    arguments: dict[str, typing.Any]
 ) -> mcp_types.CallToolResult:
     """构造只读沙箱拒绝写入或进程执行的结果。"""
     raw = coding.fail_result(
@@ -200,7 +204,7 @@ def trusted_arguments(
     arguments: dict[str, typing.Any],
     *,
     tool: str,
-    require_grant: bool = True,
+    require_grant: bool = True
 ) -> dict[str, typing.Any]:
     """校验调用参数、运行身份和可信执行授权。"""
     turn = runtime.turn_context
@@ -217,254 +221,10 @@ def reject_model_execution(arguments: dict[str, typing.Any]) -> None:
         )
 
 
-def _js_repl_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """校验并补齐 JavaScript 单元参数。"""
-    extra = set(arguments).difference({"code", "timeout_ms"})
-    if extra:
-        raise ExecutionAuthorizationError(
-            "canonical_contract_invalid",
-            f"js_repl arguments contain unsupported fields: {sorted(extra)}",
-        )
-
-    code = arguments.get("code")
-    if not isinstance(code, str):
-        raise ExecutionAuthorizationError(
-            "canonical_contract_invalid",
-            "js_repl code must be a string",
-        )
-
-    timeout_ms = arguments.get("timeout_ms", 30000)
-    if (
-        isinstance(timeout_ms, bool)
-        or not isinstance(timeout_ms, int)
-        or timeout_ms < 0
-    ):
-        raise ExecutionAuthorizationError(
-            "canonical_contract_invalid",
-            "js_repl timeout_ms must be a non-negative integer",
-        )
-
-    return {"code": code, "timeout_ms": timeout_ms}
-
-
-def _js_repl_reset_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """校验 JavaScript 内核重置参数。"""
-    if arguments:
-        raise ExecutionAuthorizationError(
-            "canonical_contract_invalid",
-            f"js_repl_reset arguments contain unsupported fields: {sorted(arguments)}",
-        )
-
-    return {}
-
-
-def _nested_canonical_arguments(
-    tool: str,
-    arguments: dict[str, typing.Any]
-) -> dict[str, typing.Any]:
-    """补齐嵌套进程工具需要的 canonical 默认参数。"""
-    if tool == "shell_command":
-        return {
-            "command": str(arguments.get("command") or ""),
-            "cwd": str(arguments.get("cwd") or "."),
-            "timeout_sec": int(arguments.get("timeout_sec") or 60),
-            "output_encoding": str(arguments.get("output_encoding") or "auto"),
-        }
-    if tool == "exec_command":
-        return {
-            "command": str(arguments.get("command") or ""),
-            "cwd": str(arguments.get("cwd") or "."),
-            "yield_time_ms": int(arguments.get("yield_time_ms", 1000)),
-            "max_output_chars": int(arguments.get("max_output_chars") or 24000),
-            "timeout_sec": int(arguments.get("timeout_sec") or 1800),
-            "idle_timeout_sec": int(arguments.get("idle_timeout_sec") or 300),
-        }
-    if tool == "write_stdin":
-        return {
-            "session_id": str(arguments.get("session_id") or ""),
-            "stdin": str(arguments.get("stdin") or ""),
-            "wait_ms": int(arguments.get("wait_ms", 1000)),
-            "max_output_chars": int(arguments.get("max_output_chars") or 12000),
-            "control": str(arguments.get("control") or "none"),
-        }
-    return dict(arguments)
-
-
-async def _nested_execution(
-    runtime: ClientToolRuntime,
-    *,
-    tool: str,
-    arguments: dict[str, typing.Any],
-    approval_coordinator: "ApprovalCoordinator | None",
-    call_id: str,
-) -> dict[str, typing.Any] | None:
-    """为嵌套进程调用取得并构造可验证的执行元数据。"""
-    if tool not in NESTED_PROCESS_TOOLS:
-        return None
-
-    permissions = runtime.turn_context.permissions
-
-    requires_approval = (
-        permissions.sandbox_mode == "workspace-write"
-        or permissions.approval_policy == "untrusted"
-    )
-
-    approved  = not requires_approval
-    canonical = _nested_canonical_arguments(tool, arguments)
-
-    if requires_approval:
-        if approval_coordinator is None or permissions.approval_policy == "never":
-            return None
-
-        agent = runtime.turn_context.agent
-
-        approval = {
-            "id": f"nested_{call_id}",
-            "tool": tool,
-            "arguments": canonical,
-            "command": str(canonical.get("command") or ""),
-            "environment": "local",
-            "justification": "JavaScript requested a nested local process tool.",
-            "agent_id": agent.agent_id,
-            "agent_type": agent.agent_type,
-            "agent_depth": agent.depth,
-        }
-
-        decision = await approval_coordinator.request(approval)
-        approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
-
-    if not approved:
-        raise ExecutionAuthorizationError(
-            "nested_tool_approval_denied",
-            f"nested {tool} call was not approved",
-        )
-
-    return {
-        "state": "approved" if requires_approval else "allowed",
-        "target": "local",
-        "policyVersion": "client-js-repl-v1",
-        "expiresAt": time.time() + 60,
-        "grantId": f"nested_{call_id}",
-        "canonicalArguments": canonical,
-    }
-
-
-def _nested_tool_response(
-    result: mcp_types.CallToolResult,
-    *,
-    call_id: str,
-    mcp_result: bool = False,
-) -> dict[str, typing.Any]:
-    """把 MCP 工具结果转换为内核可消费的函数输出。"""
-    normalized = normalize_call_tool_result(result)
-    if not normalized.ok and not mcp_result:
-        raise RuntimeError(normalized.display_text)
-
-    if mcp_result:
-        output = result.model_dump(
-            mode="json",
-            by_alias=True,
-            exclude_none=True,
-        )
-        return {
-            "type": "mcp_tool_call_output",
-            "call_id": call_id,
-            "output": output,
-            # 旧 Kernel 的 emitImage MCP 分支读取 result，而协议对象使用 output。
-            "result": (
-                {"Ok": output}
-                if normalized.ok
-                else {"Err": normalized.display_text}
-            ),
-        }
-
-    content_items: list[dict[str, typing.Any]] = []
-    content_has_image = False
-    for item in result.content:
-        if isinstance(item, mcp_types.TextContent):
-            if item.text:
-                content_items.append({"type": "input_text", "text": item.text})
-            continue
-        if isinstance(item, mcp_types.ImageContent):
-            content_has_image = True
-            detail = None
-            meta = item.meta if isinstance(item.meta, dict) else {}
-            for key, value in meta.items():
-                if str(key).endswith("/imageDetail") and value in {
-                    "auto",
-                    "low",
-                    "high",
-                    "original",
-                }:
-                    detail = value
-                    break
-            content_items.append({
-                "type": "input_image",
-                "image_url": f"data:{item.mimeType};base64,{item.data}",
-                **({"detail": detail} if detail else {}),
-            })
-
-    if content_has_image:
-        output: typing.Any = content_items
-        return {
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output,
-        }
-
-    images = [
-        item
-        for item in normalized.fields.get("attachments", [])
-        if isinstance(item, dict)
-        and item.get("kind") == "image"
-        and str(item.get("data_url") or "").lower().startswith("data:")
-    ]
-    if images:
-        output: typing.Any = [
-            {
-                "type": "input_image",
-                "image_url": str(item["data_url"]),
-                **(
-                    {"detail": item["detail"]}
-                    if item.get("detail") in {"auto", "low", "high", "original"}
-                    else {}
-                ),
-            }
-            for item in images
-        ]
-    else:
-        data = normalized.data
-        output = (
-            data
-            if data not in (None, {}, [], "")
-            else str(normalized.fields.get("text") or normalized.display_text or "")
-        )
-
-    return {
-        "type": "function_call_output",
-        "call_id": call_id,
-        "output": output,
-    }
-
-
-def _nested_tool_returns_mcp(session: typing.Any, tool_name: str) -> bool:
-    """判断嵌套工具是否由 MCP 会话提供。"""
-    registry = getattr(session, "client_registry", None)
-    if registry is not None and registry.has_tool(tool_name):
-        return False
-
-    external_group = getattr(session, "external_group", None)
-    external_tools = getattr(external_group, "tools", {})
-    if tool_name in external_tools:
-        return True
-
-    return getattr(session, "service_session", None) is not None
-
-
 def coding_tools(
     native_coding: NativeCoding | None = None,
     *,
-    approval_coordinator: "ApprovalCoordinator | None" = None
+    approval_coordinator: ApprovalCoordinator | None = None
 ) -> list[ClientTool]:
     """返回编码工具列表。"""
     coding = native_coding or NativeCoding()
@@ -780,6 +540,251 @@ def coding_tools(
             handler=apply_patch_handler,
         ),
     ]
+
+
+def _js_repl_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """校验并补齐 JavaScript 单元参数。"""
+    extra = set(arguments).difference({"code", "timeout_ms"})
+    if extra:
+        raise ExecutionAuthorizationError(
+            "canonical_contract_invalid",
+            f"js_repl arguments contain unsupported fields: {sorted(extra)}",
+        )
+
+    code = arguments.get("code")
+    if not isinstance(code, str):
+        raise ExecutionAuthorizationError(
+            "canonical_contract_invalid",
+            "js_repl code must be a string",
+        )
+
+    timeout_ms = arguments.get("timeout_ms", 30000)
+    if (
+        isinstance(timeout_ms, bool)
+        or not isinstance(timeout_ms, int)
+        or timeout_ms < 0
+    ):
+        raise ExecutionAuthorizationError(
+            "canonical_contract_invalid",
+            "js_repl timeout_ms must be a non-negative integer",
+        )
+
+    return {"code": code, "timeout_ms": timeout_ms}
+
+
+def _js_repl_reset_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """校验 JavaScript 内核重置参数。"""
+    if arguments:
+        raise ExecutionAuthorizationError(
+            "canonical_contract_invalid",
+            f"js_repl_reset arguments contain unsupported fields: {sorted(arguments)}",
+        )
+
+    return {}
+
+
+def _nested_canonical_arguments(
+    tool: str,
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """补齐嵌套进程工具需要的 canonical 默认参数。"""
+    if tool == "shell_command":
+        return {
+            "command": str(arguments.get("command") or ""),
+            "cwd": str(arguments.get("cwd") or "."),
+            "timeout_sec": int(arguments.get("timeout_sec") or 60),
+            "output_encoding": str(arguments.get("output_encoding") or "auto"),
+        }
+    if tool == "exec_command":
+        return {
+            "command": str(arguments.get("command") or ""),
+            "cwd": str(arguments.get("cwd") or "."),
+            "yield_time_ms": int(arguments.get("yield_time_ms", 1000)),
+            "max_output_chars": int(arguments.get("max_output_chars") or 24000),
+            "timeout_sec": int(arguments.get("timeout_sec") or 1800),
+            "idle_timeout_sec": int(arguments.get("idle_timeout_sec") or 300),
+        }
+    if tool == "write_stdin":
+        return {
+            "session_id": str(arguments.get("session_id") or ""),
+            "stdin": str(arguments.get("stdin") or ""),
+            "wait_ms": int(arguments.get("wait_ms", 1000)),
+            "max_output_chars": int(arguments.get("max_output_chars") or 12000),
+            "control": str(arguments.get("control") or "none"),
+        }
+    return dict(arguments)
+
+
+def _nested_tool_returns_mcp(session: typing.Any, tool_name: str) -> bool:
+    """判断嵌套工具是否由 MCP 会话提供。"""
+    registry = getattr(session, "client_registry", None)
+    if registry is not None and registry.has_tool(tool_name):
+        return False
+
+    external_group = getattr(session, "external_group", None)
+    external_tools = getattr(external_group, "tools", {})
+    if tool_name in external_tools:
+        return True
+
+    return getattr(session, "service_session", None) is not None
+
+
+def _nested_tool_response(
+    result: mcp_types.CallToolResult,
+    *,
+    call_id: str,
+    mcp_result: bool = False
+) -> dict[str, typing.Any]:
+    """把 MCP 工具结果转换为内核可消费的函数输出。"""
+    normalized = normalize_call_tool_result(result)
+    if not normalized.ok and not mcp_result:
+        raise RuntimeError(normalized.display_text)
+
+    if mcp_result:
+        output = result.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
+        return {
+            "type": "mcp_tool_call_output",
+            "call_id": call_id,
+            "output": output,
+            # 旧 Kernel 的 emitImage MCP 分支读取 result，而协议对象使用 output。
+            "result": (
+                {"Ok": output}
+                if normalized.ok
+                else {"Err": normalized.display_text}
+            ),
+        }
+
+    content_items: list[dict[str, typing.Any]] = []
+    content_has_image = False
+    for item in result.content:
+        if isinstance(item, mcp_types.TextContent):
+            if item.text:
+                content_items.append({"type": "input_text", "text": item.text})
+            continue
+        if isinstance(item, mcp_types.ImageContent):
+            content_has_image = True
+            detail = None
+            meta = item.meta if isinstance(item.meta, dict) else {}
+            for key, value in meta.items():
+                if str(key).endswith("/imageDetail") and value in {
+                    "auto",
+                    "low",
+                    "high",
+                    "original",
+                }:
+                    detail = value
+                    break
+            content_items.append({
+                "type": "input_image",
+                "image_url": f"data:{item.mimeType};base64,{item.data}",
+                **({"detail": detail} if detail else {}),
+            })
+
+    if content_has_image:
+        output: typing.Any = content_items
+        return {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        }
+
+    images = [
+        item
+        for item in normalized.fields.get("attachments", [])
+        if isinstance(item, dict)
+        and item.get("kind") == "image"
+        and str(item.get("data_url") or "").lower().startswith("data:")
+    ]
+    if images:
+        output: typing.Any = [
+            {
+                "type": "input_image",
+                "image_url": str(item["data_url"]),
+                **(
+                    {"detail": item["detail"]}
+                    if item.get("detail") in {"auto", "low", "high", "original"}
+                    else {}
+                ),
+            }
+            for item in images
+        ]
+    else:
+        data = normalized.data
+        output = (
+            data
+            if data not in (None, {}, [], "")
+            else str(normalized.fields.get("text") or normalized.display_text or "")
+        )
+
+    return {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+
+
+async def _nested_execution(
+    runtime: ClientToolRuntime,
+    *,
+    tool: str,
+    arguments: dict[str, typing.Any],
+    approval_coordinator: ApprovalCoordinator | None,
+    call_id: str
+) -> dict[str, typing.Any] | None:
+    """为嵌套进程调用取得并构造可验证的执行元数据。"""
+    if tool not in NESTED_PROCESS_TOOLS:
+        return None
+
+    permissions = runtime.turn_context.permissions
+
+    requires_approval = (
+        permissions.sandbox_mode == "workspace-write"
+        or permissions.approval_policy == "untrusted"
+    )
+
+    approved  = not requires_approval
+    canonical = _nested_canonical_arguments(tool, arguments)
+
+    if requires_approval:
+        if approval_coordinator is None or permissions.approval_policy == "never":
+            return None
+
+        agent = runtime.turn_context.agent
+
+        approval = {
+            "id": f"nested_{call_id}",
+            "call_id": call_id,
+            "tool": tool,
+            "arguments": canonical,
+            "command": str(canonical.get("command") or ""),
+            "environment": "local",
+            "justification": "JavaScript requested a nested local process tool.",
+            "agent_id": agent.agent_id,
+            "agent_type": agent.agent_type,
+            "agent_depth": agent.depth,
+        }
+
+        decision = await approval_coordinator.request(approval)
+        approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
+
+    if not approved:
+        raise ExecutionAuthorizationError(
+            "nested_tool_approval_denied",
+            f"nested {tool} call was not approved",
+        )
+
+    return {
+        "state": "approved" if requires_approval else "allowed",
+        "target": "local",
+        "policyVersion": "client-js-repl-v1",
+        "expiresAt": time.time() + 60,
+        "grantId": f"nested_{call_id}",
+        "canonicalArguments": canonical,
+    }
 
 
 if __name__ == '__main__':

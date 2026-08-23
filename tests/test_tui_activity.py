@@ -714,6 +714,45 @@ async def test_consecutive_approvals_do_not_restore_finished_turn_wait() -> None
 
 
 @pytest.mark.anyio
+async def test_consecutive_approvals_share_surface_and_wait_pause() -> None:
+    runtime = TuiRuntime()
+    coordinator = ApprovalCoordinator(runtime)
+
+    await runtime.begin_wait_status()
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+
+    await _wait_for_approval(runtime, "first")
+    assert runtime.screen.approval.pending_count == 1
+    assert runtime.activity._wait_paused
+
+    runtime.screen.approval.finish("accept")
+
+    assert await first == "accept"
+    await _wait_for_approval(runtime, "second")
+    assert runtime.screen.bottom_pane.active_surface == "approval"
+    assert runtime.activity._wait_paused
+
+    runtime.screen.approval.finish("accept")
+
+    assert await second == "accept"
+    assert runtime.screen.bottom_pane.active_surface is None
+    assert not runtime.activity._wait_paused
+    assert runtime.activity.lease("wait") is not None
+    await runtime.end_activity_status("wait", settle=False)
+
+
+@pytest.mark.anyio
 async def test_request_approval_resumes_wait_after_failure() -> None:
     calls = []
 
@@ -726,20 +765,26 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
             calls.append("resume")
 
     class ApprovalStub(object):
-        def begin(self, approval):
-            calls.append("approval.begin")
-            return True
+        def snapshot_changed(self, snapshot):
+            _ = snapshot
 
-        async def wait(self):
-            calls.append("approval.wait")
+        def begin_session(self):
+            calls.append("approval.begin")
+
+        async def request(self, approval):
+            calls.append("approval.request")
             raise RuntimeError("approval failed")
 
-        async def dismiss(self):
-            calls.append("approval.dismiss")
+        async def end_session(self):
+            calls.append("approval.end")
 
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
     runtime.screen = SimpleNamespace(approval=ApprovalStub())
+    runtime._approval_session_lock = asyncio.Lock()
+    runtime._approval_session_active = False
+    runtime._approval_wait_paused = False
+    runtime._closing = False
     runtime._turn_progress_active = True
     runtime.terminal_progress = SimpleNamespace(
         warning=lambda: calls.append("warning"),
@@ -748,16 +793,16 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
     )
 
     with pytest.raises(RuntimeError, match="approval failed"):
-        await runtime.request_approval({})
+        await ApprovalCoordinator(runtime).request({})
 
     assert calls == [
         "approval.begin",
         "warning",
         "pause",
-        "approval.wait",
+        "approval.request",
+        "approval.end",
         "progress",
         "resume",
-        "approval.dismiss",
     ]
 
 
@@ -774,20 +819,26 @@ async def test_request_approval_dismisses_card_when_pause_fails() -> None:
             calls.append("resume")
 
     class ApprovalStub(object):
-        def begin(self, approval):
-            calls.append("approval.begin")
-            return True
+        def snapshot_changed(self, snapshot):
+            _ = snapshot
 
-        async def wait(self):
-            calls.append("approval.wait")
+        def begin_session(self):
+            calls.append("approval.begin")
+
+        async def request(self, approval):
+            calls.append("approval.request")
             return "accept"
 
-        async def dismiss(self):
-            calls.append("approval.dismiss")
+        async def end_session(self):
+            calls.append("approval.end")
 
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
     runtime.screen = SimpleNamespace(approval=ApprovalStub())
+    runtime._approval_session_lock = asyncio.Lock()
+    runtime._approval_session_active = False
+    runtime._approval_wait_paused = False
+    runtime._closing = False
     runtime._turn_progress_active = True
     runtime.terminal_progress = SimpleNamespace(
         warning=lambda: calls.append("warning"),
@@ -796,15 +847,128 @@ async def test_request_approval_dismisses_card_when_pause_fails() -> None:
     )
 
     with pytest.raises(RuntimeError, match="pause failed"):
-        await runtime.request_approval({})
+        await ApprovalCoordinator(runtime).request({})
 
     assert calls == [
         "approval.begin",
         "warning",
         "pause",
+        "approval.end",
         "progress",
-        "approval.dismiss",
     ]
+
+
+@pytest.mark.anyio
+async def test_pause_failure_settles_concurrent_approval_requests() -> None:
+    runtime = TuiRuntime()
+    coordinator = ApprovalCoordinator(runtime)
+    pause_started = asyncio.Event()
+    fail_pause = asyncio.Event()
+
+    async def pause_wait() -> bool:
+        pause_started.set()
+        await fail_pause.wait()
+        raise RuntimeError("pause failed")
+
+    runtime.activity.pause_wait = pause_wait
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await pause_started.wait()
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await asyncio.sleep(0)
+    fail_pause.set()
+
+    with pytest.raises(RuntimeError, match="pause failed"):
+        await first
+    assert await second == "decline"
+    assert not runtime.screen.approval.active
+    assert not runtime._approval_session_active
+    assert coordinator.snapshot.unresolved_count == 0
+
+
+@pytest.mark.anyio
+async def test_cancelling_during_pause_waits_for_session_setup() -> None:
+    runtime = TuiRuntime()
+    coordinator = ApprovalCoordinator(runtime)
+    pause_started = asyncio.Event()
+    release_pause = asyncio.Event()
+    resumes = 0
+
+    class ActivityStub(object):
+        async def pause_wait(self) -> bool:
+            pause_started.set()
+            await release_pause.wait()
+            return True
+
+        async def resume_wait(self) -> None:
+            nonlocal resumes
+            resumes += 1
+
+    runtime.activity = ActivityStub()
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await pause_started.wait()
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await asyncio.sleep(0)
+
+    second.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await second
+    assert runtime._approval_session_active
+
+    release_pause.set()
+
+    await _wait_for_approval(runtime, "first")
+    runtime.screen.approval.finish("accept")
+    assert await first == "accept"
+    assert resumes == 1
+    assert not runtime._approval_session_active
+    assert not runtime._approval_wait_paused
+
+
+@pytest.mark.anyio
+async def test_runtime_close_settles_active_approval_batch() -> None:
+    runtime = TuiRuntime()
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await _wait_for_approval(runtime, "first")
+
+    await coordinator.close()
+    await runtime.close()
+
+    assert await asyncio.gather(first, second) == ["decline", "decline"]
+    assert not runtime.screen.approval.active
+    assert runtime.screen.approval.pending_count == 0
+    assert not runtime._approval_session_active
 
 
 @pytest.mark.anyio
@@ -823,18 +987,19 @@ async def test_request_approval_keeps_card_active_during_activity_handoff() -> N
             await asyncio.sleep(0)
 
     runtime.activity = ActivityStub()
-    task = asyncio.create_task(runtime.request_approval({
+    task = asyncio.create_task(ApprovalCoordinator(runtime).request({
+        "id": "handoff",
         "tool": "shell_command",
         "command": "pytest -q",
         "show_timer": False,
     }))
-    await asyncio.sleep(0)
+    await _wait_for_approval(runtime, "handoff")
 
     assert runtime.screen.approval.active
     runtime.screen.approval.finish("accept")
 
     assert await task == "accept"
-    assert active_during_handoff == [True, True]
+    assert active_during_handoff == [True, False]
     assert not runtime.screen.approval.active
 
 

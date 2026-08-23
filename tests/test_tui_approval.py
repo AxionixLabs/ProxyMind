@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import time
 
 import pytest
 from prompt_toolkit.keys import Keys
@@ -19,6 +20,7 @@ from mind_app.tui.core.approval_render import (
     tui_approval_content_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.tui.core.styles import build_tui_application_style
 
 
@@ -616,6 +618,227 @@ async def test_approval_decline_shortcuts_do_not_cancel_turn(keys) -> None:
 
     assert await approval.wait() == "decline"
     await approval.dismiss()
+
+
+@pytest.mark.anyio
+async def test_approval_queue_advances_fifo_without_restoring_input() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await _wait_for_presented_approval(approval, "first")
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await _wait_for_pending_count(approval, 1)
+
+    assert approval.state is not None
+    assert approval.state.approval["id"] == "first"
+    assert approval.pending_count == 1
+    assert runtime.screen.bottom_pane.active_surface == "approval"
+    assert "1 approval waiting" in "".join(
+        text for _style, text in approval.footer_fragments()
+    )
+
+    approval.finish("accept")
+
+    assert await first == "accept"
+    await _wait_for_presented_approval(approval, "second")
+    assert approval.state is not None
+    assert approval.state.approval["id"] == "second"
+    assert approval.pending_count == 0
+    assert runtime.screen.bottom_pane.active_surface == "approval"
+
+    approval.finish("decline")
+
+    assert await second == "decline"
+    assert not approval.active
+    assert runtime.screen.bottom_pane.active_surface is None
+
+
+@pytest.mark.anyio
+async def test_approval_ctrl_c_cancels_current_and_pending_requests() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await _wait_for_presented_approval(approval, "first")
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await _wait_for_pending_count(approval, 1)
+
+    _invoke_approval_binding(approval, (Keys.ControlC,))
+
+    assert await asyncio.gather(first, second) == ["cancel", "cancel"]
+    assert not approval.active
+    assert approval.pending_count == 0
+    assert runtime.screen.bottom_pane.active_surface is None
+
+
+@pytest.mark.anyio
+async def test_approval_close_settles_current_and_pending_requests() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await _wait_for_presented_approval(approval, "first")
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await _wait_for_pending_count(approval, 1)
+
+    await coordinator.close()
+
+    assert await asyncio.gather(first, second) == ["decline", "decline"]
+    assert not approval.active
+    assert approval.pending_count == 0
+
+
+@pytest.mark.anyio
+async def test_cancelling_current_approval_advances_to_pending_request() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await _wait_for_presented_approval(approval, "first")
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await _wait_for_pending_count(approval, 1)
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+
+    await _wait_for_presented_approval(approval, "second")
+    assert approval.state is not None
+    assert approval.state.approval["id"] == "second"
+    assert approval.pending_count == 0
+    assert runtime.screen.bottom_pane.active_surface == "approval"
+
+    approval.finish("accept")
+    assert await second == "accept"
+
+
+@pytest.mark.anyio
+async def test_cancelling_pending_approval_keeps_current_request() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await _wait_for_presented_approval(approval, "first")
+    second = asyncio.create_task(coordinator.request({
+        "id": "second",
+        "tool": "shell_command",
+        "command": "echo second",
+        "show_timer": False,
+    }))
+    await _wait_for_pending_count(approval, 1)
+
+    second.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await second
+
+    assert approval.state is not None
+    assert approval.state.approval["id"] == "first"
+    assert approval.pending_count == 0
+
+    approval.finish("decline")
+    assert await first == "decline"
+
+
+@pytest.mark.anyio
+async def test_expired_queued_approval_is_skipped_during_advance() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    coordinator = ApprovalCoordinator(runtime)
+    first = asyncio.create_task(coordinator.request({
+        "id": "first",
+        "tool": "shell_command",
+        "command": "echo first",
+        "show_timer": False,
+    }))
+    await _wait_for_presented_approval(approval, "first")
+    expired = asyncio.create_task(coordinator.request({
+        "id": "expired",
+        "tool": "shell_command",
+        "command": "echo expired",
+        "expires_at_ms": int(time.time() * 1000) + 20,
+    }))
+    following = asyncio.create_task(coordinator.request({
+        "id": "following",
+        "tool": "shell_command",
+        "command": "echo following",
+        "show_timer": False,
+    }))
+    await _wait_for_pending_count(approval, 2)
+    await asyncio.sleep(0.05)
+
+    approval.finish("accept")
+
+    assert await first == "accept"
+    assert await expired == "expired"
+    await _wait_for_presented_approval(approval, "following")
+    assert approval.state is not None
+    assert approval.state.approval["id"] == "following"
+
+    approval.finish("decline")
+    assert await following == "decline"
+
+
+async def _wait_for_presented_approval(approval, approval_id: str) -> None:
+    for _ in range(40):
+        state = approval.state
+        if state is not None and state.approval.get("id") == approval_id:
+            return None
+        await asyncio.sleep(0)
+    raise AssertionError(f"approval was not presented: {approval_id}")
+
+
+async def _wait_for_pending_count(approval, expected: int) -> None:
+    for _ in range(40):
+        if approval.pending_count == expected:
+            return None
+        await asyncio.sleep(0)
+    raise AssertionError(f"approval pending count did not reach {expected}")
 
 
 def _invoke_approval_binding(approval, keys) -> None:

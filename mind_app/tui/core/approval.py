@@ -3,30 +3,31 @@
 
 import typing
 import asyncio
-import contextlib
 from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
-from mind_app.approval.models import ApprovalDecisionValue
+from mind_app.approval.models import (
+    ApprovalDecisionValue,
+    ApprovalQueueSnapshot
+)
 from mind_app.approval.policy import (
     approval_decisions,
-    approval_expired,
-    approval_remaining_sec
+    approval_expired
 )
 from .approval_render import tui_approval_content_lines
 
 
 @dataclass(slots=True)
 class ApprovalState(object):
-    """保存审批层当前请求和等待结果。"""
+    """保存审批表面当前展示的单条请求。"""
     approval: dict[str, typing.Any]
     decisions: list[ApprovalDecisionValue]
     future: asyncio.Future[ApprovalDecisionValue]
 
 
 class TuiApproval(object):
-    """管理持久 TUI 内的专属审批交互状态。"""
+    """展示协调器指定的当前审批请求并上报用户动作。"""
 
     def __init__(
         self,
@@ -37,88 +38,122 @@ class TuiApproval(object):
         get_width: typing.Callable[[], int],
         get_max_height: typing.Callable[[], int]
     ) -> None:
-        self.invalidate  = invalidate
-        self.focus_card  = focus_card
-        self.focus_input = focus_input
-
+        self.invalidate     = invalidate
+        self.focus_card     = focus_card
+        self.focus_input    = focus_input
         self.get_width      = get_width
         self.get_max_height = get_max_height
 
-        self.state: ApprovalState | None = None
+        self.state: ApprovalState | None               = None
+        self._default_wait_state: ApprovalState | None = None
+        self.selected_index: int                       = 0
+        self._session_active: bool                     = False
 
-        self.selected_index: int = 0
-
-        self.expiry_task: asyncio.Task[None] | None = None
-
+        self._snapshot = ApprovalQueueSnapshot(
+            current=None,
+            pending=(),
+            revision=0,
+        )
         self.key_bindings = self._build_key_bindings()
 
     @property
     def active(self) -> bool:
-        """返回当前是否存在审批请求。"""
-        return self.state is not None
+        """返回审批批次是否正在占用交互表面。"""
+        return self._session_active
+
+    @property
+    def pending_count(self) -> int:
+        """返回应用层快照中的排队审批数量。"""
+        return self._snapshot.pending_count
+
+    def begin_session(self) -> None:
+        """激活连续审批批次并接管 bottom pane 焦点。"""
+        if self._session_active:
+            return None
+        self._session_active = True
+        self.focus_card()
+        self.invalidate()
+
+    def snapshot_changed(self, snapshot: ApprovalQueueSnapshot) -> None:
+        """保存应用层审批队列的最新只读快照。"""
+        if (
+            snapshot.coordinator_id == self._snapshot.coordinator_id
+            and snapshot.revision < self._snapshot.revision
+        ):
+            return None
+        self._snapshot = snapshot
+        self.invalidate()
 
     async def request(
         self,
         approval: dict[str, typing.Any],
     ) -> ApprovalDecisionValue:
-        """显示审批内容并等待当前请求结果。"""
-        if not self.begin(approval):
+        """展示一条审批并等待当前用户动作。"""
+        owns_session = not self._session_active
+        if owns_session:
+            self.begin_session()
+        state = self._present(approval)
+        if state is None:
+            if owns_session:
+                await self.end_session()
             return "expired"
 
         try:
-            return await self.wait()
+            return await state.future
+        except BaseException:
+            if not state.future.done():
+                state.future.cancel()
+            raise
         finally:
-            await self.dismiss()
+            self._clear_state(state)
+            if owns_session:
+                await self.end_session()
 
     def begin(self, approval: dict[str, typing.Any]) -> bool:
-        """建立审批状态并同步显示交互表面。"""
-        if approval_expired(approval):
-            return False
-        if self.state is not None:
-            raise RuntimeError("cannot begin multiple TUI approvals")
+        """建立单条审批状态，供控件级调用方分步等待。"""
+        if not self._session_active:
+            self.begin_session()
+        state = self._present(approval)
+        self._default_wait_state = state
+        return state is not None
 
-        future = asyncio.get_running_loop().create_future()
-
-        self.state = ApprovalState(
-            approval=dict(approval),
-            decisions=approval_decisions(approval),
-            future=future,
-        )
-        self.selected_index = 0
-        self.focus_card()
-        self.invalidate()
-        self.expiry_task = asyncio.create_task(
-            self._expire(),
-            name="tui approval expiry",
-        )
-        return True
-
-    async def wait(self) -> ApprovalDecisionValue:
-        """等待当前审批请求产生决策。"""
-        state = self.state
-        if state is None:
+    async def wait(
+        self,
+        *,
+        state: ApprovalState | None = None,
+    ) -> ApprovalDecisionValue:
+        """等待指定审批状态或分步建立的默认状态。"""
+        current = state or self._default_wait_state or self.state
+        if current is None:
             raise RuntimeError("cannot wait without an active TUI approval")
-        return await state.future
+        result = await current.future
+        if self._default_wait_state is current:
+            self._default_wait_state = None
+        return result
 
     async def dismiss(self) -> None:
-        """清理当前审批状态并恢复主输入表面。"""
-        state = self.state
-        if state is None:
-            return None
-        await self._cancel_expiry()
-        if not state.future.done():
-            state.future.set_result("decline")
-        self.state = None
-        self.focus_input()
-        self.invalidate()
+        """拒绝当前请求并结束控件级审批批次。"""
+        await self.end_session()
 
-    async def close(self) -> None:
-        """安全结束当前审批请求并清理倒计时。"""
+    async def end_session(self, *, restore_focus: bool = True) -> None:
+        """结束审批批次并按需恢复原交互表面。"""
         state = self.state
+        self.state = None
+        self._default_wait_state = None
+        self.selected_index = 0
+        was_active = self._session_active
+        self._session_active = False
+
         if state is not None and not state.future.done():
             state.future.set_result("decline")
-        self.state = None
-        await self._cancel_expiry()
+        if was_active and restore_focus:
+            self.focus_input()
+        if state is not None or was_active:
+            self.invalidate()
+
+    async def close(self) -> None:
+        """关闭审批表面并拒绝仍在展示的请求。"""
+        await self.end_session(restore_focus=False)
 
     def fragments(self) -> StyleAndTextTuples:
         """生成带表面背景的审批卡片内容。"""
@@ -147,17 +182,16 @@ class TuiApproval(object):
         lines = tui_approval_content_lines(
             state.decisions,
             approval=state.approval,
+            pending_count=self.pending_count,
             selected_index=self.selected_index,
             width=max(1, self.get_width() - 4),
             max_height=self.get_max_height(),
         )
-
         footer_start = next((
             index
             for index, line in enumerate(lines)
             if any(style == "class:approval-footer" for style, _text in line)
         ), len(lines))
-
         return lines[:footer_start], lines[footer_start:]
 
     @staticmethod
@@ -171,13 +205,11 @@ class TuiApproval(object):
             return []
 
         out: StyleAndTextTuples = []
-
         for index, line in enumerate(lines):
             out.append((prefix_style, "  "))
             out.extend(line)
             if index < len(lines) - 1:
                 out.append((prefix_style, "\n"))
-
         return out
 
     def finish(self, decision: ApprovalDecisionValue) -> None:
@@ -191,6 +223,33 @@ class TuiApproval(object):
         }:
             return None
         state.future.set_result(decision)
+
+    def _clear_state(self, state: ApprovalState) -> None:
+        """只清理仍属于本次展示的请求状态。"""
+        if self.state is not state:
+            return None
+        self.state = None
+        self.selected_index = 0
+        self.invalidate()
+
+    def _present(
+        self,
+        approval: dict[str, typing.Any],
+    ) -> ApprovalState | None:
+        """建立当前单条展示状态。"""
+        if approval_expired(approval):
+            return None
+        if self.state is not None:
+            raise RuntimeError("cannot present multiple TUI approvals")
+        state = ApprovalState(
+            approval=dict(approval),
+            decisions=approval_decisions(approval),
+            future=asyncio.get_running_loop().create_future(),
+        )
+        self.state = state
+        self.selected_index = 0
+        self.invalidate()
+        return state
 
     def _move(self, step: int) -> None:
         """移动审批卡当前选择。"""
@@ -255,28 +314,6 @@ class TuiApproval(object):
                 self._finish_index(selected_number - 1)
 
         return bindings
-
-    async def _expire(self) -> None:
-        """刷新审批倒计时并在过期时结束请求。"""
-        while self.state is not None:
-            remaining = approval_remaining_sec(self.state.approval)
-            if remaining is None:
-                return None
-            if remaining <= 0:
-                self.finish("expired")
-                return None
-            await asyncio.sleep(min(1.0, max(0.05, remaining)))
-            self.invalidate()
-
-    async def _cancel_expiry(self) -> None:
-        """取消当前审批倒计时任务。"""
-        task = self.expiry_task
-        self.expiry_task = None
-        if task is None:
-            return None
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
 
 
 if __name__ == '__main__':

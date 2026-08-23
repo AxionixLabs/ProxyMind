@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from prompt_toolkit.document import Document
 from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import DummyOutput
 
 from mind_core.config_session import ConfigSession
@@ -17,12 +18,16 @@ from mind_core.config_store import ConfigStore
 from mind_core.skills import SkillSpec
 from mind_app.tui.core.input import TuiInputModel
 from mind_app.tui.core.menu import TUI_MENU_STYLE, TuiMenu
+from mind_app.tui.core.models import MenuEmptyAcceptAction
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import skills as skills_feature
 from mind_app.tui.rendering.fragments import fragments_text
 from mind_app.tui.prompting import files as file_search_module
 from mind_app.tui.prompting.files import FileSearchManager
-from mind_app.tui.prompting.skills import SkillTokenLexer
+from mind_app.tui.prompting.skills import (
+    SkillTokenLexer,
+    skill_match_score,
+)
 
 
 def _skill(tmp_path: Path, name: str = "APP QA") -> SkillSpec:
@@ -115,10 +120,12 @@ async def test_manage_skills_toggles_persist_and_refresh_input_snapshot(
     )
     assert manage_request.search_help_text == "Type to search skills"
     assert manage_request.search_prompt_prefix == "> "
-    assert manage_request.search_query_style == (
+    assert manage_request.search_prompt_style == (
         "class:tui-menu.search.placeholder"
     )
+    assert manage_request.search_query_style == ""
     assert manage_request.search_empty_text == "no matches"
+    assert manage_request.empty_accept_action is MenuEmptyAcceptAction.IGNORE
     assert not manage_request.separate_options
     assert manage_request.options[0].label == "[x] APP QA"
     assert manage_request.options[0].detail == "通过截图测试灯具业务。"
@@ -176,14 +183,19 @@ async def test_manage_skills_uses_compact_search_layout_and_empty_state(
         "  ",
         "  Press space or enter to toggle; esc to close",
     ))
-    assert (
-        "class:tui-menu.search.placeholder",
-        "q",
-    ) in fragments
+    assert ("class:tui-menu.search.placeholder", "> ") in fragments
+    assert ("class:tui-menu.search", "q") in fragments
     assert (
         "class:tui-menu.search.empty",
         "  no matches",
     ) in fragments
+    enter = next(
+        binding.handler
+        for binding in menu.key_bindings.bindings
+        if binding.keys == (Keys.Enter,)
+    )
+    enter(None)
+    assert not task.done()
 
     help_style = TUI_MENU_STYLE.get_attrs_for_style_str(
         "class:tui-menu.search.placeholder"
@@ -198,6 +210,112 @@ async def test_manage_skills_uses_compact_search_layout_and_empty_state(
 
     menu.cancel()
     assert await task is None
+
+
+@pytest.mark.anyio
+async def test_manage_skills_search_filters_and_orders_by_name_score(
+    tmp_path: Path,
+) -> None:
+    skills = (
+        SkillSpec(
+            name="a-b-c",
+            description="First description",
+            source="project",
+            root=tmp_path / "a-b-c",
+            entry=tmp_path / "a-b-c" / "SKILL.md",
+        ),
+        SkillSpec(
+            name="abacus",
+            description="Second description",
+            source="project",
+            root=tmp_path / "abacus",
+            entry=tmp_path / "abacus" / "SKILL.md",
+        ),
+        SkillSpec(
+            name="myabc",
+            description="abc only appears in the description",
+            source="project",
+            root=tmp_path / "myabc",
+            entry=tmp_path / "myabc" / "SKILL.md",
+        ),
+        SkillSpec(
+            name="Browser",
+            description="description-only-needle",
+            source="project",
+            root=tmp_path / "Browser",
+            entry=tmp_path / "Browser" / "SKILL.md",
+        ),
+        SkillSpec(
+            name="xray",
+            description="Lowercase tie",
+            source="project",
+            root=tmp_path / "xray",
+            entry=tmp_path / "xray" / "SKILL.md",
+        ),
+        SkillSpec(
+            name="Xylophone",
+            description="Uppercase tie",
+            source="project",
+            root=tmp_path / "Xylophone",
+            entry=tmp_path / "Xylophone" / "SKILL.md",
+        ),
+    )
+    request = skills_feature._manage_request(
+        skills,
+        {skill.name.casefold(): True for skill in skills},
+        lambda _skill: None,
+    )
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 100,
+    )
+    task = asyncio.create_task(menu.request(request))
+    await asyncio.sleep(0)
+
+    menu._update_query(" abc ")
+    assert menu.state is not None
+    _start, matches = menu._visible_options(menu.state)
+    assert [option.value.name for option in matches] == [
+        "abacus",
+        "a-b-c",
+        "myabc",
+    ]
+
+    menu._update_query("description-only-needle")
+    _start, matches = menu._visible_options(menu.state)
+    assert matches == ()
+
+    menu._update_query("x")
+    _start, matches = menu._visible_options(menu.state)
+    assert [option.value.name for option in matches] == [
+        "Xylophone",
+        "xray",
+    ]
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.parametrize(
+    ("name", "query", "expected"),
+    (
+        ("abc", "abc", -100),
+        ("a-b-c", "abc", -98),
+        ("myabc", "abc", 0),
+        ("FooBar", "foO", -100),
+        ("İstanbul", "is", -99),
+        ("ΟΣ", "οσ", -100),
+        ("straße", "strasse", None),
+    ),
+)
+def test_skill_match_score_uses_expected_fuzzy_scoring(
+    name: str,
+    query: str,
+    expected: int | None,
+) -> None:
+    assert skill_match_score(name, query) == expected
 
 
 def test_at_query_keeps_the_default_input_style() -> None:
@@ -356,7 +474,7 @@ async def test_at_filesystem_search_filters_and_inserts_paths(
 
 
 @pytest.mark.anyio
-async def test_at_file_search_uses_codex_ignore_boundaries(tmp_path: Path) -> None:
+async def test_at_file_search_respects_ignore_boundaries(tmp_path: Path) -> None:
     """验证 Git 元数据被排除，同时保留可搜索的普通隐藏文件。"""
     (tmp_path / ".git" / "objects").mkdir(parents=True)
     (tmp_path / ".git" / "objects" / "private-target").write_text(

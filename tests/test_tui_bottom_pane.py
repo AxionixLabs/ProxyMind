@@ -7,6 +7,7 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.tui.core.bottom_pane import TuiBottomPane
 from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
 from mind_app.tui.core.queued import TuiSubmission
@@ -221,12 +222,13 @@ async def test_approval_temporarily_replaces_menu_surface() -> None:
 
     assert runtime.screen._bottom_pane_top_inset_height() == 1
 
-    approval_task = asyncio.create_task(runtime.request_approval({
+    approval_task = asyncio.create_task(ApprovalCoordinator(runtime).request({
+        "id": "menu-approval",
         "tool": "shell_command",
         "command": "pytest -q",
         "show_timer": False,
     }))
-    await asyncio.sleep(0)
+    await _wait_for_approval(runtime, "menu-approval")
 
     assert runtime.screen.bottom_pane.active_surface == "approval"
     assert runtime.screen._bottom_pane_top_inset_height() == 1
@@ -276,12 +278,13 @@ async def test_object_view_stack_restores_exact_parent_after_overlay() -> None:
     assert child_view.view_id() == "child"
     assert len(runtime.screen.bottom_pane.view_stack) == 2
 
-    approval_task = asyncio.create_task(runtime.request_approval({
+    approval_task = asyncio.create_task(ApprovalCoordinator(runtime).request({
+        "id": "stack-approval",
         "tool": "shell_command",
         "command": "pytest -q",
         "show_timer": False,
     }))
-    await asyncio.sleep(0)
+    await _wait_for_approval(runtime, "stack-approval")
 
     assert runtime.screen.bottom_pane.active_surface == "approval"
     assert runtime.screen.bottom_pane.active_view is None
@@ -321,3 +324,15 @@ async def test_menu_closes_from_terminal_escape_key() -> None:
             assert runtime.screen.bottom_pane.active_surface is None
         finally:
             await runtime.close()
+
+
+async def _wait_for_approval(
+    runtime: TuiRuntime,
+    approval_id: str,
+) -> None:
+    for _ in range(40):
+        state = runtime.screen.approval.state
+        if state is not None and state.approval.get("id") == approval_id:
+            return None
+        await asyncio.sleep(0)
+    raise AssertionError(f"approval was not presented: {approval_id}")

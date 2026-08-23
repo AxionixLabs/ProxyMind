@@ -10,6 +10,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from mind_app.presentation.terminal_text import sanitize_terminal_line
 from ..contracts.menu import (
+    MenuEmptyAcceptAction,
     MenuOption,
     MenuRequest
 )
@@ -152,11 +153,13 @@ class TuiMenu(object):
         state = self.state
         return state.session_id if state is not None else None
 
-    def state_dismisses_after_child_accept(self, state: MenuState) -> bool:
+    @staticmethod
+    def state_dismisses_after_child_accept(state: MenuState) -> bool:
         """返回指定菜单状态的父级关闭标记。"""
         return state.dismiss_after_child_accept
 
-    def clear_state_child_dismissal(self, state: MenuState) -> None:
+    @staticmethod
+    def clear_state_child_dismissal(state: MenuState) -> None:
         """清除指定菜单状态的父级关闭标记。"""
         state.dismiss_after_child_accept = False
 
@@ -597,12 +600,14 @@ class TuiMenu(object):
         if state is None:
             return False
 
-        key_sequence = getattr(event, "key_sequence", ())
-
-        key = (
-            key_sequence[-1].key
-            if key_sequence
-            else getattr(event, "key", None)
+        key_sequence = tuple(
+            getattr(event, "key_sequence", ()) or ()
+        )
+        last_key_press = next(reversed(key_sequence), None)
+        key = getattr(
+            last_key_press,
+            "key",
+            getattr(event, "key", None),
         )
         data = getattr(event, "data", "")
 
@@ -641,7 +646,7 @@ class TuiMenu(object):
             indices = filtered_indices(state)
             if has_selectable(state.request.options, indices):
                 self._choose_index(state.selected)
-            else:
+            elif state.request.empty_accept_action is MenuEmptyAcceptAction.CANCEL:
                 self.cancel()
         elif key in ("space", " "):
             if state.request.on_space is not None:
@@ -814,7 +819,10 @@ class TuiMenu(object):
                 and has_selectable(state.request.options, indices)
             ):
                 self._choose_index(state.selected)
-            elif state is not None:
+            elif (
+                state is not None
+                and state.request.empty_accept_action is MenuEmptyAcceptAction.CANCEL
+            ):
                 self.cancel()
 
         @bindings.add("space")

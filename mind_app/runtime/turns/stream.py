@@ -974,8 +974,11 @@ async def stream_turn(
                     decision_source = "policy"
 
                 else:
-                    decision        = await mind.approval_coordinator.request(approval)
-                    decision_source = mind.approval_coordinator.decision_source
+                    outcome = await mind.approval_coordinator.request_outcome(
+                        approval
+                    )
+                    decision = outcome.decision
+                    decision_source = outcome.source
 
                 observe(
                     "approval.decided",
@@ -1071,6 +1074,19 @@ async def stream_turn(
 
             if isinstance(event, ToolApprovalReviewEvent):
                 approval = dict(event.approval)
+                approval_identity = str(
+                    approval.get("id") or event.call_id or ""
+                ).strip()
+                if approval_identity:
+                    await mind.approval_coordinator.resolve(
+                        approval_identity,
+                        (
+                            "accept"
+                            if event.status == "approved"
+                            else "decline"
+                        ),
+                        source="auto_review",
+                    )
                 if event.rationale:
                     approval["rationale"] = event.rationale
                 if event.failure_reason:

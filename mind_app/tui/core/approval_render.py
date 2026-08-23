@@ -57,6 +57,7 @@ def tui_approval_content_lines(
     decisions: list[ApprovalDecisionValue],
     *,
     approval: dict[str, typing.Any],
+    pending_count: int = 0,
     selected_index: int = 0,
     width: int | None = None,
     max_height: int | None = None,
@@ -115,7 +116,12 @@ def tui_approval_content_lines(
     footer_lines = _wrap_fragment_line(
         [(
             "class:approval-footer",
-            "Press enter to confirm or ctrl + c to cancel",
+            (
+                f"{pending_count} approval"
+                f"{'s' if pending_count != 1 else ''} waiting · "
+                if pending_count > 0
+                else ""
+            ) + "Press enter to confirm or ctrl + c to cancel",
         )],
         max_width=content_width,
     )

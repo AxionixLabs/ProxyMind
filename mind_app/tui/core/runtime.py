@@ -9,6 +9,7 @@ from functools import partial
 from pathlib import Path
 from prompt_toolkit.application import in_terminal
 from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.eventloop.utils import call_soon_threadsafe
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
 from mind_core.design.terminal_capabilities import (
@@ -19,7 +20,11 @@ from mind_core.design.terminal_progress import (
     PassiveTerminalProgress,
     TerminalProgress
 )
-from mind_app.approval.models import ApprovalDecisionValue
+from mind_app.approval.models import (
+    ApprovalDecisionValue,
+    ApprovalQueueSnapshot,
+    ApprovalRequest
+)
 from mind_app.frontend.contracts import (
     ActivityStatusKind,
     FrontendRuntime,
@@ -176,6 +181,10 @@ class TuiRuntime(object):
         self._modal_depth: int = 0
 
         self._turn_progress_active: bool = False
+
+        self._approval_session_lock         = asyncio.Lock()
+        self._approval_session_active: bool = False
+        self._approval_wait_paused: bool    = False
 
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
@@ -1401,7 +1410,10 @@ class TuiRuntime(object):
         loop = application.loop
         if not application.is_running or loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(self._refresh_file_search_results)
+        call_soon_threadsafe(
+            self._refresh_file_search_results,
+            loop=loop,
+        )
 
     def _refresh_file_search_results(self) -> None:
         """在 TUI 线程应用最新文件搜索快照。"""
@@ -1629,17 +1641,23 @@ class TuiRuntime(object):
         for presentation in presentations:
             await presentation.animation()
 
-    async def _finish_approval_session(self, wait_paused: bool) -> None:
-        """恢复等待状态并关闭当前审批卡。"""
+    async def _finish_approval_session(self) -> None:
+        """在整批审批完成后恢复等待状态。"""
+        if not self._approval_session_active:
+            return None
+
+        self._approval_session_active = False
+        wait_paused = self._approval_wait_paused
+        self._approval_wait_paused = False
+
+        if self._closing:
+            return None
         if self._turn_progress_active:
             self.terminal_progress.begin()
         else:
             self.terminal_progress.clear()
-        try:
-            if wait_paused:
-                await self.activity.resume_wait()
-        finally:
-            await self.screen.approval.dismiss()
+        if wait_paused:
+            await self.activity.resume_wait()
 
     async def open(self) -> None:
         """启动持久 inline 输入应用并等待首帧完成。"""
@@ -1690,6 +1708,11 @@ class TuiRuntime(object):
         """停止输入应用和全部动态任务。"""
         self._closing = True
         self._application_lifecycle.mark_closing()
+
+        async with self._approval_session_lock:
+            await self.screen.approval.close()
+            await self._finish_approval_session()
+
         self.input_model.close_file_search()
 
         self._menu_actions.clear()
@@ -1711,7 +1734,6 @@ class TuiRuntime(object):
         self._process_completions.clear()
         self.screen.process_status.clear()
 
-        await self.screen.approval.close()
         await self.screen.menu.close()
         # Future.set_result 会在当前事件循环的下一次调度中恢复等待方。
         # 关闭协议返回前让这些调用方完成 finally，避免留下悬挂的菜单协程。
@@ -1925,28 +1947,52 @@ class TuiRuntime(object):
             if not self.screen.menu.active:
                 self._flush_background_blocks()
 
-    async def request_approval(
+    async def present_approval(
         self,
-        approval: dict[str, typing.Any]
+        request: ApprovalRequest
     ) -> ApprovalDecisionValue:
-        """在唯一审批区域中读取工具执行决策。"""
-        if not self.screen.approval.begin(approval):
-            return "expired"
-
-        wait_paused: bool = False
-
-        self.terminal_progress.warning()
-
+        """展示协调器指定的单条审批并等待用户决策。"""
+        owns_session = False
+        if self._closing:
+            return "decline"
+        if not self._approval_session_active:
+            await self.begin_approval_session()
+            owns_session = True
         try:
-            wait_paused = await self.activity.pause_wait()
-            decision    = await self.screen.approval.wait()
-        except BaseException:
-            await self._finish_approval_session(wait_paused)
-            raise
+            return await self.screen.approval.request(dict(request.approval))
+        finally:
+            if owns_session:
+                await self.end_approval_session()
 
-        await self._finish_approval_session(wait_paused)
+    async def begin_approval_session(self) -> None:
+        """暂停运行活动并激活连续审批表面。"""
+        async with self._approval_session_lock:
+            if self._closing or self._approval_session_active:
+                return None
+            self._approval_session_active = True
+            self.screen.approval.begin_session()
+            try:
+                self.terminal_progress.warning()
+                self._approval_wait_paused = (
+                    await self.activity.pause_wait()
+                )
+            except BaseException:
+                await self.screen.approval.end_session()
+                await self._finish_approval_session()
+                raise
 
-        return decision
+    def approval_snapshot_changed(
+        self,
+        snapshot: ApprovalQueueSnapshot,
+    ) -> None:
+        """把应用层审批快照投影到当前 TUI 表面。"""
+        self.screen.approval.snapshot_changed(snapshot)
+
+    async def end_approval_session(self) -> None:
+        """关闭连续审批表面并恢复整批 activity。"""
+        async with self._approval_session_lock:
+            await self.screen.approval.end_session()
+            await self._finish_approval_session()
 
     async def view_process(
         self,

@@ -152,6 +152,17 @@ def filtered_indices(state: MenuState) -> tuple[int, ...]:
     if not state.request.searchable or not state.query:
         return tuple(range(len(options)))
 
+    if state.request.search_ranker is not None:
+        query = state.query.strip()
+        if not query:
+            return tuple(range(len(options)))
+        ranked = (
+            (rank, index)
+            for index, option in enumerate(options)
+            if (rank := state.request.search_ranker(query, option)) is not None
+        )
+        return tuple(index for _rank, index in sorted(ranked))
+
     needle = state.query.casefold()
 
     return tuple(

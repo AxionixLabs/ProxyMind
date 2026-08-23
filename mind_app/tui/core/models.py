@@ -8,6 +8,7 @@ from ..contracts.menu import (
     MenuActionKind,
     MenuColumnWidthMode,
     MenuDescriptionLayout,
+    MenuEmptyAcceptAction,
     MenuOption,
     MenuRequest,
     MenuTab
@@ -34,6 +35,7 @@ __all__ = (
     "MenuActionKind",
     "MenuColumnWidthMode",
     "MenuDescriptionLayout",
+    "MenuEmptyAcceptAction",
     "MenuOption",
     "MenuRequest",
     "MenuTab",

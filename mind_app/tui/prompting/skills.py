@@ -13,6 +13,8 @@ from .paste import iter_paste_placeholders
 
 SKILL_NAME_TRUNCATE_WIDTH = 28
 
+_EMPTY_MATCH_SCORE: typing.Final[int] = 2 ** 31 - 1
+
 SKILL_CATEGORY_TAG = "Skill"
 SKILL_SIGILS       = frozenset(("$", "@"))
 SKILL_PREFIX_RE    = re.compile(r"^[$@][A-Za-z0-9_.-]*$")
@@ -321,6 +323,39 @@ def skill_match_rank(
         return None
 
     return 1, score, len(folded_name), folded_name
+
+
+def skill_match_score(name: str, query: str) -> int | None:
+    """返回名称子序列匹配的排序分数。"""
+    lowered_name  = _character_lowercase(name)
+    lowered_query = _character_lowercase(query)
+
+    if not lowered_query:
+        return _EMPTY_MATCH_SCORE
+
+    first: int | None = None
+    last: int | None  = None
+
+    cursor = 0
+    for char in lowered_query:
+        index = lowered_name.find(char, cursor)
+        if index < 0:
+            return None
+        if first is None:
+            first = index
+        last = index
+        cursor = index + 1
+
+    if first is None or last is None:
+        return _EMPTY_MATCH_SCORE
+
+    score = max(0, (last - first + 1) - len(lowered_query))
+    return score - 100 if first == 0 else score
+
+
+def _character_lowercase(value: str) -> str:
+    """逐字符执行小写转换以复现 Rust 的 Unicode 行为。"""
+    return "".join(char.lower() for char in str(value or ""))
 
 
 def subsequence_match_score(text: str, query: str) -> int | None:

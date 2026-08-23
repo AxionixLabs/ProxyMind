@@ -33,6 +33,12 @@ class MenuActionKind(str, Enum):
     DOMAIN = "domain"
 
 
+class MenuEmptyAcceptAction(str, Enum):
+    """描述菜单没有可选结果时确认键的行为。"""
+    CANCEL = "cancel"
+    IGNORE = "ignore"
+
+
 @dataclass(frozen=True, slots=True)
 class MenuOption(object):
     """描述运行期选择菜单中的一项。"""
@@ -93,10 +99,16 @@ class MenuRequest(object):
     searchable: bool = False
     search_placeholder: str = "Search"
     search_matcher: typing.Callable[[str, MenuOption], bool] | None = None
+    search_ranker: typing.Callable[
+        [str, MenuOption],
+        tuple[int, str] | None,
+    ] | None = None
     search_prompt_prefix: str = "  Search: "
+    search_prompt_style: str = ""
     search_help_text: str = ""
     search_query_style: str = ""
     search_empty_text: str = ""
+    empty_accept_action: MenuEmptyAcceptAction = MenuEmptyAcceptAction.CANCEL
     footer_note: str = ""
     footer_hint: str = ""
     footer_right: str = ""

@@ -13,6 +13,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 
+from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_core.design.terminal_capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
@@ -1491,7 +1492,7 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
 
                 if surface == "approval":
                     surface_task = asyncio.create_task(
-                        runtime.request_approval({
+                        ApprovalCoordinator(runtime).request({
                             "tool": "shell_command",
                             "command": "\n".join(
                                 f"echo line-{index}"
@@ -1500,7 +1501,9 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
                             "show_timer": False,
                         })
                     )
-                    surface_active = lambda: runtime.screen.approval.active
+                    surface_active = (
+                        lambda: runtime.screen.approval.state is not None
+                    )
                 elif surface == "menu":
                     surface_task = asyncio.create_task(runtime.select_menu(
                         MenuRequest(
@@ -1563,7 +1566,7 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
                 if stable_line_count:
                     assert runtime.document.scrollback_line_count > 0
             finally:
-                if runtime.screen.approval.active:
+                if runtime.screen.approval.state is not None:
                     runtime.screen.approval.finish("decline")
                 if runtime.screen.menu.active:
                     runtime.screen.menu.finish(None)
