@@ -65,9 +65,9 @@ def test_nested_bottom_surface_does_not_release_until_input_returns() -> None:
     (
         (5, 0, 0, 0),
         (6, 1, 0, 0),
-        (8, 3, 0, 0),
-        (9, 3, 1, 0),
-        (10, 3, 1, 1),
+        (8, 1, 0, 1),
+        (9, 1, 0, 1),
+        (10, 1, 0, 1),
     ),
 )
 def test_bottom_pane_shrinks_status_before_composer(
@@ -132,7 +132,7 @@ async def test_active_view_replaces_status_exec_and_queue() -> None:
     restored = runtime.screen._bottom_pane_layout()
     assert restored.active_view.surface is None
     assert restored.status_height == 1
-    assert restored.process_status_height == 1
+    assert restored.process_status_height == 0
     assert restored.queued_height > 0
 
 

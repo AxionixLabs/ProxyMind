@@ -52,6 +52,7 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
+from .native_coding.exec.user_shell import UserShellExecution
 from .approval.coordinator import ApprovalCoordinator
 from .runtime.subagents.runtime import SubagentRuntime
 from .runtime.subagents.graph import AgentGraphStore
@@ -176,7 +177,8 @@ class Mind(object):
             kwargs.get("feature_settings") or FeatureSettings()
         )
 
-        self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
+        self.native_coding: NativeCoding = NativeCoding(root=self.history_workspace)
+        self.user_shell: UserShellExecution = self.native_coding.user_shell
 
         self.subagents: SubagentRuntime = (
             kwargs.get("subagent_runtime")
@@ -544,6 +546,7 @@ class Mind(object):
             self.command_hook_sessions.clear()
 
             self.native_coding = NativeCoding(root=self.history_workspace)
+            self.user_shell: UserShellExecution = self.native_coding.user_shell
             self.client_tools  = self._build_client_tools()
 
             try:

@@ -99,7 +99,8 @@ from ..features.permissions import (
 )
 from ..features.processes import (
     append_exec_stream_snapshot,
-    manage_exec_sessions
+    manage_exec_sessions,
+    stop_all_exec_sessions
 )
 from ..features.shell import run_shell_escape
 from ..features.skills import choose_skill
@@ -226,6 +227,18 @@ class TuiCommandDispatcher(object):
     ) -> bool:
         """分派模型流式期间可执行的本地命令。"""
         command = str(value or "").strip().casefold()
+        if matches_command(command, "stop"):
+            self.runtime.start_background_task(
+                stop_all_exec_sessions(
+                    typing.cast(
+                        "ProcessRuntimePort",
+                        typing.cast(object, self.runtime),
+                    ),
+                    self.mind,
+                ),
+                name="tui stop background terminals",
+            )
+            return True
         if matches_command(command, "ps"):
             self._start_process_snapshot()
             return True
@@ -631,6 +644,17 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "ps"):
             if await manage_exec_sessions(
+                typing.cast(
+                    "ProcessRuntimePort",
+                    typing.cast(object, self.runtime),
+                ),
+                self.mind,
+            ):
+                self._present()
+            return DispatchAction.HANDLED
+
+        if matches_command(command, "stop"):
+            if await stop_all_exec_sessions(
                 typing.cast(
                     "ProcessRuntimePort",
                     typing.cast(object, self.runtime),

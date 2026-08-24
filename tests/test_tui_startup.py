@@ -156,6 +156,9 @@ async def test_tui_starts_external_mcp_before_helix_background(
             application=SimpleNamespace(emit=views.append),
         )
 
+        def is_service_mcp_linked(self):
+            return False
+
         async def start_external_mcp_runtime(
             self,
             *,

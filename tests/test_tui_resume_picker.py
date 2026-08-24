@@ -461,7 +461,7 @@ def test_resume_picker_colors_match_codex_theme_blends(
     assert description_style.dim
 
 
-def test_resume_picker_backgrounds_degrade_to_transparent() -> None:
+def test_resume_picker_backgrounds_follow_probed_apple_terminal_theme() -> None:
     empty = Style.from_dict({})
     style = build_tui_application_style(
         empty,
@@ -479,10 +479,10 @@ def test_resume_picker_backgrounds_degrade_to_transparent() -> None:
 
     assert style.get_attrs_for_style_str(
         "class:resume-picker.row.selected"
-    ).bgcolor == ""
+    ).bgcolor == "1F1F1F"
     assert style.get_attrs_for_style_str(
         "class:resume-picker.row.zebra"
-    ).bgcolor == ""
+    ).bgcolor == "0E0E0E"
 
 
 class _AlternateScreenOutput(DummyOutput):

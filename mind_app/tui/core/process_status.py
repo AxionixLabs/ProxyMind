@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
-from prompt_toolkit.utils import get_cwidth
+import asyncio
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
 from ..rendering.fragments import clip_fragments
-from .status_frames import render_status_fragments
+from .status_frames import (
+    render_status_fragments,
+    status_indicator_fragment,
+    status_interval
+)
 
 
 class TuiProcessStatus(object):
@@ -21,6 +26,8 @@ class TuiProcessStatus(object):
         self._invalidate = invalidate
         self._get_width  = get_width
         self.label: str  = ""
+        self._animation_task: asyncio.Task[None] | None = None
+        self._animated: bool = False
 
     @property
     def active(self) -> bool:
@@ -31,8 +38,14 @@ class TuiProcessStatus(object):
         """更新后台进程摘要文本。"""
         label = " ".join(sanitize_terminal_text(value).split())
         if label == self.label:
+            if label:
+                self._ensure_animation_task()
             return None
         self.label = label
+        if label:
+            self._ensure_animation_task()
+        else:
+            self._stop_animation_task()
         self._invalidate()
 
     def clear(self) -> None:
@@ -45,33 +58,93 @@ class TuiProcessStatus(object):
             return []
 
         width = max(1, int(self._get_width()))
+        return clip_fragments(self._label_fragments(), width=width)
 
-        suffix: FormattedText = [
+    def inline_fragments(self) -> FormattedText:
+        """生成附着在活动状态行末尾的进程摘要。"""
+        if not self.label:
+            return []
+
+        return [
             ("class:process-status.separator", " · "),
-            ("class:process-status.action", "/ps"),
-            ("class:process-status.hint", " to view"),
+            *self._label_fragments()[2:],
         ]
 
-        suffix_width = sum(get_cwidth(text) for _style, text in suffix)
-        status_width = max(1, width - suffix_width)
-
+    def _label_fragments(self) -> FormattedText:
+        """生成状态正文，并为后台终端操作入口应用蓝色语义。"""
+        base, separator, ps_action, stop_action = self._label_parts()
         label_fragments = render_status_fragments(
-            self.label,
+            base,
             family="wait",
             phase=0.0,
             animated=False,
         )
+        if self._animated:
+            label_fragments[0] = status_indicator_fragment(
+                time.perf_counter(),
+                family="wait",
+                animated=True,
+            )
 
-        status = clip_fragments(
-            [
-                *label_fragments[:2],
-                ("class:process-status.exec", "exec"),
-                (label_fragments[1][0], " "),
-                *label_fragments[2:],
-            ],
-            width=status_width,
+        if not separator:
+            return label_fragments
+
+        return [
+            *label_fragments,
+            ("class:process-status.separator", separator),
+            ("class:process-status.action", ps_action),
+            ("class:process-status.hint", " to view"),
+            ("class:process-status.separator", separator),
+            ("class:process-status.action", stop_action),
+            ("class:process-status.hint", " to close"),
+        ]
+
+    def _label_parts(self) -> tuple[str, str, str, str]:
+        """拆分后台终端状态正文和操作入口。"""
+        marker = " · /ps to view · /stop to close"
+        if self.label.endswith(marker):
+            return (
+                self.label[:-len(marker)],
+                " · ",
+                "/ps",
+                "/stop",
+            )
+        return self.label, "", "", ""
+
+    def _ensure_animation_task(self) -> None:
+        """在事件循环中启动独立的状态行刷新任务。"""
+        task = self._animation_task
+        if task is not None and not task.done():
+            return None
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._animated = False
+            return None
+
+        self._animated = True
+        self._animation_task = loop.create_task(
+            self._animation_loop(),
+            name="process status animation",
         )
-        return clip_fragments([*status, *suffix], width=width)
+
+    def _stop_animation_task(self) -> None:
+        """停止状态行刷新并恢复静态渲染。"""
+        self._animated = False
+        task = self._animation_task
+        self._animation_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _animation_loop(self) -> None:
+        """按状态动画节奏请求重绘，不读取或修改进程快照。"""
+        try:
+            while self.label:
+                self._invalidate()
+                await asyncio.sleep(status_interval("wait"))
+        except asyncio.CancelledError:
+            return None
 
 
 if __name__ == '__main__':

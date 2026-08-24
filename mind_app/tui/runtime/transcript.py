@@ -108,12 +108,13 @@ class TranscriptCoordinator(object):
         source_renderer: SourceBlockRenderer | None,
         source_render_width: int | None,
         display_renderer: WidthBlockRenderer | None,
-        display_render_width: int | None
-    ) -> None:
+        display_render_width: int | None,
+        stable_id: str | None = None
+    ) -> TranscriptBlock:
         """把动态正文提交为稳定块并清理流式状态。"""
         with self._screen.visual_update():
             assistant_stream = self._document.active_kind == "assistant"
-            self._document.commit_active(
+            committed = self._document.commit_active(
                 block,
                 transcript_block=transcript_block,
                 source=source,
@@ -122,12 +123,14 @@ class TranscriptCoordinator(object):
                 source_render_width=source_render_width,
                 display_renderer=display_renderer,
                 display_render_width=display_render_width,
+                stable_id=stable_id,
             )
             self._overlay.content_changed()
             if assistant_stream:
                 self._viewport.stream_finalized()
             self._viewport.stable_content_changed()
             self._flush_background_blocks()
+            return committed
 
     def commit_stream_prefix(
         self,
@@ -135,7 +138,7 @@ class TranscriptCoordinator(object):
         *,
         raw_text: str,
         source_renderer: SourceBlockRenderer | None,
-        source_render_width: int | None,
+        source_render_width: int | None
     ) -> None:
         """提交当前流式正文的稳定前缀并保持执行周期。"""
         self._document.commit_active(
@@ -167,11 +170,12 @@ class TranscriptOverlayCoordinator(object):
         overlay: TuiTranscriptOverlay,
         viewport: TuiTranscriptViewport,
         screen: TranscriptScreenPort,
-        cancel_history_backtrack: typing.Callable[[], None],
+        cancel_history_backtrack: typing.Callable[[], None]
     ) -> None:
-        self._overlay = overlay
+        self._overlay  = overlay
         self._viewport = viewport
-        self._screen = screen
+        self._screen   = screen
+
         self._cancel_history_backtrack = cancel_history_backtrack
 
     def toggle(self) -> None:

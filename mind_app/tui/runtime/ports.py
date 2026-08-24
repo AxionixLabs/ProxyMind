@@ -235,6 +235,16 @@ class ProcessRuntimePort(typing.Protocol):
         ...
 
     @property
+    def inline_process_session_ids(self) -> tuple[str, ...]:
+        """返回仍由 UserShell watcher 管理的全部会话标识。"""
+        ...
+
+    @property
+    def background_process_session_ids(self) -> frozenset[str]:
+        """返回已切入后台的 UserShell 会话标识。"""
+        ...
+
+    @property
     def terminal_width(self) -> int:
         """返回当前终端的显示宽度。"""
         ...
@@ -275,6 +285,88 @@ class ProcessRuntimePort(typing.Protocol):
         gap_before: int | None = None,
     ) -> asyncio.Future[typing.Any]:
         """激活进程查看器并返回其等待 Future。"""
+        ...
+
+    def begin_inline_process(
+        self,
+        session_id: str,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> asyncio.Future[typing.Any]:
+        """在正文中创建可更新的 Shell 执行单元。"""
+        ...
+
+    async def handoff_inline_process(self) -> None:
+        """提交当前 Shell 并等待其稳定正文进入终端滚屏区。"""
+        ...
+
+    async def start_inline_process(
+        self,
+        session_id: str,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> asyncio.Future[typing.Any]:
+        """按顺序完成前一 Shell 的交接并创建新的正文执行单元。"""
+        ...
+
+    def update_inline_process(
+        self,
+        block: FragmentBlock,
+        *,
+        session_id: str | None = None,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> None:
+        """更新正文中的 Shell 执行单元。"""
+        ...
+
+    def resolve_inline_process(
+        self,
+        value: typing.Any = None,
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        """提交 Shell 执行单元的动作结果。"""
+        ...
+
+    async def wait_inline_process_settled(
+        self,
+        session_id: str | None = None,
+    ) -> None:
+        """等待正文中的 Shell 执行单元收束。"""
+        ...
+
+    def dismiss_inline_process(self, session_id: str | None = None) -> None:
+        """清理未提交的 Shell 执行单元。"""
+        ...
+
+    def mark_inline_process_background(self, session_id: str) -> None:
+        """把已切后台的 UserShell 标记为后台终端。"""
+        ...
+
+    def replace_detached_inline_process(
+        self,
+        session_id: str,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+    ) -> bool:
+        """把后台 Shell 完成结果原位写回稳定正文。"""
+        ...
+
+    def commit_inline_process(
+        self,
+        block: FragmentBlock,
+        *,
+        session_id: str | None = None,
+        transcript_block: FragmentBlock | None = None,
+        retain_for_background: bool = False,
+    ) -> None:
+        """把 Shell 执行单元提交为稳定正文。"""
         ...
 
     def update_process_viewer(

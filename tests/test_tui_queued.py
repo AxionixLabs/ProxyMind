@@ -201,7 +201,6 @@ async def test_rejected_steers_preserve_identity_before_tab_fifo() -> None:
 @pytest.mark.parametrize(
     "identity",
     (
-        TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
         TerminalIdentity(TerminalKind.VSCODE, "VS Code"),
         TerminalIdentity(TerminalKind.WARP, "Warp"),
         TerminalIdentity(TerminalKind.APPLE_TERMINAL, "Apple Terminal"),
@@ -224,10 +223,30 @@ def test_queue_edit_hint_uses_terminal_fallback(identity) -> None:
     assert "shift + ← edit last queued message" in text
 
 
+@pytest.mark.parametrize(
+    "identity",
+    (
+        TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+        TerminalIdentity(TerminalKind.WINDOWS_TERMINAL, "Windows Terminal"),
+    ),
+)
+def test_queue_edit_hint_keeps_codex_default_binding(identity) -> None:
+    runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
+        identity=identity,
+        color_level=TerminalColorLevel.UNKNOWN,
+    ))
+    runtime.defer_submission(_submission("next task"))
+
+    text = _fragments_text(runtime.screen._queued_fragments())
+
+    assert "alt + ↑ edit last queued message" in text
+
+
 def test_queue_styles_distinguish_labels_and_hints() -> None:
     style = TuiRuntime().screen.application.style
 
     assert style.get_attrs_for_style_str("class:queue.text").dim
+    assert style.get_attrs_for_style_str("class:queue.text.queued").italic
     assert not style.get_attrs_for_style_str("class:queue.label").bold
     assert style.get_attrs_for_style_str("class:queue.marker").dim
     assert not style.get_attrs_for_style_str("class:queue.marker").bold
@@ -239,26 +258,42 @@ def test_queue_styles_distinguish_labels_and_hints() -> None:
     assert not style.get_attrs_for_style_str("class:footer.queue-hint").bold
 
 
-def test_enter_and_tab_queue_messages_share_dim_text_style() -> None:
+def test_follow_up_input_uses_codex_italic_style() -> None:
     pending = TuiPendingSteers()
     pending.add(_submission("enter message"))
     queued = TuiQueuedMessages()
     queued.append(_submission("tab message"))
 
     assert ("class:queue.text", "enter message") in pending.fragments(width=100)
-    assert ("class:queue.text", "tab message") in queued.fragments(width=100)
+    assert (
+        "class:queue.text.queued",
+        "tab message",
+    ) in queued.fragments(width=100)
 
 
-def test_multiline_message_is_flattened_and_ellipsized() -> None:
+def test_multiline_follow_up_matches_codex_preview_shape() -> None:
     queue = TuiQueuedMessages()
-    queue.append(_submission("first line\nsecond line with a long suffix"))
+    queue.append(_submission(
+        "cli链路的hooks呢？ codex是什么形态，是否有对齐？\n"
+        "OpenAI Codex v0.147.0\n"
+        "--------\n"
+        "Working directory: ProxyMind\n"
+        "more output"
+    ))
 
-    text = _fragments_text(queue.fragments(width=28))
-    lines = text.splitlines()
+    text = _fragments_text(queue.fragments(
+        width=80,
+        edit_binding="shift + ←",
+    ))
 
-    assert len(lines) == 3
-    assert lines[2].endswith("…")
-    assert all(get_cwidth(line) <= 28 for line in lines)
+    assert text.splitlines() == [
+        "• Queued follow-up inputs",
+        "  ↳ cli链路的hooks呢？ codex是什么形态，是否有对齐？",
+        "    OpenAI Codex v0.147.0",
+        "    --------",
+        "    …",
+        "    shift + ← edit last queued message",
+    ]
 
 
 def test_queue_reserves_last_row_for_hidden_count() -> None:

@@ -5,6 +5,7 @@ import time
 import typing
 import asyncio
 import secrets
+from collections import deque
 from dataclasses import dataclass
 from engine.observability import (
     observe,
@@ -42,6 +43,7 @@ class ProcessSessionSpec(object):
     audit_before: dict[str, typing.Any] | None = None
     stdin_enabled: bool = True
     env: dict[str, str] | None = None
+    background: bool | None = None
 
 
 class ProcessSession(object):
@@ -62,6 +64,11 @@ class ProcessSession(object):
         self.process          = process
         self.runtime          = dict(spec.runtime)
         self.origin           = spec.origin
+        self.background       = (
+            bool(spec.background)
+            if spec.background is not None
+            else spec.origin != "tui_shell"
+        )
         self.owner_cid        = spec.owner_cid
         self.owner_sid        = spec.owner_sid
         self.started_at       = time.time()
@@ -84,11 +91,17 @@ class ProcessSession(object):
         self.stderr_dropped = 0
 
         self.last_activity = self.started_at
+        self.output_revision = 0
+        self.update_event = asyncio.Event()
+        self.output_events: deque[tuple[int, str, bytes]] = deque(
+            maxlen=256,
+        )
 
         self.finalized = False
 
         self.stdout_task: asyncio.Task[None] | None = None
         self.stderr_task: asyncio.Task[None] | None = None
+        self.exit_watch_task: asyncio.Task[None] | None = None
 
         self.lock = asyncio.Lock()
 
@@ -102,6 +115,56 @@ class ProcessSessionManager(object):
     def __init__(self) -> None:
         """初始化进程会话表。"""
         self.sessions: dict[str, ProcessSession] = {}
+        self._change_revision: int = 0
+        self._change_event = asyncio.Event()
+
+    @property
+    def change_revision(self) -> int:
+        """返回全局进程会话变更版本。"""
+        return self._change_revision
+
+    def _notify_change(self) -> None:
+        """发布一次进程会话变更。"""
+        self._change_revision += 1
+        self._change_event.set()
+
+    async def wait_for_change(
+        self,
+        *,
+        revision: int,
+        timeout_sec: float,
+    ) -> dict[str, typing.Any]:
+        """等待任意进程会话变更。"""
+        requested = int(revision)
+        if self._change_revision != requested:
+            return {
+                "changed": True,
+                "revision": self._change_revision,
+            }
+
+        event = self._change_event
+        event.clear()
+        if self._change_revision != requested:
+            return {
+                "changed": True,
+                "revision": self._change_revision,
+            }
+
+        try:
+            await asyncio.wait_for(
+                event.wait(),
+                timeout=max(0.01, float(timeout_sec)),
+            )
+        except asyncio.TimeoutError:
+            return {
+                "changed": False,
+                "revision": self._change_revision,
+            }
+
+        return {
+            "changed": True,
+            "revision": self._change_revision,
+        }
 
     async def start(self, spec: ProcessSessionSpec) -> ProcessSession:
         """启动进程并注册可持续读取的会话。"""
@@ -133,6 +196,11 @@ class ProcessSessionManager(object):
             self._read_stream(session, "stderr")
         )
         self.sessions[session.session_id] = session
+        self._notify_change()
+        session.exit_watch_task = asyncio.create_task(
+            self._watch_process_exit(session),
+            name=f"watch process exit {session.session_id}",
+        )
         observe(
             "process.started",
             session_id=session.session_id,
@@ -166,6 +234,7 @@ class ProcessSessionManager(object):
                 "started_at": session.started_at,
                 "last_activity": session.last_activity,
                 "origin": session.origin,
+                "background": session.background,
                 "owner_cid": session.owner_cid,
                 "owner_sid": session.owner_sid
             }
@@ -175,7 +244,64 @@ class ProcessSessionManager(object):
 
         items.sort(key=lambda item: float(item.get("started_at") or 0.0))
 
-        return {"count": len(items), "items": items}
+        return {
+            "count": len(items),
+            "items": items,
+            "background_count": sum(
+                1 for item in items if item.get("background")
+            ),
+            "background_items": [
+                item for item in items if item.get("background")
+            ],
+            "user_shell_items": [
+                item for item in items
+                if item.get("origin") == "tui_shell" and not item.get("background")
+            ],
+        }
+
+    async def mark_background(self, session_id: str) -> bool:
+        """把指定会话标记为可由后台终端集合管理。"""
+        session = self.get(session_id)
+        if session is None:
+            return False
+        session.background = True
+        session.output_revision += 1
+        session.update_event.set()
+        self._notify_change()
+        return True
+
+    async def wait_for_update(
+        self,
+        session_id: str,
+        *,
+        revision: int,
+        timeout_sec: float,
+    ) -> bool:
+        """等待输出或退出状态变化，超时返回 False。"""
+        session = self.get(session_id)
+        if session is None:
+            return False
+        if (
+            session.output_revision != int(revision)
+            or session.process.returncode is not None
+        ):
+            return True
+
+        event = session.update_event
+        event.clear()
+        if (
+            session.output_revision != int(revision)
+            or session.process.returncode is not None
+        ):
+            return True
+        try:
+            await asyncio.wait_for(
+                event.wait(),
+                timeout=max(0.01, float(timeout_sec)),
+            )
+        except asyncio.TimeoutError:
+            return False
+        return True
 
     async def output_snapshot(
         self,
@@ -229,18 +355,97 @@ class ProcessSessionManager(object):
             "runtime"          : dict(session.runtime),
             "runtime_name"     : session.runtime.get("name"),
             "origin"           : session.origin,
+            "background"       : session.background,
+            "revision"         : session.output_revision,
             "owner_cid"        : session.owner_cid,
             "owner_sid"        : session.owner_sid,
             "output"           : self._clip(output_text, limit),
             "stdout"           : self._clip(stdout_text, limit),
             "stderr"           : self._clip(stderr_text, limit),
             "output_lines"     : list(output_lines),
+            "output_lines_dropped": session.display_output_buffer.dropped_lines,
             "output_truncated" : len(output_text) > limit,
             "stdout_truncated" : len(stdout_text) > limit,
             "stderr_truncated" : len(stderr_text) > limit,
             "truncated"        : max(len(output_text), len(stdout_text), len(stderr_text)) > limit,
             "stdout_dropped"   : stdout_dropped,
             "stderr_dropped"   : stderr_dropped
+        }
+
+    async def output_delta(
+        self,
+        session_id: str,
+        *,
+        revision: int,
+    ) -> dict[str, typing.Any]:
+        """返回指定版本之后可用的进程输出增量。"""
+        session = self.get(session_id)
+        if session is None:
+            return {
+                "revision": int(revision),
+                "reset": True,
+                "items": [],
+                "snapshot": {
+                    "ok": False,
+                    "reason": "exec_session_not_found",
+                    "session_id": str(session_id or "").strip(),
+                },
+            }
+
+        requested = max(0, int(revision))
+        async with session.lock:
+            events = tuple(session.output_events)
+            current_revision = session.output_revision
+            status = (
+                "running"
+                if session.process.returncode is None
+                else "exited"
+            )
+            exit_code = session.process.returncode
+
+        reset = bool(
+            current_revision > requested
+            and (
+                not events
+                or requested < events[0][0] - 1
+            )
+        )
+        items = [
+            {
+                "revision": event_revision,
+                "stream": stream,
+                "text": decode_process_output(chunk),
+            }
+            for event_revision, stream, chunk in events
+            if event_revision > requested
+        ]
+
+        output_lines = await session.display_output_buffer.snapshot()
+        return {
+            "revision": current_revision,
+            "reset": reset,
+            "items": items,
+            "snapshot": {
+                "ok": True,
+                "tool": "exec_session_update",
+                "session_id": session.session_id,
+                "command": session.command,
+                "cwd": session.cwd,
+                "status": status,
+                "pid": session.process.pid,
+                "exit_code": exit_code,
+                "started_at": session.started_at,
+                "last_activity": session.last_activity,
+                "runtime": dict(session.runtime),
+                "runtime_name": session.runtime.get("name"),
+                "origin": session.origin,
+                "background": session.background,
+                "revision": current_revision,
+                "owner_cid": session.owner_cid,
+                "owner_sid": session.owner_sid,
+                "output_lines": list(output_lines),
+                "output_lines_dropped": session.display_output_buffer.dropped_lines,
+            },
         }
 
     @staticmethod
@@ -347,15 +552,33 @@ class ProcessSessionManager(object):
 
             if session.finalized and (expired or idle):
                 self.sessions.pop(session.session_id, None)
+                self._notify_change()
 
-    async def stop_running_sessions(self) -> dict[str, typing.Any]:
-        """终止并回收当前仍在运行的全部进程会话。"""
+    async def stop_running_sessions(
+        self,
+        *,
+        session_ids: typing.Iterable[str] | None = None,
+    ) -> dict[str, typing.Any]:
+        """终止并回收指定或全部仍在运行的进程会话。"""
         await self.cleanup()
 
+        selected_ids = (
+            {
+                str(session_id or "").strip()
+                for session_id in session_ids
+                if str(session_id or "").strip()
+            }
+            if session_ids is not None
+            else None
+        )
         sessions = [
             session
             for session in self.sessions.values()
             if session.process.returncode is None
+            and (
+                selected_ids is None
+                or session.session_id in selected_ids
+            )
         ]
         stopped: list[dict[str, typing.Any]] = []
         failures: list[dict[str, typing.Any]] = []
@@ -390,6 +613,7 @@ class ProcessSessionManager(object):
                 continue
 
             self.sessions.pop(session.session_id, None)
+            self._notify_change()
             stopped.append({
                 **item,
                 "exit_code": session.process.returncode,
@@ -450,6 +674,9 @@ class ProcessSessionManager(object):
         ProcessCapture.close_process_transport(session.process)
 
         session.finalized = True
+        session.output_revision += 1
+        session.update_event.set()
+        self._notify_change()
 
         observe(
             "process.exited",
@@ -487,6 +714,22 @@ class ProcessSessionManager(object):
                 await session.display_output_buffer.append(name, chunk)
 
                 session.last_activity = time.time()
+                session.output_revision += 1
+                session.output_events.append((
+                    session.output_revision,
+                    name,
+                    bytes(chunk),
+                ))
+                session.update_event.set()
+                self._notify_change()
+
+    async def _watch_process_exit(self, session: ProcessSession) -> None:
+        """在本地进程退出时发出一次会话更新事件。"""
+        await session.process.wait()
+        if not session.finalized:
+            session.output_revision += 1
+            session.update_event.set()
+            self._notify_change()
 
     @staticmethod
     def _clip(value: str, limit: int) -> str:

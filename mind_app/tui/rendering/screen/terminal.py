@@ -19,7 +19,6 @@ def queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
         identity.multiplexer == TerminalKind.TMUX
         or identity.kind in {
             TerminalKind.APPLE_TERMINAL,
-            TerminalKind.ITERM2,
             TerminalKind.VSCODE,
             TerminalKind.WARP,
         }

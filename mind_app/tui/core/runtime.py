@@ -5,6 +5,7 @@ import typing
 import asyncio
 import contextlib
 from collections import deque
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from prompt_toolkit.application import in_terminal
@@ -117,6 +118,17 @@ from ..runtime.transcript import (
 ModalResult = typing.TypeVar("ModalResult")
 
 
+@dataclass(slots=True)
+class _InlineProcessState(object):
+    """保存单个手动 Shell 的等待、稳定块和后台归属状态。"""
+    session_id: str
+    future: asyncio.Future[typing.Any]
+    settled: asyncio.Event
+    stable_id: str
+    target: TranscriptBlock | None = None
+    detached: bool = False
+
+
 class TuiRuntime(object):
     """协调 TUI Application 生命周期、正文输出和前端交互能力。"""
 
@@ -161,6 +173,13 @@ class TuiRuntime(object):
         self._menu_action_scheduled: bool     = False
 
         self._running_process_status_label: str = ""
+
+        self._inline_process_session_id: str                           = ""
+        self._inline_process_future: asyncio.Future[typing.Any] | None = None
+        self._inline_process_settled: asyncio.Event | None             = None
+        self._inline_process_states: dict[str, _InlineProcessState] = {}
+        self._inline_process_start_lock = asyncio.Lock()
+        self._background_process_session_ids: set[str] = set()
 
         self._process_completions = ProcessCompletionStore()
 
@@ -424,8 +443,24 @@ class TuiRuntime(object):
     @property
     def inline_process_session_id(self) -> str:
         """返回当前在正文中展示的进程会话标识。"""
+        if self._inline_process_future is not None:
+            return self._inline_process_session_id
         viewer = self.screen.process_viewer
         return viewer.active_session_id if viewer.input_passthrough else ""
+
+    @property
+    def inline_process_session_ids(self) -> tuple[str, ...]:
+        """返回仍由 UserShell watcher 管理的全部会话标识。"""
+        return tuple(
+            state.session_id
+            for state in self._inline_process_states.values()
+            if not state.detached
+        )
+
+    @property
+    def background_process_session_ids(self) -> frozenset[str]:
+        """返回已由 UserShell watcher 转入后台的会话标识。"""
+        return frozenset(self._background_process_session_ids)
 
     @property
     def command_layout_pending(self) -> bool:
@@ -609,6 +644,13 @@ class TuiRuntime(object):
 
     def _handle_input_interrupt(self) -> None:
         """按当前前台交互状态分派输入中断。"""
+        if self._inline_process_future is not None:
+            if self.submissions.discard_input_draft():
+                return None
+            self.resolve_inline_process("interrupt")
+            self.submissions.interrupt_input()
+            return None
+
         viewer = self.screen.process_viewer
         if viewer.input_passthrough:
             if self.submissions.discard_input_draft():
@@ -950,6 +992,289 @@ class TuiRuntime(object):
         )
 
         return self.screen.process_viewer.begin(request)
+
+    def begin_inline_process(
+        self,
+        session_id: str,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> asyncio.Future[typing.Any]:
+        """在正文中创建一个可持续更新的 Shell 执行单元。"""
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            raise ValueError("inline process session_id is required")
+
+        if self._inline_process_future is not None:
+            self._handoff_inline_process()
+
+        if normalized in self._inline_process_states:
+            raise RuntimeError("inline process session is already active")
+
+        future = asyncio.get_running_loop().create_future()
+        settled = asyncio.Event()
+        self._inline_process_session_id = normalized
+        self._inline_process_future = future
+        self._inline_process_settled = settled
+        self._inline_process_states[normalized] = _InlineProcessState(
+            session_id=normalized,
+            future=future,
+            settled=settled,
+            stable_id=f"inline-process:{normalized}",
+        )
+        self.discard_pending_submission()
+        self.set_active_renderable(
+            block,
+            kind="operation",
+            transcript_block=transcript_block,
+            gap_before=gap_before,
+        )
+        return future
+
+    async def handoff_inline_process(self) -> None:
+        """提交当前 Shell 并等待其稳定正文进入终端滚屏区。"""
+        if self._inline_process_future is None:
+            return None
+
+        self._handoff_inline_process()
+        await self.viewport.settle_scrollback()
+
+    async def start_inline_process(
+        self,
+        session_id: str,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> asyncio.Future[typing.Any]:
+        """按顺序完成前一 Shell 的交接并创建新的正文执行单元。"""
+        async with self._inline_process_start_lock:
+            self.viewport.reset_view()
+            await self.handoff_inline_process()
+            return self.begin_inline_process(
+                session_id,
+                block,
+                transcript_block=transcript_block,
+                gap_before=gap_before,
+            )
+
+    def _handoff_inline_process(self) -> None:
+        """把当前活动 Shell 固定为稳定块并让下一个 Shell 接管活动位。"""
+        session_id = self._inline_process_session_id
+        state = self._inline_process_states.get(session_id)
+        active_block = self.document.active_block
+
+        if state is not None and active_block is not None:
+            state.target = self.commit_active_renderable(
+                active_block,
+                transcript_block=(
+                    self.document.active_transcript_block
+                    or active_block
+                ),
+                stable_id=state.stable_id,
+            )
+
+        self._clear_active_inline_process()
+
+    def update_inline_process(
+        self,
+        block: FragmentBlock,
+        *,
+        session_id: str | None = None,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> None:
+        """更新正文中的 Shell 执行单元。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        if state is None:
+            return None
+
+        if (
+            normalized == self._inline_process_session_id
+            and self._inline_process_future is state.future
+        ):
+            self.set_active_renderable(
+                block,
+                kind="operation",
+                transcript_block=transcript_block,
+                gap_before=gap_before,
+            )
+            return None
+
+        if state.target is not None:
+            self._replace_stable_inline_process(
+                state.target,
+                block,
+                transcript_block=transcript_block,
+            )
+
+    def resolve_inline_process(
+        self,
+        value: typing.Any = None,
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        """提交 Shell 执行单元的动作结果。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        future = state.future if state is not None else None
+        if future is not None and not future.done():
+            future.set_result(value)
+
+    async def wait_inline_process_settled(
+        self,
+        session_id: str | None = None,
+    ) -> None:
+        """等待正文中的 Shell 执行单元完成收束。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        settled = (
+            state.settled
+            if state is not None
+            else self._inline_process_settled
+        )
+        if settled is not None:
+            await settled.wait()
+
+    def commit_inline_process(
+        self,
+        block: FragmentBlock,
+        *,
+        session_id: str | None = None,
+        transcript_block: FragmentBlock | None = None,
+        retain_for_background: bool = False,
+    ) -> None:
+        """把 Shell 执行单元原位提交为稳定正文。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        if state is None:
+            return None
+
+        if (
+            normalized == self._inline_process_session_id
+            and self._inline_process_future is state.future
+        ):
+            if self.document.active_kind != "operation":
+                raise RuntimeError(
+                    "cannot commit an inline process without active output"
+                )
+            state.target = self.commit_active_renderable(
+                block,
+                transcript_block=transcript_block,
+                stable_id=state.stable_id,
+            )
+            self._clear_active_inline_process()
+        elif state.target is not None:
+            self._replace_stable_inline_process(
+                state.target,
+                block,
+                transcript_block=transcript_block,
+            )
+
+        if retain_for_background:
+            if not state.settled.is_set():
+                state.settled.set()
+            return None
+        self._settle_inline_process(normalized)
+
+    def _replace_stable_inline_process(
+        self,
+        target: TranscriptBlock,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None,
+    ) -> bool:
+        """在视觉事务中更新非活动 Shell 的稳定块。"""
+        with self.screen.visual_update():
+            replaced = self.document.replace_stable_block(
+                target,
+                block,
+                transcript_block=transcript_block,
+            )
+            if replaced:
+                self.screen.transcript_overlay.content_changed()
+                self.viewport.stable_content_changed()
+        return replaced
+
+    def mark_inline_process_background(self, session_id: str) -> None:
+        """把已切后台的 UserShell 标记为后台终端。"""
+        normalized = str(session_id or "").strip()
+        state = self._inline_process_states.get(normalized)
+        if state is not None:
+            state.detached = True
+        if normalized:
+            self._background_process_session_ids.add(normalized)
+
+    def replace_detached_inline_process(
+        self,
+        session_id: str,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+    ) -> bool:
+        """把后台 Shell 完成结果写回切后台时创建的稳定块。"""
+        normalized = str(session_id or "").strip()
+        state = self._inline_process_states.get(normalized)
+        if state is None or state.target is None:
+            return False
+
+        replaced = self._replace_stable_inline_process(
+            state.target,
+            block,
+            transcript_block=transcript_block,
+        )
+        if replaced:
+            self._settle_inline_process(normalized)
+        return replaced
+
+    def dismiss_inline_process(self, session_id: str | None = None) -> None:
+        """清理未提交的 Shell 执行单元。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        if state is None:
+            return None
+
+        if normalized == self._inline_process_session_id:
+            if self.document.active_kind == "operation":
+                self.clear_active_renderable()
+            self._clear_active_inline_process()
+        elif state.target is not None:
+            with self.screen.visual_update():
+                removed = self.document.remove_stable_block(state.target)
+                if removed:
+                    self.screen.transcript_overlay.content_changed()
+                    self.viewport.stable_content_changed()
+
+        self._settle_inline_process(normalized)
+
+    def _clear_active_inline_process(self) -> None:
+        """清除当前活动 Shell 别名而不结束其独立 watcher 状态。"""
+        self._inline_process_session_id = ""
+        self._inline_process_future = None
+        self._inline_process_settled = None
+
+    def _settle_inline_process(self, session_id: str) -> None:
+        """释放正文 Shell 执行单元的生命周期状态。"""
+        state = self._inline_process_states.pop(session_id, None)
+        if state is not None:
+            self._background_process_session_ids.discard(session_id)
+            if not state.settled.is_set():
+                state.settled.set()
+
+        if self._inline_process_session_id == session_id:
+            self._clear_active_inline_process()
 
     def update_process_viewer(
         self,
@@ -1473,9 +1798,10 @@ class TuiRuntime(object):
         source_render_width: int | None = None,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
-    ) -> None:
+        stable_id: str | None = None,
+    ) -> TranscriptBlock:
         """把当前动态正文替换为同位置的稳定块。"""
-        self._transcript.commit_active(
+        return self._transcript.commit_active(
             block,
             transcript_block=transcript_block,
             source=source,
@@ -1484,6 +1810,7 @@ class TuiRuntime(object):
             source_render_width=source_render_width,
             display_renderer=display_renderer,
             display_render_width=display_render_width,
+            stable_id=stable_id,
         )
 
     def commit_active_stream_prefix(
@@ -1742,6 +2069,9 @@ class TuiRuntime(object):
         # Future.set_result 会在当前事件循环的下一次调度中恢复等待方。
         # 关闭协议返回前让这些调用方完成 finally，避免留下悬挂的菜单协程。
         await asyncio.sleep(0)
+        inline_session_id = self._inline_process_session_id
+        self.resolve_inline_process("detach", session_id=inline_session_id)
+        await self.wait_inline_process_settled(session_id=inline_session_id)
         await self.screen.process_viewer.close()
 
         if self.document.active_kind == "operation":
@@ -1817,6 +2147,17 @@ class TuiRuntime(object):
 
     async def detach_inline_process_viewer(self) -> None:
         """在提交新输入前撤下保持输入可见的进程查看器。"""
+        if self._inline_process_future is not None:
+            inline_session_id = self._inline_process_session_id
+            self.resolve_inline_process(
+                "detach",
+                session_id=inline_session_id,
+            )
+            await self.wait_inline_process_settled(
+                session_id=inline_session_id,
+            )
+            return None
+
         viewer = self.screen.process_viewer
         if not viewer.input_passthrough:
             return None
@@ -1941,7 +2282,7 @@ class TuiRuntime(object):
         """在主 Application 画布内读取菜单选择。"""
         self.discard_pending_submission()
         if not self.screen.menu.active:
-            await self.viewport.settle_scrollback_before_overlay()
+            await self.viewport.settle_scrollback()
         self._process_routing_settled.clear()
         try:
             return await self.screen.menu.request(request)

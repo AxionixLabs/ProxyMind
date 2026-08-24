@@ -125,9 +125,13 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "copy", "/copy", "复制最近一次助手回复原文",
     ),
     TuiCommandSpec(
-        "ps", "/ps", "管理后台命令",
+        "ps", "/ps", "查看后台终端",
         surface_on_bare=True,
         stream_policy="local_snapshot",
+    ),
+    TuiCommandSpec(
+        "stop", "/stop", "停止全部后台终端",
+        stream_policy="background_barrier",
     ),
     TuiCommandSpec(
         "mcp", "/mcp", "管理外部 MCP 服务",

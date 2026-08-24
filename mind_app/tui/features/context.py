@@ -6,7 +6,6 @@ from pathlib import (
     Path,
     PurePath
 )
-from prompt_toolkit.utils import get_cwidth
 from mind_core.config import (
     config_to_preferences,
     ModelConfigField,
@@ -20,8 +19,6 @@ from mind_core.provider_config import (
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str   = "?"
-EXEC_STATUS_COMMAND_MIN: int   = 12
-EXEC_STATUS_COMMAND_MAX: int   = 56
 
 
 def ignored_tui_input(raw: str) -> bool:
@@ -114,7 +111,7 @@ def exec_status_display_label(
     command_limit: int | None = None,
     line_width: int | None = None
 ) -> str:
-    """生成后台进程状态行使用的 exec 会话摘要。"""
+    """生成后台终端数量和操作入口组成的状态摘要。"""
     if not isinstance(snapshot, dict):
         return ""
 
@@ -126,72 +123,17 @@ def exec_status_display_label(
     if not items:
         return ""
 
-    count  = snapshot.get("count")
-    total  = int(count) if isinstance(count, int) and count >= len(items) else len(items)
-    extra  = max(0, total - 1)
-    suffix = f" · +{extra}" if extra else ""
-
-    limit = _exec_status_command_limit(
-        command_limit=command_limit,
-        line_width=line_width,
-        suffix=suffix
+    count = snapshot.get("count")
+    total = (
+        int(count)
+        if isinstance(count, int) and count >= len(items)
+        else len(items)
     )
-    command = _clip_exec_status_command(items[0].get("command"), limit=limit)
-    if not command:
-        return ""
-
-    if extra:
-        return f"{command}{suffix}"
-    return command
-
-
-def _exec_status_command_limit(
-    *,
-    command_limit: int | None,
-    line_width: int | None,
-    suffix: str
-) -> int:
-    """计算 exec 状态命令的展示宽度上限。"""
-    if command_limit is not None:
-        return max(1, int(command_limit))
-
-    try:
-        width = int(line_width) if line_width is not None else 80
-    except (TypeError, ValueError):
-        width = 80
-
-    available = width - 7 - get_cwidth(suffix)
-
-    if available < EXEC_STATUS_COMMAND_MIN:
-        return max(1, available)
-
-    return min(EXEC_STATUS_COMMAND_MAX, available)
-
-
-def _clip_exec_status_command(value: typing.Any, *, limit: int) -> str:
-    """裁剪 exec 状态中的命令文本。"""
-    text = " ".join(str(value or "").split())
-    if not text:
-        return ""
-
-    size = max(1, int(limit or 1))
-    if get_cwidth(text) <= size:
-        return text
-    if size <= 1:
-        return "…"
-
-    available = size - get_cwidth("…")
-    used      = 0
-
-    chars: list[str] = []
-    for char in text:
-        char_width = max(0, get_cwidth(char))
-        if used + char_width > available:
-            break
-        chars.append(char)
-        used += char_width
-    return f"{''.join(chars)}…"
-
+    plural = "" if total == 1 else "s"
+    return (
+        f"{total} background terminal{plural} running"
+        " · /ps to view · /stop to close"
+    )
 
 async def save_primary_pref_field(
     session: ConfigSession,

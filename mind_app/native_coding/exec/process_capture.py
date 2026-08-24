@@ -92,6 +92,7 @@ class OrderedOutputBuffer(object):
         )
 
         self.lines: list[CapturedOutputLine] = []
+        self.dropped_lines: int = 0
 
         self.pending: dict[str, bytes] = {
             "stdout": b"",
@@ -134,7 +135,9 @@ class OrderedOutputBuffer(object):
             )
 
             if len(self.lines) > self.max_lines:
+                dropped = len(self.lines) - self.max_lines
                 del self.lines[:-self.max_lines]
+                self.dropped_lines += dropped
 
     async def finish_stream(self, stream: str) -> None:
         """收束指定输出流的未完成行。"""
@@ -156,7 +159,9 @@ class OrderedOutputBuffer(object):
                 ))
 
             if len(self.lines) > self.max_lines:
+                dropped = len(self.lines) - self.max_lines
                 del self.lines[:-self.max_lines]
+                self.dropped_lines += dropped
 
     async def snapshot_records(self) -> tuple[CapturedOutputLine, ...]:
         """返回包含未完成行的原始输出快照。"""

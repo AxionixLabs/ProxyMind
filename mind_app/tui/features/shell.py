@@ -7,35 +7,19 @@ import shutil
 import ctypes
 import typing
 import asyncio
+import functools
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
 from ..core.styles import failure_text_block
-from .processes import watch_exec_session
+from .processes import watch_user_shell_session
 from .summary import (
     CommandSummary,
     render_command_summary
 )
 
 SHELL_COMMAND_TIMEOUT_SEC = 3600
-
-SHELL_BUILTIN_HEADS = {
-    "cat",
-    "cd",
-    "copy",
-    "del",
-    "dir",
-    "echo",
-    "erase",
-    "ls",
-    "move",
-    "pwd",
-    "rm",
-    "set",
-    "type",
-    "where",
-}
 
 INTERACTIVE_SHELL_COMMANDS = frozenset({
     "ftp",
@@ -58,7 +42,7 @@ async def run_shell_escape(
     mind: typing.Any,
     value: str
 ) -> bool:
-    """执行 TUI shell escape 并管理进程查看状态。"""
+    """执行 TUI Shell escape 并管理正文执行单元。"""
     command = parse_shell_escape(value)
     if command is None:
         return False
@@ -84,14 +68,13 @@ async def run_shell_escape(
         ))
         return True
 
-    args = direct_command_args(command)
-    if args is None:
-        args = shell_command_args(executable, command)
+    args = shell_command_args(executable, command)
 
     owner_cid, owner_sid = _conversation_owner(mind)
+    user_shell = mind.user_shell
 
     try:
-        snapshot = await mind.native_coding.start_user_shell_session(
+        snapshot = await user_shell.start_user_shell_session(
             command=command,
             args=args,
             timeout_sec=SHELL_COMMAND_TIMEOUT_SEC,
@@ -111,22 +94,20 @@ async def run_shell_escape(
         return True
 
     session_id   = str(snapshot.get("session_id") or "").strip()
-    viewer_ready = asyncio.Event()
+    shell_ready = asyncio.Event()
 
     runtime.start_background_task(
-        watch_exec_session(
+        watch_user_shell_session(
             runtime,
             mind,
             session_id,
             announce_detach=True,
             initial_snapshot=snapshot,
-            viewer_mode="inline",
-            ready_event=viewer_ready,
-            capture_input=False,
+            ready_event=shell_ready,
         ),
-        name=f"shell viewer {session_id}",
+        name=f"shell exec cell {session_id}",
     )
-    await viewer_ready.wait()
+    await shell_ready.wait()
     return True
 
 
@@ -138,7 +119,7 @@ def _conversation_owner(controller: typing.Any) -> tuple[str, str]:
     if conversation is None or not callable(snapshot_method):
         return "", ""
 
-    snapshot = snapshot_method()
+    snapshot = functools.partial(snapshot_method)()
     if not isinstance(snapshot, dict):
         return "", ""
 
@@ -182,28 +163,6 @@ def shell_command_args(executable: str, command: str) -> list[str]:
         return [executable, "/d", "/s", "/c", command]
 
     return [executable, "-lc", command]
-
-
-def direct_command_args(command: str) -> list[str] | None:
-    """返回可绕过 shell wrapper 的外部命令参数。"""
-    text = str(command or "").strip()
-    if not text or _contains_shell_syntax(text):
-        return None
-    parts = _split_command_parts(text)
-    if not parts:
-        return None
-    head = parts[0]
-    if os.path.basename(head).lower() in SHELL_BUILTIN_HEADS:
-        return None
-    resolved = shutil.which(head)
-    if not resolved and os.path.exists(head):
-        resolved = head
-    if not resolved:
-        return None
-    if os.path.splitext(resolved)[1].lower() in {".bat", ".cmd"}:
-        return None
-
-    return [resolved, *parts[1:]]
 
 
 def blocked_interactive_shell_command(command: str) -> str:
@@ -298,7 +257,11 @@ def _windows_command_line_to_argv(command: str) -> list[str]:
 
     count = ctypes.c_int(0)
 
-    argv: typing.Any = parse(command, ctypes.byref(count))
+    argv: typing.Any = functools.partial(
+        parse,
+        command,
+        ctypes.byref(count),
+    )()
 
     if not argv:
         return []
@@ -306,14 +269,7 @@ def _windows_command_line_to_argv(command: str) -> list[str]:
     try:
         return [str(argv[index] or "") for index in range(count.value)]
     finally:
-        free(argv)
-
-
-def _contains_shell_syntax(command: str) -> bool:
-    """判断命令是否需要 shell 解释。"""
-    return any(marker in str(command or "") for marker in (
-        "|", ">", "<", "&", ";", "`", "$", "%", "*", "?", "\n", "\r"
-    ))
+        functools.partial(free, argv)()
 
 
 if __name__ == '__main__':

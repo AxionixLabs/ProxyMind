@@ -1580,7 +1580,7 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
 
 
 @pytest.mark.anyio
-async def test_input_prompt_uses_single_space_before_placeholder() -> None:
+async def test_input_placeholder_reserves_first_cell_for_cursor() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         runtime.submissions.placeholder_text = "Write tests for @filename"
@@ -1590,7 +1590,14 @@ async def test_input_prompt_uses_single_space_before_placeholder() -> None:
             runtime.screen.application.invalidate()
             await asyncio.sleep(0)
 
-            assert rendered_input_line(runtime) == "› Write tests for @filename"
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            input_position = screen.visible_windows_to_write_positions[
+                runtime.screen.input.window
+            ]
+            cursor = screen.get_cursor_position(runtime.screen.input.window)
+
+            assert cursor.x == input_position.xpos
+            assert rendered_input_line(runtime) == "›  Write tests for @filename"
         finally:
             await runtime.close()
 
@@ -1873,7 +1880,7 @@ async def test_slash_menu_survives_left_and_right_cursor_motion() -> None:
             assert [
                 completion.display_text
                 for completion in buffer.complete_state.completions
-            ] == ["/skills", "/shutdown"]
+            ] == ["/stop", "/skills", "/shutdown"]
 
             pipe_input.send_text("\x1b[C")
             await wait_for_cursor_position(runtime, 3)
@@ -1889,7 +1896,7 @@ async def test_slash_menu_survives_left_and_right_cursor_motion() -> None:
             assert [
                 completion.display_text
                 for completion in buffer.complete_state.completions
-            ] == ["/skills", "/shutdown"]
+            ] == ["/stop", "/skills", "/shutdown"]
         finally:
             await runtime.close()
 
@@ -2788,7 +2795,7 @@ async def test_backspace_reopens_completion_menu() -> None:
             assert [
                 completion.display_text
                 for completion in buffer.complete_state.completions
-            ] == ["/skills", "/shutdown"]
+            ] == ["/stop", "/skills", "/shutdown"]
         finally:
             await runtime.close()
 

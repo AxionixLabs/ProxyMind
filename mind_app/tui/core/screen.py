@@ -109,6 +109,7 @@ from .queued import (
     TuiQueuedMessages
 )
 from ..rendering.fragments import (
+    clip_fragments,
     cursor_point,
     cursor_point_for_display_row,
     display_line_count,
@@ -1918,7 +1919,21 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _status_fragments(self) -> FormattedText:
         """生成动画专属区域的格式化片段。"""
         block = self.activity_block
-        return list(block.fragments) if block is not None else []
+        if block is None:
+            return []
+
+        width = (
+            self._frame_output_size.columns
+            if self._frame_output_size is not None
+            else self._output_size()[0]
+        )
+        return clip_fragments(
+            [
+                *block.fragments,
+                *self.process_status.inline_fragments(),
+            ],
+            width=max(1, width),
+        )
 
     def _queued_fragments(self, *, width: int | None = None) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
@@ -2775,6 +2790,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _process_status_natural_height(self) -> int:
         """计算后台进程状态内容的自然高度。"""
         if self.bottom_pane.transient_active:
+            return 0
+        if self.activity_block is not None:
             return 0
         return int(self.process_status.active)
 

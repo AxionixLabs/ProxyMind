@@ -9,8 +9,8 @@ from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
 from mind_app.native_coding.exec.process_session import (
     ProcessSessionManager,
-    ProcessSessionSpec
 )
+from mind_app.native_coding.exec.user_shell import UserShellExecution
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
 from mind_app.native_coding.edit.turn_diff import TurnDiffTracker
@@ -28,6 +28,11 @@ class NativeCoding(NativeCodingBase):
         super().__init__(root=root)
 
         self._process_sessions = ProcessSessionManager()
+        self.user_shell = UserShellExecution(
+            root=self.root,
+            sessions=self._process_sessions,
+            relative_path=self.relative_path,
+        )
         self._javascript_repls = JavaScriptReplPool(self.root)
 
         self._patch_engine   = PatchEngine(self)
@@ -120,11 +125,85 @@ class NativeCoding(NativeCodingBase):
 
     async def running_exec_sessions(self) -> dict[str, typing.Any]:
         """返回当前仍在运行的本地进程会话摘要。"""
-        return await self._process_sessions.running_snapshot()
+        snapshot = await self._process_sessions.running_snapshot()
+        snapshot["revision"] = self._process_sessions.change_revision
+        return snapshot
 
-    async def stop_exec_sessions(self) -> dict[str, typing.Any]:
-        """停止当前仍在运行的全部本地进程会话。"""
-        return await self._process_sessions.stop_running_sessions()
+    async def wait_exec_sessions_update(
+        self,
+        *,
+        revision: int,
+        timeout_sec: float,
+    ) -> dict[str, typing.Any]:
+        """等待任意本地进程会话变更。"""
+        return await self._process_sessions.wait_for_change(
+            revision=revision,
+            timeout_sec=timeout_sec,
+        )
+
+    async def stop_exec_sessions(
+        self,
+        *,
+        session_ids: typing.Iterable[str] | None = None,
+    ) -> dict[str, typing.Any]:
+        """停止指定或全部仍在运行的本地进程会话。"""
+        return await self._process_sessions.stop_running_sessions(
+            session_ids=session_ids,
+        )
+
+    async def mark_exec_session_background(self, session_id: str) -> bool:
+        """把指定本地进程会话移入后台终端集合。"""
+        return await self._process_sessions.mark_background(session_id)
+
+    async def wait_exec_session_update(
+        self,
+        session_id: str,
+        *,
+        revision: int,
+        timeout_sec: float,
+    ) -> dict[str, typing.Any]:
+        """等待本地进程会话事件并返回事件携带的最新快照。"""
+        changed = await self._process_sessions.wait_for_update(
+            session_id,
+            revision=revision,
+            timeout_sec=timeout_sec,
+        )
+        if not changed:
+            return {"changed": False}
+
+        delta = await self._process_sessions.output_delta(
+            session_id,
+            revision=revision,
+        )
+        snapshot = delta.get("snapshot")
+        if not isinstance(snapshot, dict):
+            return {
+                "changed": True,
+                "event": "failed",
+                "delta": delta.get("items", []),
+                "delta_reset": bool(delta.get("reset")),
+                "snapshot": {
+                    "ok": False,
+                    "reason": "exec_session_update_unavailable",
+                    "session_id": str(session_id or "").strip(),
+                },
+            }
+        if str(snapshot.get("status") or "").strip() == "exited":
+            snapshot = await self._process_sessions.output_snapshot(
+                session_id,
+                max_output_chars=120000,
+            )
+        return {
+            "changed": True,
+            "event": (
+                "completed"
+                if str(snapshot.get("status") or "").strip() == "exited"
+                else "delta"
+            ),
+            "delta": delta.get("items", []),
+            "delta_reset": bool(delta.get("reset")),
+            "snapshot": snapshot,
+        }
 
     async def exec_session_output_snapshot(
         self,
@@ -136,46 +215,6 @@ class NativeCoding(NativeCodingBase):
         return await self._process_sessions.output_snapshot(
             session_id,
             max_output_chars=max_output_chars,
-        )
-
-    async def start_user_shell_session(
-        self,
-        *,
-        command: str,
-        args: typing.Sequence[str],
-        timeout_sec: int = 3600,
-        idle_timeout_sec: int = 1800,
-        owner_cid: str = "",
-        owner_sid: str = ""
-    ) -> dict[str, typing.Any]:
-        """启动由本地用户显式请求的 shell 会话。"""
-        cmd = str(command or "").strip()
-
-        resolved_args = tuple(str(item) for item in args if str(item or "").strip())
-
-        if not cmd or not resolved_args:
-            return {"ok": False, "reason": "command_empty"}
-
-        session = await self._process_sessions.start(ProcessSessionSpec(
-            command=cmd,
-            args=resolved_args,
-            cwd=str(self.root),
-            display_cwd=self.relative_path(self.root),
-            runtime={
-                "name": os.path.basename(resolved_args[0]),
-                "executable": resolved_args[0],
-                "source": "local_user",
-            },
-            origin="tui_shell",
-            timeout_sec=max(1, int(timeout_sec or 3600)),
-            idle_timeout_sec=max(1, int(idle_timeout_sec or 1800)),
-            owner_cid=str(owner_cid or "").strip(),
-            owner_sid=str(owner_sid or "").strip(),
-            stdin_enabled=False,
-        ))
-        return await self._process_sessions.output_snapshot(
-            session.session_id,
-            max_output_chars=12000,
         )
 
     async def control_exec_session(

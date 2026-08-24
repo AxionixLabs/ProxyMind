@@ -447,7 +447,6 @@ async def test_scrolled_tail_separates_shared_activity_status_stack() -> None:
                 runtime.screen.bottom_pane_top_inset.content
             ]
             activity_status = positions[runtime.screen.status_window]
-            process_status = positions[runtime.screen.process_status_window]
             interaction_gap = positions[
                 runtime.screen.status_interaction_gap.content
             ]
@@ -456,11 +455,9 @@ async def test_scrolled_tail_separates_shared_activity_status_stack() -> None:
             assert activity_status.ypos == (
                 outer_inset.ypos + outer_inset.height
             )
-            assert process_status.ypos == (
-                activity_status.ypos + activity_status.height
-            )
+            assert runtime.screen.process_status_window not in positions
             assert interaction_gap.ypos == (
-                process_status.ypos + process_status.height
+                activity_status.ypos + activity_status.height
             )
         finally:
             await runtime.close()
@@ -4154,7 +4151,15 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                         terminal_size = Size(rows=height, columns=width)
                         runtime.viewport.observe_terminal_geometry(width, height)
 
-                    await asyncio.sleep(0.12)
+                    loop = asyncio.get_running_loop()
+                    deadline = loop.time() + 1.0
+                    while loop.time() < deadline:
+                        reflow_task = runtime.viewport._scrollback_reflow_task
+                        if clear.call_count and (
+                            reflow_task is None or reflow_task.done()
+                        ):
+                            break
+                        await asyncio.sleep(0.001)
 
                 begin.assert_called_once_with()
                 clear.assert_called_once_with()
@@ -5117,7 +5122,7 @@ async def test_shell_completion_keeps_baseline_layout_and_footer() -> None:
                 }
                 title_row = next(
                     row for row, text in rows.items()
-                    if "• Shell adb devices" in text
+                    if "• You ran adb devices" in text
                 )
                 output_row = next(
                     row for row, text in rows.items()

@@ -486,6 +486,28 @@ def test_dark_terminal_uses_blue_selection_palette(
     assert transcript.bgcolor == selection_background
 
 
+def test_process_status_and_shell_actions_use_blue_semantics() -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+    )
+
+    for style_class in (
+        "process-status.action",
+        "shell.title.action",
+    ):
+        attrs = style.get_attrs_for_style_str(f"class:{style_class}")
+        assert attrs.color == "5B8DEF"
+        assert attrs.bold
+        assert not attrs.dim
+
+
 def test_theme_foreground_drives_separator_contrast() -> None:
     style = build_tui_application_style(
         Style.from_dict({}),

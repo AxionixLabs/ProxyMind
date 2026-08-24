@@ -12,7 +12,12 @@ from prompt_toolkit.utils import get_cwidth
 from mind_nova.identifiers import short_uid
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
-from ..rendering.fragments import clip_fragments
+from ..rendering.fragments import (
+    clip_fragments,
+    wrap_formatted_lines
+)
+
+PREVIEW_LINE_LIMIT = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,15 +110,14 @@ class TuiQueuedMessages(object):
 
         row_limit = max(1, int(max_rows))
 
-        lines: list[FormattedText] = [[(
-            "class:queue.label",
-            _queue_title(width),
-        )]]
+        lines: list[FormattedText] = [_queue_title(width)]
 
         binding = str(edit_binding or "").strip()
         lines.extend(_submission_lines(
             self._items,
             available=max(0, row_limit - 1 - int(bool(binding))),
+            width=width,
+            text_style="class:queue.text.queued",
         ))
         if binding and len(lines) < row_limit:
             lines.append([(
@@ -179,6 +183,7 @@ class TuiPendingSteers(object):
             lines.extend(_submission_lines(
                 self._items.values(),
                 available=max(0, row_limit - len(lines)),
+                width=width,
             ))
 
         if self._uncertain and len(lines) < row_limit:
@@ -186,25 +191,32 @@ class TuiPendingSteers(object):
             lines.extend(_submission_lines(
                 self._uncertain.values(),
                 available=max(0, row_limit - len(lines)),
+                width=width,
             ))
 
         return _join_lines(lines, width=width)
 
 
-def _queue_title(width: int) -> str:
+def _queue_title(width: int) -> FormattedText:
     """返回适合当前终端宽度的队列标题。"""
     titles = (
-        "• Queued follow-up inputs",
-        "• Queued inputs",
+        "Queued follow-up inputs",
+        "Queued inputs",
     )
 
     limit = max(1, int(width))
 
     for title in titles:
-        if get_cwidth(title) <= limit:
-            return title
+        if get_cwidth(f"• {title}") <= limit:
+            return [
+                ("class:queue.marker", "• "),
+                ("class:queue.label", title),
+            ]
 
-    return titles[-1]
+    return [
+        ("class:queue.marker", "• "),
+        ("class:queue.label", titles[-1]),
+    ]
 
 
 def _pending_steer_title(width: int) -> FormattedText:
@@ -232,31 +244,103 @@ def _submission_lines(
     items: typing.Iterable[TuiSubmission],
     *,
     available: int,
+    width: int,
+    text_style: str = "class:queue.text"
 ) -> list[FormattedText]:
-    """按可用行数生成消息预览和隐藏数量。"""
+    """按可用行数生成保留换行的消息预览和隐藏数量。"""
     if available <= 0:
         return []
 
     submissions = tuple(items)
-    visible_count = min(len(submissions), available)
-    if len(submissions) > available:
-        visible_count = max(0, available - 1)
-
     lines: list[FormattedText] = []
-    for item in submissions[:visible_count]:
-        preview = " ".join(sanitize_terminal_text(item.visible_text).split())
-        lines.append([
-            ("class:queue.marker", "  ↳ "),
-            ("class:queue.text", preview),
-        ])
+
+    visible_count: int = 0
+
+    for index, item in enumerate(submissions):
+        remaining = available - len(lines)
+        if remaining <= 0:
+            break
+
+        preview_lines = _submission_preview_lines(
+            item,
+            width=width,
+            text_style=text_style,
+        )
+        has_later_messages = index < len(submissions) - 1
+        preview_budget = (
+            max(0, remaining - 1)
+            if has_later_messages and len(preview_lines) >= remaining
+            else remaining
+        )
+        if preview_budget <= 0:
+            break
+
+        lines.extend(_limit_preview_lines(
+            preview_lines,
+            available=preview_budget,
+            text_style=text_style,
+        ))
+        visible_count += 1
+
+        if len(preview_lines) > preview_budget:
+            break
 
     hidden_count = len(submissions) - visible_count
-    if hidden_count:
+    if hidden_count and len(lines) < available:
         lines.append([(
             "class:queue.more",
             f"    … {hidden_count} more",
         )])
     return lines
+
+
+def _submission_preview_lines(
+    item: TuiSubmission,
+    *,
+    width: int,
+    text_style: str
+) -> list[FormattedText]:
+    """生成一条消息的 Codex 风格折行预览。"""
+    content_width = max(1, int(width) - get_cwidth("  ↳ "))
+
+    text = sanitize_terminal_text(item.visible_text)
+
+    wrapped = wrap_formatted_lines(
+        [(text_style, text)],
+        width=content_width,
+    ) or [[(text_style, "")]]
+
+    lines: list[FormattedText] = []
+
+    for index, line in enumerate(wrapped[:PREVIEW_LINE_LIMIT]):
+        lines.append([
+            (
+                "class:queue.marker",
+                "  ↳ " if index == 0 else "    ",
+            ),
+            *line,
+        ])
+
+    if len(wrapped) > PREVIEW_LINE_LIMIT:
+        lines.append([(text_style, "    …")])
+    return lines
+
+
+def _limit_preview_lines(
+    lines: list[FormattedText],
+    *,
+    available: int,
+    text_style: str
+) -> list[FormattedText]:
+    """把单条预览限制到行预算并保留溢出标记。"""
+    if len(lines) <= available:
+        return lines
+    if available <= 1:
+        return lines[:available]
+    return [
+        *lines[:available - 1],
+        [(text_style, "    …")],
+    ]
 
 
 def _join_lines(lines: list[FormattedText], *, width: int) -> FormattedText:

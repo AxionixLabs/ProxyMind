@@ -74,6 +74,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/diff",
         "/copy",
         "/ps",
+        "/stop",
         "/mcp",
         "/helix-link",
         "/helix-mode",
@@ -1394,6 +1395,7 @@ async def test_helix_link_result_is_committed_to_tui(
 ) -> None:
     views = []
     mind = SimpleNamespace(
+        is_service_mcp_linked=lambda: False,
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),

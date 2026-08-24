@@ -128,8 +128,8 @@ def input_prompt_fragments(*, shell_mode: bool) -> FormattedText:
 
 
 def placeholder_fragments(text: str) -> FormattedText:
-    """生成输入区域的占位文本。"""
-    return [("class:placeholder", text)]
+    """生成输入区域中为光标保留首格的占位文本。"""
+    return [("class:placeholder", f" {text}")]
 
 
 def completion_hint_fragments(*, left_padding: int) -> FormattedText:

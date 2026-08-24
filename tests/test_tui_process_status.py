@@ -30,7 +30,7 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
     assert runtime.screen._process_status_height() == 1
     rendered = fragments_text(runtime.screen.process_status.fragments())
     assert rendered[0] in {"◦", "•"}
-    assert rendered[1:] == " exec pytest -q · +2 · /ps to view"
+    assert rendered[1:] == " pytest -q · +2"
     assert "pytest -q" not in fragments_text(
         runtime.screen._footer_fragments()
     )
@@ -38,22 +38,42 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
     assert bottom_children.index(runtime.screen.status_window) < (
         bottom_children.index(runtime.screen.process_status_window)
     ) < bottom_children.index(runtime.screen.queued_window)
-    exec_fragment = next(
-        fragment
-        for fragment in runtime.screen.process_status.fragments()
-        if fragment[1] == "exec"
-    )
     command_fragment = next(
         fragment
         for fragment in runtime.screen.process_status.fragments()
         if fragment[1] == "pytest -q · +2"
     )
-    assert exec_fragment[0] == "class:process-status.exec"
-    assert command_fragment[0] != exec_fragment[0]
+    assert command_fragment[0] != "class:process-status.action"
 
     runtime.set_process_status_label("")
 
     assert runtime.screen._process_status_height() == 0
+
+
+def test_process_status_is_inline_when_activity_is_visible() -> None:
+    runtime = TuiRuntime()
+    runtime.screen.set_activity_renderable(
+        FragmentBlock((("class:status", "• Thinking"),)),
+    )
+    runtime.set_process_status_label("ping -t 8.8.8.8")
+
+    assert runtime.screen._process_status_height() == 0
+    rendered = fragments_text(runtime.screen._status_fragments())
+    assert rendered == (
+        "• Thinking · ping -t 8.8.8.8"
+    )
+
+
+def test_process_status_actions_are_blue_and_hints_are_dim() -> None:
+    status = TuiRuntime().screen.process_status
+    status.set_label("1 background terminal running · /ps to view · /stop to close")
+
+    fragments = status.fragments()
+
+    assert ("class:process-status.action", "/ps") in fragments
+    assert ("class:process-status.action", "/stop") in fragments
+    assert ("class:process-status.hint", " to view") in fragments
+    assert ("class:process-status.hint", " to close") in fragments
 
 
 def test_process_status_summary_respects_terminal_display_width() -> None:
@@ -71,7 +91,7 @@ def test_process_status_summary_respects_terminal_display_width() -> None:
     rendered = fragments_text(status.fragments())
 
     assert get_cwidth(rendered) <= 20
-    assert "/ps to view" in rendered
+    assert "exec" not in rendered
 
 
 def test_process_status_remains_static() -> None:
@@ -84,8 +104,34 @@ def test_process_status_remains_static() -> None:
     first = status.fragments()
     second = status.fragments()
 
-    assert fragments_text(first) == "• exec adb logcat · +2 · /ps to view"
+    assert fragments_text(first) == "• adb logcat · +2"
     assert second == first
+
+
+@pytest.mark.anyio
+async def test_process_status_breathes_without_activity_slot() -> None:
+    invalidations = 0
+
+    def invalidate() -> None:
+        nonlocal invalidations
+        invalidations += 1
+
+    runtime = TuiRuntime()
+    status = runtime.screen.process_status
+    status._invalidate = invalidate
+
+    runtime.set_process_status_label("ping -t 8.8.8.8")
+    first_refresh_count = invalidations
+    assert runtime.activity.active is False
+
+    await asyncio.sleep(0)
+    assert invalidations > first_refresh_count
+    assert runtime.activity.active is False
+
+    runtime.set_process_status_label("")
+    stopped_refresh_count = invalidations
+    await asyncio.sleep(0)
+    assert invalidations == stopped_refresh_count
 
 
 def test_process_status_filters_controls_before_clipping() -> None:
@@ -141,13 +187,17 @@ def test_command_summary_bolds_action_but_not_command() -> None:
 @pytest.mark.anyio
 async def test_process_status_monitor_updates_and_clears_runtime() -> None:
     runtime = TuiRuntime()
+    task_event = asyncio.Event()
     mind = SimpleNamespace(
-        task_event=SimpleNamespace(is_set=lambda: False),
+        task_event=task_event,
         native_coding=SimpleNamespace(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 1,
                 "items": [{"command": "pytest -q"}],
             }),
+            wait_exec_sessions_update=AsyncMock(
+                side_effect=asyncio.CancelledError(),
+            ),
         ),
     )
 
@@ -157,17 +207,17 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
             "set_process_status_label",
             wraps=runtime.set_process_status_label,
         ) as set_label,
-        patch(
-            "mind_app.tui.features.processes.asyncio.sleep",
-            AsyncMock(side_effect=asyncio.CancelledError()),
-        ),
     ):
         with pytest.raises(asyncio.CancelledError):
             await monitor_exec_status(runtime, mind)
 
     mind.native_coding.running_exec_sessions.assert_awaited_once()
+    mind.native_coding.wait_exec_sessions_update.assert_awaited_once_with(
+        revision=-1,
+        timeout_sec=3600.0,
+    )
     assert [call.args[0] for call in set_label.call_args_list] == [
-        "pytest -q",
+        "1 background terminal running · /ps to view · /stop to close",
         "",
     ]
     assert runtime.screen.process_status.label == ""
@@ -186,7 +236,7 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
         FragmentBlock((("", "• Shell current"),)),
     )
     mind = SimpleNamespace(
-        task_event=SimpleNamespace(is_set=lambda: False),
+        task_event=asyncio.Event(),
         native_coding=SimpleNamespace(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 2,
@@ -201,20 +251,16 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
                     },
                 ],
             }),
+            wait_exec_sessions_update=AsyncMock(
+                side_effect=asyncio.CancelledError(),
+            ),
         ),
     )
 
-    async def stop_after_refresh(_delay: float) -> None:
-        assert runtime.screen.process_status.label == "ping -t 8.8.8.8"
-        assert runtime.screen._process_status_height() == 1
-        raise asyncio.CancelledError()
+    with pytest.raises(asyncio.CancelledError):
+        await monitor_exec_status(runtime, mind)
 
-    with patch(
-        "mind_app.tui.features.processes.asyncio.sleep",
-        side_effect=stop_after_refresh,
-    ):
-        with pytest.raises(asyncio.CancelledError):
-            await monitor_exec_status(runtime, mind)
+    assert runtime.screen.process_status.label == ""
 
     runtime.resolve_process_viewer("detach")
     assert await viewer == "detach"

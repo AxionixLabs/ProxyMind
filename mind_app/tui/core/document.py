@@ -73,6 +73,7 @@ class TranscriptBlock(object):
     source_render_width: int | None = None
     display_renderer: WidthBlockRenderer | None = None
     display_render_width: int | None = None
+    stable_id: str = field(default="", compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -633,8 +634,9 @@ class TuiDocument(object):
         raw_text: str | None = None,
         stream_continuation: bool = False,
         display_renderer: WidthBlockRenderer | None = None,
-        display_render_width: int | None = None
-    ) -> bool:
+        display_render_width: int | None = None,
+        stable_id: str | None = None,
+    ) -> TranscriptBlock:
         """追加一个稳定正文块并统一保留块间空行。"""
         block = sanitize_fragment_block(block)
 
@@ -660,6 +662,7 @@ class TuiDocument(object):
             stream_continuation=bool(stream_continuation),
             display_renderer=display_renderer,
             display_render_width=display_render_width,
+            stable_id=str(stable_id or "").strip(),
         )
 
         if self.active_block is not None:
@@ -668,7 +671,7 @@ class TuiDocument(object):
         else:
             self._extend_stable([item])
 
-        return True
+        return item
 
     def replace_blocks(
         self,
@@ -711,6 +714,108 @@ class TuiDocument(object):
 
         self._stable_snapshot_cells    = ()
         self._stable_snapshot_revision = -1
+
+    def replace_stable_block(
+        self,
+        target: TranscriptBlock,
+        block: FragmentBlock,
+        *,
+        transcript_block: FragmentBlock | None = None,
+    ) -> bool:
+        """原位替换稳定正文块并保留其段间位置。"""
+        index = next(
+            (
+                position
+                for position, item in enumerate(self.blocks)
+                if item is target
+            ),
+            None,
+        )
+        if index is None and target.stable_id:
+            index = next(
+                (
+                    position
+                    for position, item in enumerate(self.blocks)
+                    if item.stable_id == target.stable_id
+                ),
+                None,
+            )
+        if index is None:
+            return False
+
+        previous_line_count = self._stable_line_count()
+        cleared_at_end = self.cleared_line_count == previous_line_count
+        scrollback_at_end = self.scrollback_line_count == previous_line_count
+
+        current = self.blocks[index]
+        self.blocks[index] = replace(
+            current,
+            display_block=sanitize_fragment_block(block),
+            transcript_block=sanitize_fragment_block(
+                block if transcript_block is None else transcript_block,
+            ),
+        )
+        self._rebuild_stable_lines()
+
+        line_count = self._stable_line_count()
+        self.cleared_line_count = (
+            line_count
+            if cleared_at_end
+            else min(self.cleared_line_count, line_count)
+        )
+        self.scrollback_line_count = (
+            line_count
+            if scrollback_at_end
+            else min(self.scrollback_line_count, line_count)
+        )
+        self.stable_transcript_revision += 1
+        self._stable_snapshot_cells = ()
+        self._stable_snapshot_revision = -1
+        return True
+
+    def remove_stable_block(self, target: TranscriptBlock) -> bool:
+        """移除指定稳定正文块并重建滚屏边界。"""
+        index = next(
+            (
+                position
+                for position, item in enumerate(self.blocks)
+                if item is target
+            ),
+            None,
+        )
+        if index is None and target.stable_id:
+            index = next(
+                (
+                    position
+                    for position, item in enumerate(self.blocks)
+                    if item.stable_id == target.stable_id
+                ),
+                None,
+            )
+        if index is None:
+            return False
+
+        previous_line_count = self._stable_line_count()
+        cleared_at_end = self.cleared_line_count == previous_line_count
+        scrollback_at_end = self.scrollback_line_count == previous_line_count
+        del self.blocks[index]
+        self._rebuild_stable_lines()
+
+        line_count = self._stable_line_count()
+        self.cleared_line_count = (
+            line_count
+            if cleared_at_end
+            else min(self.cleared_line_count, line_count)
+        )
+        self.scrollback_line_count = (
+            line_count
+            if scrollback_at_end
+            else min(self.scrollback_line_count, line_count)
+        )
+        self.stable_transcript_revision += 1
+        self._stable_snapshot_cells = ()
+        self._stable_snapshot_revision = -1
+        return True
 
     def bind_latest_user_turn(
         self,
@@ -856,7 +961,7 @@ class TuiDocument(object):
         stream_continuation: bool = False,
         gap_before: int | None = None,
         display_renderer: WidthBlockRenderer | None = None,
-        display_render_width: int | None = None
+        display_render_width: int | None = None,
     ) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
         block = sanitize_fragment_block(block)
@@ -907,8 +1012,9 @@ class TuiDocument(object):
         source_renderer: SourceBlockRenderer | None = None,
         source_render_width: int | None = None,
         display_renderer: WidthBlockRenderer | None = None,
-        display_render_width: int | None = None
-    ) -> None:
+        display_render_width: int | None = None,
+        stable_id: str | None = None,
+    ) -> TranscriptBlock:
         """把当前动态正文替换为相同位置的稳定块。"""
         if self.active_kind is None:
             raise ValueError("cannot commit an active TUI block without a kind")
@@ -945,12 +1051,14 @@ class TuiDocument(object):
                 if display_render_width is not None
                 else self.active_display_render_width
             ),
+            stable_id=str(stable_id or "").strip(),
         ), *self._active_tail]
 
         self._extend_stable(items)
         self._active_tail.clear()
         self._reset_active()
         self.active_transcript_revision += 1
+        return items[0]
 
     def clear_active(self) -> None:
         """清空当前动态正文及其间距状态。"""

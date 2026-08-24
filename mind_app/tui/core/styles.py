@@ -103,6 +103,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "queue.marker": "bg:default #7B838E dim",
     "queue.edit-hint": "bg:default #7B838E dim",
     "queue.text": "bg:default #DDE7EF dim",
+    "queue.text.queued": "bg:default #DDE7EF dim italic",
     "queue.more": "bg:default #7B838E",
     "input.notice.marker": "bg:default #FF5F5F",
     "input.notice": "bg:default #FF8A8A",
@@ -110,7 +111,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "input.notice.example": "bg:default #7F8C9A dim",
     "process-status.exec": "fg:#D8B26E",
     "process-status.separator": "fg:#7B838E",
-    "process-status.action": "fg:#8FC7EA bold",
+    "process-status.action": "fg:#7FB7F0 bold",
     "process-status.hint": "fg:#7B838E dim",
     "directory-trust.title": "bold",
     "directory-trust.body": "",
@@ -130,7 +131,10 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "footer.exit-key": "fg:#C9A86A",
     "footer.exit-hint": "fg:#8A929C",
     "shell.title.dot": "fg:#7F8C9A",
-    "shell.title.action": "fg:#8FC7EA bold",
+    "shell.title.dot.running": "fg:#7FB7F0 bold",
+    "shell.title.dot.success": "fg:#8FD5A6 bold",
+    "shell.title.dot.failure": "fg:#FF6B6B bold",
+    "shell.title.action": "fg:ansiblue bold",
     "shell.title.command": "fg:#F4F7FA",
     "shell.title.suffix": "fg:#7F8C9A",
     "shell.status": "fg:#87919D",
@@ -144,7 +148,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "ps.help": "fg:#69727D",
     "ps.output": "fg:#A8B1BB dim",
     "ps.stream": "fg:#87919D dim",
-    "ps.stream.command": "fg:#8FC7EA",
+    "ps.stream.command": "fg:#7FB7F0",
     "ps.waiting": "fg:#87919D",
     "ps.error": "fg:#FF6B6B",
     "scrollback.history-notice": "fg:#87919D dim",
@@ -437,11 +441,15 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         capabilities.color_level,
         light=light,
     )
+    styles["process-status.action"] = f"fg:{selection} bold"
+    styles["shell.title.action"] = f"fg:{selection} bold"
     selection_background = best_color(
         (207, 225, 246) if light else (29, 57, 105),
         capabilities.color_level,
     ) or "ansiblue"
+
     selection_foreground = "#20262C" if light else "#F4F7FA"
+
     for style_class in (
         "approval-option-selected",
         "tui-menu.index.active",

@@ -57,7 +57,7 @@ def _asset_root() -> Path:
         ).root
     except ValueError:
         application_root = source_root
-    return application_root / "node_repl"
+    return application_root / "js_repl"
 
 
 class ReplRuntimeError(RuntimeError):
