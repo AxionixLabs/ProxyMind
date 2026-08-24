@@ -798,9 +798,9 @@ async def test_stop_all_stops_immediately_and_cancels_background_watchers() -> N
         native_coding=native_coding,
     )
 
-    handled = await stop_all_exec_sessions(runtime, mind)
+    result = await stop_all_exec_sessions(runtime, mind)
 
-    assert handled
+    assert result is None
     assert cancelled == ["exec_shell", "exec_tool"]
     assert status_labels == [""]
     native_coding.running_exec_sessions.assert_awaited_once_with()
@@ -838,9 +838,9 @@ async def test_stop_all_without_background_terminals_keeps_stopping_message() ->
         native_coding=native_coding,
     )
 
-    handled = await stop_all_exec_sessions(runtime, mind)
+    result = await stop_all_exec_sessions(runtime, mind)
 
-    assert handled
+    assert result is None
     native_coding.stop_exec_sessions.assert_not_awaited()
     assert len(application.views) == 1
     text = "".join(

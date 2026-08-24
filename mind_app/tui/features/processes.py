@@ -199,7 +199,7 @@ async def stop_all_exec_sessions(
     mind: typing.Any,
     *,
     sessions: list[dict[str, typing.Any]] | None = None
-) -> bool:
+) -> None:
     """停止当前全部后台终端会话。"""
     application = mind.frontend.application
     application.emit(ApplicationView(
@@ -219,7 +219,7 @@ async def stop_all_exec_sessions(
         )["items"]
 
     if not sessions:
-        return True
+        return None
 
     session_ids = tuple(
         str(item.get("session_id") or "").strip()
@@ -234,7 +234,6 @@ async def stop_all_exec_sessions(
         runtime.cancel_background_session_task(item.get("session_id"))
 
     runtime.set_process_status_label("")
-    return True
 
 
 def render_no_background_terminals(

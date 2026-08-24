@@ -654,14 +654,14 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "stop"):
-            if await stop_all_exec_sessions(
+            await stop_all_exec_sessions(
                 typing.cast(
                     "ProcessRuntimePort",
                     typing.cast(object, self.runtime),
                 ),
                 self.mind,
-            ):
-                self._present()
+            )
+            self._present()
             return DispatchAction.HANDLED
 
         if matcher := MODEL_COMMAND_PATTERN.match(prompt_text):
@@ -670,11 +670,20 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "preferences"):
             preferences_url = f"{config_service_base_url()}/pref"
-            self._present(command_result_block(
-                "/preferences",
-                TextSpan(preferences_url, BRIGHT_STYLE),
-            ))
-            await FileAssist.open_url(preferences_url)
+            try:
+                await FileAssist.open_url(preferences_url)
+            except Exception as failure:
+                self._present(failure_text_block(
+                    f"Failed to open browser for {preferences_url}: {failure}",
+                ))
+            else:
+                self._present(fragment_block(
+                    TextSpan("• ", BODY_STYLE),
+                    TextSpan(
+                        f"Opened {preferences_url} in your browser.",
+                        BRIGHT_STYLE,
+                    ),
+                ))
             self._present()
             return DispatchAction.HANDLED
 

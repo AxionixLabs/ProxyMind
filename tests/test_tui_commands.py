@@ -254,6 +254,85 @@ async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
     )
 
 
+@pytest.mark.anyio
+async def test_preferences_uses_browser_status_without_command_prefix(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    open_url = AsyncMock()
+    monkeypatch.setattr(
+        dispatch_module,
+        "config_service_base_url",
+        lambda: "http://127.0.0.1:8765",
+    )
+    monkeypatch.setattr(dispatch_module.FileAssist, "open_url", open_url)
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/preferences")
+
+    assert action is DispatchAction.HANDLED
+    open_url.assert_awaited_once_with("http://127.0.0.1:8765/pref")
+    result = next(view for view in views if view.renderable is not None)
+    text = "".join(text for _style, text in result.renderable.fragments)
+    assert text == (
+        "• Opened http://127.0.0.1:8765/pref in your browser."
+    )
+    assert not text.startswith("/preferences")
+
+
+@pytest.mark.anyio
+async def test_preferences_browser_failure_uses_failure_status(
+    monkeypatch,
+) -> None:
+    from mind_app.tui.session import dispatch as dispatch_module
+
+    views = []
+    monkeypatch.setattr(
+        dispatch_module,
+        "config_service_base_url",
+        lambda: "http://127.0.0.1:8765",
+    )
+    monkeypatch.setattr(
+        dispatch_module.FileAssist,
+        "open_url",
+        AsyncMock(side_effect=OSError("browser unavailable")),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/preferences")
+
+    assert action is DispatchAction.HANDLED
+    result = next(view for view in views if view.renderable is not None)
+    text = "".join(text for _style, text in result.renderable.fragments)
+    assert text == (
+        "■ Failed to open browser for http://127.0.0.1:8765/pref: "
+        "browser unavailable"
+    )
+    assert not text.startswith("/preferences")
+
+
 def test_helix_prefix_keeps_command_order() -> None:
     completions = _completions("/h")
 
