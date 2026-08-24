@@ -581,10 +581,10 @@ def test_at_file_search_rejects_stale_query_results(tmp_path: Path) -> None:
         search.close()
 
 
-def test_at_plugin_uses_magenta_and_cyan_selection_styles(
+def test_at_plugin_uses_magenta_and_blue_selection_styles(
     tmp_path: Path,
 ) -> None:
-    """验证 `@` Plugin 普通态为洋红色、选中态与 Skill 共用青色。"""
+    """验证 `@` Plugin 普通态为洋红色、选中态与 Skill 共用蓝色。"""
     plugin = SkillSpec(
         name="Visualize",
         description="Plugin description",
@@ -618,7 +618,7 @@ def test_at_plugin_uses_magenta_and_cyan_selection_styles(
 
     assert plugin_style.color == "ansimagenta"
     assert plugin_style.bold is False
-    assert plugin_current.color == "ansicyan"
+    assert plugin_current.color == "ansiblue"
     assert plugin_current.bold
     assert plugin_current == skill_current
     assert plugin_index >= 0

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import sys
 import types
 
 import pytest
@@ -12,6 +11,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalIdentity,
     TerminalKind,
     TerminalTheme,
+    TerminalThemeCache,
     detect_terminal_capabilities,
     detect_terminal_color_level,
     detect_terminal_identity,
@@ -34,9 +34,6 @@ class _InteractiveStream(object):
         ({"KITTY_WINDOW_ID": "1"}, TerminalKind.KITTY),
         ({"ALACRITTY_SOCKET": "socket"}, TerminalKind.ALACRITTY),
         ({"KONSOLE_VERSION": "240800"}, TerminalKind.KONSOLE),
-        ({"TERM": "xterm-foot"}, TerminalKind.FOOT),
-        ({"TERM_PROGRAM": "Rio"}, TerminalKind.RIO),
-        ({"TERM_PROGRAM": "WarpTerminal"}, TerminalKind.WARP),
         ({"TERM_PROGRAM": "Apple_Terminal"}, TerminalKind.APPLE_TERMINAL),
     ),
 )
@@ -55,6 +52,18 @@ def test_term_program_prevents_inherited_windows_terminal_false_positive() -> No
 
     assert identity.kind == TerminalKind.VSCODE
     assert not identity.high_capability
+
+
+@pytest.mark.parametrize(
+    "environ",
+    (
+        {"TERM": "xterm-foot"},
+        {"TERM_PROGRAM": "Rio"},
+        {"TERM_PROGRAM": "WarpTerminal"},
+    ),
+)
+def test_non_codex_terminal_aliases_remain_unknown(environ) -> None:
+    assert detect_terminal_identity(environ).kind is TerminalKind.UNKNOWN
 
 
 @pytest.mark.parametrize(
@@ -99,7 +108,11 @@ def test_tmux_uses_outer_client_terminal_identity() -> None:
         ({"FORCE_COLOR": "3"}, TerminalColorLevel.TRUECOLOR),
         ({"NO_COLOR": "1", "COLORTERM": "truecolor"}, TerminalColorLevel.UNKNOWN),
         ({"WT_SESSION": "1"}, TerminalColorLevel.TRUECOLOR),
-        ({"TERM_PROGRAM": "Apple_Terminal"}, TerminalColorLevel.TRUECOLOR),
+        (
+            {"TERM_PROGRAM": "WindowsTerminal", "TERM": "xterm-color"},
+            TerminalColorLevel.TRUECOLOR,
+        ),
+        ({"TERM_PROGRAM": "Apple_Terminal"}, TerminalColorLevel.UNKNOWN),
         ({"COLORTERM": "truecolor"}, TerminalColorLevel.TRUECOLOR),
         ({"TERM": "xterm-256color"}, TerminalColorLevel.ANSI256),
         ({"TERM": "xterm-color"}, TerminalColorLevel.ANSI16),
@@ -115,7 +128,7 @@ def test_terminal_color_level_honors_overrides_and_capabilities(
 
 @pytest.mark.parametrize(
     ("program", "supported"),
-    (("WezTerm", True), ("Apple_Terminal", False)),
+    (("WezTerm", True), ("Apple_Terminal", True)),
 )
 def test_dynamic_surface_probe_depends_on_terminal_support(
     program: str,
@@ -134,18 +147,16 @@ def test_dynamic_surface_probe_depends_on_terminal_support(
     capabilities = detect_terminal_capabilities(
         input_stream=stream,
         output_stream=stream,
-        environ={"TERM_PROGRAM": program},
+        environ={"TERM_PROGRAM": program, "TERM": "xterm-truecolor"},
         color_probe=probe,
     )
 
     assert capabilities.dynamic_surfaces is supported
-    assert capabilities.theme.background == (
-        (12, 18, 24) if supported else None
-    )
-    assert calls == ([0.1] if supported else [])
+    assert capabilities.theme.background == (12, 18, 24)
+    assert calls == [0.1]
 
 
-def test_unknown_terminal_does_not_run_active_color_probe() -> None:
+def test_unknown_terminal_can_use_active_color_probe_on_a_tty() -> None:
     stream = _InteractiveStream()
     calls: list[bool] = []
 
@@ -160,8 +171,96 @@ def test_unknown_terminal_does_not_run_active_color_probe() -> None:
         color_probe=probe,
     )
 
-    assert not capabilities.dynamic_surfaces
-    assert not calls
+    assert capabilities.dynamic_surfaces
+    assert calls == [True]
+
+
+def test_terminal_theme_cache_probes_only_once() -> None:
+    cache = TerminalThemeCache()
+    calls: list[int] = []
+
+    def probe(_input, _output, _timeout) -> TerminalTheme:
+        calls.append(1)
+        return TerminalTheme(background=(1, 2, 3))
+
+    first = cache.get_or_probe(object(), object(), 0.1, probe)
+    second = cache.get_or_probe(object(), object(), 0.1, probe)
+
+    assert first == second == TerminalTheme(background=(1, 2, 3))
+    assert calls == [1]
+
+
+def test_multiplexer_detection_precedes_direct_program_signal() -> None:
+    identity = detect_terminal_identity({
+        "ZELLIJ": "0",
+        "ZELLIJ_SESSION_NAME": "session",
+        "TERM_PROGRAM": "vscode",
+        "TERM": "xterm-256color",
+    })
+
+    assert identity.kind is TerminalKind.VSCODE
+    assert identity.multiplexer is TerminalKind.ZELLIJ
+
+
+def test_terminal_identity_retains_program_version_and_tmux_term() -> None:
+    identity = detect_terminal_identity({
+        "TERM_PROGRAM": "iTerm.app",
+        "TERM_PROGRAM_VERSION": "3.6",
+        "TERM": "xterm-256color",
+    })
+
+    assert identity.term_program == "iTerm.app"
+    assert identity.version == "3.6"
+    assert identity.term == "xterm-256color"
+
+
+def test_zellij_version_signal_is_enough_to_detect_multiplexer() -> None:
+    identity = detect_terminal_identity({
+        "ZELLIJ_VERSION": "0.40.1",
+        "TERM": "xterm-256color",
+    })
+
+    assert identity.multiplexer is TerminalKind.ZELLIJ
+    assert identity.multiplexer_version == "0.40.1"
+
+
+def test_non_tty_output_does_not_claim_color_without_force() -> None:
+    stream = types.SimpleNamespace(isatty=lambda: False)
+
+    assert detect_terminal_color_level(
+        {"TERM": "xterm-256color"},
+        output_stream=stream,
+    ) is TerminalColorLevel.UNKNOWN
+
+
+def test_unix_probe_replay_separates_osc_responses_from_input() -> None:
+    replayed: list[bytes] = []
+
+    terminal_capabilities._replay_non_color_input(
+        b"a\x1b]10;#010203\x07b\x1b]11;#040506\x07c",
+        replayed.append,
+    )
+
+    assert replayed == [b"a", b"b", b"c"]
+
+
+def test_windows_probe_does_not_read_input_stream(monkeypatch) -> None:
+    expected = TerminalTheme(foreground=(1, 2, 3), background=(4, 5, 6))
+    monkeypatch.setattr(
+        terminal_capabilities,
+        "_windows_palette_theme",
+        lambda _output: expected,
+    )
+
+    class InputStream(object):
+        def fileno(self):
+            raise AssertionError("Windows probe must not inspect stdin")
+
+    assert terminal_capabilities._query_windows_theme(
+        InputStream(),
+        object(),
+        0.1,
+    ) == expected
 
 
 def test_osc_color_response_parses_eight_and_sixteen_bit_rgb() -> None:
@@ -174,34 +273,9 @@ def test_osc_color_response_parses_eight_and_sixteen_bit_rgb() -> None:
     assert theme.background == (16, 32, 48)
 
 
-@pytest.mark.parametrize(
-    ("response", "expected"),
-    (
-        (
-            "\x1b]10;#010203\x07\x1b]11;#040506\x07",
-            TerminalTheme(
-                foreground=(1, 2, 3),
-                background=(4, 5, 6),
-            ),
-        ),
-        (
-            "\x1b]10;#010203\x07",
-            TerminalTheme(foreground=(1, 2, 3)),
-        ),
-    ),
-)
-def test_windows_color_response_returns_complete_or_timeout_partial_theme(
-    monkeypatch,
-    response: str,
-    expected: TerminalTheme,
-) -> None:
-    characters = list(response)
-    console_input = types.SimpleNamespace(
-        kbhit=lambda: bool(characters),
-        getwch=lambda: characters.pop(0),
+def test_osc_rgba_response_ignores_alpha_after_validation() -> None:
+    theme = parse_terminal_color_responses(
+        b"\x1b]11;rgba:1122/3344/5566/ffff\x1b\\"
     )
-    monkeypatch.setitem(sys.modules, "msvcrt", console_input)
 
-    theme = terminal_capabilities._read_windows_color_response(0)
-
-    assert theme == expected
+    assert theme.background == (17, 51, 85)

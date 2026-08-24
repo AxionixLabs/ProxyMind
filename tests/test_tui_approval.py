@@ -308,8 +308,8 @@ def test_approval_surface_uses_no_background() -> None:
         (
             TerminalKind.APPLE_TERMINAL,
             "Apple Terminal",
-            "default",
-            "",
+            "1F1F1F",
+            "1F1F1F",
         ),
     ),
 )
@@ -375,12 +375,7 @@ def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() ->
     (
         TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.UNKNOWN, "unknown"),
-            color_level=TerminalColorLevel.TRUECOLOR,
-            theme=TerminalTheme(background=(0, 0, 0)),
-        ),
-        TerminalCapabilities(
-            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.ANSI256,
+            color_level=TerminalColorLevel.UNKNOWN,
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
         TerminalCapabilities(
@@ -389,7 +384,7 @@ def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() ->
         ),
     ),
 )
-def test_incomplete_terminal_capability_keeps_non_input_surfaces_transparent(
+def test_incomplete_terminal_capability_keeps_surfaces_transparent(
     capabilities,
 ) -> None:
     empty = Style.from_dict({})
@@ -406,6 +401,23 @@ def test_incomplete_terminal_capability_keeps_non_input_surfaces_transparent(
     assert style.get_attrs_for_style_str(
         "class:approval-card"
     ).bgcolor == ""
+
+
+def test_ansi256_surface_uses_quantized_background() -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.ANSI256,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+    )
+
+    assert style.get_attrs_for_style_str(
+        "class:input-surface"
+    ).bgcolor == "1C1C1C"
 
 
 def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
@@ -433,6 +445,66 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
     assert selected.bold
     assert shortcut.color == "26323C"
     assert model.color == "005F87"
+    assert style.get_attrs_for_style_str(
+        "class:transcript.overlay.selection"
+    ).color == "20262C"
+
+
+@pytest.mark.parametrize(
+    ("level", "selection", "selection_background"),
+    (
+        (TerminalColorLevel.TRUECOLOR, "5B8DEF", "1D3969"),
+        (TerminalColorLevel.ANSI256, "5F87D7", "5F5F87"),
+        (TerminalColorLevel.ANSI16, "ansiblue", "ansiblue"),
+    ),
+)
+def test_dark_terminal_uses_blue_selection_palette(
+    level: TerminalColorLevel,
+    selection: str,
+    selection_background: str,
+) -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=level,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+    )
+
+    selected = style.get_attrs_for_style_str(
+        "class:approval-option-selected"
+    )
+    transcript = style.get_attrs_for_style_str(
+        "class:transcript.overlay.selection"
+    )
+
+    assert selected.color == selection
+    assert selected.bold
+    assert transcript.bgcolor == selection_background
+
+
+def test_theme_foreground_drives_separator_contrast() -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(
+                foreground=(200, 200, 200),
+                background=(0, 0, 0),
+            ),
+        ),
+    )
+
+    separator = style.get_attrs_for_style_str("class:footer.separator")
+
+    assert separator.color == "default"
+    assert separator.dim
 
 
 def test_selected_session_shortcut_uses_118_style() -> None:

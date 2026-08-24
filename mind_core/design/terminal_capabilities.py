@@ -8,6 +8,7 @@ import time
 import typing
 import select
 import subprocess
+import threading
 from dataclasses import dataclass
 from enum import Enum
 
@@ -29,10 +30,12 @@ class TerminalKind(str, Enum):
     RIO              = "rio"
     WARP             = "warp"
     APPLE_TERMINAL   = "apple_terminal"
+    GNOME_TERMINAL   = "gnome_terminal"
     VSCODE           = "vscode"
     VTE              = "vte"
     TMUX             = "tmux"
     ZELLIJ           = "zellij"
+    DUMB             = "dumb"
     UNKNOWN          = "unknown"
 
 
@@ -52,21 +55,22 @@ HIGH_CAPABILITY_TERMINALS = frozenset({
     TerminalKind.KITTY,
     TerminalKind.ALACRITTY,
     TerminalKind.KONSOLE,
-    TerminalKind.FOOT,
-    TerminalKind.RIO,
-    TerminalKind.WARP,
     TerminalKind.APPLE_TERMINAL,
 })
 
-DYNAMIC_SURFACE_TERMINALS = (
-    HIGH_CAPABILITY_TERMINALS - {TerminalKind.APPLE_TERMINAL}
-)
+DYNAMIC_SURFACE_TERMINALS = HIGH_CAPABILITY_TERMINALS - {TerminalKind.APPLE_TERMINAL}
 
 HYPERLINK_TERMINALS = frozenset({
-    *(HIGH_CAPABILITY_TERMINALS - {TerminalKind.APPLE_TERMINAL}),
     TerminalKind.VSCODE,
     TerminalKind.VTE,
     TerminalKind.ZELLIJ,
+    TerminalKind.GHOSTTY,
+    TerminalKind.KITTY,
+    TerminalKind.ITERM2,
+    TerminalKind.WEZTERM,
+    TerminalKind.ALACRITTY,
+    TerminalKind.KONSOLE,
+    TerminalKind.WINDOWS_TERMINAL,
 })
 
 
@@ -76,6 +80,10 @@ class TerminalIdentity:
     kind: TerminalKind
     name: str
     multiplexer: TerminalKind | None = None
+    term_program: str | None = None
+    version: str | None = None
+    term: str | None = None
+    multiplexer_version: str | None = None
 
     @property
     def high_capability(self) -> bool:
@@ -106,8 +114,10 @@ class TerminalCapabilities:
     def dynamic_surfaces(self) -> bool:
         """判断是否可以安全生成动态 RGB 表面。"""
         return bool(
-            self.identity.supports_dynamic_surfaces
-            and self.color_level == TerminalColorLevel.TRUECOLOR
+            self.color_level in {
+                TerminalColorLevel.TRUECOLOR,
+                TerminalColorLevel.ANSI256,
+            }
             and self.theme.background is not None
         )
 
@@ -130,35 +140,87 @@ ColorProbe: typing.TypeAlias = typing.Callable[
 TmuxProbe: typing.TypeAlias = typing.Callable[[], tuple[str, str] | None]
 
 
+class TerminalThemeCache(object):
+    """缓存一次 TUI 启动期间的终端主题探测结果。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._attempted = False
+        self._theme = TerminalTheme()
+
+    def get_or_probe(
+        self,
+        input_stream: object,
+        output_stream: object,
+        timeout: float,
+        probe: ColorProbe,
+    ) -> TerminalTheme:
+        """首次调用执行探测，后续调用复用同一结果。"""
+        with self._lock:
+            if self._attempted:
+                return self._theme
+            self._attempted = True
+            try:
+                result = probe(input_stream, output_stream, timeout)
+                self._theme = (
+                    result if isinstance(result, TerminalTheme) else TerminalTheme()
+                )
+            except (AttributeError, OSError, TypeError, ValueError, RuntimeError):
+                self._theme = TerminalTheme()
+            return self._theme
+
+
 def detect_terminal_capabilities(
     *,
     input_stream: object | None = None,
     output_stream: object | None = None,
     environ: typing.Mapping[str, str] | None = None,
     color_probe: ColorProbe | None = None,
-    tmux_probe: TmuxProbe | None = None
+    tmux_probe: TmuxProbe | None = None,
+    theme_cache: TerminalThemeCache | None = None,
+    input_replay: typing.Callable[[bytes], None] | None = None,
 ) -> TerminalCapabilities:
     """探测交互终端身份、色深和默认主题颜色。"""
     env      = os.environ if environ is None else environ
     identity = detect_terminal_identity(env, tmux_probe=tmux_probe)
-    level    = detect_terminal_color_level(env, identity=identity)
     stdin    = sys.stdin if input_stream is None else input_stream
     stdout   = sys.stdout if output_stream is None else output_stream
+    level    = detect_terminal_color_level(
+        env,
+        identity=identity,
+        output_stream=stdout,
+    )
 
     if not (
-        identity.supports_dynamic_surfaces
-        and level == TerminalColorLevel.TRUECOLOR
-        and _stream_is_tty(stdin)
+        _stream_is_tty(stdin)
         and _stream_is_tty(stdout)
     ):
         return TerminalCapabilities(identity=identity, color_level=level)
 
-    probe = color_probe or query_terminal_theme
+    probe = color_probe
+    if probe is None and input_replay is not None:
+        def probe_with_replay(
+            input_value: object,
+            output_value: object,
+            timeout_value: float,
+        ) -> TerminalTheme:
+            """为默认 Unix 探测附加输入回放回调。"""
+            return query_terminal_theme(
+                input_value,
+                output_value,
+                timeout_value,
+                input_replay=input_replay,
+            )
 
-    try:
-        theme = probe(stdin, stdout, TERMINAL_QUERY_TIMEOUT_SEC)
-    except (AttributeError, OSError, TypeError, ValueError, RuntimeError):
-        theme = TerminalTheme()
+        probe = probe_with_replay
+    probe = probe or query_terminal_theme
+
+    theme = (theme_cache or TerminalThemeCache()).get_or_probe(
+        stdin,
+        stdout,
+        TERMINAL_QUERY_TIMEOUT_SEC,
+        probe,
+    )
     return TerminalCapabilities(
         identity=identity,
         color_level=level,
@@ -171,73 +233,103 @@ def detect_terminal_identity(
     *,
     tmux_probe: TmuxProbe | None = None
 ) -> TerminalIdentity:
-    """按稳定环境信号识别当前终端及复用器外层终端。"""
-    env     = os.environ if environ is None else environ
+    """按既定优先级识别终端、版本和外层复用器。"""
+    env = os.environ if environ is None else environ
+    multiplexer, mux_version = _detect_multiplexer(env)
     program = str(env.get("TERM_PROGRAM") or "").strip()
 
     if program:
-        return TerminalIdentity(_kind_from_text(program), program)
+        if multiplexer == TerminalKind.TMUX:
+            queried = (tmux_probe or _query_tmux_client)()
+            if queried is not None:
+                term_type, term_name = queried
+                kind, version = _kind_and_version_from_program(term_type)
+                return TerminalIdentity(
+                    kind,
+                    term_name or term_type or "tmux",
+                    multiplexer=multiplexer,
+                    term_program=term_type or None,
+                    version=version,
+                    term=term_name or None,
+                    multiplexer_version=mux_version,
+                )
+
+        kind, version = _kind_and_version_from_program(program)
+        version = version or str(env.get("TERM_PROGRAM_VERSION") or "").strip() or None
+        return TerminalIdentity(
+            kind,
+            program,
+            multiplexer=multiplexer,
+            term_program=program,
+            version=version,
+            term=str(env.get("TERM") or "").strip() or None,
+            multiplexer_version=mux_version,
+        )
 
     direct_signals = (
         ("WEZTERM_VERSION", TerminalKind.WEZTERM, "WezTerm"),
         ("ITERM_SESSION_ID", TerminalKind.ITERM2, "iTerm2"),
         ("ITERM_PROFILE", TerminalKind.ITERM2, "iTerm2"),
+        ("ITERM_PROFILE_NAME", TerminalKind.ITERM2, "iTerm2"),
+        ("TERM_SESSION_ID", TerminalKind.APPLE_TERMINAL, "Apple Terminal"),
         ("KITTY_WINDOW_ID", TerminalKind.KITTY, "Kitty"),
         ("ALACRITTY_SOCKET", TerminalKind.ALACRITTY, "Alacritty"),
         ("KONSOLE_VERSION", TerminalKind.KONSOLE, "Konsole"),
-        ("GNOME_TERMINAL_SCREEN", TerminalKind.VTE, "GNOME Terminal"),
+        ("GNOME_TERMINAL_SCREEN", TerminalKind.GNOME_TERMINAL, "GNOME Terminal"),
         ("VTE_VERSION", TerminalKind.VTE, "VTE"),
         ("WT_SESSION", TerminalKind.WINDOWS_TERMINAL, "Windows Terminal"),
     )
     for variable, kind, name in direct_signals:
-        if str(env.get(variable) or "").strip():
-            return TerminalIdentity(kind, name)
-
-    lc_terminal = str(env.get("LC_TERMINAL") or "").strip()
-    if lc_terminal:
-        return TerminalIdentity(_kind_from_text(lc_terminal), lc_terminal)
-
-    if str(env.get("ZELLIJ") or "").strip():
-        return TerminalIdentity(
-            TerminalKind.ZELLIJ,
-            "Zellij",
-            multiplexer=TerminalKind.ZELLIJ,
-        )
-
-    if str(env.get("TMUX") or "").strip():
-        terms = (tmux_probe or _query_tmux_client)()
-        if terms is not None:
-            client_name, client_type = terms
-
-            kind = _kind_from_text(f"{client_name} {client_type}")
-
+        value = str(env.get(variable) or "").strip()
+        if value:
             return TerminalIdentity(
                 kind,
-                client_name or client_type or "tmux",
-                multiplexer=TerminalKind.TMUX,
+                name,
+                multiplexer=multiplexer,
+                version=value if variable.endswith("VERSION") else None,
+                term=str(env.get("TERM") or "").strip() or None,
+                multiplexer_version=mux_version,
             )
 
+    if multiplexer == TerminalKind.TMUX:
+        queried = (tmux_probe or _query_tmux_client)()
+        if queried is not None:
+            term_type, term_name = queried
+            kind, version = _kind_and_version_from_program(term_type)
+            return TerminalIdentity(
+                kind,
+                term_name or term_type or "tmux",
+                multiplexer=multiplexer,
+                term_program=term_type or None,
+                version=version,
+                term=term_name or None,
+                multiplexer_version=mux_version,
+            )
         return TerminalIdentity(
             TerminalKind.TMUX,
             "tmux",
-            multiplexer=TerminalKind.TMUX,
+            multiplexer=multiplexer,
+            multiplexer_version=mux_version,
         )
 
-    session_id = str(env.get("TERM_SESSION_ID") or "").strip()
-    if session_id:
-        return TerminalIdentity(TerminalKind.APPLE_TERMINAL, "Apple Terminal")
-
     term = str(env.get("TERM") or "").strip()
-
-    return TerminalIdentity(_kind_from_text(term), term or "unknown")
+    kind = _kind_from_term(term)
+    return TerminalIdentity(
+        kind,
+        term or "unknown",
+        multiplexer=multiplexer,
+        term=term or None,
+        multiplexer_version=mux_version,
+    )
 
 
 def detect_terminal_color_level(
     environ: typing.Mapping[str, str] | None = None,
     *,
-    identity: TerminalIdentity | None = None
+    identity: TerminalIdentity | None = None,
+    output_stream: object | None = None,
 ) -> TerminalColorLevel:
-    """根据显式覆盖、环境能力和终端身份判断标准输出色深。"""
+    """按 supports-color 语义判断标准输出可用色深。"""
     env = os.environ if environ is None else environ
 
     if "FORCE_COLOR" in env:
@@ -245,45 +337,50 @@ def detect_terminal_color_level(
     if "NO_COLOR" in env:
         return TerminalColorLevel.UNKNOWN
 
-    requested_depth = str(env.get("PROMPT_TOOLKIT_COLOR_DEPTH") or "").upper()
-    if requested_depth in {"DEPTH_24_BIT", "TRUECOLOR", "24BIT"}:
-        return TerminalColorLevel.TRUECOLOR
-    if requested_depth == "DEPTH_8_BIT":
-        return TerminalColorLevel.ANSI256
-    if requested_depth == "DEPTH_4_BIT":
-        return TerminalColorLevel.ANSI16
-
-    if str(env.get("WT_SESSION") or "").strip():
-        return TerminalColorLevel.TRUECOLOR
-
     color_term = str(env.get("COLORTERM") or "").casefold()
     if color_term in {"truecolor", "24bit"}:
-        return TerminalColorLevel.TRUECOLOR
+        level = TerminalColorLevel.TRUECOLOR
+    else:
+        term = str(env.get("TERM") or "").casefold()
+        if term == "dumb":
+            return TerminalColorLevel.UNKNOWN
+        if any(token in term for token in ("truecolor", "24bit", "direct")):
+            level = TerminalColorLevel.TRUECOLOR
+        elif "256color" in term:
+            level = TerminalColorLevel.ANSI256
+        elif not term:
+            level = TerminalColorLevel.UNKNOWN
+        elif output_stream is None or _stream_is_tty(output_stream):
+            level = TerminalColorLevel.ANSI16
+        else:
+            level = TerminalColorLevel.UNKNOWN
 
-    resolved_identity = identity or detect_terminal_identity(env)
-    if resolved_identity.high_capability:
-        return TerminalColorLevel.TRUECOLOR
+    if str(env.get("WT_SESSION") or "").strip():
+        # Windows Terminal advertises ANSI16 while still supporting RGB.
+        level = TerminalColorLevel.TRUECOLOR
+    elif (
+        "FORCE_COLOR" not in env
+        and (identity or detect_terminal_identity(env)).kind is TerminalKind.WINDOWS_TERMINAL
+        and level is TerminalColorLevel.ANSI16
+    ):
+        level = TerminalColorLevel.TRUECOLOR
 
-    term = str(env.get("TERM") or "").casefold()
-    if term == "dumb" or not term:
+    if output_stream is not None and not _stream_is_tty(output_stream):
         return TerminalColorLevel.UNKNOWN
-    if any(token in term for token in ("truecolor", "24bit", "direct")):
-        return TerminalColorLevel.TRUECOLOR
-    if "256color" in term:
-        return TerminalColorLevel.ANSI256
-
-    return TerminalColorLevel.ANSI16
+    return level
 
 
 def query_terminal_theme(
     input_stream: object,
     output_stream: object,
-    timeout: float = TERMINAL_QUERY_TIMEOUT_SEC
+    timeout: float = TERMINAL_QUERY_TIMEOUT_SEC,
+    *,
+    input_replay: typing.Callable[[bytes], None] | None = None,
 ) -> TerminalTheme:
     """在短超时内查询终端默认前景色和背景色。"""
     if sys.platform == "win32":
         return _query_windows_theme(input_stream, output_stream, timeout)
-    return _query_unix_theme(input_stream, output_stream, timeout)
+    return _query_unix_theme(input_stream, output_stream, timeout, input_replay)
 
 
 def parse_terminal_color_responses(data: bytes | str) -> TerminalTheme:
@@ -306,32 +403,78 @@ def parse_terminal_color_responses(data: bytes | str) -> TerminalTheme:
     )
 
 
-def _kind_from_text(value: str) -> TerminalKind:
-    """把终端名称或 TERM 能力字符串归一化为已知身份。"""
-    text = str(value or "").casefold()
+def _detect_multiplexer(
+    env: typing.Mapping[str, str],
+) -> tuple[TerminalKind | None, str | None]:
+    """按环境信号识别外层复用器。"""
+    if (
+        str(env.get("ZELLIJ") or "").strip()
+        or str(env.get("ZELLIJ_SESSION_NAME") or "").strip()
+        or str(env.get("ZELLIJ_VERSION") or "").strip()
+    ):
+        return TerminalKind.ZELLIJ, str(env.get("ZELLIJ_VERSION") or "").strip() or None
+    if str(env.get("TMUX") or "").strip() or str(env.get("TMUX_PANE") or "").strip():
+        return TerminalKind.TMUX, _tmux_version(env)
+    return None, None
 
-    checks = (
-        (("windows terminal", "windows_terminal"), TerminalKind.WINDOWS_TERMINAL),
-        (("iterm",), TerminalKind.ITERM2),
-        (("wezterm",), TerminalKind.WEZTERM),
-        (("ghostty",), TerminalKind.GHOSTTY),
-        (("kitty",), TerminalKind.KITTY),
-        (("alacritty",), TerminalKind.ALACRITTY),
-        (("konsole",), TerminalKind.KONSOLE),
-        (("foot",), TerminalKind.FOOT),
-        (("rio",), TerminalKind.RIO),
-        (("warp",), TerminalKind.WARP),
-        (("apple_terminal", "apple terminal"), TerminalKind.APPLE_TERMINAL),
-        (("vscode",), TerminalKind.VSCODE),
-        (("gnome", "vte"), TerminalKind.VTE),
-        (("tmux",), TerminalKind.TMUX),
-        (("zellij",), TerminalKind.ZELLIJ),
-    )
 
-    for aliases, kind in checks:
-        if any(alias in text for alias in aliases):
-            return kind
+def _tmux_version(env: typing.Mapping[str, str]) -> str | None:
+    """读取可选的 tmux 版本环境值。"""
+    value = str(env.get("TMUX_VERSION") or "").strip()
+    return value or None
 
+
+def _kind_and_version_from_program(value: str) -> tuple[TerminalKind, str | None]:
+    """将 TERM_PROGRAM 或 tmux termtype 精确映射为终端身份。"""
+    raw = str(value or "").strip()
+    program_token, _, suffix = raw.partition(" ")
+    normalized = re.sub(r"[ ._\-]", "", raw).casefold()
+    normalized_token = re.sub(r"[ ._\-]", "", program_token).casefold()
+    known = {
+        "appleterminal": TerminalKind.APPLE_TERMINAL,
+        "ghostty": TerminalKind.GHOSTTY,
+        "itermapp": TerminalKind.ITERM2,
+        "iterm2": TerminalKind.ITERM2,
+        "kitty": TerminalKind.KITTY,
+        "alacritty": TerminalKind.ALACRITTY,
+        "konsole": TerminalKind.KONSOLE,
+        "gnometerminal": TerminalKind.GNOME_TERMINAL,
+        "vscode": TerminalKind.VSCODE,
+        "vscodeinsiders": TerminalKind.VSCODE,
+        "wezterm": TerminalKind.WEZTERM,
+        "windowsterminal": TerminalKind.WINDOWS_TERMINAL,
+    }
+    match = known.get(normalized, known.get(normalized_token, TerminalKind.UNKNOWN))
+    if match == TerminalKind.UNKNOWN:
+        match = _kind_from_term(raw)
+
+    version = suffix.strip(" /-") or None
+    if version is None and raw.casefold().startswith("wezterm"):
+        version = raw[len("wezterm"):].strip(" /-") or None
+    return match, version
+
+
+def _kind_from_term(value: str) -> TerminalKind:
+    """将 TERM 值按保守规则映射为终端身份。"""
+    text = str(value or "").strip().casefold()
+    if text == "dumb":
+        return TerminalKind.DUMB
+    if "kitty" in text:
+        return TerminalKind.KITTY
+    if text == "alacritty":
+        return TerminalKind.ALACRITTY
+    if "ghostty" in text:
+        return TerminalKind.GHOSTTY
+    if "wezterm" in text:
+        return TerminalKind.WEZTERM
+    if "konsole" in text:
+        return TerminalKind.KONSOLE
+    if "vte" in text:
+        return TerminalKind.VTE
+    if "tmux" in text:
+        return TerminalKind.TMUX
+    if "zellij" in text:
+        return TerminalKind.ZELLIJ
     return TerminalKind.UNKNOWN
 
 
@@ -362,16 +505,21 @@ def _parse_osc_color(value: str) -> RgbColor | None:
         except ValueError:
             return None
 
-    if text.casefold().startswith("rgb:"):
-        parts = text[4:].split("/")
-        if len(parts) != 3:
+    lowered = text.casefold()
+    if lowered.startswith(("rgb:", "rgba:")):
+        rgba = lowered.startswith("rgba:")
+        parts = text[5 if rgba else 4:].split("/")
+        if len(parts) != (4 if rgba else 3):
             return None
         try:
-            return (
+            rgb = (
                 _scale_hex_component(parts[0]),
                 _scale_hex_component(parts[1]),
                 _scale_hex_component(parts[2]),
             )
+            if rgba:
+                _scale_hex_component(parts[3])
+            return rgb
         except ValueError:
             return None
 
@@ -380,7 +528,7 @@ def _parse_osc_color(value: str) -> RgbColor | None:
 
 def _scale_hex_component(value: str) -> int:
     """把可变精度十六进制分量缩放到八位颜色。"""
-    if not 1 <= len(value) <= 4:
+    if len(value) not in {2, 4}:
         raise ValueError("invalid RGB component")
     maximum = (16 ** len(value)) - 1
     return round(int(value, 16) * 255 / maximum)
@@ -397,7 +545,7 @@ def _stream_is_tty(stream: object) -> bool:
 
 
 def _query_tmux_client() -> tuple[str, str] | None:
-    """读取 tmux 客户端实际使用的终端名称和类型。"""
+    """读取 tmux 客户端的 termtype 和 TERM。"""
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     try:
@@ -406,7 +554,7 @@ def _query_tmux_client() -> tuple[str, str] | None:
                 "tmux",
                 "display-message",
                 "-p",
-                "#{client_termname}\t#{client_termtype}",
+                "#{client_termtype}\t#{client_termname}",
             ],
             capture_output=True,
             text=True,
@@ -420,15 +568,16 @@ def _query_tmux_client() -> tuple[str, str] | None:
     if result.returncode != 0:
         return None
 
-    name, _, term_type = result.stdout.strip().partition("\t")
+    term_type, _, name = result.stdout.strip().partition("\t")
 
-    return (name.strip(), term_type.strip()) if name or term_type else None
+    return (term_type.strip(), name.strip()) if name or term_type else None
 
 
 def _query_unix_theme(
     input_stream: object,
     output_stream: object,
-    timeout: float
+    timeout: float,
+    input_replay: typing.Callable[[bytes], None] | None = None,
 ) -> TerminalTheme:
     """通过 Unix TTY 查询默认颜色。"""
     import termios
@@ -464,7 +613,7 @@ def _query_unix_theme(
         os.set_blocking(read_fd, False)
         os.write(write_fd, _terminal_color_query())
 
-        return _read_unix_color_response(read_fd, timeout)
+        return _read_unix_color_response(read_fd, timeout, input_replay)
 
     finally:
         if read_fd is not None and original is not None:
@@ -481,7 +630,11 @@ def _query_unix_theme(
                     pass
 
 
-def _read_unix_color_response(read_fd: int, timeout: float) -> TerminalTheme:
+def _read_unix_color_response(
+    read_fd: int,
+    timeout: float,
+    input_replay: typing.Callable[[bytes], None] | None = None,
+) -> TerminalTheme:
     """在单个截止时间内收集 Unix TTY 颜色响应。"""
     deadline = time.monotonic() + max(0.0, timeout)
 
@@ -506,9 +659,40 @@ def _read_unix_color_response(read_fd: int, timeout: float) -> TerminalTheme:
 
         theme = parse_terminal_color_responses(b"".join(chunks))
         if theme.foreground is not None and theme.background is not None:
+            _replay_non_color_input(b"".join(chunks), input_replay)
             return theme
 
-    return parse_terminal_color_responses(b"".join(chunks))
+    data = b"".join(chunks)
+    _replay_non_color_input(data, input_replay)
+    theme = parse_terminal_color_responses(data)
+    return theme if (
+        theme.foreground is not None
+        and theme.background is not None
+    ) else TerminalTheme()
+
+
+def _replay_non_color_input(
+    data: bytes,
+    input_replay: typing.Callable[[bytes], None] | None,
+) -> None:
+    """把探测期间夹带的普通输入交还给上层输入实现。"""
+    if input_replay is None:
+        return
+    spans = [match.span() for match in re.finditer(
+        rb"\x1b](?:10|11);[^\x07\x1b]*(?:\x07|\x1b\\)",
+        data,
+    )]
+    if not spans:
+        if data:
+            input_replay(data)
+        return
+    cursor = 0
+    for start, end in spans:
+        if start > cursor:
+            input_replay(data[cursor:start])
+        cursor = end
+    if cursor < len(data):
+        input_replay(data[cursor:])
 
 
 def _query_windows_theme(
@@ -516,83 +700,9 @@ def _query_windows_theme(
     output_stream: object,
     timeout: float
 ) -> TerminalTheme:
-    """通过 Windows 控制台查询默认颜色并提供调色板回退。"""
-    import ctypes
-    from ctypes import wintypes
-
-    input_handle = _windows_handle(input_stream)
-
-    console_handle = (
-        wintypes.HANDLE(input_handle)
-        if input_handle is not None
-        else None
-    )
-
-    original_mode = wintypes.DWORD()
-    kernel32      = ctypes.WinDLL("kernel32", use_last_error=True)
-
-    get_console_mode = kernel32["GetConsoleMode"]
-
-    get_console_mode.argtypes = [
-        wintypes.HANDLE,
-        ctypes.POINTER(wintypes.DWORD),
-    ]
-
-    get_console_mode.restype = wintypes.BOOL
-
-    set_console_mode          = kernel32["SetConsoleMode"]
-    set_console_mode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    set_console_mode.restype  = wintypes.BOOL
-
-    mode_changed: bool = False
-
-    if console_handle is not None and get_console_mode(
-        console_handle,
-        ctypes.pointer(original_mode),
-    ):
-        mode_changed = bool(set_console_mode(
-            console_handle,
-            original_mode.value | 0x0200,
-        ))
-
-    try:
-        _write_terminal_query(output_stream)
-        osc_theme = _read_windows_color_response(timeout)
-
-    finally:
-        if console_handle is not None and mode_changed:
-            set_console_mode(
-                console_handle,
-                original_mode.value,
-            )
-
-    palette_theme = _windows_palette_theme(output_stream)
-
-    return TerminalTheme(
-        foreground=osc_theme.foreground or palette_theme.foreground,
-        background=osc_theme.background or palette_theme.background,
-    )
-
-
-def _read_windows_color_response(timeout: float) -> TerminalTheme:
-    """在截止时间内收集 Windows 控制台颜色响应。"""
-    import msvcrt
-
-    deadline = time.monotonic() + max(0.0, timeout)
-    response: list[str] = []
-
-    while True:
-        while msvcrt.kbhit():
-            response.append(msvcrt.getwch())
-
-        theme = parse_terminal_color_responses("".join(response))
-        if theme.foreground is not None and theme.background is not None:
-            return theme
-
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return theme
-        time.sleep(min(0.002, remaining))
+    """通过 Windows 控制台 API 查询颜色，不读取 stdin 的 OSC 回复。"""
+    del input_stream, timeout
+    return _windows_palette_theme(output_stream)
 
 
 def _windows_handle(stream: object) -> int | None:
@@ -675,19 +785,6 @@ def _colorref_rgb(value: int) -> RgbColor:
 def _terminal_color_query() -> bytes:
     """生成默认前景色和背景色的 OSC 查询。"""
     return b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\"
-
-
-def _write_terminal_query(output_stream: object) -> None:
-    """向文本或二进制输出流写入颜色查询。"""
-    query  = _terminal_color_query()
-    writer = getattr(output_stream, "buffer", output_stream)
-
-    try:
-        writer.write(query)
-    except TypeError:
-        writer.write(query.decode("ascii"))
-
-    writer.flush()
 
 
 if __name__ == '__main__':

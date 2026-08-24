@@ -51,7 +51,7 @@ def test_transcript_selection_uses_explicit_background() -> None:
         "class:transcript.overlay.selection"
     )
 
-    assert selected.bgcolor == "375A64"
+    assert selected.bgcolor == "1D3969"
     assert selected.reverse is False
 
 

@@ -40,7 +40,7 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-omitted"           : "dim #8896A5",
     "approval-footer"            : "dim #8896A5",
     "approval-option"            : "#8B96A3",
-    "approval-option-selected"   : "bold #4DE3FF",
+    "approval-option-selected"   : "bold #5B8DEF",
     "approval-shortcut"          : "bold #C4CED8",
     "approval-shortcut-selected" : "bold #C7F7FF",
     "approval-command"           : prompt_style(COMMAND_STYLE),
@@ -363,7 +363,8 @@ def _fit_approval_sections(
         bool,
         bool,
         list[list[tuple[str, str]]],
-    ] | None = None
+    ] = (False, False, False, False, [])
+    found_layout = False
 
     expiry_candidates = (expiry, []) if expiry else ([],)
     for include_details in (bool(compact_details), False):
@@ -397,14 +398,12 @@ def _fit_approval_sections(
                         include_details,
                         active_expiry,
                     )
+                    found_layout = True
                     break
-            if layout is not None:
+            if found_layout:
                 break
-        if layout is not None:
+        if found_layout:
             break
-
-    if layout is None:
-        layout = (False, False, False, False, [])
 
     padding, include_footer, gaps, include_details, expiry = layout
 

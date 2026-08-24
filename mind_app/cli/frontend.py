@@ -3,6 +3,7 @@
 
 import sys
 import functools
+import operator
 from engine.errors import AppError
 from mind_nova import const
 from mind_app.frontend.contracts import Frontend
@@ -13,12 +14,9 @@ from .selection import OutputMode
 
 def stream_is_interactive(stream: object) -> bool:
     """判断一个标准流是否连接到交互终端。"""
-    isatty = getattr(stream, "isatty", None)
-    if not callable(isatty):
-        return False
     try:
-        return bool(isatty())
-    except (OSError, ValueError):
+        return bool(operator.methodcaller("isatty")(stream))
+    except (AttributeError, OSError, TypeError, ValueError):
         return False
 
 
@@ -45,15 +43,32 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         from mind_app.tui.adapters.session import create_tui_output_session
         from mind_app.tui.core.runtime import TuiRuntime
         from mind_app.tui.features.transcript_export import TranscriptExporter
+        from prompt_toolkit.input import create_input
         from mind_core.design.terminal_capabilities import detect_terminal_capabilities
         from mind_core.design.terminal_progress import create_terminal_progress
 
         transcript_exporter = TranscriptExporter()
+        application_input = create_input(sys.stdin)
+
+        def replay_terminal_input(data: bytes) -> None:
+            """将启动探测读到的 POSIX 输入交还 prompt_toolkit 解析器。"""
+            parser = getattr(application_input, "vt100_parser", None)
+            if parser is not None:
+                try:
+                    operator.methodcaller("feed", data.decode(
+                        sys.stdin.encoding or "utf-8",
+                        errors="replace",
+                    ))(parser)
+                except (AttributeError, TypeError):
+                    return None
+
         runtime = TuiRuntime(
+            input_obj=application_input,
             terminal_progress=create_terminal_progress(sys.stdout),
             terminal_capabilities=detect_terminal_capabilities(
                 input_stream=sys.stdin,
                 output_stream=sys.stdout,
+                input_replay=replay_terminal_input,
             ),
             export_transcript=transcript_exporter.export,
         )

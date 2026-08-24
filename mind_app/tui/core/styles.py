@@ -7,6 +7,12 @@ from mind_core.design.terminal_capabilities import (
     RgbColor,
     TerminalCapabilities
 )
+from mind_core.design.terminal_palette import (
+    best_color,
+    is_light_color,
+    selection_color,
+    semantic_color
+)
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
@@ -37,6 +43,7 @@ from ..rendering.fragments import (
 )
 from ..rendering.text_sanitize import sanitize_fragment_block
 
+# Fragment-level brand colors remain product-specific; class-based styles use the palette resolver.
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
 ACCENT_STYLE  = TextStyle(foreground="#AFC7D8", bold=True)
 BRIGHT_STYLE  = TextStyle(foreground="#F4F7FA", bold=True)
@@ -54,40 +61,40 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "auto-suggestion": "bg:default #5A616A",
     "completion-menu": "bg:default #B8C0C9",
     "completion-menu.completion": "bg:default bold #B8C0C9",
-    "completion-menu.completion.current": "bg:default bold ansicyan",
+    "completion-menu.completion.current": "bg:default bold ansiblue",
     "completion-menu.meta.completion": "bg:default #707A84",
-    "completion-menu.meta.completion.current": "bg:default bold ansicyan",
+    "completion-menu.meta.completion.current": "bg:default bold ansiblue",
     "completion-menu.empty": "dim italic #59616A",
     "completion-menu.empty.mention": "italic nodim #B8C0C9",
     "token-menu": "#B8C0C9",
     "token-menu.command": "fg:default",
-    "token-menu.command.current": "bold nodim ansicyan",
+    "token-menu.command.current": "bold nodim ansiblue",
     "token-menu.skill": "dim #B8C0C9",
-    "token-menu.skill.current": "bold nodim ansicyan",
+    "token-menu.skill.current": "bold nodim ansiblue",
     "token-menu.skill-mention": "dim #B8C0C9",
-    "token-menu.skill-mention.current": "bold nodim ansicyan",
+    "token-menu.skill-mention.current": "bold nodim ansiblue",
     "token-menu.plugin-mention": "ansimagenta",
-    "token-menu.plugin-mention.current": "bold nodim ansicyan",
+    "token-menu.plugin-mention.current": "bold nodim ansiblue",
     "token-menu.file-mention": "ansicyan",
-    "token-menu.file-mention.current": "bold nodim ansicyan",
+    "token-menu.file-mention.current": "bold nodim ansiblue",
     "token-menu.directory-mention": "#B8C0C9",
-    "token-menu.directory-mention.current": "bold nodim ansicyan",
+    "token-menu.directory-mention.current": "bold nodim ansiblue",
     "token-menu.completion": "bold #B8C0C9",
-    "token-menu.completion.current": "bold nodim ansicyan",
+    "token-menu.completion.current": "bold nodim ansiblue",
     "token-menu.meta.command": "fg:default dim",
-    "token-menu.meta.command.current": "bold nodim ansicyan",
+    "token-menu.meta.command.current": "bold nodim ansiblue",
     "token-menu.meta.skill": "dim #7B838E",
-    "token-menu.meta.skill.current": "bold nodim ansicyan",
+    "token-menu.meta.skill.current": "bold nodim ansiblue",
     "token-menu.meta.skill-mention": "dim #7B838E",
-    "token-menu.meta.skill-mention.current": "bold nodim ansicyan",
+    "token-menu.meta.skill-mention.current": "bold nodim ansiblue",
     "token-menu.meta.plugin-mention": "dim #7B838E",
-    "token-menu.meta.plugin-mention.current": "bold nodim ansicyan",
+    "token-menu.meta.plugin-mention.current": "bold nodim ansiblue",
     "token-menu.meta.file-mention": "dim #7B838E",
-    "token-menu.meta.file-mention.current": "bold nodim ansicyan",
+    "token-menu.meta.file-mention.current": "bold nodim ansiblue",
     "token-menu.meta.directory-mention": "dim #7B838E",
-    "token-menu.meta.directory-mention.current": "bold nodim ansicyan",
+    "token-menu.meta.directory-mention.current": "bold nodim ansiblue",
     "token-menu.meta.completion": "dim #707A84",
-    "token-menu.meta.completion.current": "bold nodim ansicyan",
+    "token-menu.meta.completion.current": "bold nodim ansiblue",
     "tui-menu.footer.right.plugins.current": "bold nodim ansimagenta",
     "token-menu.hint": "bg:default #DDE7EF",
     "token-menu.hint.key": "bg:default #7B838E dim",
@@ -109,7 +116,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "directory-trust.body": "",
     "directory-trust.warning": "ansiyellow",
     "directory-trust.option": "",
-    "directory-trust.option.selected": "ansicyan",
+    "directory-trust.option.selected": "ansiblue",
     "directory-trust.error": "ansired",
     "directory-trust.hint": "dim",
     "directory-trust.key": "",
@@ -146,8 +153,8 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "transcript.overlay.help": "fg:#87919D",
     "transcript.overlay.progress": "fg:#DDE7EF bold",
     "transcript.overlay.filler": "fg:#69727D dim",
-    "transcript.overlay.selection": "bg:#375A64 fg:#F4F7FA",
-    "transcript.overlay.search-match": "bg:#375A64 fg:#F4F7FA",
+    "transcript.overlay.selection": "bg:#1D3969 fg:#F4F7FA",
+    "transcript.overlay.search-match": "bg:#1D3969 fg:#F4F7FA",
     "transcript.overlay.search-prompt": "fg:#8FC7EA bold",
     "transcript.overlay.search-query": "fg:#F4F7FA",
     "transcript.overlay.search-cursor": "fg:#8FC7EA",
@@ -188,10 +195,9 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 
 def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
     """根据终端主题创建动态表面和前景样式。"""
-    if not capabilities.dynamic_surfaces:
-        return Style.from_dict({})
-
     terminal_background = capabilities.theme.background
+    if not capabilities.dynamic_surfaces or terminal_background is None:
+        return Style.from_dict({})
 
     light   = _is_light_color(terminal_background)
     overlay = (0, 0, 0) if light else (255, 255, 255)
@@ -201,16 +207,17 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
         if light
         else _blend_color(overlay, terminal_background, 0.12)
     )
-    selected_background = _hex_color(
-        _blend_color(overlay, terminal_background, 0.12)
+    selected_background = _surface_color(
+        _blend_color(overlay, terminal_background, 0.12),
+        capabilities,
     )
-    zebra_background = _hex_color(_blend_color(
+    zebra_background = _surface_color(_blend_color(
         overlay,
         terminal_background,
         0.04 if light else 0.055,
-    ))
+    ), capabilities)
 
-    background = f"bg:{_hex_color(surface_background)}"
+    background = f"bg:{_surface_color(surface_background, capabilities)}"
 
     styles = {
         "input-surface": background,
@@ -221,6 +228,11 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
     }
 
     if light:
+        accent = semantic_color(
+            (0, 95, 135),
+            capabilities.color_level,
+            fallback="ansicyan",
+        )
         styles.update({
             "prompt": "#20262C",
             "prompt.kicker": "bold #596570",
@@ -305,6 +317,9 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "resume-picker.preview.user": "#596570 italic",
             "resume-picker.preview.assistant": "#68737D",
         })
+        for name, value in tuple(styles.items()):
+            if "#005F87" in value:
+                styles[name] = value.replace("#005F87", accent)
     return Style.from_dict(styles)
 
 
@@ -324,26 +339,17 @@ def _blend_color(
     )
 
 
+def _surface_color(
+    color: RgbColor,
+    capabilities: TerminalCapabilities,
+) -> str:
+    """将表面 RGB 按终端色阶转换为可渲染颜色。"""
+    return best_color(color, capabilities.color_level) or "default"
+
+
 def _is_light_color(color: RgbColor) -> bool:
     """根据相对亮度判断 RGB 是否属于亮色主题。"""
-    linear = []
-
-    for component in color:
-        value = component / 255
-        linear.append(
-            value / 12.92
-            if value <= 0.04045
-            else ((value + 0.055) / 1.055) ** 2.4
-        )
-
-    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
-
-    return luminance > 0.5
-
-
-def _hex_color(color: RgbColor) -> str:
-    """把 RGB 元组转换为 prompt_toolkit 颜色值。"""
-    return "#" + "".join(f"{component:02X}" for component in color)
+    return is_light_color(color)
 
 
 def prompt_style(style: TextStyle) -> str:
@@ -383,7 +389,96 @@ def build_tui_application_style(
         menu_style,
         TUI_APPLICATION_OVERRIDES,
         _surface_style(capabilities),
+        _terminal_semantic_style(capabilities),
     ])
+
+
+def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
+    """根据终端前景/背景和色阶覆盖高频语义颜色。"""
+    styles: dict[str, str] = {
+        # 信息栏分隔符使用终端默认前景，避免把表格的低对比度 RGB 带入 footer。
+        "footer.separator": "fg:default dim",
+    }
+    foreground = capabilities.theme.foreground
+    background = capabilities.theme.background
+
+    if foreground is not None and background is not None:
+        separator = best_color(
+            _blend_color(foreground, background, 0.20),
+            capabilities.color_level,
+        )
+        separator_style = f"fg:{separator}" if separator else "dim"
+        for style_class in (
+            "process-status.separator",
+            "ps.separator",
+            "transcript.overlay.rule",
+            "mailbox.rule",
+            "resume-picker.rule",
+        ):
+            styles[style_class] = separator_style
+
+    light = background is not None and _is_light_color(background)
+    accent = (
+        semantic_color(
+            (0, 95, 135),
+            capabilities.color_level,
+            fallback="ansicyan",
+        )
+        if light
+        else "ansicyan"
+    )
+    for style_class in (
+        "footer.model",
+        "approval-question",
+    ):
+        styles[style_class] = f"fg:{accent} bold"
+
+    selection = selection_color(
+        capabilities.color_level,
+        light=light,
+    )
+    selection_background = best_color(
+        (207, 225, 246) if light else (29, 57, 105),
+        capabilities.color_level,
+    ) or "ansiblue"
+    selection_foreground = "#20262C" if light else "#F4F7FA"
+    for style_class in (
+        "approval-option-selected",
+        "tui-menu.index.active",
+        "tui-menu.label.active",
+        "tui-menu.detail-selected",
+        "tui-menu.title.current",
+        "tui-menu.status.current",
+        "tui-menu.tab-selected",
+        "tui-menu.footer.right.current",
+        "completion-menu.completion.current",
+        "completion-menu.meta.completion.current",
+        "token-menu.command.current",
+        "token-menu.skill.current",
+        "token-menu.skill-mention.current",
+        "token-menu.plugin-mention.current",
+        "token-menu.file-mention.current",
+        "token-menu.directory-mention.current",
+        "token-menu.completion.current",
+        "token-menu.meta.command.current",
+        "token-menu.meta.skill.current",
+        "token-menu.meta.skill-mention.current",
+        "token-menu.meta.plugin-mention.current",
+        "token-menu.meta.file-mention.current",
+        "token-menu.meta.directory-mention.current",
+        "token-menu.meta.completion.current",
+        "directory-trust.option.selected",
+    ):
+        styles[style_class] = f"fg:{selection} bold"
+    for style_class in (
+        "transcript.overlay.selection",
+        "transcript.overlay.search-match",
+    ):
+        styles[style_class] = (
+            f"bg:{selection_background} fg:{selection_foreground}"
+        )
+
+    return Style.from_dict(styles)
 
 
 def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:
@@ -393,7 +488,7 @@ def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:
     return (
         ("dim fg:#7F8C9A", "■ "),
         ("fg:#DDE7EF", "To continue this session, run "),
-        ("fg:#4DE3FF", command),
+        ("fg:#8FB8FF", command),
     )
 
 

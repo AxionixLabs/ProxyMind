@@ -9,6 +9,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalCapabilities,
     TerminalColorLevel
 )
+from mind_core.design.terminal_palette import best_color, is_light_color
 from mind_app.presentation.code_highlight import highlight_code_lines
 from mind_app.presentation.models import (
     PatchFileView,
@@ -304,11 +305,11 @@ def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
         return _DiffPalette(
             light=light,
             rich=True,
-            add_background=_LIGHT_TRUECOLOR_ADD_BG if light else _DARK_TRUECOLOR_ADD_BG,
-            remove_background=_LIGHT_TRUECOLOR_REMOVE_BG if light else _DARK_TRUECOLOR_REMOVE_BG,
-            add_gutter_background=_LIGHT_TRUECOLOR_ADD_GUTTER_BG if light else None,
-            remove_gutter_background=_LIGHT_TRUECOLOR_REMOVE_GUTTER_BG if light else None,
-            gutter_foreground=_LIGHT_TRUECOLOR_GUTTER_FG if light else None,
+            add_background=_palette_rgb((218, 251, 225) if light else (33, 58, 43), level),
+            remove_background=_palette_rgb((255, 235, 233) if light else (74, 34, 29), level),
+            add_gutter_background=_palette_rgb((172, 238, 187), level) if light else None,
+            remove_gutter_background=_palette_rgb((255, 206, 203), level) if light else None,
+            gutter_foreground=_palette_rgb((31, 35, 40), level) if light else None,
         )
     if level == TerminalColorLevel.ANSI256:
         return _DiffPalette(
@@ -329,6 +330,11 @@ def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
         remove_gutter_background=None,
         gutter_foreground="ansiblack" if light else None,
     )
+
+
+def _palette_rgb(color: RgbColor, level: TerminalColorLevel) -> str:
+    """选择目标颜色在当前色阶下的 prompt_toolkit 表示。"""
+    return best_color(color, level) or "ansidefault"
 
 
 def _line_background(line: PatchLineView, palette: _DiffPalette) -> str | None:
@@ -427,16 +433,7 @@ def _is_light_color(color: RgbColor | None) -> bool:
     """根据相对亮度识别浅色终端。"""
     if color is None:
         return False
-    linear: list[float] = []
-    for component in color:
-        value = component / 255
-        linear.append(
-            value / 12.92
-            if value <= 0.04045
-            else ((value + 0.055) / 1.055) ** 2.4
-        )
-    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
-    return luminance > 0.5
+    return is_light_color(color)
 
 
 def _count_spans(added: int, removed: int) -> tuple[TextSpan, ...]:
