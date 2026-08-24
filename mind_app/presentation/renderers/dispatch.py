@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
 from ..contracts import PresentationView
 from ..models import (
     ApprovalView,
@@ -12,6 +16,7 @@ from ..models import (
     HookRunView,
     LifecycleView,
     NativeToolResultView,
+    PatchView,
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
@@ -38,6 +43,7 @@ from .plan import (
     render_plan_steps_start_view,
     render_plan_update_view
 )
+from .patch import render_patch_view
 from .progress import render_progress_view
 from .tool import (
     render_generic_tool_result_raw_text,
@@ -60,13 +66,15 @@ def render_presentation_view(
     view: PresentationView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> tuple[StyledBlock, ...]:
     """选择结构化展示数据对应的共享渲染器。"""
     blocks = _render_presentation_view(
         view,
         terminal_width=terminal_width,
         measure_width=measure_width,
+        terminal_capabilities=terminal_capabilities,
     )
     return tuple(
         sanitize_styled_block(block, measure_width=measure_width)
@@ -78,17 +86,23 @@ def render_presentation_transcript_view(
     view: PresentationView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> tuple[StyledBlock, ...]:
     """把结构化展示数据转换为不省略原始内容的记录块。"""
-    _ = terminal_width
-
     if isinstance(view, ToolStartView):
         blocks = (render_tool_start_transcript_view(view),)
     elif isinstance(view, GenericToolResultView):
         blocks = (render_generic_tool_result_transcript_view(view),)
     elif isinstance(view, NativeToolResultView):
         blocks = render_native_tool_result_transcript_view(view)
+    elif isinstance(view, PatchView):
+        blocks = (render_patch_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+            terminal_capabilities=terminal_capabilities,
+        ),)
     elif isinstance(view, BatchStartView):
         blocks = (render_batch_start_transcript_view(view),)
     elif isinstance(view, BatchCompletedView):
@@ -99,6 +113,7 @@ def render_presentation_transcript_view(
             view,
             terminal_width=None,
             measure_width=None,
+            terminal_capabilities=terminal_capabilities,
         )
 
     return tuple(
@@ -117,6 +132,8 @@ def render_presentation_raw_view(
         values = (render_generic_tool_result_raw_text(view),)
     elif isinstance(view, NativeToolResultView):
         values = render_native_tool_result_raw_text(view)
+    elif isinstance(view, PatchView):
+        values = (view.raw_patch,)
     else:
         values = tuple(
             block.plain_text
@@ -133,7 +150,8 @@ def _render_presentation_view(
     view: PresentationView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> tuple[StyledBlock, ...]:
     """把展示视图转换为尚未执行终端清理的文本块。"""
     if isinstance(view, (RunStartedView, RunCompletedView)):
@@ -162,6 +180,13 @@ def _render_presentation_view(
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
+    if isinstance(view, PatchView):
+        return (render_patch_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+            terminal_capabilities=terminal_capabilities,
+        ),)
     if isinstance(view, PlanUpdateView):
         return (render_plan_update_view(view),)
     if isinstance(view, PlanStepsStartView):

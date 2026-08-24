@@ -26,6 +26,7 @@ from mind_app.presentation.models import (
     RunIncompleteView,
     RunStartedView,
 )
+from mind_app.presentation.tool_views import build_native_tool_result_view
 
 
 class _RecordWriter(object):
@@ -115,6 +116,58 @@ async def test_json_hook_startup_warning_is_codex_error_item() -> None:
         },
         {"type": "turn.started"},
     ]
+
+
+@pytest.mark.anyio
+async def test_json_patch_output_preserves_raw_and_structured_facts() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    presentation = JsonPresentationSink(state)
+    raw_patch = (
+        "*** Begin Patch\n"
+        "*** Add File: new.txt\n"
+        "+new\n"
+        "*** End Patch"
+    )
+    files = [{
+        "path": "new.txt",
+        "source_path": None,
+        "action": "create",
+        "added_lines": 1,
+        "removed_lines": 0,
+    }]
+
+    await presentation.emit(build_native_tool_result_view(
+        "apply_patch",
+        {"patch": raw_patch},
+        ok=True,
+        data={
+            "files": files,
+            "delta": {
+                "exact": True,
+                "changes": [{
+                    "path": "new.txt",
+                    "source_path": None,
+                    "action": "create",
+                    "old_content": None,
+                    "new_content": "new\n",
+                }],
+            },
+        },
+        cost_ms=12,
+        call_id="patch-json",
+    ))
+
+    event = json.loads(stdout.getvalue())
+    assert event["item"] == {
+        "id": "patch-json",
+        "type": "file_change",
+        "status": "completed",
+        "patch": raw_patch,
+        "files": files,
+        "error": None,
+        "duration_ms": 12,
+    }
 
 
 @pytest.mark.anyio

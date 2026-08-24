@@ -20,11 +20,11 @@ def clip_display_text(
     text: str,
     *,
     width: int,
-    measure_width: typing.Callable[[str], int] | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
     """按终端显示宽度裁剪单行文本并保留组合字符边界。"""
-    value = str(text or "")
-    limit = max(0, int(width))
+    value    = str(text or "")
+    limit    = max(0, int(width))
     width_of = measure_width or text_display_width
 
     if limit <= 0:
@@ -32,7 +32,7 @@ def clip_display_text(
     if width_of(value) <= limit:
         return value
 
-    ellipsis_text = "…"
+    ellipsis_text: str = "…"
 
     ellipsis_width = max(0, width_of(ellipsis_text))
     if limit <= ellipsis_width:
@@ -60,22 +60,16 @@ def wrap_styled_line(
     first_prefix: str = "",
     continuation_prefix: TextSpan = TextSpan(""),
     measure_width: typing.Callable[[str], int] | None = None,
+    hard: bool = False
 ) -> list[TextSpan]:
     """按终端宽度拆分单行样式片段并添加续行前缀。"""
-    cells = _styled_cells(parts)
-    if not cells:
-        return []
-
-    width_of    = measure_width or text_display_width
-    line_width  = max(1, int(terminal_width or 0))
-    first_width = max(1, line_width - width_of(first_prefix))
-    next_width  = max(1, line_width - width_of(continuation_prefix.text))
-
-    lines = _wrap_styled_cells(
-        cells,
-        first_width=first_width,
-        next_width=next_width,
-        measure_width=width_of,
+    lines = wrap_styled_lines(
+        parts,
+        terminal_width=terminal_width,
+        first_prefix=first_prefix,
+        continuation_prefix=continuation_prefix.text,
+        measure_width=measure_width,
+        hard=hard,
     )
 
     wrapped: list[TextSpan] = []
@@ -84,8 +78,36 @@ def wrap_styled_line(
             wrapped.append(TextSpan("\n"))
             if continuation_prefix.text:
                 wrapped.append(continuation_prefix)
-        wrapped.extend(_coalesce_cells(line))
+        wrapped.extend(line)
     return wrapped
+
+
+def wrap_styled_lines(
+    parts: list[TextSpan],
+    *,
+    terminal_width: int,
+    first_prefix: str = "",
+    continuation_prefix: str = "",
+    measure_width: typing.Callable[[str], int] | None = None,
+    hard: bool = False
+) -> list[list[TextSpan]]:
+    """按不同首行前缀宽度拆分并返回独立的样式行。"""
+    cells = _styled_cells(parts)
+    if not cells:
+        return [[]]
+
+    width_of   = measure_width or text_display_width
+    line_width = max(1, int(terminal_width or 0))
+
+    lines = _wrap_styled_cells(
+        cells,
+        first_width=max(1, line_width - width_of(first_prefix)),
+        next_width=max(1, line_width - width_of(continuation_prefix)),
+        measure_width=width_of,
+        hard=hard,
+    )
+
+    return [_coalesce_cells(line) for line in lines]
 
 
 def _display_text_units(text: str) -> typing.Iterator[str]:
@@ -103,6 +125,7 @@ def _display_text_unit_end(text: str, start: int) -> int:
     """返回一个组合文本单元在字符串中的结束位置。"""
     limit = len(text)
     index = min(limit, max(0, int(start)))
+
     if index >= limit:
         return limit
 
@@ -147,7 +170,8 @@ def _wrap_styled_cells(
     *,
     first_width: int,
     next_width: int,
-    measure_width: typing.Callable[[str], int]
+    measure_width: typing.Callable[[str], int],
+    hard: bool
 ) -> list[list[TextSpan]]:
     """按首行和续行宽度拆分样式单元。"""
     lines: list[list[TextSpan]] = []
@@ -160,6 +184,7 @@ def _wrap_styled_cells(
             remaining,
             max_width=width,
             measure_width=measure_width,
+            hard=hard,
         )
         if line:
             lines.append(line)
@@ -180,7 +205,8 @@ def _take_wrapped_line(
     cells: list[TextSpan],
     *,
     max_width: int,
-    measure_width: typing.Callable[[str], int]
+    measure_width: typing.Callable[[str], int],
+    hard: bool
 ) -> tuple[list[TextSpan], list[TextSpan]]:
     """取一行样式单元并优先在空白处断行。"""
     limit = max(1, int(max_width or 1))
@@ -207,16 +233,17 @@ def _take_wrapped_line(
         if width >= limit:
             break
 
-    if cursor < len(cells) and last_space > 0:
+    if not hard and cursor < len(cells) and last_space > 0:
         rest = line[last_space + 1:] + cells[cursor:]
         line = line[:last_space]
     else:
         rest = cells[cursor:]
 
-    while line and line[-1].text.isspace():
-        line.pop()
-    while rest and rest[0].text.isspace():
-        rest = rest[1:]
+    if not hard:
+        while line and line[-1].text.isspace():
+            line.pop()
+        while rest and rest[0].text.isspace():
+            rest = rest[1:]
 
     return line, rest
 

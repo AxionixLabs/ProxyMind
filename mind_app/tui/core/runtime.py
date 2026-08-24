@@ -452,11 +452,6 @@ class TuiRuntime(object):
         """更新模型轮次运行状态。"""
         self.task_state.set_turn_running(active)
 
-    @staticmethod
-    def _schedule_menu_action_drain(runtime: "TuiRuntime") -> None:
-        """把菜单动作排水回调适配为事件循环参数签名。"""
-        runtime._drain_menu_actions()
-
     def _terminal_geometry(self) -> tuple[int, int]:
         """通过单次尺寸快照返回物理终端宽高。"""
         return self.screen.output_geometry()
@@ -850,10 +845,7 @@ class TuiRuntime(object):
         ))
         if not self._menu_action_scheduled:
             self._menu_action_scheduled = True
-            asyncio.get_running_loop().call_soon(
-                TuiRuntime._schedule_menu_action_drain,
-                self,
-            )
+            asyncio.get_running_loop().call_soon(self._drain_menu_actions)
         return True
 
     def replace_active_menu_if_id(
@@ -1386,18 +1378,24 @@ class TuiRuntime(object):
         *,
         kind: TuiBlockKind = "assistant",
         transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         stream_continuation: bool = False,
-        gap_before: int | None = None
+        gap_before: int | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> None:
         """替换当前流式展示块。"""
         self._transcript.set_active(
             block,
             kind=kind,
             transcript_block=transcript_block,
+            source=source,
             raw_text=raw_text,
             stream_continuation=stream_continuation,
             gap_before=gap_before,
+            display_renderer=display_renderer,
+            display_render_width=display_render_width,
         )
 
     def invalidate(self) -> None:
@@ -1469,17 +1467,23 @@ class TuiRuntime(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         source_renderer: SourceBlockRenderer | None = None,
-        source_render_width: int | None = None
+        source_render_width: int | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
         self._transcript.commit_active(
             block,
             transcript_block=transcript_block,
+            source=source,
             raw_text=raw_text,
             source_renderer=source_renderer,
             source_render_width=source_render_width,
+            display_renderer=display_renderer,
+            display_render_width=display_render_width,
         )
 
     def commit_active_stream_prefix(

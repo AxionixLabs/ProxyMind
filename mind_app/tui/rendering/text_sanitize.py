@@ -8,7 +8,10 @@ from mind_app.presentation.terminal_text import (
     TerminalTextFilter,
     sanitize_terminal_hyperlink
 )
-from ..contracts.text import FormattedText, FragmentBlock
+from ..contracts.text import (
+    FormattedText,
+    FragmentBlock
+)
 from .fragments import ZERO_WIDTH_ESCAPE_STYLE
 
 __all__ = [
@@ -25,7 +28,7 @@ _UNSAFE_TERMINAL_TEXT = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
 
 
 def sanitize_formatted_text(
-    parts: typing.Iterable[tuple[str, str]],
+    parts: typing.Iterable[tuple[str, str]]
 ) -> FormattedText:
     """清理格式化文本中的终端控制序列并保留样式边界。"""
     source = list(parts)
@@ -37,8 +40,11 @@ def sanitize_formatted_text(
         return source
 
     text_filter = TerminalTextFilter(measure_width=get_cwidth)
+
     out: FormattedText = []
-    last_style = ""
+
+    last_style: str = ""
+
     for style, text in source:
         if not text:
             out.append((style, text))
@@ -59,7 +65,12 @@ def sanitize_fragment_block(block: FragmentBlock) -> FragmentBlock:
     fragments = tuple(sanitize_formatted_text(block.fragments))
     if fragments == block.fragments:
         return block
-    return FragmentBlock(fragments, line_fill=block.line_fill)
+
+    return FragmentBlock(
+        fragments,
+        line_fill=block.line_fill,
+        line_fills=block.line_fills,
+    )
 
 
 def _append_fragment(parts: FormattedText, style: str, text: str) -> None:
@@ -75,8 +86,10 @@ def _sanitize_zero_width_escape(text: str) -> str:
         return value
     if not value.startswith(OSC8_PREFIX) or not value.endswith(OSC8_SUFFIX):
         return ""
-    url = value[len(OSC8_PREFIX):-len(OSC8_SUFFIX)]
+
+    url      = value[len(OSC8_PREFIX):-len(OSC8_SUFFIX)]
     safe_url = sanitize_terminal_hyperlink(url)
+
     return f"{OSC8_PREFIX}{safe_url}{OSC8_SUFFIX}" if safe_url else ""
 
 

@@ -22,7 +22,10 @@ from ..prompting.commands import (
     canonical_command_label,
     resolve_slash_command
 )
-from .models import FragmentBlock
+from .models import (
+    FragmentBlock,
+    LineFill
+)
 from .hyperlinks import terminal_hyperlink_style
 from ..rendering.fragments import (
     ZERO_WIDTH_ESCAPE_STYLE,
@@ -421,6 +424,28 @@ def styled_block_fragments(
         fragments.append((style, span.text))
 
     return tuple(fragments)
+
+
+def styled_fragment_block(
+    block: StyledBlock,
+    *,
+    fallback_style: TextStyle | None = None,
+    hyperlinks: bool = False
+) -> FragmentBlock:
+    """把中立样式块连同行级填充规则转换为 TUI 片段块。"""
+    return FragmentBlock(
+        styled_block_fragments(
+            block,
+            fallback_style=fallback_style,
+            hyperlinks=hyperlinks,
+        ),
+        line_fills=tuple(
+            LineFill(character=" ", style=prompt_style(style))
+            if style is not None
+            else None
+            for style in block.line_fill_styles
+        ),
+    )
 
 
 def assistant_block(block: FragmentBlock) -> FragmentBlock:

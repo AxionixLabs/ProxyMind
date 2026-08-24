@@ -5,9 +5,11 @@ import typing
 import contextlib
 from ..core.document import (
     SourceBlockRenderer,
+    TranscriptCellSource,
     TranscriptBlock,
     TuiBlockKind,
-    TuiDocument
+    TuiDocument,
+    WidthBlockRenderer
 )
 from ..core.transcript_overlay import TuiTranscriptOverlay
 from ..core.viewport import TuiTranscriptViewport
@@ -73,9 +75,12 @@ class TranscriptCoordinator(object):
         *,
         kind: TuiBlockKind,
         transcript_block: FragmentBlock | None,
+        source: TranscriptCellSource | None,
         raw_text: str | None,
         stream_continuation: bool,
         gap_before: int | None,
+        display_renderer: WidthBlockRenderer | None,
+        display_render_width: int | None
     ) -> None:
         """替换动态正文并请求一次稳定画布重绘。"""
         with self._screen.visual_update():
@@ -83,9 +88,12 @@ class TranscriptCoordinator(object):
                 block,
                 kind=kind,
                 transcript_block=transcript_block,
+                source=source,
                 raw_text=raw_text,
                 stream_continuation=stream_continuation,
                 gap_before=gap_before,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
             )
             self._overlay.content_changed()
             self._screen.invalidate()
@@ -95,9 +103,12 @@ class TranscriptCoordinator(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None,
+        source: TranscriptCellSource | None,
         raw_text: str | None,
         source_renderer: SourceBlockRenderer | None,
         source_render_width: int | None,
+        display_renderer: WidthBlockRenderer | None,
+        display_render_width: int | None
     ) -> None:
         """把动态正文提交为稳定块并清理流式状态。"""
         with self._screen.visual_update():
@@ -105,9 +116,12 @@ class TranscriptCoordinator(object):
             self._document.commit_active(
                 block,
                 transcript_block=transcript_block,
+                source=source,
                 raw_text=raw_text,
                 source_renderer=source_renderer,
                 source_render_width=source_render_width,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
             )
             self._overlay.content_changed()
             if assistant_stream:

@@ -32,6 +32,114 @@ __all__ = [
 ZERO_WIDTH_ESCAPE_STYLE = "[ZeroWidthEscape]"
 
 
+def _iter_visible_formatted_text_units(fragments: FormattedText) -> typing.Iterator[FormattedText]:
+    """迭代一段不含零宽转义的组合文本单元。"""
+    if not fragments:
+        return
+
+    plain_text = fragments_text(fragments)
+
+    fragment_index: int  = 0
+    fragment_offset: int = 0
+
+    for unit_text in iter_text_units(plain_text):
+        remaining = len(unit_text)
+        unit: FormattedText = []
+
+        while remaining > 0:
+            style, text = fragments[fragment_index]
+
+            available = len(text) - fragment_offset
+            count     = min(remaining, available)
+            value     = text[fragment_offset:fragment_offset + count]
+
+            if unit and unit[-1][0] == style:
+                previous_style, previous_text = unit[-1]
+                unit[-1] = previous_style, previous_text + value
+            else:
+                unit.append((style, value))
+
+            remaining -= count
+            fragment_offset += count
+
+            if fragment_offset >= len(text):
+                fragment_index += 1
+                fragment_offset = 0
+
+        yield unit
+
+
+def _display_rows(
+    text: str,
+    *,
+    width: int,
+    continuation_width: int
+) -> int:
+    """计算一个逻辑行考虑自动折行前缀后的显示行数。"""
+    rows = 1
+    used_width = 0
+
+    for unit in iter_text_units(text):
+        unit_width = max(0, get_cwidth(unit))
+        available_width = (
+            width
+            if rows == 1
+            else max(1, width - continuation_width)
+        )
+        if used_width + unit_width > available_width:
+            rows += 1
+            used_width = 0
+        used_width += unit_width
+    return rows
+
+
+def _continuation_width(
+    widths: typing.Sequence[int],
+    line_number: int
+) -> int:
+    """返回指定逻辑行的自动折行前缀宽度。"""
+    if line_number >= len(widths):
+        return 0
+    return max(0, int(widths[line_number]))
+
+
+def _append_fragment(parts: FormattedText, style: str, text: str) -> None:
+    """追加非空片段。"""
+    if text:
+        parts.append((style, text))
+
+
+def _extends_text_unit(char: str) -> bool:
+    """判断字符是否延续前一个组合文本单元。"""
+    codepoint = ord(char)
+    return bool(
+        unicodedata.combining(char)
+        or unicodedata.category(char).startswith("M")
+        or 0xFE00 <= codepoint <= 0xFE0F
+        or 0xE0100 <= codepoint <= 0xE01EF
+        or 0x1F3FB <= codepoint <= 0x1F3FF
+    )
+
+
+def _is_regional_indicator(char: str) -> bool:
+    """判断字符是否为区域指示符。"""
+    return 0x1F1E6 <= ord(char) <= 0x1F1FF
+
+
+def _merge_fragments(parts: FormattedText) -> FormattedText:
+    """合并相邻且样式相同的格式化片段。"""
+    out: FormattedText = []
+    for style, text in parts:
+        if not text:
+            continue
+        if out and out[-1][0] == style:
+            previous_style, previous_text = out[-1]
+            out[-1] = previous_style, previous_text + text
+        else:
+            out.append((style, text))
+    return out
+
+
 def fragments_text(parts: typing.Iterable[tuple[str, str]]) -> str:
     """返回格式化片段对应的纯文本。"""
     return "".join(
@@ -45,6 +153,7 @@ def next_text_unit_end(text: str, start: int) -> int:
     """返回下一个组合文本单元的结束位置。"""
     limit = len(text)
     index = min(limit, max(0, int(start)))
+
     if index >= limit:
         return limit
 
@@ -100,43 +209,6 @@ def iter_formatted_text_units( parts: FormattedText) -> typing.Iterator[Formatte
     yield from _iter_visible_formatted_text_units(fragments)
 
 
-def _iter_visible_formatted_text_units(fragments: FormattedText) -> typing.Iterator[FormattedText]:
-    """迭代一段不含零宽转义的组合文本单元。"""
-    if not fragments:
-        return
-
-    plain_text = fragments_text(fragments)
-
-    fragment_index: int  = 0
-    fragment_offset: int = 0
-
-    for unit_text in iter_text_units(plain_text):
-        remaining = len(unit_text)
-        unit: FormattedText = []
-
-        while remaining > 0:
-            style, text = fragments[fragment_index]
-
-            available = len(text) - fragment_offset
-            count     = min(remaining, available)
-            value     = text[fragment_offset:fragment_offset + count]
-
-            if unit and unit[-1][0] == style:
-                previous_style, previous_text = unit[-1]
-                unit[-1] = previous_style, previous_text + value
-            else:
-                unit.append((style, value))
-
-            remaining -= count
-            fragment_offset += count
-
-            if fragment_offset >= len(text):
-                fragment_index += 1
-                fragment_offset = 0
-
-        yield unit
-
-
 def split_formatted_lines(parts: FormattedText) -> list[FormattedText]:
     """按显式换行拆分格式化片段并保留每行样式。"""
     lines: list[FormattedText] = []
@@ -176,7 +248,7 @@ def join_formatted_lines(lines: typing.Iterable[FormattedText]) -> FormattedText
 def wrap_formatted_lines(
     parts: FormattedText,
     *,
-    width: int,
+    width: int
 ) -> list[FormattedText]:
     """按终端宽度把格式化逻辑行拆成完整显示行。"""
     limit = max(1, int(width))
@@ -258,7 +330,7 @@ def transcript_hint(
     key_label: str,
     terminal_width: int | None,
     *,
-    prefix: str = "  ",
+    prefix: str = "  "
 ) -> str:
     """返回当前省略行能够完整容纳的记录入口提示。"""
     key = str(key_label or "").strip()
@@ -279,23 +351,31 @@ def fill_fragments(
     parts: FormattedText,
     *,
     width: int,
-    fill: LineFill,
+    fill: LineFill
 ) -> FormattedText:
     """裁剪或延伸单行片段，使其占满指定的可用宽度。"""
     target = max(1, int(width) - max(0, int(fill.margin)))
-    out = clip_fragments(parts, width=target)
+    out    = clip_fragments(parts, width=target)
+
     used = get_cwidth(fragments_text(out))
     if used >= target:
         return out
 
     character = str(fill.character or " ")
+
     character_width = get_cwidth(character)
     if character_width <= 0:
         character = " "
         character_width = 1
-    count = (target - used) // character_width
+
+    count     = (target - used) // character_width
     remainder = target - used - count * character_width
-    style = next((style for style, text in reversed(out) if text), "")
+
+    style = (
+        fill.style
+        if fill.style is not None
+        else next((style for style, text in reversed(out) if text), "")
+    )
     if count:
         _append_fragment(out, style, character * count)
     if remainder:
@@ -307,13 +387,15 @@ def display_line_count(
     text: str,
     *,
     width: int,
-    continuation_widths: typing.Sequence[int] = (),
+    continuation_widths: typing.Sequence[int] = ()
 ) -> int:
     """计算文本在指定终端宽度下占用的显示行数。"""
     if not text:
         return 0
     line_width = max(1, int(width))
-    rows = 0
+
+    rows: int = 0
+
     for line_number, line in enumerate(text.split("\n")):
         continuation_width = _continuation_width(
             continuation_widths,
@@ -333,12 +415,13 @@ def fragment_continuation_widths(
     parts: FormattedText,
     *,
     prefix_style: str,
-    prefix_width: int,
+    prefix_width: int
 ) -> tuple[int, ...]:
     """按逻辑行首样式返回自动折行前缀宽度。"""
-    widths: list[int] = []
-    current_width = 0
-    at_line_start = True
+    widths: list[int]   = []
+    current_width: int  = 0
+    at_line_start: bool = True
+
     for style, text in parts:
         chunks = text.split("\n")
         last_index = len(chunks) - 1
@@ -370,13 +453,14 @@ def cursor_point_for_display_row(
     *,
     width: int,
     display_row: int,
-    continuation_widths: typing.Sequence[int] = (),
+    continuation_widths: typing.Sequence[int] = ()
 ) -> tuple[int, int]:
     """返回指定视觉行起点对应的逻辑光标位置。"""
-    line_width = max(1, int(width))
-    target = max(0, int(display_row))
-    visual_row = 0
-    logical_lines = text.split("\n")
+    line_width: int = max(1, int(width))
+    target: int     = max(0, int(display_row))
+    visual_row: int = 0
+    logical_lines   = text.split("\n")
+
     for line_number, line in enumerate(logical_lines):
         if target == visual_row:
             return 0, line_number
@@ -406,76 +490,6 @@ def cursor_point_for_display_row(
                 return 0, line_number + 1
     last_line = logical_lines[-1]
     return len(last_line), max(0, len(logical_lines) - 1)
-
-
-def _display_rows(
-    text: str,
-    *,
-    width: int,
-    continuation_width: int,
-) -> int:
-    """计算一个逻辑行考虑自动折行前缀后的显示行数。"""
-    rows = 1
-    used_width = 0
-    for unit in iter_text_units(text):
-        unit_width = max(0, get_cwidth(unit))
-        available_width = (
-            width
-            if rows == 1
-            else max(1, width - continuation_width)
-        )
-        if used_width + unit_width > available_width:
-            rows += 1
-            used_width = 0
-        used_width += unit_width
-    return rows
-
-
-def _continuation_width(
-    widths: typing.Sequence[int],
-    line_number: int,
-) -> int:
-    """返回指定逻辑行的自动折行前缀宽度。"""
-    if line_number >= len(widths):
-        return 0
-    return max(0, int(widths[line_number]))
-
-
-def _append_fragment(parts: FormattedText, style: str, text: str) -> None:
-    """追加非空片段。"""
-    if text:
-        parts.append((style, text))
-
-
-def _extends_text_unit(char: str) -> bool:
-    """判断字符是否延续前一个组合文本单元。"""
-    codepoint = ord(char)
-    return bool(
-        unicodedata.combining(char)
-        or unicodedata.category(char).startswith("M")
-        or 0xFE00 <= codepoint <= 0xFE0F
-        or 0xE0100 <= codepoint <= 0xE01EF
-        or 0x1F3FB <= codepoint <= 0x1F3FF
-    )
-
-
-def _is_regional_indicator(char: str) -> bool:
-    """判断字符是否为区域指示符。"""
-    return 0x1F1E6 <= ord(char) <= 0x1F1FF
-
-
-def _merge_fragments(parts: FormattedText) -> FormattedText:
-    """合并相邻且样式相同的格式化片段。"""
-    out: FormattedText = []
-    for style, text in parts:
-        if not text:
-            continue
-        if out and out[-1][0] == style:
-            previous_style, previous_text = out[-1]
-            out[-1] = previous_style, previous_text + text
-        else:
-            out.append((style, text))
-    return out
 
 
 if __name__ == '__main__':

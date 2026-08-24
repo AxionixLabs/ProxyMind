@@ -99,6 +99,7 @@ async def run_selected_command(
                     session_id,
                     terminal_width=runtime.terminal_width,
                     hyperlinks=runtime.hyperlinks_enabled,
+                    terminal_capabilities=runtime.terminal_capabilities,
                     record=record,
                 )
 
@@ -238,13 +239,21 @@ async def _select_resume_session(
         await mind.unarchive_conversation(row.cid, row.sid)
         return replace(row, status=ResumeSessionStatus.ACTIVE)
 
+    runtime = require_tui_runtime(mind.frontend.runtime)
+
     return await choose_history_session(
-        require_tui_runtime(mind.frontend.runtime),
+        runtime,
         records,
         filter_workspace=mind.history_workspace,
         show_workspace=command.all_workspaces,
-        preview_loader=HistoryResumePreviewLoader(mind),
-        transcript_loader=HistoryResumeTranscriptLoader(mind),
+        preview_loader=HistoryResumePreviewLoader(
+            mind,
+            terminal_capabilities=runtime.terminal_capabilities,
+        ),
+        transcript_loader=HistoryResumeTranscriptLoader(
+            mind,
+            terminal_capabilities=runtime.terminal_capabilities,
+        ),
         archive_session=archive_session,
         unarchive_session=unarchive_session,
     )

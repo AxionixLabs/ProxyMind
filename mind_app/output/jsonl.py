@@ -18,6 +18,7 @@ from mind_app.presentation.models import (
     HookRunView,
     LifecycleView,
     NativeToolResultView,
+    PatchView,
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
@@ -481,6 +482,22 @@ class JsonPresentationSink(PresentationSink):
             return None
 
         if isinstance(view, ToolStartView):
+            return None
+
+        if isinstance(view, PatchView):
+            if view.phase == "applying":
+                return None
+            self._item_completed(view.call_id, {
+                "type": "file_change",
+                "status": "completed" if view.phase == "applied" else "failed",
+                "patch": view.raw_patch,
+                "files": list(view.result_files),
+                "error": {
+                    item.label: list(item.values)
+                    for item in view.diagnostics
+                } if view.diagnostics else None,
+                "duration_ms": view.cost_ms,
+            })
             return None
 
         if isinstance(view, NativeToolResultView):

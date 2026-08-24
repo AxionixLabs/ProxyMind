@@ -11,6 +11,7 @@ from .models import (
     HookRunView,
     LifecycleView,
     NativeToolResultView,
+    PatchView,
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
@@ -29,6 +30,7 @@ PresentationView: typing.TypeAlias = (
     | ToolStartView
     | GenericToolResultView
     | NativeToolResultView
+    | PatchView
     | PlanUpdateView
     | PlanStepsStartView
     | BatchStartView

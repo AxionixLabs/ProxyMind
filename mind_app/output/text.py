@@ -22,6 +22,7 @@ from mind_app.presentation.models import (
     HookRunView,
     LifecycleView,
     NativeToolResultView,
+    PatchView,
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
@@ -435,6 +436,16 @@ class TextPresentationSink(PresentationSink):
             self.state.process(f"INCOMPLETE:\n{reason}\n")
             return None
         if isinstance(view, ToolStartView):
+            return None
+        if isinstance(view, PatchView):
+            if view.phase == "applying":
+                return None
+            label = "completed" if view.phase == "applied" else "failed"
+            self.state.process(f"patch: {label}\n")
+            for file in view.files:
+                path = file.new_path or file.old_path
+                if path:
+                    self.state.process(f"{path}\n")
             return None
         if isinstance(view, NativeToolResultView):
             self._native_result(view)

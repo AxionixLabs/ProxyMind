@@ -35,7 +35,8 @@ from ..rendering.separators import final_message_separator
 from ..core.styles import (
     assistant_block,
     assistant_continuation_block,
-    styled_block_fragments
+    styled_block_fragments,
+    styled_fragment_block
 )
 from .markdown import (
     TuiMarkdownStreamRenderer,
@@ -271,20 +272,31 @@ class TuiOutputControl(OutputControlPort):
         self.record_writer.write(block.plain_text, block=True)
 
         self.runtime.append_block(
-            FragmentBlock(styled_block_fragments(
+            styled_fragment_block(
                 block,
                 hyperlinks=self.runtime.hyperlinks_enabled,
-            )),
+            ),
             kind=block_kind,
-            transcript_block=FragmentBlock(styled_block_fragments(
+            transcript_block=styled_fragment_block(
                 transcript_block,
                 hyperlinks=self.runtime.hyperlinks_enabled,
-            )),
+            ),
             source=source,
             raw_text=raw_text,
             display_renderer=display_renderer,
             display_render_width=display_render_width,
         )
+
+    async def prepare_active_presentation(self) -> None:
+        """提交 assistant 正文，为动态展示 cell 保留当前位置。"""
+        self.assistant.discard_boundary()
+        await self._commit_current()
+
+    def record_presentation_block(self, text: str) -> None:
+        """把原位完成的展示正文写入当前输出记录。"""
+        value = sanitize_terminal_text(text)
+        if value:
+            self.record_writer.write(value, block=True)
 
     async def _append_pending_separator(self, *, elapsed_sec: float | None) -> bool:
         if not self._had_work_activity or not self._needs_final_message_separator:
@@ -312,12 +324,14 @@ class TuiOutputControl(OutputControlPort):
         if not self.assistant.active:
             self._assistant_filter.reset()
             self._reset_stream_state()
-            self.runtime.clear_active_renderable()
+            if self.runtime.document.active_kind == "assistant":
+                self.runtime.clear_active_renderable()
             return False
 
         text = self._pending_stream_text()
         if not text:
-            self.runtime.clear_active_renderable()
+            if self.runtime.document.active_kind == "assistant":
+                self.runtime.clear_active_renderable()
             self.assistant.clear()
             self._assistant_filter.reset()
             self._reset_stream_state()

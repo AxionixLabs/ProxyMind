@@ -31,7 +31,8 @@ from mind_core.design.terminal_capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,
-    TerminalKind
+    TerminalKind,
+    TerminalTheme,
 )
 from mind_core.skills import SkillSpec
 from mind_nova import const
@@ -52,6 +53,7 @@ from mind_app.presentation.batch_views import (
 from mind_app.presentation.lifecycle_views import build_failure_view
 from mind_app.presentation.models import (
     NativeToolResultView,
+    PatchView,
     PlanItemView,
     PlanUpdateView,
     RunCompletedView,
@@ -9299,6 +9301,237 @@ def _oversized_patch_text() -> str:
     ))
 
 
+def _patch_result_view(
+    call_id: str,
+    *,
+    ok: bool = True,
+    new_content: str = "new\n",
+):
+    patch_text = (
+        "*** Begin Patch\n"
+        "*** Update File: sample.py\n"
+        "@@\n"
+        "-old\n"
+        "+new\n"
+        "*** End Patch"
+    )
+    data = (
+        {
+            "files": [{
+                "path": "sample.py",
+                "source_path": None,
+                "action": "modify",
+                "added_lines": 1,
+                "removed_lines": 1,
+            }],
+            "delta": {
+                "exact": True,
+                "changes": [{
+                    "path": "sample.py",
+                    "action": "modify",
+                    "old_content": "old\n",
+                    "new_content": new_content,
+                    "source_path": None,
+                }],
+            },
+        }
+        if ok
+        else {
+            "reason": "patch_context_mismatch",
+            "path": "sample.py",
+            "target_line": 1,
+        }
+    )
+    return build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch_text},
+        ok=ok,
+        data=data,
+        call_id=call_id,
+    )
+
+
+@pytest.mark.anyio
+async def test_tui_patch_start_and_success_share_one_cell() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = _patch_result_view("patch-one")
+
+    await presentation.emit(build_tool_start_view(
+        "apply_patch",
+        {"patch": result.raw_patch},
+        call_id="patch-one",
+    ))
+
+    assert runtime.document.blocks == []
+    assert runtime.document.active_kind == "operation"
+    assert "• Applying patch" in _document_text(runtime.document)
+
+    await presentation.emit(result)
+
+    assert runtime.document.active_block is None
+    assert len(runtime.document.blocks) == 1
+    assert runtime.document.blocks[0].source is result
+    assert runtime.document.blocks[0].raw_text == result.raw_patch
+    assert _document_text(runtime.document).count("• Edited sample.py") == 1
+    assert "Applying patch" not in _document_text(runtime.document)
+
+
+@pytest.mark.anyio
+async def test_tui_patch_failure_replaces_active_cell() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = _patch_result_view("patch-failed", ok=False)
+
+    await presentation.emit(build_tool_start_view(
+        "apply_patch",
+        {"patch": result.raw_patch},
+        call_id="patch-failed",
+    ))
+    await presentation.emit(result)
+
+    assert len(runtime.document.blocks) == 1
+    assert runtime.document.active_block is None
+    assert _document_text(runtime.document).startswith("✘ Failed to apply patch")
+    assert "Applying patch" not in _document_text(runtime.document)
+    assert "• Patch" not in _document_text(runtime.document)
+
+
+@pytest.mark.anyio
+async def test_tui_patch_new_call_stabilizes_previous_cell() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    first = _patch_result_view("patch-one")
+    second = _patch_result_view("patch-two", new_content="second\n")
+
+    await presentation.emit(build_tool_start_view(
+        "apply_patch",
+        {"patch": first.raw_patch},
+        call_id="patch-one",
+    ))
+    await presentation.emit(build_tool_start_view(
+        "apply_patch",
+        {"patch": second.raw_patch},
+        call_id="patch-two",
+    ))
+
+    assert len(runtime.document.blocks) == 1
+    assert runtime.document.active_block is not None
+    assert runtime.document.blocks[0].source.call_id == "patch-one"
+    assert runtime.document.active_source.call_id == "patch-two"
+
+    await presentation.emit(second)
+
+    assert runtime.document.active_block is None
+    assert [item.source.call_id for item in runtime.document.blocks] == [
+        "patch-one",
+        "patch-two",
+    ]
+
+
+@pytest.mark.anyio
+async def test_tui_unmatched_patch_result_does_not_overwrite_active_call() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    first = _patch_result_view("patch-one")
+    other = _patch_result_view("patch-other", new_content="other\n")
+
+    await presentation.emit(build_tool_start_view(
+        "apply_patch",
+        {"patch": first.raw_patch},
+        call_id="patch-one",
+    ))
+    await presentation.emit(other)
+
+    snapshot = runtime.document.transcript_snapshot()
+    assert snapshot.live_tail is not None
+    assert [item.source.call_id for item in snapshot.live_tail.cells] == [
+        "patch-one",
+        "patch-other",
+    ]
+
+    await presentation.emit(first)
+
+    assert runtime.document.active_block is None
+    assert [item.source.call_id for item in runtime.document.blocks] == [
+        "patch-one",
+        "patch-other",
+    ]
+
+
+@pytest.mark.anyio
+async def test_tui_patch_reflows_from_structured_view_after_resize() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    long_content = "界🙂value-" * 30 + "\n"
+    result = _patch_result_view("patch-resize", new_content=long_content)
+
+    await presentation.emit(result)
+
+    narrow = fragments_text(runtime.document.fragments(width=40))
+    wide = fragments_text(runtime.document.fragments(width=120))
+
+    assert len(narrow.splitlines()) > len(wide.splitlines())
+    assert all(get_cwidth(line) <= 40 for line in narrow.splitlines())
+    assert all(get_cwidth(line) <= 120 for line in wide.splitlines())
+    assert runtime.document.blocks[0].source is result
+    assert runtime.document.blocks[0].raw_text == result.raw_patch
+
+
+@pytest.mark.anyio
+async def test_tui_patch_background_fills_each_wrapped_row_after_resize() -> None:
+    capabilities = TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
+        color_level=TerminalColorLevel.TRUECOLOR,
+        theme=TerminalTheme(background=(0, 0, 0)),
+    )
+    runtime = TuiRuntime(terminal_capabilities=capabilities)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = _patch_result_view(
+        "patch-background-resize",
+        new_content=("value-" * 30) + "\n",
+    )
+
+    await presentation.emit(result)
+
+    for width in (40, 72):
+        lines = split_formatted_lines(runtime.document.fragments(width=width))
+        changed = [
+            line for line in lines
+            if any("bg:#213A2B" in style for style, _text in line)
+        ]
+
+        assert len(changed) > 1
+        assert all(get_cwidth(fragments_text(line)) == width for line in changed)
+        assert all("bg:#213A2B" in line[-1][0] for line in changed)
+
+
+@pytest.mark.anyio
+async def test_assistant_commit_does_not_clear_active_patch_cell() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = _patch_result_view("patch-active")
+
+    await presentation.emit(build_tool_start_view(
+        "apply_patch",
+        {"patch": result.raw_patch},
+        call_id="patch-active",
+    ))
+    active = runtime.document.active_block
+
+    await output.prepare_external_output()
+
+    assert runtime.document.active_block is active
+    assert runtime.document.active_kind == "operation"
+
+
 @pytest.mark.anyio
 async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None:
     runtime = TuiRuntime()
@@ -9356,15 +9589,34 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                 ],
             },
         ), "stdin output 11"),
-        (build_tool_start_view(
-            "apply_patch",
-            {"patch": patch_text},
-        ), "patch-final-token"),
         (build_native_tool_result_view(
             "apply_patch",
             {"patch": patch_text},
             ok=True,
-            data={"output": "Done!"},
+            data={
+                "files": [{
+                    "path": "sample.py",
+                    "source_path": None,
+                    "action": "modify",
+                    "added_lines": 31,
+                    "removed_lines": 1,
+                }],
+                "delta": {
+                    "exact": True,
+                    "changes": [{
+                        "path": "sample.py",
+                        "action": "modify",
+                        "old_content": "old value\n",
+                        "new_content": "\n".join((
+                            *(f"new value {index}" for index in range(30)),
+                            "patch-final-token",
+                            "",
+                        )),
+                        "source_path": None,
+                    }],
+                },
+            },
+            call_id="patch-bounds",
         ), "patch-final-token"),
         (build_tool_start_view(
             "js_repl",
@@ -9405,8 +9657,10 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
 
     assert all(
         marker not in display
-        for _view, marker in views_and_hidden_markers
+        for view, marker in views_and_hidden_markers
+        if not isinstance(view, PatchView)
     )
+    assert "patch-final-token" in display
     assert all(
         marker in transcript
         for _view, marker in views_and_hidden_markers
@@ -9448,17 +9702,6 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
             "shell output 0",
             "shell output 19",
             "… +15 lines",
-        ),
-        (
-            build_native_tool_result_view(
-                "apply_patch",
-                {"patch": _oversized_patch_text()},
-                ok=True,
-                data={"output": "Done!"},
-            ),
-            "new value 0",
-            "patch-final-token",
-            "… +",
         ),
         (
             build_tool_start_view(
@@ -9528,7 +9771,6 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
     ids=(
         "generic-result",
         "shell-result",
-        "patch-result",
         "javascript-start",
         "javascript-result",
         "batch-start",

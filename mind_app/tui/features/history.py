@@ -7,6 +7,10 @@ import asyncio
 from functools import partial
 from pathlib import Path
 from prompt_toolkit.utils import get_cwidth
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
 from mind_app.history import normalize_workspace
 from mind_app.history.ids import valid_session_ids
 from mind_app.history.transcript import (
@@ -49,7 +53,7 @@ from ..core.styles import (
     MUTED_STYLE,
     failure_text_block,
     query_block,
-    styled_block_fragments,
+    styled_fragment_block,
     text_block
 )
 
@@ -63,8 +67,14 @@ class HistoryResumePreviewLoader(ResumePreviewLoader):
 
     PREVIEW_BLOCK_LIMIT: typing.Final[int] = 6
 
-    def __init__(self, controller: "Mind") -> None:
+    def __init__(
+        self,
+        controller: "Mind",
+        *,
+        terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
+    ) -> None:
         self._controller = controller
+        self._terminal_capabilities = terminal_capabilities
 
     async def load(
         self,
@@ -79,6 +89,7 @@ class HistoryResumePreviewLoader(ResumePreviewLoader):
             row.sid,
             terminal_width=max(1, int(width) - 4),
             hyperlinks=False,
+            terminal_capabilities=self._terminal_capabilities,
         )
         preview_blocks = tuple(
             (
@@ -103,8 +114,14 @@ class HistoryResumePreviewLoader(ResumePreviewLoader):
 class HistoryResumeTranscriptLoader(ResumeTranscriptLoader):
     """从本地 history transcript 生成全屏 pager 使用的完整内容。"""
 
-    def __init__(self, controller: "Mind") -> None:
+    def __init__(
+        self,
+        controller: "Mind",
+        *,
+        terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
+    ) -> None:
         self._controller = controller
+        self._terminal_capabilities = terminal_capabilities
 
     async def load(
         self,
@@ -119,6 +136,7 @@ class HistoryResumeTranscriptLoader(ResumeTranscriptLoader):
             row.sid,
             terminal_width=max(1, int(width)),
             hyperlinks=False,
+            terminal_capabilities=self._terminal_capabilities,
         )
         transcript_blocks = tuple(
             tuple(block.transcript_block.fragments)
@@ -231,6 +249,7 @@ def load_history_transcript(
     *,
     terminal_width: int,
     hyperlinks: bool = False,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
     record: typing.Mapping[str, typing.Any] | None = None
 ) -> tuple[TranscriptBlock, ...]:
     """读取会话事件并在内容缺失时生成最小恢复块。"""
@@ -246,6 +265,7 @@ def load_history_transcript(
         replay,
         terminal_width=terminal_width,
         hyperlinks=hyperlinks,
+        terminal_capabilities=terminal_capabilities,
     )
 
     if blocks:
@@ -298,7 +318,8 @@ def _render_replay_blocks(
     entries: typing.Iterable[TranscriptEntry],
     *,
     terminal_width: int,
-    hyperlinks: bool = False
+    hyperlinks: bool = False,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> tuple[TranscriptBlock, ...]:
     """把归并后的会话事件转换为 TUI 正文块。"""
     blocks: list[TranscriptBlock] = []
@@ -319,6 +340,7 @@ def _render_replay_blocks(
                 entry,
                 terminal_width=terminal_width,
                 hyperlinks=hyperlinks,
+                terminal_capabilities=terminal_capabilities,
             ))
             continue
 
@@ -426,7 +448,8 @@ def _tool_blocks(
     entry: TranscriptEntry,
     *,
     terminal_width: int,
-    hyperlinks: bool = False
+    hyperlinks: bool = False,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> tuple[TranscriptBlock, ...]:
     """把工具事件转换为共享展示和完整记录块。"""
     payload = entry.payload
@@ -440,11 +463,17 @@ def _tool_blocks(
     if entry.event == "tool.started":
         view = build_tool_start_view(name, arguments, call_id=call_id)
     elif coding_trace_tool(name):
+        result_data = payload.get("result")
+        if name == "apply_patch":
+            result_data = _patch_result_data(
+                result_data,
+                error=payload.get("error"),
+            )
         view = build_native_tool_result_view(
             name,
             arguments,
             ok=_tool_succeeded(entry),
-            data=payload.get("result"),
+            data=result_data,
             cost_ms=_duration_ms(payload),
             call_id=call_id,
         )
@@ -464,12 +493,14 @@ def _tool_blocks(
         view,
         terminal_width=terminal_width,
         measure_width=get_cwidth,
+        terminal_capabilities=terminal_capabilities,
     )
 
     transcript = render_presentation_transcript_view(
         view,
         terminal_width=terminal_width,
         measure_width=get_cwidth,
+        terminal_capabilities=terminal_capabilities,
     )
 
     raw = render_presentation_raw_view(view)
@@ -479,14 +510,14 @@ def _tool_blocks(
 
     return tuple(
         TranscriptBlock(
-            display_block=FragmentBlock(styled_block_fragments(
+            display_block=styled_fragment_block(
                 display_block,
                 hyperlinks=hyperlinks,
-            )),
-            transcript_block=FragmentBlock(styled_block_fragments(
+            ),
+            transcript_block=styled_fragment_block(
                 transcript_block,
                 hyperlinks=hyperlinks,
-            )),
+            ),
             kind="operation",
             source=entry,
             raw_text=raw_text,
@@ -496,6 +527,7 @@ def _tool_blocks(
                 index,
                 block_count=len(display),
                 hyperlinks=hyperlinks,
+                terminal_capabilities=terminal_capabilities,
             ),
             display_render_width=terminal_width,
         )
@@ -528,6 +560,23 @@ def _duration_ms(payload: dict[str, typing.Any]) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return max(0, value)
+
+
+def _patch_result_data(
+    value: typing.Any,
+    *,
+    error: typing.Any
+) -> dict[str, typing.Any]:
+    """从当前 transcript 工具结果信封读取 patch 数据。"""
+    if value is None:
+        text = str(error or "").strip()
+        return {"error": text} if text else {}
+    if not isinstance(value, dict):
+        raise TypeError("apply_patch transcript result must be an object")
+    data = value.get("data")
+    if isinstance(data, dict):
+        return data
+    raise ValueError("apply_patch transcript result requires data")
 
 
 def _tool_succeeded(entry: TranscriptEntry) -> bool:

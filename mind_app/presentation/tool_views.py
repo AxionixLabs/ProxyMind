@@ -11,7 +11,12 @@ from mind_app.stream_events.tool_traces.native import (
 from .models import (
     GenericToolResultView,
     NativeToolResultView,
+    PatchView,
     ToolStartView
+)
+from .patch_views import (
+    build_patch_result_view,
+    build_patch_start_view
 )
 
 
@@ -20,12 +25,19 @@ def build_tool_start_view(
     arguments: dict[str, typing.Any],
     *,
     call_id: str = ""
-) -> ToolStartView:
+) -> ToolStartView | PatchView:
     """构建普通工具开始执行时的展示数据。"""
     normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
 
+    normalized_name = str(name or "tool").strip() or "tool"
+    if normalized_name == "apply_patch":
+        return build_patch_start_view(
+            normalized_arguments,
+            call_id=call_id,
+        )
+
     return ToolStartView(
-        name=str(name or "tool").strip() or "tool",
+        name=normalized_name,
         arguments=normalized_arguments,
         title=render_tool_start_trace(name, normalized_arguments),
         preview=render_tool_start_preview(
@@ -86,12 +98,21 @@ def build_native_tool_result_view(
     data: typing.Any = None,
     cost_ms: int | None = None,
     call_id: str = "",
-) -> NativeToolResultView:
+) -> NativeToolResultView | PatchView:
     """构建原生编码工具执行结果的展示数据。"""
     normalized_name      = str(name or "tool").strip() or "tool"
     normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
     normalized_data      = dict(data) if isinstance(data, dict) else data
     normalized_cost_ms   = _normalized_cost_ms(cost_ms)
+
+    if normalized_name == "apply_patch":
+        return build_patch_result_view(
+            normalized_arguments,
+            ok=bool(ok),
+            data=normalized_data,
+            cost_ms=normalized_cost_ms,
+            call_id=call_id,
+        )
 
     return NativeToolResultView(
         name=normalized_name,

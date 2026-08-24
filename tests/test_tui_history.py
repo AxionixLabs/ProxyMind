@@ -279,6 +279,149 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     )
 
 
+def test_history_transcript_merges_patch_lifecycle_into_one_cell() -> None:
+    raw_patch = (
+        "*** Begin Patch\n"
+        "*** Update File: sample.py\n"
+        "@@\n"
+        "-old\n"
+        "+new\n"
+        "*** End Patch"
+    )
+
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_patch",
+            turn_id="turn_patch",
+            actor="tool",
+            payload=payload,
+        )
+
+    entries = (
+        entry("tool.started", {
+            "call_id": "call_patch",
+            "name": "apply_patch",
+            "arguments": {"patch": raw_patch},
+        }),
+        entry("tool.completed", {
+            "call_id": "call_patch",
+            "name": "apply_patch",
+            "ok": True,
+            "duration_ms": 14,
+            "result": {
+                "ok": True,
+                "data": {
+                    "files": [{
+                        "path": "sample.py",
+                        "source_path": None,
+                        "action": "modify",
+                        "added_lines": 1,
+                        "removed_lines": 1,
+                    }],
+                    "delta": {
+                        "exact": True,
+                        "changes": [{
+                            "path": "sample.py",
+                            "source_path": None,
+                            "action": "modify",
+                            "old_content": "old\n",
+                            "new_content": "new\n",
+                        }],
+                    },
+                },
+            },
+        }),
+    )
+
+    class Controller(object):
+        def read_conversation_transcript(self, session_id):
+            assert session_id == "session_patch"
+            return entries
+
+    blocks = history.load_history_transcript(
+        Controller(),
+        "session_patch",
+        terminal_width=60,
+    )
+    display = "".join(
+        text for _style, text in blocks[0].display_block.fragments
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].source.event == "tool.completed"
+    assert blocks[0].raw_text == raw_patch
+    assert display == (
+        "• Edited sample.py (+1 -1)\n"
+        "    1 -old\n"
+        "    1 +new"
+    )
+    assert "Applying patch" not in display
+
+
+def test_history_patch_failure_reads_current_result_envelope() -> None:
+    entry = TranscriptEntry(
+        timestamp="2026-08-02T00:00:00.000Z",
+        event="tool.failed",
+        session_id="session_patch",
+        turn_id="turn_patch",
+        actor="tool",
+        payload={
+            "call_id": "call_patch",
+            "name": "apply_patch",
+            "arguments": {"patch": "*** Begin Patch\n*** End Patch"},
+            "ok": False,
+            "result": {
+                "ok": False,
+                "data": {"reason": "patch_context_mismatch"},
+            },
+        },
+    )
+
+    blocks = history._render_replay_blocks((entry,), terminal_width=60)
+    display = "".join(
+        text for _style, text in blocks[0].display_block.fragments
+    )
+
+    assert display == (
+        "✘ Failed to apply patch\n"
+        "  reason: patch_context_mismatch"
+    )
+
+
+def test_history_patch_failure_without_result_uses_recorded_exception() -> None:
+    entry = TranscriptEntry(
+        timestamp="2026-08-02T00:00:00.000Z",
+        event="tool.failed",
+        session_id="session_patch",
+        turn_id="turn_patch",
+        actor="tool",
+        payload={
+            "call_id": "call_patch",
+            "name": "apply_patch",
+            "arguments": {"patch": "*** Begin Patch\n*** End Patch"},
+            "ok": False,
+            "error": "OSError: disk full",
+        },
+    )
+
+    blocks = history._render_replay_blocks((entry,), terminal_width=60)
+    display = "".join(
+        text for _style, text in blocks[0].display_block.fragments
+    )
+
+    assert display == "✘ Failed to apply patch\n  error: OSError: disk full"
+
+
+def test_history_patch_result_rejects_unwrapped_payload() -> None:
+    with pytest.raises(ValueError, match="result requires data"):
+        history._patch_result_data(
+            {"reason": "patch_context_mismatch"},
+            error=None,
+        )
+
+
 def test_history_transcript_keeps_javascript_source_out_of_result_block() -> None:
     source = "const value = 1;"
     entries = (

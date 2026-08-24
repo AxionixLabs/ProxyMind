@@ -162,9 +162,6 @@ def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
         return _transcript_block(view.title, f"$ {command}" if command else "")
     if spec.kind is ToolDisplayKind.STDIN:
         return _transcript_block(view.title, _json_text(view.arguments))
-    if spec.kind is ToolDisplayKind.PATCH:
-        return _transcript_block(view.title, str(view.arguments.get("patch") or ""))
-
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         source_field = spec.source_field
         source       = view.arguments.get(source_field) if source_field else ""
@@ -211,11 +208,6 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
         body = output or _json_text(view.arguments)
         return (_transcript_block(title, body),)
 
-    if spec.kind is ToolDisplayKind.PATCH:
-        patch = str(view.arguments.get("patch") or "")
-        detail = patch or _json_text(payload)
-        return (_transcript_block(title, detail),)
-
     return (_transcript_block(title, _json_text(payload or view.data)),)
 
 
@@ -225,8 +217,6 @@ def render_tool_start_raw_text(view: ToolStartView) -> str:
 
     if spec.kind is ToolDisplayKind.SHELL:
         return _command_text(view.arguments.get("command"))
-    if spec.kind is ToolDisplayKind.PATCH:
-        return str(view.arguments.get("patch") or "")
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         source_field = spec.source_field
         return str(view.arguments.get(source_field) or "") if source_field else ""
@@ -257,10 +247,6 @@ def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str,
 
     if spec.kind is ToolDisplayKind.STDIN:
         return (_native_output_text(payload) or _json_text(view.arguments),)
-
-    if spec.kind is ToolDisplayKind.PATCH:
-        patch = str(view.arguments.get("patch") or "")
-        return (patch or _json_text(payload),)
 
     return (_json_text(payload or view.data),)
 

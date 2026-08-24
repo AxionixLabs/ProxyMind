@@ -610,7 +610,7 @@ async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch)
     ("name", "use_coding_trace", "shows_start"),
     (
         ("shell_command", True, True),
-        ("apply_patch", True, False),
+        ("apply_patch", True, True),
         ("exec_command", True, False),
         ("write_stdin", True, False),
         ("js_repl_reset", True, False),

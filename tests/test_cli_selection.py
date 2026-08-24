@@ -54,6 +54,7 @@ from mind_app.frontend.sinks import JsonApplicationSink
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.application_paths import ApplicationLayout
 from mind_core.config import ConfigOverride
+from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from mind_core.permissions import preset_permissions
 from engine.errors import AppError
 
@@ -596,6 +597,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     runtime = SimpleNamespace(
         terminal_width=80,
         hyperlinks_enabled=True,
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         replace_transcript=Mock(
             side_effect=lambda _blocks: events.append("replace")
         ),
@@ -661,6 +663,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         record["sid"],
         terminal_width=80,
         hyperlinks=True,
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         record=record,
     )
     mind.resume_conversation.assert_called_once_with(
@@ -691,6 +694,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
     runtime = SimpleNamespace(
         terminal_width=80,
         hyperlinks_enabled=False,
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         replace_transcript=Mock(),
     )
     run_tui_loop = AsyncMock()
@@ -735,7 +739,9 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     from mind_app.tui.core import runtime as runtime_module
     from mind_app.tui.features import history as history_module
 
-    runtime = object()
+    runtime = SimpleNamespace(
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
+    )
     choose = AsyncMock(return_value=None)
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),

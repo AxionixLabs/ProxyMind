@@ -5,7 +5,6 @@ import pytest
 from mind_app.client_tools.coding.native import coding_tools
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.edit.parser import PatchParser
-from mind_app.stream_events.tool_traces.native_patch import _patch_preview_lines
 
 
 def test_strict_patch_create_remains_supported(tmp_path) -> None:
@@ -192,32 +191,6 @@ def test_unified_diff_keeps_workspace_path_guard(tmp_path) -> None:
     assert not result["ok"]
     assert result["data"]["reason"] == "path_outside_workspace"
     assert not (tmp_path.parent / "outside.txt").exists()
-
-
-@pytest.mark.parametrize(
-    "patch",
-    [
-        (
-            "*** Begin Patch\n"
-            "*** Add File: strict.txt\n"
-            "+strict\n"
-            "*** End Patch\n"
-        ),
-        (
-            "diff --git a/unified.txt b/unified.txt\n"
-            "new file mode 100644\n"
-            "--- /dev/null\n"
-            "+++ b/unified.txt\n"
-            "@@ -0,0 +1 @@\n"
-            "+unified\n"
-        ),
-    ],
-)
-def test_patch_preview_uses_both_supported_formats(patch) -> None:
-    preview = "\n".join(_patch_preview_lines(patch))
-
-    assert "(+1 -0)" in preview
-    assert "+strict" in preview or "+unified" in preview
 
 
 def test_apply_patch_tool_exposes_patch_shape_and_formats(tmp_path) -> None:

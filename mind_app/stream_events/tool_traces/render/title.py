@@ -21,10 +21,10 @@ from mind_app.presentation.styles import (
     PREVIEW_MORE_STYLE,
     PREVIEW_PATH_STYLE,
     PREVIEW_STYLE,
-    PREVIEW_TEXT_STYLE,
+    PREVIEW_TEXT_STYLE
 )
+from mind_app.presentation.code_highlight import code_parts
 from ..common import _preview_text
-from .preview_code import code_parts
 from .preview_error import error_preview_line_parts
 from .preview_tree import tree_preview_line_parts
 from .title_parts import title_parts

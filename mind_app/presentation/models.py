@@ -35,6 +35,25 @@ ProgressSource = typing.Literal[
     "enhancement",
 ]
 
+PatchPhase = typing.Literal[
+    "applying",
+    "applied",
+    "failed",
+]
+
+PatchAction = typing.Literal[
+    "add",
+    "delete",
+    "update",
+    "rename",
+]
+
+PatchLineKind = typing.Literal[
+    "context",
+    "add",
+    "remove",
+]
+
 HookViewPhase = typing.Literal[
     "started",
     "completed",
@@ -84,6 +103,7 @@ class StyledBlock(object):
     spans: tuple[TextSpan, ...] = ()
     preserve_spans: bool = False
     direct: bool = False
+    line_fill_styles: tuple[TextStyle | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +166,53 @@ class TraceEntry(object):
     title: str
     preview: TracePreview
     ok: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class PatchLineView(object):
+    """描述补丁中的一行及其新旧文件位置。"""
+    kind: PatchLineKind
+    text: str
+    old_line: int | None = None
+    new_line: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PatchHunkView(object):
+    """描述补丁中连续的一组差异行。"""
+    lines: tuple[PatchLineView, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PatchFileView(object):
+    """描述单个文件的结构化补丁变化。"""
+    action: PatchAction
+    old_path: str
+    new_path: str
+    hunks: tuple[PatchHunkView, ...]
+    added: int = 0
+    removed: int = 0
+    old_line_count: int = 0
+    new_line_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class PatchDiagnosticView(object):
+    """描述补丁失败时一个具名诊断字段。"""
+    label: str
+    values: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PatchView(object):
+    """描述一次补丁调用在完整生命周期中的结构化展示。"""
+    call_id: str
+    phase: PatchPhase
+    raw_patch: str
+    files: tuple[PatchFileView, ...] = ()
+    result_files: tuple[dict[str, typing.Any], ...] = ()
+    diagnostics: tuple[PatchDiagnosticView, ...] = ()
+    cost_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

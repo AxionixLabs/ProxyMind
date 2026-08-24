@@ -2,6 +2,13 @@
 
 import pytest
 from prompt_toolkit.utils import get_cwidth
+from mind_core.design.terminal_capabilities import (
+    TerminalCapabilities,
+    TerminalColorLevel,
+    TerminalIdentity,
+    TerminalKind,
+    TerminalTheme,
+)
 
 from mind_app.presentation.renderers.tool import (
     render_generic_tool_result_view,
@@ -10,6 +17,12 @@ from mind_app.presentation.renderers.tool import (
     render_javascript_result_view,
     render_native_tool_result_view,
     render_tool_start_view,
+)
+from mind_app.presentation.renderers.patch import (
+    PATCH_ADD_STYLE,
+    PATCH_ACTIVITY_STYLE,
+    PATCH_ERROR_STYLE,
+    PATCH_REMOVE_STYLE,
 )
 from mind_app.presentation.batch_views import (
     build_batch_completed_view,
@@ -37,6 +50,55 @@ from mind_app.presentation.tool_views import (
 
 def _span_style(block, text: str):
     return next(span.style for span in block.spans if span.text == text)
+
+
+def _containing_span_style(block, text: str):
+    return next(span.style for span in block.spans if text in span.text)
+
+
+def _terminal_capabilities(
+    color_level: TerminalColorLevel,
+    *,
+    background: tuple[int, int, int],
+) -> TerminalCapabilities:
+    return TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
+        color_level=color_level,
+        theme=TerminalTheme(background=background),
+    )
+
+
+def _patch_line(block, marker: str):
+    lines = [[]]
+    for span in block.spans:
+        chunks = span.text.split("\n")
+        for index, chunk in enumerate(chunks):
+            if chunk:
+                lines[-1].append(type(span)(chunk, span.style, span.hyperlink))
+            if index < len(chunks) - 1:
+                lines.append([])
+    return next(
+        line for line in lines
+        if (
+            "".join(span.text for span in line).lstrip()[:1].isdigit()
+            and f" {marker}" in "".join(span.text for span in line)
+        )
+    )
+
+
+def _patch_line_containing(block, text: str):
+    lines = [[]]
+    for span in block.spans:
+        chunks = span.text.split("\n")
+        for index, chunk in enumerate(chunks):
+            if chunk:
+                lines[-1].append(type(span)(chunk, span.style, span.hyperlink))
+            if index < len(chunks) - 1:
+                lines.append([])
+    return next(
+        line for line in lines
+        if text in "".join(span.text for span in line)
+    )
 
 
 def _rendered_text(block) -> str:
@@ -148,6 +210,531 @@ def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
     assert "".join(span.text for span in start.spans) == "• Running echo ready"
     assert _span_style(start, "Running") == ACTION_RUN_STYLE
     assert result.plain_text.startswith("• Ran echo ready\n")
+
+
+def _patch_delta(*changes):
+    return {
+        "files": [
+            {
+                "path": change["path"],
+                "source_path": change.get("source_path"),
+                "action": change["action"],
+                "added_lines": 0,
+                "removed_lines": 0,
+            }
+            for change in changes
+        ],
+        "delta": {"exact": True, "changes": list(changes)},
+    }
+
+
+@pytest.mark.parametrize(
+    ("patch", "change", "expected"),
+    (
+        (
+            "*** Begin Patch\n*** Add File: new_file.txt\n+alpha\n+beta\n*** End Patch",
+            {
+                "path": "new_file.txt",
+                "action": "create",
+                "old_content": None,
+                "new_content": "alpha\nbeta\n",
+                "source_path": None,
+            },
+            "• Added new_file.txt (+2 -0)\n    1 +alpha\n    2 +beta",
+        ),
+        (
+            "*** Begin Patch\n*** Delete File: old_file.txt\n*** End Patch",
+            {
+                "path": "old_file.txt",
+                "action": "delete",
+                "old_content": "first\nsecond\nthird\n",
+                "new_content": None,
+                "source_path": None,
+            },
+            "• Deleted old_file.txt (+0 -3)\n    1 -first\n    2 -second\n    3 -third",
+        ),
+        (
+            "*** Begin Patch\n*** Update File: example.txt\n@@\n-line two\n+line two changed\n*** End Patch",
+            {
+                "path": "example.txt",
+                "action": "modify",
+                "old_content": "line one\nline two\nline three\n",
+                "new_content": "line one\nline two changed\nline three\n",
+                "source_path": None,
+            },
+            "• Edited example.txt (+1 -1)\n    1  line one\n    2 -line two\n    2 +line two changed\n    3  line three",
+        ),
+        (
+            "*** Begin Patch\n*** Update File: old_name.rs\n*** Move to: new_name.rs\n@@\n-B\n+B changed\n*** End Patch",
+            {
+                "path": "new_name.rs",
+                "action": "rename",
+                "old_content": "A\nB\nC\n",
+                "new_content": "A\nB changed\nC\n",
+                "source_path": "old_name.rs",
+            },
+            "• Edited old_name.rs → new_name.rs (+1 -1)\n    1  A\n    2 -B\n    2 +B changed\n    3  C",
+        ),
+    ),
+    ids=("add", "delete", "update", "rename"),
+)
+def test_patch_result_matches_codex_single_file_snapshots(
+    patch: str,
+    change: dict,
+    expected: str,
+) -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch},
+        ok=True,
+        data=_patch_delta(change),
+        call_id="patch-call",
+    )
+    block = render_presentation_view(view, terminal_width=120)[0]
+
+    assert block.plain_text == expected
+    assert "@@" not in block.plain_text
+    assert "*** Begin Patch" not in block.plain_text
+    assert render_presentation_raw_view(view) == (patch,)
+
+
+def test_patch_result_sorts_multiple_files_and_uses_file_nodes() -> None:
+    patch = "*** Begin Patch\n*** End Patch"
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch},
+        ok=True,
+        data=_patch_delta(
+            {
+                "path": "b.txt",
+                "action": "create",
+                "old_content": None,
+                "new_content": "new\n",
+                "source_path": None,
+            },
+            {
+                "path": "a.txt",
+                "action": "modify",
+                "old_content": "one\n",
+                "new_content": "one changed\n",
+                "source_path": None,
+            },
+        ),
+        call_id="patch-multiple",
+    )
+
+    assert render_presentation_view(view, terminal_width=120)[0].plain_text == (
+        "• Edited 2 files (+2 -1)\n"
+        "  └ a.txt (+1 -1)\n"
+        "    1 -one\n"
+        "    1 +one changed\n\n"
+        "  └ b.txt (+1 -0)\n"
+        "    1 +new"
+    )
+
+
+def test_patch_result_separates_distinct_hunks_like_codex() -> None:
+    old_lines = [f"line {index}" for index in range(1, 13)]
+    new_lines = list(old_lines)
+    new_lines[1] = "line two changed"
+    new_lines[10] = "line eleven changed"
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "*** Begin Patch\n*** End Patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "example.txt",
+            "action": "modify",
+            "old_content": "\n".join(old_lines) + "\n",
+            "new_content": "\n".join(new_lines) + "\n",
+            "source_path": None,
+        }),
+        call_id="patch-hunks",
+    )
+
+    block = render_presentation_view(view, terminal_width=120)[0]
+
+    assert block.plain_text.count("\n       ⋮\n") == 1
+    assert "@@" not in block.plain_text
+
+
+@pytest.mark.parametrize("terminal_width", (40, 60, 80, 120))
+def test_patch_long_lines_use_display_width_and_empty_continuation_gutter(
+    terminal_width: int,
+) -> None:
+    line = "界🙂value-" * 30
+    patch = "*** Begin Patch\n*** Add File: long.txt\n+value\n*** End Patch"
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch},
+        ok=True,
+        data=_patch_delta({
+            "path": "long.txt",
+            "action": "create",
+            "old_content": None,
+            "new_content": f"{line}\n",
+            "source_path": None,
+        }),
+        call_id="patch-long",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=terminal_width,
+        measure_width=get_cwidth,
+    )[0]
+    lines = block.plain_text.splitlines()
+
+    assert all(get_cwidth(item) <= terminal_width for item in lines)
+    assert lines[1].startswith("    1 +")
+    assert all(item.startswith("      ") for item in lines[2:])
+    assert all("1 +" not in item for item in lines[2:])
+
+
+def test_patch_failure_renders_only_structured_diagnostics() -> None:
+    patch = "*** Begin Patch\n*** Update File: sample.py\n@@\n-old\n+new\n*** End Patch"
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch},
+        ok=False,
+        data={
+            "reason": "patch_context_mismatch",
+            "path": "sample.py",
+            "hunk_header": "@@ -10 +10 @@",
+            "target_line": 12,
+            "expected_sequence": ["old"],
+            "actual_sequence": ["other"],
+            "ignored": {"large": "payload"},
+        },
+        call_id="patch-failed",
+    )
+    block = render_presentation_view(view, terminal_width=80)[0]
+
+    assert block.plain_text == (
+        "✘ Failed to apply patch\n"
+        "  reason: patch_context_mismatch\n"
+        "  file: sample.py\n"
+        "  hunk: @@ -10 +10 @@\n"
+        "  line: 12\n"
+        "  expected: old\n"
+        "  actual: other"
+    )
+    assert "ignored" not in block.plain_text
+    assert _containing_span_style(block, "✘ ") == PATCH_ERROR_STYLE
+
+
+def test_patch_uses_ansi_semantic_styles() -> None:
+    patch = "*** Begin Patch\n*** Update File: file.txt\n@@\n-old\n+new\n*** End Patch"
+    start = render_presentation_view(build_tool_start_view(
+        "apply_patch",
+        {"patch": patch},
+        call_id="patch-style",
+    ))[0]
+    result = render_presentation_view(build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch},
+        ok=True,
+        data=_patch_delta({
+            "path": "file.txt",
+            "action": "modify",
+            "old_content": "old\n",
+            "new_content": "new\n",
+            "source_path": None,
+        }),
+        call_id="patch-style",
+    ))[0]
+
+    assert _containing_span_style(start, "Applying patch") == PATCH_ACTIVITY_STYLE
+    assert _span_style(result, "+1") == PATCH_ADD_STYLE
+    assert _span_style(result, "-1") == PATCH_REMOVE_STYLE
+
+
+def test_patch_dark_truecolor_uses_full_line_backgrounds() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.unknownxyz",
+            "action": "modify",
+            "old_content": "before\nkeep\n",
+            "new_content": "after\nkeep\n",
+            "source_path": None,
+        }),
+        call_id="patch-dark",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.TRUECOLOR,
+            background=(0, 0, 0),
+        ),
+    )[0]
+
+    remove_line = _patch_line(block, "-")
+    add_line = _patch_line(block, "+")
+    assert {span.style.background for span in remove_line} == {"#4A221D"}
+    assert {span.style.background for span in add_line} == {"#213A2B"}
+    assert block.line_fill_styles[1].background == "#4A221D"
+    assert block.line_fill_styles[2].background == "#213A2B"
+    assert block.line_fill_styles[3] is None
+    assert all(
+        span.style.background is None
+        for span in _patch_line_containing(block, "keep")
+    )
+
+
+def test_patch_light_truecolor_uses_distinct_gutter_backgrounds() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.unknownxyz",
+            "action": "modify",
+            "old_content": "before\n",
+            "new_content": "after\n",
+            "source_path": None,
+        }),
+        call_id="patch-light",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.TRUECOLOR,
+            background=(255, 255, 255),
+        ),
+    )[0]
+
+    remove_line = _patch_line(block, "-")
+    add_line = _patch_line(block, "+")
+    assert remove_line[1].style.foreground == "#1F2328"
+    assert remove_line[1].style.background == "#FFCECB"
+    assert add_line[1].style.foreground == "#1F2328"
+    assert add_line[1].style.background == "#ACEEBB"
+    assert remove_line[-1].style.background == "#FFEBE9"
+    assert add_line[-1].style.background == "#DAFBE1"
+
+
+def test_patch_ansi256_uses_codex_palette_indices() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.unknownxyz",
+            "action": "modify",
+            "old_content": "before\n",
+            "new_content": "after\n",
+            "source_path": None,
+        }),
+        call_id="patch-256",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.ANSI256,
+            background=(255, 255, 255),
+        ),
+    )[0]
+
+    remove_line = _patch_line(block, "-")
+    add_line = _patch_line(block, "+")
+    assert remove_line[0].style.background == "#FFD7D7"
+    assert remove_line[1].style.background == "#FFAFAF"
+    assert add_line[0].style.background == "#D7FFD7"
+    assert add_line[1].style.background == "#AFFFAF"
+    assert add_line[1].style.foreground == "#303030"
+
+
+def test_patch_ansi16_uses_foregrounds_without_backgrounds() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.unknownxyz",
+            "action": "modify",
+            "old_content": "before\n",
+            "new_content": "after\n",
+            "source_path": None,
+        }),
+        call_id="patch-16",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.ANSI16,
+            background=(0, 0, 0),
+        ),
+    )[0]
+
+    remove_line = _patch_line(block, "-")
+    add_line = _patch_line(block, "+")
+    assert all(span.style.background is None for span in (*remove_line, *add_line))
+    assert next(span for span in remove_line if span.text.startswith("-")).style.foreground == "ansired"
+    assert next(span for span in add_line if span.text.startswith("+")).style.foreground == "ansigreen"
+    assert all(style is None for style in block.line_fill_styles)
+
+
+def test_patch_highlights_each_hunk_and_dims_deleted_tokens() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.py",
+            "action": "modify",
+            "old_content": "def old():\n    return 1\n",
+            "new_content": "def new():\n    return 2\n",
+            "source_path": None,
+        }),
+        call_id="patch-syntax",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.TRUECOLOR,
+            background=(0, 0, 0),
+        ),
+    )[0]
+
+    keyword_spans = [span for span in block.spans if span.text in {"def", "return"}]
+    assert keyword_spans
+    assert any(span.style.dim for span in keyword_spans)
+    assert any(not span.style.dim for span in keyword_spans)
+    assert all(span.style.bold for span in keyword_spans)
+
+
+def test_patch_highlighting_preserves_multiline_hunk_state() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.py",
+            "action": "modify",
+            "old_content": '"""start\nold\nend"""\n',
+            "new_content": '"""start\nnew\nend"""\n',
+            "source_path": None,
+        }),
+        call_id="patch-multiline-syntax",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.TRUECOLOR,
+            background=(0, 0, 0),
+        ),
+    )[0]
+
+    changed = [span for span in block.spans if span.text in {"old", "new"}]
+    assert len(changed) == 2
+    assert all(span.style.foreground == "#A9CDBB" for span in changed)
+
+
+def test_patch_rename_highlighting_uses_destination_extension() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "renamed.py",
+            "action": "rename",
+            "old_content": "plain text\n",
+            "new_content": "def renamed():\n    return True\n",
+            "source_path": "original.txt",
+        }),
+        call_id="patch-rename-syntax",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_width=80,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.TRUECOLOR,
+            background=(0, 0, 0),
+        ),
+    )[0]
+
+    assert _containing_span_style(block, "def").bold
+
+
+def test_patch_failure_title_matches_codex_magenta() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=False,
+        data={"error": "failed"},
+        call_id="patch-magenta",
+    )
+
+    block = render_presentation_view(view)[0]
+
+    assert _containing_span_style(block, "Failed to apply patch").foreground == "ansimagenta"
+
+
+@pytest.mark.parametrize("builder", ("start", "result"))
+def test_patch_requires_stable_call_id(builder: str) -> None:
+    patch = "*** Begin Patch\n*** Add File: file.txt\n+new\n*** End Patch"
+
+    with pytest.raises(ValueError, match="requires call_id"):
+        if builder == "start":
+            build_tool_start_view("apply_patch", {"patch": patch})
+        else:
+            build_native_tool_result_view(
+                "apply_patch",
+                {"patch": patch},
+                ok=True,
+                data=_patch_delta({
+                    "path": "file.txt",
+                    "action": "create",
+                    "old_content": None,
+                    "new_content": "new\n",
+                    "source_path": None,
+                }),
+            )
+
+
+def test_successful_patch_requires_structured_delta() -> None:
+    patch = "*** Begin Patch\n*** Add File: file.txt\n+new\n*** End Patch"
+
+    with pytest.raises(ValueError, match="requires data.delta"):
+        build_native_tool_result_view(
+            "apply_patch",
+            {"patch": patch},
+            ok=True,
+            data={"output": "Done!"},
+            call_id="patch-missing-delta",
+        )
+
+
+def test_successful_patch_requires_result_file_contract() -> None:
+    patch = "*** Begin Patch\n*** Add File: file.txt\n+new\n*** End Patch"
+
+    with pytest.raises(ValueError, match="requires data.files"):
+        build_native_tool_result_view(
+            "apply_patch",
+            {"patch": patch},
+            ok=True,
+            data={
+                "delta": {
+                    "exact": True,
+                    "changes": [{
+                        "path": "file.txt",
+                        "action": "create",
+                        "old_content": None,
+                        "new_content": "new\n",
+                        "source_path": None,
+                    }],
+                },
+            },
+            call_id="patch-missing-files",
+        )
 
 
 def test_width_aware_short_shell_titles_keep_text_and_action_style() -> None:

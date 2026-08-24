@@ -224,7 +224,7 @@ def reject_model_execution(arguments: dict[str, typing.Any]) -> None:
 def coding_tools(
     native_coding: NativeCoding | None = None,
     *,
-    approval_coordinator: ApprovalCoordinator | None = None
+    approval_coordinator: "ApprovalCoordinator | None" = None
 ) -> list[ClientTool]:
     """返回编码工具列表。"""
     coding = native_coding or NativeCoding()
@@ -732,7 +732,7 @@ async def _nested_execution(
     *,
     tool: str,
     arguments: dict[str, typing.Any],
-    approval_coordinator: ApprovalCoordinator | None,
+    approval_coordinator: "ApprovalCoordinator | None",
     call_id: str
 ) -> dict[str, typing.Any] | None:
     """为嵌套进程调用取得并构造可验证的执行元数据。"""

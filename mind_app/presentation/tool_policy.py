@@ -7,13 +7,12 @@ from dataclasses import dataclass
 
 class ToolDisplayKind(enum.Enum):
     """描述原生工具在共享展示层中的内容类型。"""
-
-    GENERIC          = "generic"
-    SHELL            = "shell"
-    STDIN            = "stdin"
-    JAVASCRIPT       = "javascript"
+    GENERIC = "generic"
+    SHELL = "shell"
+    STDIN = "stdin"
+    JAVASCRIPT = "javascript"
     JAVASCRIPT_RESET = "javascript_reset"
-    PATCH            = "patch"
+    PATCH = "patch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +37,10 @@ _TOOL_DISPLAY_SPECS = {
     ),
     "exec_command": ToolDisplaySpec(ToolDisplayKind.SHELL),
     "write_stdin": ToolDisplaySpec(ToolDisplayKind.STDIN),
-    "apply_patch": ToolDisplaySpec(ToolDisplayKind.PATCH),
+    "apply_patch": ToolDisplaySpec(
+        ToolDisplayKind.PATCH,
+        two_stage=True,
+    ),
     "js_repl": ToolDisplaySpec(
         ToolDisplayKind.JAVASCRIPT,
         two_stage=True,

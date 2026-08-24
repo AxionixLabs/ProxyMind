@@ -26,22 +26,10 @@ from mind_app.presentation.tool_policy import (
     ToolDisplayKind,
     tool_display_spec
 )
-from .native_helpers import (
-    _format_delta,
-    _short_sha,
-    _patch_file_action
-)
 from .shell_errors import (
     normalize_shell_output_text,
     shell_error_diagnostic_lines,
     shell_output_lines
-)
-from .native_patch import (
-    _hunk_label,
-    _line_delta_from_patch_files,
-    _patch_error_diagnostic_lines,
-    _patch_preview,
-    _patch_preview_lines
 )
 
 NATIVE_CODING_TRACE_TOOLS = NATIVE_TOOL_NAMES
@@ -76,9 +64,6 @@ def render_tool_start_trace(
     if kind is ToolDisplayKind.STDIN:
         session_id = str(arguments.get("session_id") or "").strip()
         return f"• Writing stdin {session_id}".rstrip()
-    if kind is ToolDisplayKind.PATCH:
-        return "• Applying patch"
-
     return f"• Function Calling {str(name or 'tool').strip() or 'tool'}"
 
 
@@ -144,8 +129,6 @@ def render_tool_result_preview(
 ) -> TracePreview:
     """根据工具结果和参数生成结果预览。"""
     data = _result_payload(data)
-    args = arguments if isinstance(arguments, dict) else {}
-
     if not data:
         return TracePreview()
 
@@ -153,55 +136,12 @@ def render_tool_result_preview(
 
     kind = tool_display_spec(name).kind
 
-    if kind is ToolDisplayKind.PATCH:
-        if is_error:
-            prefix = _patch_error_diagnostic_lines(data)
-            if not prefix:
-                prefix = ["error: patch failed"]
-            return _trace_preview_from_lines(prefix)
-
-        preview_lines = _patch_preview_lines(args.get("patch"))
-        if preview_lines:
-            return _patch_preview(args.get("patch"))
-
-        files = data.get("files")
-        if isinstance(files, list):
-            lines = []
-            for item in files:
-                if not isinstance(item, dict):
-                    continue
-
-                action    = str(item.get("action") or "modify").strip() or "modify"
-                path      = str(item.get("path") or "").strip()
-                hunk_text = _hunk_label(item.get("hunks"))
-                sha       = _short_sha(item.get("sha256"))
-                line      = f"{action} {path}".strip()
-                details   = []
-
-                if hunk_text:
-                    details.append(hunk_text)
-
-                added   = item.get("added_lines")
-                removed = item.get("removed_lines")
-
-                if isinstance(added, int) or isinstance(removed, int):
-                    delta = _format_delta(int(added or 0), int(removed or 0)).strip()
-                    if delta:
-                        details.append(delta)
-                if sha:
-                    details.append(f"sha256={sha}")
-                if details:
-                    line = f"{line} ({', '.join(details)})"
-                if line:
-                    lines.append(line)
-
-            return _trace_preview_from_lines(lines)
-
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if is_error:
             lines = _shell_command_ordered_output_lines(data)
             if not lines:
                 lines = _shell_command_error_context_lines(data)
+
         else:
             lines = _shell_command_ordered_output_lines(data)
             if not lines:
@@ -278,23 +218,6 @@ def render_tool_trace(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
     kind    = tool_display_spec(name).kind
-
-    if kind is ToolDisplayKind.PATCH:
-        if not ok:
-            return "• Patch"
-
-        files  = payload.get("files")
-        action = _patch_file_action(files)
-
-        if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
-            target = str(files[0].get("path") or "patch")
-        elif isinstance(files, list):
-            target = f"{len(files)} files"
-        else:
-            target = "patch"
-
-        added, removed = _line_delta_from_patch_files(payload)
-        return f"• {action} {target}{_format_delta(added, removed)}"
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if kind is ToolDisplayKind.STDIN:

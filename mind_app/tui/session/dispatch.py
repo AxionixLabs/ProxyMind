@@ -368,8 +368,14 @@ class TuiCommandDispatcher(object):
             self.runtime,
             records,
             filter_workspace=self.mind.history_workspace,
-            preview_loader=HistoryResumePreviewLoader(self.mind),
-            transcript_loader=HistoryResumeTranscriptLoader(self.mind),
+            preview_loader=HistoryResumePreviewLoader(
+                self.mind,
+                terminal_capabilities=self.runtime.terminal_capabilities,
+            ),
+            transcript_loader=HistoryResumeTranscriptLoader(
+                self.mind,
+                terminal_capabilities=self.runtime.terminal_capabilities,
+            ),
             archive_session=self._archive_resume_row,
             unarchive_session=self._unarchive_resume_row,
         )
@@ -385,6 +391,7 @@ class TuiCommandDispatcher(object):
             session_id,
             terminal_width=self.runtime.terminal_width,
             hyperlinks=self.runtime.hyperlinks_enabled,
+            terminal_capabilities=self.runtime.terminal_capabilities,
             record=selected,
         )
 

@@ -15,6 +15,7 @@ from prompt_toolkit.document import Document
 from engine.errors import AppError
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
+from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from mind_core.skills import SkillSpec
 from mind_nova import const
 from mind_app.history.transcript import TranscriptEntry
@@ -843,6 +844,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
     runtime = SimpleNamespace(
         terminal_width=80,
         hyperlinks_enabled=False,
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         replace_transcript=Mock(),
     )
     dispatcher = TuiCommandDispatcher(
@@ -869,7 +871,9 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
     from mind_app.tui.session import dispatch as dispatch_module
 
     choose = AsyncMock(return_value=None)
-    runtime = SimpleNamespace()
+    runtime = SimpleNamespace(
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
+    )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
@@ -909,6 +913,7 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
     runtime = SimpleNamespace(
         terminal_width=80,
         hyperlinks_enabled=False,
+        terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         replace_transcript=Mock(),
     )
     mind = SimpleNamespace(

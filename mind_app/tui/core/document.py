@@ -100,9 +100,12 @@ class TuiDocumentState(object):
     active_block: FragmentBlock | None
     active_transcript_block: FragmentBlock | None
     active_raw_text: str | None
+    active_source: TranscriptCellSource | None
     active_kind: TuiBlockKind | None
     active_gap_before: int
     active_stream_continuation: bool
+    active_display_renderer: WidthBlockRenderer | None
+    active_display_render_width: int | None
     active_transcript_revision: int
     stable_transcript_revision: int
     pending_submission: FragmentBlock | None
@@ -123,12 +126,15 @@ class TuiDocument(object):
         self.scrollback_line_count: int    = 0
         self.cleared_line_count: int       = 0
 
-        self.active_block: FragmentBlock | None            = None
-        self.active_transcript_block: FragmentBlock | None = None
-        self.active_raw_text: str | None                   = None
-        self.active_kind: TuiBlockKind | None              = None
-        self.active_gap_before: int                        = 0
-        self.active_stream_continuation: bool              = False
+        self.active_block: FragmentBlock | None                 = None
+        self.active_transcript_block: FragmentBlock | None      = None
+        self.active_raw_text: str | None                        = None
+        self.active_source: TranscriptCellSource | None         = None
+        self.active_kind: TuiBlockKind | None                   = None
+        self.active_gap_before: int                             = 0
+        self.active_stream_continuation: bool                   = False
+        self.active_display_renderer: WidthBlockRenderer | None = None
+        self.active_display_render_width: int | None            = None
 
         self.active_transcript_revision: int = 0
         self.stable_transcript_revision: int = 0
@@ -286,14 +292,42 @@ class TuiDocument(object):
         """返回两个普通正文 cell 之间需要保留的空行数。"""
         return max(0, int(item.gap_before))
 
+    @staticmethod
+    def _filled_lines(
+        lines: list[FormattedText],
+        *,
+        block: FragmentBlock,
+        width: int
+    ) -> list[FormattedText]:
+        """按块级或逐行规则把可见片段延伸到指定宽度。"""
+        if block.line_fills:
+            return [
+                fill_fragments(line, width=width, fill=block.line_fills[index])
+                if (
+                    index < len(block.line_fills)
+                    and block.line_fills[index] is not None
+                )
+                else line
+                for index, line in enumerate(lines)
+            ]
+        if block.line_fill is None:
+            return lines
+        return [
+            fill_fragments(line, width=width, fill=block.line_fill)
+            for line in lines
+        ]
+
     def _reset_active(self) -> None:
         """重置当前动态正文状态。"""
-        self.active_block               = None
-        self.active_transcript_block    = None
-        self.active_raw_text            = None
-        self.active_kind                = None
-        self.active_gap_before          = 0
-        self.active_stream_continuation = False
+        self.active_block                = None
+        self.active_transcript_block     = None
+        self.active_raw_text             = None
+        self.active_source               = None
+        self.active_kind                 = None
+        self.active_gap_before           = 0
+        self.active_stream_continuation  = False
+        self.active_display_renderer     = None
+        self.active_display_render_width = None
 
     def _append_rendered_block(
         self,
@@ -389,12 +423,12 @@ class TuiDocument(object):
         parts = self._trim_block_fragments(list(block.fragments))
         lines = split_formatted_lines(parts)
 
-        fill = block.line_fill
-        if fill is not None and self._display_width is not None:
-            lines = [
-                fill_fragments(line, width=self._display_width, fill=fill)
-                for line in lines
-            ]
+        if self._display_width is not None:
+            lines = self._filled_lines(
+                lines,
+                block=block,
+                width=self._display_width,
+            )
         if not lines or item.kind != "user":
             return lines
 
@@ -420,66 +454,6 @@ class TuiDocument(object):
             self._stable_lines.extend(own_lines)
             self._stable_block_end_lines.append(len(self._stable_lines))
             self._stable_tail_kind = item.kind
-
-    def set_display_width(
-        self,
-        width: int,
-        *,
-        reflow_sources: bool = True,
-    ) -> bool:
-        """更新正文显示宽度并重建依赖宽度的稳定行。"""
-        normalized    = max(1, int(width))
-        width_changed = normalized != self._display_width
-
-        has_renderer  = any(
-            item.source_renderer is not None
-            or item.display_renderer is not None
-            for item in self.blocks
-        )
-
-        source_reflow = bool(
-            has_renderer
-            and reflow_sources
-            and normalized != self._source_layout_width
-        )
-        if not width_changed and not source_reflow:
-            return False
-
-        self._display_width = normalized
-        if not has_renderer or self._source_layout_width is None:
-            self._source_layout_width = normalized
-
-        previous_line_count = self._stable_line_count()
-        cleared_at_end      = self.cleared_line_count == previous_line_count
-        scrollback_at_end   = self.scrollback_line_count == previous_line_count
-
-        if source_reflow:
-            self._source_layout_width = normalized
-
-        if source_reflow or (
-            width_changed
-            and any(
-                item.display_block.line_fill is not None
-                for item in self.blocks
-            )
-        ):
-            self._rebuild_stable_lines()
-            line_count = self._stable_line_count()
-
-            self.cleared_line_count = (
-                line_count
-                if cleared_at_end
-                else min(self.cleared_line_count, line_count)
-            )
-            self.scrollback_line_count = (
-                line_count
-                if scrollback_at_end
-                else min(self.scrollback_line_count, line_count)
-            )
-            if source_reflow:
-                self.stable_transcript_revision += 1
-
-        return True
 
     def _extend_stable(self, items: list[TranscriptBlock]) -> None:
         """追加稳定块并让清屏边界跳过新产生的块间距。"""
@@ -518,6 +492,101 @@ class TuiDocument(object):
 
         if cleared_at_end:
             self.cleared_line_count += boundary_lines
+
+    def _replace_latest_user(
+        self,
+        match: typing.Callable[[TranscriptBlock], bool],
+        **changes: typing.Any
+    ) -> bool:
+        """在稳定正文或动态尾部替换最近一条匹配的用户记录。"""
+        for items, active in (
+            (self._active_tail, True),
+            (self.blocks, False),
+        ):
+            for index in range(len(items) - 1, -1, -1):
+                item = items[index]
+                if item.kind != "user" or not match(item):
+                    continue
+                items[index] = replace(item, **changes)
+                if active:
+                    self.active_transcript_revision += 1
+                else:
+                    self.stable_transcript_revision += 1
+                return True
+
+        return False
+
+    def _turn_boundary(self, turn_id: str) -> int | None:
+        """返回指定用户轮次在稳定正文中的位置。"""
+        return next((
+            index
+            for index, item in enumerate(self.blocks)
+            if item.kind == "user" and item.turn_id == turn_id
+        ), None)
+
+    def set_display_width(
+        self,
+        width: int,
+        *,
+        reflow_sources: bool = True,
+    ) -> bool:
+        """更新正文显示宽度并重建依赖宽度的稳定行。"""
+        normalized    = max(1, int(width))
+        width_changed = normalized != self._display_width
+
+        has_renderer = bool(
+            self.active_display_renderer is not None
+            or any(
+                item.source_renderer is not None
+                or item.display_renderer is not None
+                for item in self.blocks
+            )
+        )
+
+        source_reflow = bool(
+            has_renderer
+            and reflow_sources
+            and normalized != self._source_layout_width
+        )
+        if not width_changed and not source_reflow:
+            return False
+
+        self._display_width = normalized
+        if not has_renderer or self._source_layout_width is None:
+            self._source_layout_width = normalized
+
+        previous_line_count = self._stable_line_count()
+        cleared_at_end      = self.cleared_line_count == previous_line_count
+        scrollback_at_end   = self.scrollback_line_count == previous_line_count
+
+        if source_reflow:
+            self._source_layout_width = normalized
+
+        if source_reflow or (
+            width_changed
+            and any(
+                item.display_block.line_fill is not None
+                or bool(item.display_block.line_fills)
+                for item in self.blocks
+            )
+        ):
+            self._rebuild_stable_lines()
+            line_count = self._stable_line_count()
+
+            self.cleared_line_count = (
+                line_count
+                if cleared_at_end
+                else min(self.cleared_line_count, line_count)
+            )
+            self.scrollback_line_count = (
+                line_count
+                if scrollback_at_end
+                else min(self.scrollback_line_count, line_count)
+            )
+            if source_reflow:
+                self.stable_transcript_revision += 1
+
+        return True
 
     def stage_submission(
         self,
@@ -703,9 +772,12 @@ class TuiDocument(object):
             active_block=deepcopy(self.active_block),
             active_transcript_block=deepcopy(self.active_transcript_block),
             active_raw_text=self.active_raw_text,
+            active_source=deepcopy(self.active_source),
             active_kind=self.active_kind,
             active_gap_before=self.active_gap_before,
             active_stream_continuation=self.active_stream_continuation,
+            active_display_renderer=self.active_display_renderer,
+            active_display_render_width=self.active_display_render_width,
             active_transcript_revision=self.active_transcript_revision,
             stable_transcript_revision=self.stable_transcript_revision,
             pending_submission=deepcopy(self._pending_submission),
@@ -720,16 +792,21 @@ class TuiDocument(object):
 
     def restore_state(self, state: TuiDocumentState) -> None:
         """恢复正文提交前的可恢复状态。"""
-        self.blocks                     = deepcopy(list(state.blocks))
-        self.scrollback_line_count      = state.scrollback_line_count
-        self.cleared_line_count         = state.cleared_line_count
-        self.active_block               = deepcopy(state.active_block)
-        self.active_transcript_block    = deepcopy(state.active_transcript_block)
-        self.active_raw_text            = state.active_raw_text
-        self.active_kind                = state.active_kind
-        self.active_gap_before          = state.active_gap_before
-        self.active_stream_continuation = state.active_stream_continuation
-        self.active_transcript_revision = state.active_transcript_revision
+        self.blocks                = deepcopy(list(state.blocks))
+        self.scrollback_line_count = state.scrollback_line_count
+        self.cleared_line_count    = state.cleared_line_count
+
+        self.active_block                = deepcopy(state.active_block)
+        self.active_transcript_block     = deepcopy(state.active_transcript_block)
+        self.active_raw_text             = state.active_raw_text
+        self.active_source               = deepcopy(state.active_source)
+        self.active_kind                 = state.active_kind
+        self.active_gap_before           = state.active_gap_before
+        self.active_stream_continuation  = state.active_stream_continuation
+        self.active_display_renderer     = state.active_display_renderer
+        self.active_display_render_width = state.active_display_render_width
+        self.active_transcript_revision  = state.active_transcript_revision
+
         self.stable_transcript_revision = state.stable_transcript_revision
 
         self._pending_submission          = deepcopy(state.pending_submission)
@@ -768,46 +845,18 @@ class TuiDocument(object):
             **changes,
         )
 
-    def _replace_latest_user(
-        self,
-        match: typing.Callable[[TranscriptBlock], bool],
-        **changes: typing.Any
-    ) -> bool:
-        """在稳定正文或动态尾部替换最近一条匹配的用户记录。"""
-        for items, active in (
-            (self._active_tail, True),
-            (self.blocks, False),
-        ):
-            for index in range(len(items) - 1, -1, -1):
-                item = items[index]
-                if item.kind != "user" or not match(item):
-                    continue
-                items[index] = replace(item, **changes)
-                if active:
-                    self.active_transcript_revision += 1
-                else:
-                    self.stable_transcript_revision += 1
-                return True
-
-        return False
-
-    def _turn_boundary(self, turn_id: str) -> int | None:
-        """返回指定用户轮次在稳定正文中的位置。"""
-        return next((
-            index
-            for index, item in enumerate(self.blocks)
-            if item.kind == "user" and item.turn_id == turn_id
-        ), None)
-
     def set_active(
         self,
         block: FragmentBlock,
         *,
         kind: TuiBlockKind,
         transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         stream_continuation: bool = False,
-        gap_before: int | None = None
+        gap_before: int | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None
     ) -> None:
         """设置当前动态正文并在首次显示时确定块间空行。"""
         block = sanitize_fragment_block(block)
@@ -836,11 +885,15 @@ class TuiDocument(object):
 
         self.active_block            = block
         self.active_transcript_block = transcript_block
+        self.active_source           = source
 
         self.active_raw_text = (
             str(raw_text) if raw_text is not None else None
         )
-        self.active_stream_continuation = bool(stream_continuation)
+
+        self.active_stream_continuation  = bool(stream_continuation)
+        self.active_display_renderer     = display_renderer
+        self.active_display_render_width = display_render_width
 
         self.active_transcript_revision += 1
 
@@ -849,9 +902,12 @@ class TuiDocument(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         source_renderer: SourceBlockRenderer | None = None,
-        source_render_width: int | None = None
+        source_render_width: int | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None
     ) -> None:
         """把当前动态正文替换为相同位置的稳定块。"""
         if self.active_kind is None:
@@ -869,6 +925,7 @@ class TuiDocument(object):
             display_block=block,
             transcript_block=transcript_block,
             kind=self.active_kind,
+            source=source if source is not None else self.active_source,
             raw_text=(
                 str(raw_text)
                 if raw_text is not None
@@ -878,6 +935,16 @@ class TuiDocument(object):
             stream_continuation=self.active_stream_continuation,
             source_renderer=source_renderer,
             source_render_width=source_render_width,
+            display_renderer=(
+                display_renderer
+                if display_renderer is not None
+                else self.active_display_renderer
+            ),
+            display_render_width=(
+                display_render_width
+                if display_render_width is not None
+                else self.active_display_render_width
+            ),
         ), *self._active_tail]
 
         self._extend_stable(items)
@@ -919,10 +986,13 @@ class TuiDocument(object):
                 display_block=self.active_block,
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
+                source=self.active_source,
                 raw_text=self.active_raw_text,
                 gap_before=self.active_gap_before,
                 stream_continuation=self.active_stream_continuation,
                 transcript_stable=False,
+                display_renderer=self.active_display_renderer,
+                display_render_width=self.active_display_render_width,
             )
             if self._append_rendered_block(
                 out,
@@ -961,10 +1031,13 @@ class TuiDocument(object):
                     self.active_transcript_block or self.active_block
                 ),
                 kind=self.active_kind,
+                source=self.active_source,
                 raw_text=self.active_raw_text,
                 gap_before=self.active_gap_before,
                 stream_continuation=self.active_stream_continuation,
                 transcript_stable=False,
+                display_renderer=self.active_display_renderer,
+                display_render_width=self.active_display_render_width,
             ))
 
         blocks.extend(self._active_tail)
@@ -1099,10 +1172,13 @@ class TuiDocument(object):
                 display_block=self.active_block,
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
+                source=self.active_source,
                 raw_text=self.active_raw_text,
                 gap_before=self.active_gap_before,
                 stream_continuation=self.active_stream_continuation,
                 transcript_stable=False,
+                display_renderer=self.active_display_renderer,
+                display_render_width=self.active_display_render_width,
             ))
         blocks.extend(self._active_tail)
         return self._render_blocks(blocks)
@@ -1138,10 +1214,13 @@ class TuiDocument(object):
                 display_block=self.active_block,
                 transcript_block=self.active_transcript_block or self.active_block,
                 kind=self.active_kind,
+                source=self.active_source,
                 raw_text=self.active_raw_text,
                 gap_before=self.active_gap_before,
                 stream_continuation=self.active_stream_continuation,
                 transcript_stable=False,
+                display_renderer=self.active_display_renderer,
+                display_render_width=self.active_display_render_width,
             ))
 
         live_cells.extend(self._active_tail)
@@ -1185,16 +1264,18 @@ class TuiDocument(object):
 
         parts = self._trim_block_fragments(list(block.fragments))
 
-        fill = block.line_fill
-        if fill is None or width is None:
+        if width is None or (
+            block.line_fill is None
+            and not block.line_fills
+        ):
             return parts
 
-        lines = [
-            fill_fragments(line, width=width, fill=fill)
-            for line in split_formatted_lines(parts)
-        ]
-
-        return join_formatted_lines(lines)
+        lines = split_formatted_lines(parts)
+        return join_formatted_lines(self._filled_lines(
+            lines,
+            block=block,
+            width=width,
+        ))
 
 
 if __name__ == '__main__':

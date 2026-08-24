@@ -274,6 +274,7 @@ def sanitize_styled_block(
     return StyledBlock(
         plain_text=plain_text,
         spans=spans,
+        line_fill_styles=block.line_fill_styles,
         preserve_spans=block.preserve_spans,
         direct=block.direct,
     )
