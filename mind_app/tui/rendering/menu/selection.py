@@ -101,7 +101,7 @@ def normalized_selection(
     options: tuple[MenuOption, ...],
     selected: int,
     *,
-    step: int = 1,
+    step: int = 1
 ) -> int:
     """把选中位置调整到可执行项，全部禁用时保留合法位置。"""
     if not options:
@@ -116,19 +116,29 @@ def normalized_selection(
     return selected
 
 
-def option_detail(option: MenuOption, *, active: bool = False) -> str:
-    """返回选项当前状态下的辅助说明。"""
-    detail = (
-        option.selected_detail
-        if active and option.selected_detail
-        else option.detail
-    ) or option.disabled_reason
+def option_status_suffix(option: MenuOption) -> str:
+    """返回选项当前状态对应的标题后缀。"""
     suffix = ""
     if option.is_current:
         suffix = " (current)"
     elif option.is_default:
         suffix = " (default)"
-    return f"{detail}{suffix}" if detail or suffix else ""
+    return suffix
+
+
+def option_label(option: MenuOption) -> str:
+    """返回带当前状态标记的选项标题。"""
+    suffix = option_status_suffix(option)
+    return f"{option.label}{suffix}"
+
+
+def option_detail(option: MenuOption, *, active: bool = False) -> str:
+    """返回选项当前状态下的辅助说明。"""
+    return (
+        option.selected_detail
+        if active and option.selected_detail
+        else option.detail
+    ) or option.disabled_reason
 
 
 def option_is_disabled(option: MenuOption) -> bool:
@@ -152,14 +162,15 @@ def filtered_indices(state: MenuState) -> tuple[int, ...]:
     if not state.request.searchable or not state.query:
         return tuple(range(len(options)))
 
-    if state.request.search_ranker is not None:
+    search_ranker = state.request.search_ranker
+    if search_ranker is not None:
         query = state.query.strip()
         if not query:
             return tuple(range(len(options)))
         ranked = (
             (rank, index)
             for index, option in enumerate(options)
-            if (rank := state.request.search_ranker(query, option)) is not None
+            if (rank := search_ranker(query, option)) is not None
         )
         return tuple(index for _rank, index in sorted(ranked))
 
@@ -180,7 +191,7 @@ def filtered_indices(state: MenuState) -> tuple[int, ...]:
 
 def has_selectable(
     options: tuple[MenuOption, ...],
-    indices: tuple[int, ...],
+    indices: tuple[int, ...]
 ) -> bool:
     """判断过滤结果中是否存在可执行选项。"""
     return any(not option_is_disabled(options[index]) for index in indices)
@@ -188,7 +199,7 @@ def has_selectable(
 
 def initial_selection(
     options: tuple[MenuOption, ...],
-    selected: int,
+    selected: int
 ) -> int:
     """首次打开菜单时优先选择 current 或 default 项。"""
     for attribute in ("is_current", "is_default"):
@@ -201,7 +212,7 @@ def initial_selection(
 def selection_for_request(
     options: tuple[MenuOption, ...],
     previous_selected: int,
-    previous_value: typing.Any,
+    previous_value: typing.Any
 ) -> int:
     """刷新选项后优先恢复同一 value，再按原位置归一化。"""
     if previous_value is not NO_SELECTION:
@@ -214,7 +225,7 @@ def selection_for_request(
 def visible_window(
     state: MenuState,
     *,
-    visible_rows: int,
+    visible_rows: int
 ) -> tuple[int, tuple[int, ...]]:
     """返回当前查询下可见窗口的起始位置和原始索引。"""
     indices = filtered_indices(state)
@@ -237,7 +248,7 @@ def visible_window(
 def visible_options(
     state: MenuState,
     *,
-    visible_rows: int,
+    visible_rows: int
 ) -> tuple[int, tuple[MenuOption, ...]]:
     """返回围绕当前选择位置的菜单选项窗口。"""
     start, indices = visible_window(state, visible_rows=visible_rows)
@@ -271,7 +282,7 @@ def selection_at(
     state: MenuState,
     selected: int,
     *,
-    direction: int = 1,
+    direction: int = 1
 ) -> int | None:
     """计算距离指定绝对索引最近的可执行选项。"""
     options = state.request.options

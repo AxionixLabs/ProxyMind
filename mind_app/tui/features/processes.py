@@ -537,7 +537,7 @@ def render_exec_sessions_stopped(
             suffix=" · complete" if failed == 0 else " · partial",
             lines=lines,
         ),
-        line_prefix="",
+        line_prefix="  ",
     )
 
 
@@ -817,7 +817,7 @@ def render_exec_session_panel(
                 lines=output_lines,
             ),
             terminal_width=width,
-            first_line_prefix="└ ",
+            first_line_prefix="  └ ",
         )
         return list(block.fragments)
 
@@ -919,6 +919,7 @@ def exec_session_summary_block(
     return command_summary_text(
         exec_session_command_summary(snapshot),
         terminal_width=terminal_width,
+        line_prefix=_summary_line_prefix(snapshot),
         first_line_prefix=_summary_first_line_prefix(snapshot),
     )
 
@@ -941,6 +942,7 @@ def exec_session_detached_block(
     return command_summary_text(
         summary,
         terminal_width=terminal_width,
+        line_prefix=_summary_line_prefix(snapshot),
         first_line_prefix=_summary_first_line_prefix(snapshot),
     )
 
@@ -1071,6 +1073,7 @@ async def _watch_detached_exec_session(
                     command_summary_text(
                         exec_session_command_summary(snapshot),
                         terminal_width=mind.frontend.application.viewport.width,
+                        line_prefix=_summary_line_prefix(snapshot),
                         first_line_prefix=_summary_first_line_prefix(snapshot),
                     ),
                     transcript_block=exec_session_transcript_block(snapshot),
@@ -1146,7 +1149,12 @@ def _session_kind(snapshot: dict[str, typing.Any]) -> str:
 
 def _summary_first_line_prefix(snapshot: dict[str, typing.Any]) -> str:
     """返回会话摘要首行的层级前缀。"""
-    return "└ " if snapshot.get("origin") == "tui_shell" else "  "
+    return "  └ " if snapshot.get("origin") == "tui_shell" else "  "
+
+
+def _summary_line_prefix(snapshot: dict[str, typing.Any]) -> str:
+    """返回会话摘要后续行的层级前缀。"""
+    return "    " if snapshot.get("origin") == "tui_shell" else "  "
 
 
 def _origin_label(origin: typing.Any) -> str:

@@ -92,7 +92,7 @@ def _present_helix_result(
         view = McpStatusView("Helix MCP stopped", "ready", True)
     elif state == "stop_failed":
         details = (
-            (McpStatusDetail(f"└ {error}", "failed"),)
+            (McpStatusDetail(f"  └ {error}", "failed"),)
             if error
             else ()
         )
@@ -430,8 +430,7 @@ async def link_helix_runtime(
     download_confirmed: bool = False
 ) -> bool:
     """确认本地服务已经启动，并挂载到当前工具会话。"""
-    is_linked = getattr(mind, "is_service_mcp_linked", None)
-    if callable(is_linked) and is_linked():
+    if mind.is_service_mcp_linked():
         mind.set_service_tool_profile(tool_profile)
         return True
 

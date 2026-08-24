@@ -253,7 +253,7 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
         if view.type == "tui.external_mcp.status"
     )
     assert status.renderable.plain_text == (
-        "■ External MCP stop failed\n└ cleanup failed"
+        "■ External MCP stop failed\n  └ cleanup failed"
     )
 
 
@@ -340,7 +340,7 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
                     },
                 ],
             },
-            "■ External MCP failed · 0/1 servers\n└ docs: timeout",
+            "■ External MCP failed · 0/1 servers\n  └ docs: timeout",
         ),
     ],
 )
@@ -394,7 +394,7 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
     )
     assert status.renderable.plain_text == (
         "■ External MCP ready · 1/2 servers · 7 tools\n"
-        "└ docs: timeout"
+        "  └ docs: timeout"
     )
     assert all(not span.style.bold for span in status.renderable.spans)
 

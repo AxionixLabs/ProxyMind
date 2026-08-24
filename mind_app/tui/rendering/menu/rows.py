@@ -15,12 +15,14 @@ from ..fragments import (
 from .layout import (
     prefix_width,
     search_prefix_width,
-    should_stack_description,
+    should_stack_description
 )
 from .selection import (
     filtered_indices,
     option_detail,
     option_is_disabled,
+    option_label,
+    option_status_suffix
 )
 from .state import MenuState
 from .renderer import strip_leading_spaces
@@ -36,11 +38,11 @@ def option_fragments(
     row_prefix_width: int,
     width: int,
     index_style: str,
-    prefix: str,
+    prefix: str
 ) -> list[StyleAndTextTuples]:
     """按可用宽度分配选项主标签和辅助信息。"""
     if option_is_disabled(option):
-        label_style = "class:tui-menu.label.disabled"
+        label_style  = "class:tui-menu.label.disabled"
         detail_style = "class:tui-menu.detail.disabled"
     else:
         default_label_style = (
@@ -62,10 +64,12 @@ def option_fragments(
         values = list(option.columns)
         if len(values) < len(widths):
             values.extend([""] * (len(widths) - len(values)))
-        values = values[:len(widths)]
-        separator = request.description_separator
-        gap_width = get_cwidth(separator) * max(0, len(widths) - 1)
+
+        values      = values[:len(widths)]
+        separator   = request.description_separator
+        gap_width   = get_cwidth(separator) * max(0, len(widths) - 1)
         fixed_width = sum(widths[:-1])
+
         if widths[-1] <= 0:
             widths[-1] = max(1, available - fixed_width - gap_width)
         total_width = sum(widths) + gap_width
@@ -73,7 +77,10 @@ def option_fragments(
             widths[-1] = max(1, widths[-1] - (total_width - available))
 
         cells: list[tuple[str, str]] = []
+
         for index, (value, cell_width) in enumerate(zip(values, widths)):
+            if index == 0:
+                value = f"{value}{option_status_suffix(option)}"
             cell = clip_text(value, width=cell_width)
             if index < len(widths) - 1:
                 cell += " " * max(0, cell_width - get_cwidth(cell))
@@ -96,7 +103,7 @@ def option_fragments(
         available=available,
         label_width=label_width,
     ):
-        label = clip_text(option.label, width=available)
+        label = clip_text(option_label(option), width=available)
         rows: list[StyleAndTextTuples] = [[
             (index_style, prefix),
             (label_style, label),
@@ -115,13 +122,13 @@ def option_fragments(
     if not detail or label_width is None:
         return [[
             (index_style, prefix),
-            (label_style, clip_text(option.label, width=available)),
+            (label_style, clip_text(option_label(option), width=available)),
         ]]
 
-    separator = request.description_separator
+    separator       = request.description_separator
     separator_width = get_cwidth(separator)
-    label = clip_text(option.label, width=label_width)
-    padding = " " * max(0, label_width - get_cwidth(label))
+    label           = clip_text(option_label(option), width=label_width)
+    padding         = " " * max(0, label_width - get_cwidth(label))
 
     if option.category:
         category_style = (
@@ -130,6 +137,7 @@ def option_fragments(
             else option.category_style or "class:tui-menu.category"
         )
         category_width = get_cwidth(option.category)
+
         detail_width = max(
             1,
             available
@@ -138,10 +146,12 @@ def option_fragments(
             - category_width,
         )
         detail_text = clip_text(detail, width=detail_width)
+
         detail_padding = " " * max(
             0,
             detail_width - get_cwidth(detail_text),
         )
+
         return [[
             (index_style, prefix),
             (label_style, f"{label}{padding}"),
@@ -168,7 +178,7 @@ def row_layout(
     surface_inset: int,
     min_label_width: int,
     min_detail_width: int,
-    max_detail_reserve: int,
+    max_detail_reserve: int
 ) -> tuple[int, int | None]:
     """计算当前窗口的选项前缀和共享标签列宽。"""
     prefix_size = (
@@ -180,7 +190,9 @@ def row_layout(
             else prefix_width(number_width)
         )
     )
+
     prefix_size = max(0, prefix_size - surface_inset)
+
     label_size = label_column_width(
         request,
         available=max(1, width - prefix_size),
@@ -189,6 +201,7 @@ def row_layout(
         min_detail_width=min_detail_width,
         max_detail_reserve=max_detail_reserve,
     )
+
     return prefix_size, label_size
 
 
@@ -207,15 +220,19 @@ def option_prefix(
     *,
     active: bool,
     number_width: int,
-    surface_inset: int,
+    surface_inset: int
 ) -> str:
     """生成候选项的选择标记和可执行序号 gutter。"""
     if not state.request.show_option_gutter:
         return " " * surface_inset
+
     marker = state.request.selection_marker if active else " "
+
     if state.request.searchable:
         return f"{marker} "
+
     option = state.request.options[index]
+
     if option_is_disabled(option):
         gutter_marker = clip_text(option.disabled_gutter_marker, width=number_width)
         gutter = (
@@ -224,11 +241,13 @@ def option_prefix(
             else " " * (number_width + 2)
         )
         return f"{marker} {gutter}"
+
     enabled_indices = tuple(
         candidate
         for candidate in filtered_indices(state)
         if not option_is_disabled(state.request.options[candidate])
     )
+
     number = enabled_indices.index(index) + 1
     return f"{marker} {str(number).rjust(number_width)}. "
 
@@ -240,17 +259,18 @@ def label_column_width(
     visible_indices: tuple[int, ...],
     min_label_width: int,
     min_detail_width: int,
-    max_detail_reserve: int,
+    max_detail_reserve: int
 ) -> int | None:
     """计算全部选项共用的主标签列宽。"""
     options = request.options
+
     measurement_options = (
         tuple(options[index] for index in visible_indices)
         if request.column_width_mode is MenuColumnWidthMode.AUTO_VISIBLE
         else options
     )
     natural_label_width = max(
-        (get_cwidth(option.label) for option in measurement_options),
+        (get_cwidth(option_label(option)) for option in measurement_options),
         default=0,
     )
     detail_width = max(
@@ -268,7 +288,9 @@ def label_column_width(
         detail_width,
         max(min_detail_width, min(max_detail_reserve, available // 3)),
     )
+
     separator_width = get_cwidth(request.description_separator)
+
     category_width = max(
         (
             get_cwidth(option.category)
@@ -277,6 +299,7 @@ def label_column_width(
         ),
         default=0,
     )
+
     suffix_width = separator_width + (
         separator_width + category_width
         if category_width
@@ -287,9 +310,15 @@ def label_column_width(
         - suffix_width
         - detail_reserve
     )
+
     if max_label_width < min_label_width:
         return None
     if request.column_width_mode is MenuColumnWidthMode.FIXED:
         return max(min_label_width, min(max_label_width, available * 3 // 10))
+
     requested_width = request.name_column_width or 0
     return min(max(natural_label_width, requested_width), max_label_width)
+
+
+if __name__ == '__main__':
+    pass

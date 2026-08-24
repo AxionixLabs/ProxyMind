@@ -952,7 +952,8 @@ async def test_current_and_selected_detail_are_rendered_for_active_option() -> N
     menu.cancel()
     await task
 
-    assert "selected (current)" in text
+    assert "gpt (current)" in text
+    assert "selected" in text
     assert "available" not in text
 
 
@@ -1359,9 +1360,9 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
                 "  Options",
                 "  ready",
                 "",
-                "  1. One      First",
-                "  ×  Blocked  Busy",
-                "› 2. Two      Second (current)",
+                "  1. One            First",
+                "  ×  Blocked        Busy",
+                "› 2. Two (current)  Second",
                 "  ",
                 "  Status",
                 "  Press enter",

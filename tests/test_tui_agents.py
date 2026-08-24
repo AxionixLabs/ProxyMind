@@ -104,8 +104,10 @@ def test_agent_list_menu_displays_status_and_queue_counts() -> None:
     assert request.title == "Sub-agents"
     assert request.status == "active=1 queued=2 total=2"
     assert request.selected == 0
-    assert request.options[0].label == "• Main [default] (current)"
+    assert request.options[0].label == "• Main [default]"
     assert request.options[0].detail == "sid_root"
+    assert request.options[0].is_current
+    assert request.options[0].is_default
     assert request.options[1].label == "• /root/review"
     assert request.options[1].detail == "agent_review · running"
     assert request.options[2].detail == "agent_test · completed"
@@ -270,7 +272,8 @@ async def test_manage_agents_without_root_session_has_no_side_effects() -> None:
     state = runtime.screen.menu.state
     assert state is not None
     assert state.request.body == ()
-    assert state.request.options[0].label == "• Main [default] (current)"
+    assert state.request.options[0].label == "• Main [default]"
+    assert state.request.options[0].is_current
     runtime.cancel_menu()
     await task
 

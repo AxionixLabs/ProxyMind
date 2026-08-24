@@ -179,8 +179,10 @@ def agent_list_menu(
 
     options = [MenuOption(
         value=_MAIN_ACTION,
-        label="• Main [default] (current)",
+        label="• Main [default]",
         detail=root_session_id or "current session",
+        is_current=True,
+        is_default=True,
     )]
     for snapshot in ordered:
         options.append(MenuOption(
@@ -342,11 +344,12 @@ def _tree_ordered_snapshots(
     roots: list[AgentSnapshot] = []
 
     for snapshot in snapshots:
-        parent_id = snapshot.context.parent_agent_id
-        if parent_id in known_ids:
-            children.setdefault(str(parent_id), []).append(snapshot)
-        else:
+        parent_id_value = snapshot.context.parent_agent_id
+        if not isinstance(parent_id_value, str) or parent_id_value not in known_ids:
             roots.append(snapshot)
+            continue
+        parent_id: str = parent_id_value
+        children.setdefault(parent_id, []).append(snapshot)
 
     ordered: list[AgentSnapshot] = []
 

@@ -5364,7 +5364,7 @@ async def test_inline_shell_detaches_before_next_submission_is_staged(
                 async def settle_viewer() -> None:
                     assert await viewer == "detach"
                     runtime.commit_process_viewer(_block(
-                        "• Shell ping -t 8.8.8.8\n└ reply"
+                        "• Shell ping -t 8.8.8.8\n  └ reply"
                     ))
 
                 settle_task = asyncio.create_task(settle_viewer())
@@ -9063,7 +9063,7 @@ async def test_completed_work_inserts_exact_separator_newline_layout(
         "• before",
         "",
         "• Ran echo done",
-        "└ done",
+        "  └ done",
         "",
         "─" * 40,
         "",
@@ -9095,7 +9095,7 @@ async def test_view_image_does_not_insert_work_separator() -> None:
     ]
     assert lines == [
         "• Viewed",
-        "└ C:/tmp/image.png",
+        "  └ C:/tmp/image.png",
         "",
         "• after",
     ]
@@ -9155,7 +9155,7 @@ async def test_completed_work_tail_separator_has_exact_newline_layout() -> None:
     ]
     assert lines == [
         "• Ran echo done",
-        "└ done",
+        "  └ done",
         "",
         "─" * 60,
     ]
@@ -9725,7 +9725,7 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     ),
                 },
             ),
-            "javascript output",
+                "javascript outp",
             "javascript output 29",
             "… +25 lines",
         ),
@@ -9915,9 +9915,9 @@ async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> Non
 @pytest.mark.parametrize(
     ("width", "expected_hint"),
     (
-        (20, "… +3 lines Ctrl+T"),
+        (20, "… +3 lines"),
         (39, "… +3 lines Ctrl+T"),
-        (40, "… +3 lines (Ctrl+T to view transcript)"),
+        (40, "… +3 lines Ctrl+T"),
     ),
 )
 @pytest.mark.anyio
@@ -9946,7 +9946,7 @@ async def test_shell_transcript_hint_uses_one_visual_row(
     display_lines = display.splitlines()
     transcript = _transcript_text(runtime.document)
 
-    assert display_lines[-1] == f"  {expected_hint}"
+    assert display_lines[-1] == f"    {expected_hint}"
     assert all(get_cwidth(line) <= width for line in display_lines)
     assert display_line_count(display, width=width) == len(display_lines)
     assert output_lines[-1] in transcript
@@ -9994,7 +9994,7 @@ async def test_stable_shell_display_reflows_only_after_resize_settles() -> None:
     wide = display_at(80, reflow_sources=False)
 
     assert wide != narrow
-    assert "… +3 lines Ctrl+T" in narrow
+    assert "… +3 lines" in narrow
     assert "… +3 lines (Ctrl+T to view transcript)" in wide
     assert get_cwidth(narrow.splitlines()[0]) <= 20
     assert get_cwidth(wide.splitlines()[0]) <= 80
@@ -10201,12 +10201,12 @@ async def test_js_repl_start_and_result_are_two_separated_blocks() -> None:
     transcript_text = _transcript_text(runtime.document)
     assert document_text.count("• JavaScript") == 2
     assert "host.tool('shell_command'" in document_text
-    assert "\n└ ready" in document_text
+    assert "\n  └ ready" in document_text
     assert transcript_text.count("• JavaScript") == 2
     assert "host.tool('shell_command'" in transcript_text
     assert "\nready" in transcript_text
     assert "\n└ ready" not in transcript_text
-    assert "\n\n• JavaScript\n└ ready" in document_text
+    assert "\n\n• JavaScript\n  └ ready" in document_text
     assert [item.gap_before for item in runtime.document.blocks] == [
         False,
         True,
@@ -10869,7 +10869,7 @@ async def test_attempt_supersede_separates_retry_notice_from_failure() -> None:
 
     assert _document_text(runtime.document) == "\n".join((
         "■ turn.failed",
-        "└ responses stream ended incomplete: max_output_tokens",
+        "  └ responses stream ended incomplete: max_output_tokens",
         "",
         "↻ Previous attempt interrupted; retrying",
     ))
@@ -11613,6 +11613,20 @@ async def test_assistant_commit_renders_fenced_code_without_language(markdown: s
 
     assert _document_text(runtime.document) == "• value"
     assert runtime.document.active_block is None
+
+
+@pytest.mark.parametrize(
+    "source",
+    ("```\nvalue\n```\n", "```unknown-language\nvalue\n```\n"),
+)
+def test_streaming_code_fallback_matches_codex_default_style(source: str) -> None:
+    renderer = TuiMarkdownStreamRenderer()
+
+    streamed = renderer.render(source, width=40)
+    committed = render_tui_markdown(source, width=40)
+
+    assert streamed.fragments == (("", "value"),)
+    assert committed.fragments == (("", "value"),)
 
 
 @pytest.mark.anyio

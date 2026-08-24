@@ -22,8 +22,8 @@ def test_plan_update_without_explanation_branches_to_first_item() -> None:
 
     assert block.plain_text == (
         "• Updated Plan\n"
-        "└ □ 检查状态\n"
-        "  □ 实现修复"
+        "  └ □ 检查状态\n"
+        "    □ 实现修复"
     )
     assert "".join(span.text for span in block.spans) == block.plain_text
     item_prefix, item_text = block.spans[2:4]
@@ -42,8 +42,8 @@ def test_plan_steps_branches_from_title_column() -> None:
 
     assert block.plain_text == (
         "• Plan Steps\n"
-        "└ loops=1 · steps=2 · stop_on_fail=true\n"
-        "  - shell_command\n"
-        "  - jq"
+        "  └ loops=1 · steps=2 · stop_on_fail=true\n"
+        "    - shell_command\n"
+        "    - jq"
     )
     assert "".join(span.text for span in block.spans) == block.plain_text

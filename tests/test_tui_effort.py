@@ -38,7 +38,7 @@ async def test_effort_menu_uses_primary_selection_contract() -> None:
     assert [option.is_current for option in request.options] == [
         False,
         False,
-        False,
+        True,
         False,
     ]
     assert request.selected == 2

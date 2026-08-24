@@ -7,7 +7,7 @@ from mind_core.design.terminal_capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
     TerminalCapabilities,
-    TerminalColorLevel,
+    TerminalColorLevel
 )
 from mind_app.presentation.code_highlight import highlight_code_lines
 from mind_app.presentation.models import (
@@ -16,36 +16,36 @@ from mind_app.presentation.models import (
     PatchView,
     StyledBlock,
     TextSpan,
-    TextStyle,
+    TextStyle
 )
 from mind_app.presentation.text_layout import (
     wrap_styled_line,
-    wrap_styled_lines,
+    wrap_styled_lines
 )
 
-PATCH_TITLE_STYLE = TextStyle(bold=True)
-PATCH_MUTED_STYLE = TextStyle(dim=True)
-PATCH_ADD_STYLE = TextStyle(foreground="ansigreen")
-PATCH_REMOVE_STYLE = TextStyle(foreground="ansired")
-PATCH_ERROR_STYLE = TextStyle(foreground="ansimagenta", bold=True)
+PATCH_TITLE_STYLE    = TextStyle(bold=True)
+PATCH_MUTED_STYLE    = TextStyle(dim=True)
+PATCH_ADD_STYLE      = TextStyle(foreground="ansigreen")
+PATCH_REMOVE_STYLE   = TextStyle(foreground="ansired")
+PATCH_ERROR_STYLE    = TextStyle(foreground="ansimagenta", bold=True)
 PATCH_ACTIVITY_STYLE = TextStyle(foreground="ansicyan", bold=True)
 
-_DARK_TRUECOLOR_ADD_BG = "#213A2B"
-_DARK_TRUECOLOR_REMOVE_BG = "#4A221D"
-_LIGHT_TRUECOLOR_ADD_BG = "#DAFBE1"
-_LIGHT_TRUECOLOR_REMOVE_BG = "#FFEBE9"
-_LIGHT_TRUECOLOR_ADD_GUTTER_BG = "#ACEEBB"
+_DARK_TRUECOLOR_ADD_BG            = "#213A2B"
+_DARK_TRUECOLOR_REMOVE_BG         = "#4A221D"
+_LIGHT_TRUECOLOR_ADD_BG           = "#DAFBE1"
+_LIGHT_TRUECOLOR_REMOVE_BG        = "#FFEBE9"
+_LIGHT_TRUECOLOR_ADD_GUTTER_BG    = "#ACEEBB"
 _LIGHT_TRUECOLOR_REMOVE_GUTTER_BG = "#FFCECB"
-_LIGHT_TRUECOLOR_GUTTER_FG = "#1F2328"
+_LIGHT_TRUECOLOR_GUTTER_FG        = "#1F2328"
 
-# prompt_toolkit 将这些 RGB 值在 ANSI-256 输出下精确量化回 Codex 的索引。
-_DARK_ANSI256_ADD_BG = "#005F00"  # 22
-_DARK_ANSI256_REMOVE_BG = "#5F0000"  # 52
-_LIGHT_ANSI256_ADD_BG = "#D7FFD7"  # 194
-_LIGHT_ANSI256_REMOVE_BG = "#FFD7D7"  # 224
-_LIGHT_ANSI256_ADD_GUTTER_BG = "#AFFFAF"  # 157
+# prompt_toolkit 将这些 RGB 值在 ANSI-256 输出下精确量化。
+_DARK_ANSI256_ADD_BG            = "#005F00"  # 22
+_DARK_ANSI256_REMOVE_BG         = "#5F0000"  # 52
+_LIGHT_ANSI256_ADD_BG           = "#D7FFD7"  # 194
+_LIGHT_ANSI256_REMOVE_BG        = "#FFD7D7"  # 224
+_LIGHT_ANSI256_ADD_GUTTER_BG    = "#AFFFAF"  # 157
 _LIGHT_ANSI256_REMOVE_GUTTER_BG = "#FFAFAF"  # 217
-_LIGHT_ANSI256_GUTTER_FG = "#303030"  # 236
+_LIGHT_ANSI256_GUTTER_FG        = "#303030"  # 236
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,13 +65,12 @@ def render_patch_view(
     *,
     terminal_width: int | None = None,
     measure_width: typing.Callable[[str], int] | None = None,
-    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> StyledBlock:
-    """把结构化补丁视图转换为 Codex 风格展示块。"""
+    """把结构化补丁视图转换为终端展示块。"""
     palette = _diff_palette(terminal_capabilities)
     if view.phase == "failed":
         spans = _failure_spans(
-            view,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
@@ -101,12 +100,13 @@ def _success_spans(
     *,
     palette: _DiffPalette,
     terminal_width: int | None,
-    measure_width: typing.Callable[[str], int] | None,
+    measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
     """生成成功或执行中补丁的完整标题和差异正文。"""
-    files = sorted(view.files, key=_file_sort_path)
-    added = sum(file.added for file in files)
+    files   = sorted(view.files, key=_file_sort_path)
+    added   = sum(file.added for file in files)
     removed = sum(file.removed for file in files)
+
     bullet_style = PATCH_ACTIVITY_STYLE if view.phase == "applying" else PATCH_MUTED_STYLE
 
     if len(files) == 1:
@@ -163,7 +163,7 @@ def _file_line_spans(
     *,
     palette: _DiffPalette,
     terminal_width: int | None,
-    measure_width: typing.Callable[[str], int] | None,
+    measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
     """生成单个文件中全部带行号的差异行。"""
     lines = [line for hunk in file.hunks for line in hunk.lines]
@@ -173,9 +173,12 @@ def _file_line_spans(
         (line.new_line if line.kind != "remove" else line.old_line) or 0
         for line in lines
     )
+
     number_width = max(1, len(str(max_line)))
-    syntax_path = file.new_path or file.old_path
+    syntax_path  = file.new_path or file.old_path
+
     spans: list[TextSpan] = []
+
     for hunk_index, hunk in enumerate(file.hunks):
         syntax_lines = highlight_code_lines(
             "\n".join(line.text for line in hunk.lines),
@@ -212,23 +215,27 @@ def _diff_line_spans(
     palette: _DiffPalette,
     number_width: int,
     terminal_width: int | None,
-    measure_width: typing.Callable[[str], int] | None,
+    measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
     """生成一行差异及其不伪造行号的续行。"""
     number = line.old_line if line.kind == "remove" else line.new_line
     marker = "-" if line.kind == "remove" else "+" if line.kind == "add" else " "
+
     line_background = _line_background(line, palette)
-    gutter_style = _gutter_style(line, palette, line_background=line_background)
-    sign_style = _sign_style(line, palette, line_background=line_background)
-    content_style = _content_style(line, palette, line_background=line_background)
-    content = str(line.text or "").replace("\t", "    ")
+    gutter_style    = _gutter_style(line, palette, line_background=line_background)
+    sign_style      = _sign_style(line, line_background=line_background)
+    content_style   = _content_style(line, palette, line_background=line_background)
+    content         = str(line.text or "").replace("\t", "    ")
+
     content_spans = (
         [_syntax_span(span, line=line, background=line_background) for span in syntax_spans]
         if syntax_spans is not None
         else [TextSpan(content, content_style)]
     )
-    first_prefix = f"    {str(number or ''):>{number_width}} {marker}"
+
+    first_prefix        = f"    {str(number or ''):>{number_width}} {marker}"
     continuation_prefix = f"    {'':>{number_width}}  "
+
     wrapped = wrap_styled_lines(
         content_spans,
         terminal_width=terminal_width or 1_000_000,
@@ -253,13 +260,12 @@ def _diff_line_spans(
 
 
 def _failure_spans(
-    view: PatchView,
     *,
     terminal_width: int | None,
-    measure_width: typing.Callable[[str], int] | None,
+    measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
-    """生成失败标题和按字段分组的诊断正文。"""
-    spans = _wrapped_row(
+    """生成补丁失败标题。"""
+    return _wrapped_row(
         [
             TextSpan("✘ ", PATCH_ERROR_STYLE),
             TextSpan("Failed to apply patch", PATCH_ERROR_STYLE),
@@ -268,20 +274,6 @@ def _failure_spans(
         continuation_prefix="  ",
         measure_width=measure_width,
     )
-    for diagnostic in view.diagnostics:
-        for index, value in enumerate(diagnostic.values):
-            spans.append(TextSpan("\n"))
-            prefix = f"  {diagnostic.label}: " if index == 0 else "    "
-            spans.extend(_wrapped_row(
-                [
-                    TextSpan(prefix, PATCH_MUTED_STYLE),
-                    TextSpan(value, PATCH_REMOVE_STYLE),
-                ],
-                terminal_width=terminal_width,
-                continuation_prefix="    ",
-                measure_width=measure_width,
-            ))
-    return spans
 
 
 def _wrapped_row(
@@ -289,7 +281,7 @@ def _wrapped_row(
     *,
     terminal_width: int | None,
     continuation_prefix: str,
-    measure_width: typing.Callable[[str], int] | None,
+    measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
     """按显示宽度硬换行一个已经包含首行前缀的样式行。"""
     if terminal_width is None:
@@ -304,9 +296,10 @@ def _wrapped_row(
 
 
 def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
-    """按 Codex 的主题和色深规则选择 patch 调色板。"""
+    """按终端主题和色深选择补丁调色板。"""
     light = _is_light_color(capabilities.theme.background)
     level = capabilities.color_level
+
     if level == TerminalColorLevel.TRUECOLOR:
         return _DiffPalette(
             light=light,
@@ -351,7 +344,7 @@ def _gutter_style(
     line: PatchLineView,
     palette: _DiffPalette,
     *,
-    line_background: str | None,
+    line_background: str | None
 ) -> TextStyle:
     """返回行号区域在当前主题下的样式。"""
     if line.kind == "context" or not palette.light:
@@ -369,9 +362,8 @@ def _gutter_style(
 
 def _sign_style(
     line: PatchLineView,
-    palette: _DiffPalette,
     *,
-    line_background: str | None,
+    line_background: str | None
 ) -> TextStyle:
     """返回 diff 正负号在当前主题下的样式。"""
     if line.kind == "context":
@@ -384,7 +376,7 @@ def _content_style(
     line: PatchLineView,
     palette: _DiffPalette,
     *,
-    line_background: str | None,
+    line_background: str | None
 ) -> TextStyle:
     """返回未启用语法高亮时的 diff 正文样式。"""
     if line.kind == "context":
@@ -399,7 +391,7 @@ def _syntax_span(
     span: TextSpan,
     *,
     line: PatchLineView,
-    background: str | None,
+    background: str | None
 ) -> TextSpan:
     """把语法样式与 diff 行背景和删除弱化语义组合。"""
     style = replace(
@@ -432,7 +424,7 @@ def _line_fill_styles(spans: list[TextSpan]) -> tuple[TextStyle | None, ...]:
 
 
 def _is_light_color(color: RgbColor | None) -> bool:
-    """根据 Codex 使用的相对亮度规则识别浅色终端。"""
+    """根据相对亮度识别浅色终端。"""
     if color is None:
         return False
     linear: list[float] = []
@@ -470,7 +462,7 @@ def _path_spans(file: PatchFileView) -> tuple[TextSpan, ...]:
 
 
 def _file_sort_path(file: PatchFileView) -> str:
-    """返回与 Codex 文件节点顺序一致的规范化路径。"""
+    """返回用于稳定排序的规范化路径。"""
     return (file.old_path or file.new_path).replace("\\", "/")
 
 

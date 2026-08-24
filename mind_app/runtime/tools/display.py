@@ -15,6 +15,7 @@ from .run import ToolRunResult
 
 ToolDisplayResult = ToolRunResult | PlanExecutionReport
 
+
 async def show_tool_start(
     presentation: PresentationSink,
     name: str,
@@ -23,7 +24,7 @@ async def show_tool_start(
     call_id: str = ""
 ) -> None:
     """发送普通工具开始执行的结构化展示数据。"""
-    if name == UPDATE_PLAN_TOOL:
+    if name in {UPDATE_PLAN_TOOL, "write_stdin"}:
         return None
 
     await presentation.emit(

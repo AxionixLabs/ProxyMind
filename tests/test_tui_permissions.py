@@ -13,6 +13,7 @@ from mind_app.tui.core.models import (
     STANDARD_MENU_FOOTER_HINT,
 )
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.features import permissions as permissions_feature
 from mind_app.tui.features.permissions import (
     choose_permissions_mode,
     render_permissions_status,
@@ -21,7 +22,10 @@ from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
-async def test_permissions_menu_uses_primary_selection_contract() -> None:
+async def test_permissions_menu_uses_primary_selection_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(permissions_feature.sys, "platform", "win32")
     runtime = SimpleNamespace(
         select_menu=AsyncMock(return_value="ask-for-approval"),
     )
@@ -41,7 +45,12 @@ async def test_permissions_menu_uses_primary_selection_contract() -> None:
         request.description_layout
         is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
     )
-    assert not any(option.is_current for option in request.options)
+    assert [option.is_current for option in request.options] == [
+        False,
+        True,
+        False,
+        False,
+    ]
     assert [option.label for option in request.options] == [
         "Read Only",
         "Ask for approval",
@@ -51,7 +60,38 @@ async def test_permissions_menu_uses_primary_selection_contract() -> None:
 
 
 @pytest.mark.anyio
-async def test_permissions_menu_applies_non_full_modes_without_confirmation() -> None:
+async def test_permissions_menu_hides_read_only_on_non_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(permissions_feature.sys, "platform", "linux")
+    runtime = SimpleNamespace(
+        select_menu=AsyncMock(return_value="ask-for-approval"),
+    )
+
+    selected = await choose_permissions_mode(
+        runtime,
+        preset_permissions("auto"),
+    )
+
+    request = runtime.select_menu.await_args.args[0]
+    assert selected == preset_permissions("auto")
+    assert [option.value for option in request.options] == [
+        "ask-for-approval",
+        "approve-for-me",
+        "full-access",
+    ]
+    assert [option.label for option in request.options] == [
+        "Ask for approval",
+        "Approve for me",
+        "Full Access",
+    ]
+
+
+@pytest.mark.anyio
+async def test_permissions_menu_applies_non_full_modes_without_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(permissions_feature.sys, "platform", "win32")
     runtime = TuiRuntime()
     task = asyncio.create_task(
         choose_permissions_mode(runtime, preset_permissions("read-only")),
@@ -67,7 +107,10 @@ async def test_permissions_menu_applies_non_full_modes_without_confirmation() ->
 
 
 @pytest.mark.anyio
-async def test_full_access_opens_confirmation_child_and_applies_mode() -> None:
+async def test_full_access_opens_confirmation_child_and_applies_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(permissions_feature.sys, "platform", "win32")
     runtime = TuiRuntime()
     task = asyncio.create_task(
         choose_permissions_mode(runtime, preset_permissions("read-only")),
@@ -104,7 +147,10 @@ async def test_full_access_opens_confirmation_child_and_applies_mode() -> None:
 
 
 @pytest.mark.anyio
-async def test_permissions_confirmation_escape_returns_to_root() -> None:
+async def test_permissions_confirmation_escape_returns_to_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(permissions_feature.sys, "platform", "win32")
     runtime = TuiRuntime()
     task = asyncio.create_task(
         choose_permissions_mode(runtime, preset_permissions("read-only")),

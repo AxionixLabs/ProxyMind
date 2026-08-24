@@ -68,10 +68,6 @@ class TextStream(typing.Protocol):
         """刷新已写入内容。"""
         ...
 
-    def isatty(self) -> bool:
-        """返回当前流是否连接交互终端。"""
-        ...
-
 
 def _line(value: typing.Any) -> str:
     """把值转换为单行文本。"""
@@ -80,10 +76,9 @@ def _line(value: typing.Any) -> str:
 
 def _write(stream: TextStream, text: str) -> None:
     """写入并刷新一个文本块。"""
-    if not text:
-        return None
-    stream.write(text)
-    stream.flush()
+    if text:
+        stream.write(text)
+        stream.flush()
 
 
 def _terminal_text(value: typing.Any) -> str:
@@ -102,7 +97,7 @@ def _styled_text(text: str, style: str) -> str:
     return f"{style}{body}{ANSI_RESET}{trailing}"
 
 
-def _supports_color(stream: TextStream) -> bool:
+def _supports_color(stream: typing.TextIO) -> bool:
     """判断输出流是否适合写入 ANSI 样式。"""
     if "NO_COLOR" in os.environ:
         return False
@@ -127,14 +122,19 @@ def _tool_output(data: typing.Any) -> str:
     payload  = _payload(data)
     combined = payload.get("output")
 
-    if combined is not None and str(combined):
-        return str(combined).rstrip("\n")
+    if combined is not None:
+        combined_text = _line(combined).rstrip("\n")
+        if combined_text:
+            return combined_text
 
-    values = [
-        str(payload[key]).rstrip("\n")
-        for key in ("stdout", "stderr")
-        if payload.get(key) is not None and str(payload[key])
-    ]
+    values: list[str] = []
+    for key in ("stdout", "stderr"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        text = _line(value).rstrip("\n")
+        if text:
+            values.append(text)
 
     return "\n".join(values)
 
@@ -178,6 +178,7 @@ class TextOutputState:
         )
         _write(self.stderr, visible)
         self.record_writer.write(plain, block=True)
+        return None
 
     def hook(self, event: str, *, status: str | None = None) -> None:
         """输出命令执行形态的 Hook 生命周期。"""
@@ -196,20 +197,20 @@ class TextOutputState:
 
         _write(self.stderr, visible)
         self.record_writer.write(plain, block=True)
+        return None
 
     def warning(self, message: str) -> None:
         """输出命令执行形态的运行时告警。"""
         text = _line(message)
-        if not text:
-            return None
-        plain = f"warning: {text}\n"
-        visible = (
-            f"{ANSI_WARNING}warning:{ANSI_RESET} {text}\n"
-            if self.color
-            else plain
-        )
-        _write(self.stderr, visible)
-        self.record_writer.write(plain, block=True)
+        if text:
+            plain = f"warning: {text}\n"
+            visible = (
+                f"{ANSI_WARNING}warning:{ANSI_RESET} {text}\n"
+                if self.color
+                else plain
+            )
+            _write(self.stderr, visible)
+            self.record_writer.write(plain, block=True)
 
     def metadata(self, label: str, value: typing.Any) -> None:
         """输出一行带高亮字段名的启动元数据。"""
@@ -220,14 +221,13 @@ class TextOutputState:
         """输出 assistant 正文。"""
         plain = _terminal_text(text)
 
-        if not plain:
-            return None
-        if not self.assistant_open:
-            self.process(f"{const.APP_DESC.lower()}\n", style=ANSI_MAGENTA)
-            self.assistant_open = True
+        if plain:
+            if not self.assistant_open:
+                self.process(f"{const.APP_DESC.lower()}\n", style=ANSI_MAGENTA)
+                self.assistant_open = True
 
-        _write(self.stdout, plain)
-        self.record_writer.write(plain)
+            _write(self.stdout, plain)
+            self.record_writer.write(plain)
 
     def append_assistant(self, text: str) -> None:
         """追加一段 assistant 正文。"""
@@ -236,21 +236,19 @@ class TextOutputState:
 
     def flush_assistant(self) -> None:
         """一次输出当前 assistant 增量。"""
-        if not self._assistant_parts:
-            return None
-        text = "".join(self._assistant_parts)
-        self._assistant_parts.clear()
-        self.assistant(text)
+        if self._assistant_parts:
+            text = "".join(self._assistant_parts)
+            self._assistant_parts.clear()
+            self.assistant(text)
 
     def settle_assistant(self) -> None:
         """结束一段 assistant 正文。"""
         self.flush_assistant()
-        if not self.assistant_open:
-            return None
-        if self.record_writer.trailing_newlines < 1:
-            _write(self.stdout, "\n")
-            self.record_writer.write("\n")
-        self.assistant_open = False
+        if self.assistant_open:
+            if self.record_writer.trailing_newlines < 1:
+                _write(self.stdout, "\n")
+                self.record_writer.write("\n")
+            self.assistant_open = False
 
 
 class TextOutputControl(OutputControlPort, OutputStatusPort):
@@ -271,30 +269,35 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         self.state.settle_assistant()
 
         tool = _tool_name(name)
-        args = arguments if isinstance(arguments, dict) else {}
-
-        if tool in {"shell_command", "exec_command", "write_stdin"}:
-            command = _line(args.get("command") or args.get("cmd") or tool)
-            cwd     = _line(args.get("cwd") or ".")
-
-            self.state.process("exec", style=ANSI_CYAN)
-            self.state.process(f"\n{command} in {cwd}\n")
-
-        elif tool == "js_repl":
-            code = sanitize_terminal_text(args.get("code") or "").strip("\n")
-            self.state.process("JavaScript", style=ANSI_CYAN)
-            self.state.process(f"\n{code}\n" if code else "\n")
-
-        else:
-            self.state.process(tool, style=ANSI_CYAN)
-            self.state.process("\n")
-
         safe_call_id = sanitize_terminal_line(call_id)
+        if tool == "write_stdin":
+            if safe_call_id:
+                self.state.record_writer.write_audit(
+                    f"tool {tool} call_id={safe_call_id}"
+                )
+        else:
+            args = arguments if isinstance(arguments, dict) else {}
 
-        if safe_call_id:
-            self.state.record_writer.write_audit(
-                f"tool {tool} call_id={safe_call_id}"
-            )
+            if tool in {"shell_command", "exec_command"}:
+                command = _line(args.get("command") or args.get("cmd") or tool)
+                cwd     = _line(args.get("cwd") or ".")
+
+                self.state.process("exec", style=ANSI_CYAN)
+                self.state.process(f"\n{command} in {cwd}\n")
+
+            elif tool == "js_repl":
+                code = sanitize_terminal_text(args.get("code") or "").strip("\n")
+                self.state.process("JavaScript", style=ANSI_CYAN)
+                self.state.process(f"\n{code}\n" if code else "\n")
+
+            else:
+                self.state.process(tool, style=ANSI_CYAN)
+                self.state.process("\n")
+
+            if safe_call_id:
+                self.state.record_writer.write_audit(
+                    f"tool {tool} call_id={safe_call_id}"
+                )
 
     def flush(self) -> None:
         """刷新文本记录。"""
@@ -383,27 +386,36 @@ class TextPresentationSink(PresentationSink):
             label = "completed" if view.ok else "failed"
             self.state.process(f"patch: {label}\n")
             for item in data.get("files", []) if isinstance(data.get("files"), list) else []:
-                if isinstance(item, dict) and item.get("path"):
-                    self.state.process(f"{item.get('path')}\n")
-            return None
-
-        elapsed = max(0, int(view.cost_ms or 0))
-        if view.ok:
-            status = f" succeeded in {elapsed}ms:"
+                path = _line(item.get("path")) if isinstance(item, dict) else ""
+                if path:
+                    self.state.process(f"{path}\n")
         else:
-            exit_code = data.get("exit_code")
+            result_prefix = ""
+            if view.name == "write_stdin":
+                payload_session_id = _line(data.get("session_id"))
+                argument_session_id = _line(view.arguments.get("session_id"))
+                session_id = payload_session_id or argument_session_id
+                suffix = f" {session_id}" if session_id else ""
+                result_prefix = f"Wrote stdin{suffix}"
 
-            status = (
-                f" exited {exit_code} in {elapsed}ms:"
-                if exit_code is not None
-                else f" failed in {elapsed}ms:"
-            )
+            elapsed = max(0, int(view.cost_ms or 0))
+            if view.ok:
+                status = f"{result_prefix} succeeded in {elapsed}ms:"
+            else:
+                exit_code = data.get("exit_code")
+                exit_code_text = _line(exit_code) if exit_code is not None else ""
 
-        self.state.process(status + "\n")
+                status = (
+                    f"{result_prefix} exited {exit_code_text} in {elapsed}ms:"
+                    if exit_code_text
+                    else f"{result_prefix} failed in {elapsed}ms:"
+                )
 
-        output = _tool_output(data)
-        if output:
-            self.state.process(output + "\n")
+            self.state.process(status + "\n")
+
+            output = _tool_output(data)
+            if output:
+                self.state.process(output + "\n")
 
     async def emit(self, view: PresentationView) -> None:
         """输出一项结构化展示。"""

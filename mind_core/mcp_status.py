@@ -35,7 +35,7 @@ def inbuild_status_view(snapshot: dict[str, typing.Any]) -> McpStatusView:
     if state == "failed":
         detail = str(snapshot.get("error") or snapshot.get("detail") or "").strip()
         details = (
-            (McpStatusDetail(f"└ {detail}", "failed"),)
+            (McpStatusDetail(f"  └ {detail}", "failed"),)
             if detail
             else ()
         )
@@ -188,8 +188,8 @@ def _item_text(item: dict[str, typing.Any]) -> str:
 def _detail_connector(index: int, count: int) -> str:
     """返回详情行使用的树形连接符。"""
     if count <= 1:
-        return "└ "
-    return "└─ " if index >= count - 1 else "├─ "
+        return "  └ "
+    return "  └ " if index >= count - 1 else "  ├ "
 
 
 if __name__ == '__main__':

@@ -308,10 +308,13 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
         self.state.flush_assistant()
 
         tool    = str(name or "tool")
+        if tool.strip() == "write_stdin":
+            return None
+
         args    = dict(arguments) if isinstance(arguments, dict) else {}
         item_id = self.state.item_id(str(call_id or ""))
 
-        if tool in {"shell_command", "exec_command", "write_stdin"}:
+        if tool in {"shell_command", "exec_command"}:
             item = {
                 "id": item_id,
                 "type": "command_execution",

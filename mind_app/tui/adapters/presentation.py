@@ -100,8 +100,13 @@ def _with_transcript_hint(
     for index, span in enumerate(block.spans):
         text = _OMITTED_LINES_PATTERN.sub(
             lambda match: (
-                f"{match.group(1)}"
-                f"{transcript_hint(match.group(1), key_label, terminal_width)}"
+                match.group(1)
+                + transcript_hint(
+                    match.group(1),
+                    key_label,
+                    terminal_width,
+                    prefix="    ",
+                )
             ),
             span.text,
         )
@@ -117,7 +122,12 @@ def _with_transcript_hint(
                 f"{block.spans[index - 1].text}"
                 f"{span.text}"
             )
-            text = f"{text}{transcript_hint(marker, key_label, terminal_width)}"
+            text = text + transcript_hint(
+                marker,
+                key_label,
+                terminal_width,
+                prefix="    ",
+            )
         spans.append(TextSpan(text, span.style, span.hyperlink))
 
     rendered_spans = tuple(spans)

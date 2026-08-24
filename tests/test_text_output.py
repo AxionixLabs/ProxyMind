@@ -29,6 +29,7 @@ from mind_app.presentation.models import (
     GenericToolResultView,
     HookOutputView,
     HookRunView,
+    NativeToolResultView,
     ProgressView,
     TracePreview,
 )
@@ -204,6 +205,10 @@ def test_text_tool_labels_are_colored_without_mcp_prefix_or_color_leak() -> None
         "exec_command",
         {"command": "pytest -q", "cwd": "D:/workspace"},
     )
+    control.record_tool_arguments(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "\n"},
+    )
 
     assert stderr.getvalue() == (
         f"{ANSI_CYAN}mcp__docs__search{ANSI_RESET}\n"
@@ -215,6 +220,37 @@ def test_text_tool_labels_are_colored_without_mcp_prefix_or_color_leak() -> None
         "mcp__docs__search\n"
         "exec\n"
         "pytest -q in D:/workspace\n"
+    )
+
+
+@pytest.mark.anyio
+async def test_text_write_stdin_only_emits_completed_result() -> None:
+    stderr = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=False,
+    )
+    control = TextOutputControl(state)
+    sink = TextPresentationSink(state)
+
+    control.record_tool_arguments(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "\n"},
+    )
+    await sink.emit(NativeToolResultView(
+        name="write_stdin",
+        arguments={"session_id": "session-1", "stdin": "\n"},
+        ok=True,
+        data={"session_id": "session-1", "output": "ready"},
+        cost_ms=3,
+        entries=(),
+    ))
+
+    assert stderr.getvalue() == (
+        "Wrote stdin session-1 succeeded in 3ms:\n"
+        "ready\n"
     )
 
 

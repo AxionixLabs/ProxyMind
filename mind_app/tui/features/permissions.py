@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import sys
 import typing
 from mind_core.permissions import (
     PermissionSettings,
@@ -141,33 +142,68 @@ def _queue_permission_confirmation(
     )
 
 
+def _permission_menu_value(value: typing.Any) -> PermissionMenuValue | None:
+    """验证菜单返回值是否为权限预设标识。"""
+    if value == "read-only":
+        return "read-only"
+    if value == "auto":
+        return "auto"
+    if value == "ask-for-approval":
+        return "ask-for-approval"
+    if value == "approve-for-me":
+        return "approve-for-me"
+    if value == "full-access":
+        return "full-access"
+    return None
+
+
 async def choose_permissions_mode(
     runtime: "TuiRuntime",
     current: PermissionSettings
 ) -> PermissionSettings | None:
     """在主 TUI 中选择权限模式。"""
+    include_read_only = sys.platform == "win32"
+    menu_options: list[tuple[PermissionMenuValue, str, str]] = []
+    for option in PERMISSION_OPTIONS:
+        if include_read_only or option[0] != "read-only":
+            menu_options.append(option)
+
     def option_for(
-        value: PermissionMenuValue,
-        label: str,
-        detail: str
+        menu_value: PermissionMenuValue,
+        option_label: str,
+        option_detail: str
     ) -> MenuOption:
         """生成权限预设列表项及其必要的确认导航动作。"""
-        settings = _permission_settings(value)
+        settings = _permission_settings(menu_value)
 
-        requires_confirmation = value == "full-access"
+        requires_confirmation = menu_value == "full-access"
+
+        def open_confirmation() -> None:
+            """打开 Full Access 的二次确认菜单。"""
+            _queue_permission_confirmation(runtime, settings)
 
         return MenuOption(
-            value=value,
-            label=label,
-            detail=detail,
+            value=menu_value,
+            label=option_label,
+            detail=option_detail,
             on_select=(
-                lambda: _queue_permission_confirmation(runtime, settings)
-                if requires_confirmation
-                else None
+                open_confirmation if requires_confirmation else None
             ),
             dismiss_on_select=not requires_confirmation,
             dismiss_parent_on_child_accept=requires_confirmation,
+            is_current=settings == current,
         )
+
+    options: list[MenuOption] = []
+    selected_index: int       = 0
+
+    for raw_value, label, detail in menu_options:
+        value = _permission_menu_value(raw_value)
+        if value is None:
+            continue
+        options.append(option_for(value, label, detail))
+        if _permission_settings(value) == current:
+            selected_index = len(options) - 1
 
     selected = await runtime.select_menu(MenuRequest(
         title=f"Update Model Permissions · {permission_label(current)}",
@@ -177,18 +213,8 @@ async def choose_permissions_mode(
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
-        options=tuple(
-            option_for(value, label, detail)
-            for value, label, detail in PERMISSION_OPTIONS
-        ),
-        selected=next(
-            (
-                index
-                for index, (value, _label, _detail) in enumerate(PERMISSION_OPTIONS)
-                if _permission_settings(value) == current
-            ),
-            0,
-        ),
+        options=tuple(options),
+        selected=selected_index,
     ))
 
     if selected is None:
@@ -196,7 +222,10 @@ async def choose_permissions_mode(
     if isinstance(selected, PermissionSettings):
         return selected
 
-    return _permission_settings(typing.cast(PermissionMenuValue, selected))
+    selected_value = _permission_menu_value(selected)
+    if selected_value is None:
+        return None
+    return _permission_settings(selected_value)
 
 
 def render_permissions_status(

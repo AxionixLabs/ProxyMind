@@ -18,6 +18,8 @@ from mind_app.presentation.renderers.tool import (
     render_native_tool_result_view,
     render_tool_start_view,
 )
+from mind_app.presentation.renderers.hook import render_hook_run_view
+from mind_app.presentation.models import HookOutputView, HookRunView
 from mind_app.presentation.renderers.patch import (
     PATCH_ADD_STYLE,
     PATCH_ACTIVITY_STYLE,
@@ -109,7 +111,7 @@ def _shell_display_title(block, *, preview: bool) -> str:
     text = _rendered_text(block)
     if not preview:
         return text
-    title, separator, _preview = text.partition("\n└ ")
+    title, separator, _preview = text.partition("\n  └ ")
     assert separator
     return title
 
@@ -191,6 +193,18 @@ def test_tool_start_uses_calling_copy_and_pending_colors() -> None:
     assert _span_style(block, "Function Calling").bold
 
 
+def test_write_stdin_has_no_start_display() -> None:
+    view = build_tool_start_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "\n"},
+    )
+
+    assert view.title == ""
+    assert render_tool_start_view(view).plain_text == ""
+    assert render_presentation_transcript_view(view)[0].plain_text == ""
+    assert render_presentation_raw_view(view) == ("",)
+
+
 def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
     arguments = {"command": "echo ready"}
     start = render_tool_start_view(build_tool_start_view(
@@ -210,6 +224,48 @@ def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
     assert "".join(span.text for span in start.spans) == "• Running echo ready"
     assert _span_style(start, "Running") == ACTION_RUN_STYLE
     assert result.plain_text.startswith("• Ran echo ready\n")
+
+
+def test_shell_result_aligns_following_output_lines_under_preview() -> None:
+    view = build_native_tool_result_view(
+        "shell_command",
+        {"command": "adb devices"},
+        ok=True,
+        data={
+            "command": "adb devices",
+            "output_lines": [
+                "* daemon not running; starting now at tcp:5037",
+                "* daemon started successfully",
+                "List of devices attached",
+            ],
+        },
+    )
+
+    assert render_native_tool_result_view(view)[0].plain_text == (
+        "• Ran adb devices\n"
+        "  └ * daemon not running; starting now at tcp:5037\n"
+        "    * daemon started successfully\n"
+        "    List of devices attached"
+    )
+
+
+def test_hook_result_uses_shell_aligned_tree_continuations() -> None:
+    block = render_hook_run_view(HookRunView(
+        id="hook-1",
+        hook_key="project:hook",
+        event="PreToolUse",
+        phase="completed",
+        status="completed",
+        duration_ms=25,
+        entries=(HookOutputView("context", "first line\nsecond line"),),
+    ))
+
+    assert block.plain_text == (
+        "• Ran PreToolUse hook\n"
+        "  └ completed · 25ms\n"
+        "    hook context: first line\n"
+        "    second line"
+    )
 
 
 def _patch_delta(*changes):
@@ -390,7 +446,7 @@ def test_patch_long_lines_use_display_width_and_empty_continuation_gutter(
     assert all("1 +" not in item for item in lines[2:])
 
 
-def test_patch_failure_renders_only_structured_diagnostics() -> None:
+def test_patch_failure_matches_codex_title_only() -> None:
     patch = "*** Begin Patch\n*** Update File: sample.py\n@@\n-old\n+new\n*** End Patch"
     view = build_native_tool_result_view(
         "apply_patch",
@@ -409,16 +465,10 @@ def test_patch_failure_renders_only_structured_diagnostics() -> None:
     )
     block = render_presentation_view(view, terminal_width=80)[0]
 
-    assert block.plain_text == (
-        "✘ Failed to apply patch\n"
-        "  reason: patch_context_mismatch\n"
-        "  file: sample.py\n"
-        "  hunk: @@ -10 +10 @@\n"
-        "  line: 12\n"
-        "  expected: old\n"
-        "  actual: other"
-    )
-    assert "ignored" not in block.plain_text
+    assert block.plain_text == "✘ Failed to apply patch"
+    assert "patch_context_mismatch" not in block.plain_text
+    assert "sample.py" not in block.plain_text
+    assert "other" not in block.plain_text
     assert _containing_span_style(block, "✘ ") == PATCH_ERROR_STYLE
 
 
@@ -909,7 +959,7 @@ def test_shell_preview_lines_use_terminal_display_width(
     display_lines = _rendered_text(block).splitlines()
 
     assert len(display_lines) == 2
-    assert display_lines[1].startswith("└ ")
+    assert display_lines[1].startswith("  └ ")
     assert all(get_cwidth(line) <= width for line in display_lines)
     assert output_line in render_presentation_transcript_view(view)[0].plain_text
     assert output_line in render_presentation_raw_view(view)[0]
@@ -963,7 +1013,7 @@ def test_view_image_result_uses_single_viewed_block(
     view = build_generic_tool_result_view("view_image", result_text, ok=ok)
     block = render_generic_tool_result_view(view)
 
-    assert block.plain_text == f"• Viewed\n└ {detail}"
+    assert block.plain_text == f"• Viewed\n  └ {detail}"
     assert _span_style(block, "•") == dot_style
     assert render_presentation_transcript_view(view)[0].plain_text == (
         f"• Viewed\n{detail}"
@@ -1153,7 +1203,7 @@ def test_js_repl_renders_source_then_result_as_two_card_states() -> None:
     assert "Start-Process" not in result_block.plain_text
     assert "JavaScript cell completed." in result_block.plain_text
     assert completed.plain_text.count("• JavaScript") == 1
-    assert "\n└ JavaScript cell completed." in completed.plain_text
+    assert "\n  └ JavaScript cell completed." in completed.plain_text
     assert completed_transcript.plain_text == (
         "• JavaScript\nJavaScript cell completed."
     )
@@ -1201,7 +1251,7 @@ def test_js_repl_result_preview_uses_terminal_width(terminal_width: int) -> None
     )[0]
     rendered = "".join(span.text for span in block.spans)
 
-    assert rendered.startswith("• JavaScript\n└ ")
+    assert rendered.startswith("• JavaScript\n  └ ")
     assert "result-" in rendered
     assert all(
         get_cwidth(line) <= terminal_width

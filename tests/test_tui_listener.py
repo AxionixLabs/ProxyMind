@@ -402,7 +402,7 @@ def test_listener_failure_and_interruption_do_not_echo_command() -> None:
 
     assert failure_text == (
         "■ Listener failed\n"
-        "└ RuntimeError: connection failed"
+        "  └ RuntimeError: connection failed"
     )
     assert interrupted_text == "• Listener · start interrupted"
     assert "/listen" not in failure_text
@@ -479,7 +479,7 @@ async def test_listener_start_failure_replaces_spinner_with_error() -> None:
     transcript = fragments_text(runtime.document.fragments(width=80))
     assert runtime.screen.activity_block is None
     assert "■ Listener failed" in transcript
-    assert "└ RuntimeError: connection failed" in transcript
+    assert "  └ RuntimeError: connection failed" in transcript
 
 
 @pytest.mark.anyio
@@ -502,7 +502,7 @@ async def test_listener_ready_timeout_stops_transport_and_reports_failure() -> N
     assert not listener.is_running()
     assert runtime.screen.activity_block is None
     assert "■ Listener failed" in transcript
-    assert "└ TimeoutError: listener was not ready within 30s" in transcript
+    assert "  └ TimeoutError: listener was not ready within 30s" in transcript
 
 
 @pytest.mark.anyio

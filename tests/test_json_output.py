@@ -15,6 +15,7 @@ from mind_app.output.content import (
 from mind_app.output.jsonl import (
     JsonContentSink,
     JsonPresentationSink,
+    JsonOutputControl,
     JsonOutputState,
 )
 from mind_app.presentation.models import (
@@ -88,6 +89,20 @@ async def test_json_output_initializes_and_flushes_assistant_state() -> None:
         key: event["item"][key]
         for key in ("turn_id", "presentation_epoch", "round", "attempt")
     } == _identity().as_dict()
+
+
+def test_json_output_omits_write_stdin_start_event() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    control = JsonOutputControl(state)
+
+    control.record_tool_arguments(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "\n"},
+        call_id="stdin-call",
+    )
+
+    assert stdout.getvalue() == ""
 
 
 @pytest.mark.anyio

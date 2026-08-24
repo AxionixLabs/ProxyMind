@@ -57,9 +57,17 @@ def _result_files(payload: dict[str, typing.Any]) -> tuple[dict[str, typing.Any]
     values = payload.get("files")
     if not isinstance(values, list):
         raise ValueError("successful apply_patch result requires data.files")
-    if any(not isinstance(value, dict) for value in values):
-        raise TypeError("apply_patch result files must contain objects")
-    return tuple(dict(value) for value in values)
+    normalized: list[dict[str, typing.Any]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            raise TypeError("apply_patch result files must contain objects")
+        file_summary: dict[str, typing.Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("apply_patch result file fields must use string keys")
+            file_summary[key] = item
+        normalized.append(file_summary)
+    return tuple(normalized)
 
 
 def _files_from_delta(payload: dict[str, typing.Any]) -> tuple[PatchFileView, ...]:
@@ -141,7 +149,7 @@ def _updated_content_hunks(
     old_content: str | None,
     new_content: str | None
 ) -> tuple[PatchHunkView, ...]:
-    """按 Codex 使用的三行上下文生成结构化差异块。"""
+    """按三行上下文生成结构化差异块。"""
     old_lines = str(old_content or "").splitlines()
     new_lines = str(new_content or "").splitlines()
 
@@ -303,7 +311,10 @@ def _diagnostic_values(
         if nearby and isinstance(item, dict):
             number = item.get("line")
             text = str(item.get("text") or "")
-            normalized.append(f"{number}: {text}" if number is not None else text)
+            if number is not None:
+                normalized.append(f"{str(number)}: {text}")
+            else:
+                normalized.append(text)
         else:
             normalized.append(str(item))
     return tuple(text for text in normalized if text)

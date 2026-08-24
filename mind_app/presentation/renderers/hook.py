@@ -43,7 +43,7 @@ def _render_started(view: HookRunView) -> StyledBlock:
 
 def _render_completed(view: HookRunView) -> StyledBlock:
     """生成 Hook 完成展示块。"""
-    title = f"{view.event} hook"
+    title = f"Ran {view.event} hook"
     if view.status_message:
         title = f"{title}: {view.status_message}"
 
@@ -57,7 +57,7 @@ def _render_completed(view: HookRunView) -> StyledBlock:
     spans = [
         TextSpan("•", bullet_style),
         TextSpan(f" {title}\n", TITLE_STYLE),
-        TextSpan(f"└ {view.status}", _MUTED_STYLE),
+        TextSpan(f"  └ {view.status}", _MUTED_STYLE),
     ]
     if view.duration_ms is not None:
         spans.append(TextSpan(
@@ -84,7 +84,7 @@ def _entry_spans(entry: HookOutputView) -> list[TextSpan]:
 
     source = entry.text.split("\n")
     first  = source[0] if source else ""
-    text   = f"  {prefix}{first}"
+    text   = f"    {prefix}{first}"
 
     if len(source) > 1:
         text += "\n" + "\n".join(

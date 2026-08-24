@@ -384,10 +384,7 @@ def test_history_patch_failure_reads_current_result_envelope() -> None:
         text for _style, text in blocks[0].display_block.fragments
     )
 
-    assert display == (
-        "✘ Failed to apply patch\n"
-        "  reason: patch_context_mismatch"
-    )
+    assert display == "✘ Failed to apply patch"
 
 
 def test_history_patch_failure_without_result_uses_recorded_exception() -> None:
@@ -411,7 +408,7 @@ def test_history_patch_failure_without_result_uses_recorded_exception() -> None:
         text for _style, text in blocks[0].display_block.fragments
     )
 
-    assert display == "✘ Failed to apply patch\n  error: OSError: disk full"
+    assert display == "✘ Failed to apply patch"
 
 
 def test_history_patch_result_rejects_unwrapped_payload() -> None:

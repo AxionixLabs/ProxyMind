@@ -473,7 +473,7 @@ def render_mailbox_failure(
         controller,
         summary,
         level="failed",
-        details=(McpStatusDetail(f"└ {detail}", "failed"),),
+        details=(McpStatusDetail(f"  └ {detail}", "failed"),),
     )
 
 

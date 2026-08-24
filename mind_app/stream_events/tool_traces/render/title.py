@@ -26,7 +26,6 @@ from mind_app.presentation.styles import (
 from mind_app.presentation.code_highlight import code_parts
 from ..common import _preview_text
 from .preview_error import error_preview_line_parts
-from .preview_tree import tree_preview_line_parts
 from .title_parts import title_parts
 
 
@@ -44,8 +43,7 @@ def render_tool_trace_parts(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> list[TextSpan]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
-    parts = title_parts(title, ok=ok, part=_part)
-
+    parts        = title_parts(title, ok=ok, part=_part)
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
 
     preview_text = _clip_text_preview(
@@ -60,23 +58,21 @@ def render_tool_trace_parts(
         preview_kind = preview.kind if isinstance(preview, TracePreview) else "text"
         if preview_kind == "plain":
             parts.extend([
-                _part("└ ", PREVIEW_STYLE),
-                *_plain_preview_parts(preview_text, indent_prefix="  ")
+                _part("  └ ", PREVIEW_STYLE),
+                *_plain_preview_parts(preview_text, indent_prefix="    ")
             ])
-
-        elif preview_kind in {"file_tree", "patch_tree"}:
-            parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
-
-        elif preview_kind != "tree":
+        else:
+            indent_prefix = "  " if preview_kind == "code" else "    "
             parts.extend(
                 [
-                    _part("└ ", PREVIEW_STYLE),
-                    *_preview_parts(preview_text, ok=ok, indent_prefix="  ")
+                    _part("  └ ", PREVIEW_STYLE),
+                    *_preview_parts(
+                        preview_text,
+                        ok=ok,
+                        indent_prefix=indent_prefix,
+                    )
                 ]
             )
-
-        else:
-            parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
 
     return parts
 
@@ -92,7 +88,7 @@ def _clip_text_preview(
         return preview_text
 
     width_of     = measure_width or text_display_width
-    prefix_width = max(width_of("└ "), width_of("  "))
+    prefix_width = max(width_of("  └ "), width_of("    "))
     available    = max(0, terminal_width - prefix_width)
 
     return "\n".join(
@@ -108,7 +104,7 @@ def _clip_text_preview(
 def _plain_preview_parts(
     preview_text: str,
     *,
-    indent_prefix: str = "  "
+    indent_prefix: str = "    "
 ) -> list[TextSpan]:
     """把普通输出预览渲染为统一文本样式，不做路径等结构识别。"""
     lines = str(preview_text or "").split("\n")
@@ -127,28 +123,24 @@ def _preview_parts(
     preview_text: str,
     *,
     ok: bool | None,
-    indent_prefix: str = "  "
+    indent_prefix: str = "    "
 ) -> list[TextSpan]:
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
     lines = str(preview_text or "").split("\n")
     parts: list[TextSpan] = []
 
     current_path: str = ""
-    tree_error_detail = False
 
     for index, line in enumerate(lines):
         if index:
             parts.append(_part(f"\n{indent_prefix}", PREVIEW_STYLE))
 
-        line_parts, path, tree_error_state = _preview_line_parts(
+        line_parts, path = _preview_line_parts(
             line,
             current_path=current_path,
             ok=ok,
-            tree_error_detail=tree_error_detail,
         )
 
-        if tree_error_state is not None:
-            tree_error_detail = tree_error_state
         if path:
             current_path = path
         parts.extend(line_parts)
@@ -161,22 +153,12 @@ def _preview_line_parts(
     *,
     current_path: str = "",
     ok: bool | None = True,
-    tree_error_detail: bool = False,
-) -> tuple[list[TextSpan], str, bool | None]:
+) -> tuple[list[TextSpan], str]:
     """拆分单行预览摘要。"""
-    tree_parts = tree_preview_line_parts(
-        line,
-        is_error_detail=tree_error_detail,
-        part=_part
-    )
-
-    if tree_parts is not None:
-        return tree_parts
-
     if ok is False:
         error_parts = error_preview_line_parts(line, part=_part)
         if error_parts is not None:
-            return error_parts, "", None
+            return error_parts, ""
 
     more = re.match(r"^(… \+)(\d+)( lines)$", line)
     if more:
@@ -184,34 +166,10 @@ def _preview_line_parts(
             _part(more.group(1), PREVIEW_MORE_STYLE),
             _part(more.group(2), PREVIEW_COUNT_STYLE),
             _part(more.group(3), PREVIEW_MORE_STYLE)
-        ], "", None
+        ], ""
 
     if re.match(r"^@@ .+ @@$", line):
-        return [_part(line, PREVIEW_HUNK_STYLE)], "", None
-
-    tree_file_delta = re.match(r"^(└─ )(.+?) \(\+(\d+) -(\d+)\)$", line)
-
-    if tree_file_delta and _looks_like_path(tree_file_delta.group(2)):
-        prefix, path, added, removed = tree_file_delta.groups()
-
-        return [
-            _part(prefix, PREVIEW_STYLE),
-            _part(path, PREVIEW_PATH_STYLE),
-            _part(" (", PREVIEW_STYLE),
-            _part(f"+{added}", DELTA_ADD_STYLE),
-            _part(" ", PREVIEW_STYLE),
-            _part(f"-{removed}", DELTA_REMOVE_STYLE),
-            _part(")", PREVIEW_STYLE)
-        ], path, None
-
-    tree_file = re.match(r"^(└─ )(.+)$", line)
-    if tree_file and _looks_like_path(tree_file.group(2)):
-        prefix, path = tree_file.groups()
-
-        return [
-            _part(prefix, PREVIEW_STYLE),
-            _part(path, PREVIEW_PATH_STYLE)
-        ], path, None
+        return [_part(line, PREVIEW_HUNK_STYLE)], ""
 
     code_line = re.match(r"^(\s*\d+)(\s)([ +\-])(.*)$", line)
     if code_line:
@@ -222,7 +180,7 @@ def _preview_line_parts(
             _part(sep, PREVIEW_STYLE),
             _part(marker, _diff_marker_style(marker)),
             *code_parts(code, current_path=current_path, deleted=marker == "-", part=_part)
-        ], "", None
+        ], ""
 
     file_delta = re.match(r"^(.+?) \(\+(\d+) -(\d+)\)$", line)
     if file_delta and _looks_like_path(file_delta.group(1)):
@@ -235,7 +193,7 @@ def _preview_line_parts(
             _part(" ", PREVIEW_STYLE),
             _part(f"-{removed}", DELTA_REMOVE_STYLE),
             _part(")", PREVIEW_STYLE)
-        ], path, None
+        ], path
 
     location = re.match(r"^([^:\s][^:\n]*):(\d+)(.*)$", line)
     if location:
@@ -244,7 +202,7 @@ def _preview_line_parts(
             _part(":", PREVIEW_STYLE),
             _part(location.group(2), PREVIEW_LINE_STYLE),
             _part(location.group(3), PREVIEW_TEXT_STYLE)
-        ], "", None
+        ], ""
 
     summary_entry = re.match(r"^([A-Za-z_][A-Za-z0-9_ -]*)(: )(.+)$", line)
     if summary_entry:
@@ -255,12 +213,12 @@ def _preview_line_parts(
             _part(summary_entry.group(1), PREVIEW_LINE_STYLE),
             _part(summary_entry.group(2), PREVIEW_STYLE),
             _part(value, PREVIEW_PATH_STYLE if key == "file" else PREVIEW_TEXT_STYLE)
-        ], value if key == "file" else "", None
+        ], value if key == "file" else ""
 
     if _looks_like_path(line):
-        return [_part(line, PREVIEW_PATH_STYLE)], line, None
+        return [_part(line, PREVIEW_PATH_STYLE)], line
 
-    return [_part(line, PREVIEW_TEXT_STYLE)], "", None
+    return [_part(line, PREVIEW_TEXT_STYLE)], ""
 
 
 def _looks_like_path(line: str) -> bool:

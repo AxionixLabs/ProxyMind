@@ -139,6 +139,7 @@ async def choose_model_effort(
                 value=value,
                 label=label,
                 detail=detail,
+                is_current=value == current,
             )
             for value, label, detail in MODEL_EFFORT_OPTIONS
         ),
@@ -181,6 +182,7 @@ async def choose_provider(
                 value=profile_id,
                 label=str(profile.get("name") or profile_id),
                 detail=_provider_detail(profile),
+                is_current=profile_id == active,
             )
             for profile_id, profile in profiles.items()
             if isinstance(profile, dict)

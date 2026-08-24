@@ -473,7 +473,7 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
 
     assert views[0].renderable.plain_text == (
         "■ Mailbox run failed\n"
-        "└ RuntimeError: connection closed"
+        "  └ RuntimeError: connection closed"
     )
     assert runtime.document.blocks[0].raw_text == "failing remote query"
     mailbox.finish_run.assert_called_once_with(request)

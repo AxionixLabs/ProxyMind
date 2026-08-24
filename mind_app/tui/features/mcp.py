@@ -406,7 +406,7 @@ def render_external_mcp_start_status(
             summary="External MCP failed",
             level="failed",
             done=True,
-            details=(McpStatusDetail(f"└ {detail}", "failed"),),
+            details=(McpStatusDetail(f"  └ {detail}", "failed"),),
         )
     else:
         runtime  = getattr(mind, "external_mcp", None)
@@ -434,7 +434,7 @@ def render_external_mcp_stop_status(
             summary="External MCP stop failed",
             level="failed",
             done=True,
-            details=(McpStatusDetail(f"└ {detail}", "failed"),),
+            details=(McpStatusDetail(f"  └ {detail}", "failed"),),
         )
     else:
         summary = (

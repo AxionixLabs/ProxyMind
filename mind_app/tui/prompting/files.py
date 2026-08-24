@@ -498,7 +498,7 @@ def _ranked_entries(
     entries: typing.Iterable[tuple[str, bool]],
     query: str
 ) -> tuple[FileSearchEntry, ...]:
-    """使用与 Codex 相同的路径边界分数排列索引快照。"""
+    """按路径边界分数排列索引快照。"""
     matches: list[tuple[int, str, FileSearchEntry]] = []
     for relative, is_directory in entries:
         matched = _nucleo_path_match(relative, query)

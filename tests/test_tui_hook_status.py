@@ -110,16 +110,16 @@ async def test_tui_hook_adapter_prints_quiet_success_result() -> None:
             "• Running UserPromptSubmit hook: Visible quiet prompt hook"
         )
         assert _block_text(runtime, 1) == (
-            "• UserPromptSubmit hook: Visible quiet prompt hook\n"
-            "└ completed · 25ms"
+            "• Ran UserPromptSubmit hook: Visible quiet prompt hook\n"
+            "  └ completed · 25ms"
         )
         assert runtime.screen.activity_block is None
 
         runtime.toggle_transcript_overlay()
         assert fragments_text(runtime.screen.transcript_overlay.fragments()) == (
             "• Running UserPromptSubmit hook: Visible quiet prompt hook\n\n"
-            "• UserPromptSubmit hook: Visible quiet prompt hook\n"
-            "└ completed · 25ms"
+            "• Ran UserPromptSubmit hook: Visible quiet prompt hook\n"
+            "  └ completed · 25ms"
         )
     finally:
         await runtime.close()
@@ -151,13 +151,13 @@ async def test_tui_hook_adapter_prints_each_concurrent_hook() -> None:
         assert "First policy" in _block_text(runtime, 0)
         assert "Second policy" in _block_text(runtime, 1)
         assert _block_text(runtime, 2) == (
-            "• PreToolUse hook: Second policy\n"
-            "└ completed · 1.20s"
+            "• Ran PreToolUse hook: Second policy\n"
+            "  └ completed · 1.20s"
         )
         assert _block_text(runtime, 3) == (
-            "• PreToolUse hook: First policy\n"
-            "└ failed · 32ms\n"
-            "  error: First policy failed"
+            "• Ran PreToolUse hook: First policy\n"
+            "  └ failed · 32ms\n"
+            "    error: First policy failed"
         )
 
         runtime.toggle_transcript_overlay()
@@ -165,8 +165,8 @@ async def test_tui_hook_adapter_prints_each_concurrent_hook() -> None:
             runtime.screen.transcript_overlay.fragments()
         )
         assert transcript.count("\n\n") == 3
-        assert transcript.index("Second policy\n└ completed · 1.20s") < (
-            transcript.index("First policy\n└ failed · 32ms")
+        assert transcript.index("Second policy\n  └ completed · 1.20s") < (
+            transcript.index("First policy\n  └ failed · 32ms")
         )
     finally:
         await runtime.close()
@@ -177,17 +177,17 @@ async def test_tui_hook_adapter_prints_each_concurrent_hook() -> None:
     (
         "completed",
         HookOutputEntry("warning", "Review the command"),
-        "└ completed · 25ms\n  warning: Review the command",
+        "  └ completed · 25ms\n    warning: Review the command",
     ),
     (
         "blocked",
         HookOutputEntry("feedback", "Protected path"),
-        "└ blocked · 25ms\n  feedback: Protected path",
+        "  └ blocked · 25ms\n    feedback: Protected path",
     ),
     (
         "stopped",
         HookOutputEntry("stop", "Do not continue"),
-        "└ stopped · 25ms\n  stop: Do not continue",
+        "  └ stopped · 25ms\n    stop: Do not continue",
     ),
 ))
 async def test_tui_hook_adapter_renders_result_semantics(
@@ -266,7 +266,7 @@ async def test_tui_hook_adapter_persists_failure_and_full_context() -> None:
         display = fragments_text(block.display_block.fragments)
         transcript = fragments_text(block.transcript_block.fragments)
 
-        assert display.startswith("• PostToolUse hook\n└ failed · 3.50s")
+        assert display.startswith("• Ran PostToolUse hook\n  └ failed · 3.50s")
         assert "Ctrl+T to view transcript" in display
         assert "context line 7" not in display
         assert "context line 7" in transcript
@@ -354,7 +354,7 @@ async def test_tui_hook_records_are_committed_in_transcript() -> None:
 
         transcript = fragments_text(runtime.screen.transcript_overlay.fragments())
         assert "Running PreToolUse hook" in transcript
-        assert "PreToolUse hook\n└ completed · 25ms" in transcript
+        assert "PreToolUse hook\n  └ completed · 25ms" in transcript
         assert runtime.document.transcript_snapshot().live_tail is None
     finally:
         await runtime.close()

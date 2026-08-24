@@ -46,7 +46,7 @@ MARKDOWN_UNORDERED_MARKER_STYLE = TextStyle(dim=True)
 MARKDOWN_ORDERED_MARKER_STYLE   = TextStyle(foreground="ansiblue")
 MARKDOWN_QUOTE_MARKER_STYLE     = TextStyle(foreground="ansigreen", dim=True)
 MARKDOWN_QUOTE_STYLE            = TextStyle(dim=True)
-MARKDOWN_CODE_STYLE             = TextStyle(foreground="ansicyan")
+MARKDOWN_INLINE_CODE_STYLE      = TextStyle(foreground="ansicyan")
 MARKDOWN_LINK_STYLE             = TextStyle(foreground="ansicyan", underline=True)
 MARKDOWN_TABLE_HEADER_STYLE     = TextStyle(foreground="ansiblue", bold=True)
 MARKDOWN_SEPARATOR_STYLE        = TextStyle(dim=True)
@@ -1923,7 +1923,7 @@ def _inline_spans(
             _append_span(
                 spans,
                 node.content,
-                _merge_style(style, MARKDOWN_CODE_STYLE),
+                _merge_style(style, MARKDOWN_INLINE_CODE_STYLE),
                 hyperlink,
             )
         elif node.type == "strong":
@@ -1987,7 +1987,7 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
             lexer = None
 
     if lexer is None:
-        return [[TextSpan(line, MARKDOWN_CODE_STYLE)] for line in code.split("\n")]
+        return _plain_lines(code)
 
     spans: list[TextSpan] = []
 
@@ -1995,7 +1995,7 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
         for token_type, value in lex(code, lexer):
             _append_span(spans, value, _code_style(token_type))
     except (TypeError, ValueError):
-        return [[TextSpan(line, MARKDOWN_CODE_STYLE)] for line in code.split("\n")]
+        return _plain_lines(code)
 
     return _split_lines(spans)
 

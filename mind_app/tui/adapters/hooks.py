@@ -128,12 +128,12 @@ def _render_completion(
     transcript_key: str = ""
 ) -> FragmentBlock:
     """按当前宽度渲染一项可持久 Hook 完成结果。"""
-    header = f"{run.event} hook"
+    header = f"Ran {run.event} hook"
     if run.status_message:
         header = f"{header}: {run.status_message}"
 
     result_line: FormattedText = [
-        (prompt_style(MUTED_STYLE), f"└ {run.status}"),
+        (prompt_style(MUTED_STYLE), f"  └ {run.status}"),
     ]
     if run.duration_ms is not None:
         result_line.append((
@@ -175,7 +175,7 @@ def _entry_lines(entry: HookOutputEntry) -> list[FormattedText]:
     first  = source[0] if source else ""
 
     lines: list[FormattedText] = [[
-        (prompt_style(BODY_STYLE), f"  {prefix}{first}"),
+        (prompt_style(BODY_STYLE), f"    {prefix}{first}"),
     ]]
 
     lines.extend(
@@ -197,6 +197,16 @@ def _context_preview(
         join_formatted_lines(lines),
         width=max(1, int(width)),
     )
+    rows = [
+        row
+        if fragments_text(row).startswith("    ")
+        else [(prompt_style(BODY_STYLE), "    "), *row]
+        for row in rows
+    ]
+    rows = [
+        clip_fragments(row, width=max(1, int(width)))
+        for row in rows
+    ]
     if len(rows) <= HOOK_CONTEXT_MAX_DISPLAY_ROWS:
         return rows
 

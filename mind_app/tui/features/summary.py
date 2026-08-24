@@ -31,7 +31,7 @@ def render_command_summary(
     application: ApplicationSink,
     summary: CommandSummary,
     *,
-    line_prefix: str = "  ",
+    line_prefix: str = "    ",
     first_line_prefix: str | None = None
 ) -> None:
     """渲染命令面板最终摘要。"""
@@ -51,7 +51,7 @@ def command_summary_text(
     summary: CommandSummary,
     *,
     terminal_width: int | None = None,
-    line_prefix: str = "  ",
+    line_prefix: str = "    ",
     first_line_prefix: str | None = None
 ) -> FragmentBlock:
     """生成命令面板最终摘要文本。"""

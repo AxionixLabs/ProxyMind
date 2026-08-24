@@ -77,7 +77,12 @@ def _trace_code_preview_from_lines(lines: list[str]) -> TracePreview:
     """从代码行生成轨迹预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_CODE_PREVIEW_LINES)
     screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_CODE_PREVIEW_LINES)
-    return TracePreview(full=full, screen=screen, omitted_lines=omitted)
+    return TracePreview(
+        full=full,
+        screen=screen,
+        omitted_lines=omitted,
+        kind="code",
+    )
 
 
 def _result_payload(data: typing.Any) -> dict[str, typing.Any]:

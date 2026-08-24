@@ -37,10 +37,10 @@ def test_failure_display_wraps_continuation_after_branch() -> None:
     block = render_failure_block("turn.failed", error, terminal_width=32)
     display_lines = _display_text(list(block.spans)).splitlines()
 
-    assert block.plain_text == f"■ turn.failed\n└ {error}"
+    assert block.plain_text == f"■ turn.failed\n  └ {error}"
     assert len(display_lines) > 2
-    assert display_lines[1].startswith("└ ")
-    assert all(line.startswith("  ") for line in display_lines[2:])
+    assert display_lines[1].startswith("  └ ")
+    assert all(line.startswith("    ") for line in display_lines[2:])
     assert all(text_display_width(line) <= 32 for line in display_lines)
 
 
@@ -82,7 +82,7 @@ def test_failure_transcript_keeps_width_independent_logical_lines() -> None:
     )
     transcript = _display_text(list(blocks[0].spans))
 
-    assert transcript == f"■ turn.failed\n└ {error}"
+    assert transcript == f"■ turn.failed\n  └ {error}"
     assert len(transcript.splitlines()) == 2
 
 
@@ -93,4 +93,4 @@ def test_incomplete_view_dispatch_displays_reason() -> None:
         can_continue=False,
     ))
 
-    assert blocks[0].plain_text == "■ turn.incomplete\n└ max_output_tokens"
+    assert blocks[0].plain_text == "■ turn.incomplete\n  └ max_output_tokens"

@@ -44,13 +44,13 @@ def render_batch_start_view(view: BatchStartView) -> StyledBlock:
 
         is_last       = index == row_count - 1
         branch        = "└" if is_last else "├"
-        detail_prefix = "   " if is_last else "│  "
+        detail_prefix = "    " if is_last else "  │ "
 
-        lines.append(f"{branch} {call.name}")
+        lines.append(f"  {branch} {call.name}")
 
         spans.extend((
             TextSpan("\n"),
-            TextSpan(branch, PREVIEW_STYLE),
+            TextSpan(f"  {branch}", PREVIEW_STYLE),
             TextSpan(" ", PREVIEW_STYLE),
             TextSpan(call.name, ACTION_TOOL_STYLE),
         ))
@@ -65,10 +65,10 @@ def render_batch_start_view(view: BatchStartView) -> StyledBlock:
 
     if omitted_calls:
         text = f"… +{omitted_calls} tools"
-        lines.append(f"└ {text}")
+        lines.append(f"  └ {text}")
         spans.extend((
             TextSpan("\n"),
-            TextSpan("└ ", PREVIEW_STYLE),
+            TextSpan("  └ ", PREVIEW_STYLE),
             TextSpan(text, PREVIEW_TEXT_STYLE),
         ))
 
@@ -86,8 +86,8 @@ def render_batch_start_transcript_view(view: BatchStartView) -> StyledBlock:
 
     for index, call in enumerate(view.calls):
         branch        = "└" if index == last_index else "├"
-        detail_prefix = "   " if index == last_index else "│  "
-        lines.append(f"{branch} {call.name}")
+        detail_prefix = "    " if index == last_index else "  │ "
+        lines.append(f"  {branch} {call.name}")
 
         arguments = json.dumps(
             call.arguments,
@@ -120,14 +120,14 @@ def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
 
         is_last       = index == row_count - 1
         branch        = "└" if is_last else "├"
-        detail_prefix = "   " if is_last else "│  "
+        detail_prefix = "    " if is_last else "  │ "
         status        = "ok" if result.ok else "failed"
 
-        lines.append(f"{branch} {result.name}  {status}")
+        lines.append(f"  {branch} {result.name}  {status}")
 
         spans.extend((
             TextSpan("\n"),
-            TextSpan(branch, PREVIEW_STYLE),
+            TextSpan(f"  {branch}", PREVIEW_STYLE),
             TextSpan(" ", PREVIEW_STYLE),
             TextSpan(result.name, ACTION_TOOL_STYLE),
             TextSpan("  ", PREVIEW_STYLE),
@@ -145,10 +145,10 @@ def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
 
     if omitted_results:
         text = f"… +{omitted_results} tools"
-        lines.append(f"└ {text}")
+        lines.append(f"  └ {text}")
         spans.extend((
             TextSpan("\n"),
-            TextSpan("└ ", PREVIEW_STYLE),
+            TextSpan("  └ ", PREVIEW_STYLE),
             TextSpan(text, PREVIEW_TEXT_STYLE),
         ))
 
@@ -169,10 +169,10 @@ def render_batch_completed_transcript_view(
     for index, result in enumerate(view.results):
 
         branch        = "└" if index == last_index else "├"
-        detail_prefix = "   " if index == last_index else "│  "
+        detail_prefix = "    " if index == last_index else "  │ "
         status        = "ok" if result.ok else "failed"
 
-        lines.append(f"{branch} {result.name}  {status}")
+        lines.append(f"  {branch} {result.name}  {status}")
 
         result_lines = str(result.text or "").strip("\n").splitlines()
         for line_index, line in enumerate(result_lines):
@@ -238,7 +238,9 @@ def _argument_preview(value: typing.Any) -> str:
     """把参数值转换为单行预览文本。"""
     if isinstance(value, str):
         return repr(_short_text(value))
-    if isinstance(value, (int, float, bool)) or value is None:
+    if value is None:
+        return "None"
+    if isinstance(value, (int, float, bool)):
         return str(value)
     if isinstance(value, dict):
         return f"<dict:{len(value)}>"

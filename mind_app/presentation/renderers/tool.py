@@ -161,7 +161,7 @@ def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
         command = _command_text(view.arguments.get("command"))
         return _transcript_block(view.title, f"$ {command}" if command else "")
     if spec.kind is ToolDisplayKind.STDIN:
-        return _transcript_block(view.title, _json_text(view.arguments))
+        return _transcript_block("", "")
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         source_field = spec.source_field
         source       = view.arguments.get(source_field) if source_field else ""
@@ -220,6 +220,8 @@ def render_tool_start_raw_text(view: ToolStartView) -> str:
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         source_field = spec.source_field
         return str(view.arguments.get(source_field) or "") if source_field else ""
+    if spec.kind is ToolDisplayKind.STDIN:
+        return ""
 
     return _json_text(view.arguments)
 
@@ -322,10 +324,23 @@ def _native_payload(value: typing.Any) -> dict[str, typing.Any]:
 
     if isinstance(results, list):
         for item in results:
-            if isinstance(item, dict) and isinstance(item.get("data"), dict):
-                return dict(item["data"])
+            data = item.get("data") if isinstance(item, dict) else None
+            if isinstance(data, dict):
+                return _string_keyed_payload(data)
 
-    return dict(value)
+    return _string_keyed_payload(value)
+
+
+def _string_keyed_payload(
+    value: typing.Mapping[typing.Any, typing.Any],
+) -> dict[str, typing.Any]:
+    """复制结构化载荷并校验其字段名为字符串。"""
+    normalized: dict[str, typing.Any] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError("native tool payload fields must use string keys")
+        normalized[key] = item
+    return normalized
 
 
 def _native_output_text(payload: dict[str, typing.Any]) -> str:
@@ -335,8 +350,10 @@ def _native_output_text(payload: dict[str, typing.Any]) -> str:
         return "\n".join(str(item or "").rstrip("\n") for item in output_lines)
 
     output = payload.get("output")
+    if isinstance(output, str):
+        return output
     if output is not None:
-        return str(output)
+        return _json_text(output)
 
     stdout = str(payload.get("stdout") or "")
     stderr = str(payload.get("stderr") or "")
@@ -397,19 +414,19 @@ def _generic_trace_text(title: str, preview: TracePreview) -> str:
     if not preview.full:
         return title
 
-    indented_preview = preview.full.replace("\n", "\n  ")
-    return f"{title}\n└ {indented_preview}"
+    indent = "  " if preview.kind == "code" else "    "
+    indented_preview = preview.full.replace("\n", f"\n{indent}")
+    return f"{title}\n  └ {indented_preview}"
 
 
 def _coding_trace_text(title: str, preview: TracePreview) -> str:
     """生成原生编码工具结果的记录文本。"""
     if not preview.full:
         return title
-    if preview.kind == "tree":
-        return f"{title}\n{preview.full}"
 
-    indented_preview = preview.full.replace("\n", "\n  ")
-    return f"{title}\n└ {indented_preview}"
+    indent = "  " if preview.kind == "code" else "    "
+    indented_preview = preview.full.replace("\n", f"\n{indent}")
+    return f"{title}\n  └ {indented_preview}"
 
 
 if __name__ == '__main__':

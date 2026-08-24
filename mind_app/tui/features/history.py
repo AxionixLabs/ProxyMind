@@ -48,7 +48,6 @@ from ..contracts.resume import (
     ResumeSortKey,
     ResumeTranscriptLoader
 )
-from ..core.models import FragmentBlock
 from ..core.styles import (
     MUTED_STYLE,
     failure_text_block,
@@ -455,6 +454,9 @@ def _tool_blocks(
     payload = entry.payload
     name    = str(payload.get("name") or "tool").strip() or "tool"
     call_id = str(payload.get("call_id") or "").strip()
+
+    if entry.event == "tool.started" and name == "write_stdin":
+        return ()
 
     arguments = payload.get("arguments")
     if not isinstance(arguments, dict):

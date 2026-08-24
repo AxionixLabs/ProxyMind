@@ -229,7 +229,7 @@ def render_blocked_interactive_shell_command(
             suffix=" · blocked",
             lines=(f"Interactive command blocked: {name}",),
         ),
-        first_line_prefix="└ ",
+        first_line_prefix="  └ ",
     )
 
 
@@ -247,7 +247,7 @@ def render_shell_start_failure(
             suffix=" · failed",
             lines=(str(error or "shell_start_failed"),),
         ),
-        first_line_prefix="└ ",
+        first_line_prefix="  └ ",
     )
 
 

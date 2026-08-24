@@ -183,7 +183,10 @@ async def test_provider_selection_persists_active_profile(tmp_path) -> None:
         request.description_layout
         is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
     )
-    assert not any(option.is_current for option in request.options)
+    assert [option.is_current for option in request.options] == [
+        True,
+        False,
+    ]
     assert request.selected == 0
 
 
@@ -1375,11 +1378,11 @@ async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
     ("result", "error", "expected"),
     [
         (True, None, "■ Helix MCP ready"),
-        (None, AppError("startup timeout"), "■ Helix MCP failed\n└ startup timeout"),
+        (None, AppError("startup timeout"), "■ Helix MCP failed\n  └ startup timeout"),
         (
             None,
             RuntimeError("process exited"),
-            "■ Helix MCP failed\n└ RuntimeError: process exited",
+            "■ Helix MCP failed\n  └ RuntimeError: process exited",
         ),
     ],
 )
@@ -1527,7 +1530,7 @@ def test_helix_home_failure_uses_command_result_block() -> None:
         (None, "■ Helix MCP stopped"),
         (
             AppError("port cleanup failed"),
-            "■ Helix MCP stop failed\n└ port cleanup failed",
+        "■ Helix MCP stop failed\n  └ port cleanup failed",
         ),
     ],
 )

@@ -156,7 +156,6 @@ def _split_action(body: str) -> tuple[str, str]:
     for action in (
         "Function Calling",
         "Function Invoked",
-        "Writing stdin",
         "Wrote stdin",
     ):
         if body == action:
@@ -184,7 +183,7 @@ def _action_style_for_body(
         return ACTION_TOOL_CALLING_STYLE
     if first == "Function Invoked":
         return ACTION_TOOL_INVOKED_STYLE
-    if first in {"Resetting", "Tool", "Writing stdin", "Wrote stdin"}:
+    if first in {"Resetting", "Tool", "Wrote stdin"}:
         return ACTION_TOOL_STYLE
 
     return None

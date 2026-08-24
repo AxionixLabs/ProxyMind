@@ -62,8 +62,7 @@ def render_tool_start_trace(
         )
         return f"• Running {command}".rstrip()
     if kind is ToolDisplayKind.STDIN:
-        session_id = str(arguments.get("session_id") or "").strip()
-        return f"• Writing stdin {session_id}".rstrip()
+        return ""
     return f"• Function Calling {str(name or 'tool').strip() or 'tool'}"
 
 

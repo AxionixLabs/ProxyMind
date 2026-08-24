@@ -802,7 +802,7 @@ async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
     )
     assert "stop all background commands" in text
     assert "stopped=2" in text
-    assert "\n└ requested=2 · stopped=2 · failed=0" in text
+    assert "\n  └ requested=2 · stopped=2 · failed=0" in text
 
 
 @pytest.mark.anyio
@@ -1057,8 +1057,8 @@ def test_ps_stop_all_partial_result_uses_tree_branches() -> None:
         value
         for _style, value in application.views[-1].renderable.fragments
     )
-    assert "\n├ requested=2 · stopped=1 · failed=1" in text
-    assert "\n└ failed pid=102 adb logcat · access_denied" in text
+    assert "\n  ├ requested=2 · stopped=1 · failed=1" in text
+    assert "\n  └ failed pid=102 adb logcat · access_denied" in text
 
 
 @pytest.mark.anyio
@@ -1229,8 +1229,8 @@ def test_shell_stream_panel_writes_tree_summary_into_document() -> None:
 
     assert text == (
         "• Shell adb devices\n"
-        "└ List of devices attached\n"
-        "  device-1"
+        "  └ List of devices attached\n"
+        "    device-1"
     )
 
 
@@ -1467,8 +1467,8 @@ async def test_foreground_process_completion_commits_in_place() -> None:
     )
     assert text == (
         "• Shell git pull\n"
-        "└ Updating files\n"
-        "  Already up to date."
+        "  └ Updating files\n"
+        "    Already up to date."
     )
 
 

@@ -26,7 +26,7 @@ def render_failure_text(phase: str, error: typing.Any) -> str:
     """生成 stream 生命周期失败块文本。"""
     title   = render_failure_title(phase)
     message = _failure_message(error)
-    return f"{title}\n└ {message}" if message else title
+    return f"{title}\n  └ {message}" if message else title
 
 
 def render_failure_display_parts(
@@ -51,13 +51,13 @@ def render_failure_display_parts(
             message_parts = wrap_styled_line(
                 message_parts,
                 terminal_width=terminal_width,
-                first_prefix="└ ",
-                continuation_prefix=TextSpan("  ", FAILURE_BRANCH_STYLE),
+                first_prefix="  └ ",
+                continuation_prefix=TextSpan("    ", FAILURE_BRANCH_STYLE),
                 measure_width=measure_width,
             )
         parts.extend([
             TextSpan("\n"),
-            TextSpan("└ ", FAILURE_BRANCH_STYLE),
+            TextSpan("  └ ", FAILURE_BRANCH_STYLE),
             *message_parts,
         ])
 
