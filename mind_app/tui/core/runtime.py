@@ -2375,6 +2375,16 @@ class TuiRuntime(object):
             return None
         await self.activity.begin_wait()
 
+    async def begin_terminal_wait(self, command: str) -> None:
+        """在当前模型等待槽中显示后台终端等待状态。"""
+        if not self.execution_active:
+            return None
+        await self.activity.begin_terminal_wait(command)
+
+    async def end_terminal_wait(self) -> None:
+        """结束后台终端等待状态并恢复普通等待文案。"""
+        await self.activity.end_terminal_wait()
+
     async def ensure_wait_status_for_turn(self) -> None:
         """在活动交接到模型轮次前确保等待动画已经接管。"""
         if not self.task_state.turn_wait_active:

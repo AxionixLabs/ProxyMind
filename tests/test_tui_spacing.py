@@ -9196,31 +9196,19 @@ async def test_tui_shell_titles_share_one_visual_row_budget() -> None:
         data={"command": command, "output_lines": ["done"]},
         call_id="ran",
     ))
-    await presentation.emit(build_native_tool_result_view(
-        "exec_command",
-        arguments,
-        ok=True,
-        data={
-            "command": command,
-            "status": "running",
-            "output_lines": ["pending"],
-        },
-        call_id="started",
-    ))
-
     lines = [
         fragments_text(line)
         for line in split_formatted_lines(runtime.document.fragments(width=20))
     ]
     titles = tuple(
         next(line for line in lines if line.startswith(prefix))
-        for prefix in ("• Running ", "• Ran ", "• Started ")
+        for prefix in ("• Running ", "• Ran ")
     )
     summaries = tuple(
         title.removeprefix(prefix)
         for title, prefix in zip(
             titles,
-            ("• Running ", "• Ran ", "• Started "),
+            ("• Running ", "• Ran "),
             strict=True,
         )
     )
@@ -9229,6 +9217,233 @@ async def test_tui_shell_titles_share_one_visual_row_budget() -> None:
     assert all("│" not in title for title in titles)
     assert len(set(summaries)) == 1
     assert command in _transcript_text(runtime.document)
+
+
+@pytest.mark.anyio
+async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    command = "python -m pytest tests/test_tui_shell.py -q"
+
+    await presentation.emit(build_native_tool_result_view(
+        "exec_command",
+        {"command": command},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": command,
+            "status": "running",
+        },
+    ))
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": ""},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": command,
+            "status": "running",
+            "output_lines": ["first poll output"],
+        },
+    ))
+    activity_text = "".join(
+        text for _style, text in runtime.screen.activity_block.fragments
+    )
+    assert activity_text.startswith("• Terminal · ")
+    assert "esc to interrupt" not in activity_text
+    assert f"\n  └ {command}" in activity_text
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": ""},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": command,
+            "status": "running",
+            "output_lines": ["second poll output"],
+        },
+    ))
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "q\n"},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": command,
+            "status": "running",
+        },
+    ))
+
+    text = _document_text(runtime.document)
+    assert "Started" not in text
+    assert "Wrote stdin" not in text
+    assert text.count("Waited for background terminal") == 1
+    assert "↳ Interacted with background terminal" in text
+    assert "  └ q" in text
+    assert "first poll output" in text
+    assert "second poll output" in text
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    content = TuiContentSink(
+        output,
+        before_assistant_output=(
+            presentation.flush_terminal_waits_before_assistant_output
+        ),
+    )
+    command = "ping -t 8.8.8.8"
+
+    await presentation.emit(build_native_tool_result_view(
+        "exec_command",
+        {"command": command},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": command,
+            "status": "running",
+        },
+    ))
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": ""},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": command,
+            "status": "running",
+        },
+    ))
+
+    assert "Waited for background terminal" not in _document_text(runtime.document)
+
+    await content.emit(AssistantTextDelta("Streaming response.", RESPONSE_IDENTITY))
+    await output.prepare_external_output()
+
+    text = _document_text(runtime.document)
+    assert text.index("Waited for background terminal") < text.index(
+        "Streaming response."
+    )
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_exec_wait_flushes_when_terminal_session_changes() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    content = TuiContentSink(
+        output,
+        before_assistant_output=(
+            presentation.flush_terminal_waits_before_assistant_output
+        ),
+    )
+
+    for session_id, command in (
+        ("session-1", "ping -t 8.8.8.8"),
+        ("session-2", "python -m pytest -q"),
+    ):
+        await presentation.emit(build_native_tool_result_view(
+            "write_stdin",
+            {"session_id": session_id, "stdin": ""},
+            ok=True,
+            data={
+                "session_id": session_id,
+                "command": command,
+                "status": "running",
+            },
+        ))
+
+    text = _document_text(runtime.document)
+    assert text.count("Waited for background terminal") == 1
+    assert "ping -t 8.8.8.8" in text
+    assert "python -m pytest -q" not in text
+
+    await content.emit(AssistantTextDelta("Answer.", RESPONSE_IDENTITY))
+    await output.prepare_external_output()
+
+    text = _document_text(runtime.document)
+    assert text.count("Waited for background terminal") == 2
+    assert text.index("ping -t 8.8.8.8") < text.index("python -m pytest -q")
+    assert text.index("python -m pytest -q") < text.index("Answer.")
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_exec_wait_is_ignored_when_turn_is_not_running() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": ""},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": "ping -t 8.8.8.8",
+            "status": "running",
+        },
+    ))
+
+    assert "Waited for background terminal" not in _document_text(runtime.document)
+    assert runtime.screen.activity_block is None
+
+    runtime.set_execution_active(True)
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "missing-session", "stdin": ""},
+        ok=False,
+        data={
+            "session_id": "missing-session",
+            "status": "failed",
+        },
+    ))
+
+    assert "Waited for background terminal" not in _document_text(runtime.document)
+    assert runtime.screen.activity_block is None
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_controlled_write_stdin_does_not_enter_terminal_wait() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_native_tool_result_view(
+        "write_stdin",
+        {
+            "session_id": "session-1",
+            "stdin": "",
+            "control": "interrupt",
+        },
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": "ping -t 8.8.8.8",
+            "status": "exited",
+            "control": "interrupt",
+            "output_lines": ["stopped"],
+        },
+    ))
+
+    text = _document_text(runtime.document)
+    assert runtime.screen.activity_block is None
+    assert "Terminal · " not in text
+    assert "Interacted with background terminal" in text
+    assert "stopped" in text
 
 
 @pytest.mark.anyio
@@ -9578,22 +9793,12 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
             ok=True,
             data={
                 "command": "run background",
-                "status": "running",
+                "status": "exited",
                 "output_lines": [
                     f"exec output {index}" for index in range(12)
                 ],
             },
         ), "exec output 11"),
-        (build_native_tool_result_view(
-            "write_stdin",
-            {"session_id": "session-1", "chars": "input"},
-            ok=True,
-            data={
-                "output_lines": [
-                    f"stdin output {index}" for index in range(12)
-                ],
-            },
-        ), "stdin output 11"),
         (build_native_tool_result_view(
             "apply_patch",
             {"patch": patch_text},

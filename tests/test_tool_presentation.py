@@ -36,6 +36,7 @@ from mind_app.presentation.renderers.dispatch import (
     render_presentation_view,
 )
 from mind_app.presentation.styles import (
+    ACTION_TERMINAL_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_CALLING_STYLE,
     ACTION_TOOL_INVOKED_STYLE,
@@ -203,6 +204,69 @@ def test_write_stdin_has_no_start_display() -> None:
     assert render_tool_start_view(view).plain_text == ""
     assert render_presentation_transcript_view(view)[0].plain_text == ""
     assert render_presentation_raw_view(view) == ("",)
+
+
+def test_write_stdin_uses_codex_wait_and_interaction_titles() -> None:
+    wait = build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": ""},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": "python -m pytest tests/test_tui_shell.py -q",
+            "status": "exited",
+        },
+    )
+    interaction = build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "q\n"},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": "python -m pytest tests/test_tui_shell.py -q",
+            "status": "running",
+        },
+    )
+
+    assert render_native_tool_result_view(wait)[0].plain_text == (
+        "• Waited for background terminal · "
+        "python -m pytest tests/test_tui_shell.py -q"
+    )
+    assert render_native_tool_result_view(interaction)[0].plain_text == (
+        "↳ Interacted with background terminal · "
+        "python -m pytest tests/test_tui_shell.py -q\n"
+        "  └ q"
+    )
+    assert _span_style(
+        render_native_tool_result_view(wait)[0],
+        "Waited for background terminal",
+    ) == ACTION_TERMINAL_STYLE
+    assert _span_style(
+        render_native_tool_result_view(wait)[0],
+        "•",
+    ) == ACTION_TERMINAL_STYLE
+    assert _span_style(
+        render_native_tool_result_view(interaction)[0],
+        "Interacted with background terminal",
+    ) == ACTION_TERMINAL_STYLE
+    assert ACTION_TERMINAL_STYLE.dim
+    assert not ACTION_TERMINAL_STYLE.bold
+
+    control_payload = build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": ""},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": "python -m pytest tests/test_tui_shell.py -q",
+            "status": "exited",
+            "control": "interrupt",
+        },
+    )
+    assert render_native_tool_result_view(control_payload)[0].plain_text == (
+        "↳ Interacted with background terminal · "
+        "python -m pytest tests/test_tui_shell.py -q"
+    )
 
 
 def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
@@ -821,10 +885,10 @@ def test_width_aware_short_shell_titles_keep_text_and_action_style() -> None:
 
     assert _shell_display_title(start, preview=False) == "• Running echo ready"
     assert _shell_display_title(ran, preview=True) == "• Ran echo ready"
-    assert _shell_display_title(started, preview=True) == "• Started echo ready"
+    assert _shell_display_title(started, preview=True) == "• Running echo ready"
     assert _span_style(start, "Running") == ACTION_RUN_STYLE
     assert _span_style(ran, "Ran") == ACTION_RUN_STYLE
-    assert _span_style(started, "Started") == ACTION_RUN_STYLE
+    assert _span_style(started, "Running") == ACTION_RUN_STYLE
 
 
 @pytest.mark.parametrize("width", (20, 40, 80, 160))
@@ -879,7 +943,7 @@ def test_shell_titles_use_one_shared_display_width_budget(
         _shell_display_title(ran, preview=True),
         _shell_display_title(started, preview=True),
     )
-    prefixes = ("• Running ", "• Ran ", "• Started ")
+    prefixes = ("• Running ", "• Ran ", "• Running ")
     summaries = tuple(
         title.removeprefix(prefix)
         for title, prefix in zip(titles, prefixes, strict=True)

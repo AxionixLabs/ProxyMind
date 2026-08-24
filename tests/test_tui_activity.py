@@ -22,6 +22,7 @@ from mind_app.tui.adapters.status import TuiStreamStatusControl
 from mind_app.tui.core.activity import (
     TuiActivity,
     _download_block,
+    _elapsed_label,
     _mcp_activity_block,
     _mcp_final_block,
     _upload_block,
@@ -177,6 +178,166 @@ async def test_finished_turn_does_not_recreate_wait_during_activity_cleanup() ->
 
     runtime.set_execution_active(False)
     assert not runtime.task_running
+
+
+@pytest.mark.anyio
+async def test_terminal_wait_reuses_wait_slot_and_restores_thinking() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+
+    await runtime.begin_terminal_wait("python -m pytest tests -q")
+
+    rendered = "".join(
+        text for _style, text in runtime.screen.activity_block.fragments
+    )
+    assert rendered.startswith("• Terminal · ")
+    assert "esc to interrupt" not in rendered
+    assert "(" not in rendered.splitlines()[0]
+    assert "\n  └ python -m pytest tests -q" in rendered
+    assert any(
+        "dim" in style and "s" in text
+        for style, text in runtime.screen.activity_block.fragments
+    )
+    assert runtime.activity.lease("wait") is not None
+
+    await runtime.end_terminal_wait()
+
+    restored = "".join(
+        text for _style, text in runtime.screen.activity_block.fragments
+    )
+    assert restored.startswith("• Thinking")
+    assert "python -m pytest tests -q" not in restored
+
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_terminal_wait_keeps_background_footer_on_header_line() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    runtime.set_process_status_label(
+        "1 background terminal running · /ps to view · /stop to close"
+    )
+    await runtime.begin_wait_status()
+    await runtime.begin_terminal_wait("python -m pytest tests -q")
+
+    rendered = "".join(
+        text for _style, text in runtime.screen._status_fragments()
+    )
+    lines = rendered.splitlines()
+    assert len(lines) == 2
+    assert "Terminal · " in lines[0]
+    assert "esc to interrupt" not in lines[0]
+    assert "1 background terminal running" in lines[0]
+    assert lines[1] == "  └ python -m pytest tests -q"
+
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_terminal_wait_uses_wait_elapsed_and_pauses_with_approval() -> None:
+    clock = [0.0]
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    with patch(
+        "mind_app.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        await activity.begin_wait()
+        clock[0] = 2.0
+        await activity.begin_terminal_wait("python -m pytest tests -q")
+        assert "2.0s" in _block_text(rendered[-1])
+
+        assert await activity.pause_wait()
+        clock[0] = 10.0
+        await activity.resume_wait()
+        assert "2.0s" in _block_text(rendered[-1])
+        await activity.stop()
+
+
+@pytest.mark.anyio
+async def test_terminal_wait_switch_reuses_thinking_animation_state() -> None:
+    clock = [0.0]
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    with patch(
+        "mind_app.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        await activity.begin_wait()
+        slot = activity._slots["foreground"]
+        slot.phase = 0.73
+        clock[0] = 2.4
+        activity.refresh("wait")
+
+        generation = slot.generation
+        task = activity.task
+        await activity.begin_terminal_wait("python -m pytest tests -q")
+
+        assert activity._slots["foreground"] is slot
+        assert slot.phase == 0.73
+        assert slot.generation == generation
+        assert activity.task is task
+
+        first_time = next(
+            fragment
+            for fragment in rendered[-1].fragments
+            if fragment[1].startswith(" · ") and fragment[1].endswith("s")
+        )
+        first_header = tuple(
+            fragment
+            for fragment in rendered[-1].fragments
+            if fragment != first_time and "\n" not in fragment[1]
+        )
+        assert "dim" in first_time[0]
+
+        slot.phase = 1.91
+        activity.refresh("wait")
+        second_time = next(
+            fragment
+            for fragment in rendered[-1].fragments
+            if fragment[1].startswith(" · ") and fragment[1].endswith("s")
+        )
+        second_header = tuple(
+            fragment
+            for fragment in rendered[-1].fragments
+            if fragment != second_time and "\n" not in fragment[1]
+        )
+        assert second_time == first_time
+        assert second_header != first_header
+        await activity.stop()
+
+
+@pytest.mark.anyio
+async def test_terminal_wait_does_not_recreate_missing_thinking_slot() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: rendered.clear(),
+    )
+
+    await activity.begin_terminal_wait("python -m pytest tests -q")
+
+    assert activity.lease("wait") is None
+    assert not activity._terminal_wait_active
+    assert not rendered
+
+
+def test_elapsed_label_keeps_seconds_bucket_width_stable() -> None:
+    assert _elapsed_label(9.94) == "9.9s"
+    assert _elapsed_label(9.99) == "9.9s"
+    assert _elapsed_label(10.0) == " 10s"
+    assert _elapsed_label(59.9) == " 59s"
+    assert _elapsed_label(60.0) == "1m 00s"
 
 
 @pytest.mark.anyio

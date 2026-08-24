@@ -43,7 +43,7 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
         for fragment in runtime.screen.process_status.fragments()
         if fragment[1] == "pytest -q · +2"
     )
-    assert command_fragment[0] != "class:process-status.action"
+    assert command_fragment[0] != "class:process-status.background"
 
     runtime.set_process_status_label("")
 
@@ -64,16 +64,22 @@ def test_process_status_is_inline_when_activity_is_visible() -> None:
     )
 
 
-def test_process_status_actions_are_blue_and_hints_are_dim() -> None:
+def test_process_status_footer_is_static_dim() -> None:
     status = TuiRuntime().screen.process_status
     status.set_label("1 background terminal running · /ps to view · /stop to close")
 
     fragments = status.fragments()
 
-    assert ("class:process-status.action", "/ps") in fragments
-    assert ("class:process-status.action", "/stop") in fragments
-    assert ("class:process-status.hint", " to view") in fragments
-    assert ("class:process-status.hint", " to close") in fragments
+    suffix = [
+        fragment
+        for fragment in fragments
+        if fragment[0] == "class:process-status.background"
+    ]
+    assert suffix
+    assert all(style == "class:process-status.background" for style, _ in suffix)
+    assert "1 background terminal running" in fragments_text(suffix)
+    assert "/ps to view" in fragments_text(suffix)
+    assert "/stop to close" in fragments_text(suffix)
 
 
 def test_process_status_summary_respects_terminal_display_width() -> None:

@@ -114,7 +114,9 @@ from ..rendering.fragments import (
     cursor_point_for_display_row,
     display_line_count,
     fragment_continuation_widths,
-    fragments_text
+    fragments_text,
+    join_formatted_lines,
+    split_formatted_lines
 )
 from .styles import (
     ASSISTANT_PREFIX_CLASS,
@@ -1927,12 +1929,39 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             if self._frame_output_size is not None
             else self._output_size()[0]
         )
-        return clip_fragments(
-            [
-                *block.fragments,
-                *self.process_status.inline_fragments(),
-            ],
-            width=max(1, width),
+
+        activity_fragments = list(block.fragments)
+        inline_fragments   = self.process_status.inline_fragments()
+
+        if not block.preserve_newlines:
+            return clip_fragments(
+                [*activity_fragments, *inline_fragments],
+                width=max(1, width),
+            )
+
+        composed: list[tuple[str, str]] = []
+        inserted: bool = False
+
+        for index, (style, text) in enumerate(activity_fragments):
+            if not inserted and "\n" in text:
+                before, after = text.split("\n", 1)
+                if before:
+                    composed.append((style, before))
+                composed.extend(inline_fragments)
+                composed.append(("", "\n"))
+                if after:
+                    composed.append((style, after))
+                composed.extend(activity_fragments[index + 1:])
+                inserted = True
+                break
+            composed.append((style, text))
+
+        if not inserted:
+            composed.extend(inline_fragments)
+
+        return join_formatted_lines(
+            clip_fragments(line, width=max(1, width))
+            for line in split_formatted_lines(composed)
         )
 
     def _queued_fragments(self, *, width: int | None = None) -> FormattedText:
@@ -2867,7 +2896,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _completion_hint_visible(self) -> bool:
         """判断 skill 补全是否应显示底部提示行。"""
         document = self.input.buffer.document
-        query = skill_query_token(document.text_before_cursor)
+        query    = skill_query_token(document.text_before_cursor)
+
         mention_popup = bool(
             query
             and query.startswith("@")
@@ -2875,6 +2905,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             and not self._get_surface_submission_pending()
             and self.input_model.completion_menu_completions(document) is not None
         )
+
         return bool(
             self._native_completion_visible()
             and self.input_model.completion_menu_has_skill_items(document)
@@ -2947,13 +2978,16 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return PromptFormattedText()
 
         completion = completions[0]
+
         is_slash_command = (
             slash_command_query(document) is not None
         )
+
         column_min_width = max(
             self.COMPLETION_COLUMN_MIN_WIDTH,
             TokenCompletionMenuControl.MIN_WIDTH if is_slash_command else 0,
         )
+
         return PromptFormattedText(completion_candidate_fragments(
             display_text=completion.display_text,
             display_meta_text=completion.display_meta_text,

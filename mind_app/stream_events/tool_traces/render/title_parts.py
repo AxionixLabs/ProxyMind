@@ -13,13 +13,15 @@ from mind_app.presentation.styles import (
     ACTION_RUN_STYLE,
     ACTION_TOOL_CALLING_STYLE,
     ACTION_TOOL_INVOKED_STYLE,
+    ACTION_TERMINAL_STYLE,
     ACTION_TOOL_STYLE,
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     ERROR_DOT_STYLE,
     SUCCESS_DOT_STYLE,
     TOOL_CALLING_DOT_STYLE,
-    TITLE_STYLE
+    TITLE_STYLE,
+    PREVIEW_STYLE
 )
 
 
@@ -42,8 +44,16 @@ def title_parts(
 
     parts: list[TextSpan] = []
     if body.startswith("•"):
-        parts.append(part("•", dot_style))
         body = body[1:]
+        bullet_style = (
+            ACTION_TERMINAL_STYLE
+            if body.lstrip().startswith("Waited for background terminal")
+            else dot_style
+        )
+        parts.append(part("•", bullet_style))
+    elif body.startswith("↳ "):
+        parts.append(part("↳ ", PREVIEW_STYLE))
+        body = body[2:]
 
     match = re.search(r"\(\+(\d+) -(\d+)\)", title)
     if not match:
@@ -100,11 +110,26 @@ def _styled_action_body_parts(
     parts: list[TextSpan] = []
 
     if leading:
-        parts.append(part(leading, base_style))
+        leading_style = (
+            ACTION_TERMINAL_STYLE
+            if action in {
+                "Interacted with background terminal",
+                "Waited for background terminal",
+            }
+            else base_style
+        )
+        parts.append(part(leading, leading_style))
     if action:
         parts.append(part(action, action_style))
-    if action in {"Ran", "Started", "Running"}:
+    if action in {"Ran", "Running"}:
         parts.extend(_command_tail_parts(tail, base_style=base_style, ok=ok, part=part))
+        return parts
+    if action in {
+        "Waited for background terminal",
+        "Interacted with background terminal",
+    }:
+        if tail:
+            parts.append(part(tail, PREVIEW_STYLE))
         return parts
     if tail:
         parts.extend(_plain_body_parts(tail, base_style=base_style, ok=ok, part=part))
@@ -156,7 +181,8 @@ def _split_action(body: str) -> tuple[str, str]:
     for action in (
         "Function Calling",
         "Function Invoked",
-        "Wrote stdin",
+        "Interacted with background terminal",
+        "Waited for background terminal",
     ):
         if body == action:
             return action, ""
@@ -177,13 +203,18 @@ def _action_style_for_body(
 
     if first in {"Added", "Applying", "Edited", "Deleted", "Patch"}:
         return ACTION_EDIT_STYLE
-    if first in {"Ran", "Running", "Started"}:
+    if first in {"Ran", "Running"}:
         return ACTION_RUN_STYLE
     if first == "Function Calling":
         return ACTION_TOOL_CALLING_STYLE
     if first == "Function Invoked":
         return ACTION_TOOL_INVOKED_STYLE
-    if first in {"Resetting", "Tool", "Wrote stdin"}:
+    if first in {
+        "Interacted with background terminal",
+        "Waited for background terminal",
+    }:
+        return ACTION_TERMINAL_STYLE
+    if first in {"Resetting", "Tool"}:
         return ACTION_TOOL_STYLE
 
     return None

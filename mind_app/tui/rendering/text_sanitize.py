@@ -70,6 +70,7 @@ def sanitize_fragment_block(block: FragmentBlock) -> FragmentBlock:
         fragments,
         line_fill=block.line_fill,
         line_fills=block.line_fills,
+        preserve_newlines=block.preserve_newlines,
     )
 
 

@@ -151,6 +151,8 @@ class TuiActivity(object):
         self._wait_started_at: float | None = None
         self._wait_phase: float             = 0.0
         self._wait_paused: bool             = False
+        self._terminal_wait_command: str    = ""
+        self._terminal_wait_active: bool    = False
 
         self._wait_retry_state: WaitRetryState = "idle"
 
@@ -166,6 +168,8 @@ class TuiActivity(object):
         """启动覆盖当前交互周期的等待动画。"""
         await self._discard("wait")
 
+        self._reset_terminal_wait()
+
         self._wait_elapsed_sec = 0.0
         self._wait_phase       = 0.0
         self._wait_paused      = False
@@ -177,6 +181,26 @@ class TuiActivity(object):
             kind="wait",
             render=self._wait_block,
         ))
+
+    async def begin_terminal_wait(self, command: str) -> None:
+        """把当前等待槽切换为后台终端等待文案。"""
+        slot = self._slots.get("foreground")
+        if slot is None or slot.kind != "wait" or slot.frozen:
+            return None
+
+        normalized = " ".join(str(command or "").split())
+        self._terminal_wait_active = True
+        self._terminal_wait_command = normalized
+        self._render_slots()
+
+    async def end_terminal_wait(self) -> None:
+        """清除后台终端等待文案并恢复普通等待状态。"""
+        if not self._terminal_wait_active:
+            return None
+
+        self._reset_terminal_wait()
+        if self.lease("wait") is not None:
+            self._render_slots()
 
     async def ensure_wait(self) -> None:
         """在模型轮次已接管前台时确保等待动画槽存在。"""
@@ -287,6 +311,7 @@ class TuiActivity(object):
 
         if kind is None or kind == "wait":
             self._reset_wait()
+            self._reset_terminal_wait()
 
         targets = tuple(
             (key, slot)
@@ -315,6 +340,7 @@ class TuiActivity(object):
         self._settle_deadlines.clear()
         self._cancel_settle_expiry()
         self._reset_wait()
+        self._reset_terminal_wait()
         await self._cancel_task()
         retired = tuple(self._retired_tasks)
         for task in retired:
@@ -376,6 +402,7 @@ class TuiActivity(object):
         self._settle_deadlines.pop(slot.key, None)
         if slot.kind == "wait":
             self._reset_wait()
+            self._reset_terminal_wait()
 
         if not self._slots:
             self._retire_task()
@@ -461,6 +488,30 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
+        if self._terminal_wait_active:
+            block = _status_block(
+                "Terminal",
+                family="wait",
+                phase=phase,
+                elapsed_sec=self._wait_elapsed(),
+                elapsed_min_sec=0.0,
+                color_level=self.color_level,
+            )
+            fragments = list(block.fragments)
+            if self._terminal_wait_command:
+                command_display = _truncate_display_text(
+                    self._terminal_wait_command,
+                    limit=max(8, int(self.get_width()) - 4),
+                )
+                fragments.extend([
+                    ("", "\n"),
+                    (
+                        prompt_style(STATUS_MUTED),
+                        f"  └ {command_display}",
+                    ),
+                ])
+            return FragmentBlock(tuple(fragments), preserve_newlines=True)
+
         retry_state = self._wait_retry_state
         family: StatusFamily
         if retry_state == "idle":
@@ -553,12 +604,16 @@ class TuiActivity(object):
         """把全部活动槽位合成为一个多行展示块。"""
         fragments: list[tuple[str, str]] = []
 
+        preserve_newlines: bool = False
+
         for slot in self._slots.values():
             block = slot.render(slot.phase)
             if not block.fragments:
                 continue
 
-            clipped = _clip_activity_line(
+            preserve_newlines = preserve_newlines or block.preserve_newlines
+
+            clipped = _clip_activity_block(
                 list(block.fragments),
                 width=max(1, int(self.get_width())),
             )
@@ -568,7 +623,10 @@ class TuiActivity(object):
             fragments.extend(clipped)
 
         if fragments:
-            self.set_renderable(FragmentBlock(tuple(fragments)))
+            self.set_renderable(FragmentBlock(
+                tuple(fragments),
+                preserve_newlines=preserve_newlines,
+            ))
         else:
             self.clear_renderable()
 
@@ -680,6 +738,11 @@ class TuiActivity(object):
         self._wait_phase       = 0.0
         self._wait_paused      = False
         self._wait_retry_state = "idle"
+
+    def _reset_terminal_wait(self) -> None:
+        """清空后台终端等待上下文。"""
+        self._terminal_wait_command = ""
+        self._terminal_wait_active  = False
 
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:
@@ -851,6 +914,7 @@ def _status_block(
     elapsed_sec: float | None = None,
     spinner: bool = False,
     sweep: bool = True,
+    elapsed_min_sec: float = 0.65,
     color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
 ) -> FragmentBlock:
     """生成一行 TUI 活动状态。"""
@@ -871,7 +935,7 @@ def _status_block(
             if elapsed_sec is not None
             else max(0.0, time.perf_counter() - started_at)
         )
-        if elapsed >= 0.65:
+        if elapsed >= max(0.0, float(elapsed_min_sec)):
             fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
 
     return FragmentBlock(tuple(fragments))
@@ -881,9 +945,12 @@ def _elapsed_label(elapsed: float) -> str:
     """把经过时间格式化为紧凑标签。"""
     seconds = max(0.0, float(elapsed))
     if seconds < 10:
-        return f"{seconds:.1f}s"
+        # 保持原有四舍五入，同时封顶边界，避免短暂显示 10.0s。
+        tenths = min(9.9, round(seconds, 1))
+        return f"{tenths:.1f}s"
     if seconds < 60:
-        return f"{int(seconds)}s"
+        # 与一位小数秒数保持四列宽度，避免 10s 时 footer 左移一列。
+        return f"{int(seconds):>3}s"
 
     minutes, remaining = divmod(int(seconds), 60)
     return f"{minutes}m {remaining:02d}s"
@@ -928,6 +995,29 @@ def _clip_activity_line(
     ellipsis_style = clipped[-1][0] if clipped else ""
 
     return [*clipped, (ellipsis_style, "…")]
+
+
+def _clip_activity_block(
+    fragments: list[tuple[str, str]],
+    *,
+    width: int,
+) -> list[tuple[str, str]]:
+    """按行裁剪活动区域，同时保留活动详情的换行。"""
+    lines: list[list[tuple[str, str]]] = [[]]
+    for style, text in fragments:
+        parts = str(text).split("\n")
+        for index, part in enumerate(parts):
+            if part:
+                lines[-1].append((style, part))
+            if index < len(parts) - 1:
+                lines.append([])
+
+    rendered: list[tuple[str, str]] = []
+    for index, line in enumerate(lines):
+        if index:
+            rendered.append(("", "\n"))
+        rendered.extend(_clip_activity_line(line, width=width))
+    return rendered
 
 
 if __name__ == '__main__':

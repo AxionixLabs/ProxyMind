@@ -486,7 +486,7 @@ def test_dark_terminal_uses_blue_selection_palette(
     assert transcript.bgcolor == selection_background
 
 
-def test_process_status_and_shell_actions_use_blue_semantics() -> None:
+def test_shell_actions_use_blue_semantics_and_process_footer_is_dim() -> None:
     style = build_tui_application_style(
         Style.from_dict({}),
         TUI_APPROVAL_STYLE,
@@ -498,14 +498,15 @@ def test_process_status_and_shell_actions_use_blue_semantics() -> None:
         ),
     )
 
-    for style_class in (
-        "process-status.action",
-        "shell.title.action",
-    ):
-        attrs = style.get_attrs_for_style_str(f"class:{style_class}")
-        assert attrs.color == "5B8DEF"
-        assert attrs.bold
-        assert not attrs.dim
+    process_footer = style.get_attrs_for_style_str(
+        "class:process-status.background"
+    )
+    assert process_footer.dim
+
+    shell_action = style.get_attrs_for_style_str("class:shell.title.action")
+    assert shell_action.color == "5B8DEF"
+    assert shell_action.bold
+    assert not shell_action.dim
 
 
 def test_theme_foreground_drives_separator_contrast() -> None:

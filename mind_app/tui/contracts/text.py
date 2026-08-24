@@ -22,6 +22,7 @@ class FragmentBlock(object):
     fragments: tuple[tuple[str, str], ...]
     line_fill: LineFill | None = None
     line_fills: tuple[LineFill | None, ...] = ()
+    preserve_newlines: bool = False
 
 
 if __name__ == '__main__':

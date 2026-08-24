@@ -204,8 +204,13 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
         ),)
 
     if spec.kind is ToolDisplayKind.STDIN:
-        output = _native_output_text(payload)
-        body = output or _json_text(view.arguments)
+        stdin  = str(view.arguments.get("stdin") or "")
+        output = _native_output_text(payload).strip("\n")
+
+        body = "\n".join(
+            item for item in (_interaction_input_body(stdin), output) if item
+        )
+
         return (_transcript_block(title, body),)
 
     return (_transcript_block(title, _json_text(payload or view.data)),)
@@ -248,7 +253,11 @@ def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str,
         return ("\n".join(item for item in (command, output) if item),)
 
     if spec.kind is ToolDisplayKind.STDIN:
-        return (_native_output_text(payload) or _json_text(view.arguments),)
+        stdin  = str(view.arguments.get("stdin") or "")
+        title  = view.entries[0].title if view.entries else ""
+        output = _native_output_text(payload).strip("\n")
+
+        return ("\n".join(item for item in (title, stdin, output) if item),)
 
     return (_json_text(payload or view.data),)
 
@@ -260,6 +269,19 @@ def _transcript_block(title: str, body: str) -> StyledBlock:
     text    = f"{heading}\n{content}" if heading and content else heading or content
 
     return StyledBlock(plain_text=text)
+
+
+def _interaction_input_body(stdin: str) -> str:
+    """生成后台终端交互记录中的输入正文。"""
+    lines = str(stdin or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and not lines[-1]:
+        lines.pop()
+    if not any(line for line in lines):
+        return ""
+    return "\n".join(
+        f"  └ {line}" if index == 0 else f"    {line}"
+        for index, line in enumerate(lines)
+    ).rstrip()
 
 
 def _command_result_transcript_block(

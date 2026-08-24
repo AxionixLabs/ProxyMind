@@ -136,6 +136,19 @@ def render_tool_result_preview(
     kind = tool_display_spec(name).kind
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
+        if kind is ToolDisplayKind.STDIN:
+            stdin        = str((arguments or {}).get("stdin") or "")
+            input_lines  = shell_output_lines(stdin)
+            output_lines = _shell_command_ordered_output_lines(data)
+
+            lines = [*input_lines, *output_lines]
+            if not lines:
+                return TracePreview()
+
+            return _plain_trace_preview_from_lines(
+                lines,
+            )
+
         if is_error:
             lines = _shell_command_ordered_output_lines(data)
             if not lines:
@@ -220,11 +233,22 @@ def render_tool_trace(
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if kind is ToolDisplayKind.STDIN:
+            command = _shell_command_title(
+                payload.get("command") or args.get("command"),
+                terminal_width=terminal_width,
+                measure_width=measure_width,
+            )
 
-            session_id = str(payload.get("session_id") or args.get("session_id") or "").strip()
-            suffix     = f" {session_id}" if session_id else ""
+            stdin   = str(args.get("stdin") or "")
+            control = str(
+                args.get("control")
+                or payload.get("control")
+                or "none"
+            ).strip().lower()
 
-            return f"• Wrote stdin{suffix}".rstrip()
+            if stdin or control != "none":
+                return f"↳ Interacted with background terminal · {command}".rstrip()
+            return f"• Waited for background terminal · {command}".rstrip()
 
         command = _shell_command_title(
             payload.get("command") or args.get("command"),
@@ -232,7 +256,7 @@ def render_tool_trace(
             measure_width=measure_width,
         )
 
-        verb = "Started" if name == "exec_command" and payload.get("status") == "running" else "Ran"
+        verb = "Running" if name == "exec_command" and payload.get("status") == "running" else "Ran"
         return f"• {verb} {command}".rstrip()
 
     if kind is ToolDisplayKind.JAVASCRIPT:

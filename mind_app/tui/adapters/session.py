@@ -21,11 +21,17 @@ def create_tui_output_session(
         runtime=runtime,
         animate=animate,
     )
+    presentation = TuiPresentationSink(control)
     return OutputSession(
         control=control,
         status=TuiStreamStatusControl(),
-        content=TuiContentSink(control),
-        presentation=TuiPresentationSink(control),
+        content=TuiContentSink(
+            control,
+            before_assistant_output=(
+                presentation.flush_terminal_waits_before_assistant_output
+            ),
+        ),
+        presentation=presentation,
     )
 
 

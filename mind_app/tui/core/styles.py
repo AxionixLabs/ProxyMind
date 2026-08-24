@@ -110,9 +110,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "input.notice.hint": "bg:default #DDE7EF",
     "input.notice.example": "bg:default #7F8C9A dim",
     "process-status.exec": "fg:#D8B26E",
-    "process-status.separator": "fg:#7B838E",
-    "process-status.action": "fg:#7FB7F0 bold",
-    "process-status.hint": "fg:#7B838E dim",
+    "process-status.background": "dim",
     "directory-trust.title": "bold",
     "directory-trust.body": "",
     "directory-trust.warning": "ansiyellow",
@@ -413,7 +411,6 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         )
         separator_style = f"fg:{separator}" if separator else "dim"
         for style_class in (
-            "process-status.separator",
             "ps.separator",
             "transcript.overlay.rule",
             "mailbox.rule",
@@ -441,7 +438,6 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         capabilities.color_level,
         light=light,
     )
-    styles["process-status.action"] = f"fg:{selection} bold"
     styles["shell.title.action"] = f"fg:{selection} bold"
     selection_background = best_color(
         (207, 225, 246) if light else (29, 57, 105),

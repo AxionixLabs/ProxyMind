@@ -66,12 +66,12 @@ class TuiProcessStatus(object):
             return []
 
         return [
-            ("class:process-status.separator", " · "),
+            ("class:process-status.background", " · "),
             *self._label_fragments()[2:],
         ]
 
     def _label_fragments(self) -> FormattedText:
-        """生成状态正文，并为后台终端操作入口应用蓝色语义。"""
+        """生成状态正文，并为后台终端提示应用静态弱化样式。"""
         base, separator, ps_action, stop_action = self._label_parts()
         label_fragments = render_status_fragments(
             base,
@@ -89,14 +89,16 @@ class TuiProcessStatus(object):
         if not separator:
             return label_fragments
 
+        dim_class = "class:process-status.background"
         return [
-            *label_fragments,
-            ("class:process-status.separator", separator),
-            ("class:process-status.action", ps_action),
-            ("class:process-status.hint", " to view"),
-            ("class:process-status.separator", separator),
-            ("class:process-status.action", stop_action),
-            ("class:process-status.hint", " to close"),
+            *label_fragments[:2],
+            (dim_class, base),
+            (dim_class, separator),
+            (dim_class, ps_action),
+            (dim_class, " to view"),
+            (dim_class, separator),
+            (dim_class, stop_action),
+            (dim_class, " to close"),
         ]
 
     def _label_parts(self) -> tuple[str, str, str, str]:

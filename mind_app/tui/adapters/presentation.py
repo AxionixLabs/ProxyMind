@@ -31,6 +31,7 @@ from mind_app.presentation.models import (
     TextSpan,
     ToolStartView
 )
+from mind_app.presentation.tool_views import build_native_tool_result_view
 from mind_app.presentation.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
@@ -180,6 +181,82 @@ class TuiPresentationSink(PresentationSink):
     def __init__(self, output: "TuiOutputControl") -> None:
         self.output = output
         self._active_patch_call_id: str | None = None
+        self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
+
+    @staticmethod
+    def _native_payload(view: NativeToolResultView) -> dict[str, typing.Any]:
+        """提取原生终端结果中的结构化数据。"""
+        data = view.data
+        if not isinstance(data, dict):
+            return {}
+
+        results = data.get("results")
+        if isinstance(results, list):
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                item_data = item.get("data")
+                if isinstance(item_data, dict):
+                    return item_data
+        return data
+
+    @classmethod
+    def _terminal_session_id(cls, view: NativeToolResultView) -> str:
+        """返回终端结果关联的会话标识。"""
+        payload = cls._native_payload(view)
+        return str(
+            payload.get("session_id")
+            or view.arguments.get("session_id")
+            or ""
+        ).strip()
+
+    @classmethod
+    def _terminal_stdin(cls, view: NativeToolResultView) -> str:
+        """返回本次终端交互写入的原始输入。"""
+        return str(view.arguments.get("stdin") or "")
+
+    @classmethod
+    def _terminal_control(cls, view: NativeToolResultView) -> str:
+        """返回本次终端交互使用的控制动作。"""
+        payload = cls._native_payload(view)
+        return str(
+            view.arguments.get("control")
+            or payload.get("control")
+            or "none"
+        ).strip().lower()
+
+    @classmethod
+    def _terminal_status(cls, view: NativeToolResultView) -> str:
+        """返回终端结果的生命周期状态。"""
+        return str(cls._native_payload(view).get("status") or "").strip().lower()
+
+    @classmethod
+    def _terminal_command(cls, view: NativeToolResultView) -> str:
+        """返回终端等待状态使用的命令摘要。"""
+        payload = cls._native_payload(view)
+        return str(
+            payload.get("command")
+            or view.arguments.get("command")
+            or view.arguments.get("session_id")
+            or ""
+        ).strip()
+
+    @classmethod
+    def _is_running_exec_start(cls, view: NativeToolResultView) -> bool:
+        """判断结果是否只是后台终端的启动确认。"""
+        return (
+            view.name == "exec_command"
+            and cls._terminal_status(view) == "running"
+        )
+
+    @classmethod
+    def _is_empty_terminal_wait(cls, view: NativeToolResultView) -> bool:
+        """判断结果是否为空输入的后台终端轮询。"""
+        return (
+            view.name == "write_stdin"
+            and not cls._terminal_stdin(view)
+            and cls._terminal_control(view) == "none"
+        )
 
     def _patch_call_matches(self, call_id: str) -> bool:
         """判断结果是否属于当前活动补丁。"""
@@ -198,6 +275,58 @@ class TuiPresentationSink(PresentationSink):
                 display_render_width=document.active_display_render_width,
             )
         self._active_patch_call_id = None
+
+    async def _flush_terminal_wait(self, session_id: str) -> None:
+        """提交指定会话合并后的等待记录。"""
+        views = self._pending_terminal_waits.pop(session_id, None)
+        if views:
+            if not self._pending_terminal_waits:
+                await self.output.runtime.end_terminal_wait()
+            await self._emit_view(self._merge_terminal_wait_views(views))
+
+    @classmethod
+    def _merge_terminal_wait_views(
+        cls,
+        views: list[NativeToolResultView],
+    ) -> NativeToolResultView:
+        """合并同一会话连续轮询的增量结果。"""
+        latest = views[-1]
+        if len(views) == 1:
+            return latest
+
+        payload = dict(cls._native_payload(latest))
+
+        output_lines: list[typing.Any] = []
+
+        for view in views:
+            lines = cls._native_payload(view).get("output_lines")
+            if isinstance(lines, (list, tuple)):
+                output_lines.extend(lines)
+
+        if output_lines:
+            payload["output_lines"] = output_lines
+
+        merged = build_native_tool_result_view(
+            latest.name,
+            latest.arguments,
+            ok=latest.ok,
+            data=payload,
+            cost_ms=latest.cost_ms,
+            call_id=latest.call_id,
+        )
+        if isinstance(merged, NativeToolResultView):
+            return merged
+        return latest
+
+    async def _flush_all_terminal_waits(self) -> None:
+        """在新的展示单元开始前提交所有等待记录。"""
+        session_ids = tuple(self._pending_terminal_waits)
+        for session_id in session_ids:
+            await self._flush_terminal_wait(session_id)
+
+    async def flush_terminal_waits_before_assistant_output(self) -> None:
+        """在助手正文开始前提交后台终端等待记录。"""
+        await self._flush_all_terminal_waits()
 
     async def _emit_patch(self, view: PatchView) -> None:
         """按调用身份原位更新并提交一个补丁 cell。"""
@@ -293,8 +422,8 @@ class TuiPresentationSink(PresentationSink):
             )
         self.output.note_work_activity()
 
-    async def emit(self, view: PresentationView) -> None:
-        """渲染并发送一项结构化展示数据。"""
+    async def _emit_view(self, view: PresentationView) -> None:
+        """渲染并发送不需要生命周期归并的一项展示数据。"""
         if isinstance(view, RunCompletedView):
             if self._active_patch_call_id is not None:
                 self._commit_active_patch()
@@ -365,6 +494,42 @@ class TuiPresentationSink(PresentationSink):
             and view.name not in _NON_WORK_COMPLETED_TOOL_NAMES
         ):
             self.output.note_work_activity()
+
+    async def emit(self, view: PresentationView) -> None:
+        """渲染并发送一项结构化展示数据。"""
+        if isinstance(view, NativeToolResultView):
+            if self._is_running_exec_start(view):
+                return None
+
+            if self._is_empty_terminal_wait(view):
+                session_id = self._terminal_session_id(view)
+                if (
+                    not self.output.runtime.execution_active
+                    or not session_id
+                    or self._terminal_status(view) not in {"running", "exited"}
+                ):
+                    return None
+                for pending_session_id in tuple(self._pending_terminal_waits):
+                    if pending_session_id != session_id:
+                        await self._flush_terminal_wait(pending_session_id)
+                self._pending_terminal_waits.setdefault(session_id, []).append(view)
+                await self.output.runtime.begin_terminal_wait(
+                    self._terminal_command(view),
+                )
+                if self._terminal_status(view) == "exited":
+                    await self._flush_terminal_wait(session_id)
+                return None
+
+            if view.name == "write_stdin":
+                session_id = self._terminal_session_id(view)
+                if session_id:
+                    await self._flush_terminal_wait(session_id)
+            else:
+                await self._flush_all_terminal_waits()
+        else:
+            await self._flush_all_terminal_waits()
+
+        await self._emit_view(view)
 
 
 if __name__ == '__main__':
