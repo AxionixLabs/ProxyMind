@@ -399,6 +399,56 @@ async def test_at_popup_left_and_right_switch_search_mode_footer(
             await runtime.close()
 
 
+def test_at_popup_reopen_resets_mode_and_restarts_identical_search(
+    tmp_path: Path,
+) -> None:
+    """验证相同 `@` 查询在新 popup 中不会继承旧搜索会话。"""
+    (tmp_path / "foo.txt").write_text("content", encoding="utf-8")
+    runtime = TuiRuntime(TuiInputModel(workspace_root=tmp_path))
+    buffer = runtime.screen.input.buffer
+    text = "@foo @foo"
+    try:
+        buffer.document = Document(text, cursor_position=len("@foo"))
+        runtime.input_model.refresh_completion_menu(buffer)
+        first_session = runtime.input_model.file_search._session
+        assert first_session is not None
+
+        runtime.input_model._skill_search_mode_index = 2
+        runtime.input_model.dismiss_completion_menu(buffer)
+        buffer.cursor_position = len(text)
+        runtime.input_model.sync_completion_menu(buffer)
+
+        assert runtime.input_model.skill_search_mode == "All Results"
+        assert runtime.input_model.file_search._session is not first_session
+    finally:
+        runtime.input_model.close_file_search()
+
+
+@pytest.mark.anyio
+async def test_at_plugins_mode_query_finishes_loading(tmp_path: Path) -> None:
+    """验证切到 Plugins 后继续输入时文件搜索等待状态仍会收敛。"""
+    runtime = TuiRuntime(TuiInputModel(workspace_root=tmp_path))
+    buffer = runtime.screen.input.buffer
+    try:
+        buffer.document = Document("@")
+        runtime.input_model.refresh_completion_menu(buffer)
+        runtime.input_model.cycle_skill_search_mode(1)
+        runtime.input_model.cycle_skill_search_mode(1)
+        assert runtime.input_model.skill_search_mode == "Plugins"
+
+        buffer.insert_text("missing-plugin")
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while runtime.input_model.completion_empty_message(buffer.document) == "loading...":
+            if asyncio.get_running_loop().time() >= deadline:
+                raise AssertionError("plugin-mode file search did not complete")
+            await asyncio.sleep(0.01)
+
+        assert runtime.input_model.skill_search_mode == "Plugins"
+        assert runtime.input_model.completion_empty_message(buffer.document) == "no matches"
+    finally:
+        runtime.input_model.close_file_search()
+
+
 def test_at_sigiled_skill_alias_switches_to_dollar_sigil(
     tmp_path: Path,
 ) -> None:
@@ -579,6 +629,72 @@ def test_at_file_search_rejects_stale_query_results(tmp_path: Path) -> None:
         paths = {item.text.strip().replace("\\", "/") for item in completions}
         assert "beta-target.txt" in paths
         assert "alpha-target.txt" not in paths
+    finally:
+        search.close()
+
+
+def test_at_file_search_failure_finishes_loading(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """验证后台匹配失败不会让当前查询永久停留在 loading。"""
+    observed: list[tuple[str, type[BaseException], str]] = []
+
+    def fail_matching(*_args, **_kwargs):
+        raise RuntimeError("matching failed")
+
+    monkeypatch.setattr(file_search_module, "_ranked_entries", fail_matching)
+    monkeypatch.setattr(
+        file_search_module,
+        "observe_exception",
+        lambda event, error, *, level: observed.append(
+            (event, type(error), level)
+        ),
+    )
+    search = FileSearchManager()
+    try:
+        assert search.completions("@broken", workspace_root=tmp_path) == ()
+        deadline = time.monotonic() + 2.0
+        while search.empty_message("@broken") == "loading...":
+            if time.monotonic() >= deadline:
+                raise AssertionError("failed file search did not settle")
+            time.sleep(0.01)
+
+        assert search.completions("@broken", workspace_root=tmp_path) == ()
+        assert search.empty_message("@broken") == "no matches"
+        assert observed == [
+            ("file_search.matcher.failed", RuntimeError, "WARNING")
+        ]
+    finally:
+        search.close()
+
+
+def test_at_file_search_start_failure_finishes_loading(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """验证后台会话启动失败也会立即结束当前等待状态。"""
+    observed: list[tuple[str, type[BaseException], str]] = []
+
+    def fail_start(_session) -> None:
+        raise RuntimeError("session failed to start")
+
+    monkeypatch.setattr(file_search_module._FileSearchSession, "start", fail_start)
+    monkeypatch.setattr(
+        file_search_module,
+        "observe_exception",
+        lambda event, error, *, level: observed.append(
+            (event, type(error), level)
+        ),
+    )
+    search = FileSearchManager()
+    try:
+        assert search.completions("@broken", workspace_root=tmp_path) == ()
+        assert search.empty_message("@broken") == "no matches"
+        assert search.completions("@broken", workspace_root=tmp_path) == ()
+        assert observed == [
+            ("file_search.session.start_failed", RuntimeError, "WARNING")
+        ]
     finally:
         search.close()
 

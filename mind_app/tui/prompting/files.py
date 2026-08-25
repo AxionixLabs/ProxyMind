@@ -9,6 +9,7 @@ import subprocess
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+from engine.observability import observe_exception
 from prompt_toolkit.completion import Completion
 from .skills import skill_query_token
 
@@ -44,15 +45,19 @@ class _FileSearchSnapshot(object):
 class _FileSearchSession(object):
     """在后台维护一个工作区索引并响应连续查询更新。"""
 
+    _condition: threading.Condition
+
     def __init__(
         self,
         root: Path,
         report: typing.Callable[["_FileSearchSession", _FileSearchSnapshot], None],
+        report_failure: typing.Callable[["_FileSearchSession"], None],
     ) -> None:
         self.root = root
 
-        self._report    = report
-        self._condition = threading.Condition()
+        self._report         = report
+        self._report_failure = report_failure
+        self._condition      = threading.Condition()
 
         self._entries: dict[str, bool] = {}
 
@@ -73,6 +78,9 @@ class _FileSearchSession(object):
             name="file-search-walker",
             daemon=True,
         )
+
+    def start(self) -> None:
+        """在管理器取得会话所有权后启动后台线程。"""
         self._matcher.start()
         self._walker.start()
 
@@ -163,6 +171,15 @@ class _FileSearchSession(object):
                 with self._condition:
                     if self._stopped:
                         break
+
+        with self._condition:
+            stopped = self._stopped
+        if stopped:
+            try:
+                process.wait()
+            except OSError:
+                pass
+            return
 
         if pending:
             batch.append(os.fsdecode(pending))
@@ -320,7 +337,16 @@ class _FileSearchSession(object):
                     for relative, is_directory in self._entries.items()
                 )
 
-            matches = _ranked_entries(entries, query)
+            try:
+                matches = _ranked_entries(entries, query)
+            except (IndexError, RuntimeError, TypeError, ValueError) as error:
+                observe_exception(
+                    "file_search.matcher.failed",
+                    error,
+                    level="WARNING",
+                )
+                self._report_failure(self)
+                return
 
             with self._condition:
                 if self._stopped:
@@ -347,6 +373,7 @@ class FileSearchManager(object):
         self._matches: tuple[FileSearchEntry, ...] = ()
         self._waiting = False
         self._session: _FileSearchSession | None = None
+        self._failed_query = ""
         self._refresh: typing.Callable[[], None] = lambda: None
 
     def bind_refresh(self, refresh: typing.Callable[[], None]) -> None:
@@ -376,24 +403,47 @@ class FileSearchManager(object):
                 previous = self._session
                 self._root = root
                 self._session = None
+                self._pending_query = ""
                 self._matches = ()
                 self._display_query = ""
+                self._waiting = False
+                self._failed_query = ""
             else:
                 previous = None
 
             if query != self._pending_query:
                 self._pending_query = query
                 self._waiting = True
+                self._failed_query = ""
 
             session = self._session
-            if session is None:
-                session = _FileSearchSession(root, self._receive_snapshot)
+            new_session = False
+            if session is None and query != self._failed_query:
+                self._waiting = True
+                session = _FileSearchSession(
+                    root,
+                    self._receive_snapshot,
+                    self._receive_failure,
+                )
                 self._session = session
+                new_session = True
             matches = self._matches
 
         if previous is not None:
             previous.close()
-        session.update_query(query)
+        if new_session and session is not None:
+            try:
+                session.start()
+            except RuntimeError as error:
+                observe_exception(
+                    "file_search.session.start_failed",
+                    error,
+                    level="WARNING",
+                )
+                self._receive_failure(session)
+                return ()
+        if session is not None:
+            session.update_query(query)
         return _completion_snapshot(token, matches)
 
     def cancel(self) -> None:
@@ -405,6 +455,7 @@ class FileSearchManager(object):
             self._display_query = ""
             self._matches = ()
             self._waiting = False
+            self._failed_query = ""
         if session is not None:
             session.close()
 
@@ -474,6 +525,19 @@ class FileSearchManager(object):
             self._waiting = False
         if changed:
             self._refresh()
+
+    def _receive_failure(self, session: _FileSearchSession) -> None:
+        """结束失败会话的等待状态，并允许后续查询建立新会话。"""
+        with self._lock:
+            if session is not self._session:
+                return
+            self._session = None
+            self._display_query = self._pending_query
+            self._matches = ()
+            self._waiting = False
+            self._failed_query = self._pending_query
+        session.close()
+        self._refresh()
 
 
 def file_completions(

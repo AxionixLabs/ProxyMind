@@ -72,6 +72,5 @@ mind_app -> mind_core -> mind_nova
 
 - 搜索优先使用 `rg`；结构化数据使用解析器或项目现有 API，不做脆弱的字符串拼接。
 - 使用 `apply_patch` 编辑文件，不用 shell 重定向或临时脚本覆盖源码。
-- 保留用户已有改动，不回退无关文件；不要使用破坏性的 `git reset --hard` 或
-  `git checkout --`。
-- `apply_patch` 工具失败原因通过工具结果返回，不向控制台写调试或 warning 日志。
+- 不使用 `# noinspection PyBroadException` 屏蔽检查；应收窄异常类型，或通过不吞异常的生命周期清理保证状态收敛。
+- 保留用户已有改动，不回退无关文件；不要使用破坏性的 `git reset --hard` 或 `git checkout --`。

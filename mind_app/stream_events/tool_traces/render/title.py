@@ -83,7 +83,7 @@ def render_tool_trace_parts(
 
 
 def _terminal_input_parts(preview_text: str) -> list[TextSpan]:
-    """按 Codex 终端交互样式渲染输入，正文保持默认亮度。"""
+    """按终端交互样式渲染输入，正文保持默认亮度。"""
     lines = str(preview_text or "").split("\n")
     parts: list[TextSpan] = []
 

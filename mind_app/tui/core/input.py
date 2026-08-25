@@ -277,11 +277,13 @@ class TuiInputModel(object):
         self.history_backtrack_primed: bool = False
 
         self._history_entries: tuple[TuiInputHistoryEntry, ...] = ()
-        self._history_index: int | None                         = None
-        self._history_completion_dismissed: bool                = False
 
-        self._token_menu_state = TokenMenuState()
-        self._skill_search_mode_index: int = 0
+        self._history_index: int | None          = None
+        self._history_completion_dismissed: bool = False
+
+        self._token_menu_state: TokenMenuState = TokenMenuState()
+        self._skill_search_mode_index: int     = 0
+        self._mention_popup_active: bool       = False
 
         self.key_bindings = self._build_key_bindings()
 
@@ -656,6 +658,33 @@ class TuiInputModel(object):
             and dismissed is not None
             and dismissed.matches(document.text, token[1], token[0])
         )
+
+    def _sync_mention_popup_lifecycle(self, document: Document) -> None:
+        """同步 `@` popup 生命周期，并在新实例上重启文件搜索。"""
+        query = skill_query_token(document.text_before_cursor)
+        mention_query = bool(query and query.startswith("@"))
+        popup_available = bool(
+            mention_query
+            and not self._skill_completion_menu_dismissed(document)
+            and not self._committed_skill_completion_dismissed(document)
+        )
+
+        if not popup_available:
+            was_active = self._mention_popup_active
+            self._mention_popup_active = False
+            if not mention_query:
+                self._skill_search_mode_index = 0
+                if was_active:
+                    self.file_search.cancel()
+            return None
+
+        if self._mention_popup_active:
+            return None
+
+        # 新 popup 不继承旧查询快照或筛选模式。
+        self._mention_popup_active = True
+        self._skill_search_mode_index = 0
+        self.file_search.cancel()
 
     def _update_committed_skill(self, text: str) -> None:
         """根据文本变化平移或撤销已确认的 skill 查询锚点。"""
@@ -1467,6 +1496,7 @@ class TuiInputModel(object):
 
     def completion_menu_completions(self, document: Document) -> tuple[Completion, ...] | None:
         """返回当前未被关闭的命令或 skill 菜单项。"""
+        self._sync_mention_popup_lifecycle(document)
         if (
             self._slash_completion_menu_dismissed(document)
             or self._skill_completion_menu_dismissed(document)
@@ -1515,6 +1545,7 @@ class TuiInputModel(object):
         self._update_committed_skill(buffer.text)
         query = skill_query_token(buffer.document.text_before_cursor)
         if not query or not query.startswith("@"):
+            self._mention_popup_active = False
             self._skill_search_mode_index = 0
             self.file_search.cancel()
         token = slash_command_dismissal_token(buffer.document)
@@ -1563,6 +1594,8 @@ class TuiInputModel(object):
                         token,
                         token_start,
                     ))
+                    if token.startswith("@"):
+                        self._mention_popup_active = False
         buffer.cancel_completion()
 
     def select_default_completion(self, buffer) -> None:
