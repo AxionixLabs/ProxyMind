@@ -26,6 +26,7 @@ from sync_docs import (  # noqa: E402
 SLASH_DOC = "docs/interactive-mode.md"
 CLI_DOC = "docs/cli-usage.md"
 SLASH_SOURCE = "mind_app/tui/prompting/commands.py"
+CLI_SOURCE = "mind_app/cli/arguments.py"
 
 
 def _literal_string(node: ast.AST) -> str | None:
@@ -88,18 +89,50 @@ def _slash_command_names(source_root: Path) -> tuple[str, ...]:
 
 
 def _cli_command_paths(source_root: Path) -> tuple[str, ...]:
-    """从 CLI parser 的已登记帮助路径读取命令层级。"""
-    if str(source_root) not in sys.path:
-        sys.path.insert(0, str(source_root))
+    """从 CLI parser 的静态注册字典读取命令层级。
 
-    from mind_app.cli.arguments import create_cli_parser
+    文档同步任务不应导入应用运行时。CLI parser 的导入链会加载配置、MCP
+    和其他可选依赖，因此这里只解析 `command_parsers` 的 AST。
+    """
+    source = source_root / CLI_SOURCE
+    if not source.exists():
+        raise FileNotFoundError(f"CLI command source not found: {source}")
 
-    paths = create_cli_parser().registered_command_parsers()
-    return tuple(
-        "mind " + " ".join(path)
-        for path in paths
-        if path != ("e",)
-    )
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = (node.target,)
+            value = node.value
+        else:
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "command_parsers"
+            for target in targets
+        ):
+            continue
+        if not isinstance(value, ast.Dict):
+            break
+
+        paths: list[str] = []
+        for key in value.keys:
+            if not isinstance(key, ast.Tuple):
+                continue
+            parts = tuple(
+                value
+                for item in key.elts
+                if (value := _literal_string(item)) is not None
+            )
+            if len(parts) != len(key.elts) or parts == ("e",):
+                continue
+            paths.append("mind " + " ".join(parts))
+        if paths:
+            return tuple(paths)
+        break
+
+    raise ValueError(f"no CLI command registry found in {source}")
 
 
 def _missing_tokens(document: Path, tokens: tuple[str, ...]) -> tuple[str, ...]:
