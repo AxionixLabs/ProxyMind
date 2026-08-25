@@ -24,6 +24,7 @@ StreamCommandPolicy = typing.Literal[
     "interrupt",
     "local_snapshot",
     "interactive_panel",
+    "settings_settlement",
 ]
 
 
@@ -40,6 +41,9 @@ class TuiCommandSpec(object):
     subcommands: tuple[str, ...] = ()
     surface_on_bare: bool = False
     stream_policy: StreamCommandPolicy = "reject"
+    stream_subcommand_policies: tuple[
+        tuple[str, StreamCommandPolicy], ...
+    ] = ()
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -50,6 +54,45 @@ class TuiCommandSpec(object):
     def insertion_text(self) -> str:
         """返回补全选中后写入输入框的文本。"""
         return self.completion_text or self.command
+
+    @property
+    def available_during_task(self) -> bool:
+        """返回命令是否至少有一个运行中可执行入口。"""
+        return bool(
+            self.stream_policy != "reject"
+            or any(
+                policy != "reject"
+                for _subcommand, policy in self.stream_subcommand_policies
+            )
+        )
+
+    @property
+    def requires_stream_action(self) -> bool:
+        """返回命令是否需要会话层提供流式动作实现。"""
+        policies = (
+            self.stream_policy,
+            *(policy for _name, policy in self.stream_subcommand_policies),
+        )
+        return any(
+            policy not in {"reject", "interrupt"}
+            for policy in policies
+        )
+
+    def policy_during_task(
+        self,
+        subcommand: str | None = None,
+    ) -> StreamCommandPolicy:
+        """返回命令或指定子命令在活动轮次中的执行策略。"""
+        if subcommand is None:
+            return self.stream_policy
+        return next(
+            (
+                policy
+                for name, policy in self.stream_subcommand_policies
+                if name == subcommand
+            ),
+            self.stream_policy,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,32 +120,39 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "permissions", "/permissions", "切换权限模式",
         surface_on_bare=True,
+        stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
         "model", "/model", "设置主模型 ID",
         completion_text="/model ",
         parameterized=True,
+        stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
         "provider", "/provider", "切换模型 Provider",
         surface_on_bare=True,
+        stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
         "effort", "/effort", "设置主模型推理强度",
         surface_on_bare=True,
+        stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
         "preferences", "/preferences", "打开偏好配置页面",
+        stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
         "compact", "/compact", "压缩当前对话上下文",
     ),
     TuiCommandSpec(
         "tools", "/tools", "查看可用 MCP 工具",
+        stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
         "hooks", "/hooks", "管理生命周期 Hooks",
         surface_on_bare=True,
+        stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
         "agent", "/agent", "查看和管理子代理线程",
@@ -113,16 +163,25 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "listen", "/listen", "管理远端请求监听器",
         subcommands=("start", "stop", "status"),
         surface_on_bare=True,
+        stream_policy="interactive_panel",
+        stream_subcommand_policies=(
+            ("start", "background_barrier"),
+            ("stop", "background_barrier"),
+            ("status", "local_snapshot"),
+        ),
     ),
     TuiCommandSpec(
         "mailbox", "/mailbox", "查看和处理远端请求消息",
         surface_on_bare=True,
+        stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
         "diff", "/diff", "查看本轮补丁净差异",
+        stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
         "copy", "/copy", "复制最近一次助手回复原文",
+        stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
         "ps", "/ps", "查看后台终端",
@@ -137,6 +196,13 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "mcp", "/mcp", "管理外部 MCP 服务",
         subcommands=("start", "force", "stop", "restart", "status"),
         surface_on_bare=True,
+        stream_subcommand_policies=(
+            ("start", "background_barrier"),
+            ("force", "background_barrier"),
+            ("stop", "reject"),
+            ("restart", "reject"),
+            ("status", "local_snapshot"),
+        ),
     ),
     TuiCommandSpec(
         "helix_link", "/helix-link", "接入 Helix MCP",
@@ -146,12 +212,14 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "helix_mode", "/helix-mode", "选择 Helix 工具过滤模式",
         surface_on_bare=True,
+        stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
         "helix_unlink", "/helix-unlink", "移除 Helix MCP",
     ),
     TuiCommandSpec(
         "helix_home", "/helix-home", "打开 Helix 首页",
+        stream_policy="background_barrier",
     ),
     TuiCommandSpec(
         "helix_stop", "/helix-stop", "停止 Helix 服务",
@@ -159,6 +227,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "skills", "/skills", "打开 skills 列表",
         surface_on_bare=True,
+        stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
         "shutdown", "/shutdown", "停止本地后台服务并退出",
@@ -405,18 +474,26 @@ def stream_command_policy(value: str) -> StreamCommandPolicy | None:
     if normalized.startswith("!"):
         return "reject"
 
-    direct = _COMMAND_BY_NAME.get(normalized)
-    if direct is not None:
-        return direct.stream_policy
-
     parts = normalized.split()
-    head  = parts[0]
 
-    if head in command_names("mcp") and len(parts) == 2:
-        if parts[1] in {"start", "force"}:
-            return "background_barrier"
-        return "reject"
-    if head.startswith("/"):
+    command = _COMMAND_BY_NAME.get(parts[0])
+    if command is None:
+        if parts[0].startswith("/"):
+            return "reject"
+        return None
+
+    if len(parts) == 1:
+        return command.policy_during_task()
+
+    argument = " ".join(parts[1:])
+    if command.subcommands:
+        if argument not in command.subcommands:
+            return "reject"
+        return command.policy_during_task(argument)
+    if command.parameterized or command.accepts_arguments:
+        return command.policy_during_task()
+
+    if parts[0].startswith("/"):
         return "reject"
 
     return None

@@ -158,8 +158,19 @@ class TuiForegroundTasks(object):
             ),
         )
 
-    def start_listener(self, action: ListenerOperation) -> bool:
+    def start_listener(
+        self,
+        action: ListenerOperation,
+        *,
+        on_succeeded: typing.Callable[[], None] | None = None,
+    ) -> bool:
         """按统一生命周期启动监听器状态切换任务。"""
+        def finish(outcome: typing.Any) -> None:
+            """展示监听器结果并通知会话级依赖刷新绑定。"""
+            render_listener_result(self.mind, outcome)
+            if on_succeeded is not None:
+                on_succeeded()
+
         return self.start(
             "Listener",
             lambda: run_listener_action(self.mind, action),
@@ -169,10 +180,7 @@ class TuiForegroundTasks(object):
                 else None
             ),
             activity_kind="operation",
-            on_succeeded=lambda outcome: render_listener_result(
-                self.mind,
-                outcome,
-            ),
+            on_succeeded=finish,
             on_failed=lambda error: render_listener_failure(
                 self.mind,
                 action,
@@ -234,7 +242,7 @@ class TuiForegroundTasks(object):
         return self.start_external_mcp(mcp_action)
 
     async def wait(self) -> None:
-        """等待后台启动完成后再允许下一次模型调用。"""
+        """持续等待派生前台任务稳定结束后再允许下一次模型调用。"""
         pending = tuple(
             task
             for task in self._task_snapshot()
@@ -249,7 +257,14 @@ class TuiForegroundTasks(object):
         self.runtime.bind_interrupt_handler(self.cancel)
 
         try:
-            await asyncio.gather(*pending, return_exceptions=True)
+            while pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+                await asyncio.sleep(0)
+                pending = tuple(
+                    task
+                    for task in self._task_snapshot()
+                    if not task.done()
+                )
         finally:
             self.runtime.bind_interrupt_handler(None)
             self.runtime.bind_stream_command_handler(None)

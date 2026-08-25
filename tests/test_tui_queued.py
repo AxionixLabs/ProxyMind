@@ -491,7 +491,7 @@ def test_rollback_duplicate_queue_does_not_remove_previous_history() -> None:
 
 @pytest.mark.parametrize(
     "command",
-    ["/compact", "/fork", "/helix-mode", "/helix-home"],
+    ["/compact", "/fork", "/resume", "/mcp", "/helix-unlink"],
 )
 def test_streaming_rejected_command_never_enters_message_queue(command) -> None:
     runtime = TuiRuntime()

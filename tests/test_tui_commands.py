@@ -40,6 +40,7 @@ from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
     canonical_command_label,
     command_names,
+    command_spec,
     is_unrecognized_slash_command,
     parameterized_command_texts,
     resolve_slash_command,
@@ -438,23 +439,68 @@ def test_non_surface_inputs_commit_directly(value) -> None:
 def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert command_names("quit") == frozenset({"/quit", "/q", "quit", "exit"})
     assert parameterized_command_texts() == ("/model ",)
-    assert stream_command_policy("/helix-link") == "background_barrier"
-    assert stream_command_policy("/helix-mode") == "reject"
-    assert stream_command_policy("/mcp start") == "background_barrier"
-    assert stream_command_policy("/mcp force") == "background_barrier"
-    assert stream_command_policy("/ps") == "local_snapshot"
-    assert stream_command_policy("/agent") == "interactive_panel"
-    assert stream_command_policy("/listen") == "reject"
-    assert stream_command_policy("/mailbox") == "reject"
-    assert stream_command_policy("/compact") == "reject"
-    assert stream_command_policy("/hooks") == "reject"
-    assert stream_command_policy("/fork") == "reject"
-    assert stream_command_policy("/mcp restart") == "reject"
-    assert stream_command_policy("! rg foo") == "reject"
-    assert stream_command_policy("/quit") == "interrupt"
     assert stream_command_policy("hello") is None
     assert stream_command_policy("$review") is None
     assert stream_command_label("/mcp restart now") == "/mcp restart"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("/permissions", "settings_settlement"),
+        ("/model gpt-test", "settings_settlement"),
+        ("/provider", "settings_settlement"),
+        ("/effort", "settings_settlement"),
+        ("/helix-mode", "settings_settlement"),
+        ("/preferences", "local_snapshot"),
+        ("/tools", "local_snapshot"),
+        ("/diff", "local_snapshot"),
+        ("/copy", "local_snapshot"),
+        ("/ps", "local_snapshot"),
+        ("/listen status", "local_snapshot"),
+        ("/mcp status", "local_snapshot"),
+        ("/hooks", "interactive_panel"),
+        ("/agent", "interactive_panel"),
+        ("/listen", "interactive_panel"),
+        ("/mailbox", "interactive_panel"),
+        ("/mcp", "reject"),
+        ("/skills", "interactive_panel"),
+        ("/listen start", "background_barrier"),
+        ("/listen stop", "background_barrier"),
+        ("/mcp start", "background_barrier"),
+        ("/mcp force", "background_barrier"),
+        ("/stop", "background_barrier"),
+        ("/helix-link", "background_barrier"),
+        ("/helix-home", "background_barrier"),
+        ("/quit", "interrupt"),
+        ("/shutdown", "interrupt"),
+        ("/new", "reject"),
+        ("/resume", "reject"),
+        ("/archive", "reject"),
+        ("/fork", "reject"),
+        ("/compact", "reject"),
+        ("/mcp stop", "reject"),
+        ("/mcp restart", "reject"),
+        ("/helix-unlink", "reject"),
+        ("/helix-stop", "reject"),
+        ("! rg foo", "reject"),
+    ),
+)
+def test_command_catalog_declares_complete_stream_capabilities(
+    value: str,
+    expected: str,
+) -> None:
+    assert stream_command_policy(value) == expected
+
+
+def test_command_specs_expose_task_availability() -> None:
+    assert command_spec("permissions").available_during_task
+    assert command_spec("mcp").available_during_task
+    assert not command_spec("resume").available_during_task
+    assert command_spec("permissions").requires_stream_action
+    assert command_spec("mcp").requires_stream_action
+    assert not command_spec("quit").requires_stream_action
+    assert not command_spec("resume").requires_stream_action
 
 
 def test_new_command_accepts_an_optional_session_name() -> None:
@@ -574,14 +620,14 @@ async def test_dispatcher_handles_invalid_slash_without_model(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("command", ["/helix-mode", "/helix-home"])
-async def test_missing_helix_runtime_download_ends_current_command(
+async def test_linked_missing_helix_runtime_download_ends_current_command(
     monkeypatch,
     command,
 ) -> None:
     from mind_app.tui.session import dispatch as dispatch_module
 
     context = object()
-    linked = Mock(side_effect=AssertionError("must not inspect connection"))
+    linked = Mock(return_value=True)
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
@@ -613,7 +659,7 @@ async def test_missing_helix_runtime_download_ends_current_command(
     confirm.assert_awaited_once_with(dispatcher.runtime, context)
     foreground.start.assert_called_once()
     foreground.wait.assert_awaited_once_with()
-    linked.assert_not_called()
+    linked.assert_called_once_with()
 
 
 @pytest.mark.anyio
@@ -645,7 +691,7 @@ async def test_helix_link_remains_the_explicit_connection_command() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("command", ["/helix-mode", "/helix-home"])
-async def test_downloaded_but_unlinked_helix_command_does_not_start_runtime(
+async def test_unlinked_helix_command_skips_runtime_lookup(
     monkeypatch,
     command,
 ) -> None:
@@ -653,19 +699,15 @@ async def test_downloaded_but_unlinked_helix_command_does_not_start_runtime(
 
     views = []
     foreground = SimpleNamespace(start=Mock(), wait=AsyncMock())
+    runtime_context = Mock(side_effect=AssertionError("must not inspect runtime"))
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        require_service_runtime_context=lambda: object(),
+        require_service_runtime_context=runtime_context,
         is_service_mcp_linked=lambda: False,
     )
     choose = AsyncMock()
-    monkeypatch.setattr(
-        dispatch_module,
-        "service_runtime_asset_missing",
-        lambda _context: False,
-    )
     monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
     dispatcher = TuiCommandDispatcher(
         mind,
@@ -679,6 +721,7 @@ async def test_downloaded_but_unlinked_helix_command_does_not_start_runtime(
     assert action is DispatchAction.HANDLED
     foreground.start.assert_not_called()
     choose.assert_not_awaited()
+    runtime_context.assert_not_called()
     status = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(
         text for _style, text in status.renderable.fragments
@@ -1496,11 +1539,19 @@ async def test_dispatcher_opens_agent_panel_without_interrupting(
         menu_called.set()
 
     monkeypatch.setattr(dispatch_module, "manage_agents", open_menu)
+    foreground = SimpleNamespace()
+
+    def start(_label, factory):
+        runtime.start_background_task(factory(), name="test agents menu")
+        return True
+
+    foreground.start = start
+    foreground.handle_stream_command = lambda *_args: False
     dispatcher = TuiCommandDispatcher(
         mind,
         runtime,
         SimpleNamespace(),
-        SimpleNamespace(handle_stream_command=lambda *_args: False),
+        foreground,
     )
     cancelled = []
 

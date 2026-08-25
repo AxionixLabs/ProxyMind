@@ -5,7 +5,10 @@ import re
 import enum
 import typing
 import asyncio
-from dataclasses import replace
+from dataclasses import (
+    dataclass,
+    replace
+)
 from engine.file_assist import FileAssist
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from mind_app.frontend import ApplicationView
@@ -106,10 +109,14 @@ from ..features.shell import run_shell_escape
 from ..features.skills import choose_skill
 from ..features.tools import print_available_tools
 from ..prompting.commands import (
+    StreamCommandPolicy,
+    TUI_COMMANDS,
+    TuiCommandSpec,
     command_spec,
     matches_command,
     resolve_tui_command,
-    slash_command_notice_message
+    slash_command_notice_message,
+    stream_command_policy
 )
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
@@ -122,6 +129,50 @@ MODEL_COMMAND_PATTERN = re.compile(
     rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
     re.IGNORECASE
 )
+
+_BARRIER_STREAM_POLICIES: typing.Final[frozenset[StreamCommandPolicy]] = (
+    frozenset[StreamCommandPolicy]({
+        "background_barrier",
+        "interactive_panel",
+        "settings_settlement",
+    })
+)
+
+
+@dataclass(frozen=True, slots=True)
+class StreamLocalAction(object):
+    """描述不阻塞当前轮次或下一轮输入的本地异步动作。"""
+    key: str
+    name: str
+    factory: typing.Callable[
+        [],
+        typing.Coroutine[typing.Any, typing.Any, None],
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class StreamBarrierAction(object):
+    """描述不阻塞当前轮次但必须先于下一轮完成的动作。"""
+    start: typing.Callable[[], bool]
+
+
+StreamResolvedAction = StreamLocalAction | StreamBarrierAction
+
+
+@dataclass(frozen=True, slots=True)
+class StreamCommandRequest(object):
+    """保存一次已授权流式命令的规范输入。"""
+
+    value: str
+    normalized: str
+    cancel_turn: typing.Callable[[], bool]
+
+
+StreamActionResolver = typing.Callable[
+    [StreamCommandRequest],
+    StreamResolvedAction,
+]
+
 
 class DispatchAction(enum.Enum):
     """描述一项输入完成命令分派后的下一步。"""
@@ -148,8 +199,200 @@ class TuiCommandDispatcher(object):
         self.application      = mind.frontend.application
         self.mailbox          = TuiMailboxFeature(runtime, mind)
 
-        self._process_snapshot_task: asyncio.Task[None] | None = None
-        self._agent_menu_task: asyncio.Task[None] | None       = None
+        self._local_tasks: dict[str, asyncio.Task[None]] = {}
+        self._stream_action_resolvers = self._build_stream_action_resolvers()
+        self._validate_stream_action_resolvers()
+
+    def _build_stream_action_resolvers(
+        self,
+    ) -> dict[str, StreamActionResolver]:
+        """构建由命令目录键驱动的流式动作注册表。"""
+        return {
+            "permissions": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Model permissions",
+                    lambda: self._update_permissions(present_on_cancel=False),
+                )
+            ),
+            "model": self._resolve_stream_model_action,
+            "provider": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Model provider",
+                    lambda: self._switch_provider(present_on_cancel=False),
+                )
+            ),
+            "effort": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Reasoning effort",
+                    lambda: self._choose_effort(present_on_cancel=False),
+                )
+            ),
+            "helix_mode": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Helix tool mode",
+                    lambda: self._choose_helix_mode(
+                        present_on_cancel=False,
+                        wait_for_download=False,
+                    ),
+                )
+            ),
+            "preferences": lambda _request: StreamLocalAction(
+                key="preferences",
+                name="tui preferences browser",
+                factory=self._open_preferences,
+            ),
+            "tools": lambda _request: StreamLocalAction(
+                key="tools",
+                name="tui tools snapshot",
+                factory=self._show_tools,
+            ),
+            "hooks": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Hooks menu",
+                    lambda: manage_hooks(self.runtime, self.mind),
+                )
+            ),
+            "agent": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Agents menu",
+                    lambda: manage_agents(self.runtime, self.mind),
+                )
+            ),
+            "listen": lambda request: self._resolve_stream_listener_action(
+                request.normalized
+            ),
+            "mailbox": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Mailbox menu",
+                    self.mailbox.open,
+                )
+            ),
+            "diff": lambda _request: StreamLocalAction(
+                key="diff",
+                name="tui diff snapshot",
+                factory=lambda: _run_immediate_stream_action(
+                    lambda: print_current_apply_patch_diff(self.mind)
+                ),
+            ),
+            "copy": lambda _request: StreamLocalAction(
+                key="copy",
+                name="tui copy assistant response",
+                factory=lambda: copy_last_assistant_reply(self.mind),
+            ),
+            "ps": lambda _request: StreamLocalAction(
+                key="ps",
+                name="tui background terminals snapshot",
+                factory=lambda: append_exec_stream_snapshot(
+                    typing.cast(
+                        "ProcessRuntimePort",
+                        typing.cast(object, self.runtime),
+                    ),
+                    self.mind,
+                ),
+            ),
+            "stop": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Stop background terminals",
+                    lambda: stop_all_exec_sessions(
+                        typing.cast(
+                            "ProcessRuntimePort",
+                            typing.cast(object, self.runtime),
+                        ),
+                        self.mind,
+                    ),
+                )
+            ),
+            "mcp": lambda request: self._resolve_stream_mcp_action(
+                request.normalized
+            ),
+            "helix_link": lambda request: StreamBarrierAction(
+                lambda: self.foreground_tasks.handle_stream_command(
+                    request.value,
+                    request.cancel_turn,
+                )
+            ),
+            "helix_home": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Helix Home preparation",
+                    lambda: self._open_helix_home(wait_for_completion=False),
+                )
+            ),
+            "skills": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Skills menu",
+                    self._choose_skill,
+                )
+            ),
+        }
+
+    def _validate_stream_action_resolvers(self) -> None:
+        """校验命令目录与会话层流式动作注册表完全一致。"""
+        declared = {
+            command.key
+            for command in TUI_COMMANDS
+            if command.requires_stream_action
+        }
+        registered = set(self._stream_action_resolvers)
+        if declared == registered:
+            self._validate_stream_action_policies()
+            return None
+
+        missing    = ", ".join(sorted(declared - registered)) or "none"
+        unexpected = ", ".join(sorted(registered - declared)) or "none"
+        raise RuntimeError(
+            "Invalid stream action registry: "
+            f"missing={missing}; unexpected={unexpected}"
+        )
+
+    def _validate_stream_action_policies(self) -> None:
+        """校验一级命令和子命令解析动作与声明策略一致。"""
+        for command in TUI_COMMANDS:
+            cases = (
+                (command.command, command.stream_policy),
+                *(
+                    (
+                        f"{command.command} {subcommand}",
+                        command.policy_during_task(subcommand),
+                    )
+                    for subcommand in command.subcommands
+                ),
+            )
+            resolver = self._stream_action_resolvers.get(command.key)
+
+            for value, policy in cases:
+                if policy in {"reject", "interrupt"}:
+                    continue
+                if resolver is None:
+                    raise RuntimeError(
+                        f"No stream action registered for {value}"
+                    )
+
+                action = resolver(StreamCommandRequest(
+                    value=value,
+                    normalized=value.casefold(),
+                    cancel_turn=lambda: False,
+                ))
+                if policy == "local_snapshot":
+                    valid = isinstance(action, StreamLocalAction)
+                else:
+                    valid = isinstance(action, StreamBarrierAction)
+                if not valid:
+                    raise RuntimeError(
+                        f"Stream action policy mismatch for {value}: {policy}"
+                    )
+
+    def _resolve_stream_model_action(
+        self,
+        request: StreamCommandRequest,
+    ) -> StreamResolvedAction:
+        """解析模型查询或更新动作。"""
+        matcher = MODEL_COMMAND_PATTERN.match(request.value)
+        if matcher is None:
+            raise RuntimeError("Registered model stream action received invalid input")
+        return StreamBarrierAction(lambda: self.foreground_tasks.start(
+            "Model selection",
+            lambda: self._save_model(matcher),
+        ))
 
     def _present(
         self,
@@ -178,47 +421,36 @@ class TuiCommandDispatcher(object):
         self.state.clear_pending_prompt_extras()
         self.mind.attach.clear_pending_attachments()
 
-    def _start_process_snapshot(self) -> None:
-        """启动不接管输入焦点的后台终端快照任务。"""
-        previous = self._process_snapshot_task
+    def _start_local_action(
+        self,
+        action: StreamLocalAction,
+    ) -> bool:
+        """启动不参与下一轮屏障的去重本地动作。"""
+        previous = self._local_tasks.get(action.key)
         if previous is not None and not previous.done():
-            previous.cancel()
+            return True
 
         task = self.runtime.start_background_task(
-            append_exec_stream_snapshot(
-                typing.cast(
-                    "ProcessRuntimePort",
-                    typing.cast(object, self.runtime),
-                ),
-                self.mind,
-            ),
-            name="tui background terminals snapshot",
+            action.factory(),
+            name=action.name,
         )
-        self._process_snapshot_task = task
-        task.add_done_callback(self._forget_process_snapshot)
-
-    def _forget_process_snapshot(self, task: asyncio.Task[None]) -> None:
-        """回收已完成的后台终端快照任务。"""
-        if self._process_snapshot_task is task:
-            self._process_snapshot_task = None
-
-    def _start_agent_menu(self) -> None:
-        """在流式期间启动可交互的子执行线程菜单。"""
-        previous = self._agent_menu_task
-        if previous is not None and not previous.done():
-            previous.cancel()
-
-        task = self.runtime.start_background_task(
-            manage_agents(self.runtime, self.mind),
-            name="tui agents menu",
+        self._local_tasks[action.key] = task
+        task.add_done_callback(
+            lambda completed: self._forget_local_action(
+                action.key,
+                completed,
+            )
         )
-        self._agent_menu_task = task
-        task.add_done_callback(self._forget_agent_menu)
+        return True
 
-    def _forget_agent_menu(self, task: asyncio.Task[None]) -> None:
-        """回收已完成的子执行线程菜单任务。"""
-        if self._agent_menu_task is task:
-            self._agent_menu_task = None
+    def _forget_local_action(
+        self,
+        key: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        """回收已经完成的运行中本地动作。"""
+        if self._local_tasks.get(key) is task:
+            self._local_tasks.pop(key, None)
 
     def handle_stream_command(
         self,
@@ -226,29 +458,60 @@ class TuiCommandDispatcher(object):
         cancel_turn: typing.Callable[[], bool]
     ) -> bool:
         """分派模型流式期间可执行的本地命令。"""
-        command = str(value or "").strip().casefold()
-        if matches_command(command, "stop"):
-            self.runtime.start_background_task(
-                stop_all_exec_sessions(
-                    typing.cast(
-                        "ProcessRuntimePort",
-                        typing.cast(object, self.runtime),
-                    ),
-                    self.mind,
-                ),
-                name="tui stop background terminals",
+        normalized = str(value or "").strip().casefold()
+        policy     = stream_command_policy(normalized)
+        command    = resolve_tui_command(normalized)
+
+        if policy in {None, "reject"} or command is None:
+            return False
+
+        if policy == "interrupt":
+            return self.foreground_tasks.handle_stream_command(
+                value,
+                cancel_turn,
             )
-            return True
-        if matches_command(command, "ps"):
-            self._start_process_snapshot()
-            return True
-        if matches_command(command, "agent"):
-            self._start_agent_menu()
-            return True
 
-        return self.foreground_tasks.handle_stream_command(value, cancel_turn)
+        action = self._resolve_stream_action(
+            command,
+            StreamCommandRequest(
+                value=value,
+                normalized=normalized,
+                cancel_turn=cancel_turn,
+            ),
+        )
 
-    async def _choose_effort(self) -> None:
+        if policy == "local_snapshot":
+            if not isinstance(action, StreamLocalAction):
+                raise RuntimeError(
+                    f"Stream command {command.command} requires a local action"
+                )
+            return self._start_local_action(action)
+
+        if policy in _BARRIER_STREAM_POLICIES:
+            if not isinstance(action, StreamBarrierAction):
+                raise RuntimeError(
+                    f"Stream command {command.command} requires a barrier action"
+                )
+            return action.start()
+
+        raise RuntimeError(
+            f"Unsupported stream command policy for {command.command}: {policy}"
+        )
+
+    def _resolve_stream_action(
+        self,
+        command: TuiCommandSpec,
+        request: StreamCommandRequest,
+    ) -> StreamResolvedAction:
+        """把已授权命令解析为与声明策略匹配的运行期动作。"""
+        resolver = self._stream_action_resolvers.get(command.key)
+        if resolver is None:
+            raise RuntimeError(
+                f"No stream action registered for {command.command}"
+            )
+        return resolver(request)
+
+    async def _choose_effort(self, *, present_on_cancel: bool = True) -> None:
         """选择并持久化模型推理强度。"""
         await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
         primary = self.state.pref_config.get("primary")
@@ -260,7 +523,8 @@ class TuiCommandDispatcher(object):
         )
 
         if selected is None:
-            self._present()
+            if present_on_cancel:
+                self._present()
             return None
 
         saved = await persist_primary_pref(
@@ -318,7 +582,7 @@ class TuiCommandDispatcher(object):
         ))
         self._present()
 
-    async def _switch_provider(self) -> None:
+    async def _switch_provider(self, *, present_on_cancel: bool = True) -> None:
         """选择并持久化当前 Provider Profile。"""
         try:
             selected = await choose_provider(
@@ -326,7 +590,8 @@ class TuiCommandDispatcher(object):
                 self.mind.config_session,
             )
             if selected is None:
-                self._present()
+                if present_on_cancel:
+                    self._present()
                 return None
             saved = await save_active_provider(
                 self.mind.config_session,
@@ -353,6 +618,132 @@ class TuiCommandDispatcher(object):
             current.get("model"),
         ))
         self._present()
+
+    async def _update_permissions(
+        self,
+        *,
+        present_on_cancel: bool = True,
+    ) -> None:
+        """选择、持久化并同步当前会话权限。"""
+        selected = await choose_permissions_mode(
+            self.runtime,
+            self.state.permissions,
+        )
+        if selected is None:
+            if present_on_cancel:
+                self._present()
+            return None
+
+        try:
+            effective = self.mind.apply_permissions(selected)
+        except (ConfigStoreError, TypeError, ValueError) as failure:
+            self._present(failure_text_block(
+                f"Failed to update permissions: {failure}",
+            ))
+            self._present()
+            return None
+
+        self.state.permissions = effective
+        self.state.apply_prompt_context(self.runtime)
+        render_permissions_status(self.application, effective)
+
+    async def _show_tools(self) -> None:
+        """刷新偏好快照并展示当前可用工具。"""
+        await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+        await print_available_tools(
+            self.mind,
+            pref_config=self.state.pref_config,
+        )
+
+    async def _open_preferences(self) -> None:
+        """在系统浏览器中打开偏好配置页面。"""
+        preferences_url = f"{config_service_base_url()}/pref"
+        try:
+            await FileAssist.open_url(preferences_url)
+        except Exception as failure:
+            self._present(failure_text_block(
+                f"Failed to open browser for {preferences_url}: {failure}",
+            ))
+        else:
+            self._present(fragment_block(
+                TextSpan("• ", BODY_STYLE),
+                TextSpan(
+                    f"Opened {preferences_url} in your browser.",
+                    BRIGHT_STYLE,
+                ),
+            ))
+        self._present()
+
+    async def _choose_skill(self) -> None:
+        """打开当前运行时可用的 skill 选择面板。"""
+        skill_runtime = typing.cast(
+            "SkillRuntimePort",
+            typing.cast(object, self.runtime),
+        )
+        await choose_skill(skill_runtime, self.mind.config_session)
+
+    def _resolve_stream_listener_action(
+        self,
+        command: str,
+    ) -> StreamResolvedAction:
+        """解析活动轮次中的监听器查询、菜单或状态切换。"""
+        is_listener, action = parse_listener_command(command)
+        if not is_listener:
+            raise RuntimeError(
+                "Registered listener stream action received invalid input"
+            )
+        if action is None:
+            return StreamBarrierAction(lambda: self.foreground_tasks.start(
+                "Listener menu",
+                self._choose_stream_listener_action,
+            ))
+        if action == "status":
+            return StreamLocalAction(
+                key="listen",
+                name="tui listener status",
+                factory=lambda: _run_immediate_stream_action(
+                    lambda: render_listener_status(self.mind)
+                ),
+            )
+        return StreamBarrierAction(
+            lambda: self.foreground_tasks.start_listener(
+                action,
+                on_succeeded=self.mailbox.bind_listener,
+            )
+        )
+
+    async def _choose_stream_listener_action(self) -> None:
+        """选择并启动不会中断当前模型轮次的监听器操作。"""
+        action = await choose_listener_action(self.runtime, self.mind)
+        if action is None:
+            return None
+        self.foreground_tasks.start_listener(
+            action,
+            on_succeeded=self.mailbox.bind_listener,
+        )
+
+    def _resolve_stream_mcp_action(
+        self,
+        command: str,
+    ) -> StreamResolvedAction:
+        """解析活动轮次中不会破坏当前工具会话的 MCP 操作。"""
+        is_mcp, action = parse_mcp_command(command)
+        if not is_mcp or action is None:
+            raise RuntimeError("Registered MCP stream action received invalid input")
+        if action == "status":
+            return StreamLocalAction(
+                key="mcp",
+                name="tui external mcp status",
+                factory=lambda: _run_immediate_stream_action(
+                    lambda: render_mcp_status(self.mind)
+                ),
+            )
+        return StreamBarrierAction(
+            lambda: self.foreground_tasks.handle_stream_command(
+                command,
+                lambda: False,
+            )
+        )
 
     async def _dispatch_mcp(self, mcp_action: McpAction | None) -> None:
         """执行即时 MCP 操作或建立可取消前台任务。"""
@@ -442,14 +833,21 @@ class TuiCommandDispatcher(object):
         await self.mind.unarchive_conversation(row.cid, row.sid)
         return replace(row, status=ResumeSessionStatus.ACTIVE)
 
-    async def _download_missing_helix_runtime(self, command: str) -> bool:
+    async def _download_missing_helix_runtime(
+        self,
+        command: str,
+        *,
+        wait_for_completion: bool = True,
+        present_on_cancel: bool = True,
+    ) -> bool:
         """发现缺失运行时时完成下载并结束当前命令。"""
         context = self.mind.require_service_runtime_context()
         if not service_runtime_asset_missing(context):
             return False
 
         if not await confirm_runtime_download(self.runtime, context):
-            self._present()
+            if present_on_cancel:
+                self._present()
             return True
 
         self.foreground_tasks.start(
@@ -470,8 +868,87 @@ class TuiCommandDispatcher(object):
                 label="Helix download",
             ),
         )
-        await self.foreground_tasks.wait()
+        if wait_for_completion:
+            await self.foreground_tasks.wait()
         return True
+
+    async def _choose_helix_mode(
+        self,
+        *,
+        present_on_cancel: bool = True,
+        wait_for_download: bool = True,
+    ) -> None:
+        """选择并应用后续模型轮次使用的 Helix 工具过滤模式。"""
+        if not self.mind.is_service_mcp_linked():
+            render_helix_notice(
+                self.mind,
+                "Helix MCP is not connected",
+            )
+            return None
+        if await self._download_missing_helix_runtime(
+            "/helix-mode",
+            wait_for_completion=wait_for_download,
+            present_on_cancel=present_on_cancel,
+        ):
+            return None
+
+        current = self.mind.tool_profile_for_turn()
+        if current is None:
+            render_helix_notice(
+                self.mind,
+                "Helix tool mode is unavailable",
+            )
+            return None
+
+        selected = await choose_helix_tool_profile(self.runtime, current)
+        if selected is None:
+            if present_on_cancel:
+                self._present()
+            return None
+
+        self.mind.set_service_tool_profile(selected)
+        render_helix_mode_result(self.mind, selected)
+        self.state.invalidate_workspace()
+
+    def _finish_helix_home(self, home_url: str) -> None:
+        """展示 Helix 首页打开结果并刷新工作区关联状态。"""
+        render_helix_home_result(self.mind, home_url)
+        self.state.invalidate_workspace()
+
+    async def _open_helix_home(
+        self,
+        *,
+        wait_for_completion: bool = True,
+    ) -> None:
+        """准备运行时并打开当前已连接的 Helix 首页。"""
+        if not self.mind.is_service_mcp_linked():
+            render_helix_notice(
+                self.mind,
+                "Helix MCP is not connected",
+            )
+            return None
+        if await self._download_missing_helix_runtime(
+            "/helix-home",
+            wait_for_completion=wait_for_completion,
+            present_on_cancel=wait_for_completion,
+        ):
+            return None
+
+        self.foreground_tasks.start(
+            "Helix Home",
+            lambda: open_helix_home(self.mind),
+            on_succeeded=self._finish_helix_home,
+            on_failed=lambda error: render_helix_home_failure(
+                self.mind,
+                error,
+            ),
+            on_cancelled=lambda: render_helix_interrupted(
+                self.mind,
+                label="Helix Home",
+            ),
+        )
+        if wait_for_completion:
+            await self.foreground_tasks.wait()
 
     async def dispatch(self, prompt_text: str) -> DispatchAction:
         """处理一项输入并返回会话循环的下一步。"""
@@ -557,35 +1034,11 @@ class TuiCommandDispatcher(object):
             return DispatchAction.EXIT
 
         if matches_command(command, "permissions"):
-            selected = await choose_permissions_mode(
-                self.runtime,
-                self.state.permissions,
-            )
-            if selected is None:
-                self._present()
-            else:
-                try:
-                    effective = self.mind.apply_permissions(selected)
-                except (ConfigStoreError, TypeError, ValueError) as failure:
-                    self._present(failure_text_block(
-                        f"Failed to update permissions: {failure}",
-                    ))
-                    self._present()
-                else:
-                    self.state.permissions = effective
-                    self.state.apply_prompt_context(self.runtime)
-                    render_permissions_status(
-                        self.application,
-                        self.state.permissions,
-                    )
+            await self._update_permissions()
             return DispatchAction.HANDLED
 
         if matches_command(command, "tools"):
-            await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
-            await print_available_tools(
-                self.mind,
-                pref_config=self.state.pref_config,
-            )
+            await self._show_tools()
             return DispatchAction.HANDLED
 
         if matches_command(command, "hooks"):
@@ -627,11 +1080,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "skills"):
-            skill_runtime = typing.cast(
-                "SkillRuntimePort",
-                typing.cast(object, self.runtime),
-            )
-            await choose_skill(skill_runtime, self.mind.config_session)
+            await self._choose_skill()
             return DispatchAction.HANDLED
 
         if matches_command(command, "effort"):
@@ -669,22 +1118,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "preferences"):
-            preferences_url = f"{config_service_base_url()}/pref"
-            try:
-                await FileAssist.open_url(preferences_url)
-            except Exception as failure:
-                self._present(failure_text_block(
-                    f"Failed to open browser for {preferences_url}: {failure}",
-                ))
-            else:
-                self._present(fragment_block(
-                    TextSpan("• ", BODY_STYLE),
-                    TextSpan(
-                        f"Opened {preferences_url} in your browser.",
-                        BRIGHT_STYLE,
-                    ),
-                ))
-            self._present()
+            await self._open_preferences()
             return DispatchAction.HANDLED
 
         if matches_command(command, "compact"):
@@ -733,31 +1167,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_mode"):
-            if await self._download_missing_helix_runtime("/helix-mode"):
-                return DispatchAction.HANDLED
-            if not self.mind.is_service_mcp_linked():
-                render_helix_notice(
-                    self.mind,
-                    "Helix MCP is not connected",
-                )
-                return DispatchAction.HANDLED
-
-            current = self.mind.tool_profile_for_turn()
-            if current is None:
-                render_helix_notice(
-                    self.mind,
-                    "Helix tool mode is unavailable",
-                )
-                return DispatchAction.HANDLED
-
-            selected = await choose_helix_tool_profile(self.runtime, current)
-            if selected is None:
-                self._present()
-                return DispatchAction.HANDLED
-
-            self.mind.set_service_tool_profile(selected)
-            render_helix_mode_result(self.mind, selected)
-            self.state.invalidate_workspace()
+            await self._choose_helix_mode()
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_unlink"):
@@ -766,33 +1176,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_home"):
-            if await self._download_missing_helix_runtime("/helix-home"):
-                return DispatchAction.HANDLED
-            if not self.mind.is_service_mcp_linked():
-                render_helix_notice(
-                    self.mind,
-                    "Helix MCP is not connected",
-                )
-                return DispatchAction.HANDLED
-
-            self.foreground_tasks.start(
-                "Helix Home",
-                lambda: open_helix_home(self.mind),
-                on_succeeded=lambda home_url: render_helix_home_result(
-                    self.mind,
-                    home_url,
-                ),
-                on_failed=lambda error: render_helix_home_failure(
-                    self.mind,
-                    error,
-                ),
-                on_cancelled=lambda: render_helix_interrupted(
-                    self.mind,
-                    label="Helix Home",
-                ),
-            )
-            await self.foreground_tasks.wait()
-            self.state.invalidate_workspace()
+            await self._open_helix_home()
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_stop"):
@@ -835,6 +1219,11 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         return DispatchAction.MODEL_TURN
+
+
+async def _run_immediate_stream_action(callback: typing.Callable[[], None]) -> None:
+    """在统一本地任务生命周期中执行同步命令动作。"""
+    callback()
 
 
 if __name__ == '__main__':

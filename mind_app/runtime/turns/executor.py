@@ -34,6 +34,17 @@ if typing.TYPE_CHECKING:
     from mind_app.mcp.contracts import McpSessionLike
 
 
+class _UnspecifiedToolFilterMode(object):
+    """标记调用方未固定单轮工具过滤模式。"""
+
+    __slots__ = ()
+
+
+_UNSPECIFIED_TOOL_FILTER_MODE: typing.Final[_UnspecifiedToolFilterMode] = (
+    _UnspecifiedToolFilterMode()
+)
+
+
 @dataclass(frozen=True, slots=True)
 class TurnExecution:
     """保存已经固定身份、会话和 Hook 作用域的模型执行。"""
@@ -220,10 +231,10 @@ def turn_continuation_count(execution: TurnExecution) -> int:
 
 def _resolve_tool_filter_mode(
     controller: object,
-    selected: ToolFilterMode | None,
+    selected: ToolFilterMode | None | _UnspecifiedToolFilterMode,
 ) -> ToolFilterMode | None:
     """解析并校验单轮工具过滤模式。"""
-    if selected is not None:
+    if not isinstance(selected, _UnspecifiedToolFilterMode):
         return selected
 
     profile_for_turn = getattr(controller, "tool_profile_for_turn", None)
@@ -324,7 +335,9 @@ async def execute_turn(
     operation: TurnOperation[TurnResultValue],
     *,
     event_report: EventReport | None = None,
-    tool_filter_mode: ToolFilterMode | None = None,
+    tool_filter_mode: (
+        ToolFilterMode | None | _UnspecifiedToolFilterMode
+    ) = _UNSPECIFIED_TOOL_FILTER_MODE,
 ) -> TurnResultValue:
     """在独立工具和报告生命周期中执行显式模型轮次。"""
     context    = execution.context

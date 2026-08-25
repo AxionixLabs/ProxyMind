@@ -179,6 +179,7 @@ async def run_tui_model_turn(
     on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
 ) -> None:
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
+    tool_filter_mode = mind.tool_profile_for_turn()
     attachments: list[dict[str, typing.Any]] = []
 
     if mind.attach.has_pending_attachments():
@@ -270,6 +271,7 @@ async def run_tui_model_turn(
         pref_config,
         execution,
         run_tui_turn,
+        tool_filter_mode=tool_filter_mode,
     )
 
 

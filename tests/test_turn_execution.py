@@ -313,6 +313,41 @@ async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
 
 
 @pytest.mark.anyio
+async def test_execute_turn_preserves_explicit_unfiltered_snapshot() -> None:
+    mind = _ExecutionController()
+    mind.tool_profile_for_turn = Mock(return_value="api")
+    received = []
+    tools = [
+        {"name": "device_info", "meta": {"domain": "device"}},
+        {
+            "name": "nexus_http_request",
+            "meta": {"domain": "bench", "class": "nexus"},
+        },
+    ]
+
+    async def with_mcp_session(_pref_config, function):
+        return await function("session", tools)
+
+    async def operation(_prepared, _session, visible, _event_report):
+        received.extend(visible)
+        return RunResult(status="completed")
+
+    mind.with_mcp_session = with_mcp_session
+
+    await execute_turn(
+        mind,
+        {},
+        _root_execution(),
+        operation,
+        event_report=_Report(),
+        tool_filter_mode=None,
+    )
+
+    assert received == tools
+    mind.tool_profile_for_turn.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_execute_turn_uses_linked_helix_tool_profile() -> None:
     mind = _ExecutionController()
     mind.tool_profile_for_turn = Mock(return_value="app")

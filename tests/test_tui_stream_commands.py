@@ -11,6 +11,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.styles import text_block
 from mind_app.tui.session import barriers
+from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
 from mind_core.permissions import preset_permissions
 
@@ -51,6 +52,39 @@ async def test_foreground_result_is_rendered_before_barrier_release() -> None:
     assert events == ["business", "render"]
     assert not runtime.command_layout_pending
     runtime.finish_command_layout()
+    assert not runtime.foreground_active
+
+
+@pytest.mark.anyio
+async def test_foreground_wait_drains_tasks_started_by_tracked_operation() -> None:
+    runtime = TuiRuntime()
+    inner_started = asyncio.Event()
+    release_inner = asyncio.Event()
+    mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
+        await_cleanup=lambda awaitable: awaitable,
+    )
+    foreground = barriers.TuiForegroundTasks(runtime, mind)
+
+    async def inner() -> None:
+        inner_started.set()
+        await release_inner.wait()
+
+    async def outer() -> None:
+        foreground.start("inner", inner)
+        await asyncio.sleep(0)
+
+    foreground.start("outer", outer)
+    wait_task = asyncio.create_task(foreground.wait())
+    await inner_started.wait()
+    await asyncio.sleep(0)
+
+    assert not wait_task.done()
+    assert runtime.foreground_active
+
+    release_inner.set()
+    await wait_task
+
     assert not runtime.foreground_active
 
 
@@ -333,6 +367,182 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     assert not second_turn_started.is_set()
 
     release_link.set()
+    await asyncio.wait_for(run_task, timeout=1.0)
+
+    assert second_turn_started.is_set()
+    assert turn_messages == ["first", "second"]
+
+
+@pytest.mark.anyio
+async def test_stream_settings_settle_before_queued_model_turn(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    task_event = asyncio.Event()
+    first_turn_started = asyncio.Event()
+    release_first_turn = asyncio.Event()
+    settings_started = asyncio.Event()
+    release_settings = asyncio.Event()
+    second_turn_started = asyncio.Event()
+    initial_permissions = preset_permissions("auto")
+    updated_permissions = preset_permissions("full-access")
+    turn_permissions = []
+    pref_config = {"primary": {"model": "test-model"}}
+
+    mind = SimpleNamespace(
+        permissions=initial_permissions,
+        task_event=task_event,
+        stop_runtime_on_exit=False,
+        pref=SimpleNamespace(to_config=lambda: pref_config),
+        frontend=SimpleNamespace(
+            runtime=runtime,
+            interaction=runtime,
+            application=SimpleNamespace(emit=Mock()),
+        ),
+        attach=SimpleNamespace(
+            has_pending_attachments=lambda: False,
+            replace_pending_attachments=lambda _items: None,
+        ),
+        fresh_pref_config=AsyncMock(return_value=pref_config),
+        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        apply_permissions=Mock(return_value=updated_permissions),
+        external_mcp=None,
+        stop_anim=AsyncMock(),
+    )
+
+    async def choose_permissions(_runtime, current):
+        assert current is initial_permissions
+        settings_started.set()
+        await release_settings.wait()
+        return updated_permissions
+
+    def run_model_turn(_mind, *, permissions, **_kwargs):
+        async def execute() -> None:
+            turn_permissions.append(permissions)
+            if len(turn_permissions) == 1:
+                first_turn_started.set()
+                await release_first_turn.wait()
+                return None
+            second_turn_started.set()
+            task_event.set()
+
+        return execute()
+
+    monkeypatch.setattr(
+        loop,
+        "monitor_exec_status",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(dispatch, "choose_permissions_mode", choose_permissions)
+    monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
+
+    runtime.submissions.message_queue.put_nowait("first")
+    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    await first_turn_started.wait()
+
+    runtime.screen.input.buffer.text = "/permissions"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+    await settings_started.wait()
+
+    runtime.screen.input.buffer.text = "second"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+    release_first_turn.set()
+
+    for _ in range(20):
+        if runtime.foreground_active:
+            break
+        await asyncio.sleep(0)
+
+    assert runtime.foreground_active
+    assert not second_turn_started.is_set()
+
+    release_settings.set()
+    await asyncio.wait_for(run_task, timeout=1.0)
+
+    assert second_turn_started.is_set()
+    assert turn_permissions == [initial_permissions, updated_permissions]
+    mind.apply_permissions.assert_called_once_with(updated_permissions)
+
+
+@pytest.mark.anyio
+async def test_stream_interactive_panel_closes_before_queued_model_turn(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    task_event = asyncio.Event()
+    first_turn_started = asyncio.Event()
+    release_first_turn = asyncio.Event()
+    panel_started = asyncio.Event()
+    release_panel = asyncio.Event()
+    second_turn_started = asyncio.Event()
+    pref_config = {"primary": {"model": "test-model"}}
+    turn_messages = []
+
+    mind = SimpleNamespace(
+        permissions=preset_permissions("auto"),
+        task_event=task_event,
+        stop_runtime_on_exit=False,
+        pref=SimpleNamespace(to_config=lambda: pref_config),
+        frontend=SimpleNamespace(
+            runtime=runtime,
+            interaction=runtime,
+            application=SimpleNamespace(emit=Mock()),
+        ),
+        attach=SimpleNamespace(
+            has_pending_attachments=lambda: False,
+            replace_pending_attachments=lambda _items: None,
+        ),
+        fresh_pref_config=AsyncMock(return_value=pref_config),
+        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        external_mcp=None,
+        stop_anim=AsyncMock(),
+    )
+
+    async def manage_agents(_runtime, _mind) -> None:
+        panel_started.set()
+        await release_panel.wait()
+
+    def run_model_turn(_mind, *, message_text, **_kwargs):
+        async def execute() -> None:
+            turn_messages.append(message_text)
+            if len(turn_messages) == 1:
+                first_turn_started.set()
+                await release_first_turn.wait()
+                return None
+            second_turn_started.set()
+            task_event.set()
+
+        return execute()
+
+    monkeypatch.setattr(
+        loop,
+        "monitor_exec_status",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(dispatch, "manage_agents", manage_agents)
+    monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
+
+    runtime.submissions.message_queue.put_nowait("first")
+    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    await first_turn_started.wait()
+
+    runtime.screen.input.buffer.text = "/agent"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+    await panel_started.wait()
+
+    runtime.screen.input.buffer.text = "second"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
+    release_first_turn.set()
+
+    for _ in range(20):
+        if runtime.foreground_active:
+            break
+        await asyncio.sleep(0)
+
+    assert runtime.foreground_active
+    assert not second_turn_started.is_set()
+
+    release_panel.set()
     await asyncio.wait_for(run_task, timeout=1.0)
 
     assert second_turn_started.is_set()

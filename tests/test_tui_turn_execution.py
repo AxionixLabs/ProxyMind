@@ -57,6 +57,7 @@ class _TuiController:
         self.lifecycle_calls = []
         self.conversation_calls = []
         self.hook_scopes = []
+        self.tool_filter_mode = "app"
 
     async def begin_conversation_turn(self, *, title: str, source: str):
         self.events.append("conversation")
@@ -78,6 +79,9 @@ class _TuiController:
         )
         self.hook_scopes.append(scope)
         return scope
+
+    def tool_profile_for_turn(self):
+        return self.tool_filter_mode
 
     async def with_mcp_session(self, pref_config, function):
         self.events.append("session")
@@ -177,6 +181,72 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     assert "permissions" not in call
     assert "turn_context" not in call
     assert "hook_scope" not in call
+
+
+@pytest.mark.anyio
+async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
+    monkeypatch,
+) -> None:
+    controller = _TuiController()
+    report = _Report(controller.events)
+    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+
+    async def with_mcp_session(_pref_config, function):
+        controller.tool_filter_mode = "api"
+        return await function("session", [
+            {"name": "device_info", "meta": {"domain": "device"}},
+            {
+                "name": "nexus_http_request",
+                "meta": {"domain": "bench", "class": "nexus"},
+            },
+        ])
+
+    controller.with_mcp_session = with_mcp_session
+
+    await run_tui_model_turn(
+        controller,
+        message_text="hello",
+        pref_config={"primary": {"model": "test-model"}},
+        permissions=preset_permissions("auto"),
+    )
+
+    tools = controller.lifecycle_calls[0][1]["tools"]
+    assert [tool["name"] for tool in tools] == ["device_info"]
+
+
+@pytest.mark.anyio
+async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
+    monkeypatch,
+) -> None:
+    controller = _TuiController()
+    controller.tool_filter_mode = None
+    report = _Report(controller.events)
+    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+
+    async def with_mcp_session(_pref_config, function):
+        controller.tool_filter_mode = "app"
+        return await function("session", [
+            {"name": "device_info", "meta": {"domain": "device"}},
+            {
+                "name": "nexus_http_request",
+                "meta": {"domain": "bench", "class": "nexus"},
+            },
+        ])
+
+    controller.with_mcp_session = with_mcp_session
+
+    await run_tui_model_turn(
+        controller,
+        message_text="hello",
+        pref_config={"primary": {"model": "test-model"}},
+        permissions=preset_permissions("auto"),
+    )
+
+    tools = controller.lifecycle_calls[0][1]["tools"]
+    assert [tool["name"] for tool in tools] == [
+        "device_info",
+        "nexus_http_request",
+    ]
 
 
 @pytest.mark.anyio
