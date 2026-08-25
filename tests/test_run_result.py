@@ -70,6 +70,8 @@ def parse_stream_event(payload):
         current.setdefault("turn_id", "turn_test")
         current.setdefault("event_seq", 1)
         current.setdefault("presentation_epoch", 1)
+        if str(current.get("type") or "").startswith("text."):
+            current.setdefault("segment_id", "segment_test")
     return _parse_stream_event(current)
 
 
@@ -467,6 +469,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         "actor": "assistant",
         "payload": {
             "content": "answer",
+            "item_id": "segment_test",
             "presentation_epoch": 1,
             "round": 1,
             "attempt": 1,
@@ -540,6 +543,46 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
 
 
 @pytest.mark.anyio
+async def test_provider_retry_ignores_late_old_item_events(monkeypatch) -> None:
+    _result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "text.delta",
+            "segment_id": "item-old",
+            "text": "old",
+        },
+        {
+            "type": "turn.retrying",
+            "round": 1,
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 0,
+            "supersedes_item_id": "item-old",
+        },
+        {
+            "type": "text.delta",
+            "segment_id": "item-old",
+            "text": "late old",
+        },
+        {
+            "type": "text.delta",
+            "segment_id": "item-new",
+            "text": "new",
+        },
+        {"type": "text.done", "segment_id": "item-new"},
+        {"type": "turn.done"},
+    ])
+
+    assert [
+        item
+        for item in mind.output_session.content.items
+        if isinstance(item, AssistantTextDelta)
+    ] == [
+        AssistantTextDelta("old", response_identity()),
+        AssistantTextDelta("new", response_identity(attempt=2)),
+    ]
+
+
+@pytest.mark.anyio
 async def test_provider_retry_preserves_completed_previous_model_round(
     monkeypatch,
 ) -> None:
@@ -605,6 +648,7 @@ async def test_provider_retry_preserves_completed_previous_model_round(
     ]
     assert assistant_entries[0]["payload"] == {
         "content": "round one",
+        "item_id": "round-1-attempt-1",
         "presentation_epoch": 1,
         "round": 1,
         "attempt": 1,
@@ -945,14 +989,22 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
     _result, mind = await _run_stream(
         monkeypatch,
         [
-            {"type": "text.delta", "text": "before"},
+            {
+                "type": "text.delta",
+                "segment_id": "before-item",
+                "text": "before",
+            },
             {
                 "type": "turn.input.accepted",
                 "turn_id": "turn_test",
                 "client_message_id": "message_1",
             },
-            {"type": "text.delta", "text": "after"},
-            {"type": "text.done"},
+            {
+                "type": "text.delta",
+                "segment_id": "after-item",
+                "text": "after",
+            },
+            {"type": "text.done", "segment_id": "after-item"},
             {"type": "turn.done", "turn_id": "turn_test"},
         ],
         on_turn_input_event=handle_input,
@@ -969,6 +1021,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
             "assistant",
             {
                 "content": "before",
+                "item_id": "before-item",
                 "presentation_epoch": 1,
                 "round": 1,
                 "attempt": 1,
@@ -986,6 +1039,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
             "assistant",
             {
                 "content": "after",
+                "item_id": "after-item",
                 "presentation_epoch": 1,
                 "round": 1,
                 "attempt": 1,
@@ -997,8 +1051,12 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
 @pytest.mark.anyio
 async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> None:
     _result, mind = await _run_stream(monkeypatch, [
-        {"type": "text.delta", "text": "before"},
-        {"type": "text.done"},
+        {
+            "type": "text.delta",
+            "segment_id": "before-item",
+            "text": "before",
+        },
+        {"type": "text.done", "segment_id": "before-item"},
         {
             "type": "tool.output",
             "name": "remote_tool",
@@ -1008,8 +1066,12 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
             "elapsed_ms": 3500,
             "result": {"ok": True, "text": "done"},
         },
-        {"type": "text.delta", "text": "after"},
-        {"type": "text.done"},
+        {
+            "type": "text.delta",
+            "segment_id": "after-item",
+            "text": "after",
+        },
+        {"type": "text.done", "segment_id": "after-item"},
         {"type": "turn.done", "usage": {}},
     ])
 
@@ -1024,6 +1086,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
         "assistant",
         {
             "content": "before",
+            "item_id": "before-item",
             "presentation_epoch": 1,
             "round": 1,
             "attempt": 1,
@@ -1036,6 +1099,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
         "assistant",
         {
             "content": "after",
+            "item_id": "after-item",
             "presentation_epoch": 1,
             "round": 1,
             "attempt": 1,
@@ -1793,12 +1857,20 @@ async def test_stream_without_terminal_event_is_incomplete(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_stream_emits_assistant_boundary_before_structured_output(monkeypatch) -> None:
     result, mind = await _run_stream(monkeypatch, [
-        {"type": "text.delta", "text": "first"},
-        {"type": "text.done"},
+        {
+            "type": "text.delta",
+            "segment_id": "first-item",
+            "text": "first",
+        },
+        {"type": "text.done", "segment_id": "first-item"},
         {"type": "tool.builtin.call"},
         {"type": "tool.builtin.done"},
-        {"type": "text.delta", "text": "second"},
-        {"type": "text.done"},
+        {
+            "type": "text.delta",
+            "segment_id": "second-item",
+            "text": "second",
+        },
+        {"type": "text.done", "segment_id": "second-item"},
         {"type": "turn.done"},
     ])
 
@@ -1821,6 +1893,7 @@ async def test_stream_commits_output_before_approval_review_round_transition(
         {
             "type": "text.delta",
             "round": 1,
+            "segment_id": "round-one-item",
             "text": "first",
         },
         {
@@ -1836,11 +1909,13 @@ async def test_stream_commits_output_before_approval_review_round_transition(
         {
             "type": "text.delta",
             "round": 2,
+            "segment_id": "round-two-item",
             "text": "second",
         },
         {
             "type": "text.done",
             "round": 2,
+            "segment_id": "round-two-item",
         },
         {
             "type": "turn.done",
@@ -1866,17 +1941,96 @@ async def test_stream_commits_output_before_approval_review_round_transition(
     ] == [
         {
             "content": "first",
+            "item_id": "round-one-item",
             "presentation_epoch": 1,
             "round": 1,
             "attempt": 1,
         },
         {
             "content": "second",
+            "item_id": "round-two-item",
             "presentation_epoch": 1,
             "round": 2,
             "attempt": 1,
         },
     ]
+
+
+@pytest.mark.anyio
+async def test_stream_commits_multiple_item_identities_without_boundary(
+    monkeypatch,
+) -> None:
+    _result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "text.delta",
+            "round": 1,
+            "segment_id": "item-one",
+            "text": "first",
+        },
+        {
+            "type": "text.delta",
+            "round": 2,
+            "segment_id": "item-two",
+            "text": "second",
+        },
+        {
+            "type": "text.done",
+            "round": 2,
+            "segment_id": "item-two",
+        },
+        {"type": "turn.done", "round": 2},
+    ])
+
+    messages = [
+        entry["payload"]["content"]
+        for entry in mind.transcripts.entries
+        if entry["event"] == "message.created" and entry["actor"] == "assistant"
+    ]
+    assert messages == ["first", "second"]
+    assert mind.output_session.content.items == [
+        AssistantTextDelta("first", response_identity(round_no=1)),
+        AssistantOutputBoundary(),
+        AssistantTextDelta("second", response_identity(round_no=2)),
+        AssistantSegmentCompleted(response_identity(round_no=2)),
+        SourcesOutput(()),
+    ]
+
+
+@pytest.mark.anyio
+async def test_stream_updates_transcript_when_final_text_arrives_after_boundary(
+    monkeypatch,
+) -> None:
+    _result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "text.delta",
+            "segment_id": "item-1",
+            "text": "partial",
+        },
+        {
+            "type": "tool.output",
+            "name": "remote_tool",
+            "call_id": "call-1",
+            "status": "completed",
+            "result": {"ok": True},
+        },
+        {
+            "type": "text.done",
+            "segment_id": "item-1",
+            "final_text": "complete",
+        },
+        {"type": "turn.done"},
+    ])
+
+    assistant_entries = [
+        entry
+        for entry in mind.transcripts.entries
+        if entry["actor"] == "assistant"
+    ]
+    assert [entry["event"] for entry in assistant_entries] == [
+        "message.created",
+        "message.updated",
+    ]
+    assert assistant_entries[-1]["payload"]["content"] == "complete"
 
 
 @pytest.mark.anyio

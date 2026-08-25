@@ -408,6 +408,75 @@ async def test_text_output_emits_assistant_text_after_stream_settles() -> None:
 
 
 @pytest.mark.anyio
+async def test_text_output_prefers_authoritative_final_text() -> None:
+    stdout = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=stdout,
+        stderr=io.StringIO(),
+    )
+    content = TextContentSink(state)
+
+    await content.emit(AssistantTextDelta(
+        "partial",
+        RESPONSE_IDENTITY,
+        item_id="item-1",
+    ))
+    await content.emit(AssistantSegmentCompleted(
+        RESPONSE_IDENTITY,
+        final_text="complete",
+        item_id="item-1",
+    ))
+
+    assert stdout.getvalue() == "complete\n"
+
+
+@pytest.mark.anyio
+async def test_text_output_preserves_authoritative_empty_final_text() -> None:
+    stdout = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=stdout,
+        stderr=io.StringIO(),
+    )
+    content = TextContentSink(state)
+
+    await content.emit(AssistantTextDelta(
+        "partial",
+        RESPONSE_IDENTITY,
+        item_id="item-1",
+    ))
+    await content.emit(AssistantSegmentCompleted(
+        RESPONSE_IDENTITY,
+        final_text="",
+        item_id="item-1",
+    ))
+
+    assert stdout.getvalue() == ""
+
+
+@pytest.mark.anyio
+async def test_text_output_deduplicates_replayed_completion() -> None:
+    stdout = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=stdout,
+        stderr=io.StringIO(),
+    )
+    content = TextContentSink(state)
+    completed = AssistantSegmentCompleted(
+        RESPONSE_IDENTITY,
+        final_text="answer",
+        item_id="item-1",
+    )
+
+    await content.emit(completed)
+    await content.emit(completed)
+
+    assert stdout.getvalue() == "answer\n"
+
+
+@pytest.mark.anyio
 async def test_text_hidden_output_is_safe_for_display_logs() -> None:
     record = _RecordWriter()
     state = TextOutputState(

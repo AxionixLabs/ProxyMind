@@ -286,6 +286,62 @@ async def test_json_output_rejects_mismatched_completion_identity() -> None:
 
 
 @pytest.mark.anyio
+async def test_json_output_uses_final_text_and_deduplicates_completed_item() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    content = JsonContentSink(state)
+    identity = _identity()
+
+    await content.emit(AssistantTextDelta(
+        "partial",
+        identity,
+        item_id="item-1",
+    ))
+    await content.emit(AssistantSegmentCompleted(
+        identity,
+        final_text="complete answer",
+        item_id="item-1",
+    ))
+    await content.emit(AssistantTextDelta(
+        "duplicate replay",
+        identity,
+        item_id="item-1",
+    ))
+    await content.emit(AssistantSegmentCompleted(
+        identity,
+        final_text="duplicate final",
+        item_id="item-1",
+    ))
+
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert len(events) == 1
+    assert events[0]["item"]["id"] == "item-1"
+    assert events[0]["item"]["text"] == "complete answer"
+
+
+@pytest.mark.anyio
+async def test_json_output_preserves_empty_authoritative_final_text() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    content = JsonContentSink(state)
+    identity = _identity()
+
+    await content.emit(AssistantTextDelta(
+        "partial",
+        identity,
+        item_id="item-empty",
+    ))
+    await content.emit(AssistantSegmentCompleted(
+        identity,
+        final_text="",
+        item_id="item-empty",
+    ))
+
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert events[0]["item"]["text"] == ""
+
+
+@pytest.mark.anyio
 async def test_json_output_emits_terminal_status_and_metadata() -> None:
     stdout = io.StringIO()
     state = JsonOutputState(_RecordWriter(), stdout)

@@ -233,6 +233,73 @@ def test_replay_merges_message_updates_and_tool_outcomes() -> None:
     }
 
 
+def test_replay_updates_assistant_item_by_stable_item_id() -> None:
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="assistant",
+            payload=payload,
+        )
+
+    replay = TranscriptReplay((
+        entry("message.created", {
+            "content": "partial",
+            "item_id": "item-1",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        }),
+        entry("message.updated", {
+            "content": "complete",
+            "item_id": "item-1",
+        }),
+    )).build()
+
+    assert len(replay) == 1
+    assert replay[0].payload["content"] == "complete"
+
+
+def test_replay_supersedes_only_named_assistant_item() -> None:
+    def entry(event: str, payload: dict) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event=event,
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="assistant",
+            payload=payload,
+        )
+
+    replay = TranscriptReplay((
+        entry("message.created", {
+            "content": "old one",
+            "item_id": "item-1",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        }),
+        entry("message.created", {
+            "content": "old two",
+            "item_id": "item-2",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        }),
+        entry("message.superseded", {
+            "scope": "response",
+            "supersedes_item_id": "item-1",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 2,
+        }),
+    )).build()
+
+    assert [item.payload["item_id"] for item in replay] == ["item-2"]
+
+
 def test_replay_keeps_javascript_start_and_result_separate() -> None:
     def entry(event: str, payload: dict) -> TranscriptEntry:
         return TranscriptEntry(

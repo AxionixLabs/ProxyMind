@@ -157,6 +157,7 @@ class TextOutputState:
         self.assistant_open = False
 
         self._assistant_parts: list[str] = []
+        self._assistant_item_id: str     = ""
 
     async def open(self) -> None:
         """打开文本记录。"""
@@ -229,16 +230,41 @@ class TextOutputState:
             _write(self.stdout, plain)
             self.record_writer.write(plain)
 
-    def append_assistant(self, text: str) -> None:
+    def append_assistant(self, text: str, *, item_id: str = "") -> None:
         """追加一段 assistant 正文。"""
+        item_id = str(item_id or "").strip()
+        if (
+            item_id
+            and self._assistant_item_id
+            and self._assistant_item_id != item_id
+        ):
+            self.settle_assistant()
+        if item_id:
+            self._assistant_item_id = item_id
         if text:
             self._assistant_parts.append(str(text))
+
+    def finalize_assistant(self, text: str | None, *, item_id: str = "") -> None:
+        """在 assistant 段落结算前应用 provider 的最终正文。"""
+        if text is None:
+            return None
+        item_id = str(item_id or "").strip()
+        if (
+            item_id
+            and self._assistant_item_id
+            and self._assistant_item_id != item_id
+        ):
+            return None
+        self._assistant_parts = [str(text)]
+        if item_id:
+            self._assistant_item_id = item_id
 
     def flush_assistant(self) -> None:
         """一次输出当前 assistant 增量。"""
         if self._assistant_parts:
             text = "".join(self._assistant_parts)
             self._assistant_parts.clear()
+            self._assistant_item_id = ""
             self.assistant(text)
 
     def settle_assistant(self) -> None:
@@ -350,13 +376,29 @@ class TextContentSink(ContentSink):
     def __init__(self, state: TextOutputState) -> None:
         """绑定正文使用的文本输出状态。"""
         self.state = state
+        self._completed_item_ids: set[tuple[str, str]] = set()
 
     async def emit(self, output: ContentOutput) -> None:
         """输出正文或忽略来源元数据。"""
         if isinstance(output, AssistantTextDelta):
-            self.state.append_assistant(output.text)
+            item_key = (output.identity.turn_id, output.item_id)
+            if output.item_id and item_key in self._completed_item_ids:
+                return None
+            self.state.append_assistant(output.text, item_id=output.item_id)
             return None
-        if isinstance(output, (AssistantSegmentCompleted, AssistantOutputBoundary)):
+        if isinstance(output, AssistantSegmentCompleted):
+            item_key = (output.identity.turn_id, output.item_id)
+            if output.item_id and item_key in self._completed_item_ids:
+                return None
+            if output.item_id:
+                self._completed_item_ids.add(item_key)
+            self.state.finalize_assistant(
+                output.final_text,
+                item_id=output.item_id,
+            )
+            self.state.settle_assistant()
+            return None
+        if isinstance(output, AssistantOutputBoundary):
             self.state.settle_assistant()
             return None
         if isinstance(output, (

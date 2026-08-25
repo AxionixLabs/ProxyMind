@@ -202,13 +202,18 @@ class TranscriptReplay(object):
     @staticmethod
     def _supersedes_assistant(
         marker: TranscriptEntry,
-        item: TranscriptEntry,
+        item: TranscriptEntry
     ) -> bool:
         """判断替换标记是否覆盖指定助手消息。"""
         if item.actor != "assistant" or item.turn_id != marker.turn_id:
             return False
 
-        scope        = _payload_text(marker.payload, "scope")
+        scope = _payload_text(marker.payload, "scope")
+
+        supersedes_item_id = _payload_text(marker.payload, "supersedes_item_id")
+        if supersedes_item_id:
+            return _payload_text(item.payload, "item_id") == supersedes_item_id
+
         marker_epoch = _payload_positive_int(marker.payload, "presentation_epoch")
         item_epoch   = _payload_positive_int(item.payload, "presentation_epoch")
 
@@ -263,6 +268,33 @@ class TranscriptReplay(object):
                     last_user_index = len(replay) - 1
                     if entry.turn_id:
                         user_by_turn[entry.turn_id] = last_user_index
+                continue
+
+            if entry.event == "message.updated" and entry.actor == "assistant":
+                item_id = _payload_text(entry.payload, "item_id")
+                content = entry.payload.get("content")
+                if not item_id or not isinstance(content, str):
+                    continue
+                target = next(
+                    (
+                        index
+                        for index in range(len(replay) - 1, -1, -1)
+                        if (
+                            replay[index].actor == "assistant"
+                            and _payload_text(replay[index].payload, "item_id") == item_id
+                        )
+                    ),
+                    None,
+                )
+                if target is not None:
+                    if content:
+                        previous = replay[target]
+                        replay[target] = replace(
+                            previous,
+                            payload={**previous.payload, **entry.payload},
+                        )
+                    else:
+                        replay.pop(target)
                 continue
 
             if entry.event == "message.updated" and entry.actor == "user":
@@ -451,6 +483,32 @@ class ConversationTranscriptStore:
         """绑定会话记录的根目录。"""
         self.root = Path(root or sessions_dir()).expanduser()
 
+    @staticmethod
+    def writer(
+        path: str | Path,
+        *,
+        session_id: str,
+        turn_id: str | None = None
+    ) -> TranscriptWriter:
+        """创建绑定会话和轮次的追加记录器。"""
+        return TranscriptWriter(
+            path,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+
+    @staticmethod
+    def reader(path: str | Path) -> TranscriptReader:
+        """创建绑定单个会话文件的读取器。"""
+        return TranscriptReader(path)
+
+    def _session_path(self, session_id: str) -> Path:
+        """返回会话标识对应的日期分层文件路径。"""
+        created_at = _session_datetime(session_id)
+        directory  = self.root / created_at.strftime("%Y/%m/%d")
+
+        return directory / f"session-{session_id}.jsonl"
+
     def path_for_session(self, session_id: str) -> str:
         """返回会话固定使用的记录路径，失败时返回空路径。"""
         normalized = str(session_id or "").strip()
@@ -489,32 +547,6 @@ class ConversationTranscriptStore:
                 session_id=normalized,
             )
             return ""
-
-    @staticmethod
-    def writer(
-        path: str | Path,
-        *,
-        session_id: str,
-        turn_id: str | None = None
-    ) -> TranscriptWriter:
-        """创建绑定会话和轮次的追加记录器。"""
-        return TranscriptWriter(
-            path,
-            session_id=session_id,
-            turn_id=turn_id,
-        )
-
-    @staticmethod
-    def reader(path: str | Path) -> TranscriptReader:
-        """创建绑定单个会话文件的读取器。"""
-        return TranscriptReader(path)
-
-    def _session_path(self, session_id: str) -> Path:
-        """返回会话标识对应的日期分层文件路径。"""
-        created_at = _session_datetime(session_id)
-        directory  = self.root / created_at.strftime("%Y/%m/%d")
-
-        return directory / f"session-{session_id}.jsonl"
 
 
 def _required_text(value: typing.Any, field_name: str) -> str:

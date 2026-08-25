@@ -30,6 +30,7 @@ class TuiContentSink(ContentSink):
         """绑定持久终端界面的输出控制器。"""
         self.output = output
         self._before_assistant_output = before_assistant_output
+        self._completed_item_ids: set[tuple[str, str]] = set()
 
     async def _flush_before_assistant_output(self) -> None:
         """在任何可见 assistant 内容提交前结算后台终端等待。"""
@@ -39,10 +40,22 @@ class TuiContentSink(ContentSink):
     async def emit(self, output: ContentOutput) -> None:
         """发送 assistant 增量或来源展示块。"""
         if isinstance(output, AssistantTextDelta):
+            item_key = (output.identity.turn_id, output.item_id)
+            if output.item_id and item_key in self._completed_item_ids:
+                return None
             await self._flush_before_assistant_output()
             await self.output.append_assistant_delta(output.text)
             return None
         if isinstance(output, AssistantSegmentCompleted):
+            item_key = (output.identity.turn_id, output.item_id)
+            if output.item_id and item_key in self._completed_item_ids:
+                return None
+            if output.item_id:
+                self._completed_item_ids.add(item_key)
+            if output.final_text is not None:
+                replace = getattr(self.output, "replace_assistant_stream", None)
+                if callable(replace):
+                    await replace(output.final_text)
             await self.output.settle_stream()
             self.output.mark_stream_boundary()
             return None

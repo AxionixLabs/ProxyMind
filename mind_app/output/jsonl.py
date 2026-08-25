@@ -145,8 +145,10 @@ class JsonOutputState:
 
         self._assistant_parts: list[str]                             = []
         self._assistant_identity: ResponseIdentity | None            = None
+        self._assistant_item_id: str                                 = ""
         self._assistant_item_identities: dict[str, ResponseIdentity] = {}
 
+        self._completed_assistant_item_ids: set[tuple[str, str]] = set()
         self._invalidated_assistant_item_ids: set[str] = set()
 
     def _next_item_id(self) -> str:
@@ -186,45 +188,102 @@ class JsonOutputState:
         self.stdout.flush()
         self.record_writer.write_raw(line + "\n")
 
-    def append_assistant(self, text: str, identity: ResponseIdentity) -> None:
+    def append_assistant(
+        self,
+        text: str,
+        identity: ResponseIdentity,
+        item_id: str = ""
+    ) -> None:
         """追加一段 assistant 正文。"""
         if not text:
             return None
-        if self._assistant_identity is not None and self._assistant_identity != identity:
+        item_id = str(item_id or "").strip()
+        item_key = (identity.turn_id, item_id)
+        if item_id and item_key in self._completed_assistant_item_ids:
+            return None
+        if (
+            self._assistant_identity is not None
+            and (
+                self._assistant_identity != identity
+                or (
+                    item_id
+                    and self._assistant_item_id
+                    and self._assistant_item_id != item_id
+                )
+            )
+        ):
             self.flush_assistant()
+
         self._assistant_identity = identity
+        self._assistant_item_id  = item_id
+
         self._assistant_parts.append(str(text))
 
     def flush_assistant(
         self,
-        identity: ResponseIdentity | None = None
+        identity: ResponseIdentity | None = None,
+        final_text: str | None = None,
+        item_id: str = ""
     ) -> str | None:
         """把 assistant 增量合并为一个完成项目。"""
-        if not self._assistant_parts:
+        item_id = str(item_id or self._assistant_item_id or "").strip()
+        completion_turn_id = (
+            self._assistant_identity.turn_id
+            if self._assistant_identity is not None
+            else identity.turn_id if identity is not None else ""
+        )
+        if (
+            item_id
+            and (completion_turn_id, item_id) in self._completed_assistant_item_ids
+        ):
+            return None
+        if not self._assistant_parts and final_text is None:
             return None
         if self._assistant_identity is None:
-            raise RuntimeError("assistant output is missing response identity")
+            if final_text is None or identity is None:
+                return None
+            self._assistant_identity = identity
         if identity is not None and self._assistant_identity != identity:
             raise RuntimeError("assistant completion identity does not match buffered output")
 
-        text = "".join(self._assistant_parts)
-        identity = self._assistant_identity
-        item_id = self.item_id()
+        text = final_text if final_text is not None else "".join(self._assistant_parts)
+
+        identity       = self._assistant_identity
+        output_item_id = self.item_id(item_id)
 
         self._assistant_parts.clear()
+
         self._assistant_identity = None
-        self._assistant_item_identities[item_id] = identity
+        self._assistant_item_id  = ""
+
+        self._assistant_item_identities[output_item_id] = identity
+
+        if item_id:
+            self._completed_assistant_item_ids.add((identity.turn_id, item_id))
 
         self.emit({
             "type": "item.completed",
             "item": {
-                "id": item_id,
+                "id": output_item_id,
                 "type": "agent_message",
                 "text": text,
                 **identity.as_dict(),
             },
         })
-        return item_id
+        return output_item_id
+
+    def invalidate_assistant_item(self, item_id: str) -> list[str]:
+        """按稳定 item ID 使一个已完成 assistant 项失效。"""
+        item_id = str(item_id or "").strip()
+        item_id = self.preferred_item_ids.get(item_id, item_id)
+        if (
+            not item_id
+            or item_id not in self._assistant_item_identities
+            or item_id in self._invalidated_assistant_item_ids
+        ):
+            return []
+        self._invalidated_assistant_item_ids.add(item_id)
+        return [item_id]
 
     def invalidate_assistant_items(
         self,
@@ -355,10 +414,18 @@ class JsonContentSink(ContentSink):
     async def emit(self, output: ContentOutput) -> None:
         """接收正文增量。"""
         if isinstance(output, AssistantTextDelta):
-            self.state.append_assistant(output.text, output.identity)
+            self.state.append_assistant(
+                output.text,
+                output.identity,
+                output.item_id,
+            )
             return None
         if isinstance(output, AssistantSegmentCompleted):
-            self.state.flush_assistant(output.identity)
+            self.state.flush_assistant(
+                output.identity,
+                output.final_text,
+                output.item_id,
+            )
             return None
         if isinstance(output, AssistantOutputBoundary):
             self.state.flush_assistant()
@@ -381,12 +448,16 @@ class JsonContentSink(ContentSink):
             return None
         if isinstance(output, AssistantResponseSuperseded):
             self.state.flush_assistant()
-            invalidated_item_ids = self.state.invalidate_assistant_items(
-                lambda identity: (
-                    identity.turn_id == output.turn_id
-                    and identity.presentation_epoch == output.presentation_epoch
-                    and identity.round == output.round
-                    and identity.attempt < output.attempt
+            invalidated_item_ids = (
+                self.state.invalidate_assistant_item(output.item_id)
+                if output.item_id
+                else self.state.invalidate_assistant_items(
+                    lambda identity: (
+                        identity.turn_id == output.turn_id
+                        and identity.presentation_epoch == output.presentation_epoch
+                        and identity.round == output.round
+                        and identity.attempt < output.attempt
+                    )
                 )
             )
             self.state.emit({

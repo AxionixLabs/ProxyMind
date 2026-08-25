@@ -545,19 +545,25 @@ async def stream_turn(
         turn_id=turn_context.turn_id,
     )
 
-    def record_pending_assistant_output() -> None:
-        """把尚未持久化的助手输出块写入当前会话记录。"""
-        assistant_output = tracker.commit_assistant_output()
-        if assistant_output:
+    def record_pending_assistant_output(*, complete_only: bool = False) -> None:
+        """按稳定 item 身份把助手输出写入会话记录。"""
+        for identity, item_id, assistant_output in tracker.drain_assistant_outputs(
+            complete_only=complete_only,
+        ):
+            if not assistant_output:
+                continue
+            epoch, round_no, attempt = identity
+            payload = {
+                "content": assistant_output,
+                "item_id": item_id,
+                "presentation_epoch": epoch,
+                "round": round_no,
+                "attempt": attempt,
+            }
             transcript.append(
                 "message.created",
                 actor="assistant",
-                payload={
-                    "content": assistant_output,
-                    "presentation_epoch": tracker.last_committed_epoch,
-                    "round": tracker.last_committed_round,
-                    "attempt": tracker.last_committed_attempt,
-                },
+                payload=payload,
             )
 
     idle_wait = IdleStatusTimer(
@@ -694,22 +700,28 @@ async def stream_turn(
                 had_assistant_output = tracker.on_turn_retrying(event)
 
                 if had_assistant_output:
+                    superseded_payload = {
+                        "scope": "response",
+                        "presentation_epoch": event.presentation_epoch,
+                        "round": event.round,
+                        "attempt": event.attempt,
+                        "reason": event.reason,
+                    }
+                    if event.supersedes_item_id:
+                        superseded_payload["supersedes_item_id"] = (
+                            event.supersedes_item_id
+                        )
                     transcript.append(
                         "message.superseded",
                         actor="assistant",
-                        payload={
-                            "scope": "response",
-                            "presentation_epoch": event.presentation_epoch,
-                            "round": event.round,
-                            "attempt": event.attempt,
-                            "reason": event.reason,
-                        },
+                        payload=superseded_payload,
                     )
                     await content.emit(AssistantResponseSuperseded(
                         turn_id=event.turn_id,
                         presentation_epoch=event.presentation_epoch,
                         round=event.round,
                         attempt=event.attempt,
+                        item_id=event.supersedes_item_id,
                     ))
                 await status_control.begin_reply_wait_status()
                 continue
@@ -805,9 +817,20 @@ async def stream_turn(
                 break
 
             if isinstance(event, TextDeltaEvent):
+                if tracker.should_ignore_item(event.item_id):
+                    continue
                 identity = _response_identity(event, tracker)
-                tracker.on_text_delta(event)
-                await content.emit(AssistantTextDelta(event.text, identity))
+                item_changed = tracker.on_text_delta(event)
+                if item_changed:
+                    tracker.defer_current_output()
+                    record_pending_assistant_output(complete_only=True)
+                    tracker.remember_current_output()
+                    await content.emit(AssistantOutputBoundary())
+                await content.emit(AssistantTextDelta(
+                    event.text,
+                    identity,
+                    item_id=event.item_id,
+                ))
                 idle_wait.reschedule()
                 continue
 
@@ -832,9 +855,31 @@ async def stream_turn(
                 continue
 
             if isinstance(event, TextDoneEvent):
+                if tracker.should_ignore_item(event.item_id):
+                    continue
                 identity = _response_identity(event, tracker)
+                output_was_drained = tracker.was_output_drained(event.item_id)
                 tracker.on_text_done(event)
-                await content.emit(AssistantSegmentCompleted(identity))
+                if output_was_drained and event.final_text is not None:
+                    epoch = identity.presentation_epoch
+                    round_no = identity.round
+                    attempt = identity.attempt
+                    transcript.append(
+                        "message.updated",
+                        actor="assistant",
+                        payload={
+                            "content": event.final_text,
+                            "item_id": event.item_id,
+                            "presentation_epoch": epoch,
+                            "round": round_no,
+                            "attempt": attempt,
+                        },
+                    )
+                await content.emit(AssistantSegmentCompleted(
+                    identity,
+                    final_text=event.final_text,
+                    item_id=event.item_id,
+                ))
                 await status_control.begin_reply_wait_status()
                 continue
 

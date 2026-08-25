@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,12 +40,15 @@ class AssistantTextDelta(object):
     """描述 assistant 正文的增量内容。"""
     text: str
     identity: ResponseIdentity
+    item_id: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
 class AssistantSegmentCompleted(object):
     """描述一段 assistant 正文已经完成。"""
     identity: ResponseIdentity
+    final_text: str | None = field(default=None, compare=False)
+    item_id: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +71,7 @@ class AssistantResponseSuperseded(object):
     presentation_epoch: int
     round: int
     attempt: int
+    item_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

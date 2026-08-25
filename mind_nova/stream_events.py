@@ -92,6 +92,7 @@ class TurnRetryingEvent(StreamEvent):
     max_attempts: int
     retry_in_ms: int
     reason: str = "stream_error"
+    supersedes_item_id: str = ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -127,11 +128,22 @@ class TextDeltaEvent(StreamEvent):
     text: str = ""
     segment_id: str = ""
 
+    @property
+    def item_id(self) -> str:
+        """返回稳定的 assistant 输出项身份。"""
+        return self.segment_id
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TextDoneEvent(StreamEvent):
     """描述 assistant 正文段完成事件。"""
     segment_id: str = ""
+    final_text: str | None = None
+
+    @property
+    def item_id(self) -> str:
+        """返回稳定的 assistant 输出项身份。"""
+        return self.segment_id
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -142,6 +154,11 @@ class TextMetaEvent(StreamEvent):
     citations: tuple[typing.Any, ...] | None = None
     sources: tuple[typing.Any, ...] | None = None
     source_count: int | None = None
+
+    @property
+    def item_id(self) -> str:
+        """返回稳定的 assistant 输出项身份。"""
+        return self.segment_id
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -342,6 +359,7 @@ def parse_stream_event(
             max_attempts=max_attempts,
             retry_in_ms=retry_in_ms,
             reason=_text(raw.get("reason")) or "stream_error",
+            supersedes_item_id=_text(raw.get("supersedes_item_id")),
         )
     if event_type == "turn.input.accepted":
         return TurnInputAcceptedEvent(
@@ -380,17 +398,27 @@ def parse_stream_event(
         return TextDeltaEvent(
             **common,
             text=str(raw.get("text") or ""),
-            segment_id=_text(raw.get("segment_id")),
+            segment_id=_required_text(
+                raw.get("segment_id"),
+                "text.delta segment_id",
+            ),
         )
     if event_type == "text.done":
         return TextDoneEvent(
             **common,
-            segment_id=_text(raw.get("segment_id")),
+            segment_id=_required_text(
+                raw.get("segment_id"),
+                "text.done segment_id",
+            ),
+            final_text=_optional_content_text(raw.get("final_text")),
         )
     if event_type == "text.meta":
         return TextMetaEvent(
             **common,
-            segment_id=_text(raw.get("segment_id")),
+            segment_id=_required_text(
+                raw.get("segment_id"),
+                "text.meta segment_id",
+            ),
             annotations=_tuple_or_none(raw.get("annotations")),
             citations=_tuple_or_none(raw.get("citations")),
             sources=_tuple_or_none(raw.get("sources")),
@@ -628,6 +656,11 @@ def _required_text(value: typing.Any, field_name: str) -> str:
 def _optional_text(value: typing.Any) -> str | None:
     """保留可空文本协议值。"""
     return None if value is None else str(value).strip()
+
+
+def _optional_content_text(value: typing.Any) -> str | None:
+    """保留正文终态中的空白字符。"""
+    return None if value is None else str(value)
 
 
 def _dict(value: typing.Any) -> dict[str, typing.Any]:

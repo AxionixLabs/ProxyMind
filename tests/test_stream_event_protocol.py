@@ -30,6 +30,8 @@ def parse_stream_event(payload):
         current.setdefault("turn_id", "turn_test")
         current.setdefault("event_seq", 1)
         current.setdefault("presentation_epoch", 1)
+        if str(current.get("type") or "").startswith("text."):
+            current.setdefault("segment_id", "segment_test")
     return _parse_stream_event(current)
 
 
@@ -306,6 +308,76 @@ def test_stream_event_preserves_turn_identity_and_event_sequence() -> None:
     assert event.cid == "cid_test"
     assert event.sid == "sid_test"
     assert event.event_seq == 41
+
+
+@pytest.mark.parametrize("event_type", ("text.delta", "text.done", "text.meta"))
+@pytest.mark.parametrize("segment_id", (None, "", "   "))
+def test_text_events_require_stable_item_identity(event_type, segment_id) -> None:
+    payload = {
+        "type": event_type,
+        "segment_id": segment_id,
+        "text": "answer",
+    }
+
+    with pytest.raises(ValueError, match=f"{event_type} segment_id"):
+        _parse_stream_event({
+            **payload,
+            "proto": "mind.chat",
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_test",
+            "event_seq": 1,
+            "presentation_epoch": 1,
+        })
+
+
+def test_text_event_segment_id_is_exposed_as_item_id() -> None:
+    event = parse_stream_event({
+        "type": "text.delta",
+        "segment_id": "item-1",
+        "text": "answer",
+    })
+
+    assert event.item_id == "item-1"
+
+
+def test_text_done_preserves_authoritative_final_text() -> None:
+    event = parse_stream_event({
+        "type": "text.done",
+        "segment_id": "item-1",
+        "final_text": "complete answer",
+    })
+
+    assert event.final_text == "complete answer"
+
+
+def test_text_done_preserves_authoritative_whitespace_and_empty_text() -> None:
+    whitespace = parse_stream_event({
+        "type": "text.done",
+        "segment_id": "item-1",
+        "final_text": "  complete\n",
+    })
+    empty = parse_stream_event({
+        "type": "text.done",
+        "segment_id": "item-2",
+        "final_text": "",
+    })
+
+    assert whitespace.final_text == "  complete\n"
+    assert empty.final_text == ""
+
+
+def test_retrying_can_name_the_item_it_supersedes() -> None:
+    event = parse_stream_event({
+        "type": "turn.retrying",
+        "round": 1,
+        "attempt": 2,
+        "max_attempts": 3,
+        "retry_in_ms": 0,
+        "supersedes_item_id": "item-old",
+    })
+
+    assert event.supersedes_item_id == "item-old"
 
 
 @pytest.mark.parametrize(

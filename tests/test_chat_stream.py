@@ -30,6 +30,8 @@ def current_wire_envelope(monkeypatch) -> None:
             current.setdefault("cid", "cid_1")
             current.setdefault("sid", "sid_1")
             current.setdefault("presentation_epoch", 1)
+            if str(current.get("type") or "").startswith("text."):
+                current.setdefault("segment_id", "segment_test")
         return parser(current)
 
     monkeypatch.setattr(chat, "parse_stream_event", parse)

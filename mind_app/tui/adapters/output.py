@@ -201,6 +201,24 @@ class TuiOutputControl(OutputControlPort):
             self._refresh_stream_rows(len(self.assistant.text))
             self._reveal_all_stream_rows()
 
+    async def replace_assistant_stream(self, text: str) -> None:
+        """用 provider 最终正文替换尚未提交的当前流式正文。"""
+        self._cancel_stream_render()
+        self._cancel_stream_resize()
+        self._finish_assistant_filter(render=False)
+
+        value = sanitize_terminal_text(str(text or ""))
+        self.assistant.text = value
+        self.assistant.boundary_pending = False
+        self._assistant_filter.reset()
+        self._reset_stream_state()
+
+        if value:
+            self._refresh_stream_rows(len(value))
+            self._reveal_all_stream_rows()
+        elif self.runtime.document.active_kind == "assistant":
+            self.runtime.clear_active_renderable()
+
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的块状内容。"""
         if text:
