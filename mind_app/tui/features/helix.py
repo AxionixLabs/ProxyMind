@@ -309,11 +309,7 @@ def unlink_helix_runtime(mind: "Mind") -> None:
         render_helix_notice(mind, "Helix MCP already unlinked")
         return None
 
-    _present(mind, command_result_block(
-        "/helix-unlink",
-        TextSpan("Unlinked", BRIGHT_STYLE),
-    ))
-    _present(mind, view_type="tui.gap")
+    render_helix_notice(mind, "Helix MCP unlinked")
 
 
 async def confirm_runtime_download(

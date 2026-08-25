@@ -783,6 +783,25 @@ def test_unlinked_helix_unlink_reports_already_unlinked() -> None:
     )
 
 
+def test_linked_helix_unlink_reports_unlinked() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        is_service_mcp_linked=lambda: True,
+        unlink_service_mcp=Mock(),
+    )
+
+    helix.unlink_helix_runtime(mind)
+
+    mind.unlink_service_mcp.assert_called_once_with()
+    status = next(view for view in views if view.type == "tui.helix.status")
+    assert "".join(text for _style, text in status.renderable.fragments) == (
+        "• Helix MCP unlinked"
+    )
+
+
 @pytest.mark.anyio
 async def test_helix_mode_changes_filter_only_for_linked_runtime(
     monkeypatch,
