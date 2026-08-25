@@ -16,6 +16,7 @@ from .common import (
     _plain_trace_preview_from_lines,
     _result_payload,
     _short_text,
+    _shell_trace_preview_from_lines,
     _summary_lines,
     _terminal_input_preview_from_lines,
     _trace_code_preview_from_lines,
@@ -166,7 +167,10 @@ def render_tool_result_preview(
         if not lines:
             lines = _shell_command_empty_preview_lines(data, is_error=is_error)
 
-        return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
+        return _shell_trace_preview_from_lines(
+            lines,
+            kind="text" if is_error else "plain",
+        )
 
     if kind is ToolDisplayKind.JAVASCRIPT:
         source = data.get("error") if is_error else data.get("output")
@@ -412,9 +416,9 @@ def _shell_command_title(
 
 def _shell_command_raw_lines(command: typing.Any) -> list[str]:
     """按原始换行拆分命令；数组命令保持参数间空格。"""
-    text = command_text(command) if isinstance(command, list) else str(command or "").strip()
-
+    text  = command_text(command) if isinstance(command, list) else str(command or "").strip()
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
     while lines and not lines[-1]:
         lines.pop()
 

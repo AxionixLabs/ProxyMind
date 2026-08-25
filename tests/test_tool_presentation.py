@@ -437,6 +437,30 @@ def test_shell_result_aligns_following_output_lines_under_preview() -> None:
     )
 
 
+def test_shell_result_preview_keeps_head_and_tail_lines() -> None:
+    view = build_native_tool_result_view(
+        "shell_command",
+        {"command": "seq 1 8"},
+        ok=True,
+        data={
+            "command": "seq 1 8",
+            "output_lines": [f"output line {index}" for index in range(8)],
+        },
+    )
+
+    display = "".join(
+        span.text
+        for span in render_native_tool_result_view(view)[0].spans
+    )
+
+    assert "output line 0" in display
+    assert "output line 1" in display
+    assert "… +4 lines" in display
+    assert "output line 6" in display
+    assert "output line 7" in display
+    assert "output line 2" not in display
+
+
 def test_hook_result_uses_shell_aligned_tree_continuations() -> None:
     block = render_hook_run_view(HookRunView(
         id="hook-1",

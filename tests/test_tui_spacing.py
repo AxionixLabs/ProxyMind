@@ -9775,7 +9775,7 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     f"shell output {index}" for index in range(12)
                 ],
             },
-        ), "shell output 11"),
+        ), "shell output 5"),
         (build_native_tool_result_view(
             "exec_command",
             {"command": "run background"},
@@ -9787,7 +9787,7 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     f"exec output {index}" for index in range(12)
                 ],
             },
-        ), "exec output 11"),
+        ), "exec output 5"),
         (build_native_tool_result_view(
             "apply_patch",
             {"patch": patch_text},
@@ -9898,9 +9898,9 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     ],
                 },
             ),
-            "shell output 0",
             "shell output 19",
-            "… +15 lines",
+            "shell output 2",
+            "… +16 lines",
         ),
         (
             build_tool_start_view(
@@ -10114,9 +10114,9 @@ async def test_generic_tool_result_has_compact_hint_and_full_transcript() -> Non
 @pytest.mark.parametrize(
     ("width", "expected_hint"),
     (
-        (20, "… +3 lines"),
-        (39, "… +3 lines Ctrl+T"),
-        (40, "… +3 lines Ctrl+T"),
+        (20, "… +4 lines"),
+        (39, "… +4 lines Ctrl+T"),
+        (40, "… +4 lines Ctrl+T"),
     ),
 )
 @pytest.mark.anyio
@@ -10145,7 +10145,8 @@ async def test_shell_transcript_hint_uses_one_visual_row(
     display_lines = display.splitlines()
     transcript = _transcript_text(runtime.document)
 
-    assert display_lines[-1] == f"    {expected_hint}"
+    assert f"    {expected_hint}" in display_lines
+    assert display_lines[-1] == "    output line 7"
     assert all(get_cwidth(line) <= width for line in display_lines)
     assert display_line_count(display, width=width) == len(display_lines)
     assert output_lines[-1] in transcript
@@ -10193,8 +10194,8 @@ async def test_stable_shell_display_reflows_only_after_resize_settles() -> None:
     wide = display_at(80, reflow_sources=False)
 
     assert wide != narrow
-    assert "… +3 lines" in narrow
-    assert "… +3 lines (Ctrl+T to view transcript)" in wide
+    assert "… +4 lines" in narrow
+    assert "… +4 lines (Ctrl+T to view transcript)" in wide
     assert get_cwidth(narrow.splitlines()[0]) <= 20
     assert get_cwidth(wide.splitlines()[0]) <= 80
     assert get_cwidth(wide.splitlines()[0]) > get_cwidth(
@@ -10313,7 +10314,7 @@ async def test_shell_resize_replays_new_width_through_native_scrollback() -> Non
                 clear.assert_called_once_with()
                 assert print_text.called
                 assert replayed.count("• Ran ") == 1
-                assert "… +3 lines (Ctrl+T to view transcript)" in replayed
+                assert "… +4 lines (Ctrl+T to view transcript)" in replayed
                 assert all(
                     get_cwidth(line) <= 80
                     for line in replayed.splitlines()
@@ -10348,7 +10349,8 @@ async def test_native_shell_result_transcript_keeps_command_and_output() -> None
     display = _document_text(runtime.document)
     transcript = _transcript_text(runtime.document)
     assert "(Ctrl+T to view transcript)" in display
-    assert output_lines[-1] not in display
+    assert output_lines[-1] in display
+    assert output_lines[2] not in display
     assert f"$ {command}" in transcript
     assert output_lines[0] in transcript
     assert output_lines[-1] in transcript

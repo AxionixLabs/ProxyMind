@@ -53,6 +53,34 @@ def _format_preview_lines(lines: list[str], *, max_lines: int) -> tuple[str, int
     return "\n".join(clipped), omitted
 
 
+def _format_middle_preview_lines(
+    lines: list[str],
+    *,
+    max_lines: int
+) -> tuple[str, int]:
+    """保留头尾并折叠中间行，返回预览文本和省略数量。"""
+    clipped = [
+        _short_line(line, MAX_PREVIEW_WIDTH)
+        for line in lines
+    ]
+    limit = max(1, int(max_lines))
+    if len(clipped) <= limit:
+        return "\n".join(clipped), 0
+
+    retained   = limit - 1
+    head_count = retained // 2
+    tail_count = retained - head_count
+    omitted    = len(clipped) - retained
+
+    folded = [
+        *clipped[:head_count],
+        f"… +{omitted} lines",
+        *clipped[-tail_count:],
+    ]
+
+    return "\n".join(folded), omitted
+
+
 def _preview_text(value: typing.Any, *, max_lines: int = MAX_PREVIEW_LINES) -> str:
     """生成普通文本预览。"""
     screen, _ = _format_preview_lines(_normalize_preview_lines(value), max_lines=max_lines)
@@ -73,10 +101,32 @@ def _plain_trace_preview_from_lines(lines: list[str]) -> TracePreview:
     return TracePreview(full=full, screen=screen, omitted_lines=omitted, kind="plain")
 
 
+def _shell_trace_preview_from_lines(
+    lines: list[str],
+    *,
+    kind: str = "text"
+) -> TracePreview:
+    """生成 Shell 输出的头尾折叠预览。"""
+    full, _ = _format_middle_preview_lines(lines, max_lines=MAX_PREVIEW_LINES)
+
+    screen, omitted = _format_middle_preview_lines(
+        lines,
+        max_lines=SCREEN_PREVIEW_LINES,
+    )
+
+    return TracePreview(
+        full=full,
+        screen=screen,
+        omitted_lines=omitted,
+        kind=kind,
+    )
+
+
 def _terminal_input_preview_from_lines(lines: list[str]) -> TracePreview:
     """从标准输入行生成终端交互预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_PREVIEW_LINES)
     screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_PREVIEW_LINES)
+
     return TracePreview(
         full=full,
         screen=screen,
@@ -89,6 +139,7 @@ def _trace_code_preview_from_lines(lines: list[str]) -> TracePreview:
     """从代码行生成轨迹预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_CODE_PREVIEW_LINES)
     screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_CODE_PREVIEW_LINES)
+
     return TracePreview(
         full=full,
         screen=screen,
