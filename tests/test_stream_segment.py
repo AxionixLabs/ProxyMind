@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import pytest
+
 from mind_app.stream_state.segment import SegmentTracker
 from mind_nova.stream_events import (
     PresentationSupersededEvent,
@@ -203,6 +205,29 @@ def test_pending_outputs_are_not_mixed_when_drained() -> None:
         ((1, 2, 1), "item-two", "second"),
     ]
     assert tracker.pending_output_item_order == []
+
+
+def test_item_id_reuse_across_response_identity_is_rejected() -> None:
+    tracker = SegmentTracker()
+    tracker.on_text_delta(TextDeltaEvent(
+        type="text.delta",
+        text="first",
+        segment_id="reused-item",
+        round=1,
+    ))
+    tracker.on_text_done(TextDoneEvent(
+        type="text.done",
+        segment_id="reused-item",
+        round=1,
+    ))
+
+    with pytest.raises(ValueError, match="item_id cannot cross response identity"):
+        tracker.on_text_delta(TextDeltaEvent(
+            type="text.delta",
+            text="second",
+            segment_id="reused-item",
+            round=2,
+        ))
 
 
 def test_text_done_final_text_replaces_incomplete_deltas() -> None:

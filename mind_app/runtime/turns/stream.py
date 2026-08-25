@@ -817,10 +817,16 @@ async def stream_turn(
                 break
 
             if isinstance(event, TextDeltaEvent):
-                if tracker.should_ignore_item(event.item_id):
+                event_identity = tracker.response_identity(event)
+                if tracker.should_ignore_item(
+                    event.item_id,
+                    identity=event_identity,
+                ):
                     continue
-                identity = _response_identity(event, tracker)
+
+                identity     = _response_identity(event, tracker)
                 item_changed = tracker.on_text_delta(event)
+
                 if item_changed:
                     tracker.defer_current_output()
                     record_pending_assistant_output(complete_only=True)
@@ -855,15 +861,23 @@ async def stream_turn(
                 continue
 
             if isinstance(event, TextDoneEvent):
-                if tracker.should_ignore_item(event.item_id):
+                event_identity = tracker.response_identity(event)
+                if tracker.should_ignore_item(
+                    event.item_id,
+                    identity=event_identity,
+                ):
                     continue
-                identity = _response_identity(event, tracker)
+
+                identity           = _response_identity(event, tracker)
                 output_was_drained = tracker.was_output_drained(event.item_id)
+
                 tracker.on_text_done(event)
+
                 if output_was_drained and event.final_text is not None:
-                    epoch = identity.presentation_epoch
+                    epoch    = identity.presentation_epoch
                     round_no = identity.round
-                    attempt = identity.attempt
+                    attempt  = identity.attempt
+
                     transcript.append(
                         "message.updated",
                         actor="assistant",

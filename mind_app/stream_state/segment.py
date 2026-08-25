@@ -41,6 +41,8 @@ class SegmentTracker(object):
         self.superseded_item_ids: set[str] = set()
         self.drained_item_ids: set[str]    = set()
 
+        self.item_identities: dict[str, tuple[int, int, int]] = {}
+
         self.active_attempts: dict[tuple[int, int], int] = {}
 
     @staticmethod
@@ -342,17 +344,23 @@ class SegmentTracker(object):
 
     def on_text_delta(self, event: TextDeltaEvent) -> bool:
         """把正文增量追加到当前展示 epoch 的段落。"""
-        self._event_item_id(event)
+        item_id = self._event_item_id(event)
+        presentation_epoch, round_no, attempt = self.response_identity(event)
+        if item_id in self.superseded_item_ids:
+            return False
+        self._bind_item_identity(
+            item_id,
+            (presentation_epoch, round_no, attempt),
+        )
         if not event.text:
             return False
-        if event.item_id in self.completed_item_ids or event.item_id in self.superseded_item_ids:
+        if item_id in self.completed_item_ids:
             return False
 
-        presentation_epoch, round_no, attempt = self.response_identity(event)
         previous_segment_key = self.current_segment_key
 
         segment = self._resolve_segment(
-            event.segment_id,
+            item_id,
             create=True,
             prefer_current=True,
             presentation_epoch=presentation_epoch,
@@ -371,11 +379,18 @@ class SegmentTracker(object):
 
     def on_text_done(self, event: TextDoneEvent) -> str:
         """标记正文段落结束并断开当前流式段落。"""
-        self._event_item_id(event)
+        item_id = self._event_item_id(event)
         presentation_epoch, round_no, attempt = self.response_identity(event)
+        if item_id in self.superseded_item_ids:
+            self.current_segment_key = None
+            return ""
+        self._bind_item_identity(
+            item_id,
+            (presentation_epoch, round_no, attempt),
+        )
 
         segment = self._resolve_segment(
-            event.segment_id,
+            item_id,
             create=event.final_text is not None,
             prefer_current=True,
             presentation_epoch=presentation_epoch,
@@ -387,30 +402,31 @@ class SegmentTracker(object):
                 segment["text"] = event.final_text
             if (
                 str(segment.get("text") or "").strip()
-                and event.item_id not in self.drained_item_ids
+                and item_id not in self.drained_item_ids
             ):
                 self._remember_output_segment(segment)
             else:
                 self._forget_pending_output_segment(str(segment.get("local_id") or ""))
             segment["done"] = True
-            self.completed_item_ids.add(event.item_id)
-        elif event.item_id not in self.superseded_item_ids:
-            self.completed_item_ids.add(event.item_id)
+        self.completed_item_ids.add(item_id)
         self.current_segment_key = None
         return str((segment or {}).get("text") or "")
 
     def on_text_meta(self, event: TextMetaEvent) -> None:
         """应用或暂存正文段落的来源与标注元数据。"""
-        self._event_item_id(event)
-        if event.item_id in self.superseded_item_ids:
-            return None
-
+        item_id = self._event_item_id(event)
         presentation_epoch, round_no, attempt = self.response_identity(event)
+        if item_id in self.superseded_item_ids:
+            return None
+        self._bind_item_identity(
+            item_id,
+            (presentation_epoch, round_no, attempt),
+        )
 
         payload = self._typed_segment_meta_payload(event)
 
         if segment := self._resolve_segment(
-            event.segment_id,
+            item_id,
             prefer_current=True,
             presentation_epoch=presentation_epoch,
             round_no=round_no,
@@ -419,7 +435,7 @@ class SegmentTracker(object):
             self._merge_segment_meta(segment, payload)
             return None
 
-        self.pending_meta_by_segment_id[event.segment_id] = payload
+        self.pending_meta_by_segment_id[item_id] = payload
 
     def on_builtin_done(self, event: ToolBuiltinDoneEvent) -> None:
         """把内置工具来源关联到当前或下一正文段落。"""
@@ -514,13 +530,32 @@ class SegmentTracker(object):
         """判断指定 assistant item 是否已经写入 transcript。"""
         return str(item_id or "").strip() in self.drained_item_ids
 
-    def should_ignore_item(self, item_id: str) -> bool:
+    def should_ignore_item(
+        self,
+        item_id: str,
+        *,
+        identity: tuple[int, int, int] | None = None,
+    ) -> bool:
         """判断正文事件是否属于已完成或已取代的 item。"""
         normalized = str(item_id or "").strip()
+        if normalized in self.superseded_item_ids:
+            return True
+        if identity is not None:
+            self._bind_item_identity(normalized, identity)
         return (
             normalized in self.completed_item_ids
-            or normalized in self.superseded_item_ids
         )
+
+    def _bind_item_identity(
+        self,
+        item_id: str,
+        identity: tuple[int, int, int],
+    ) -> None:
+        """绑定 item 到首次观察到的 response identity。"""
+        previous = self.item_identities.get(item_id)
+        if previous is not None and previous != identity:
+            raise ValueError("item_id cannot cross response identity")
+        self.item_identities[item_id] = identity
 
     def drain_assistant_outputs(
         self,
