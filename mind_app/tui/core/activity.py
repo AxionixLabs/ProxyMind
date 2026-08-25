@@ -495,6 +495,7 @@ class TuiActivity(object):
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
                 elapsed_min_sec=0.0,
+                animate_text_only=True,
                 color_level=self.color_level,
             )
             fragments = list(block.fragments)
@@ -914,6 +915,7 @@ def _status_block(
     elapsed_sec: float | None = None,
     spinner: bool = False,
     sweep: bool = True,
+    animate_text_only: bool = False,
     elapsed_min_sec: float = 0.65,
     color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
 ) -> FragmentBlock:
@@ -925,6 +927,16 @@ def _status_block(
         animated=sweep,
         color_level=color_level,
     )
+
+    if animate_text_only:
+        static_fragments = render_status_fragments(
+            text,
+            family=family,
+            phase=phase,
+            animated=False,
+            color_level=color_level,
+        )
+        fragments[1] = static_fragments[1]
 
     if spinner:
         fragments[0] = spinner_indicator_fragment(phase, family=family)

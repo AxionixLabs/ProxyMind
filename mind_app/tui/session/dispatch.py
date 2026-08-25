@@ -549,9 +549,9 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "shutdown"):
             self.mind.stop_runtime_on_exit = True
             self.mind.task_event.set()
-            self._present(command_result_block(
-                "/shutdown",
-                TextSpan("Stopping backend runtime", BRIGHT_STYLE),
+            self._present(fragment_block(
+                TextSpan("• ", BODY_STYLE),
+                TextSpan("Stopping backend runtime.", BRIGHT_STYLE),
             ))
             self._present()
             return DispatchAction.EXIT

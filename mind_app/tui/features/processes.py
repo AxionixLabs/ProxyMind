@@ -35,16 +35,17 @@ from .summary import (
 if typing.TYPE_CHECKING:
     from ..runtime.ports import ProcessRuntimePort
 
-PS_EVENT_WAIT_TIMEOUT_SEC: float = 1.0
-PS_INTERRUPT_GRACE_SEC: float    = 0.05
-PS_OUTPUT_LIMIT: int             = 120000
-PS_VISIBLE_OUTPUT_LINES: int     = 8
-SHELL_VISIBLE_OUTPUT_LINES: int  = 50
-PS_STREAM_VISIBLE_PROCESSES: int = 3
-PS_HISTORY_VISIBLE_PROCESSES: int = 16
-PS_STREAM_OUTPUT_LINES: int      = 3
+PS_EVENT_WAIT_TIMEOUT_SEC: float     = 1.0
+PS_INTERRUPT_GRACE_SEC: float        = 0.05
+PS_OUTPUT_LIMIT: int                 = 120000
+PS_VISIBLE_OUTPUT_LINES: int         = 8
+SHELL_VISIBLE_OUTPUT_LINES: int      = 50
+PS_STREAM_VISIBLE_PROCESSES: int     = 3
+PS_HISTORY_VISIBLE_PROCESSES: int    = 16
+PS_STREAM_OUTPUT_LINES: int          = 3
 PROCESS_STATUS_EVENT_WAIT_SEC: float = 3600.0
-SHELL_ACTIVITY_FRAME_SEC: float = 0.08
+SHELL_ACTIVITY_FRAME_SEC: float      = 0.08
+SHELL_TRANSCRIPT_HINT: str           = "ctrl + t to view transcript"
 
 ProcessViewerMode: typing.TypeAlias = typing.Literal[
     "process",
@@ -55,6 +56,14 @@ ExecSnapshotMode: typing.TypeAlias = typing.Literal[
     "stream",
     "history",
 ]
+
+
+class _ShellOutputPreview(typing.NamedTuple):
+    """保存手动 Shell 的显示行、插入位置和逻辑省略数量。"""
+    lines: list[str]
+    ellipsis_index: int | None
+    omitted: int
+
 
 PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
     fragments=(("", " \n "),),
@@ -170,7 +179,7 @@ def _is_background_session_item(
     background_ids: frozenset[str],
 ) -> bool:
     """判断单个会话是否属于当前 TUI 的后台终端投影。"""
-    if item.get("background") is True:
+    if item.get("background"):
         return True
 
     if str(item.get("origin") or "") != "tui_shell":
@@ -373,7 +382,7 @@ def exec_stream_snapshots_block(
             width - 4,
         )
         rows.append([
-            ("class:ps.stream", "  • "),
+            ("class:ps.stream", "  · "),
             ("class:ps.stream.command", command),
         ])
 
@@ -493,9 +502,8 @@ async def watch_exec_session(
         return False
 
     application = mind.frontend.application
-    execution = _execution_backend(mind, viewer_mode)
-
-    initial = dict(initial_snapshot)
+    execution   = _execution_backend(mind, viewer_mode)
+    initial     = dict(initial_snapshot)
 
     runtime.cancel_background_session_task(sid)
 
@@ -574,7 +582,7 @@ async def watch_user_shell_session(
     *,
     announce_detach: bool = False,
     initial_snapshot: dict[str, typing.Any],
-    ready_event: asyncio.Event | None = None,
+    ready_event: asyncio.Event | None = None
 ) -> bool | str:
     """以正文 UserShell 生命周期监视手动命令，不创建进程查看器。"""
     return await watch_exec_session(
@@ -600,7 +608,7 @@ async def _watch_exec_session(
     viewer_mode: ProcessViewerMode,
     ready_event: asyncio.Event | None,
     capture_input: bool,
-    execution: typing.Any,
+    execution: typing.Any
 ) -> bool | str:
     """按结构化会话事件更新主 TUI 中的命令执行单元。"""
     application = mind.frontend.application
@@ -625,7 +633,9 @@ async def _watch_exec_session(
     transcript_block = exec_session_transcript_block(state.get("snapshot"))
 
     inline_mode = viewer_mode == "inline"
+
     animation_task: asyncio.Task[None] | None = None
+
     if inline_mode:
         viewer_task = await runtime.start_inline_process(
             session_id,
@@ -1049,50 +1059,60 @@ def exec_session_user_shell_block(
             f"■ {current.get('reason') or 'snapshot_failed'}"
         ], 0
     else:
-        output_lines, omitted = _shell_output_lines(
+        preview = _shell_output_lines(
             current,
             limit=SHELL_VISIBLE_OUTPUT_LINES,
             width=max(1, width - 4),
         )
+        output_lines = preview.lines
+        omitted = preview.omitted
         if not output_lines:
             output_lines = [
                 "(waiting for output)" if is_running else "(no output)"
             ]
 
-    head_count = max(1, (SHELL_VISIBLE_OUTPUT_LINES - 1) // 2)
-    has_dropped_prefix = bool(
-        int(current.get("output_lines_dropped") or 0) > 0
-    )
     ellipsis_index = (
-        0
-        if has_dropped_prefix
-        else min(head_count, len(output_lines))
+        preview.ellipsis_index
+        if not snapshot_failed
+        else None
     )
     ellipsis_added = False
+    first_output_line = True
 
     for index, line in enumerate(output_lines):
         if omitted and index == ellipsis_index:
-            fragments.extend([
-                ("", "\n"),
-                ("class:ps.output", "    "),
-                ("class:ps.output", f"… +{omitted} lines"),
-            ])
+            ellipsis_lines = _wrap_shell_line(
+                f"… +{omitted} lines ({SHELL_TRANSCRIPT_HINT})",
+                max(1, width - 4),
+            )
+            for ellipsis_line in ellipsis_lines:
+                fragments.extend([
+                    ("", "\n"),
+                    ("class:ps.output", "    "),
+                    ("class:ps.output", ellipsis_line),
+                ])
             ellipsis_added = True
         fragments.extend([
             ("", "\n"),
             (
                 "class:ps.output",
-                "  └ " if index == 0 else "    ",
+                "  └ " if first_output_line else "    ",
             ),
             ("class:ps.output", _clip_inline(line, max(1, width - 4))),
         ])
+        first_output_line = False
 
     if omitted and not ellipsis_added:
-        fragments.extend([
-            ("", "\n"),
-            ("class:ps.output", "    "),
-            ("class:ps.output", f"… +{omitted} lines"),
-        ])
+        ellipsis_lines = _wrap_shell_line(
+            f"… +{omitted} lines ({SHELL_TRANSCRIPT_HINT})",
+            max(1, width - 4),
+        )
+        for ellipsis_line in ellipsis_lines:
+            fragments.extend([
+                ("", "\n"),
+                ("class:ps.output", "    "),
+                ("class:ps.output", ellipsis_line),
+            ])
 
     return FragmentBlock(tuple(fragments))
 
@@ -1305,26 +1325,24 @@ async def _watch_detached_exec_session(
 
         if str(snapshot.get("status") or "").strip() == "exited":
             await runtime.wait_for_process_routing_boundary()
-            if _belongs_to_current_conversation(mind, snapshot):
-                final_block = exec_session_summary_block(
-                    snapshot,
-                    terminal_width=mind.frontend.application.viewport.width,
-                )
-                transcript_block = exec_session_transcript_block(snapshot)
-                replaced = runtime.replace_detached_inline_process(
-                    session_id,
-                    final_block,
-                    transcript_block=transcript_block,
-                )
-                if not replaced:
-                    raise RuntimeError(
-                        "detached UserShell cell is unavailable"
+            try:
+                if _belongs_to_current_conversation(mind, snapshot):
+                    final_block = exec_session_summary_block(
+                        snapshot,
+                        terminal_width=mind.frontend.application.viewport.width,
                     )
-            else:
-                runtime.retain_process_completion(
-                    snapshot,
-                    label=_completion_status_label(snapshot),
-                )
+                    runtime.append_history_block(
+                        final_block,
+                        kind="operation",
+                        transcript_block=exec_session_transcript_block(snapshot),
+                    )
+                else:
+                    runtime.retain_process_completion(
+                        snapshot,
+                        label=_completion_status_label(snapshot),
+                    )
+            finally:
+                runtime.settle_detached_inline_process(session_id)
 
             return None
 
@@ -1529,33 +1547,122 @@ def _shell_output_lines(
     *,
     limit: int,
     width: int | None = None,
-) -> tuple[list[str], int]:
-    """按终端显示行提取手动 Shell 的头尾输出并返回省略行数。"""
+) -> _ShellOutputPreview:
+    """按逻辑输出行保留头尾，再按终端显示行预算截断。"""
     raw_lines = snapshot.get("output_lines")
     if isinstance(raw_lines, list) and raw_lines:
         lines = [str(line) for line in raw_lines]
     else:
         output = str(snapshot.get("output") or "")
-        lines = output.splitlines()
-
-    if isinstance(width, int) and width > 0:
-        wrapped: list[str] = []
-        for line in lines:
-            wrapped.extend(_wrap_shell_line(line, width))
-        lines = wrapped
+        lines  = output.splitlines()
 
     max_lines = max(1, int(limit or 1))
-    omitted = max(0, int(snapshot.get("output_lines_dropped") or 0))
-    if len(lines) <= max_lines:
-        return lines, omitted
+    dropped   = max(0, int(snapshot.get("output_lines_dropped") or 0))
+    total     = dropped + len(lines)
 
-    if max_lines == 1:
-        return [lines[-1]], omitted + len(lines) - 1
+    retained_head_count = min(total, max_lines, len(lines))
 
-    omitted += len(lines) - max_lines + 1
-    head_count = max(1, (max_lines - 1) // 2)
-    tail_count = max(1, max_lines - head_count - 1)
-    return [*lines[:head_count], *lines[-tail_count:]], omitted
+    retained_tail_count = min(
+        max(0, total - retained_head_count),
+        max_lines,
+        max(0, len(lines) - retained_head_count),
+    )
+
+    head = lines[:retained_head_count]
+    tail = lines[len(lines) - retained_tail_count:] if retained_tail_count else []
+    logical_omitted = max(
+        0,
+        total - retained_head_count - retained_tail_count,
+    )
+
+    wrap_width = max(1, int(width or 1))
+    selected = [
+        (line, "head") for line in head
+    ] + [
+        (line, "tail") for line in tail
+    ]
+    wrapped_entries = [
+        (_wrap_shell_line(line, wrap_width), side)
+        for line, side in selected
+    ]
+
+    def wrapped_row_count(entries: list[tuple[list[str], str]]) -> int:
+        return sum(len(segments) for segments, _side in entries)
+
+    all_rows = wrapped_row_count(wrapped_entries)
+    if all_rows <= max_lines and logical_omitted == 0:
+        return _ShellOutputPreview(
+            [segment for segments, _side in wrapped_entries for segment in segments],
+            None,
+            0,
+        )
+
+    if all_rows <= max_lines and logical_omitted > 0:
+        head_rows = sum(
+            len(segments)
+            for segments, side in wrapped_entries
+            if side == "head"
+        )
+        return _ShellOutputPreview(
+            [segment for segments, _side in wrapped_entries for segment in segments],
+            head_rows,
+            logical_omitted,
+        )
+
+    def ellipsis_row_count(omitted_count: int) -> int:
+        text = f"… +{omitted_count} lines ({SHELL_TRANSCRIPT_HINT})"
+        return len(_wrap_shell_line(text, wrap_width))
+
+    omitted = logical_omitted
+
+    kept_head: list[tuple[list[str], str]] = []
+    kept_tail: list[tuple[list[str], str]] = []
+
+    for _ in range(4):
+        ellipsis_rows = ellipsis_row_count(omitted)
+        available = max_lines - ellipsis_rows
+        if available <= 0:
+            kept_head = []
+            kept_tail = []
+            break
+
+        head_budget = available // 2
+        tail_budget = available - head_budget
+
+        kept_head = []
+        used: int = 0
+        for entry in wrapped_entries:
+            rows = len(entry[0])
+            if used + rows > head_budget:
+                break
+            kept_head.append(entry)
+            used += rows
+
+        kept_tail = []
+        used: int = 0
+        for entry in reversed(wrapped_entries[len(kept_head):]):
+            rows = len(entry[0])
+            if used + rows > tail_budget:
+                break
+            kept_tail.append(entry)
+            used += rows
+        kept_tail.reverse()
+
+        next_omitted = logical_omitted + (
+            len(wrapped_entries)
+            - len(kept_head)
+            - len(kept_tail)
+        )
+        if next_omitted == omitted:
+            break
+        omitted = next_omitted
+
+    selected_entries = [*kept_head, *kept_tail]
+    return _ShellOutputPreview(
+        [segment for segments, _side in selected_entries for segment in segments],
+        sum(len(segments) for segments, _side in kept_head),
+        omitted,
+    )
 
 
 def _wrap_shell_line(value: typing.Any, width: int) -> list[str]:
@@ -1564,10 +1671,10 @@ def _wrap_shell_line(value: typing.Any, width: int) -> list[str]:
     if not text:
         return [""]
 
-    max_width = max(1, int(width or 1))
-    lines: list[str] = []
+    max_width: int     = max(1, int(width or 1))
+    lines: list[str]   = []
     current: list[str] = []
-    current_width = 0
+    current_width: int = 0
 
     for character in text:
         character_width = max(0, get_cwidth(character))

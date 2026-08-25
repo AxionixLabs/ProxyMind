@@ -25,6 +25,7 @@ from mind_app.tui.core.models import (
     TranscriptBacktrackRequest,
 )
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import BODY_STYLE, BRIGHT_STYLE, prompt_style
 from mind_app.tui.features import helix
 from mind_app.tui.features.model import (
     choose_provider,
@@ -252,6 +253,40 @@ async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
     assert "".join(text for _style, text in result.renderable.fragments) == (
         "• Model changed to gpt-5.6-sol medium"
     )
+
+
+@pytest.mark.anyio
+async def test_shutdown_command_reports_stopping_runtime_status() -> None:
+    views = []
+    task_event = asyncio.Event()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        stop_runtime_on_exit=False,
+        task_event=task_event,
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        TuiRuntime(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/shutdown")
+
+    assert action is DispatchAction.EXIT
+    assert mind.stop_runtime_on_exit is True
+    assert task_event.is_set()
+    result = next(
+        view for view in views
+        if view.type == "tui.output" and view.renderable is not None
+    )
+    assert "".join(text for _style, text in result.renderable.fragments) == (
+        "• Stopping backend runtime."
+    )
+    assert result.renderable.fragments[0][0] == prompt_style(BODY_STYLE)
+    assert result.renderable.fragments[1][0] == prompt_style(BRIGHT_STYLE)
 
 
 @pytest.mark.anyio
@@ -1543,6 +1578,24 @@ async def test_helix_home_does_not_start_an_unlinked_runtime() -> None:
         await helix.open_helix_home(mind)
 
 
+def test_helix_home_success_uses_browser_status() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    helix.render_helix_home_result(mind, "http://127.0.0.1:9000")
+
+    status = next(view for view in views if view.renderable is not None)
+    assert "".join(text for _style, text in status.renderable.fragments) == (
+        "• Opened http://127.0.0.1:9000 in your browser."
+    )
+    assert status.renderable.fragments[0][0] == prompt_style(BODY_STYLE)
+    assert status.renderable.fragments[1][0] == prompt_style(BRIGHT_STYLE)
+
+
 @pytest.mark.anyio
 async def test_helix_mode_menu_uses_current_profile() -> None:
     runtime = TuiRuntime()
@@ -1589,19 +1642,22 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
     mind.link_service_mcp.assert_not_called()
 
 
-def test_helix_home_failure_uses_command_result_block() -> None:
+def test_helix_home_failure_uses_browser_failure_status() -> None:
     views = []
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
+        server_manager=SimpleNamespace(url="http://127.0.0.1:9000"),
     )
 
     helix.render_helix_home_failure(mind, AppError("open failed"))
 
     status = next(view for view in views if view.type == "tui.helix.status")
     text = "".join(text for _style, text in status.renderable.fragments)
-    assert text == "/helix-home · Failed · open failed"
+    assert text == (
+        "■ Failed to open browser for http://127.0.0.1:9000: open failed"
+    )
 
 
 @pytest.mark.anyio

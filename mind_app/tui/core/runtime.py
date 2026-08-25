@@ -103,16 +103,16 @@ from ..runtime.resume_picker import ResumePickerCoordinator
 from ..runtime.startup import (
     StartupAnimation,
     StartupFinalFrame,
-    StartupPresentationQueue,
+    StartupPresentationQueue
 )
 from ..runtime.state import (
     ActivityHandoffState,
     CommandLayoutState,
-    ProcessCompletionStore,
+    ProcessCompletionStore
 )
 from ..runtime.transcript import (
     TranscriptCoordinator,
-    TranscriptOverlayCoordinator,
+    TranscriptOverlayCoordinator
 )
 
 ModalResult = typing.TypeVar("ModalResult")
@@ -177,8 +177,10 @@ class TuiRuntime(object):
         self._inline_process_session_id: str                           = ""
         self._inline_process_future: asyncio.Future[typing.Any] | None = None
         self._inline_process_settled: asyncio.Event | None             = None
-        self._inline_process_states: dict[str, _InlineProcessState] = {}
-        self._inline_process_start_lock = asyncio.Lock()
+        self._inline_process_states: dict[str, _InlineProcessState]    = {}
+
+        self._inline_process_start_lock: asyncio.Lock = asyncio.Lock()
+
         self._background_process_session_ids: set[str] = set()
 
         self._process_completions = ProcessCompletionStore()
@@ -187,10 +189,11 @@ class TuiRuntime(object):
         self._process_routing_settled.set()
 
         self._activity_handoff = ActivityHandoffState()
-        self._command_layout = CommandLayoutState()
+        self._command_layout   = CommandLayoutState()
 
         self._open_callbacks: list[typing.Callable[[], None]]          = []
         self._turn_finished_callbacks: list[typing.Callable[[], None]] = []
+
         self._startup_presentations = StartupPresentationQueue()
 
         self._closing: bool = False
@@ -1215,27 +1218,29 @@ class TuiRuntime(object):
         if normalized:
             self._background_process_session_ids.add(normalized)
 
-    def replace_detached_inline_process(
+    def append_history_block(
         self,
-        session_id: str,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None,
-    ) -> bool:
-        """把后台 Shell 完成结果写回切后台时创建的稳定块。"""
-        normalized = str(session_id or "").strip()
-        state = self._inline_process_states.get(normalized)
-        if state is None or state.target is None:
-            return False
+        kind: TuiBlockKind = "operation",
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
+        """追加后台完成历史，不改写已经进入原生滚屏的稳定块。"""
+        with self.screen.visual_update():
+            self.document.append_history_block(
+                block,
+                kind=kind,
+                transcript_block=transcript_block,
+            )
+            self.screen.transcript_overlay.content_changed()
+            self.viewport.stable_content_changed()
+            self._flush_background_blocks()
 
-        replaced = self._replace_stable_inline_process(
-            state.target,
-            block,
-            transcript_block=transcript_block,
-        )
-        if replaced:
+    def settle_detached_inline_process(self, session_id: str) -> None:
+        """释放已完成后台 Shell 的状态而保留其历史块。"""
+        normalized = str(session_id or "").strip()
+        if normalized:
             self._settle_inline_process(normalized)
-        return replaced
 
     def dismiss_inline_process(self, session_id: str | None = None) -> None:
         """清理未提交的 Shell 执行单元。"""
@@ -1262,8 +1267,8 @@ class TuiRuntime(object):
     def _clear_active_inline_process(self) -> None:
         """清除当前活动 Shell 别名而不结束其独立 watcher 状态。"""
         self._inline_process_session_id = ""
-        self._inline_process_future = None
-        self._inline_process_settled = None
+        self._inline_process_future     = None
+        self._inline_process_settled    = None
 
     def _settle_inline_process(self, session_id: str) -> None:
         """释放正文 Shell 执行单元的生命周期状态。"""

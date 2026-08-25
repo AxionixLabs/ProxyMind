@@ -204,14 +204,8 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
         ),)
 
     if spec.kind is ToolDisplayKind.STDIN:
-        stdin  = str(view.arguments.get("stdin") or "")
-        output = _native_output_text(payload).strip("\n")
-
-        body = "\n".join(
-            item for item in (_interaction_input_body(stdin), output) if item
-        )
-
-        return (_transcript_block(title, body),)
+        stdin = str(view.arguments.get("stdin") or "")
+        return (_transcript_block(title, _interaction_input_body(stdin)),)
 
     return (_transcript_block(title, _json_text(payload or view.data)),)
 
@@ -253,11 +247,18 @@ def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str,
         return ("\n".join(item for item in (command, output) if item),)
 
     if spec.kind is ToolDisplayKind.STDIN:
-        stdin  = str(view.arguments.get("stdin") or "")
-        title  = view.entries[0].title if view.entries else ""
-        output = _native_output_text(payload).strip("\n")
-
-        return ("\n".join(item for item in (title, stdin, output) if item),)
+        stdin   = str(view.arguments.get("stdin") or "")
+        command = _command_text(
+            payload.get("command") or view.arguments.get("command")
+        )
+        action = (
+            "Interacted with background terminal"
+            if stdin or _terminal_control(view, payload) != "none"
+            else "Waited for background terminal"
+        )
+        heading = f"{action}: {command}" if command else action
+        input_text = _interaction_input_text(stdin)
+        return ("\n".join(item for item in (heading, input_text) if item),)
 
     return (_json_text(payload or view.data),)
 
@@ -273,15 +274,33 @@ def _transcript_block(title: str, body: str) -> StyledBlock:
 
 def _interaction_input_body(stdin: str) -> str:
     """生成后台终端交互记录中的输入正文。"""
-    lines = str(stdin or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    while lines and not lines[-1]:
-        lines.pop()
+    lines = _interaction_input_text(stdin).split("\n")
     if not any(line for line in lines):
         return ""
     return "\n".join(
         f"  └ {line}" if index == 0 else f"    {line}"
         for index, line in enumerate(lines)
     ).rstrip()
+
+
+def _interaction_input_text(stdin: str) -> str:
+    """规范化终端输入并移除仅由发送换行产生的尾部空行。"""
+    lines = str(stdin or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _terminal_control(
+    view: NativeToolResultView,
+    payload: dict[str, typing.Any],
+) -> str:
+    """返回后台终端交互使用的控制动作。"""
+    return str(
+        view.arguments.get("control")
+        or payload.get("control")
+        or "none"
+    ).strip().lower()
 
 
 def _command_result_transcript_block(

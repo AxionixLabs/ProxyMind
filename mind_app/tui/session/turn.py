@@ -37,7 +37,7 @@ if typing.TYPE_CHECKING:
 
 
 def emit_tui_interrupt_notice(application: ApplicationSink) -> None:
-    """提交一条与 Codex 一致的会话中断提示。"""
+    """提交一条与终端交互约定一致的会话中断提示。"""
     application.emit(ApplicationView(
         type="tui.interrupted",
         renderable=fragment_block(

@@ -105,28 +105,28 @@ class TurnRuntimePort(typing.Protocol):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None,
+        handler: typing.Callable[[], bool] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         ...
 
     def bind_stream_command_handler(
         self,
-        handler: typing.Callable[[str], bool] | None,
+        handler: typing.Callable[[str], bool] | None
     ) -> None:
         """绑定或清除忙碌期间的命令分派函数。"""
         ...
 
     def bind_turn_input_handler(
         self,
-        handler: typing.Callable[[TuiSubmission, bool], bool] | None,
+        handler: typing.Callable[[TuiSubmission, bool], bool] | None
     ) -> None:
         """绑定或清除活动模型轮次的输入接管函数。"""
         ...
 
     def bind_queued_restore_handler(
         self,
-        handler: typing.Callable[[TuiSubmission], None] | None,
+        handler: typing.Callable[[TuiSubmission], None] | None
     ) -> None:
         """绑定或清除取回队列消息时的结构化草稿恢复。"""
         ...
@@ -155,17 +155,14 @@ class TurnInputRuntimePort(typing.Protocol):
         """展示一条等待当前轮次接收的输入。"""
         ...
 
-    def discard_rejected_steer(
-        self,
-        client_message_id: str,
-    ) -> TuiSubmission | None:
+    def discard_rejected_steer(self, client_message_id: str) -> TuiSubmission | None:
         """移除已经确认消费的即时输入重试项。"""
         ...
 
     def append_turn_input(
         self,
         turn_id: str,
-        submission: TuiSubmission,
+        submission: TuiSubmission
     ) -> bool:
         """把已确认的即时输入追加到当前轮次正文并返回是否成功。"""
         ...
@@ -186,7 +183,7 @@ class ForegroundRuntimePort(typing.Protocol):
         self,
         coroutine: typing.Coroutine[typing.Any, typing.Any, None],
         *,
-        name: str,
+        name: str
     ) -> asyncio.Task[None]:
         """启动由 TUI 生命周期管理的前台后台任务。"""
         ...
@@ -201,21 +198,21 @@ class ForegroundRuntimePort(typing.Protocol):
 
     def bind_stream_command_handler(
         self,
-        handler: typing.Callable[[str], bool] | None,
+        handler: typing.Callable[[str], bool] | None
     ) -> None:
         """绑定或清除忙碌期间的命令分派函数。"""
         ...
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None,
+        handler: typing.Callable[[], bool] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         ...
 
     def activity_handoff(
         self,
-        kind: ActivityStatusKind | None,
+        kind: ActivityStatusKind | None
     ) -> contextlib.AbstractContextManager[None]:
         """创建一次活动状态交接上下文。"""
         ...
@@ -224,7 +221,7 @@ class ForegroundRuntimePort(typing.Protocol):
         self,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None,
+        transcript_block: FragmentBlock | None = None
     ) -> None:
         """在流式正文边界提交后台状态正文。"""
         ...
@@ -257,9 +254,7 @@ class ProcessRuntimePort(typing.Protocol):
         """更新进程状态摘要行。"""
         ...
 
-    def process_completion_snapshots(
-        self,
-    ) -> tuple[dict[str, typing.Any], ...]:
+    def process_completion_snapshots(self) -> tuple[dict[str, typing.Any], ...]:
         """返回等待用户确认的进程完成快照。"""
         ...
 
@@ -275,7 +270,7 @@ class ProcessRuntimePort(typing.Protocol):
         self,
         block: FragmentBlock,
         *,
-        kind: TuiBlockKind = "system",
+        kind: TuiBlockKind = "system"
     ) -> None:
         """追加进程 feature 产生的稳定正文。"""
         ...
@@ -286,7 +281,7 @@ class ProcessRuntimePort(typing.Protocol):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None,
+        gap_before: int | None = None
     ) -> asyncio.Future[typing.Any]:
         """激活进程查看器并返回其等待 Future。"""
         ...
@@ -297,7 +292,7 @@ class ProcessRuntimePort(typing.Protocol):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None,
+        gap_before: int | None = None
     ) -> asyncio.Future[typing.Any]:
         """在正文中创建可更新的 Shell 执行单元。"""
         ...
@@ -312,7 +307,7 @@ class ProcessRuntimePort(typing.Protocol):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None,
+        gap_before: int | None = None
     ) -> asyncio.Future[typing.Any]:
         """按顺序完成前一 Shell 的交接并创建新的正文执行单元。"""
         ...
@@ -323,7 +318,7 @@ class ProcessRuntimePort(typing.Protocol):
         *,
         session_id: str | None = None,
         transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None,
+        gap_before: int | None = None
     ) -> None:
         """更新正文中的 Shell 执行单元。"""
         ...
@@ -332,14 +327,14 @@ class ProcessRuntimePort(typing.Protocol):
         self,
         value: typing.Any = None,
         *,
-        session_id: str | None = None,
+        session_id: str | None = None
     ) -> None:
         """提交 Shell 执行单元的动作结果。"""
         ...
 
     async def wait_inline_process_settled(
         self,
-        session_id: str | None = None,
+        session_id: str | None = None
     ) -> None:
         """等待正文中的 Shell 执行单元收束。"""
         ...
@@ -352,14 +347,21 @@ class ProcessRuntimePort(typing.Protocol):
         """把已切后台的 UserShell 标记为后台终端。"""
         ...
 
-    def replace_detached_inline_process(
+    def append_history_block(
         self,
-        session_id: str,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None,
-    ) -> bool:
-        """把后台 Shell 完成结果原位写回稳定正文。"""
+        kind: TuiBlockKind = "operation",
+        transcript_block: FragmentBlock | None = None
+    ) -> None:
+        """追加后台命令完成历史，不修改原稳定块。"""
+        ...
+
+    def settle_detached_inline_process(
+        self,
+        session_id: str
+    ) -> None:
+        """释放已完成后台 Shell 的运行状态。"""
         ...
 
     def commit_inline_process(
@@ -368,7 +370,7 @@ class ProcessRuntimePort(typing.Protocol):
         *,
         session_id: str | None = None,
         transcript_block: FragmentBlock | None = None,
-        retain_for_background: bool = False,
+        retain_for_background: bool = False
     ) -> None:
         """把 Shell 执行单元提交为稳定正文。"""
         ...
@@ -378,7 +380,7 @@ class ProcessRuntimePort(typing.Protocol):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None,
+        gap_before: int | None = None
     ) -> None:
         """更新进程查看器中的动态正文。"""
         ...
@@ -395,7 +397,7 @@ class ProcessRuntimePort(typing.Protocol):
         self,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None,
+        transcript_block: FragmentBlock | None = None
     ) -> None:
         """把进程查看器结果提交为稳定正文。"""
         ...
@@ -404,7 +406,7 @@ class ProcessRuntimePort(typing.Protocol):
         self,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None,
+        transcript_block: FragmentBlock | None = None
     ) -> None:
         """提交已结束且属于当前会话的进程摘要。"""
         ...
@@ -412,7 +414,7 @@ class ProcessRuntimePort(typing.Protocol):
     def start_background_session_task(
         self,
         session_id: str,
-        coroutine: typing.Coroutine[typing.Any, typing.Any, None],
+        coroutine: typing.Coroutine[typing.Any, typing.Any, None]
     ) -> None:
         """启动指定进程会话的唯一后台监视任务。"""
         ...
@@ -421,7 +423,7 @@ class ProcessRuntimePort(typing.Protocol):
         self,
         snapshot: dict[str, typing.Any],
         *,
-        label: str,
+        label: str
     ) -> None:
         """保存不属于当前会话的进程完成快照。"""
         ...
@@ -430,7 +432,7 @@ class ProcessRuntimePort(typing.Protocol):
         self,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None = None,
+        transcript_block: FragmentBlock | None = None
     ) -> None:
         """在流式边界提交后台进程摘要。"""
         ...
@@ -445,7 +447,7 @@ class ProcessRuntimePort(typing.Protocol):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
-        ready_event: asyncio.Event | None = None,
+        ready_event: asyncio.Event | None = None
     ) -> typing.Any:
         """显示进程查看器并等待用户动作。"""
         ...

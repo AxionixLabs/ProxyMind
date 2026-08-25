@@ -16,6 +16,7 @@ from mind_app.tui.core.process_viewer import (
 )
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import TUI_APPLICATION_OVERRIDES
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
     PROCESS_VIEWER_FOCUS_REQUEST,
@@ -89,7 +90,7 @@ async def test_ps_without_sessions_renders_command_and_empty_terminal_state() ->
 
 
 @pytest.mark.anyio
-async def test_streaming_ps_appends_dimmed_process_summaries_without_menu() -> None:
+async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
     runtime = TuiRuntime()
     runtime.screen._output_size = lambda: (80, 24)
     runtime.set_active_renderable(
@@ -146,10 +147,10 @@ async def test_streaming_ps_appends_dimmed_process_summaries_without_menu() -> N
     fragments = runtime.document.fragments(width=80)
     text = "".join(value for _style, value in fragments)
     assert "model stream\n\n/ps · Background terminals" in text
-    assert "  • adb logcat\n    ↳ process 0 line 2" in text
+    assert "  · adb logcat\n    ↳ process 0 line 2" in text
     assert "      process 0 line 3\n      process 0 line 4" in text
-    assert "  • npm run dev\n    ↳ process 1 line 2" in text
-    assert "  • pytest -q\n    ↳ process 2 line 2" in text
+    assert "  · npm run dev\n    ↳ process 1 line 2" in text
+    assert "  · pytest -q\n    ↳ process 2 line 2" in text
     assert "process 0 line 1" not in text
     assert "hidden command" not in text
     assert text.endswith("  … and 1 more running")
@@ -164,9 +165,14 @@ async def test_streaming_ps_appends_dimmed_process_summaries_without_menu() -> N
         for style, value in fragments
         if style == "class:ps.stream.command"
     ]
-    assert stream_text.startswith("  • ")
+    assert stream_text.startswith("  · ")
     assert stream_text.endswith("  … and 1 more running")
     assert command_text == ["adb logcat", "npm run dev", "pytest -q"]
+    command_style = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
+        "class:ps.stream.command"
+    )
+    assert command_style.color == "ansicyan"
+    assert command_style.dim is False
 
     active = runtime.document.active_block
     assert active is not None
@@ -564,9 +570,10 @@ async def test_detached_shell_completion_stays_with_owning_conversation(
     completions = []
     runtime = SimpleNamespace(
         wait_for_process_routing_boundary=AsyncMock(),
-        replace_detached_inline_process=lambda session_id, block, **kwargs: (
+        append_history_block=lambda block, **kwargs: (
             blocks.append((block, kwargs)) or True
         ),
+        settle_detached_inline_process=lambda session_id: None,
         queue_background_block=lambda block, **kwargs: blocks.append(
             (block, kwargs)
         ),
@@ -616,12 +623,6 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
     }
     current = {"cid": "cid_owner", "sid": "sid_owner"}
     runtime = TuiRuntime()
-    replacements = []
-    runtime.replace_detached_inline_process = (
-        lambda session_id, block, **kwargs: (
-            replacements.append((session_id, block, kwargs)) or True
-        )
-    )
     runtime.begin_command_layout()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
@@ -654,9 +655,11 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
         assert not runtime.document.blocks
         assert len(runtime.process_completion_snapshots()) == 1
         assert runtime.screen.process_status.label == "long task completed"
-        assert not replacements
     else:
-        assert len(replacements) == 1
+        assert len(runtime.document.blocks) == 1
+        assert "You ran long task" in "".join(
+            value for _style, value in runtime.document.blocks[0].display_block.fragments
+        )
         assert runtime.process_completion_snapshots() == ()
 
 
@@ -930,7 +933,7 @@ async def test_ps_appends_snapshot_without_opening_viewer() -> None:
         for _style, value in runtime.document.blocks[-1].display_block.fragments
     )
     assert text.startswith("/ps\n\nBackground terminals\n\n")
-    assert "  • long task\n    ↳ line 1\n      line 2" in text
+    assert "  · long task\n    ↳ line 1\n      line 2" in text
 
 
 @pytest.mark.anyio
@@ -1239,10 +1242,28 @@ def test_user_shell_exec_cell_keeps_head_tail_with_ellipsis() -> None:
 
     assert text.startswith("• Running adb logcat\n  └ line 0")
     assert "line 23" in text
-    assert "… +21 lines" in text
+    assert "… +21 lines (ctrl + t to view transcript)" in text
     assert "line 45" in text
     assert text.endswith("line 69")
     assert "line 24" not in text
+
+
+def test_user_shell_exec_cell_counts_omitted_logical_lines_after_wrapping() -> None:
+    block = exec_session_user_shell_block(
+        {
+            "command": "long output",
+            "status": "running",
+            "output_lines": [f"line {index} " + ("x" * 200) for index in range(16)],
+        },
+        terminal_width=60,
+    )
+    text = "".join(value for _style, value in block.fragments)
+
+    assert "… +4 lines (ctrl + t to view transcript)" in text
+    assert "line 0" in text
+    assert "line 15" in text
+    assert "line 6" not in text
+    assert "line 9" not in text
 
 
 def test_user_shell_exec_cell_uses_animated_activity_marker() -> None:
@@ -1302,7 +1323,7 @@ def test_detached_user_shell_title_omits_session_id_suffix() -> None:
     assert "line 0" in text
     assert "line 69" in text
     assert "line 24" not in text
-    assert "… +21 lines" in text
+    assert "… +21 lines (ctrl + t to view transcript)" in text
 
 
 def test_ps_process_panel_does_not_branch_on_shell_origin() -> None:
@@ -1552,7 +1573,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
 
 
 @pytest.mark.anyio
-async def test_detached_shell_completion_replaces_original_stable_cell() -> None:
+async def test_detached_shell_completion_appends_after_original_stable_cell() -> None:
     runtime = TuiRuntime()
     running = FragmentBlock((
         ("class:shell.title.action", "• Shell ping"),
@@ -1581,12 +1602,11 @@ async def test_detached_shell_completion_replaces_original_stable_cell() -> None
 
     assert len(runtime.document.blocks) == 1
     runtime.document.replace_blocks(runtime.document.blocks)
-    assert runtime.replace_detached_inline_process(
-        "exec_shell",
-        completed,
-    )
-    assert len(runtime.document.blocks) == 1
-    assert runtime.document.blocks[0].display_block == completed
+    runtime.append_history_block(completed, kind="operation")
+    runtime.settle_detached_inline_process("exec_shell")
+    assert len(runtime.document.blocks) == 2
+    assert runtime.document.blocks[0].display_block == detached
+    assert runtime.document.blocks[1].display_block == completed
     assert not runtime.background_process_session_ids
 
 

@@ -61,6 +61,11 @@ def render_tool_trace_parts(
                 _part("  └ ", PREVIEW_STYLE),
                 *_plain_preview_parts(preview_text, indent_prefix="    ")
             ])
+        elif preview_kind == "terminal_input":
+            parts.extend([
+                _part("  └ ", PREVIEW_STYLE),
+                *_terminal_input_parts(preview_text),
+            ])
         else:
             indent_prefix = "  " if preview_kind == "code" else "    "
             parts.extend(
@@ -73,6 +78,19 @@ def render_tool_trace_parts(
                     )
                 ]
             )
+
+    return parts
+
+
+def _terminal_input_parts(preview_text: str) -> list[TextSpan]:
+    """按 Codex 终端交互样式渲染输入，正文保持默认亮度。"""
+    lines = str(preview_text or "").split("\n")
+    parts: list[TextSpan] = []
+
+    for index, line in enumerate(lines):
+        if index:
+            parts.append(_part("\n    ", PREVIEW_STYLE))
+        parts.append(_part(line, None))
 
     return parts
 

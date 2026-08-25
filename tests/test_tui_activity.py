@@ -313,7 +313,9 @@ async def test_terminal_wait_switch_reuses_thinking_animation_state() -> None:
             if fragment != second_time and "\n" not in fragment[1]
         )
         assert second_time == first_time
-        assert second_header != first_header
+        assert second_header[0] != first_header[0]
+        assert second_header[1] == first_header[1]
+        assert second_header[2:] != first_header[2:]
         await activity.stop()
 
 

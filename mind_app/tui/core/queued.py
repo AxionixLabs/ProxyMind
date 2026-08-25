@@ -252,6 +252,7 @@ def _submission_lines(
         return []
 
     submissions = tuple(items)
+
     lines: list[FormattedText] = []
 
     visible_count: int = 0
@@ -266,7 +267,9 @@ def _submission_lines(
             width=width,
             text_style=text_style,
         )
+
         has_later_messages = index < len(submissions) - 1
+
         preview_budget = (
             max(0, remaining - 1)
             if has_later_messages and len(preview_lines) >= remaining
@@ -300,7 +303,7 @@ def _submission_preview_lines(
     width: int,
     text_style: str
 ) -> list[FormattedText]:
-    """生成一条消息的 Codex 风格折行预览。"""
+    """生成一条消息的终端折行预览。"""
     content_width = max(1, int(width) - get_cwidth("  ↳ "))
 
     text = sanitize_terminal_text(item.visible_text)

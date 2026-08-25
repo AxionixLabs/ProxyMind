@@ -111,6 +111,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "input.notice.example": "bg:default #7F8C9A dim",
     "process-status.exec": "fg:#D8B26E",
     "process-status.background": "dim",
+    "process-status.action": "ansiblue nodim",
     "directory-trust.title": "bold",
     "directory-trust.body": "",
     "directory-trust.warning": "ansiyellow",
@@ -146,7 +147,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "ps.help": "fg:#69727D",
     "ps.output": "fg:#A8B1BB dim",
     "ps.stream": "fg:#87919D dim",
-    "ps.stream.command": "fg:#7FB7F0",
+    "ps.stream.command": "fg:ansicyan nodim",
     "ps.waiting": "fg:#87919D",
     "ps.error": "fg:#FF6B6B",
     "scrollback.history-notice": "fg:#87919D dim",
@@ -409,7 +410,9 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
             _blend_color(foreground, background, 0.20),
             capabilities.color_level,
         )
+
         separator_style = f"fg:{separator}" if separator else "dim"
+
         for style_class in (
             "ps.separator",
             "transcript.overlay.rule",
@@ -419,6 +422,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
             styles[style_class] = separator_style
 
     light = background is not None and _is_light_color(background)
+
     accent = (
         semantic_color(
             (0, 95, 135),
@@ -428,17 +432,22 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         if light
         else "ansicyan"
     )
+
     for style_class in (
         "footer.model",
         "approval-question",
     ):
         styles[style_class] = f"fg:{accent} bold"
+    styles["ps.stream.command"] = f"fg:{accent} nodim"
 
     selection = selection_color(
         capabilities.color_level,
         light=light,
     )
+
     styles["shell.title.action"] = f"fg:{selection} bold"
+    styles["process-status.action"] = f"fg:{selection} nodim"
+
     selection_background = best_color(
         (207, 225, 246) if light else (29, 57, 105),
         capabilities.color_level,

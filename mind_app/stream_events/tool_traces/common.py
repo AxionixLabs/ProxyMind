@@ -73,6 +73,18 @@ def _plain_trace_preview_from_lines(lines: list[str]) -> TracePreview:
     return TracePreview(full=full, screen=screen, omitted_lines=omitted, kind="plain")
 
 
+def _terminal_input_preview_from_lines(lines: list[str]) -> TracePreview:
+    """从标准输入行生成终端交互预览。"""
+    full, _ = _format_preview_lines(lines, max_lines=MAX_PREVIEW_LINES)
+    screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_PREVIEW_LINES)
+    return TracePreview(
+        full=full,
+        screen=screen,
+        omitted_lines=omitted,
+        kind="terminal_input",
+    )
+
+
 def _trace_code_preview_from_lines(lines: list[str]) -> TracePreview:
     """从代码行生成轨迹预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_CODE_PREVIEW_LINES)

@@ -9282,8 +9282,8 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
     assert text.count("Waited for background terminal") == 1
     assert "↳ Interacted with background terminal" in text
     assert "  └ q" in text
-    assert "first poll output" in text
-    assert "second poll output" in text
+    assert "first poll output" not in text
+    assert "second poll output" not in text
     runtime.set_execution_active(False)
 
 
@@ -9442,7 +9442,7 @@ async def test_tui_controlled_write_stdin_does_not_enter_terminal_wait() -> None
     assert runtime.screen.activity_block is None
     assert "Terminal · " not in text
     assert "Interacted with background terminal" in text
-    assert "stopped" in text
+    assert "stopped" not in text
 
 
 @pytest.mark.anyio

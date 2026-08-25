@@ -63,6 +63,16 @@ def test_process_status_is_inline_when_activity_is_visible() -> None:
         "• Thinking · ping -t 8.8.8.8"
     )
 
+    runtime.set_process_status_label(
+        "1 background terminal running · /ps to view · /stop to close"
+    )
+    inline = runtime.screen.process_status.inline_fragments()
+    assert all(
+        style == "class:process-status.background"
+        for style, text in inline
+        if text.strip()
+    )
+
 
 def test_process_status_footer_is_static_dim() -> None:
     status = TuiRuntime().screen.process_status
@@ -78,8 +88,14 @@ def test_process_status_footer_is_static_dim() -> None:
     assert suffix
     assert all(style == "class:process-status.background" for style, _ in suffix)
     assert "1 background terminal running" in fragments_text(suffix)
-    assert "/ps to view" in fragments_text(suffix)
-    assert "/stop to close" in fragments_text(suffix)
+    action = [
+        fragment
+        for fragment in fragments
+        if fragment[0] == "class:process-status.action"
+    ]
+    assert [text for _style, text in action] == ["/ps", "/stop"]
+    assert " to view" in fragments_text(suffix)
+    assert " to close" in fragments_text(suffix)
 
 
 def test_process_status_summary_respects_terminal_display_width() -> None:

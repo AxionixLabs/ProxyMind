@@ -131,6 +131,29 @@ function Invoke-Inspection {
     return $exitCode
 }
 
+function Reset-IsolatedInspectionSystem {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$InspectionRoot
+    )
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+    $resolvedRoot = [System.IO.Path]::GetFullPath($InspectionRoot)
+    $parentPath = [System.IO.Path]::GetDirectoryName($resolvedPath)
+    if (-not [string]::Equals(
+        $parentPath,
+        $resolvedRoot,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Inspection system path must be a direct child of the inspection root: $resolvedPath"
+    }
+
+    if (Test-Path -LiteralPath $resolvedPath) {
+        Remove-Item -LiteralPath $resolvedPath -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $resolvedPath -Force | Out-Null
+}
+
 function Write-IsolatedSdkFiles {
     param(
         [Parameter(Mandatory = $true)][string]$ConfigPath,
@@ -264,7 +287,10 @@ if (-not $profileWasExplicit -and
     $usingCompatibleProfile = $true
 }
 
-New-Item -ItemType Directory -Path $inspectionRoot, $inspectionConfig, $inspectionSystem -Force | Out-Null
+New-Item -ItemType Directory -Path $inspectionRoot, $inspectionConfig -Force | Out-Null
+Reset-IsolatedInspectionSystem `
+    -Path $inspectionSystem `
+    -InspectionRoot $inspectionRoot
 Write-IsolatedSdkFiles $inspectionConfig $projectRoot $pythonPath $sdkName
 $inspectionConfigUrl = Convert-ToFileUrlPath $inspectionConfig
 $inspectionSystemUrl = Convert-ToFileUrlPath $inspectionSystem

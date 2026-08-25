@@ -19,7 +19,7 @@ from mind_app.presentation.renderers.tool import (
     render_tool_start_view,
 )
 from mind_app.presentation.renderers.hook import render_hook_run_view
-from mind_app.presentation.models import HookOutputView, HookRunView
+from mind_app.presentation.models import HookOutputView, HookRunView, TextStyle
 from mind_app.presentation.renderers.patch import (
     PATCH_ADD_STYLE,
     PATCH_ACTIVITY_STYLE,
@@ -41,6 +41,7 @@ from mind_app.presentation.styles import (
     ACTION_TOOL_CALLING_STYLE,
     ACTION_TOOL_INVOKED_STYLE,
     ERROR_DOT_STYLE,
+    PREVIEW_STYLE,
     SUCCESS_DOT_STYLE,
     TOOL_CALLING_DOT_STYLE,
 )
@@ -215,16 +216,18 @@ def test_write_stdin_uses_codex_wait_and_interaction_titles() -> None:
             "session_id": "session-1",
             "command": "python -m pytest tests/test_tui_shell.py -q",
             "status": "exited",
+            "output_lines": ["poll output"],
         },
     )
     interaction = build_native_tool_result_view(
         "write_stdin",
-        {"session_id": "session-1", "stdin": "q\n"},
+        {"session_id": "session-1", "stdin": "y\n"},
         ok=True,
         data={
             "session_id": "session-1",
             "command": "python -m pytest tests/test_tui_shell.py -q",
             "status": "running",
+            "output_lines": ["y"],
         },
     )
 
@@ -235,7 +238,7 @@ def test_write_stdin_uses_codex_wait_and_interaction_titles() -> None:
     assert render_native_tool_result_view(interaction)[0].plain_text == (
         "↳ Interacted with background terminal · "
         "python -m pytest tests/test_tui_shell.py -q\n"
-        "  └ q"
+        "  └ y"
     )
     assert _span_style(
         render_native_tool_result_view(wait)[0],
@@ -249,8 +252,29 @@ def test_write_stdin_uses_codex_wait_and_interaction_titles() -> None:
         render_native_tool_result_view(interaction)[0],
         "Interacted with background terminal",
     ) == ACTION_TERMINAL_STYLE
-    assert ACTION_TERMINAL_STYLE.dim
-    assert not ACTION_TERMINAL_STYLE.bold
+    assert _containing_span_style(
+        render_native_tool_result_view(wait)[0],
+        "python -m pytest",
+    ) == PREVIEW_STYLE
+    assert not ACTION_TERMINAL_STYLE.dim
+    assert ACTION_TERMINAL_STYLE.bold
+    assert PREVIEW_STYLE.dim
+    assert _span_style(
+        render_native_tool_result_view(interaction)[0],
+        "y",
+    ) == TextStyle()
+    assert "poll output" not in render_native_tool_result_view(wait)[0].plain_text
+    assert render_presentation_transcript_view(interaction)[0].plain_text.endswith(
+        "  └ y"
+    )
+    assert render_presentation_raw_view(wait) == (
+        "Waited for background terminal: "
+        "python -m pytest tests/test_tui_shell.py -q",
+    )
+    assert render_presentation_raw_view(interaction) == (
+        "Interacted with background terminal: "
+        "python -m pytest tests/test_tui_shell.py -q\ny",
+    )
 
     control_payload = build_native_tool_result_view(
         "write_stdin",

@@ -42,6 +42,7 @@ from ..core.styles import (
     MUTED_STYLE,
     BRIGHT_STYLE,
     command_result_block,
+    failure_text_block,
     fragment_block,
     interrupted_status_block
 )
@@ -261,7 +262,13 @@ def render_helix_home_result(mind: "Mind", url: str | None) -> None:
     if url is None:
         _present(mind, _label_detail("Helix", "skipped"))
     else:
-        _present(mind, _label_detail("Helix Home", url))
+        _present(mind, fragment_block(
+            TextSpan("• ", BODY_STYLE),
+            TextSpan(
+                f"Opened {url} in your browser.",
+                BRIGHT_STYLE,
+            ),
+        ))
 
     _present(mind, view_type="tui.gap")
 
@@ -271,10 +278,9 @@ def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
     detail = _helix_error_detail(error)
     _present(
         mind,
-        command_result_block(
-            "/helix-home",
-            TextSpan("Failed", FAILURE_STYLE),
-            TextSpan(f" · {detail}", BODY_STYLE),
+        failure_text_block(
+            f"Failed to open browser for {helix_runtime_home_url(mind)}: "
+            f"{detail}",
         ),
         view_type="tui.helix.status",
     )

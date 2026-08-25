@@ -17,6 +17,7 @@ from .common import (
     _result_payload,
     _short_text,
     _summary_lines,
+    _terminal_input_preview_from_lines,
     _trace_code_preview_from_lines,
     _trace_preview_from_lines
 )
@@ -137,17 +138,12 @@ def render_tool_result_preview(
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if kind is ToolDisplayKind.STDIN:
-            stdin        = str((arguments or {}).get("stdin") or "")
-            input_lines  = shell_output_lines(stdin)
-            output_lines = _shell_command_ordered_output_lines(data)
-
-            lines = [*input_lines, *output_lines]
+            stdin = str((arguments or {}).get("stdin") or "")
+            lines = shell_output_lines(stdin)
             if not lines:
                 return TracePreview()
 
-            return _plain_trace_preview_from_lines(
-                lines,
-            )
+            return _terminal_input_preview_from_lines(lines)
 
         if is_error:
             lines = _shell_command_ordered_output_lines(data)

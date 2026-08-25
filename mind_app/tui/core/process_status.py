@@ -65,9 +65,19 @@ class TuiProcessStatus(object):
         if not self.label:
             return []
 
+        fragments = self._label_fragments()
+        dim_class = "class:process-status.background"
         return [
-            ("class:process-status.background", " · "),
-            *self._label_fragments()[2:],
+            (dim_class, " · "),
+            *(
+                (
+                    dim_class,
+                    text,
+                )
+                if style == "class:process-status.action"
+                else (style, text)
+                for style, text in fragments[2:]
+            ),
         ]
 
     def _label_fragments(self) -> FormattedText:
@@ -90,14 +100,15 @@ class TuiProcessStatus(object):
             return label_fragments
 
         dim_class = "class:process-status.background"
+        action_class = "class:process-status.action"
         return [
             *label_fragments[:2],
             (dim_class, base),
             (dim_class, separator),
-            (dim_class, ps_action),
+            (action_class, ps_action),
             (dim_class, " to view"),
             (dim_class, separator),
-            (dim_class, stop_action),
+            (action_class, stop_action),
             (dim_class, " to close"),
         ]
 

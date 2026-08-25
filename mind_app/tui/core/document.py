@@ -673,6 +673,45 @@ class TuiDocument(object):
 
         return item
 
+    def append_history_block(
+        self,
+        block: FragmentBlock,
+        *,
+        kind: TuiBlockKind,
+        transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
+        raw_text: str | None = None,
+        stream_continuation: bool = False,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
+    ) -> TranscriptBlock:
+        """追加稳定历史块，即使当前仍有动态正文也不进入动态尾部。"""
+        block = sanitize_fragment_block(block)
+        transcript_block = (
+            block
+            if transcript_block is None
+            else sanitize_fragment_block(transcript_block)
+        )
+
+        has_prior_content = bool(
+            self.blocks
+            or self.active_block is not None
+            or self._active_tail
+        )
+        item = TranscriptBlock(
+            display_block=block,
+            transcript_block=transcript_block,
+            kind=kind,
+            source=source,
+            raw_text=str(raw_text) if raw_text is not None else None,
+            gap_before=bool(has_prior_content and not stream_continuation),
+            stream_continuation=bool(stream_continuation),
+            display_renderer=display_renderer,
+            display_render_width=display_render_width,
+        )
+        self._extend_stable([item])
+        return item
+
     def replace_blocks(
         self,
         blocks: typing.Iterable[TranscriptBlock],

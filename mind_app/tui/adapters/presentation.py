@@ -31,7 +31,6 @@ from mind_app.presentation.models import (
     TextSpan,
     ToolStartView
 )
-from mind_app.presentation.tool_views import build_native_tool_result_view
 from mind_app.presentation.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
@@ -282,41 +281,7 @@ class TuiPresentationSink(PresentationSink):
         if views:
             if not self._pending_terminal_waits:
                 await self.output.runtime.end_terminal_wait()
-            await self._emit_view(self._merge_terminal_wait_views(views))
-
-    @classmethod
-    def _merge_terminal_wait_views(
-        cls,
-        views: list[NativeToolResultView],
-    ) -> NativeToolResultView:
-        """合并同一会话连续轮询的增量结果。"""
-        latest = views[-1]
-        if len(views) == 1:
-            return latest
-
-        payload = dict(cls._native_payload(latest))
-
-        output_lines: list[typing.Any] = []
-
-        for view in views:
-            lines = cls._native_payload(view).get("output_lines")
-            if isinstance(lines, (list, tuple)):
-                output_lines.extend(lines)
-
-        if output_lines:
-            payload["output_lines"] = output_lines
-
-        merged = build_native_tool_result_view(
-            latest.name,
-            latest.arguments,
-            ok=latest.ok,
-            data=payload,
-            cost_ms=latest.cost_ms,
-            call_id=latest.call_id,
-        )
-        if isinstance(merged, NativeToolResultView):
-            return merged
-        return latest
+            await self._emit_view(views[-1])
 
     async def _flush_all_terminal_waits(self) -> None:
         """在新的展示单元开始前提交所有等待记录。"""
