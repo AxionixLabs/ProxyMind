@@ -46,6 +46,7 @@ from .models import (
     MenuAction,
     MenuActionKind,
     MenuRequest,
+    StaticPagerRequest,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
     TranscriptExportResult
@@ -99,6 +100,7 @@ from ..runtime.background import (
 from ..runtime.lifecycle import ApplicationLifecycle
 from ..runtime.mailbox import MailboxOverlayCoordinator
 from ..runtime.resume_picker import ResumePickerCoordinator
+from ..runtime.static_pager import StaticPagerCoordinator
 from ..runtime.startup import (
     StartupAnimation,
     StartupFinalFrame,
@@ -230,6 +232,7 @@ class TuiRuntime(object):
                 lambda: (
                     self.screen.transcript_overlay.active
                     or self.screen.mailbox_overlay.active
+                    or self.screen.static_pager.active
                     or self.screen.resume_picker.active
                 )
             ),
@@ -288,6 +291,7 @@ class TuiRuntime(object):
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_transcript_overlay=self.toggle_transcript_overlay,
             close_mailbox_overlay=self.close_mailbox_overlay,
+            close_static_pager=self.close_static_pager,
             request_resume_preview=self._request_resume_preview,
             request_resume_transcript=self._request_resume_transcript,
             cancel_resume_preview=self._cancel_resume_preview,
@@ -355,6 +359,13 @@ class TuiRuntime(object):
         )
         self._mailbox_overlay = MailboxOverlayCoordinator(
             overlay=self.screen.mailbox_overlay,
+            viewport=self.viewport,
+            screen=self.screen,
+            cancel_history_backtrack=(
+                lambda: self.input_model.cancel_history_backtrack()
+            ),
+        )
+        self._static_pager = StaticPagerCoordinator(
             viewport=self.viewport,
             screen=self.screen,
             cancel_history_backtrack=(
@@ -1700,6 +1711,16 @@ class TuiRuntime(object):
         """关闭全屏消息详情并恢复等待中的菜单流程。"""
         self._mailbox_overlay.close()
 
+    def open_static_pager(self, request: StaticPagerRequest) -> bool:
+        """打开只读全屏静态页面。"""
+        if self._closing:
+            return False
+        return self._static_pager.open(request)
+
+    def close_static_pager(self) -> None:
+        """关闭只读全屏静态页面。"""
+        self._static_pager.close()
+
     def open_transcript_backtrack(self) -> None:
         """从主输入区打开完整记录并选择最近用户轮次。"""
         self._transcript_overlay.open_backtrack()
@@ -1999,6 +2020,8 @@ class TuiRuntime(object):
             self.screen.set_transcript_overlay(False)
         if self.screen.mailbox_overlay.active:
             self._mailbox_overlay.close()
+        if self.screen.static_pager.active:
+            self._static_pager.close()
 
         self.screen.set_transcript_only(preserve_transcript)
 

@@ -176,7 +176,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
-        "diff", "/diff", "查看本轮补丁净差异",
+        "diff", "/diff", "查看 Git 工作区差异（包含未跟踪文件）",
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(

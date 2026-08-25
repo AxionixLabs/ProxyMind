@@ -5,6 +5,7 @@ import typing
 import asyncio
 import contextlib
 from ..contracts.menu import MenuRequest
+from ..contracts.pager import StaticPagerRequest
 from ..contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult
@@ -32,6 +33,14 @@ class ResumePickerPort(typing.Protocol):
         request: ResumePickerRequest,
     ) -> ResumePickerResult:
         """打开 Resume picker 并返回选择或取消。"""
+        ...
+
+
+class StaticPagerRuntimePort(typing.Protocol):
+    """描述 feature 打开只读全屏静态页面所需的能力。"""
+
+    def open_static_pager(self, request: StaticPagerRequest) -> bool:
+        """打开静态页面并返回是否成功切换画面。"""
         ...
 
 

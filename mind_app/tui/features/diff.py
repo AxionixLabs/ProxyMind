@@ -1,184 +1,158 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import typing
-from mind_app.frontend import ApplicationView
-from mind_app.presentation.models import (
-    TextSpan,
-    TextStyle
+from pathlib import Path
+from prompt_toolkit.formatted_text import ANSI
+from mind_app.native_coding.git_diff import (
+    WorkspaceDiffError,
+    WorkspaceDiffService,
+    WorkspaceDiffState
 )
-from ..core.models import FragmentBlock
-from ..core.styles import (
-    MUTED_STYLE,
-    command_result_block,
-    prompt_style
-)
-
-DIFF_DISPLAY_MAX_LINES = 300
-DIFF_DISPLAY_MAX_CHARS = 40_000
+from mind_app.presentation.terminal_text import sanitize_terminal_text
+from ..contracts.pager import StaticPagerRequest
+from ..contracts.text import FormattedLine
+from ..runtime.ports import StaticPagerRuntimePort
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 
-def print_current_apply_patch_diff(mind: "Mind") -> None:
-    """展示当前 apply_patch 净差异。"""
-    application = mind.frontend.application
-
-    snapshot = mind.native_coding.patch_diff_snapshot()
-    if bool(snapshot.get("invalidated")):
-        application.emit(ApplicationView(
-            type="tui.diff.unavailable",
-            renderable=command_result_block(
-                "/diff",
-                TextSpan(
-                    "Unavailable: current apply_patch delta is not exact.",
-                    MUTED_STYLE,
-                ),
-            ),
-        ))
-        application.emit(ApplicationView(type="tui.gap"))
-        return None
-
-    diff_text = str(snapshot.get("diff") or "")
-    if not diff_text.strip():
-        application.emit(ApplicationView(
-            type="tui.diff.empty",
-            renderable=command_result_block(
-                "/diff",
-                TextSpan("No apply_patch changes in current turn.", MUTED_STYLE),
-            ),
-        ))
-        application.emit(ApplicationView(type="tui.gap"))
-        return None
-
-    display_text, truncated = truncate_diff_text(diff_text)
-
-    files, added, removed = diff_stat(diff_text)
-
-    application.emit(ApplicationView(
-        type="tui.diff.title",
-        renderable=command_result_block(
-            "/diff",
-            TextSpan(
-                f"{files} {'file' if files == 1 else 'files'} changed"
-                f" · +{added} -{removed}",
-                MUTED_STYLE,
-            ),
-        ),
-    ))
-    application.emit(ApplicationView(type="tui.gap"))
-    application.emit(ApplicationView(
-        type="tui.diff.body",
-        renderable=render_diff_text(display_text),
-    ))
-    if truncated:
-        application.emit(ApplicationView(
-            type="tui.diff.truncated",
-            renderable=_text_block(
-                "... diff truncated",
-                TextStyle(foreground="#7F8C9A", dim=True),
-            ),
-        ))
-    application.emit(ApplicationView(type="tui.gap"))
-
-
-def render_diff_text(diff_text: str) -> FragmentBlock:
-    """按 diff 语义生成彩色文本。"""
-    fragments: list[tuple[str, str]] = []
-    for raw_line in str(diff_text or "").splitlines():
-        fragments.append((prompt_style(diff_line_style(raw_line)), raw_line))
-        fragments.append(("", "\n"))
-    if fragments:
-        fragments.pop()
-    return FragmentBlock(tuple(fragments))
-
-
-def diff_line_style(line: str) -> TextStyle:
-    """返回单行 diff 的终端显示样式。"""
-    if line.startswith("diff --git "):
-        return TextStyle(foreground="#7DD3FC", bold=True)
-    if line.startswith("@@"):
-        return TextStyle(foreground="#FACC15", bold=True)
-    if line.startswith("+++"):
-        return TextStyle(foreground="#6EE7A8", bold=True)
-    if line.startswith("---"):
-        return TextStyle(foreground="#FF8A8A", bold=True)
-    if line.startswith("+"):
-        return TextStyle(foreground="#6EE7A8")
-    if line.startswith("-"):
-        return TextStyle(foreground="#FF8A8A")
-    if line.startswith((
-        "index ",
-        "new file mode ",
-        "deleted file mode ",
-        "rename from ",
-        "rename to ",
-        "similarity index "
-    )):
-        return TextStyle(foreground="#7F8C9A", dim=True)
-
-    if line.startswith("diff omitted:"):
-        return TextStyle(foreground="#FFB86B", dim=True)
-
-    return TextStyle(foreground="#CBD5E1")
-
-
-def _text_block(text: str, style: TextStyle) -> FragmentBlock:
-    """生成单样式 TUI 文本块。"""
-    return FragmentBlock(((prompt_style(style), text),))
-
-
-def truncate_diff_text(
-    diff_text: str,
+async def show_workspace_diff(
+    runtime: StaticPagerRuntimePort,
+    controller: "Mind",
     *,
-    max_lines: int = DIFF_DISPLAY_MAX_LINES,
-    max_chars: int = DIFF_DISPLAY_MAX_CHARS
-) -> tuple[str, bool]:
-    """按固定上限截断 diff 展示文本。"""
-    lines = str(diff_text or "").splitlines(keepends=True)
+    cwd: Path,
+) -> None:
+    """计算当前 Git 工作区差异并打开全屏静态页面。"""
+    cwd = Path(cwd).resolve()
+    try:
+        result = await WorkspaceDiffService().compute(cwd)
+    except WorkspaceDiffError as error:
+        text = f"Failed to compute diff: {_error_detail(error)}"
+    else:
+        text = (
+            result.text
+            if result.state is WorkspaceDiffState.READY
+            else "`/diff` \N{EM DASH} _not inside a git repository_"
+        )
 
-    clipped: list[str] = []
-    used_chars: int    = 0
-    truncated: bool    = False
+    current_cwd = Path(controller.history_workspace).resolve()
+    if os.path.normcase(str(current_cwd)) != os.path.normcase(str(cwd)):
+        return None
 
-    for line in lines:
-        if len(clipped) >= max_lines:
-            truncated = True
-            break
-        if used_chars + len(line) > max_chars:
-            remaining = max(0, max_chars - used_chars)
-            if remaining > 0:
-                clipped.append(line[:remaining])
-            truncated = True
-            break
-
-        clipped.append(line)
-        used_chars += len(line)
-
-    if not truncated and len(clipped) < len(lines):
-        truncated = True
-
-    return "".join(clipped).rstrip("\n"), truncated
+    runtime.open_static_pager(StaticPagerRequest(
+        title="D I F F",
+        lines=diff_pager_lines(text),
+    ))
 
 
-def diff_stat(diff_text: str) -> tuple[int, int, int]:
-    """统计 diff 文件数和增删行数。"""
-    files: int   = 0
-    added: int   = 0
-    removed: int = 0
+def diff_pager_lines(diff_text: str) -> tuple[FormattedLine, ...]:
+    """把 ANSI Git 差异转换为不可执行的格式化页面行。"""
+    text = str(diff_text or "")
+    if not text.strip():
+        return ((
+            ("class:static-pager.empty", "No changes detected."),
+        ),)
 
-    for line in str(diff_text or "").splitlines():
-        if line.startswith("diff --git "):
-            files += 1
+    lines: list[FormattedLine] = []
+    for raw_line in text.splitlines():
+        parsed = ANSI(_safe_sgr_ansi(raw_line)).__pt_formatted_text__()
+        fragments: list[tuple[str, str]] = []
+        for style, value, *_handler in parsed:
+            safe_value = sanitize_terminal_text(value)
+            if not safe_value:
+                continue
+            if fragments and fragments[-1][0] == style:
+                previous_style, previous_text = fragments[-1]
+                fragments[-1] = previous_style, previous_text + safe_value
+            else:
+                fragments.append((style, safe_value))
+        lines.append(tuple(fragments))
+    return tuple(lines)
+
+
+def _safe_sgr_ansi(value: str) -> str:
+    """只保留 SGR 样式并丢弃其他终端控制序列。"""
+    text = str(value or "")
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\x1b":
+            index = _consume_escape_sequence(text, index, out)
             continue
-        if line.startswith("+") and not line.startswith("+++"):
-            added += 1
+        if char == "\x9b":
+            index = _consume_csi(text, index + 1, out, prefix="\x1b[")
             continue
-        if line.startswith("-") and not line.startswith("---"):
-            removed += 1
+        if char in {"\x90", "\x98", "\x9d", "\x9e", "\x9f"}:
+            index = _consume_control_string(text, index + 1)
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
 
-    return files, added, removed
+
+def _consume_escape_sequence(text: str, start: int, out: list[str]) -> int:
+    """消费一个七位终端转义序列，并按白名单保留 SGR。"""
+    if start + 1 >= len(text):
+        return len(text)
+    marker = text[start + 1]
+    if marker == "[":
+        return _consume_csi(text, start + 2, out, prefix="\x1b[")
+    if marker in {"P", "X", "]", "^", "_"}:
+        return _consume_control_string(text, start + 2)
+
+    index = start + 1
+    while index < len(text):
+        current = text[index]
+        index += 1
+        if "\x30" <= current <= "\x7e":
+            break
+    return index
+
+
+def _consume_csi(
+    text: str,
+    start: int,
+    out: list[str],
+    *,
+    prefix: str,
+) -> int:
+    """消费 CSI，并仅保留数字参数组成的 SGR 序列。"""
+    index = start
+    while index < len(text):
+        final = text[index]
+        if "\x40" <= final <= "\x7e":
+            parameters = text[start:index]
+            if final == "m" and all(
+                char.isdigit() or char in {";", ":"}
+                for char in parameters
+            ):
+                out.append(f"{prefix}{parameters}m")
+            return index + 1
+        index += 1
+    return len(text)
+
+
+def _consume_control_string(text: str, start: int) -> int:
+    """消费以 BEL、ST 或 ESC 反斜杠结束的控制字符串。"""
+    index = start
+    while index < len(text):
+        char = text[index]
+        if char in {"\x07", "\x9c"}:
+            return index + 1
+        if char == "\x1b" and index + 1 < len(text) and text[index + 1] == "\\":
+            return index + 2
+        index += 1
+    return len(text)
+
+
+def _error_detail(error: BaseException) -> str:
+    """返回适合静态页面展示的单行错误详情。"""
+    detail = sanitize_terminal_text(str(error)).strip()
+    return detail or type(error).__name__
 
 
 if __name__ == '__main__':

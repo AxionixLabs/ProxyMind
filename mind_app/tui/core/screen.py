@@ -128,6 +128,7 @@ from .token_menu import (
     token_menu_display_height
 )
 from .transcript_overlay import TuiTranscriptOverlay
+from .static_pager import TuiStaticPager
 from ..rendering.screen.geometry import (
     ActiveViewLayout,
     BottomPaneLayout,
@@ -146,6 +147,8 @@ from ..rendering.screen.layout import (
 from ..rendering.screen.overlays import (
     mailbox_header_fragments,
     mailbox_separator_fragments,
+    static_pager_header_fragments,
+    static_pager_separator_fragments,
     transcript_header_fragments,
     transcript_separator_fragments
 )
@@ -177,6 +180,7 @@ from ..contracts.resume import (
     ResumeRow
 )
 from ..contracts.transcript import MailboxEntry
+from ..contracts.pager import StaticPagerRequest
 from ..contracts.screen import (
     MailboxScreenPort,
     ResumePickerScreenPort
@@ -217,6 +221,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         scroll_transcript_page: typing.Callable[[int], None],
         toggle_transcript_overlay: typing.Callable[[], None],
         close_mailbox_overlay: typing.Callable[[], None],
+        close_static_pager: typing.Callable[[], None],
         request_resume_preview: typing.Callable[[ResumeRow, int, int], None],
         request_resume_transcript: typing.Callable[[ResumeRow, int, int], None],
         cancel_resume_preview: typing.Callable[[], None],
@@ -261,6 +266,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._scroll_transcript_page       = scroll_transcript_page
         self._toggle_transcript_overlay    = toggle_transcript_overlay
         self._close_mailbox_overlay        = close_mailbox_overlay
+        self._close_static_pager           = close_static_pager
         self._request_resume_preview       = request_resume_preview
         self._request_resume_transcript    = request_resume_transcript
         self._cancel_resume_preview        = cancel_resume_preview
@@ -457,6 +463,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             get_height=lambda: self._mailbox_overlay_height(),
             invalidate=self.invalidate,
         )
+        self.static_pager = TuiStaticPager(
+            get_width=lambda: self.terminal_width,
+            get_height=lambda: self._static_pager_height(),
+            invalidate=self.invalidate,
+        )
         self.resume_picker = TuiResumePicker(
             invalidate=self.invalidate,
             get_width=lambda: self.terminal_width,
@@ -476,6 +487,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             focusable=True,
             modal=True,
             key_bindings=self._mailbox_overlay_key_bindings(),
+        )
+        self.static_pager_control = FormattedTextControl(
+            self.static_pager.visible_fragments,
+            focusable=True,
+            modal=True,
+            key_bindings=self._static_pager_key_bindings(),
         )
         self.resume_picker_control = FormattedTextControl(
             self.resume_picker.fragments,
@@ -580,8 +597,64 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                     dont_extend_height=True,
                     char=" ",
                 ),
+                Window(
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
             ],
             height=self._mailbox_overlay_footer_dimension,
+            window_too_small=Window(),
+        )
+        self.static_pager_window = TerminalHyperlinkWindow(
+            content=self.static_pager_control,
+            height=self._static_pager_dimension,
+            wrap_lines=False,
+            always_hide_cursor=True,
+            dont_extend_height=True,
+            char=" ",
+        )
+        self.static_pager_header = Window(
+            content=FormattedTextControl(
+                self._static_pager_header_fragments
+            ),
+            height=self._static_pager_header_dimension,
+            dont_extend_height=True,
+            char=" ",
+        )
+        self.static_pager_footer = HSplit(
+            [
+                Window(
+                    content=FormattedTextControl(
+                        self._static_pager_separator_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    content=FormattedTextControl(
+                        self._static_pager_primary_help_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    content=FormattedTextControl(
+                        self._static_pager_secondary_help_fragments
+                    ),
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+                Window(
+                    height=Dimension.exact(1),
+                    dont_extend_height=True,
+                    char=" ",
+                ),
+            ],
+            height=self._static_pager_footer_dimension,
             window_too_small=Window(),
         )
         self.resume_picker_window = Window(
@@ -918,6 +991,16 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             height=self._mailbox_overlay_canvas_dimension,
             window_too_small=Window(),
         )
+        self.static_pager_canvas = HSplit(
+            [
+                self.static_pager_header,
+                self.static_pager_window,
+                self.static_pager_footer,
+            ],
+            align=VerticalAlign.TOP,
+            height=self._static_pager_canvas_dimension,
+            window_too_small=Window(),
+        )
         self.resume_picker_canvas = HSplit(
             [self.resume_picker_window],
             align=VerticalAlign.TOP,
@@ -949,6 +1032,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                         not self._startup_gate_active
                         and not self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.static_pager.active
                         and not self.resume_picker.active
                         and not self.directory_trust.active
                     )),
@@ -959,6 +1043,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                         not self._startup_gate_active
                         and self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.static_pager.active
                         and not self.resume_picker.active
                         and not self.directory_trust.active
                     )),
@@ -969,6 +1054,18 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                         not self._startup_gate_active
                         and self.mailbox_overlay.active
                         and not self.transcript_overlay.active
+                        and not self.static_pager.active
+                        and not self.resume_picker.active
+                        and not self.directory_trust.active
+                    )),
+                ),
+                ConditionalContainer(
+                    self.static_pager_canvas,
+                    filter=Condition(lambda: (
+                        not self._startup_gate_active
+                        and self.static_pager.active
+                        and not self.transcript_overlay.active
+                        and not self.mailbox_overlay.active
                         and not self.resume_picker.active
                         and not self.directory_trust.active
                     )),
@@ -980,6 +1077,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                         and self.resume_picker.active
                         and not self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.static_pager.active
                         and not self.directory_trust.active
                     )),
                 ),
@@ -994,6 +1092,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                         and not self.directory_trust.active
                         and not self.transcript_overlay.active
                         and not self.mailbox_overlay.active
+                        and not self.static_pager.active
                         and not self.resume_picker.active
                     )),
                 ),
@@ -1241,6 +1340,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return False
         if active and (
             self.mailbox_overlay.active
+            or self.static_pager.active
             or self.resume_picker.active
             or self._full_screen_overlay_blocked()
         ):
@@ -1303,6 +1403,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         menu_only = allow_menu and self.bottom_pane.is_active("menu")
         if active and (
             self.transcript_overlay.active
+            or self.static_pager.active
             or self.resume_picker.active
             or (
                 self._full_screen_overlay_blocked()
@@ -1337,6 +1438,49 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.invalidate()
         return True
 
+    def set_static_pager(
+        self,
+        active: bool,
+        *,
+        request: StaticPagerRequest | None = None,
+    ) -> bool:
+        """切换静态 pager、终端画面和键盘焦点。"""
+        active = bool(active)
+        if active == self.static_pager.active:
+            return False
+        if active and (
+            self.transcript_overlay.active
+            or self.mailbox_overlay.active
+            or self.resume_picker.active
+            or self._full_screen_overlay_blocked()
+        ):
+            return False
+        if active and request is None:
+            raise ValueError("static pager request is required")
+
+        if active:
+            try:
+                self._enter_full_screen_overlay()
+                self.static_pager.open(request)
+                self.application.layout.focus(self.static_pager_control)
+            except BaseException:
+                self.static_pager.abort()
+                try:
+                    self._leave_full_screen_overlay()
+                finally:
+                    self._restore_overlay_focus()
+                raise
+        else:
+            try:
+                self.static_pager.close()
+            finally:
+                try:
+                    self._leave_full_screen_overlay()
+                finally:
+                    self._restore_overlay_focus()
+        self.invalidate()
+        return True
+
     def set_resume_picker(
         self,
         active: bool,
@@ -1351,6 +1495,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         if active and (
             self.transcript_overlay.active
             or self.mailbox_overlay.active
+            or self.static_pager.active
             or self._full_screen_overlay_blocked()
         ):
             return False
@@ -1779,6 +1924,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         ):
             self.application.layout.focus(self.mailbox_overlay_control)
             return None
+        if (
+            hasattr(self, "static_pager")
+            and self.static_pager.active
+        ):
+            self.application.layout.focus(self.static_pager_control)
+            return None
 
         controls = {
             "approval": self.approval_control,
@@ -1832,6 +1983,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             and self.mailbox_overlay.active
         ):
             self.application.layout.focus(self.mailbox_overlay_control)
+            return None
+        if (
+            hasattr(self, "static_pager")
+            and self.static_pager.active
+        ):
+            self.application.layout.focus(self.static_pager_control)
             return None
 
         self.application.layout.focus(self.input)
@@ -2014,6 +2171,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             lambda: (
                 not self.transcript_overlay.active
                 and not self.mailbox_overlay.active
+                and not self.static_pager.active
                 and not self.resume_picker.active
                 and not self._full_screen_overlay_blocked()
             )
@@ -2369,6 +2527,66 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
         return bindings
 
+    def _static_pager_key_bindings(self) -> KeyBindings:
+        """创建静态页面的滚动、翻页和退出按键。"""
+        bindings = KeyBindings()
+        pager = self.keymap.pager
+
+        def close(event) -> None:
+            _ = event
+            self._close_static_pager()
+        self._add_configured_bindings(bindings, pager.close, close)
+
+        def scroll_up(event) -> None:
+            _ = event
+            self.static_pager.scroll_lines(-1)
+        self._add_configured_bindings(bindings, pager.scroll_up, scroll_up)
+
+        def scroll_down(event) -> None:
+            _ = event
+            self.static_pager.scroll_lines(1)
+        self._add_configured_bindings(bindings, pager.scroll_down, scroll_down)
+
+        def page_up(event) -> None:
+            _ = event
+            self.static_pager.scroll_page(-1)
+        self._add_configured_bindings(bindings, pager.page_up, page_up)
+
+        def page_down(event) -> None:
+            _ = event
+            self.static_pager.scroll_page(1)
+        self._add_configured_bindings(bindings, pager.page_down, page_down)
+
+        def half_page_up(event) -> None:
+            _ = event
+            self.static_pager.scroll_half_page(-1)
+        self._add_configured_bindings(
+            bindings,
+            pager.half_page_up,
+            half_page_up,
+        )
+
+        def half_page_down(event) -> None:
+            _ = event
+            self.static_pager.scroll_half_page(1)
+        self._add_configured_bindings(
+            bindings,
+            pager.half_page_down,
+            half_page_down,
+        )
+
+        def jump_top(event) -> None:
+            _ = event
+            self.static_pager.jump(to_end=False)
+        self._add_configured_bindings(bindings, pager.jump_top, jump_top)
+
+        def jump_bottom(event) -> None:
+            _ = event
+            self.static_pager.jump(to_end=True)
+        self._add_configured_bindings(bindings, pager.jump_bottom, jump_bottom)
+
+        return bindings
+
     def _canvas_dimension(self) -> Dimension:
         """返回随内容自然增长并受终端高度限制的画布高度。"""
         return Dimension.exact(self._visible_height())
@@ -2383,6 +2601,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return self._transcript_overlay_canvas_dimension()
         if self.mailbox_overlay.active:
             return self._mailbox_overlay_canvas_dimension()
+        if self.static_pager.active:
+            return self._static_pager_canvas_dimension()
         if self.resume_picker.active:
             return self._resume_picker_dimension()
 
@@ -2577,11 +2797,84 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """返回收件箱正文区域可用高度。"""
         return self._mailbox_overlay_layout().content_height
 
+    def _static_pager_height(self) -> int:
+        """返回静态页面正文区域可用高度。"""
+        return self._static_pager_layout().content_height
+
+    def _static_pager_layout(self) -> OverlayLayout:
+        """返回静态页面的统一高度预算。"""
+        return measure_overlay_layout(
+            total_height=self.terminal_height,
+            footer_max_height=4,
+        )
+
+    def _static_pager_header_dimension(self) -> Dimension:
+        """返回静态页面标题区域尺寸。"""
+        return Dimension.exact(self._static_pager_layout().header_height)
+
+    def _static_pager_footer_dimension(self) -> Dimension:
+        """返回静态页面底栏尺寸。"""
+        return Dimension.exact(self._static_pager_layout().footer_height)
+
+    def _static_pager_dimension(self) -> Dimension:
+        """返回静态页面正文区域尺寸。"""
+        return Dimension.exact(self._static_pager_height())
+
+    def _static_pager_canvas_dimension(self) -> Dimension:
+        """返回静态页面全屏画布尺寸。"""
+        return Dimension.exact(self.terminal_height)
+
+    def _static_pager_header_fragments(self) -> FormattedText:
+        """生成静态页面标题。"""
+        return static_pager_header_fragments(
+            width=self.terminal_width,
+            title=self.static_pager.title,
+        )
+
+    def _static_pager_separator_fragments(self) -> FormattedText:
+        """生成静态页面滚动进度分隔线。"""
+        return static_pager_separator_fragments(
+            width=self.terminal_width,
+            percentage=self.static_pager.scroll_percentage(),
+        )
+
+    def _static_pager_primary_help_fragments(self) -> FormattedText:
+        """生成静态页面滚动和翻页提示。"""
+        pager = self.keymap.pager
+        hints = (
+            self._paired_key_hint(
+                pager.scroll_up,
+                pager.scroll_down,
+                "to scroll",
+            ),
+            self._paired_key_hint(
+                pager.page_up,
+                pager.page_down,
+                "to page",
+            ),
+            self._paired_key_hint(
+                pager.jump_top,
+                pager.jump_bottom,
+                "to jump",
+            ),
+        )
+        return [("class:static-pager.help", self._help_line(hints))]
+
+    def _static_pager_secondary_help_fragments(self) -> FormattedText:
+        """生成静态页面退出提示。"""
+        pager = self.keymap.pager
+        close = binding_labels(pager.close)
+        close_hint = f"{close} to quit" if close else ""
+        return [(
+            "class:static-pager.help",
+            self._help_line((close_hint,)),
+        )]
+
     def _mailbox_overlay_layout(self) -> OverlayLayout:
         """返回收件箱 overlay 的统一高度预算。"""
         return measure_overlay_layout(
             total_height=self.terminal_height,
-            footer_max_height=3,
+            footer_max_height=4,
         )
 
     def _mailbox_overlay_header_height(self) -> int:
@@ -2814,6 +3107,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         return bool(
             self.transcript_overlay.active
             or self.mailbox_overlay.active
+            or self.static_pager.active
             or self.resume_picker.active
         )
 

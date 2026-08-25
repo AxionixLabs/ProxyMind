@@ -26,7 +26,11 @@ from ..contracts.transcript import (
     TranscriptExportFormat,
     TranscriptExportResult
 )
-from ..contracts.views import ViewCompletion, ViewIdentity
+from ..contracts.views import (
+    ViewCompletion,
+    ViewIdentity
+)
+from ..contracts.pager import StaticPagerRequest
 
 __all__ = (
     "CLOSE_MENU_FOOTER_HINT",
@@ -50,6 +54,7 @@ __all__ = (
     "TranscriptExportResult",
     "ViewCompletion",
     "ViewIdentity",
+    "StaticPagerRequest",
 )
 
 

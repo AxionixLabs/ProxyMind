@@ -545,6 +545,17 @@ def test_mailbox_count_and_header_are_bounded_and_spaced() -> None:
     assert "999+ pending · listening" in header
 
 
+def test_mailbox_overlay_reserves_codex_footer_spacing() -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (40, 9)
+
+    layout = runtime.screen._mailbox_overlay_layout()
+
+    assert layout.header_height == 1
+    assert layout.content_height == 4
+    assert layout.footer_height == 4
+
+
 @pytest.mark.anyio
 async def test_mailbox_open_failure_restores_inline_renderer_state() -> None:
     runtime = TuiRuntime()

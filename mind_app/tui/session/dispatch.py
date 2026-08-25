@@ -5,6 +5,7 @@ import re
 import enum
 import typing
 import asyncio
+from pathlib import Path
 from dataclasses import (
     dataclass,
     replace
@@ -49,7 +50,7 @@ from ..features.conversation import (
     render_fork_interrupted,
     render_fork_result
 )
-from ..features.diff import print_current_apply_patch_diff
+from ..features.diff import show_workspace_diff
 from ..features.helix import (
     choose_helix_tool_profile,
     confirm_runtime_download,
@@ -267,13 +268,7 @@ class TuiCommandDispatcher(object):
                     self.mailbox.open,
                 )
             ),
-            "diff": lambda _request: StreamLocalAction(
-                key="diff",
-                name="tui diff snapshot",
-                factory=lambda: _run_immediate_stream_action(
-                    lambda: print_current_apply_patch_diff(self.mind)
-                ),
-            ),
+            "diff": lambda _request: self._diff_local_action(),
             "copy": lambda _request: StreamLocalAction(
                 key="copy",
                 name="tui copy assistant response",
@@ -442,6 +437,25 @@ class TuiCommandDispatcher(object):
             )
         )
         return True
+
+    def _diff_local_action(self) -> StreamLocalAction:
+        """返回普通状态和流式状态共用的差异查询动作。"""
+        return StreamLocalAction(
+            key="diff",
+            name="tui git diff",
+            factory=self._workspace_diff_coroutine,
+        )
+
+    def _workspace_diff_coroutine(
+        self,
+    ) -> typing.Coroutine[typing.Any, typing.Any, None]:
+        """在创建后台任务前固定工作目录并返回差异查询协程。"""
+        cwd = Path(self.mind.history_workspace).resolve()
+        return show_workspace_diff(
+            self.runtime,
+            self.mind,
+            cwd=cwd,
+        )
 
     def _forget_local_action(
         self,
@@ -1072,7 +1086,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "diff"):
-            print_current_apply_patch_diff(self.mind)
+            self._start_local_action(self._diff_local_action())
             return DispatchAction.HANDLED
 
         if matches_command(command, "copy"):
