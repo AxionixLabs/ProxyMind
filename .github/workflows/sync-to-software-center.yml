@@ -43,7 +43,9 @@ jobs:
 
       - name: Build website reference docs
         run: |
+          python website/mind/scripts/check_docs.py
           python website/mind/scripts/sync_docs.py
+          python website/mind/scripts/check_docs.py --generated
 
       - name: Copy README, LICENSE, docs and website shell to target repo
         run: |
