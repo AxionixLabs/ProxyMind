@@ -683,8 +683,8 @@ def test_history_shell_display_reflows_without_changing_transcript() -> None:
         narrow.splitlines()[0]
     )
     assert "output 0" in narrow
-    assert output_lines[-1] in narrow
-    assert output_lines[-1] in wide
+    assert "output 7" in narrow
+    assert "output 7" in wide
     assert "output 2" not in narrow
     assert "output 2" not in wide
     assert "… +4 lines" in narrow
