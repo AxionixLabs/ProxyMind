@@ -8,6 +8,7 @@ ASSISTANT_OUTPUT_BOUNDARY_EVENTS: set[str] = {
     "tool.builtin.call",
     "tool.calls.start",
     "tool.approval_required",
+    "tool.approval_review",
     "tool.call",
     "tool.output",
 }

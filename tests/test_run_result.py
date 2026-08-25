@@ -1814,6 +1814,72 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
 
 
 @pytest.mark.anyio
+async def test_stream_commits_output_before_approval_review_round_transition(
+    monkeypatch,
+) -> None:
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "text.delta",
+            "round": 1,
+            "text": "first",
+        },
+        {
+            "type": "tool.approval_review",
+            "round": 2,
+            "name": "shell_command",
+            "call_id": "call_ping",
+            "approval": {"id": "approval_ping"},
+            "decision": "deny",
+            "status": "denied",
+            "rationale": "command requires review",
+        },
+        {
+            "type": "text.delta",
+            "round": 2,
+            "text": "second",
+        },
+        {
+            "type": "text.done",
+            "round": 2,
+        },
+        {
+            "type": "turn.done",
+            "round": 2,
+        },
+    ])
+
+    assert result == RunResult(
+        status="completed",
+        assistant_text="first\nsecond",
+    )
+    assert mind.output_session.content.items == [
+        AssistantTextDelta("first", response_identity(round_no=1)),
+        AssistantOutputBoundary(),
+        AssistantTextDelta("second", response_identity(round_no=2)),
+        AssistantSegmentCompleted(response_identity(round_no=2)),
+        SourcesOutput(()),
+    ]
+    assert [
+        entry["payload"]
+        for entry in mind.transcripts.entries
+        if entry["actor"] == "assistant"
+    ] == [
+        {
+            "content": "first",
+            "presentation_epoch": 1,
+            "round": 1,
+            "attempt": 1,
+        },
+        {
+            "content": "second",
+            "presentation_epoch": 1,
+            "round": 2,
+            "attempt": 1,
+        },
+    ]
+
+
+@pytest.mark.anyio
 async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) -> None:
     invocations = []
     posted = []
