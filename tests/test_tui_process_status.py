@@ -8,7 +8,6 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.tui.core.process_status import TuiProcessStatus
-from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
@@ -245,12 +244,8 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
 async def test_process_status_excludes_inline_shell_and_shows_background(
 ) -> None:
     runtime = TuiRuntime()
-    viewer = runtime.begin_process_viewer(
-        ProcessViewerRequest(
-            fragments=(("", " "),),
-            capture_input=False,
-            session_id="exec_current",
-        ),
+    process = runtime.begin_inline_process(
+        "exec_current",
         FragmentBlock((("", "• Shell current"),)),
     )
     mind = SimpleNamespace(
@@ -280,6 +275,6 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
 
     assert runtime.screen.process_status.label == ""
 
-    runtime.resolve_process_viewer("detach")
-    assert await viewer == "detach"
-    runtime.dismiss_process_viewer()
+    runtime.resolve_inline_process("detach", session_id="exec_current")
+    assert await process == "detach"
+    runtime.dismiss_inline_process("exec_current")

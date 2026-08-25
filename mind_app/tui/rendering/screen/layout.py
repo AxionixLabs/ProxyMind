@@ -147,32 +147,6 @@ def allocate_menu_view_layout(
     )
 
 
-def allocate_process_viewer_layout(
-    *,
-    available_height: int,
-    natural_content_height: int,
-    top_padding: int,
-) -> ActiveViewLayout:
-    """在底部预算内分配进程查看器内容和顶部留白。"""
-    available = max(0, int(available_height))
-    padding = min(
-        max(0, int(top_padding)),
-        max(0, available - 1),
-    )
-    content_height = min(
-        max(0, int(natural_content_height)),
-        max(0, available - padding),
-    )
-    return ActiveViewLayout(
-        surface="process_viewer",
-        available_height=available,
-        top_padding_height=padding,
-        content_height=content_height,
-        bottom_padding_height=0,
-        footer_height=0,
-    )
-
-
 def measure_overlay_layout(
     *,
     total_height: int,

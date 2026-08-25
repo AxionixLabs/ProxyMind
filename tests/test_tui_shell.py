@@ -10,32 +10,24 @@ from prompt_toolkit.utils import get_cwidth
 
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.process_session import ProcessSessionManager
-from mind_app.tui.core.process_viewer import (
-    ProcessViewerRequest,
-    TuiProcessViewer,
-)
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import TUI_APPLICATION_OVERRIDES
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
-    PROCESS_VIEWER_FOCUS_REQUEST,
     PS_INTERRUPT_GRACE_SEC,
     PS_OUTPUT_LIMIT,
     _interrupt_exec_session,
     _watch_detached_exec_session,
     append_exec_history_snapshot,
     append_exec_stream_snapshot,
-    exec_session_live_block,
     exec_session_detached_block,
     exec_session_summary_block,
     exec_session_transcript_block,
     exec_session_user_shell_block,
     manage_exec_sessions,
-    render_exec_session_panel,
     stop_all_exec_sessions,
     _wait_for_exec_session_update,
-    watch_exec_session,
     watch_user_shell_session,
 )
 
@@ -249,8 +241,6 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
     watch.assert_awaited_once()
     assert watch.call_args.args[:3] == (runtime, mind, "exec_shell")
     assert watch.call_args.kwargs["announce_detach"] is True
-    assert "viewer_mode" not in watch.call_args.kwargs
-    assert "capture_input" not in watch.call_args.kwargs
     assert runtime.started[0] == "shell exec cell exec_shell"
     await runtime.task
 
@@ -290,7 +280,6 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
         handled = await run_shell_escape(runtime, mind, "!adb devices")
 
     assert handled
-    assert not runtime.screen.process_viewer.active
     assert runtime.inline_process_session_id == "exec_shell"
     assert runtime.document.active_gap_before == 1
     assert runtime.screen.bottom_pane.active_surface is None
@@ -304,7 +293,6 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
 
-    assert not runtime.screen.process_viewer.active
     assert runtime.inline_process_session_id == ""
 
 
@@ -371,7 +359,6 @@ async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
         session_id="exec_shell",
         control="interrupt",
     )
-    assert not runtime.screen.process_viewer.active
     assert runtime.document.active_block is None
 
 
@@ -882,7 +869,6 @@ async def test_ps_snapshot_does_not_acknowledge_completed_history() -> None:
     assert handled
     assert runtime.process_completion_snapshots()
     assert runtime.screen.menu.active is False
-    assert runtime.screen.process_viewer.active is False
     text = "".join(
         value
         for _style, value in runtime.document.blocks[-1].display_block.fragments
@@ -927,7 +913,6 @@ async def test_ps_appends_snapshot_without_opening_viewer() -> None:
         max_output_chars=PS_OUTPUT_LIMIT,
     )
     assert runtime.screen.menu.active is False
-    assert runtime.screen.process_viewer.active is False
     text = "".join(
         value
         for _style, value in runtime.document.blocks[-1].display_block.fragments
@@ -986,7 +971,7 @@ async def test_ps_excludes_inline_cell_but_keeps_detached_exec() -> None:
 
 
 @pytest.mark.anyio
-async def test_process_viewer_skips_only_fully_unchanged_render_blocks() -> None:
+async def test_inline_shell_skips_only_fully_unchanged_render_blocks() -> None:
     application = _ApplicationStub()
     tail = [f"tail {index}" for index in range(8)]
     initial = {
@@ -1008,29 +993,29 @@ async def test_process_viewer_skips_only_fully_unchanged_render_blocks() -> None
         "exit_code": 0,
     }
 
-    assert exec_session_live_block(
+    assert exec_session_user_shell_block(
         initial,
         terminal_width=80,
-        viewer_mode="inline",
-    ) != exec_session_live_block(
+    ) != exec_session_user_shell_block(
         transcript_changed,
         terminal_width=80,
-        viewer_mode="inline",
     )
     assert exec_session_transcript_block(initial) != (
         exec_session_transcript_block(transcript_changed)
     )
-    assert exec_session_live_block(
+    assert exec_session_user_shell_block(
         transcript_changed,
         terminal_width=80,
-        viewer_mode="inline",
-    ) != exec_session_live_block(
+    ) != exec_session_user_shell_block(
         exited,
         terminal_width=80,
-        viewer_mode="inline",
     )
 
     user_shell = SimpleNamespace(
+        running_exec_sessions=AsyncMock(return_value={
+            "count": 1,
+            "items": [initial],
+        }),
         exec_session_output_snapshot=AsyncMock(
             side_effect=[unchanged, transcript_changed, exited],
         ),
@@ -1081,13 +1066,11 @@ async def test_process_viewer_skips_only_fully_unchanged_render_blocks() -> None
             wraps=runtime.update_inline_process,
         ) as update,
     ):
-        result = await watch_exec_session(
+        result = await watch_user_shell_session(
             runtime,
             mind,
             "exec_shell",
             initial_snapshot=initial,
-            activate_immediately=True,
-            viewer_mode="inline",
         )
 
     assert result == "exited"
@@ -1095,10 +1078,9 @@ async def test_process_viewer_skips_only_fully_unchanged_render_blocks() -> None
     handoff_mock.assert_awaited_once()
     assert update.call_count >= 2
     update.assert_any_call(
-        exec_session_live_block(
+        exec_session_user_shell_block(
             transcript_changed,
             terminal_width=80,
-            viewer_mode="inline",
         ),
         session_id="exec_shell",
         transcript_block=exec_session_transcript_block(transcript_changed),
@@ -1112,29 +1094,22 @@ async def test_process_viewer_skips_only_fully_unchanged_render_blocks() -> None
 
 
 @pytest.mark.anyio
-async def test_process_viewer_returns_detach_without_using_input_buffer() -> None:
-    focused = []
-    viewer = TuiProcessViewer(
-        invalidate=lambda: None,
-        focus_viewer=lambda: focused.append("viewer"),
-        focus_input=lambda: focused.append("input"),
-        get_width=lambda: 80,
+async def test_inline_process_returns_detach_without_hiding_input() -> None:
+    runtime = TuiRuntime()
+    future = runtime.begin_inline_process(
+        "exec_shell",
+        FragmentBlock((("class:ps.title", "Shell running"),)),
     )
-    task = asyncio.create_task(viewer.request(ProcessViewerRequest(
-        fragments=(("class:ps.title", "Shell running"),),
-    )))
-    await asyncio.sleep(0)
 
-    viewer.resolve("detach")
+    runtime.resolve_inline_process("detach", session_id="exec_shell")
 
-    assert await task == "detach"
-    assert focused == ["viewer"]
-    assert viewer.active
+    assert await future == "detach"
+    assert runtime.screen.bottom_pane.active_surface is None
+    assert runtime.screen.input_area.filter()
 
-    viewer.settle()
+    runtime.dismiss_inline_process("exec_shell")
 
-    assert focused == ["viewer", "input"]
-    assert not viewer.active
+    assert runtime.inline_process_session_id == ""
 
 
 def test_background_completion_waits_for_stream_boundary() -> None:
@@ -1157,70 +1132,20 @@ def test_background_completion_waits_for_stream_boundary() -> None:
     assert not runtime._background_blocks
 
 
-def test_process_stream_panel_uses_two_clipped_header_lines() -> None:
-    fragments = render_exec_session_panel(
-        {"snapshot": {
-            "ok": True,
-            "session_id": "exec_shell",
-            "command": f"adb logcat {'中' * 80}",
-            "status": "running",
-            "pid": 123,
-            "origin": "tool",
-            "truncated": True,
-            "output_lines": [f"line {index}" for index in range(12)],
-        }},
-        height=10,
-        terminal_width=60,
-    )
-    lines = "".join(text for _style, text in fragments).splitlines()
-
-    first_line = []
-    for style, text in fragments:
-        if "\n" in text:
-            break
-        first_line.append((style, text))
-
-    assert lines[0].startswith("Exec running · pid=123 · exec_shell")
-    assert lines[0].endswith("…")
-    assert lines[1].startswith("Enter/Esc/q background")
-    assert lines[2:] == [f"  line {index}" for index in range(4, 12)]
-    assert [style for style, _text in first_line] == [
-        "class:shell.title.action",
-        "class:ps.meta",
-        "class:ps.separator",
-        "class:ps.meta",
-        "class:ps.separator",
-        "class:ps.meta",
-        "class:ps.separator",
-        "class:ps.warning",
-        "class:ps.separator",
-        "class:ps.command",
-    ]
-    assert first_line[-1][1].endswith("…")
-    assert all(
-        style == "class:ps.output"
-        for style, text in fragments
-        if text.startswith("line ")
-    )
-    assert all(get_cwidth(line) <= 60 for line in lines)
-
-
-def test_shell_stream_panel_writes_tree_summary_into_document() -> None:
-    fragments = render_exec_session_panel(
-        {"snapshot": {
+def test_shell_live_cell_writes_tree_summary_into_document() -> None:
+    block = exec_session_user_shell_block(
+        {
             "ok": True,
             "session_id": "exec_shell",
             "command": "adb devices",
             "status": "running",
             "origin": "tui_shell",
             "output_lines": ["List of devices attached", "device-1"],
-        }},
-        height=10,
+        },
         terminal_width=80,
-        viewer_mode="inline",
     )
 
-    text = "".join(value for _style, value in fragments)
+    text = "".join(value for _style, value in block.fragments)
 
     assert text == (
         "• Running adb devices\n"
@@ -1326,28 +1251,6 @@ def test_detached_user_shell_title_omits_session_id_suffix() -> None:
     assert "… +21 lines (ctrl + t to view transcript)" in text
 
 
-def test_ps_process_panel_does_not_branch_on_shell_origin() -> None:
-    fragments = render_exec_session_panel(
-        {"snapshot": {
-            "ok": True,
-            "session_id": "exec_shell",
-            "command": "adb devices",
-            "status": "running",
-            "pid": 123,
-            "origin": "tui_shell",
-            "output_lines": ["device-1"],
-        }},
-        height=10,
-        terminal_width=80,
-    )
-
-    lines = "".join(value for _style, value in fragments).splitlines()
-
-    assert lines[0].startswith("Shell running · pid=123 · exec_shell")
-    assert lines[1].startswith("Enter/Esc/q background")
-    assert lines[2:] == ["  device-1"]
-
-
 def test_process_transcript_keeps_full_command_and_retained_output() -> None:
     command = "Get-ChildItem\n| Select-Object Name"
     output = "\n".join(f"line {index}" for index in range(40))
@@ -1377,39 +1280,32 @@ def test_foreground_completion_commits_before_barrier_release() -> None:
 
 
 @pytest.mark.anyio
-async def test_runtime_process_viewer_replaces_input_area() -> None:
+async def test_inline_process_uses_transcript_without_replacing_input() -> None:
     runtime = TuiRuntime()
     runtime.append_block(
         FragmentBlock((("", "command query"),)),
         kind="user",
     )
     live_block = FragmentBlock((("class:ps.title", "Shell running\noutput"),))
-    task = asyncio.create_task(runtime.view_process(
-        ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+    future = runtime.begin_inline_process(
+        "exec_shell",
         live_block,
-    ))
-    await asyncio.sleep(0)
+    )
 
-    assert runtime.screen.process_viewer.active
     assert runtime.document.active_block == live_block
     assert runtime.document.active_kind == "operation"
     active_view = runtime.screen._active_view_layout()
-    assert active_view.surface == "process_viewer"
-    assert active_view.total_height == 2
-    assert runtime.screen._process_viewer_content_height() == 1
-    assert runtime.screen._process_viewer_top_padding_height() == 1
+    assert active_view.surface is None
+    assert active_view.total_height == 0
     assert runtime.screen._bottom_pane_top_inset_height() == 1
-    assert runtime.screen._interaction_height() == active_view.total_height
-    assert runtime.screen.active_view_area.filter()
-    assert not runtime.screen.input_area.filter()
+    assert not runtime.screen.active_view_area.filter()
+    assert runtime.screen.input_area.filter()
 
-    runtime.resolve_process_viewer("detach")
-    assert await task == "detach"
-    assert runtime.screen.process_viewer.active
-    assert not runtime.screen.input_area.filter()
+    runtime.resolve_inline_process("done", session_id="exec_shell")
+    assert await future == "done"
 
     final_block = FragmentBlock((("class:ps.title", "Shell completed"),))
-    runtime.commit_process_viewer(final_block)
+    runtime.commit_inline_process(final_block, session_id="exec_shell")
 
     assert runtime.document.active_block is None
     assert runtime.document.blocks[-1].display_block == final_block
@@ -1417,22 +1313,14 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
 
 
 @pytest.mark.anyio
-async def test_inline_process_viewer_keeps_input_and_footer_visible() -> None:
+async def test_inline_process_keeps_input_and_footer_visible() -> None:
     runtime = TuiRuntime()
     live_block = FragmentBlock((("class:ps.title", "Shell running\noutput"),))
-    task = asyncio.create_task(runtime.view_process(
-        ProcessViewerRequest(
-            fragments=(("", " "),),
-            max_height=1,
-            capture_input=False,
-            session_id="exec_shell",
-        ),
+    future = runtime.begin_inline_process(
+        "exec_shell",
         live_block,
-    ))
-    await asyncio.sleep(0)
+    )
 
-    assert runtime.screen.process_viewer.active
-    assert runtime.screen.process_viewer.input_passthrough
     assert runtime.inline_process_session_id == "exec_shell"
     assert runtime.screen.bottom_pane.active_surface is None
     assert not runtime.screen.active_view_area.filter()
@@ -1441,53 +1329,39 @@ async def test_inline_process_viewer_keeps_input_and_footer_visible() -> None:
     assert runtime.screen._active_view_layout().total_height == 0
     assert runtime.screen._process_status_height() == 0
 
-    runtime.resolve_process_viewer("detach")
-    assert await task == "detach"
-    assert runtime.screen.process_viewer.active
+    runtime.resolve_inline_process("detach", session_id="exec_shell")
+    assert await future == "detach"
 
-    runtime.dismiss_process_viewer()
-    assert not runtime.screen.process_viewer.active
+    runtime.dismiss_inline_process("exec_shell")
+    assert runtime.inline_process_session_id == ""
 
 
 @pytest.mark.anyio
-async def test_inline_process_viewer_synchronizes_visual_transitions() -> None:
+async def test_inline_process_updates_and_commits_one_dynamic_cell() -> None:
     runtime = TuiRuntime()
-    request = ProcessViewerRequest(
-        fragments=(("", " "),),
-        capture_input=False,
-        session_id="exec_shell",
-    )
     live_block = FragmentBlock((("", "Shell running"),))
     updated_block = FragmentBlock((("", "Shell running\noutput"),))
     final_block = FragmentBlock((("", "Shell completed"),))
 
-    with patch.object(runtime.screen, "synchronize_next_render") as synchronize:
-        future = runtime.begin_process_viewer(request, live_block)
-        runtime.update_process_viewer(updated_block)
-        runtime.resolve_process_viewer("exited")
-        assert await future == "exited"
-        runtime.commit_process_viewer(final_block)
+    future = runtime.begin_inline_process("exec_shell", live_block)
+    runtime.update_inline_process(updated_block, session_id="exec_shell")
+    assert runtime.document.active_block == updated_block
 
-        second = runtime.begin_process_viewer(request, live_block)
-        runtime.resolve_process_viewer("detach")
-        assert await second == "detach"
-        runtime.dismiss_process_viewer()
+    runtime.resolve_inline_process("exited", session_id="exec_shell")
+    assert await future == "exited"
+    runtime.commit_inline_process(final_block, session_id="exec_shell")
 
-    assert synchronize.call_count == 5
+    assert runtime.document.active_block is None
+    assert runtime.document.blocks[-1].display_block == final_block
 
 
 @pytest.mark.anyio
 async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     runtime = TuiRuntime()
-    task = asyncio.create_task(runtime.view_process(
-        ProcessViewerRequest(
-            fragments=(("", " "),),
-            capture_input=False,
-            session_id="exec_shell",
-        ),
+    task = runtime.begin_inline_process(
+        "exec_shell",
         FragmentBlock((("", "• Shell ping -t 8.8.8.8"),)),
-    ))
-    await asyncio.sleep(0)
+    )
 
     runtime.screen.input.buffer.text = "draft"
     runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
@@ -1498,7 +1372,7 @@ async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     assert "again to exit" not in "".join(
         text for _style, text in runtime.screen._footer_fragments()
     )
-    assert runtime.screen.process_viewer.active
+    assert runtime.inline_process_session_id == "exec_shell"
 
     runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
 
@@ -1509,8 +1383,8 @@ async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
 
     assert runtime.submissions.interrupt_state.exit_requested
 
-    runtime.dismiss_process_viewer()
-    assert not runtime.screen.process_viewer.active
+    runtime.dismiss_inline_process("exec_shell")
+    assert runtime.inline_process_session_id == ""
 
 
 @pytest.mark.anyio
@@ -1531,6 +1405,10 @@ async def test_foreground_process_completion_commits_in_place() -> None:
         "output_lines": ["Updating files", "Already up to date."],
     }
     user_shell = SimpleNamespace(
+        running_exec_sessions=AsyncMock(return_value={
+            "count": 1,
+            "items": [initial],
+        }),
         exec_session_output_snapshot=AsyncMock(
             side_effect=[initial, completed],
         ),
@@ -1547,18 +1425,16 @@ async def test_foreground_process_completion_commits_in_place() -> None:
     )
     runtime = TuiRuntime()
 
-    result = await watch_exec_session(
+    result = await watch_user_shell_session(
         runtime,
         mind,
         "exec_shell",
         announce_detach=True,
         initial_snapshot=initial,
-        viewer_mode="inline",
     )
 
     assert result == "exited"
     assert runtime.document.active_block is None
-    assert not runtime.screen.process_viewer.active
     assert runtime.screen.input_area.filter()
     assert runtime.screen.input_footer.filter()
     text = "".join(
@@ -1886,7 +1762,11 @@ async def test_ps_cross_conversation_completion_does_not_commit_transcript(
     }
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
-        native_coding=SimpleNamespace(
+        user_shell=SimpleNamespace(
+            running_exec_sessions=AsyncMock(return_value={
+                "count": 1,
+                "items": [running],
+            }),
             exec_session_output_snapshot=AsyncMock(return_value=completed),
             wait_exec_session_update=AsyncMock(return_value={
                 "changed": True,
@@ -1902,18 +1782,16 @@ async def test_ps_cross_conversation_completion_does_not_commit_transcript(
     )
     runtime = TuiRuntime()
 
-    result = await watch_exec_session(
+    result = await watch_user_shell_session(
         runtime,
         mind,
         "exec_shell",
         initial_snapshot=completed if starts_exited else running,
-        activate_immediately=not starts_exited,
     )
 
     assert result == "exited"
     assert not runtime.document.blocks
     assert runtime.document.active_block is None
-    assert not runtime.screen.process_viewer.active
     assert len(runtime.process_completion_snapshots()) == 1
     assert runtime.screen.process_status.label == "long task completed"
 
@@ -1938,30 +1816,23 @@ async def test_inline_shell_completion_preserves_total_layout_height(
         "origin": "tui_shell",
         "output_lines": output_lines,
     }
-    live_block = exec_session_live_block(
+    live_block = exec_session_user_shell_block(
         snapshot,
         terminal_width=terminal_width,
-        viewer_mode="inline",
     )
     final_block = exec_session_user_shell_block(
         {**snapshot, "status": "exited", "exit_code": 0},
         terminal_width=terminal_width,
         running=False,
     )
-    task = asyncio.create_task(runtime.view_process(
-        ProcessViewerRequest(
-            fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-            max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-            capture_input=False,
-            session_id="exec_shell",
-        ),
+    future = runtime.begin_inline_process(
+        "exec_shell",
         live_block,
-    ))
-    await asyncio.sleep(0)
+    )
     running_height = runtime.screen._visible_height()
 
-    runtime.resolve_process_viewer("exited")
-    assert await task == "exited"
-    runtime.commit_process_viewer(final_block)
+    runtime.resolve_inline_process("exited", session_id="exec_shell")
+    assert await future == "exited"
+    runtime.commit_inline_process(final_block, session_id="exec_shell")
 
     assert runtime.screen._visible_height() == running_height

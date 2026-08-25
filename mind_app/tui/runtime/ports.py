@@ -12,7 +12,6 @@ from ..contracts.resume import (
 from ..contracts.text import FragmentBlock
 from mind_app.frontend.contracts import ActivityStatusKind
 from ..core.document import TuiBlockKind
-from ..core.process_viewer import ProcessViewerRequest
 from ..core.queued import TuiSubmission
 from mind_core.skills import SkillSpec
 
@@ -275,17 +274,6 @@ class ProcessRuntimePort(typing.Protocol):
         """追加进程 feature 产生的稳定正文。"""
         ...
 
-    def begin_process_viewer(
-        self,
-        request: ProcessViewerRequest,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None
-    ) -> asyncio.Future[typing.Any]:
-        """激活进程查看器并返回其等待 Future。"""
-        ...
-
     def begin_inline_process(
         self,
         session_id: str,
@@ -375,33 +363,6 @@ class ProcessRuntimePort(typing.Protocol):
         """把 Shell 执行单元提交为稳定正文。"""
         ...
 
-    def update_process_viewer(
-        self,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None
-    ) -> None:
-        """更新进程查看器中的动态正文。"""
-        ...
-
-    def resolve_process_viewer(self, value: typing.Any = None) -> None:
-        """提交进程查看器动作结果。"""
-        ...
-
-    def dismiss_process_viewer(self) -> None:
-        """关闭进程查看器并清理动态正文。"""
-        ...
-
-    def commit_process_viewer(
-        self,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None
-    ) -> None:
-        """把进程查看器结果提交为稳定正文。"""
-        ...
-
     def commit_process_result(
         self,
         block: FragmentBlock,
@@ -439,17 +400,6 @@ class ProcessRuntimePort(typing.Protocol):
 
     async def select_menu(self, request: MenuRequest) -> typing.Any:
         """打开进程 feature 所需的菜单并返回用户选择。"""
-        ...
-
-    async def view_process(
-        self,
-        request: ProcessViewerRequest,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None,
-        ready_event: asyncio.Event | None = None
-    ) -> typing.Any:
-        """显示进程查看器并等待用户动作。"""
         ...
 
     async def wait_for_process_routing_boundary(self) -> None:

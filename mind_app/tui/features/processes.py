@@ -14,11 +14,7 @@ from mind_app.frontend import (
     ApplicationView
 )
 from ..core.models import FragmentBlock
-from ..core.process_viewer import ProcessViewerRequest
-from ..rendering.fragments import (
-    clip_fragments,
-    clip_text
-)
+from ..rendering.fragments import clip_text
 from .context import exec_status_display_label
 from ..core.status_frames import status_indicator_fragment
 from ..core.styles import (
@@ -35,22 +31,19 @@ from .summary import (
 if typing.TYPE_CHECKING:
     from ..runtime.ports import ProcessRuntimePort
 
-PS_EVENT_WAIT_TIMEOUT_SEC: float     = 1.0
-PS_INTERRUPT_GRACE_SEC: float        = 0.05
-PS_OUTPUT_LIMIT: int                 = 120000
-PS_VISIBLE_OUTPUT_LINES: int         = 8
-SHELL_VISIBLE_OUTPUT_LINES: int      = 50
-PS_STREAM_VISIBLE_PROCESSES: int     = 3
-PS_HISTORY_VISIBLE_PROCESSES: int    = 16
-PS_STREAM_OUTPUT_LINES: int          = 3
-PROCESS_STATUS_EVENT_WAIT_SEC: float = 3600.0
-SHELL_ACTIVITY_FRAME_SEC: float      = 0.08
-SHELL_TRANSCRIPT_HINT: str           = "ctrl + t to view transcript"
+PS_EVENT_WAIT_TIMEOUT_SEC: float  = 1.0
+PS_INTERRUPT_GRACE_SEC: float     = 0.05
+PS_OUTPUT_LIMIT: int              = 120000
+PS_VISIBLE_OUTPUT_LINES: int      = 8
+PS_STREAM_VISIBLE_PROCESSES: int  = 3
+PS_HISTORY_VISIBLE_PROCESSES: int = 16
+PS_STREAM_OUTPUT_LINES: int       = 3
 
-ProcessViewerMode: typing.TypeAlias = typing.Literal[
-    "process",
-    "inline",
-]
+PROCESS_STATUS_EVENT_WAIT_SEC: float = 3600.0
+
+SHELL_VISIBLE_OUTPUT_LINES: int = 50
+SHELL_ACTIVITY_FRAME_SEC: float = 0.08
+SHELL_TRANSCRIPT_HINT: str      = "ctrl + t to view transcript"
 
 ExecSnapshotMode: typing.TypeAlias = typing.Literal[
     "stream",
@@ -64,11 +57,6 @@ class _ShellOutputPreview(typing.NamedTuple):
     ellipsis_index: int | None
     omitted: int
 
-
-PROCESS_VIEWER_FOCUS_REQUEST = ProcessViewerRequest(
-    fragments=(("", " \n "),),
-    max_height=2,
-)
 
 async def monitor_exec_status(
     runtime: "ProcessRuntimePort",
@@ -474,107 +462,6 @@ def _exec_stream_snapshot_error_block(
     )))
 
 
-def _execution_backend(
-    mind: typing.Any,
-    viewer_mode: ProcessViewerMode,
-) -> typing.Any:
-    """返回当前命令来源对应的本地执行服务。"""
-    if viewer_mode == "inline":
-        return mind.user_shell
-    return mind.native_coding
-
-
-async def watch_exec_session(
-    runtime: "ProcessRuntimePort",
-    mind: typing.Any,
-    session_id: str | None,
-    *,
-    announce_detach: bool = False,
-    initial_snapshot: dict[str, typing.Any],
-    activate_immediately: bool = False,
-    viewer_mode: ProcessViewerMode = "process",
-    ready_event: asyncio.Event | None = None,
-    capture_input: bool = True
-) -> bool | str:
-    """按指定展示模式持续查看命令会话输出。"""
-    sid = str(session_id or "").strip()
-    if not sid:
-        return False
-
-    application = mind.frontend.application
-    execution   = _execution_backend(mind, viewer_mode)
-    initial     = dict(initial_snapshot)
-
-    runtime.cancel_background_session_task(sid)
-
-    if initial.get("ok") is False:
-        if ready_event is not None:
-            ready_event.set()
-        return False
-
-    if str(initial.get("status") or "").strip() == "exited":
-        if _belongs_to_current_conversation(mind, initial):
-            final_block = (
-                exec_session_user_shell_block(
-                    initial,
-                    terminal_width=application.viewport.width,
-                    running=False,
-                )
-                if viewer_mode == "inline"
-                else exec_session_summary_block(
-                    initial,
-                    terminal_width=application.viewport.width,
-                )
-            )
-            transcript_block = exec_session_transcript_block(initial)
-            if viewer_mode == "inline":
-                await runtime.start_inline_process(
-                    sid,
-                    final_block,
-                    transcript_block=transcript_block,
-                    gap_before=1,
-                )
-                runtime.commit_inline_process(
-                    final_block,
-                    session_id=sid,
-                    transcript_block=transcript_block,
-                )
-            else:
-                runtime.commit_process_result(
-                    final_block,
-                    transcript_block=transcript_block,
-                )
-        else:
-            runtime.retain_process_completion(
-                initial,
-                label=_completion_status_label(initial),
-            )
-
-        if ready_event is not None:
-            ready_event.set()
-
-        return "exited"
-
-    state: dict[str, typing.Any] = {
-        "snapshot": initial,
-        "last_snapshot": initial,
-        "updated_at": time.time()
-    }
-
-    return await _watch_exec_session(
-        mind,
-        sid,
-        state,
-        runtime=runtime,
-        announce_detach=announce_detach,
-        activate_immediately=activate_immediately,
-        viewer_mode=viewer_mode,
-        ready_event=ready_event,
-        capture_input=capture_input,
-        execution=execution,
-    )
-
-
 async def watch_user_shell_session(
     runtime: "ProcessRuntimePort",
     mind: typing.Any,
@@ -585,131 +472,142 @@ async def watch_user_shell_session(
     ready_event: asyncio.Event | None = None
 ) -> bool | str:
     """以正文 UserShell 生命周期监视手动命令，不创建进程查看器。"""
-    return await watch_exec_session(
-        runtime,
+    sid = str(session_id or "").strip()
+    if not sid:
+        return False
+
+    initial = dict(initial_snapshot)
+    runtime.cancel_background_session_task(sid)
+
+    if initial.get("ok") is False:
+        if ready_event is not None:
+            ready_event.set()
+        return False
+
+    application = mind.frontend.application
+    if str(initial.get("status") or "").strip() == "exited":
+        if _belongs_to_current_conversation(mind, initial):
+            final_block = exec_session_user_shell_block(
+                initial,
+                terminal_width=application.viewport.width,
+                running=False,
+            )
+            transcript_block = exec_session_transcript_block(initial)
+            await runtime.start_inline_process(
+                sid,
+                final_block,
+                transcript_block=transcript_block,
+                gap_before=1,
+            )
+            runtime.resolve_inline_process("exited", session_id=sid)
+            runtime.commit_inline_process(
+                final_block,
+                session_id=sid,
+                transcript_block=transcript_block,
+            )
+        else:
+            runtime.retain_process_completion(
+                initial,
+                label=_completion_status_label(initial),
+            )
+
+        if ready_event is not None:
+            ready_event.set()
+        return "exited"
+
+    state: dict[str, typing.Any] = {
+        "snapshot": initial,
+        "last_snapshot": initial,
+        "updated_at": time.time(),
+    }
+    return await _watch_user_shell_session(
         mind,
-        session_id,
+        sid,
+        state,
+        runtime=runtime,
         announce_detach=announce_detach,
-        initial_snapshot=initial_snapshot,
-        viewer_mode="inline",
         ready_event=ready_event,
-        capture_input=False,
+        execution=mind.user_shell,
     )
 
 
-async def _watch_exec_session(
+async def _watch_user_shell_session(
     mind: typing.Any,
     session_id: str,
     state: dict[str, typing.Any],
     *,
     runtime: "ProcessRuntimePort",
     announce_detach: bool,
-    activate_immediately: bool,
-    viewer_mode: ProcessViewerMode,
     ready_event: asyncio.Event | None,
-    capture_input: bool,
     execution: typing.Any
 ) -> bool | str:
-    """按结构化会话事件更新主 TUI 中的命令执行单元。"""
+    """按结构化会话事件更新手动 Shell 的正文执行单元。"""
     application = mind.frontend.application
 
-    if not capture_input:
-        try:
-            running = await execution.running_exec_sessions()
-            _set_exec_status(
-                runtime,
-                running,
-                excluded_session_id=session_id,
-            )
-        except (OSError, RuntimeError, TypeError, ValueError):
-            runtime.set_process_status_label("")
+    try:
+        running = await execution.running_exec_sessions()
+        _set_exec_status(
+            runtime,
+            running,
+            excluded_session_id=session_id,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError):
+        runtime.set_process_status_label("")
 
-    live_block = exec_session_live_block(
+    live_block = exec_session_user_shell_block(
         state.get("snapshot"),
         terminal_width=application.viewport.width,
-        viewer_mode=viewer_mode,
     )
-
     transcript_block = exec_session_transcript_block(state.get("snapshot"))
+    process_future = await runtime.start_inline_process(
+        session_id,
+        live_block,
+        transcript_block=transcript_block,
+        gap_before=1,
+    )
+    if ready_event is not None:
+        ready_event.set()
 
-    inline_mode = viewer_mode == "inline"
+    async def animate_inline_process() -> None:
+        """按终端帧率刷新正文执行单元的活动指示点。"""
+        try:
+            while not process_future.done():
+                current = state.get("snapshot")
+                if not isinstance(current, dict):
+                    current = {}
+                if str(current.get("status") or "").strip() == "exited":
+                    return None
 
-    animation_task: asyncio.Task[None] | None = None
+                runtime.update_inline_process(
+                    exec_session_user_shell_block(
+                        current,
+                        terminal_width=application.viewport.width,
+                        animated=True,
+                    ),
+                    session_id=session_id,
+                    transcript_block=exec_session_transcript_block(current),
+                    gap_before=1,
+                )
+                await asyncio.sleep(SHELL_ACTIVITY_FRAME_SEC)
+        except asyncio.CancelledError:
+            return None
 
-    if inline_mode:
-        viewer_task = await runtime.start_inline_process(
-            session_id,
-            live_block,
-            transcript_block=transcript_block,
-            gap_before=1,
-        )
-        if ready_event is not None:
-            ready_event.set()
-
-        async def animate_inline_process() -> None:
-            """按终端帧率刷新正文执行单元的活动指示点。"""
-            try:
-                while not viewer_task.done():
-                    current = state.get("snapshot")
-                    if not isinstance(current, dict):
-                        current = {}
-                    if str(current.get("status") or "").strip() == "exited":
-                        return None
-
-                    runtime.update_inline_process(
-                        exec_session_live_block(
-                            current,
-                            terminal_width=application.viewport.width,
-                            viewer_mode="inline",
-                            animated=True,
-                        ),
-                        session_id=session_id,
-                        transcript_block=exec_session_transcript_block(current),
-                        gap_before=1,
-                    )
-                    await asyncio.sleep(SHELL_ACTIVITY_FRAME_SEC)
-            except asyncio.CancelledError:
-                return None
-
-        animation_task = asyncio.create_task(
-            animate_inline_process(),
-            name=f"shell activity animation {session_id}",
-        )
-    else:
-        viewer_request = ProcessViewerRequest(
-            fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-            max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-            capture_input=capture_input,
-            session_id=session_id,
-        )
-        if activate_immediately:
-            viewer_task = runtime.begin_process_viewer(
-                viewer_request,
-                live_block,
-                transcript_block=transcript_block,
-                gap_before=2,
-            )
-            if ready_event is not None:
-                ready_event.set()
-        else:
-            viewer_task = asyncio.create_task(runtime.view_process(
-                viewer_request,
-                live_block,
-                transcript_block=transcript_block,
-                ready_event=ready_event,
-            ))
+    animation_task = asyncio.create_task(
+        animate_inline_process(),
+        name=f"shell activity animation {session_id}",
+    )
 
     async def poll() -> None:
         rendered_block = live_block
         rendered_transcript = transcript_block
 
-        while not viewer_task.done():
+        while not process_future.done():
             update_event = await _wait_for_exec_session_update(
                 session_id,
                 state.get("snapshot") or {},
                 execution=execution,
             )
-            if not update_event or viewer_task.done():
+            if not update_event or process_future.done():
                 continue
 
             current_snapshot = update_event.get("snapshot")
@@ -729,23 +627,19 @@ async def _watch_exec_session(
                 state["snapshot"] = current_snapshot
                 continue
             if current_snapshot.get("ok") is False:
-                if inline_mode:
-                    runtime.resolve_inline_process(
-                        state.get("last_snapshot"),
-                        session_id=session_id,
-                    )
-                else:
-                    runtime.resolve_process_viewer(state.get("last_snapshot"))
+                runtime.resolve_inline_process(
+                    state.get("last_snapshot"),
+                    session_id=session_id,
+                )
                 return None
 
             state["snapshot"]      = current_snapshot
             state["updated_at"]    = time.time()
             state["last_snapshot"] = current_snapshot
 
-            updated_block = exec_session_live_block(
+            updated_block = exec_session_user_shell_block(
                 current_snapshot,
                 terminal_width=application.viewport.width,
-                viewer_mode=viewer_mode,
             )
 
             updated_transcript = exec_session_transcript_block(current_snapshot)
@@ -754,47 +648,29 @@ async def _watch_exec_session(
                 updated_block != rendered_block
                 or updated_transcript != rendered_transcript
             ):
-                if inline_mode:
-                    runtime.update_inline_process(
-                        updated_block,
-                        session_id=session_id,
-                        transcript_block=updated_transcript,
-                        gap_before=1,
-                    )
-                elif activate_immediately:
-                    runtime.update_process_viewer(
-                        updated_block,
-                        transcript_block=updated_transcript,
-                        gap_before=2,
-                    )
-                else:
-                    runtime.update_process_viewer(
-                        updated_block,
-                        transcript_block=updated_transcript,
-                    )
+                runtime.update_inline_process(
+                    updated_block,
+                    session_id=session_id,
+                    transcript_block=updated_transcript,
+                    gap_before=1,
+                )
 
                 rendered_block = updated_block
                 rendered_transcript = updated_transcript
 
             if str(current_snapshot.get("status") or "").strip() == "exited":
-                if inline_mode:
-                    runtime.resolve_inline_process(
-                        current_snapshot,
-                        session_id=session_id,
-                    )
-                else:
-                    runtime.resolve_process_viewer(current_snapshot)
+                runtime.resolve_inline_process(
+                    current_snapshot,
+                    session_id=session_id,
+                )
                 return None
 
     poll_task = asyncio.create_task(poll())
 
     try:
-        result = await viewer_task
+        result = await process_future
     except BaseException:
-        if inline_mode:
-            runtime.dismiss_inline_process(session_id)
-        else:
-            runtime.dismiss_process_viewer()
+        runtime.dismiss_inline_process(session_id)
         raise
 
     finally:
@@ -817,34 +693,18 @@ async def _watch_exec_session(
 
         if isinstance(result, dict):
             if _belongs_to_current_conversation(mind, result):
-                final_block = (
-                    exec_session_user_shell_block(
-                        result,
-                        terminal_width=application.viewport.width,
-                        running=False,
-                    )
-                    if inline_mode
-                    else exec_session_summary_block(
-                        result,
-                        terminal_width=application.viewport.width,
-                    )
+                final_block = exec_session_user_shell_block(
+                    result,
+                    terminal_width=application.viewport.width,
+                    running=False,
                 )
-                if inline_mode:
-                    runtime.commit_inline_process(
-                        final_block,
-                        session_id=session_id,
-                        transcript_block=exec_session_transcript_block(result),
-                    )
-                else:
-                    runtime.commit_process_viewer(
-                        final_block,
-                        transcript_block=exec_session_transcript_block(result),
-                    )
+                runtime.commit_inline_process(
+                    final_block,
+                    session_id=session_id,
+                    transcript_block=exec_session_transcript_block(result),
+                )
             else:
-                if inline_mode:
-                    runtime.dismiss_inline_process(session_id)
-                else:
-                    runtime.dismiss_process_viewer()
+                runtime.dismiss_inline_process(session_id)
                 runtime.retain_process_completion(
                     result,
                     label=_completion_status_label(result),
@@ -859,25 +719,16 @@ async def _watch_exec_session(
                     snapshot,
                     terminal_width=application.viewport.width,
                 )
-                if inline_mode:
-                    runtime.commit_inline_process(
-                        detached_block,
-                        session_id=session_id,
-                        transcript_block=exec_session_transcript_block(snapshot),
-                        retain_for_background=True,
-                    )
-                    runtime.mark_inline_process_background(session_id)
-                    await execution.mark_exec_session_background(session_id)
-                else:
-                    runtime.commit_process_viewer(
-                        detached_block,
-                        transcript_block=exec_session_transcript_block(snapshot),
-                    )
+                runtime.commit_inline_process(
+                    detached_block,
+                    session_id=session_id,
+                    transcript_block=exec_session_transcript_block(snapshot),
+                    retain_for_background=True,
+                )
+                runtime.mark_inline_process_background(session_id)
+                await execution.mark_exec_session_background(session_id)
             else:
-                if inline_mode:
-                    runtime.dismiss_inline_process(session_id)
-                else:
-                    runtime.dismiss_process_viewer()
+                runtime.dismiss_inline_process(session_id)
             settled = True
             if isinstance(snapshot, dict) and snapshot.get("origin") == "tui_shell":
                 runtime.start_background_session_task(
@@ -891,101 +742,14 @@ async def _watch_exec_session(
                 )
             return "detach"
 
-        if inline_mode:
-            runtime.dismiss_inline_process(session_id)
-        else:
-            runtime.dismiss_process_viewer()
+        runtime.dismiss_inline_process(session_id)
         settled = True
 
         return True
 
     finally:
         if not settled:
-            if inline_mode:
-                runtime.dismiss_inline_process(session_id)
-            else:
-                runtime.dismiss_process_viewer()
-
-
-def render_exec_session_panel(
-    state: dict[str, typing.Any],
-    *,
-    height: int,
-    terminal_width: int | None = None,
-    viewer_mode: ProcessViewerMode = "process",
-    animated: bool = False,
-) -> StyleAndTextTuples:
-    """生成进程会话查看面板内容。"""
-    snapshot = state.get("snapshot")
-    if not isinstance(snapshot, dict):
-        snapshot = {}
-
-    body_height = max(1, height - 2)
-    width       = _terminal_width(terminal_width)
-
-    if viewer_mode == "inline":
-        return list(exec_session_user_shell_block(
-            snapshot,
-            terminal_width=width,
-            running=str(snapshot.get("status") or "").strip() != "exited",
-            animated=animated,
-        ).fragments)
-
-    title = _panel_title_fragments(snapshot, terminal_width=width)
-
-    help_text = _clip_inline(
-        "Enter/Esc/q background · Ctrl+C stop · output is tailed",
-        width,
-    )
-
-    lines: StyleAndTextTuples = [
-        *title,
-        ("", "\n"),
-        (
-            "class:ps.help",
-            help_text,
-        ),
-        ("", "\n"),
-    ]
-
-    if snapshot.get("ok") is False:
-        error = f"  ■ {snapshot.get('reason') or 'snapshot_failed'}"
-        lines.append(("class:ps.error", _clip_inline(error, width)))
-        lines.append(("", "\n"))
-        return lines
-
-    visible = _panel_output_lines(snapshot, limit=body_height)
-    if visible:
-        for line in visible:
-            lines.append(("class:ps.meta", "  "))
-            lines.append(("class:ps.output", _clip_inline(line, width - 4)))
-            lines.append(("", "\n"))
-    else:
-        lines.append(("class:ps.waiting", "(waiting for output)"))
-        lines.append(("", "\n"))
-
-    return lines
-
-
-def exec_session_live_block(
-    snapshot: typing.Any,
-    *,
-    terminal_width: int | None = None,
-    viewer_mode: ProcessViewerMode = "process",
-    animated: bool = False,
-) -> FragmentBlock:
-    """生成进程运行期间的动态正文块。"""
-    current = snapshot if isinstance(snapshot, dict) else {}
-
-    fragments = render_exec_session_panel(
-        {"snapshot": current},
-        height=PS_VISIBLE_OUTPUT_LINES + 2,
-        terminal_width=terminal_width,
-        viewer_mode=viewer_mode,
-        animated=animated,
-    )
-
-    return FragmentBlock(tuple(fragments))
+            runtime.dismiss_inline_process(session_id)
 
 
 def exec_session_user_shell_block(
@@ -1436,77 +1200,6 @@ def _summary_first_line_prefix(snapshot: dict[str, typing.Any]) -> str:
 def _summary_line_prefix(snapshot: dict[str, typing.Any]) -> str:
     """返回会话摘要后续行的层级前缀。"""
     return "    " if snapshot.get("origin") == "tui_shell" else "  "
-
-
-def _panel_title_fragments(
-    snapshot: dict[str, typing.Any],
-    *,
-    terminal_width: int
-) -> StyleAndTextTuples:
-    """生成查看面板的分段样式标题。"""
-    status = _inline_text(snapshot.get("status")) or "unknown"
-    pid    = _inline_text(snapshot.get("pid")) or "-"
-
-    fragments: StyleAndTextTuples = [
-        ("class:shell.title.action", _session_kind(snapshot)),
-        ("class:ps.meta", f" {status}"),
-    ]
-    fields: list[tuple[str, str]] = [
-        ("class:ps.meta", f"pid={pid}"),
-    ]
-
-    sid = _inline_text(snapshot.get("session_id"))
-    if sid:
-        fields.append(("class:ps.meta", sid))
-
-    exit_code = snapshot.get("exit_code")
-    if exit_code is not None:
-        fields.append(("class:ps.meta", f"exit={_inline_text(exit_code)}"))
-    if bool(snapshot.get("truncated")):
-        fields.append(("class:ps.warning", "truncated=true"))
-
-    command = _inline_text(snapshot.get("command"))
-    if command:
-        fields.append(("class:ps.command", command))
-
-    for field in fields:
-        fragments.append(("class:ps.separator", " · "))
-        fragments.append(field)
-
-    return _clip_panel_title(fragments, width=terminal_width)
-
-
-def _clip_panel_title(
-    fragments: StyleAndTextTuples,
-    *,
-    width: int
-) -> StyleAndTextTuples:
-    """裁剪标题片段并使省略标记继承末尾字段样式。"""
-    limit = max(0, int(width))
-    text  = "".join(value for _style, value in fragments)
-
-    if get_cwidth(text) <= limit:
-        return fragments
-
-    omitted = "…"
-
-    omitted_width = get_cwidth(omitted)
-
-    if limit <= omitted_width:
-        return [("class:ps.meta", omitted)] if limit else []
-
-    clipped = clip_fragments(
-        list(fragments),
-        width=limit - omitted_width,
-    )
-    if not clipped:
-        return [("class:ps.meta", omitted)]
-
-    style, text = clipped[-1]
-
-    clipped[-1] = style, f"{text}{omitted}"
-
-    return clipped
 
 
 def _exec_session_status_suffix(snapshot: dict[str, typing.Any]) -> str:

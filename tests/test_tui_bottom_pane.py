@@ -31,7 +31,7 @@ def test_bottom_pane_restores_previous_surface_focus() -> None:
     assert pane.active_surface is None
 
 
-@pytest.mark.parametrize("surface", ["approval", "menu", "process_viewer"])
+@pytest.mark.parametrize("surface", ["approval", "menu"])
 def test_bottom_surface_exit_uses_current_natural_layout(surface: str) -> None:
     runtime = TuiRuntime()
     screen = runtime.screen

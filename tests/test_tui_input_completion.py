@@ -29,7 +29,6 @@ from mind_app.tui.core.models import (
     MenuOption,
     MenuRequest,
 )
-from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import text_block
@@ -1444,7 +1443,7 @@ async def test_streaming_slash_completion_has_outer_and_inner_insets(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stable_line_count", (0, 20))
-@pytest.mark.parametrize("surface", ("approval", "menu", "process_viewer"))
+@pytest.mark.parametrize("surface", ("approval", "menu"))
 async def test_bottom_surface_restores_streaming_input_and_focus(
     surface: str,
     stable_line_count: int,
@@ -1515,23 +1514,6 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
                         ),
                     ))
                     surface_active = lambda: runtime.screen.menu.active
-                else:
-                    surface_task = runtime.screen.process_viewer.begin(
-                        ProcessViewerRequest(
-                            fragments=((
-                                "",
-                                "\n".join(
-                                    f"process line {index}"
-                                    for index in range(30)
-                                ),
-                            ),),
-                            max_height=28,
-                        )
-                    )
-                    surface_active = (
-                        lambda: runtime.screen.process_viewer.active
-                    )
-
                 for _ in range(20):
                     await asyncio.sleep(0)
                     if surface_active():
@@ -1546,10 +1528,6 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
                 elif surface == "menu":
                     runtime.screen.menu.finish("done")
                     assert await surface_task == "done"
-                else:
-                    runtime.screen.process_viewer.resolve("done")
-                    assert await surface_task == "done"
-                    runtime.screen.process_viewer.settle()
                 surface_task = None
 
                 screen = await render_next_frame(runtime)
@@ -1570,9 +1548,6 @@ async def test_bottom_surface_restores_streaming_input_and_focus(
                     runtime.screen.approval.finish("decline")
                 if runtime.screen.menu.active:
                     runtime.screen.menu.finish(None)
-                if runtime.screen.process_viewer.active:
-                    runtime.screen.process_viewer.resolve("detach")
-                    runtime.screen.process_viewer.settle()
                 if surface_task is not None:
                     await surface_task
                 runtime.set_execution_active(False)

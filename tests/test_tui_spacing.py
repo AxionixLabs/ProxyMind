@@ -95,7 +95,6 @@ from mind_app.tui.core.hyperlinks import (
     terminal_hyperlink_from_style,
     terminal_hyperlink_style
 )
-from mind_app.tui.core.process_viewer import ProcessViewerRequest
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.render import (
     display_line_count,
@@ -108,8 +107,7 @@ from mind_app.tui.core.render import (
 )
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.processes import (
-    PROCESS_VIEWER_FOCUS_REQUEST,
-    exec_session_live_block,
+    exec_session_user_shell_block,
     exec_session_summary_block,
 )
 from mind_app.tui.core.screen import (
@@ -718,27 +716,34 @@ def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
     ("gap_before", "expected_gap"),
     [(None, "\n\n"), (2, "\n\n\n")],
 )
-async def test_process_viewer_keeps_requested_spacing_before_title(
+async def test_inline_process_keeps_requested_spacing_before_title(
     gap_before: int | None,
     expected_gap: str,
 ) -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("Finished"), kind="system")
 
-    viewer = runtime.begin_process_viewer(
-        ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+    process = runtime.begin_inline_process(
+        "exec_shell",
         _block("Exec running"),
         gap_before=gap_before,
     )
 
     assert _document_text(runtime.document) == f"Finished{expected_gap}Exec running"
 
-    runtime.update_process_viewer(_block("Exec updated"), gap_before=gap_before)
+    runtime.update_inline_process(
+        _block("Exec updated"),
+        session_id="exec_shell",
+        gap_before=gap_before,
+    )
     assert _document_text(runtime.document) == f"Finished{expected_gap}Exec updated"
 
-    runtime.resolve_process_viewer("done")
-    assert await viewer == "done"
-    runtime.commit_process_viewer(_block("Exec complete"))
+    runtime.resolve_inline_process("done", session_id="exec_shell")
+    assert await process == "done"
+    runtime.commit_inline_process(
+        _block("Exec complete"),
+        session_id="exec_shell",
+    )
 
     assert _document_text(runtime.document) == f"Finished{expected_gap}Exec complete"
 
@@ -1155,7 +1160,7 @@ def test_render_frame_uses_one_terminal_geometry_snapshot() -> None:
 
 
 @pytest.mark.anyio
-async def test_known_inline_viewport_does_not_expand_renderer_height() -> None:
+async def test_dynamic_transcript_expands_known_inline_viewport() -> None:
     with create_pipe_input() as pipe_input:
         output = _KnownInlineHeightOutput(
             columns=80,
@@ -1175,9 +1180,9 @@ async def test_known_inline_viewport_does_not_expand_renderer_height() -> None:
             )
             expanded_screen = await _render_next_frame(runtime)
 
-            assert runtime.screen.terminal_height == 14
-            assert runtime.screen._visible_height() == 14
-            assert expanded_screen.height == initial_screen.height
+            assert runtime.screen.terminal_height == 18
+            assert runtime.screen._visible_height() == 18
+            assert expanded_screen.height == 18
         finally:
             await runtime.close()
 
@@ -1796,72 +1801,116 @@ async def test_inline_shell_grows_known_viewport_like_stream_content() -> None:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
 
         await runtime.open()
-        viewer = None
+        process = None
         try:
             input_rows = []
             screen_heights = []
 
-            with (
-                patch.object(
-                    runtime.screen,
-                    "begin_synchronized_output",
-                    return_value=True,
-                ) as begin_synchronized,
-                patch.object(
-                    runtime.screen,
-                    "end_synchronized_output",
-                ) as end_synchronized,
-            ):
-                for line_count in (1, 2, 4):
-                    snapshot = {
-                        "ok": True,
-                        "session_id": "exec_shell",
-                        "command": "ping -t 8.8.8.8",
-                        "status": "running",
-                        "origin": "tui_shell",
-                        "output_lines": [
-                            f"reply {index}"
-                            for index in range(line_count)
-                        ],
-                    }
-                    block = exec_session_live_block(
-                        snapshot,
-                        terminal_width=80,
-                        viewer_mode="inline",
+            for line_count in (1, 2, 4):
+                snapshot = {
+                    "ok": True,
+                    "session_id": "exec_shell",
+                    "command": "ping -t 8.8.8.8",
+                    "status": "running",
+                    "origin": "tui_shell",
+                    "output_lines": [
+                        f"reply {index}"
+                        for index in range(line_count)
+                    ],
+                }
+                block = exec_session_user_shell_block(
+                    snapshot,
+                    terminal_width=80,
+                )
+                if process is None:
+                    process = runtime.begin_inline_process(
+                        "exec_shell",
+                        block,
                     )
-                    if viewer is None:
-                        viewer = runtime.begin_process_viewer(
-                            ProcessViewerRequest(
-                                fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-                                max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-                                capture_input=False,
-                                session_id="exec_shell",
-                            ),
-                            block,
-                        )
-                    else:
-                        runtime.update_process_viewer(block)
-
-                    screen = await _render_next_frame(runtime)
-                    positions = screen.visible_windows_to_write_positions
-                    input_rows.append(
-                        positions[runtime.screen.input.window].ypos
+                else:
+                    runtime.update_inline_process(
+                        block,
+                        session_id="exec_shell",
                     )
-                    screen_heights.append(screen.height)
 
-                    assert runtime.screen._bottom_pane_top_inset_visible()
+                screen = await _render_next_frame(runtime)
+                positions = screen.visible_windows_to_write_positions
+                input_rows.append(
+                    positions[runtime.screen.input.window].ypos
+                )
+                screen_heights.append(screen.height)
 
-                assert begin_synchronized.call_count == 3
-                assert end_synchronized.call_count == 3
+                assert runtime.screen._bottom_pane_top_inset_visible()
+                visible = _rendered_screen_text(screen)
+                assert "Running ping -t 8.8.8.8" in visible
+                assert f"reply {line_count - 1}" in visible
 
             assert input_rows == [4, 5, 7]
             assert screen_heights == [7, 8, 10]
         finally:
-            if runtime.screen.process_viewer.active:
-                runtime.resolve_process_viewer("detach")
-                if viewer is not None:
-                    await viewer
-                runtime.dismiss_process_viewer()
+            if runtime.inline_process_session_id:
+                runtime.resolve_inline_process("detach", session_id="exec_shell")
+                if process is not None:
+                    await process
+                runtime.dismiss_inline_process("exec_shell")
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_inline_shell_crops_title_only_after_cell_exceeds_terminal() -> None:
+    with create_pipe_input() as pipe_input:
+        output = _KnownInlineHeightOutput(
+            columns=80,
+            rows=12,
+            available_rows=6,
+        )
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+
+        await runtime.open()
+        process = None
+        try:
+            oversized = exec_session_user_shell_block(
+                {
+                    "ok": True,
+                    "session_id": "exec_shell",
+                    "command": "ping -t 8.8.8.8",
+                    "status": "running",
+                    "origin": "tui_shell",
+                    "output_lines": [f"reply {index}" for index in range(20)],
+                },
+                terminal_width=80,
+            )
+            process = runtime.begin_inline_process("exec_shell", oversized)
+            oversized_screen = await _render_next_frame(runtime)
+            oversized_text = _rendered_screen_text(oversized_screen)
+
+            assert oversized_screen.height == 12
+            assert "Running ping -t 8.8.8.8" not in oversized_text
+            assert "reply 19" in oversized_text
+
+            compact = exec_session_user_shell_block(
+                {
+                    "ok": True,
+                    "session_id": "exec_shell",
+                    "command": "ping -t 8.8.8.8",
+                    "status": "running",
+                    "origin": "tui_shell",
+                    "output_lines": ["reply 0", "reply 1"],
+                },
+                terminal_width=80,
+            )
+            runtime.update_inline_process(compact, session_id="exec_shell")
+            compact_screen = await _render_next_frame(runtime)
+            compact_text = _rendered_screen_text(compact_screen)
+
+            assert "Running ping -t 8.8.8.8" in compact_text
+            assert "reply 1" in compact_text
+        finally:
+            if runtime.inline_process_session_id:
+                runtime.resolve_inline_process("detach", session_id="exec_shell")
+                if process is not None:
+                    await process
+                runtime.dismiss_inline_process("exec_shell")
             await runtime.close()
 
 
@@ -5162,7 +5211,7 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
             return_value=Size(rows=12, columns=80),
         ):
             await runtime.open()
-            viewer = None
+            process = None
             try:
                 runtime.append_block(_block(">_ App (v1.0)"), kind="system")
                 initial_screen = await _render_next_frame(runtime)
@@ -5178,17 +5227,12 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                     "origin": "tui_shell",
                     "output_lines": ["List of devices attached"],
                 }
-                live_block = exec_session_live_block(
+                live_block = exec_session_user_shell_block(
                     snapshot,
                     terminal_width=80,
-                    viewer_mode="inline",
                 )
-                viewer = runtime.begin_process_viewer(
-                    ProcessViewerRequest(
-                        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-                        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-                        capture_input=False,
-                    ),
+                process = runtime.begin_inline_process(
+                    "exec_shell",
                     live_block,
                 )
                 running_screen = await _render_next_frame(runtime)
@@ -5199,13 +5243,16 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                 assert runtime.screen.input_footer.filter()
                 assert runtime.screen._process_status_height() == 0
 
-                runtime.resolve_process_viewer("exited")
-                assert await viewer == "exited"
-                viewer = None
-                runtime.commit_process_viewer(exec_session_summary_block(
-                    {**snapshot, "status": "exited", "exit_code": 0},
-                    terminal_width=80,
-                ))
+                runtime.resolve_inline_process("exited", session_id="exec_shell")
+                assert await process == "exited"
+                process = None
+                runtime.commit_inline_process(
+                    exec_session_summary_block(
+                        {**snapshot, "status": "exited", "exit_code": 0},
+                        terminal_width=80,
+                    ),
+                    session_id="exec_shell",
+                )
                 completed_screen = await _render_next_frame(runtime)
                 assert runtime.screen.input.window in (
                     completed_screen.visible_windows_to_write_positions
@@ -5228,16 +5275,16 @@ async def test_shell_lifecycle_never_adds_blank_rows_above_canvas() -> None:
                     assert nonblank_rows
                     assert min(nonblank_rows) < screen.height
             finally:
-                if runtime.screen.process_viewer.active:
-                    runtime.resolve_process_viewer("detach")
-                    if viewer is not None:
-                        await viewer
-                    runtime.dismiss_process_viewer()
+                if runtime.inline_process_session_id:
+                    runtime.resolve_inline_process("detach", session_id="exec_shell")
+                    if process is not None:
+                        await process
+                    runtime.dismiss_inline_process("exec_shell")
                 await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_shell_submission_keeps_input_row_during_viewer_handoff() -> None:
+async def test_shell_submission_keeps_input_row_during_inline_handoff() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -5247,7 +5294,7 @@ async def test_shell_submission_keeps_input_row_during_viewer_handoff() -> None:
             return_value=Size(rows=12, columns=80),
         ):
             await runtime.open()
-            viewer = None
+            process = None
             try:
                 runtime.append_block(_block(">_ App (v1.0)"), kind="system")
                 prompt_task = asyncio.create_task(runtime.read_message(
@@ -5289,34 +5336,29 @@ async def test_shell_submission_keeps_input_row_during_viewer_handoff() -> None:
                     "origin": "tui_shell",
                     "output_lines": ["List of devices attached"],
                 }
-                viewer = runtime.begin_process_viewer(
-                    ProcessViewerRequest(
-                        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-                        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-                        capture_input=False,
-                    ),
-                    exec_session_live_block(
+                process = runtime.begin_inline_process(
+                    "exec_shell",
+                    exec_session_user_shell_block(
                         snapshot,
                         terminal_width=80,
-                        viewer_mode="inline",
                     ),
                 )
-                viewer_screen = await _render_next_frame(runtime)
-                viewer_input = viewer_screen.visible_windows_to_write_positions[
+                process_screen = await _render_next_frame(runtime)
+                process_input = process_screen.visible_windows_to_write_positions[
                     runtime.screen.input.window
                 ]
-                viewer_input_row = (
-                    12 - runtime.screen._visible_height() + viewer_input.ypos
+                process_input_row = (
+                    12 - runtime.screen._visible_height() + process_input.ypos
                 )
 
                 assert submitted_input_row == typed_input_row
-                assert viewer_input_row == typed_input_row
+                assert process_input_row == typed_input_row
             finally:
-                if runtime.screen.process_viewer.active:
-                    runtime.resolve_process_viewer("detach")
-                    if viewer is not None:
-                        await viewer
-                    runtime.dismiss_process_viewer()
+                if runtime.inline_process_session_id:
+                    runtime.resolve_inline_process("detach", session_id="exec_shell")
+                    if process is not None:
+                        await process
+                    runtime.dismiss_inline_process("exec_shell")
                 await runtime.close()
 
 
@@ -5345,13 +5387,9 @@ async def test_inline_shell_detaches_before_next_submission_is_staged(
             settle_task = None
             try:
                 runtime.append_block(_block(">_ App (v1.0)"), kind="system")
-                viewer = runtime.begin_process_viewer(
-                    ProcessViewerRequest(
-                        fragments=PROCESS_VIEWER_FOCUS_REQUEST.fragments,
-                        max_height=PROCESS_VIEWER_FOCUS_REQUEST.max_height,
-                        capture_input=False,
-                    ),
-                    exec_session_live_block(
+                process = runtime.begin_inline_process(
+                    "exec_shell",
+                    exec_session_user_shell_block(
                         {
                             "ok": True,
                             "session_id": "exec_shell",
@@ -5361,17 +5399,17 @@ async def test_inline_shell_detaches_before_next_submission_is_staged(
                             "output_lines": ["reply"],
                         },
                         terminal_width=80,
-                        viewer_mode="inline",
                     ),
                 )
 
-                async def settle_viewer() -> None:
-                    assert await viewer == "detach"
-                    runtime.commit_process_viewer(_block(
-                        "• Shell ping -t 8.8.8.8\n  └ reply"
-                    ))
+                async def settle_process() -> None:
+                    assert await process == "detach"
+                    runtime.commit_inline_process(
+                        _block("• Shell ping -t 8.8.8.8\n  └ reply"),
+                        session_id="exec_shell",
+                    )
 
-                settle_task = asyncio.create_task(settle_viewer())
+                settle_task = asyncio.create_task(settle_process())
                 prompt_task = asyncio.create_task(runtime.read_message(
                     PromptContext(model="test")
                 ))
@@ -5388,7 +5426,7 @@ async def test_inline_shell_detaches_before_next_submission_is_staged(
                 stage_submission = runtime.document.stage_submission
 
                 def stage_after_detach(*args, **kwargs) -> None:
-                    stage_states.append(runtime.screen.process_viewer.active)
+                    stage_states.append(bool(runtime.inline_process_session_id))
                     stage_submission(*args, **kwargs)
 
                 with patch.object(
@@ -5547,57 +5585,6 @@ async def test_menu_top_padding_is_not_retained_after_result() -> None:
                     runtime.screen.menu.finish(None)
                 if menu_task is not None:
                     await menu_task
-                await runtime.close()
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("tail_kind", ("user", "assistant"))
-async def test_process_viewer_uses_its_own_top_padding(
-    tail_kind: str,
-) -> None:
-    with create_pipe_input() as pipe_input:
-        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-
-        with patch.object(
-            runtime.screen.application.output,
-            "get_size",
-            return_value=Size(rows=16, columns=60),
-        ):
-            await runtime.open()
-            viewer_future = None
-            try:
-                block = (
-                    query_block("run a command")
-                    if tail_kind == "user"
-                    else _block("previous answer")
-                )
-                runtime.append_block(block, kind=tail_kind)
-                await _render_next_frame(runtime)
-
-                viewer_future = runtime.screen.process_viewer.begin(
-                    ProcessViewerRequest(
-                        fragments=(("", "Process running"),),
-                        max_height=1,
-                    )
-                )
-                screen = await _render_next_frame(runtime)
-                positions = screen.visible_windows_to_write_positions
-                viewer_position = positions[
-                    runtime.screen.process_viewer_window
-                ]
-                viewer_padding = positions[
-                    runtime.screen.process_viewer_top_padding
-                ]
-                assert viewer_padding.height == 1
-                assert viewer_position.ypos == (
-                    viewer_padding.ypos + viewer_padding.height
-                )
-            finally:
-                if runtime.screen.process_viewer.active:
-                    runtime.screen.process_viewer.resolve("detach")
-                    if viewer_future is not None:
-                        assert await viewer_future == "detach"
-                    runtime.screen.process_viewer.settle()
                 await runtime.close()
 
 
@@ -7262,18 +7249,18 @@ async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
 
 
 @pytest.mark.anyio
-async def test_ctrl_t_over_process_viewer_tracks_active_output() -> None:
+async def test_ctrl_t_over_inline_process_tracks_active_output() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         await runtime.open()
         try:
-            viewer = runtime.begin_process_viewer(
-                ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+            process = runtime.begin_inline_process(
+                "exec_shell",
                 _block("running"),
                 transcript_block=_block("$ command\nlive output"),
             )
             assert runtime.screen.application.layout.current_control == (
-                runtime.screen.process_viewer_control
+                runtime.screen.input.control
             )
 
             pipe_input.send_text("\x14")
@@ -7291,8 +7278,9 @@ async def test_ctrl_t_over_process_viewer_tracks_active_output() -> None:
                 for _style, text in runtime.screen.transcript_overlay.fragments()
             )
 
-            runtime.update_process_viewer(
+            runtime.update_inline_process(
                 _block("running"),
+                session_id="exec_shell",
                 transcript_block=_block("$ command\nlive output\nnext line"),
             )
             assert "next line" in "".join(
@@ -7307,13 +7295,14 @@ async def test_ctrl_t_over_process_viewer_tracks_active_output() -> None:
                     break
 
             assert runtime.screen.application.layout.current_control == (
-                runtime.screen.process_viewer_control
+                runtime.screen.input.control
             )
 
-            runtime.resolve_process_viewer("done")
-            assert await viewer == "done"
-            runtime.commit_process_viewer(
+            runtime.resolve_inline_process("done", session_id="exec_shell")
+            assert await process == "done"
+            runtime.commit_inline_process(
                 _block("completed"),
+                session_id="exec_shell",
                 transcript_block=_block("$ command\ncomplete output"),
             )
             assert runtime.screen.application.layout.current_control == (
@@ -7324,22 +7313,23 @@ async def test_ctrl_t_over_process_viewer_tracks_active_output() -> None:
 
 
 @pytest.mark.anyio
-async def test_process_completion_keeps_transcript_screen_focused() -> None:
+async def test_inline_process_completion_keeps_transcript_screen_focused() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         await runtime.open()
         try:
-            viewer = runtime.begin_process_viewer(
-                ProcessViewerRequest(fragments=(("", " "),), max_height=1),
+            process = runtime.begin_inline_process(
+                "exec_shell",
                 _block("running"),
                 transcript_block=_block("$ command\nlive output"),
             )
             runtime.toggle_transcript_overlay()
 
-            runtime.resolve_process_viewer("done")
-            assert await viewer == "done"
-            runtime.commit_process_viewer(
+            runtime.resolve_inline_process("done", session_id="exec_shell")
+            assert await process == "done"
+            runtime.commit_inline_process(
                 _block("completed"),
+                session_id="exec_shell",
                 transcript_block=_block("$ command\ncomplete output"),
             )
 

@@ -441,7 +441,7 @@ async def test_wait_handoff_preserves_paused_approval_wait() -> None:
 
 
 @pytest.mark.anyio
-async def test_model_submission_marks_pending_before_process_viewer_detach(
+async def test_model_submission_marks_pending_before_inline_process_detach(
     monkeypatch,
 ) -> None:
     runtime = TuiRuntime()
@@ -452,7 +452,7 @@ async def test_model_submission_marks_pending_before_process_viewer_detach(
         detach_started.set()
         await release_detach.wait()
 
-    monkeypatch.setattr(runtime, "detach_inline_process_viewer", detach)
+    monkeypatch.setattr(runtime, "detach_inline_process", detach)
 
     read_task = asyncio.create_task(runtime.read_message(PromptContext(
         model="test-model",

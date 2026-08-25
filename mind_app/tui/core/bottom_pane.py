@@ -10,8 +10,7 @@ from .view import (
 
 BottomSurface: typing.TypeAlias = typing.Literal[
     "approval",
-    "menu",
-    "process_viewer"
+    "menu"
 ]
 
 

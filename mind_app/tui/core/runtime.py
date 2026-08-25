@@ -67,7 +67,6 @@ from .document import (
 from .input import TuiInputModel
 from .interrupt import TuiExitReason
 from .keymap import TuiRuntimeKeymap
-from .process_viewer import ProcessViewerRequest
 from ..rendering.text_sanitize import sanitize_fragment_block
 from .queued import TuiSubmission
 from .screen import TuiScreen
@@ -446,10 +445,11 @@ class TuiRuntime(object):
     @property
     def inline_process_session_id(self) -> str:
         """返回当前在正文中展示的进程会话标识。"""
-        if self._inline_process_future is not None:
-            return self._inline_process_session_id
-        viewer = self.screen.process_viewer
-        return viewer.active_session_id if viewer.input_passthrough else ""
+        return (
+            self._inline_process_session_id
+            if self._inline_process_future is not None
+            else ""
+        )
 
     @property
     def inline_process_session_ids(self) -> tuple[str, ...]:
@@ -654,13 +654,6 @@ class TuiRuntime(object):
             self.submissions.interrupt_input()
             return None
 
-        viewer = self.screen.process_viewer
-        if viewer.input_passthrough:
-            if self.submissions.discard_input_draft():
-                return None
-            viewer.resolve("interrupt")
-            self.submissions.interrupt_input()
-            return None
         self.submissions.interrupt_input()
 
     def _drain_menu_actions(self) -> None:
@@ -973,29 +966,6 @@ class TuiRuntime(object):
         """显示目录信任状态保存失败信息。"""
         self.screen.directory_trust.show_error(message)
 
-    def begin_process_viewer(
-        self,
-        request: ProcessViewerRequest,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None
-    ) -> asyncio.Future[typing.Any]:
-        """同步激活进程查看器并返回等待结果。"""
-        self.discard_pending_submission()
-
-        if not request.capture_input:
-            self.screen.synchronize_next_render()
-
-        self.set_active_renderable(
-            block,
-            kind="operation",
-            transcript_block=transcript_block,
-            gap_before=gap_before,
-        )
-
-        return self.screen.process_viewer.begin(request)
-
     def begin_inline_process(
         self,
         session_id: str,
@@ -1280,64 +1250,6 @@ class TuiRuntime(object):
 
         if self._inline_process_session_id == session_id:
             self._clear_active_inline_process()
-
-    def update_process_viewer(
-        self,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None
-    ) -> None:
-        """替换当前动态进程正文。"""
-        if self.screen.process_viewer.input_passthrough:
-            self.screen.synchronize_next_render()
-
-        self.set_active_renderable(
-            block,
-            kind="operation",
-            transcript_block=transcript_block,
-            gap_before=gap_before,
-        )
-
-    def resolve_process_viewer(self, value: typing.Any = None) -> None:
-        """提交当前进程查看动作并解除等待。"""
-        self.screen.process_viewer.resolve(value)
-
-    def commit_process_viewer(
-        self,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None
-    ) -> None:
-        """原位提交进程摘要并恢复主输入区域。"""
-        if self.document.active_kind != "operation":
-            raise RuntimeError("cannot commit a process without active output")
-
-        input_passthrough = self.screen.process_viewer.input_passthrough
-        if input_passthrough:
-            self.screen.synchronize_next_render()
-
-        self.document.commit_active(block, transcript_block=transcript_block)
-        self.screen.process_viewer.settle()
-        self.screen.transcript_overlay.content_changed()
-        self.viewport.stable_content_changed()
-        self._flush_background_blocks()
-
-    def dismiss_process_viewer(self) -> None:
-        """撤下动态进程正文并恢复主输入区域。"""
-        changed = self.document.active_kind == "operation"
-
-        input_passthrough = self.screen.process_viewer.input_passthrough
-        if input_passthrough:
-            self.screen.synchronize_next_render()
-        if changed:
-            self.document.clear_active()
-
-        self.screen.process_viewer.settle()
-        if changed:
-            self.screen.transcript_overlay.content_changed()
-            self.viewport.stable_content_changed()
-            self._flush_background_blocks()
 
     def commit_process_result(
         self,
@@ -2077,8 +1989,6 @@ class TuiRuntime(object):
         inline_session_id = self._inline_process_session_id
         self.resolve_inline_process("detach", session_id=inline_session_id)
         await self.wait_inline_process_settled(session_id=inline_session_id)
-        await self.screen.process_viewer.close()
-
         if self.document.active_kind == "operation":
             self.document.clear_active()
 
@@ -2150,8 +2060,8 @@ class TuiRuntime(object):
             return None
         await self.finish_startup_gate()
 
-    async def detach_inline_process_viewer(self) -> None:
-        """在提交新输入前撤下保持输入可见的进程查看器。"""
+    async def detach_inline_process(self) -> None:
+        """在提交新输入前把当前手动 Shell 切换到后台。"""
         if self._inline_process_future is not None:
             inline_session_id = self._inline_process_session_id
             self.resolve_inline_process(
@@ -2162,13 +2072,6 @@ class TuiRuntime(object):
                 session_id=inline_session_id,
             )
             return None
-
-        viewer = self.screen.process_viewer
-        if not viewer.input_passthrough:
-            return None
-
-        viewer.resolve("detach")
-        await viewer.wait_settled()
 
     async def wait_directory_trust(self) -> bool:
         """等待目录信任界面的下一次选择。"""
@@ -2242,7 +2145,7 @@ class TuiRuntime(object):
             self.set_turn_start_pending(True)
 
         try:
-            await self.detach_inline_process_viewer()
+            await self.detach_inline_process()
         except BaseException:
             if model_submission:
                 self.set_turn_start_pending(False)
@@ -2343,35 +2246,6 @@ class TuiRuntime(object):
         async with self._approval_session_lock:
             await self.screen.approval.end_session()
             await self._finish_approval_session()
-
-    async def view_process(
-        self,
-        request: ProcessViewerRequest,
-        block: FragmentBlock,
-        *,
-        transcript_block: FragmentBlock | None = None,
-        ready_event: asyncio.Event | None = None
-    ) -> typing.Any:
-        """显示动态进程正文并等待查看器动作。"""
-        try:
-            future = self.begin_process_viewer(
-                request,
-                block,
-                transcript_block=transcript_block,
-            )
-        except BaseException:
-            if ready_event is not None:
-                ready_event.set()
-            raise
-
-        if ready_event is not None:
-            ready_event.set()
-
-        try:
-            return await future
-        except BaseException:
-            self.dismiss_process_viewer()
-            raise
 
     async def begin_wait_status(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""

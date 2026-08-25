@@ -12,8 +12,7 @@ from prompt_toolkit.layout.screen import Screen
 
 BottomSurface = typing.Literal[
     "approval",
-    "menu",
-    "process_viewer"
+    "menu"
 ]
 
 

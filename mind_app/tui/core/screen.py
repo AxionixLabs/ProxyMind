@@ -102,7 +102,6 @@ from .models import (
     TranscriptExportResult
 )
 from .process_status import TuiProcessStatus
-from .process_viewer import TuiProcessViewer
 from .resume_picker import TuiResumePicker
 from .queued import (
     TuiPendingSteers,
@@ -141,7 +140,6 @@ from ..rendering.screen.layout import (
     allocate_approval_view_layout,
     allocate_auxiliary_pane_layout,
     allocate_menu_view_layout,
-    allocate_process_viewer_layout,
     measure_composer_layout,
     measure_overlay_layout
 )
@@ -447,19 +445,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.startup_menu_footer_control = FormattedTextControl(
             self._menu_footer_fragments,
         )
-        self.process_viewer = TuiProcessViewer(
-            invalidate=self.invalidate,
-            focus_viewer=lambda: self._activate_bottom_surface("process_viewer"),
-            focus_input=lambda: self._deactivate_bottom_surface("process_viewer"),
-            get_width=lambda: self.terminal_width,
-        )
-        self.process_viewer_control = FormattedTextControl(
-            self.process_viewer.fragments,
-            focusable=True,
-            modal=True,
-            key_bindings=self.process_viewer.key_bindings,
-        )
-
         self.transcript_overlay = TuiTranscriptOverlay(
             document=self.document,
             get_width=lambda: self.terminal_width,
@@ -700,18 +685,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             always_hide_cursor=True,
             dont_extend_height=True,
         )
-        self.process_viewer_window = Window(
-            content=self.process_viewer_control,
-            height=self._process_viewer_dimension,
-            wrap_lines=False,
-            always_hide_cursor=True,
-            dont_extend_height=True,
-        )
-        self.process_viewer_top_padding = Window(
-            height=self._process_viewer_top_padding_dimension,
-            char=" ",
-            dont_extend_height=True,
-        )
         self.footer_window = Window(
             content=self.footer_control,
             height=Dimension.exact(1),
@@ -766,26 +739,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             self.menu_footer_window,
             filter=Condition(lambda: self.bottom_pane.is_active("menu")),
         )
-        self.process_viewer_card = ConditionalContainer(
-            HSplit(
-                [
-                    self.process_viewer_top_padding,
-                    self.process_viewer_window,
-                ],
-                align=VerticalAlign.TOP,
-                window_too_small=Window(),
-            ),
-            filter=Condition(
-                lambda: self.bottom_pane.is_active("process_viewer")
-            ),
-        )
         self.active_view_area = ConditionalContainer(
             HSplit(
                 [
                     self.approval_card,
                     self.menu_card,
                     self.menu_footer,
-                    self.process_viewer_card,
                 ],
                 align=VerticalAlign.TOP,
                 height=self._active_view_dimension,
@@ -1675,14 +1634,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
 
     def _inline_frame_height(self, *, width: int, height: int) -> int:
-        """返回不会推动原生终端滚屏的 inline 布局高度。"""
+        """根据动态内容决定 inline 布局是否使用完整终端高度。"""
         application = getattr(self, "application", None)
         if application is None or application.full_screen:
             return height
         if (
             self._inline_reply_handoff_growth_active()
-            or self._inline_assistant_growth_active()
-            or self._inline_process_growth_active()
+            or self._inline_active_transcript_growth_active()
             or self._input_auxiliary_height(width=width) > 0
             or self._inline_completion_growth_active()
             or self._inline_input_growth_active(width=width)
@@ -1829,7 +1787,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 if self._startup_gate_active
                 else self.menu_control
             ),
-            "process_viewer": self.process_viewer_control,
         }
         self.application.layout.focus(controls[surface])
 
@@ -2757,14 +2714,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """返回菜单透明提示区域的当前显示高度。"""
         return Dimension.exact(self._menu_footer_height())
 
-    def _process_viewer_dimension(self) -> Dimension:
-        """返回进程查看器内容当前显示高度。"""
-        return Dimension.exact(self._process_viewer_content_height())
-
-    def _process_viewer_top_padding_dimension(self) -> Dimension:
-        """返回进程查看器顶部对齐留白的显示高度。"""
-        return Dimension.exact(self._process_viewer_top_padding_height())
-
     def _active_view_dimension(self) -> Dimension:
         """返回当前临时交互表面的统一显示高度。"""
         return Dimension.exact(self._active_view_layout().total_height)
@@ -3187,22 +3136,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             else 0
         )
 
-    def _process_viewer_content_height(self) -> int:
-        """返回进程查看器内容在当前帧中的显示行数。"""
-        return (
-            self._active_view_layout().content_height
-            if self.bottom_pane.is_active("process_viewer")
-            else 0
-        )
-
-    def _process_viewer_top_padding_height(self) -> int:
-        """返回进程查看器表面顶部留白在当前帧中的显示行数。"""
-        return (
-            self._active_view_layout().top_padding_height
-            if self.bottom_pane.is_active("process_viewer")
-            else 0
-        )
-
     def _bottom_pane_visible(self) -> bool:
         """判断底部状态和交互面板是否参与当前画布。"""
         return not self._transcript_only and not self.directory_trust.active
@@ -3358,13 +3291,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 vertical_inset=TuiMenu.SURFACE_VERTICAL_INSET,
             )
 
-        if surface == "process_viewer":
-            return allocate_process_viewer_layout(
-                available_height=available_height,
-                natural_content_height=self.process_viewer.height(),
-                top_padding=self.INPUT_SURFACE_PADDING_HEIGHT,
-            )
-
         raise ValueError(f"Unsupported bottom surface: {surface}")
 
     def _interaction_height(self) -> int:
@@ -3410,13 +3336,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             and self._queued_content_visible()
         )
 
-    def _inline_process_growth_active(self) -> bool:
-        """判断当前进程正文是否允许推动 inline 画布增长。"""
-        return bool(
-            self.bottom_pane.input_visible
-            and self.process_viewer.input_passthrough
-            and self.document.active_kind == "operation"
-        )
+    def _inline_active_transcript_growth_active(self) -> bool:
+        """判断动态正文是否应通过终端滚屏为自身扩展画布。"""
+        return self.document.active_block is not None
 
     def _inline_completion_growth_active(self) -> bool:
         """判断补全候选是否允许推动 inline 画布增长。"""
@@ -3440,14 +3362,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             and self.bottom_pane.input_visible
             and self.document.active_block is None
             and self.document.visible_tail_kind == "user"
-        )
-
-    def _inline_assistant_growth_active(self) -> bool:
-        """判断当前回复正文是否允许推动 inline 画布增长。"""
-        return bool(
-            self._get_submission_deferred()
-            and self.bottom_pane.input_visible
-            and self.document.active_kind == "assistant"
         )
 
     def _output_size(self) -> tuple[int, int]:
