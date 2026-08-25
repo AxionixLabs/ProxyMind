@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from mind_app.frontend import ApplicationView
+from mind_app.frontend import ApplicationSink, ApplicationView
 from mind_nova.identifiers import short_uid
 from mind_nova.requests.fork import ResubmittablePrompt
 from ..core.runtime import (
@@ -35,6 +35,7 @@ from .dispatch import (
 )
 from .state import TuiSessionState
 from .turn import (
+    emit_tui_interrupt_notice,
     execute_tui_model_turn,
     run_tui_model_turn
 )
@@ -44,25 +45,58 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 
+@typing.runtime_checkable
+class _PendingAttachmentCheck(typing.Protocol):
+    """描述会话循环读取待提交附件状态所需的能力。"""
+
+    def has_pending_attachments(self) -> bool:
+        """返回当前是否存在待提交附件。"""
+        ...
+
+
+@typing.runtime_checkable
+class _PendingAttachmentSnapshot(typing.Protocol):
+    """描述会话循环固定待提交附件快照所需的能力。"""
+
+    def pending_attachments_snapshot(
+        self,
+    ) -> list[dict[str, typing.Any]]:
+        """返回待提交附件的独立快照。"""
+        ...
+
+
+class _TurnInterruptNotice:
+    """管理单轮中断提示的展示状态。"""
+
+    def __init__(
+        self,
+        application: ApplicationSink,
+        runtime: TuiRuntime,
+    ) -> None:
+        self._application = application
+        self._runtime     = runtime
+
+        self.shown: bool = False
+
+    def acknowledge(self) -> None:
+        """立即结束 TUI 展示等待，同时保留后台轮次清理屏障。"""
+        if self.shown:
+            return None
+        self.shown = True
+        self._runtime.clear_active_renderable()
+        self._runtime.set_execution_active(False)
+        emit_tui_interrupt_notice(self._application)
+
+
 def _pending_attachment_snapshot(
-    attachment_state: typing.Any
+    attachment_state: object
 ) -> tuple[dict[str, typing.Any], ...]:
     """读取并固定待提交附件快照的结构。"""
-    reader = getattr(
-        attachment_state,
-        "pending_attachments_snapshot",
-        None,
-    )
-    if not callable(reader):
-        return ()
-
-    values = reader()
-    if not isinstance(values, (list, tuple)):
+    if not isinstance(attachment_state, _PendingAttachmentSnapshot):
         return ()
     return tuple(
-        dict(item)
-        for item in values
-        if isinstance(item, dict)
+        item.copy()
+        for item in attachment_state.pending_attachments_snapshot()
     )
 
 
@@ -77,16 +111,13 @@ async def run_tui_loop(
     application = mind.frontend.application
     runtime     = require_tui_runtime(mind.frontend.runtime)
 
-    attachment_state = getattr(mind, "attach", None)
-
-    attachment_check = getattr(
-        attachment_state,
-        "has_pending_attachments",
-        None,
+    attachment_state: object = getattr(mind, "attach", None)
+    attachment_check = (
+        attachment_state.has_pending_attachments
+        if isinstance(attachment_state, _PendingAttachmentCheck)
+        else None
     )
-    runtime.bind_pending_attachment_check(
-        attachment_check if callable(attachment_check) else None
-    )
+    runtime.bind_pending_attachment_check(attachment_check)
     runtime.start_background_task(
         monitor_exec_status(runtime, mind),
         name="process status",
@@ -253,6 +284,8 @@ async def run_tui_loop(
                 attachments=attachments,
             )
 
+        interrupt_notice = _TurnInterruptNotice(application, runtime)
+
         await execute_tui_model_turn(
             application,
             runtime,
@@ -265,10 +298,16 @@ async def run_tui_loop(
                 prompt_extras=prompt_extras,
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
+                on_interrupt_acknowledged=interrupt_notice.acknowledge,
             ),
             turn_input_control=turn_input_control,
             stream_command_handler=dispatcher.handle_stream_command,
-            show_interrupt_notice=lambda: not mind.task_event.is_set(),
+            show_interrupt_notice=(
+                lambda: (
+                    not interrupt_notice.shown
+                    and not mind.task_event.is_set()
+                )
+            ),
         )
         runtime.set_turn_start_pending(False)
         exit_reason = runtime.consume_exit_request()

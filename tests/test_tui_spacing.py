@@ -4563,18 +4563,17 @@ async def test_stream_commit_during_resize_reflows_only_final_geometry() -> None
 async def test_modal_return_refreshes_terminal_geometry() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-        terminal_size = Size(rows=10, columns=40)
+        terminal = SimpleNamespace(size=Size(rows=10, columns=40))
 
         with patch.object(
             runtime.screen.application.output,
             "get_size",
-            side_effect=lambda: terminal_size,
+            side_effect=lambda: terminal.size,
         ):
             await runtime.open()
             try:
                 async def external_program() -> str:
-                    nonlocal terminal_size
-                    terminal_size = Size(rows=16, columns=32)
+                    terminal.size = Size(rows=16, columns=32)
                     return "done"
 
                 assert await runtime.run_modal(external_program) == "done"

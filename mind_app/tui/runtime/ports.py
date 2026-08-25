@@ -95,6 +95,10 @@ class TurnRuntimePort(typing.Protocol):
         """更新模型轮次执行状态。"""
         ...
 
+    def clear_active_renderable(self) -> None:
+        """清除已经停止的流式展示尾部。"""
+        ...
+
     def set_turn_start_pending(self, pending: bool) -> None:
         """更新已提交但尚未开始的模型轮次状态。"""
         ...
@@ -162,8 +166,8 @@ class TurnInputRuntimePort(typing.Protocol):
         self,
         turn_id: str,
         submission: TuiSubmission,
-    ) -> None:
-        """把已确认的即时输入追加到当前轮次正文。"""
+    ) -> bool:
+        """把已确认的即时输入追加到当前轮次正文并返回是否成功。"""
         ...
 
     def defer_rejected_steer(self, submission: TuiSubmission) -> None:

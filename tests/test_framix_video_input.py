@@ -221,8 +221,7 @@ async def test_framix_core_rejects_invalid_label_date(tmp_path) -> None:
 
 @pytest.mark.anyio
 async def test_framix_serializes_external_processes(monkeypatch) -> None:
-    active = 0
-    max_active = 0
+    process_state = SimpleNamespace(active=0, max_active=0, next_id=0)
 
     async def empty_stream():
         if False:
@@ -236,20 +235,19 @@ async def test_framix_serializes_external_processes(monkeypatch) -> None:
             self.returncode = None
 
         async def wait(self):
-            nonlocal active, max_active
-            active += 1
-            max_active = max(max_active, active)
+            process_state.active += 1
+            process_state.max_active = max(
+                process_state.max_active,
+                process_state.active,
+            )
             await asyncio.sleep(0.01)
-            active -= 1
+            process_state.active -= 1
             self.returncode = 0
 
-    process_id = 0
-
     async def cmd_link_exec(_cmd, *, env=None):
-        nonlocal process_id
         _ = env
-        process_id += 1
-        return ProcessStub(process_id)
+        process_state.next_id += 1
+        return ProcessStub(process_state.next_id)
 
     framix = Framix()
     monkeypatch.setattr(framix, "run_lock", asyncio.Lock())
@@ -263,8 +261,8 @@ async def test_framix_serializes_external_processes(monkeypatch) -> None:
         framix._Framix__engine("second"),
     )
 
-    assert process_id == 2
-    assert max_active == 1
+    assert process_state.next_id == 2
+    assert process_state.max_active == 1
 
 
 @pytest.mark.anyio

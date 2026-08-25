@@ -36,6 +36,21 @@ if typing.TYPE_CHECKING:
     from ...runtime.turns.result import RunResult
 
 
+def emit_tui_interrupt_notice(application: ApplicationSink) -> None:
+    """提交一条与 Codex 一致的会话中断提示。"""
+    application.emit(ApplicationView(
+        type="tui.interrupted",
+        renderable=fragment_block(
+            TextSpan("■", FAILURE_STYLE),
+            TextSpan(" Conversation interrupted", BODY_STYLE),
+            TextSpan(
+                f" · Tell {const.APP_DESC} what to do differently.",
+                MUTED_STYLE,
+            ),
+        ),
+    ))
+
+
 async def execute_tui_model_turn(
     application: ApplicationSink,
     runtime: TurnRuntimePort,
@@ -143,17 +158,7 @@ async def execute_tui_model_turn(
         raise fatal_error
 
     if interrupted and show_interrupt_notice():
-        application.emit(ApplicationView(
-            type="tui.interrupted",
-            renderable=fragment_block(
-                TextSpan("■", FAILURE_STYLE),
-                TextSpan(" Response interrupted", BODY_STYLE),
-                TextSpan(
-                    f" · Tell {const.APP_DESC} what to do differently.",
-                    MUTED_STYLE,
-                ),
-            ),
-        ))
+        emit_tui_interrupt_notice(application)
 
     return result
 
@@ -170,7 +175,8 @@ async def run_tui_model_turn(
         [list[dict[str, typing.Any]]],
         None,
     ] | None = None,
-    turn_input_control: TuiTurnInputControl | None = None
+    turn_input_control: TuiTurnInputControl | None = None,
+    on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
 ) -> None:
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     attachments: list[dict[str, typing.Any]] = []
@@ -245,6 +251,8 @@ async def run_tui_model_turn(
             prompt_kwargs["on_turn_stream_end"] = (
                 turn_input_control.handle_stream_end
             )
+        if on_interrupt_acknowledged is not None:
+            prompt_kwargs["on_turn_interrupted"] = on_interrupt_acknowledged
 
         return await mind.run_turn_lifecycle(
             runner,

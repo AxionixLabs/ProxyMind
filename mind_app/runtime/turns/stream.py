@@ -408,6 +408,10 @@ async def stream_turn(
         kwargs.pop("on_turn_stream_end", None),
         name="on_turn_stream_end",
     )
+    on_turn_interrupted = _optional_callback(
+        kwargs.pop("on_turn_interrupted", None),
+        name="on_turn_interrupted",
+    )
     on_retry_state = _optional_callback(
         kwargs.pop("on_retry_state", None),
         name="on_retry_state",
@@ -420,6 +424,8 @@ async def stream_turn(
         reentry_kwargs["on_turn_input_event"] = on_turn_input_event
     if on_turn_stream_end is not None:
         reentry_kwargs["on_turn_stream_end"] = on_turn_stream_end
+    if on_turn_interrupted is not None:
+        reentry_kwargs["on_turn_interrupted"] = on_turn_interrupted
     if on_retry_state is not None:
         reentry_kwargs["on_retry_state"] = on_retry_state
 
@@ -844,6 +850,8 @@ async def stream_turn(
 
                 if event.status == "interrupted":
                     interrupted = True
+                    if on_turn_interrupted is not None:
+                        on_turn_interrupted()
                 elif event.status == "completed":
                     turn_completed = True
                 else:

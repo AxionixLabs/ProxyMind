@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -146,12 +147,9 @@ async def test_empty_conversation_starts_new_session_without_remote_fork(
     mind = ForkMindStub()
     mind.animate = False
     mind.conversation.fork_source_available = False
-    requested = False
-
-    async def request_fork(**_kwargs):
-        nonlocal requested
-        requested = True
-        raise AssertionError("empty conversation must not call /fork")
+    request_fork = AsyncMock(
+        side_effect=AssertionError("empty conversation must not call /fork")
+    )
 
     monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
 
@@ -170,7 +168,7 @@ async def test_empty_conversation_starts_new_session_without_remote_fork(
     assert mind.resets == [("command:/fork-empty", "tui:fork-empty")]
     assert mind.cleared == []
     assert mind.started == []
-    assert requested is False
+    request_fork.assert_not_awaited()
 
 
 @pytest.mark.anyio

@@ -610,7 +610,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
     tmp_path,
 ) -> None:
     events = []
-    browser_closed = False
+    browser_closed = asyncio.Event()
     runtime = TuiRuntime()
     runtime.open = AsyncMock()
     frontend = SimpleNamespace(
@@ -651,7 +651,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
     )
 
     async def start_external_mcp(_controller) -> None:
-        assert browser_closed
+        assert browser_closed.is_set()
         events.append("external_mcp")
 
     monkeypatch.setattr(bootstrap, "start_tui_external_mcp", start_external_mcp)
@@ -666,12 +666,11 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         return startup_catalog
 
     async def open_hooks_browser(browser_runtime, _controller, *, catalog):
-        nonlocal browser_closed
         assert catalog is startup_catalog
         assert not browser_runtime.startup_gate_active
         events.append("browser")
         await asyncio.sleep(0)
-        browser_closed = True
+        browser_closed.set()
 
     monkeypatch.setattr(tui_hooks, "review_startup_hooks", review_hooks)
     monkeypatch.setattr(tui_hooks, "manage_hooks", open_hooks_browser)

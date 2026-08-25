@@ -262,6 +262,7 @@ async def _run_stream(
     ] | None = None,
     on_turn_input_event: typing.Callable[[typing.Any], typing.Any] | None = None,
     on_turn_stream_end: typing.Callable[[str], None] | None = None,
+    on_turn_interrupted: typing.Callable[[], None] | None = None,
     mind_state: SimpleNamespace | None = None,
     show_hook_lifecycle: bool = False,
 ) -> tuple[RunResult, SimpleNamespace]:
@@ -338,6 +339,8 @@ async def _run_stream(
         stream_options["on_turn_input_event"] = on_turn_input_event
     if on_turn_stream_end is not None:
         stream_options["on_turn_stream_end"] = on_turn_stream_end
+    if on_turn_interrupted is not None:
+        stream_options["on_turn_interrupted"] = on_turn_interrupted
 
     result = await stream.stream_turn(
         mind,
@@ -347,6 +350,30 @@ async def _run_stream(
         **stream_options,
     )
     return result, mind
+
+
+@pytest.mark.anyio
+async def test_interrupted_turn_notifies_before_stream_cleanup(monkeypatch) -> None:
+    notifications: list[str] = []
+
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "turn.done",
+                "status": "interrupted",
+                "usage": {},
+            },
+            {
+                "type": "turn.logical_settled",
+                "next_input": None,
+            },
+        ],
+        on_turn_interrupted=lambda: notifications.append("acknowledged"),
+    )
+
+    assert result.status == "interrupted"
+    assert notifications == ["acknowledged"]
 
 
 def test_run_result_maps_status_to_exit_code() -> None:

@@ -337,7 +337,7 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     view = application.emit.call_args.args[0]
     assert view.type == "tui.interrupted"
     assert _fragments_text(view.renderable.fragments) == (
-        f"■ Response interrupted · Tell {const.APP_DESC} what to do differently."
+        f"■ Conversation interrupted · Tell {const.APP_DESC} what to do differently."
     )
 
     TuiApplicationSink(runtime)._emit_active(view)

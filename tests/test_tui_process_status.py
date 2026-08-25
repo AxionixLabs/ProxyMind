@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from prompt_toolkit.utils import get_cwidth
@@ -116,28 +116,24 @@ def test_process_status_remains_static() -> None:
 
 @pytest.mark.anyio
 async def test_process_status_breathes_without_activity_slot() -> None:
-    invalidations = 0
-
-    def invalidate() -> None:
-        nonlocal invalidations
-        invalidations += 1
+    invalidate = Mock()
 
     runtime = TuiRuntime()
     status = runtime.screen.process_status
     status._invalidate = invalidate
 
     runtime.set_process_status_label("ping -t 8.8.8.8")
-    first_refresh_count = invalidations
+    first_refresh_count = invalidate.call_count
     assert runtime.activity.active is False
 
     await asyncio.sleep(0)
-    assert invalidations > first_refresh_count
+    assert invalidate.call_count > first_refresh_count
     assert runtime.activity.active is False
 
     runtime.set_process_status_label("")
-    stopped_refresh_count = invalidations
+    stopped_refresh_count = invalidate.call_count
     await asyncio.sleep(0)
-    assert invalidations == stopped_refresh_count
+    assert invalidate.call_count == stopped_refresh_count
 
 
 def test_process_status_filters_controls_before_clipping() -> None:

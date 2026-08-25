@@ -667,18 +667,12 @@ def _wrap_fragment_line(
 
     used: int = 0
 
-    def flush() -> None:
-        nonlocal current, used
-        lines.append(_trim_trailing_space(current))
-        current = []
-        used    = 0
-
     for style, text in parts:
         for token in re.findall(r"\s+|\S+", str(text)):
             token_width = max(0, get_cwidth(token))
             if token.isspace():
                 if used and used + token_width > limit:
-                    flush()
+                    current, used = _flush_wrapped_line(lines, current)
                     continue
                 if not used and lines:
                     continue
@@ -691,7 +685,7 @@ def _wrap_fragment_line(
                 and used + token_width > limit
                 and (token_width <= limit or used >= limit)
             ):
-                flush()
+                current, used = _flush_wrapped_line(lines, current)
 
             remaining = token
             while remaining:
@@ -702,11 +696,20 @@ def _wrap_fragment_line(
                 current.append((style, chunk))
                 used += max(0, get_cwidth(chunk))
                 if remaining:
-                    flush()
+                    current, used = _flush_wrapped_line(lines, current)
 
     if current or not lines:
-        flush()
+        _flush_wrapped_line(lines, current)
     return lines
+
+
+def _flush_wrapped_line(
+    lines: list[list[tuple[str, str]]],
+    current: list[tuple[str, str]]
+) -> tuple[list[tuple[str, str]], int]:
+    """提交当前换行片段并返回空的累积状态。"""
+    lines.append(_trim_trailing_space(current))
+    return [], 0
 
 
 def _line_with_suffix(
@@ -714,7 +717,7 @@ def _line_with_suffix(
     *,
     suffix: str,
     suffix_style: str,
-    max_width: int,
+    max_width: int
 ) -> list[tuple[str, str]]:
     """裁剪单行并追加可见的省略标记。"""
     suffix_width = max(0, get_cwidth(suffix))
@@ -730,7 +733,7 @@ def _clip_plain_line(
     text: str,
     *,
     style: str,
-    max_width: int,
+    max_width: int
 ) -> list[tuple[str, str]]:
     """把纯文本裁剪成单个显示行。"""
     return _clip_fragment_line([(style, text)], max_width=max_width)
@@ -739,7 +742,7 @@ def _clip_plain_line(
 def _clip_fragment_line(
     line: list[tuple[str, str]],
     *,
-    max_width: int,
+    max_width: int
 ) -> list[tuple[str, str]]:
     """按显示宽度裁剪格式化单行。"""
     remaining_width = max(0, int(max_width))

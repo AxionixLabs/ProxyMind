@@ -186,15 +186,14 @@ async def test_queued_stdio_does_not_occupy_general_connection_slot(
 
 @pytest.mark.anyio
 async def test_stdio_preflight_does_not_block_event_loop(monkeypatch) -> None:
-    marker_reached = False
+    marker_reached = asyncio.Event()
 
     def blocking_preflight(_server) -> None:
         time.sleep(0.02)
 
     async def mark_scheduled() -> None:
-        nonlocal marker_reached
         await asyncio.sleep(0)
-        marker_reached = True
+        marker_reached.set()
 
     monkeypatch.setattr(mcp_config, "preflight_stdio_server", blocking_preflight)
 
@@ -205,7 +204,7 @@ async def test_stdio_preflight_does_not_block_event_loop(monkeypatch) -> None:
     })
 
     assert marker.done()
-    assert marker_reached
+    assert marker_reached.is_set()
 
 
 @pytest.mark.anyio
@@ -449,12 +448,11 @@ async def test_external_mcp_tool_collection_yields_to_event_loop() -> None:
                 for index in range(64)
             ])
 
-    marker_reached = False
+    marker_reached = asyncio.Event()
 
     async def mark_scheduled() -> None:
-        nonlocal marker_reached
         await asyncio.sleep(0)
-        marker_reached = True
+        marker_reached.set()
 
     marker = asyncio.create_task(mark_scheduled())
     group = ExternalMcpGroup()
@@ -464,6 +462,6 @@ async def test_external_mcp_tool_collection_yields_to_event_loop() -> None:
     )
 
     assert marker.done()
-    assert marker_reached
+    assert marker_reached.is_set()
     assert discovered_count == 64
     assert len(tools) == 64

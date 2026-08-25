@@ -219,11 +219,10 @@ async def test_service_runtime_startup_reuses_first_ready_result() -> None:
     mind._service_start_lock = asyncio.Lock()
     mind._service_start_task = None
     mind.service_mcp_linked = False
-    operation_calls = 0
+    operation_called = Mock()
 
     async def operation() -> bool:
-        nonlocal operation_calls
-        operation_calls += 1
+        operation_called()
         await asyncio.sleep(0)
         mind.service_mcp_linked = True
         return True
@@ -234,11 +233,11 @@ async def test_service_runtime_startup_reuses_first_ready_result() -> None:
     )
 
     assert results == [True, True]
-    assert operation_calls == 1
+    assert operation_called.call_count == 1
 
     mind.service_mcp_linked = False
     assert await mind.run_service_runtime_startup(operation)
-    assert operation_calls == 2
+    assert operation_called.call_count == 2
 
 
 @pytest.mark.anyio
@@ -247,12 +246,11 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 ) -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
-    enter_count = 0
+    start_called = Mock()
 
     class ExternalGroup(object):
         async def start(self, servers, status=None):
-            nonlocal enter_count
-            enter_count += 1
+            start_called()
             entered.set()
             await release.wait()
             if status is not None:
@@ -295,7 +293,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     release.set()
     await asyncio.gather(first, second)
 
-    assert enter_count == 1
+    assert start_called.call_count == 1
     assert runtime.group is not None
     snapshot = runtime.last_start_snapshot
     assert snapshot["done"] is True
@@ -314,12 +312,11 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 
 @pytest.mark.anyio
 async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> None:
-    enter_count = 0
+    start_called = Mock()
 
     class ExternalGroup(object):
         async def start(self, _servers, status=None):
-            nonlocal enter_count
-            enter_count += 1
+            start_called()
             if status is not None:
                 status.finish()
             return 0
@@ -355,7 +352,7 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
     await runtime.start()
     await runtime.start()
 
-    assert enter_count == 2
+    assert start_called.call_count == 2
     assert not runtime.started
     assert runtime.group is None
 

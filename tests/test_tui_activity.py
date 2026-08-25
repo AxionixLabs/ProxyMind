@@ -1062,19 +1062,20 @@ async def test_cancelling_during_pause_waits_for_session_setup() -> None:
     coordinator = ApprovalCoordinator(runtime)
     pause_started = asyncio.Event()
     release_pause = asyncio.Event()
-    resumes = 0
-
     class ActivityStub(object):
+        def __init__(self) -> None:
+            self.resume_count = 0
+
         async def pause_wait(self) -> bool:
             pause_started.set()
             await release_pause.wait()
             return True
 
         async def resume_wait(self) -> None:
-            nonlocal resumes
-            resumes += 1
+            self.resume_count += 1
 
-    runtime.activity = ActivityStub()
+    activity = ActivityStub()
+    runtime.activity = activity
     first = asyncio.create_task(coordinator.request({
         "id": "first",
         "tool": "shell_command",
@@ -1100,7 +1101,7 @@ async def test_cancelling_during_pause_waits_for_session_setup() -> None:
     await _wait_for_approval(runtime, "first")
     runtime.screen.approval.finish("accept")
     assert await first == "accept"
-    assert resumes == 1
+    assert activity.resume_count == 1
     assert not runtime._approval_session_active
     assert not runtime._approval_wait_paused
 
