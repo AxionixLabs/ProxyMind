@@ -84,7 +84,8 @@ async def test_mcp_menu_does_not_duplicate_invalid_config_marker(monkeypatch) ->
 
     await mcp.choose_mcp_action(runtime, object())
 
-    assert runtime.request.status == "config=invalid"
+    assert runtime.request.title_accent_suffix == ""
+    assert runtime.request.status == "Manage configured external MCP services."
     assert runtime.request.body == ("invalid config",)
 
 

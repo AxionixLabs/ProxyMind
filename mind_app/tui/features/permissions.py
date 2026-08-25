@@ -206,10 +206,9 @@ async def choose_permissions_mode(
             selected_index = len(options) - 1
 
     selected = await runtime.select_menu(MenuRequest(
-        title=f"Update Model Permissions · {permission_label(current)}",
-        title_accent_suffix=f" · {permission_label(current)}",
-        body=("",),
+        title="Update Model Permissions",
         view_id="permissions:root",
+        status="Choose how model actions are approved.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,

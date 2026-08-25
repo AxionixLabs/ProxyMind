@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from engine.errors import AppError
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
+from mind_app.presentation.models import TextSpan
 from mind_core.mcp_status import (
     McpStatusDetail,
     McpStatusView
 )
-from ..core.mailbox import format_mailbox_count
 from ..core.models import (
     CLOSE_MENU_FOOTER_HINT,
     MailboxEntry,
@@ -22,6 +22,11 @@ from ..core.models import (
     STANDARD_MENU_FOOTER_HINT
 )
 from ..core.runtime import TuiRuntime
+from ..core.styles import (
+    BODY_STYLE,
+    BRIGHT_STYLE,
+    fragment_block
+)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -171,28 +176,33 @@ class TuiMailboxFeature(object):
         """生成当前收件箱摘要菜单。"""
         entries = self.runtime.mailbox_entries()
 
-        listener = self._listener
-        if listener is not None and listener.is_ready():
-            listener_state = "listening"
-        elif listener is not None and listener.is_running():
-            listener_state = "connecting"
-        else:
-            listener_state = "stopped"
-
-        auto_state = "on" if self.auto_run else "off"
-
-        options = (
+        auto_options = (
             MenuOption(
-                ("auto", not self.auto_run),
-                f"Auto-run: {auto_state}",
+                ("auto", True),
+                "Auto-run: on",
                 "Run pending and newly received messages in order.",
                 on_select=(
-                    lambda: on_auto(not self.auto_run)
+                    lambda: on_auto(True)
                     if on_auto is not None
                     else None
                 ),
                 dismiss_on_select=on_auto is None,
             ),
+            MenuOption(
+                ("auto", False),
+                "Auto-run: off",
+                "Keep messages pending until run manually.",
+                on_select=(
+                    lambda: on_auto(False)
+                    if on_auto is not None
+                    else None
+                ),
+                dismiss_on_select=on_auto is None,
+            ),
+        )
+        auto_selected = 0 if self.auto_run else 1
+        options = (
+            *auto_options,
             *(
                 MenuOption(
                     ("message", entry.key),
@@ -212,15 +222,12 @@ class TuiMailboxFeature(object):
         return MenuRequest(
             title="Mailbox",
             view_id="mailbox:summary",
-            status=(
-                f"{format_mailbox_count(len(entries))} pending "
-                f"· auto={auto_state} · {listener_state}"
-            ),
+            status="View and process remote request messages.",
             help_text="",
             footer_hint=STANDARD_MENU_FOOTER_HINT,
             description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
             options=options,
-            selected=1 if entries else 0,
+            selected=len(auto_options) if entries else auto_selected,
         )
 
     def _entry(self, message_id: str) -> MailboxEntry | None:
@@ -453,7 +460,14 @@ class TuiMailboxFeature(object):
 def render_mailbox_auto_status(controller: "Mind", enabled: bool) -> None:
     """展示自动运行策略切换结果。"""
     state = "enabled" if enabled else "disabled"
-    _present_status(controller, f"Mailbox auto-run {state}")
+    controller.frontend.application.emit(ApplicationView(
+        type="tui.mailbox.status",
+        renderable=fragment_block(
+            TextSpan("• ", BODY_STYLE),
+            TextSpan(f"Mailbox auto-run {state}", BRIGHT_STYLE),
+        ),
+    ))
+    controller.frontend.application.emit(ApplicationView(type="tui.gap"))
 
 
 def render_mailbox_deleted(controller: "Mind") -> None:

@@ -82,6 +82,7 @@ async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
     """显示当前会话归档确认菜单并返回用户是否确认。"""
     selected = await runtime.select_menu(MenuRequest(
         title="Archive this session?",
+        status="Archive the current session and exit.",
         body=(
             f"Are you sure? This will archive the current session "
             f"and exit {const.APP_DESC}",

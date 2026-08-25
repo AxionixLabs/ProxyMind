@@ -74,7 +74,9 @@ async def test_skills_root_opens_list_in_main_input(
     assert await skills_feature.choose_skill(runtime, session) is None
 
     root_request = runtime.select_menu.await_args.args[0]
-    assert root_request.help_text == "Choose an action"
+    assert root_request.title_accent_suffix == ""
+    assert root_request.status == "Browse and manage available skills."
+    assert root_request.help_text == ""
     assert [option.label for option in root_request.options] == [
         "List skills",
         "Enable/Disable Skills",

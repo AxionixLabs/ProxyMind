@@ -149,10 +149,15 @@ class TuiUpgradeProgress(object):
 
 def render_helix_mode_result(mind: "Mind", mode: ToolFilterMode) -> None:
     """展示工具过滤模式切换结果。"""
-    _present(mind, command_result_block(
-        "/helix-mode",
-        TextSpan(mode, BRIGHT_STYLE),
-    ))
+    _present(
+        mind,
+        fragment_block(
+            TextSpan("• ", BODY_STYLE),
+            TextSpan("Helix tool filter set to ", BRIGHT_STYLE),
+            TextSpan(mode, BRIGHT_STYLE),
+        ),
+        view_type="tui.helix.status",
+    )
     _present(mind, view_type="tui.gap")
 
 
@@ -189,16 +194,15 @@ def render_helix_command_failure(
     _present(mind, view_type="tui.gap")
 
 
-def render_helix_command_hint(
+def render_helix_notice(
     mind: "Mind",
-    command: str,
     message: str
 ) -> None:
-    """展示 Helix 命令的普通状态提示。"""
+    """展示不带命令前缀的 Helix 普通状态提示。"""
     _present(
         mind,
-        command_result_block(
-            command,
+        fragment_block(
+            TextSpan("• ", BODY_STYLE),
             TextSpan(str(message).strip(), BODY_STYLE),
         ),
         view_type="tui.helix.status",
@@ -301,24 +305,26 @@ def unlink_helix_runtime(mind: "Mind") -> None:
     was_linked = mind.is_service_mcp_linked()
     mind.unlink_service_mcp()
 
-    state = "unlinked" if was_linked else "already unlinked"
+    if not was_linked:
+        render_helix_notice(mind, "Helix MCP already unlinked")
+        return None
 
     _present(mind, command_result_block(
         "/helix-unlink",
-        TextSpan(state.capitalize(), BRIGHT_STYLE),
+        TextSpan("Unlinked", BRIGHT_STYLE),
     ))
     _present(mind, view_type="tui.gap")
 
 
 async def confirm_runtime_download(
     runtime: TuiRuntime,
-    context: ServiceRuntimeContext
+    _context: ServiceRuntimeContext
 ) -> bool:
     """在主 TUI 中确认是否下载缺失的 Helix 运行时。"""
     result = await runtime.select_menu(MenuRequest(
         title="Helix Runtime Setup",
         view_id="helix:runtime-setup",
-        status=context.app_desc,
+        status="Download the Helix runtime required for MCP tools.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
@@ -351,9 +357,9 @@ async def choose_helix_tool_profile(
 ) -> ToolFilterMode | None:
     """选择当前服务连接使用的工具过滤模式。"""
     selected = await runtime.select_menu(MenuRequest(
-        title=f"Update Helix Tool Mode · {current}",
-        title_accent_suffix=f" · {current}",
+        title="Update Helix Tool Mode",
         view_id="helix:tool-mode",
+        status="Choose the tool filter used by the connected Helix MCP.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,

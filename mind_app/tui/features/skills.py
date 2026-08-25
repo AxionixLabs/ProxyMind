@@ -53,7 +53,8 @@ def _root_request() -> MenuRequest:
     return MenuRequest(
         title="Skills",
         view_id="skills:root",
-        help_text="Choose an action",
+        status="Browse and manage available skills.",
+        help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         options=(
             MenuOption(

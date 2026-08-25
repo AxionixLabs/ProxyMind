@@ -251,17 +251,16 @@ def test_parse_listener_command(value: str, expected) -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("running", "ready", "expected_status", "expected_selected"),
+    ("running", "ready", "expected_selected"),
     (
-        (False, False, "stopped", 0),
-        (True, False, "starting", 1),
-        (True, True, "ready", 1),
+        (False, False, 0),
+        (True, False, 1),
+        (True, True, 1),
     ),
 )
-async def test_listener_menu_keeps_status_in_title_line(
+async def test_listener_menu_uses_command_description(
     running: bool,
     ready: bool,
-    expected_status: str,
     expected_selected: int,
 ) -> None:
     runtime = SimpleNamespace(select_menu=AsyncMock(return_value="start"))
@@ -272,9 +271,9 @@ async def test_listener_menu_keeps_status_in_title_line(
 
     assert selected == "start"
     request = runtime.select_menu.await_args.args[0]
-    assert request.title == f"Update Listener · {expected_status}"
-    assert request.title_accent_suffix == f" · {expected_status}"
-    assert request.status == ""
+    assert request.title == "Update Listener"
+    assert request.title_accent_suffix == ""
+    assert request.status == "Start or stop the remote request listener."
     assert request.body == ()
     assert request.selected == expected_selected
     assert request.view_id == "listener:root"

@@ -183,16 +183,6 @@ def _listener_error_detail(error: BaseException) -> str:
     )
 
 
-def _listener_status(listener: "AgentRuntime | None") -> str:
-    """返回监听器菜单和状态结果共用的简短状态。"""
-    if listener is not None and listener.is_ready():
-        return "ready"
-    if listener is not None and listener.is_running():
-        return "starting"
-
-    return "stopped"
-
-
 async def _begin_listener_activity(
     controller: "Mind",
     summary: str
@@ -210,12 +200,11 @@ async def choose_listener_action(
 ) -> ListenerOperation | None:
     """在主 TUI 中选择监听器启动或停止操作。"""
     listener = getattr(controller, "subscription_runtime", None)
-    current  = _listener_status(listener)
 
     selected = await runtime.select_menu(MenuRequest(
-        title=f"Update Listener · {current}",
-        title_accent_suffix=f" · {current}",
+        title="Update Listener",
         view_id="listener:root",
+        status="Start or stop the remote request listener.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,

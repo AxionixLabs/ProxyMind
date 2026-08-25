@@ -831,6 +831,7 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     )
     root = runtime.screen.menu._menu_views()[0].state.request
     assert root.title == "Hooks"
+    assert root.title_accent_suffix == ""
     assert root.status == "Lifecycle hooks from config and enabled plugins."
     assert root.options[0].columns == (
         "PreToolUse", "1", "1", "Before a tool executes"

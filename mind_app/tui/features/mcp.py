@@ -303,21 +303,6 @@ def _mcp_status_rows(
     return sorted(rows, key=lambda row: (str(row["name"]), str(row["transport"])))
 
 
-def external_status_line(summary: dict[str, typing.Any]) -> str:
-    """返回外部 MCP 状态摘要文本。"""
-    if summary.get("config_error"):
-        return "config=invalid"
-
-    configured = summary.get("configured")
-
-    return (
-        f"started={str(bool(summary.get('started'))).lower()} "
-        f"· configured={len(configured) if isinstance(configured, list) else 0} "
-        f"· tools={int(summary.get('tool_count') or 0)} "
-        f"· filtered={int(summary.get('filtered_count') or 0)}"
-    )
-
-
 def default_mcp_action_index(
     summary: dict[str, typing.Any],
     actions: list[tuple[McpAction, str, str]]
@@ -562,7 +547,7 @@ async def choose_mcp_action(runtime: "TuiRuntime", mind: typing.Any) -> McpActio
     return await runtime.select_menu(MenuRequest(
         title="External MCP",
         view_id="mcp:root",
-        status=external_status_line(summary),
+        status="Manage configured external MCP services.",
         body=(config_error,) if config_error else (),
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,

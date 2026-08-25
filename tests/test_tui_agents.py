@@ -102,7 +102,8 @@ def test_agent_list_menu_displays_status_and_queue_counts() -> None:
     request = agent_list_menu(snapshots, root_session_id="sid_root")
 
     assert request.title == "Sub-agents"
-    assert request.status == "active=1 queued=2 total=2"
+    assert request.title_accent_suffix == ""
+    assert request.status == "View and manage sub-agent threads."
     assert request.selected == 0
     assert request.options[0].label == "• Main [default]"
     assert request.options[0].detail == "sid_root"

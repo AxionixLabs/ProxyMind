@@ -173,8 +173,6 @@ def agent_list_menu(
     on_agent_selected: typing.Callable[[AgentSnapshot], None] | None = None
 ) -> MenuRequest:
     """生成当前根会话的子执行线程列表。"""
-    active  = sum(snapshot.status in _ACTIVE_STATUSES for snapshot in snapshots)
-    queued  = sum(snapshot.queued_count for snapshot in snapshots)
     ordered = _tree_ordered_snapshots(snapshots)
 
     options = [MenuOption(
@@ -203,7 +201,7 @@ def agent_list_menu(
     return MenuRequest(
         title="Sub-agents",
         view_id=_agent_root_view_id(root_session_id),
-        status=f"active={active} queued={queued} total={len(snapshots)}",
+        status="View and manage sub-agent threads.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,

@@ -38,7 +38,10 @@ async def test_permissions_menu_uses_primary_selection_contract(
     request = runtime.select_menu.await_args.args[0]
     assert selected == preset_permissions("auto")
     assert request.view_id == "permissions:root"
-    assert request.title == "Update Model Permissions · Ask for approval"
+    assert request.title == "Update Model Permissions"
+    assert request.title_accent_suffix == ""
+    assert request.status == "Choose how model actions are approved."
+    assert request.body == ()
     assert request.help_text == ""
     assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
     assert (

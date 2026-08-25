@@ -133,7 +133,8 @@ async def test_skills_command_opens_native_skill_input(
     assert root_request.title == "Skills"
     assert root_request.options[0].label == "List skills"
     assert root_request.view_id == "skills:root"
-    assert root_request.help_text == "Choose an action"
+    assert root_request.status == "Browse and manage available skills."
+    assert root_request.help_text == ""
     assert root_request.footer_hint == STANDARD_MENU_FOOTER_HINT
 
 
@@ -177,8 +178,9 @@ async def test_provider_selection_persists_active_profile(tmp_path) -> None:
     ]
     assert request.options[-1].detail == "anthropic · claude-test · messages"
     assert request.view_id == "model:provider"
-    assert request.title == "Update Model Provider · openai-main"
-    assert request.title_accent_suffix == " · openai-main"
+    assert request.title == "Update Model Provider"
+    assert request.title_accent_suffix == ""
+    assert request.status == "Choose the provider used by the primary model."
     assert request.help_text == ""
     assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
     assert (
@@ -680,13 +682,62 @@ async def test_downloaded_but_unlinked_helix_command_does_not_start_runtime(
     status = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(
         text for _style, text in status.renderable.fragments
-    ) == f"{command} · Helix MCP is not connected"
+    ) == "• Helix MCP is not connected"
     hint_style = next(
         style
         for style, text in status.renderable.fragments
         if text == "Helix MCP is not connected"
     )
     assert "bold" not in hint_style
+
+
+@pytest.mark.anyio
+async def test_unlinked_helix_stop_reports_not_connected() -> None:
+    views = []
+    state = SimpleNamespace(invalidate_workspace=Mock())
+    foreground = SimpleNamespace(start=Mock(), wait=AsyncMock())
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        is_service_mcp_linked=lambda: False,
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        state,
+        foreground,
+    )
+
+    action = await dispatcher.dispatch("/helix-stop")
+
+    assert action is DispatchAction.HANDLED
+    foreground.start.assert_not_called()
+    foreground.wait.assert_not_awaited()
+    state.invalidate_workspace.assert_not_called()
+    status = next(view for view in views if view.type == "tui.helix.status")
+    assert "".join(text for _style, text in status.renderable.fragments) == (
+        "• Helix MCP is not connected"
+    )
+
+
+def test_unlinked_helix_unlink_reports_already_unlinked() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        is_service_mcp_linked=lambda: False,
+        unlink_service_mcp=Mock(),
+    )
+
+    helix.unlink_helix_runtime(mind)
+
+    mind.unlink_service_mcp.assert_called_once_with()
+    status = next(view for view in views if view.type == "tui.helix.status")
+    assert "".join(text for _style, text in status.renderable.fragments) == (
+        "• Helix MCP already unlinked"
+    )
 
 
 @pytest.mark.anyio
@@ -728,10 +779,10 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
     choose.assert_awaited_once_with(runtime, "app")
     mind.set_service_tool_profile.assert_called_once_with("api")
     state.invalidate_workspace.assert_called_once_with()
-    result = next(view for view in views if view.type == "tui.command")
+    result = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(
         text for _style, text in result.renderable.fragments
-    ) == "/helix-mode · api"
+    ) == "• Helix tool filter set to api"
 
 
 @pytest.mark.anyio
@@ -778,6 +829,8 @@ async def test_archive_confirmation_matches_codex_menu_contract() -> None:
 
     request = runtime.select_menu.await_args.args[0]
     assert request.title == "Archive this session?"
+    assert request.title_accent_suffix == ""
+    assert request.status == "Archive the current session and exit."
     assert request.body == (
         f"Are you sure? This will archive the current session "
         f"and exit {const.APP_DESC}",
@@ -1605,9 +1658,11 @@ async def test_helix_mode_menu_uses_current_profile() -> None:
 
     assert selected == "api"
     request = runtime.select_menu.await_args.args[0]
-    assert request.title == "Update Helix Tool Mode · app"
-    assert request.title_accent_suffix == " · app"
-    assert request.status == ""
+    assert request.title == "Update Helix Tool Mode"
+    assert request.title_accent_suffix == ""
+    assert request.status == (
+        "Choose the tool filter used by the connected Helix MCP."
+    )
     assert [option.value for option in request.options] == ["app", "api"]
     assert request.selected == 0
     assert request.view_id == "helix:tool-mode"
@@ -1640,6 +1695,25 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
     assert ensure.await_args.args == (context,)
     assert ensure.await_args.kwargs["explicit_upgrade"] is False
     mind.link_service_mcp.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_helix_runtime_setup_menu_uses_command_description() -> None:
+    runtime = TuiRuntime()
+    runtime.select_menu = AsyncMock(return_value=False)
+
+    confirmed = await helix.confirm_runtime_download(
+        runtime,
+        SimpleNamespace(app_desc="Mind"),
+    )
+
+    assert confirmed is False
+    request = runtime.select_menu.await_args.args[0]
+    assert request.title == "Helix Runtime Setup"
+    assert request.title_accent_suffix == ""
+    assert request.status == (
+        "Download the Helix runtime required for MCP tools."
+    )
 
 
 def test_helix_home_failure_uses_browser_failure_status() -> None:

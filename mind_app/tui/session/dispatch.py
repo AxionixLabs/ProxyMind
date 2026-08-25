@@ -53,12 +53,12 @@ from ..features.helix import (
     download_service_runtime,
     open_helix_home,
     render_helix_command_failure,
-    render_helix_command_hint,
     render_helix_download_result,
     render_helix_home_failure,
     render_helix_home_result,
     render_helix_interrupted,
     render_helix_mode_result,
+    render_helix_notice,
     render_helix_stop_failure,
     render_helix_stop_result,
     stop_helix_runtime,
@@ -736,18 +736,16 @@ class TuiCommandDispatcher(object):
             if await self._download_missing_helix_runtime("/helix-mode"):
                 return DispatchAction.HANDLED
             if not self.mind.is_service_mcp_linked():
-                render_helix_command_hint(
+                render_helix_notice(
                     self.mind,
-                    "/helix-mode",
                     "Helix MCP is not connected",
                 )
                 return DispatchAction.HANDLED
 
             current = self.mind.tool_profile_for_turn()
             if current is None:
-                render_helix_command_hint(
+                render_helix_notice(
                     self.mind,
-                    "/helix-mode",
                     "Helix tool mode is unavailable",
                 )
                 return DispatchAction.HANDLED
@@ -771,9 +769,8 @@ class TuiCommandDispatcher(object):
             if await self._download_missing_helix_runtime("/helix-home"):
                 return DispatchAction.HANDLED
             if not self.mind.is_service_mcp_linked():
-                render_helix_command_hint(
+                render_helix_notice(
                     self.mind,
-                    "/helix-home",
                     "Helix MCP is not connected",
                 )
                 return DispatchAction.HANDLED
@@ -799,6 +796,13 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_stop"):
+            if not self.mind.is_service_mcp_linked():
+                render_helix_notice(
+                    self.mind,
+                    "Helix MCP is not connected",
+                )
+                return DispatchAction.HANDLED
+
             self.foreground_tasks.start(
                 "Helix MCP stop",
                 lambda: stop_helix_runtime(self.mind),
