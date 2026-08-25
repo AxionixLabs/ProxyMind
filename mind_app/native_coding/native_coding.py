@@ -319,6 +319,14 @@ class NativeCoding(NativeCodingBase):
         """应用受支持的文本补丁。"""
         return self._patch_engine.apply_patch(*args, **kwargs)
 
+    def preview_patch(
+        self,
+        *args: typing.Any,
+        **kwargs: typing.Any
+    ) -> dict[str, typing.Any]:
+        """生成不写入工作区的补丁预览。"""
+        return self._patch_engine.preview_patch(*args, **kwargs)
+
     def reset_patch_diff(self) -> None:
         """清空本轮 apply_patch 差异记录。"""
         self._turn_diff = TurnDiffTracker()

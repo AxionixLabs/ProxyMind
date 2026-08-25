@@ -3,7 +3,8 @@
 
 import typing
 from mind_app.native_coding.base import (
-    NativeCodingBase, NativeCodingComponent
+    NativeCodingBase,
+    NativeCodingComponent
 )
 from mind_nova import const
 from .delta import AppliedPatchDelta
@@ -113,6 +114,50 @@ class TextPatchOperations(NativeCodingComponent):
             relocated_hunk_count=sum(len(item["relocated_hunks"]) for item in planned),
             corrected_hunk_count=sum(len(item["corrected_hunks"]) for item in planned),
             delta=delta.payload()
+        )
+
+    def preview_patch(
+        self,
+        *,
+        patch: str,
+        expected_sha256: dict[str, str] | None = None,
+        force: bool = False
+    ) -> dict[str, typing.Any]:
+        """在不写入工作区的前提下生成补丁展示所需的精确变化。"""
+        planned_result = self._planner.plan_patch(
+            patch=patch,
+            expected_sha256=expected_sha256,
+            force=force,
+        )
+        if not planned_result.get("ok"):
+            data = dict(planned_result.get("data") or {})
+            data.pop("reason", None)
+            data = self._diagnostics.with_patch_diagnostics(
+                data=data,
+                patch=patch,
+            )
+            return self.fail_result(planned_result["reason"], **data)
+
+        planned = planned_result["planned"]
+        delta   = AppliedPatchDelta()
+
+        for item in planned:
+            delta.add_planned_change(item)
+
+        changed_files = [
+            self._planner.public_patch_file(item) for item in planned
+        ]
+        return self.ok_result(
+            f"preview patch ok files={len(planned)} hunks={sum(item['hunks'] for item in planned)}",
+            files=changed_files,
+            file_count=len(planned),
+            hunk_count=sum(item["hunks"] for item in planned),
+            added_lines=sum(item["added_lines"] for item in planned),
+            removed_lines=sum(item["removed_lines"] for item in planned),
+            replacements=sum(item["replacements"] for item in planned),
+            relocated_hunk_count=sum(len(item["relocated_hunks"]) for item in planned),
+            corrected_hunk_count=sum(len(item["corrected_hunks"]) for item in planned),
+            delta=delta.payload(),
         )
 
 

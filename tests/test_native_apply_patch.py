@@ -23,6 +23,51 @@ def test_strict_patch_create_remains_supported(tmp_path) -> None:
     assert result["data"]["created_files"][0]["path"] == "strict.txt"
 
 
+def test_preview_patch_returns_exact_delta_without_writing(tmp_path) -> None:
+    target = tmp_path / "sample.txt"
+    target.write_bytes(b"old\n")
+    coding = NativeCoding(root=tmp_path)
+
+    result = coding.preview_patch(
+        patch=(
+            "*** Begin Patch\n"
+            "*** Update File: sample.txt\n"
+            "@@\n"
+            "-old\n"
+            "+new\n"
+            "*** End Patch"
+        )
+    )
+
+    assert result["ok"]
+    assert result["data"]["files"][0]["path"] == "sample.txt"
+    assert result["data"]["delta"]["changes"] == [{
+        "path": "sample.txt",
+        "action": "modify",
+        "old_content": "old\n",
+        "new_content": "new\n",
+        "source_path": None,
+        "overwritten_content": None,
+        "hunks": [{
+            "lines": [
+                {
+                    "kind": "remove",
+                    "text": "old",
+                    "old_line": 1,
+                    "new_line": None,
+                },
+                {
+                    "kind": "add",
+                    "text": "new",
+                    "old_line": None,
+                    "new_line": 1,
+                },
+            ],
+        }],
+    }]
+    assert target.read_bytes() == b"old\n"
+
+
 def test_strict_patch_modify_and_delete_remain_supported(tmp_path) -> None:
     (tmp_path / "keep.txt").write_text("old\n", encoding="utf-8")
     (tmp_path / "gone.txt").write_text("gone\n", encoding="utf-8")

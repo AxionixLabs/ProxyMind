@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-import difflib
 from pathlib import Path
 from .models import (
     PatchAction,
@@ -17,14 +16,22 @@ from .models import (
 def build_patch_start_view(
     arguments: dict[str, typing.Any],
     *,
+    preview_data: dict[str, typing.Any] | None = None,
     call_id: str = ""
 ) -> PatchView:
     """构建补丁开始执行时的结构化展示数据。"""
     raw_patch = str(arguments.get("patch") or "")
+    if not isinstance(preview_data, dict):
+        raise ValueError("apply_patch start requires a structured preview")
+    if preview_data.get("ok", True) is False:
+        raise ValueError("apply_patch start preview must be successful")
+
     return PatchView(
         call_id=_required_call_id(call_id),
-        phase="applying",
+        phase="proposed",
         raw_patch=raw_patch,
+        files=_files_from_delta(preview_data),
+        result_files=_result_files(preview_data),
     )
 
 
@@ -118,16 +125,9 @@ def _file_from_delta_change(change: dict[str, typing.Any]) -> PatchFileView:
     ):
         raise ValueError(f"apply_patch {action} delta requires old_content and new_content")
 
-    if action == "add":
-        hunks = (_content_hunk(str(new_content or ""), kind="add"),)
-    elif action == "delete":
-        hunks = (_content_hunk(str(old_content or ""), kind="remove"),)
-    else:
-        hunks = _updated_content_hunks(
-            old_content=old_content,
-            new_content=new_content,
-        )
-
+    if "hunks" not in change:
+        raise ValueError("apply_patch delta change requires canonical hunks")
+    hunks = _hunks_from_delta(change["hunks"])
     hunks = tuple(hunk for hunk in hunks if hunk.lines)
 
     added, removed = _line_totals(hunks)
@@ -144,88 +144,50 @@ def _file_from_delta_change(change: dict[str, typing.Any]) -> PatchFileView:
     )
 
 
-def _updated_content_hunks(
-    *,
-    old_content: str | None,
-    new_content: str | None
-) -> tuple[PatchHunkView, ...]:
-    """按三行上下文生成结构化差异块。"""
-    old_lines = str(old_content or "").splitlines()
-    new_lines = str(new_content or "").splitlines()
+def _hunks_from_delta(value: typing.Any) -> tuple[PatchHunkView, ...]:
+    """读取原生 delta 已生成的 canonical hunk 行。"""
+    if not isinstance(value, list):
+        raise TypeError("apply_patch delta hunks must be a list")
 
-    matcher = difflib.SequenceMatcher(
-        None,
-        old_lines,
-        new_lines,
-        autojunk=False,
-    )
+    hunks: list[PatchHunkView] = []
+    for hunk_index, raw_hunk in enumerate(value):
+        if not isinstance(raw_hunk, dict):
+            raise TypeError(f"apply_patch delta hunk {hunk_index} must be an object")
+        raw_lines = raw_hunk.get("lines")
+        if not isinstance(raw_lines, list):
+            raise TypeError(f"apply_patch delta hunk {hunk_index} requires lines")
 
-    return tuple(
-        PatchHunkView(lines=_lines_from_opcodes(group, old_lines, new_lines))
-        for group in matcher.get_grouped_opcodes(n=3)
-    )
-
-
-def _lines_from_opcodes(
-    opcodes: typing.Iterable[tuple[str, int, int, int, int]],
-    old_lines: list[str],
-    new_lines: list[str],
-) -> tuple[PatchLineView, ...]:
-    """把一组差异操作转换为带双侧行号的展示行。"""
-    lines: list[PatchLineView] = []
-    for tag, old_start, old_end, new_start, new_end in opcodes:
-        if tag == "equal":
-            lines.extend(
-                PatchLineView(
-                    kind="context",
-                    text=old_lines[old_index],
-                    old_line=old_index + 1,
-                    new_line=new_index + 1,
+        lines: list[PatchLineView] = []
+        for line_index, raw_line in enumerate(raw_lines):
+            if not isinstance(raw_line, dict):
+                raise TypeError(
+                    f"apply_patch delta hunk line {hunk_index}:{line_index} must be an object"
                 )
-                for old_index, new_index in zip(
-                    range(old_start, old_end),
-                    range(new_start, new_end),
-                    strict=True,
-                )
-            )
-            continue
-        if tag in {"delete", "replace"}:
-            lines.extend(
-                PatchLineView(
-                    kind="remove",
-                    text=old_lines[index],
-                    old_line=index + 1,
-                )
-                for index in range(old_start, old_end)
-            )
-        if tag in {"insert", "replace"}:
-            lines.extend(
-                PatchLineView(
-                    kind="add",
-                    text=new_lines[index],
-                    new_line=index + 1,
-                )
-                for index in range(new_start, new_end)
-            )
-    return tuple(lines)
+            kind = str(raw_line.get("kind") or "").strip().lower()
+            if kind not in {"context", "add", "remove"}:
+                raise ValueError(f"unsupported apply_patch delta line kind: {kind!r}")
+            text = raw_line.get("text")
+            if not isinstance(text, str):
+                raise TypeError("apply_patch delta hunk line text must be text")
+            old_line = _line_number(raw_line.get("old_line"))
+            new_line = _line_number(raw_line.get("new_line"))
+            lines.append(PatchLineView(
+                kind=kind,
+                text=text,
+                old_line=old_line,
+                new_line=new_line,
+            ))
+        hunks.append(PatchHunkView(lines=tuple(lines)))
+    return tuple(hunks)
 
 
-def _content_hunk(
-    content: str,
-    *,
-    kind: typing.Literal["add", "remove"]
-) -> PatchHunkView:
-    """把新增或删除文件的完整内容转换为差异行。"""
-    lines = tuple(
-        PatchLineView(
-            kind=kind,
-            text=text,
-            old_line=index if kind == "remove" else None,
-            new_line=index if kind == "add" else None,
-        )
-        for index, text in enumerate(str(content).splitlines(), start=1)
-    )
-    return PatchHunkView(lines=lines)
+def _line_number(value: typing.Any) -> int | None:
+    """规范化 canonical hunk 中的可选行号。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("apply_patch delta line numbers must be positive integers")
+    return value
 
 
 def _line_totals(hunks: tuple[PatchHunkView, ...]) -> tuple[int, int]:

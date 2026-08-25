@@ -21,15 +21,28 @@ async def show_tool_start(
     name: str,
     arguments: dict[str, typing.Any],
     *,
-    call_id: str = ""
+    call_id: str = "",
+    patch_preview: dict[str, typing.Any] | None = None
 ) -> None:
     """发送普通工具开始执行的结构化展示数据。"""
     if name in {UPDATE_PLAN_TOOL, "write_stdin"}:
         return None
 
-    await presentation.emit(
-        build_tool_start_view(name, arguments, call_id=call_id)
-    )
+    if name == "apply_patch" and not isinstance(patch_preview, dict):
+        return None
+
+    try:
+        view = build_tool_start_view(
+            name,
+            arguments,
+            patch_preview=patch_preview,
+            call_id=call_id,
+        )
+    except (KeyError, TypeError, ValueError):
+        if name == "apply_patch" and isinstance(patch_preview, dict):
+            return None
+        raise
+    await presentation.emit(view)
 
 
 async def show_tool_result(

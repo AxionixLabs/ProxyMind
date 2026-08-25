@@ -492,7 +492,7 @@ class TextPresentationSink(PresentationSink):
         if isinstance(view, ToolStartView):
             return None
         if isinstance(view, PatchView):
-            if view.phase == "applying":
+            if view.phase == "proposed":
                 return None
             label = "completed" if view.phase == "applied" else "failed"
             self.state.process(f"patch: {label}\n")

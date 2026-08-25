@@ -3,7 +3,7 @@
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.history.transcript import TranscriptEntry
+from mind_app.history.transcript import TranscriptEntry, TranscriptReplay
 from mind_app.tui.core.document import TuiDocument
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.features import history
@@ -288,6 +288,27 @@ def test_history_transcript_merges_patch_lifecycle_into_one_cell() -> None:
         "+new\n"
         "*** End Patch"
     )
+    preview = {
+        "files": [{
+            "path": "sample.py",
+            "source_path": None,
+            "action": "modify",
+        }],
+        "delta": {
+            "exact": True,
+            "changes": [{
+                "path": "sample.py",
+                "source_path": None,
+                "action": "modify",
+                "old_content": "old\n",
+                "new_content": "new\n",
+                "hunks": [{"lines": [
+                    {"kind": "remove", "text": "old", "old_line": 1, "new_line": None},
+                    {"kind": "add", "text": "new", "old_line": None, "new_line": 1},
+                ]}],
+            }],
+        },
+    }
 
     def entry(event: str, payload: dict) -> TranscriptEntry:
         return TranscriptEntry(
@@ -304,6 +325,7 @@ def test_history_transcript_merges_patch_lifecycle_into_one_cell() -> None:
             "call_id": "call_patch",
             "name": "apply_patch",
             "arguments": {"patch": raw_patch},
+            "patch_preview": preview,
         }),
         entry("tool.completed", {
             "call_id": "call_patch",
@@ -328,6 +350,10 @@ def test_history_transcript_merges_patch_lifecycle_into_one_cell() -> None:
                             "action": "modify",
                             "old_content": "old\n",
                             "new_content": "new\n",
+                            "hunks": [{"lines": [
+                                {"kind": "remove", "text": "old", "old_line": 1, "new_line": None},
+                                {"kind": "add", "text": "new", "old_line": None, "new_line": 1},
+                            ]}],
                         }],
                     },
                 },
@@ -384,7 +410,27 @@ def test_history_patch_failure_reads_current_result_envelope() -> None:
         text for _style, text in blocks[0].display_block.fragments
     )
 
-    assert display == "✘ Failed to apply patch"
+    assert display == (
+        "✘ Failed to apply patch\n"
+        "  reason: patch_context_mismatch"
+    )
+
+
+def test_history_drops_patch_start_without_new_protocol_preview() -> None:
+    entry = TranscriptEntry(
+        timestamp="2026-08-02T00:00:00.000Z",
+        event="tool.started",
+        session_id="session_patch",
+        turn_id="turn_patch",
+        actor="tool",
+        payload={
+            "call_id": "call_patch",
+            "name": "apply_patch",
+            "arguments": {"patch": "patch"},
+        },
+    )
+
+    assert TranscriptReplay((entry,)).build() == ()
 
 
 def test_history_patch_failure_without_result_uses_recorded_exception() -> None:
@@ -408,7 +454,81 @@ def test_history_patch_failure_without_result_uses_recorded_exception() -> None:
         text for _style, text in blocks[0].display_block.fragments
     )
 
-    assert display == "✘ Failed to apply patch"
+    assert display == (
+        "✘ Failed to apply patch\n"
+        "  error: OSError: disk full"
+    )
+
+
+def test_history_patch_failure_keeps_persisted_preview_cell() -> None:
+    preview = {
+        "files": [{
+            "path": "sample.py",
+            "source_path": None,
+            "action": "modify",
+        }],
+        "delta": {
+            "exact": True,
+            "changes": [{
+                "path": "sample.py",
+                "action": "modify",
+                "old_content": "old\n",
+                "new_content": "new\n",
+                "hunks": [{"lines": [
+                    {"kind": "remove", "text": "old", "old_line": 1, "new_line": None},
+                    {"kind": "add", "text": "new", "old_line": None, "new_line": 1},
+                ]}],
+                "source_path": None,
+            }],
+        },
+    }
+    entries = (
+        TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.000Z",
+            event="tool.started",
+            session_id="session_patch",
+            turn_id="turn_patch",
+            actor="tool",
+            payload={
+                "call_id": "call_patch",
+                "name": "apply_patch",
+                "arguments": {"patch": "patch"},
+                "patch_preview": preview,
+            },
+        ),
+        TranscriptEntry(
+            timestamp="2026-08-02T00:00:00.001Z",
+            event="tool.failed",
+            session_id="session_patch",
+            turn_id="turn_patch",
+            actor="tool",
+            payload={
+                "call_id": "call_patch",
+                "name": "apply_patch",
+                "arguments": {"patch": "patch"},
+                "ok": False,
+                "result": {
+                    "ok": False,
+                    "data": {"reason": "patch_context_mismatch"},
+                },
+            },
+        ),
+    )
+
+    replay = TranscriptReplay(entries).build()
+    blocks = history._render_replay_blocks(replay, terminal_width=80)
+    displays = tuple(
+        "".join(text for _style, text in block.display_block.fragments)
+        for block in blocks
+    )
+
+    assert displays == (
+        "• Edited sample.py (+1 -1)\n"
+        "    1 -old\n"
+        "    1 +new",
+        "✘ Failed to apply patch\n"
+        "  reason: patch_context_mismatch",
+    )
 
 
 def test_history_patch_result_rejects_unwrapped_payload() -> None:

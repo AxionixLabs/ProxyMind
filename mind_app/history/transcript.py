@@ -316,6 +316,11 @@ class TranscriptReplay(object):
                 continue
 
             if entry.event == "tool.started":
+                if (
+                    _payload_text(entry.payload, "name") == "apply_patch"
+                    and not isinstance(entry.payload.get("patch_preview"), dict)
+                ):
+                    continue
                 replay.append(entry)
 
                 call_id = _payload_text(entry.payload, "call_id")
@@ -361,6 +366,13 @@ class TranscriptReplay(object):
                 continue
 
             started = replay[target]
+
+            if (
+                entry.event == "tool.failed"
+                and _payload_text(started.payload, "name") == "apply_patch"
+            ):
+                replay.append(entry)
+                continue
 
             replay[target] = replace(
                 entry,

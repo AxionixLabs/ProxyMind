@@ -59,6 +59,7 @@ from ...output import (
     AssistantTextDelta,
     OutputControlPort,
     ResponseIdentity,
+    SessionFactory,
     SourcesOutput
 )
 from ...output.session import OutputSession
@@ -134,6 +135,7 @@ class _RetryingStatus(object):
         self.sink      = sink
         self.transport = False
         self.provider  = False
+
         self.state: WaitRetryState = "idle"
 
     def set_transport(self, retrying: bool) -> None:
@@ -181,35 +183,15 @@ def _optional_callback(
     return value
 
 
-async def _cancel_reconciliation_turn(
-    *,
-    cid: str,
-    sid: str,
-    turn_id: str,
-    effect_id: str,
-) -> bool:
-    """使用稳定中断命令释放无法自动核对的持久轮次。"""
-    request_id = stable_request_id(
-        "reconciliation_cancel",
-        cid,
-        sid,
-        turn_id,
-        effect_id,
-    )
-    for attempt in range(2):
-        try:
-            response = await interrupt_turn(
-                cid=cid,
-                sid=sid,
-                turn_id=turn_id,
-                request_id=request_id,
-            )
-            return response.status in {"accepted", "turn_not_active"}
-        except TurnControlRequestError:
-            if attempt == 0:
-                continue
-            return False
-    return False
+def _resolve_output_session_factory(
+    value: typing.Any,
+) -> SessionFactory:
+    """解析单轮输出工厂并校验续跑边界传入值。"""
+    if value is None:
+        raise RuntimeError("stream output session factory is required")
+    if not callable(value):
+        raise TypeError("session_factory must be callable")
+    return value
 
 
 def _response_identity(
@@ -386,6 +368,37 @@ async def _discard_stop_hook_decision(
     await awaitable
 
 
+async def _cancel_reconciliation_turn(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    effect_id: str
+) -> bool:
+    """使用稳定中断命令释放无法自动核对的持久轮次。"""
+    request_id = stable_request_id(
+        "reconciliation_cancel",
+        cid,
+        sid,
+        turn_id,
+        effect_id,
+    )
+    for attempt in range(2):
+        try:
+            response = await interrupt_turn(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                request_id=request_id,
+            )
+            return response.status in {"accepted", "turn_not_active"}
+        except TurnControlRequestError:
+            if attempt == 0:
+                continue
+            return False
+    return False
+
+
 async def stream_turn(
     mind: "Mind",
     session: McpSessionLike,
@@ -485,13 +498,11 @@ async def stream_turn(
             skill_config = {}
         kwargs["skills"] = skills_payload(skill_config)
 
-    session_factory = kwargs.pop("session_factory", None)
-
-    if session_factory is None:
+    session_factory_value = kwargs.pop("session_factory", None)
+    if session_factory_value is None:
         frontend = getattr(mind, "frontend", None)
-        session_factory = getattr(frontend, "session_factory", None)
-    if session_factory is None:
-        raise RuntimeError("stream output session factory is required")
+        session_factory_value = getattr(frontend, "session_factory", None)
+    session_factory = _resolve_output_session_factory(session_factory_value)
     reentry_kwargs["session_factory"] = session_factory
 
     output_session: OutputSession = session_factory(
@@ -547,18 +558,18 @@ async def stream_turn(
 
     def record_pending_assistant_output(*, complete_only: bool = False) -> None:
         """按稳定 item 身份把助手输出写入会话记录。"""
-        for identity, item_id, assistant_output in tracker.drain_assistant_outputs(
+        for item_identity, item_id, assistant_output in tracker.drain_assistant_outputs(
             complete_only=complete_only,
         ):
             if not assistant_output:
                 continue
-            epoch, round_no, attempt = identity
+            item_epoch, item_round, item_attempt = item_identity
             payload = {
                 "content": assistant_output,
                 "item_id": item_id,
-                "presentation_epoch": epoch,
-                "round": round_no,
-                "attempt": attempt,
+                "presentation_epoch": item_epoch,
+                "round": item_round,
+                "attempt": item_attempt,
             }
             transcript.append(
                 "message.created",
@@ -635,6 +646,11 @@ async def stream_turn(
             tools=tools,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
+            patch_preview=getattr(
+                getattr(mind, "native_coding", None),
+                "preview_patch",
+                None,
+            ),
         )
         plan_tool_runner = PlanToolCallRunner(
             session=session,

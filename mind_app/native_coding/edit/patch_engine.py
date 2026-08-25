@@ -45,7 +45,10 @@ class PatchEngine(NativeCodingComponent):
         """转发文本补丁请求。"""
         return self._operations.apply_patch(*args, **kwargs)
 
+    def preview_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        """转发只读补丁预览请求。"""
+        return self._operations.preview_patch(*args, **kwargs)
+
 
 if __name__ == '__main__':
     pass
-

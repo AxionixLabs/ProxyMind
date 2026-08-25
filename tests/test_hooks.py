@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1590,6 +1591,43 @@ async def test_tool_coordinator_reuses_prepared_decision_and_runs_post() -> None
         "tool.started",
         "tool.completed",
     ]
+
+
+@pytest.mark.anyio
+async def test_apply_patch_transcript_start_carries_preview_delta() -> None:
+    transcript_entries = []
+
+    def record_transcript(event, *, actor=None, payload=None) -> None:
+        transcript_entries.append((event, actor, dict(payload or {})))
+
+    base = _invocation()
+    invocation = replace(
+        base,
+        name="apply_patch",
+        arguments={"patch": "patch"},
+    )
+    coordinator = ToolCallCoordinator(
+        _scope(HookRuntime(_definitions({}), command_runner=_CommandRunner()), invocation),
+        transcript=SimpleNamespace(append=record_transcript),
+    )
+
+    decision = await coordinator.prepare(invocation)
+    assert decision.allowed
+    assert transcript_entries == []
+
+    preview = {"files": [], "delta": {"exact": True, "changes": []}}
+    coordinator.record_patch_start(invocation, preview_data=preview)
+
+    assert transcript_entries == [(
+        "tool.started",
+        "tool",
+        {
+            "call_id": "call_test",
+            "name": "apply_patch",
+            "arguments": {"patch": "patch"},
+            "patch_preview": preview,
+        },
+    )]
 
 
 @pytest.mark.anyio

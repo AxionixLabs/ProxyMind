@@ -19,11 +19,11 @@ from .patch_views import (
     build_patch_start_view
 )
 
-
 def build_tool_start_view(
     name: str,
     arguments: dict[str, typing.Any],
     *,
+    patch_preview: dict[str, typing.Any] | None = None,
     call_id: str = ""
 ) -> ToolStartView | PatchView:
     """构建普通工具开始执行时的展示数据。"""
@@ -33,6 +33,7 @@ def build_tool_start_view(
     if normalized_name == "apply_patch":
         return build_patch_start_view(
             normalized_arguments,
+            preview_data=patch_preview,
             call_id=call_id,
         )
 
@@ -58,6 +59,7 @@ def build_generic_tool_result_view(
     """构建普通工具执行结果的展示数据。"""
     normalized_name = str(name or "tool").strip() or "tool"
     normalized_text = str(text or "")
+
     title = f"• Function Invoked {normalized_name}"
 
     if normalized_name == "view_image":

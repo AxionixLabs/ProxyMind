@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import difflib
 import io
 import threading
 import typing
@@ -9510,6 +9511,54 @@ def _oversized_patch_text() -> str:
     ))
 
 
+def _patch_hunks(old_content: str, new_content: str):
+    """构造测试用的新协议 canonical hunk。"""
+    old_lines = old_content.splitlines()
+    new_lines = new_content.splitlines()
+    hunks = []
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    for group in matcher.get_grouped_opcodes(n=3):
+        lines = []
+        for tag, old_start, old_end, new_start, new_end in group:
+            if tag == "equal":
+                lines.extend(
+                    {
+                        "kind": "context",
+                        "text": old_lines[old_index],
+                        "old_line": old_index + 1,
+                        "new_line": new_index + 1,
+                    }
+                    for old_index, new_index in zip(
+                        range(old_start, old_end),
+                        range(new_start, new_end),
+                        strict=True,
+                    )
+                )
+            if tag in {"delete", "replace"}:
+                lines.extend(
+                    {
+                        "kind": "remove",
+                        "text": old_lines[index],
+                        "old_line": index + 1,
+                        "new_line": None,
+                    }
+                    for index in range(old_start, old_end)
+                )
+            if tag in {"insert", "replace"}:
+                lines.extend(
+                    {
+                        "kind": "add",
+                        "text": new_lines[index],
+                        "old_line": None,
+                        "new_line": index + 1,
+                    }
+                    for index in range(new_start, new_end)
+                )
+        if lines:
+            hunks.append({"lines": lines})
+    return hunks
+
+
 def _patch_result_view(
     call_id: str,
     *,
@@ -9541,6 +9590,7 @@ def _patch_result_view(
                     "old_content": "old\n",
                     "new_content": new_content,
                     "source_path": None,
+                    "hunks": _patch_hunks("old\n", new_content),
                 }],
             },
         }
@@ -9560,52 +9610,129 @@ def _patch_result_view(
     )
 
 
+def _patch_preview_data(*, new_content: str = "new\n"):
+    """返回测试用的新协议补丁预览。"""
+    return {
+        "files": [{
+            "path": "sample.py",
+            "source_path": None,
+            "action": "modify",
+        }],
+        "delta": {
+            "exact": True,
+            "changes": [{
+                "path": "sample.py",
+                "action": "modify",
+                "old_content": "old\n",
+                "new_content": new_content,
+                "source_path": None,
+                "hunks": _patch_hunks("old\n", new_content),
+            }],
+        },
+    }
+
+
 @pytest.mark.anyio
 async def test_tui_patch_start_and_success_share_one_cell() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
     result = _patch_result_view("patch-one")
-
-    await presentation.emit(build_tool_start_view(
+    preview = build_tool_start_view(
         "apply_patch",
         {"patch": result.raw_patch},
+        patch_preview=_patch_preview_data(),
         call_id="patch-one",
-    ))
+    )
 
-    assert runtime.document.blocks == []
-    assert runtime.document.active_kind == "operation"
-    assert "• Applying patch" in _document_text(runtime.document)
+    await presentation.emit(preview)
+
+    assert runtime.document.active_block is None
+    assert len(runtime.document.blocks) == 1
+    assert "• Edited sample.py" in _document_text(runtime.document)
 
     await presentation.emit(result)
 
     assert runtime.document.active_block is None
     assert len(runtime.document.blocks) == 1
-    assert runtime.document.blocks[0].source is result
+    assert runtime.document.blocks[0].source is preview
     assert runtime.document.blocks[0].raw_text == result.raw_patch
     assert _document_text(runtime.document).count("• Edited sample.py") == 1
     assert "Applying patch" not in _document_text(runtime.document)
 
 
 @pytest.mark.anyio
-async def test_tui_patch_failure_replaces_active_cell() -> None:
+async def test_tui_patch_preview_is_stable_and_success_is_not_duplicated() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = _patch_result_view("patch-preview")
+    preview_data = _patch_preview_data()
+    preview = build_tool_start_view(
+        "apply_patch",
+        {"patch": result.raw_patch},
+        patch_preview=preview_data,
+        call_id="patch-preview",
+    )
+
+    await presentation.emit(preview)
+
+    assert runtime.document.active_block is None
+    assert len(runtime.document.blocks) == 1
+    assert _document_text(runtime.document).count("• Edited sample.py") == 1
+
+    await presentation.emit(result)
+
+    assert len(runtime.document.blocks) == 1
+    assert runtime.document.blocks[0].source is preview
+    assert "Applying patch" not in _document_text(runtime.document)
+
+
+@pytest.mark.anyio
+async def test_tui_patch_failure_appends_after_stable_preview() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+    result = _patch_result_view("patch-preview-failed", ok=False)
+    preview_data = _patch_preview_data()
+    preview = build_tool_start_view(
+        "apply_patch",
+        {"patch": result.raw_patch},
+        patch_preview=preview_data,
+        call_id="patch-preview-failed",
+    )
+
+    await presentation.emit(preview)
+    await presentation.emit(result)
+
+    assert len(runtime.document.blocks) == 2
+    assert runtime.document.blocks[0].source is preview
+    assert runtime.document.blocks[1].source is result
+    assert _document_text(runtime.document).startswith("• Edited sample.py")
+    assert "✘ Failed to apply patch" in _document_text(runtime.document)
+
+
+@pytest.mark.anyio
+async def test_tui_patch_failure_appends_without_replacing_proposed_cell() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
     result = _patch_result_view("patch-failed", ok=False)
-
-    await presentation.emit(build_tool_start_view(
+    preview = build_tool_start_view(
         "apply_patch",
         {"patch": result.raw_patch},
+        patch_preview=_patch_preview_data(),
         call_id="patch-failed",
-    ))
+    )
+
+    await presentation.emit(preview)
     await presentation.emit(result)
 
-    assert len(runtime.document.blocks) == 1
+    assert len(runtime.document.blocks) == 2
     assert runtime.document.active_block is None
-    assert _document_text(runtime.document).startswith("✘ Failed to apply patch")
+    assert _document_text(runtime.document).startswith("• Edited sample.py")
+    assert "✘ Failed to apply patch" in _document_text(runtime.document)
     assert "Applying patch" not in _document_text(runtime.document)
-    assert "• Patch" not in _document_text(runtime.document)
 
 
 @pytest.mark.anyio
@@ -9615,26 +9742,31 @@ async def test_tui_patch_new_call_stabilizes_previous_cell() -> None:
     presentation = TuiPresentationSink(output)
     first = _patch_result_view("patch-one")
     second = _patch_result_view("patch-two", new_content="second\n")
-
-    await presentation.emit(build_tool_start_view(
+    first_preview = build_tool_start_view(
         "apply_patch",
         {"patch": first.raw_patch},
+        patch_preview=_patch_preview_data(),
         call_id="patch-one",
-    ))
-    await presentation.emit(build_tool_start_view(
+    )
+    second_preview = build_tool_start_view(
         "apply_patch",
         {"patch": second.raw_patch},
+        patch_preview=_patch_preview_data(new_content="second\n"),
         call_id="patch-two",
-    ))
+    )
 
-    assert len(runtime.document.blocks) == 1
-    assert runtime.document.active_block is not None
-    assert runtime.document.blocks[0].source.call_id == "patch-one"
-    assert runtime.document.active_source.call_id == "patch-two"
+    await presentation.emit(first_preview)
+    await presentation.emit(second_preview)
+
+    assert len(runtime.document.blocks) == 2
+    assert runtime.document.active_block is None
+    assert [item.source.call_id for item in runtime.document.blocks] == [
+        "patch-one",
+        "patch-two",
+    ]
 
     await presentation.emit(second)
 
-    assert runtime.document.active_block is None
     assert [item.source.call_id for item in runtime.document.blocks] == [
         "patch-one",
         "patch-two",
@@ -9648,24 +9780,23 @@ async def test_tui_unmatched_patch_result_does_not_overwrite_active_call() -> No
     presentation = TuiPresentationSink(output)
     first = _patch_result_view("patch-one")
     other = _patch_result_view("patch-other", new_content="other\n")
-
-    await presentation.emit(build_tool_start_view(
+    first_preview = build_tool_start_view(
         "apply_patch",
         {"patch": first.raw_patch},
+        patch_preview=_patch_preview_data(),
         call_id="patch-one",
-    ))
+    )
+
+    await presentation.emit(first_preview)
     await presentation.emit(other)
 
-    snapshot = runtime.document.transcript_snapshot()
-    assert snapshot.live_tail is not None
-    assert [item.source.call_id for item in snapshot.live_tail.cells] == [
+    assert [item.source.call_id for item in runtime.document.blocks] == [
         "patch-one",
         "patch-other",
     ]
 
     await presentation.emit(first)
 
-    assert runtime.document.active_block is None
     assert [item.source.call_id for item in runtime.document.blocks] == [
         "patch-one",
         "patch-other",
@@ -9722,23 +9853,24 @@ async def test_tui_patch_background_fills_each_wrapped_row_after_resize() -> Non
 
 
 @pytest.mark.anyio
-async def test_assistant_commit_does_not_clear_active_patch_cell() -> None:
+async def test_assistant_output_sees_stable_patch_cell() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
     result = _patch_result_view("patch-active")
-
-    await presentation.emit(build_tool_start_view(
+    preview = build_tool_start_view(
         "apply_patch",
         {"patch": result.raw_patch},
+        patch_preview=_patch_preview_data(),
         call_id="patch-active",
-    ))
-    active = runtime.document.active_block
+    )
+
+    await presentation.emit(preview)
 
     await output.prepare_external_output()
 
-    assert runtime.document.active_block is active
-    assert runtime.document.active_kind == "operation"
+    assert runtime.document.active_block is None
+    assert runtime.document.blocks[0].source is preview
 
 
 @pytest.mark.anyio
@@ -9803,16 +9935,24 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                 "delta": {
                     "exact": True,
                     "changes": [{
-                        "path": "sample.py",
-                        "action": "modify",
-                        "old_content": "old value\n",
-                        "new_content": "\n".join((
+                            "path": "sample.py",
+                            "action": "modify",
+                            "old_content": "old value\n",
+                            "new_content": "\n".join((
                             *(f"new value {index}" for index in range(30)),
                             "patch-final-token",
-                            "",
-                        )),
-                        "source_path": None,
-                    }],
+                                "",
+                            )),
+                            "source_path": None,
+                            "hunks": _patch_hunks(
+                                "old value\n",
+                                "\n".join((
+                                    *(f"new value {index}" for index in range(30)),
+                                    "patch-final-token",
+                                    "",
+                                )),
+                            ),
+                        }],
                 },
             },
             call_id="patch-bounds",

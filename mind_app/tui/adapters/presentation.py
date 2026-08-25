@@ -184,7 +184,7 @@ class TuiPresentationSink(PresentationSink):
 
     def __init__(self, output: "TuiOutputControl") -> None:
         self.output = output
-        self._active_patch_call_id: str | None = None
+        self._stable_patch_call_ids: set[str]  = set()
         self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
 
     @staticmethod
@@ -262,24 +262,6 @@ class TuiPresentationSink(PresentationSink):
             and cls._terminal_control(view) == "none"
         )
 
-    def _patch_call_matches(self, call_id: str) -> bool:
-        """判断结果是否属于当前活动补丁。"""
-        return call_id == self._active_patch_call_id
-
-    def _commit_active_patch(self) -> None:
-        """在新调用开始前稳定提交当前补丁 cell。"""
-        document = self.output.runtime.document
-        if document.active_block is not None and document.active_kind == "operation":
-            self.output.runtime.commit_active_renderable(
-                document.active_block,
-                transcript_block=document.active_transcript_block,
-                source=document.active_source,
-                raw_text=document.active_raw_text,
-                display_renderer=document.active_display_renderer,
-                display_render_width=document.active_display_render_width,
-            )
-        self._active_patch_call_id = None
-
     async def _flush_terminal_wait(self, session_id: str) -> None:
         """提交指定会话合并后的等待记录。"""
         views = self._pending_terminal_waits.pop(session_id, None)
@@ -299,7 +281,7 @@ class TuiPresentationSink(PresentationSink):
         await self._flush_all_terminal_waits()
 
     async def _emit_patch(self, view: PatchView) -> None:
-        """按调用身份原位更新并提交一个补丁 cell。"""
+        """按 Codex 补丁生命周期提交稳定单元和失败单元。"""
         terminal_width = self.output.terminal_width
 
         block = render_presentation_view(
@@ -328,59 +310,9 @@ class TuiPresentationSink(PresentationSink):
             terminal_capabilities=self.output.runtime.terminal_capabilities,
         )
 
-        display_fragment = styled_fragment_block(
-            block,
-            hyperlinks=self.output.runtime.hyperlinks_enabled,
-        )
-
-        transcript_fragment = styled_fragment_block(
-            transcript_block,
-            hyperlinks=self.output.runtime.hyperlinks_enabled,
-        )
-
-        if view.phase == "applying":
-            await self.output.prepare_active_presentation()
-            if self._active_patch_call_id is not None:
-                if self._patch_call_matches(view.call_id):
-                    self.output.runtime.set_active_renderable(
-                        display_fragment,
-                        kind="operation",
-                        transcript_block=transcript_fragment,
-                        source=view,
-                        raw_text=raw_text,
-                        display_renderer=display_renderer,
-                        display_render_width=terminal_width,
-                    )
-                    return None
-                self._commit_active_patch()
-
-            if self.output.runtime.document.active_block is not None:
+        if view.phase == "proposed":
+            if view.call_id in self._stable_patch_call_ids:
                 return None
-
-            self.output.runtime.set_active_renderable(
-                display_fragment,
-                kind="operation",
-                transcript_block=transcript_fragment,
-                source=view,
-                raw_text=raw_text,
-                display_renderer=display_renderer,
-                display_render_width=terminal_width,
-            )
-            self._active_patch_call_id = view.call_id
-            return None
-
-        if self._patch_call_matches(view.call_id):
-            self.output.record_presentation_block(block.plain_text)
-            self.output.runtime.commit_active_renderable(
-                display_fragment,
-                transcript_block=transcript_fragment,
-                source=view,
-                raw_text=raw_text,
-                display_renderer=display_renderer,
-                display_render_width=terminal_width,
-            )
-            self._active_patch_call_id = None
-        else:
             await self.output.append_presentation_block(
                 block,
                 block_kind="operation",
@@ -390,15 +322,48 @@ class TuiPresentationSink(PresentationSink):
                 display_renderer=display_renderer,
                 display_render_width=terminal_width,
             )
+            self._stable_patch_call_ids.add(view.call_id)
+            self.output.note_work_activity()
+            return None
+
+        if view.phase == "applied" and view.call_id in self._stable_patch_call_ids:
+            self._stable_patch_call_ids.discard(view.call_id)
+            self.output.note_work_activity()
+            return None
+
+        if view.phase == "failed" and view.call_id in self._stable_patch_call_ids:
+            self._stable_patch_call_ids.discard(view.call_id)
+            await self.output.append_presentation_block(
+                block,
+                block_kind="operation",
+                transcript_block=transcript_block,
+                source=view,
+                raw_text=raw_text,
+                display_renderer=display_renderer,
+                display_render_width=terminal_width,
+            )
+            self.output.note_work_activity()
+            return None
+
+        await self.output.append_presentation_block(
+            block,
+            block_kind="operation",
+            transcript_block=transcript_block,
+            source=view,
+            raw_text=raw_text,
+            display_renderer=display_renderer,
+            display_render_width=terminal_width,
+        )
         self.output.note_work_activity()
 
     async def _emit_view(self, view: PresentationView) -> None:
         """渲染并发送不需要生命周期归并的一项展示数据。"""
         if isinstance(view, RunCompletedView):
-            if self._active_patch_call_id is not None:
-                self._commit_active_patch()
+            self._stable_patch_call_ids.clear()
             await self.output.complete_turn()
             return None
+        if isinstance(view, (RunIncompleteView, FailureView)):
+            self._stable_patch_call_ids.clear()
         if isinstance(view, PatchView):
             await self._emit_patch(view)
             return None

@@ -128,6 +128,7 @@ class ClientToolCallRunner:
         tools: list[dict[str, typing.Any]],
         pref_config: dict[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator,
+        patch_preview: typing.Callable[..., dict[str, typing.Any]] | None = None,
         effect_journal: LocalEffectJournal | None = None,
         effect_reconciler: typing.Callable[..., typing.Awaitable[
             dict[str, typing.Any]
@@ -141,6 +142,7 @@ class ClientToolCallRunner:
         self.tools                 = tools
         self.pref_config           = pref_config
         self.tool_call_coordinator = tool_call_coordinator
+        self.patch_preview         = patch_preview
         self.effect_journal        = effect_journal or LocalEffectJournal()
         self.effect_reconciler     = effect_reconciler or post_effect_reconciliation
 
@@ -235,7 +237,7 @@ class ClientToolCallRunner:
         invocation: ToolInvocation,
         *,
         status: str,
-        error: BaseException,
+        error: BaseException
     ) -> ClientToolCallOutcome:
         """构建本地副作用尚未开始时的确定失败结果。"""
         detail = f"{type(error).__name__}: {error}"
@@ -258,6 +260,54 @@ class ClientToolCallRunner:
             fields=fields,
         ))
 
+    def _preview_patch(
+        self,
+        invocation: ToolInvocation
+    ) -> dict[str, typing.Any] | None:
+        """在补丁执行前请求只读预览，失败时不影响真实调用。"""
+        if self.patch_preview is None:
+            return None
+        if invocation.turn.permissions.sandbox_mode == "read-only":
+            return None
+
+        arguments = invocation.arguments
+        patch     = str(arguments.get("patch") or "")
+
+        expected_sha256 = arguments.get("expected_sha256")
+        if not isinstance(expected_sha256, dict):
+            expected_sha256 = None
+
+        try:
+            raw = self.patch_preview(
+                patch=patch,
+                expected_sha256=expected_sha256,
+                force=bool(arguments.get("force", False)),
+            )
+        except (OSError, TypeError, ValueError, UnicodeError, KeyError):
+            return None
+
+        if not isinstance(raw, dict) or not bool(raw.get("ok")):
+            return None
+        data = raw.get("data")
+        if not isinstance(data, dict):
+            return None
+        files = data.get("files")
+        delta = data.get("delta")
+        changes = delta.get("changes") if isinstance(delta, dict) else None
+        if (
+            not isinstance(files, list)
+            or not isinstance(delta, dict)
+            or not isinstance(changes, list)
+            or any(not isinstance(item, dict) for item in files)
+            or any(not isinstance(item, dict) for item in changes)
+            or any(
+                not isinstance(item.get("hunks"), list)
+                for item in changes
+            )
+        ):
+            return None
+        return dict(data)
+
     def _reconciliation_result_payload(
         self,
         invocation: ToolInvocation,
@@ -267,8 +317,10 @@ class ClientToolCallRunner:
         effect = invocation.effect
         if effect is None:
             raise ValueError("local effect is required for reconciliation")
+
         result = outcome.result
         request_suffix = self._effect_request_suffix(effect.effect_id)
+
         return build_tool_result_payload(
             cid=invocation.turn.cid,
             sid=invocation.turn.sid,
@@ -388,6 +440,23 @@ class ClientToolCallRunner:
             )
 
         try:
+            patch_preview = (
+                self._preview_patch(invocation)
+                if name == "apply_patch"
+                else None
+            )
+            if name == "apply_patch":
+                record_patch_start = getattr(
+                    self.tool_call_coordinator,
+                    "record_patch_start",
+                    None,
+                )
+                if callable(record_patch_start) and isinstance(patch_preview, dict):
+                    record_patch_start(
+                        invocation,
+                        preview_data=patch_preview,
+                    )
+
             if display:
                 self.output_control.record_tool_arguments(
                     name,
@@ -395,11 +464,16 @@ class ClientToolCallRunner:
                     call_id=call_id,
                 )
                 if is_two_stage_tool(name):
+                    start_kwargs: dict[str, typing.Any] = {
+                        "call_id": call_id,
+                    }
+                    if name == "apply_patch":
+                        start_kwargs["patch_preview"] = patch_preview
                     await show_tool_start(
                         self.presentation,
                         name,
                         arguments,
-                        call_id=call_id,
+                        **start_kwargs,
                     )
 
             tool_run = await run_tool_step(

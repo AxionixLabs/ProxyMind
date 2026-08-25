@@ -36,7 +36,7 @@ ProgressSource = typing.Literal[
 ]
 
 PatchPhase = typing.Literal[
-    "applying",
+    "proposed",
     "applied",
     "failed",
 ]

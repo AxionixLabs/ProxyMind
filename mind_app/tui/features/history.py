@@ -463,7 +463,21 @@ def _tool_blocks(
         arguments = {}
 
     if entry.event == "tool.started":
-        view = build_tool_start_view(name, arguments, call_id=call_id)
+        preview_data = payload.get("patch_preview")
+        if name == "apply_patch":
+            if not isinstance(preview_data, dict):
+                return ()
+            try:
+                view = build_tool_start_view(
+                    name,
+                    arguments,
+                    patch_preview=preview_data,
+                    call_id=call_id,
+                )
+            except (KeyError, TypeError, ValueError):
+                return ()
+        else:
+            view = build_tool_start_view(name, arguments, call_id=call_id)
     elif coding_trace_tool(name):
         result_data = payload.get("result")
         if name == "apply_patch":

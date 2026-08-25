@@ -485,7 +485,8 @@ class ToolCallCoordinator:
         result: typing.Any = None,
     ) -> None:
         """记录未执行的工具调用及其拒绝原因。"""
-        self._record_start(invocation)
+        if invocation.name != "apply_patch":
+            self._record_start(invocation)
 
         self._record_outcome(
             invocation,
@@ -508,14 +509,33 @@ class ToolCallCoordinator:
         ):
             return prepared.decision
 
-        self._record_start(invocation)
+        if invocation.name != "apply_patch":
+            self._record_start(invocation)
 
         if invocation.name == "write_stdin":
             return HookDecision.allow()
 
         return await self.events.pre_tool_use(invocation)
 
-    def _record_start(self, invocation: ToolInvocation) -> None:
+    def record_patch_start(
+        self,
+        invocation: ToolInvocation,
+        *,
+        preview_data: dict[str, typing.Any],
+    ) -> None:
+        """记录带结构化只读预览的 apply_patch 开始事件。"""
+        if invocation.name != "apply_patch":
+            raise ValueError("patch preview requires apply_patch invocation")
+        if not isinstance(preview_data, dict):
+            raise ValueError("apply_patch start requires a structured preview")
+        self._record_start(invocation, preview_data=preview_data)
+
+    def _record_start(
+        self,
+        invocation: ToolInvocation,
+        *,
+        preview_data: dict[str, typing.Any] | None = None,
+    ) -> None:
         """在前置 Hook 前记录一次工具调用。"""
         key = invocation.call_id or _invocation_fingerprint(invocation)
         if key in self._recorded_calls:
@@ -524,14 +544,17 @@ class ToolCallCoordinator:
         self._recorded_calls.add(key)
 
         if self.transcript is not None:
+            payload: dict[str, typing.Any] = {
+                "call_id": invocation.call_id,
+                "name": invocation.name,
+                "arguments": dict(invocation.arguments),
+            }
+            if isinstance(preview_data, dict):
+                payload["patch_preview"] = dict(preview_data)
             self.transcript.append(
                 "tool.started",
                 actor="tool",
-                payload={
-                    "call_id": invocation.call_id,
-                    "name": invocation.name,
-                    "arguments": dict(invocation.arguments),
-                },
+                payload=payload,
             )
 
     def _record_outcome(

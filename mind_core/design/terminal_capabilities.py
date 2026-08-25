@@ -98,9 +98,10 @@ class TerminalIdentity:
 
 @dataclass(frozen=True)
 class TerminalTheme:
-    """保存终端报告的默认前景色和背景色。"""
+    """保存终端报告的默认颜色及可选语法作用域表面。"""
     foreground: RgbColor | None = None
     background: RgbColor | None = None
+    scope_backgrounds: tuple[tuple[str, RgbColor], ...] = ()
 
 
 @dataclass(frozen=True)

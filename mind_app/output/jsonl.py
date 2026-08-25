@@ -559,7 +559,7 @@ class JsonPresentationSink(PresentationSink):
             return None
 
         if isinstance(view, PatchView):
-            if view.phase == "applying":
+            if view.phase == "proposed":
                 return None
             self._item_completed(view.call_id, {
                 "type": "file_change",

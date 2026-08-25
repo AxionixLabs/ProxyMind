@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import difflib
 import pytest
 from prompt_toolkit.utils import get_cwidth
 from mind_core.design.terminal_capabilities import (
@@ -27,7 +28,6 @@ from mind_app.presentation.renderers.hook import render_hook_run_view
 from mind_app.presentation.models import HookOutputView, HookRunView, TextStyle
 from mind_app.presentation.renderers.patch import (
     PATCH_ADD_STYLE,
-    PATCH_ACTIVITY_STYLE,
     PATCH_ERROR_STYLE,
     PATCH_REMOVE_STYLE,
 )
@@ -534,6 +534,11 @@ def test_mcp_status_wraps_tree_details_under_their_connectors() -> None:
 
 
 def _patch_delta(*changes):
+    normalized_changes = []
+    for change in changes:
+        normalized = dict(change)
+        normalized.setdefault("hunks", _canonical_hunks(normalized))
+        normalized_changes.append(normalized)
     return {
         "files": [
             {
@@ -543,10 +548,72 @@ def _patch_delta(*changes):
                 "added_lines": 0,
                 "removed_lines": 0,
             }
-            for change in changes
+            for change in normalized_changes
         ],
-        "delta": {"exact": True, "changes": list(changes)},
+        "delta": {"exact": True, "changes": normalized_changes},
     }
+
+
+def _canonical_hunks(change):
+    """构造测试用的新协议 canonical hunk。"""
+    action = change["action"]
+    old_lines = str(change.get("old_content") or "").splitlines()
+    new_lines = str(change.get("new_content") or "").splitlines()
+    if action == "create":
+        lines = [
+            {"kind": "add", "text": text, "old_line": None, "new_line": index}
+            for index, text in enumerate(new_lines, start=1)
+        ]
+        return [{"lines": lines}] if lines else []
+    if action == "delete":
+        lines = [
+            {"kind": "remove", "text": text, "old_line": index, "new_line": None}
+            for index, text in enumerate(old_lines, start=1)
+        ]
+        return [{"lines": lines}] if lines else []
+
+    hunks = []
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    for group in matcher.get_grouped_opcodes(n=3):
+        lines = []
+        for tag, old_start, old_end, new_start, new_end in group:
+            if tag == "equal":
+                lines.extend(
+                    {
+                        "kind": "context",
+                        "text": old_lines[old_index],
+                        "old_line": old_index + 1,
+                        "new_line": new_index + 1,
+                    }
+                    for old_index, new_index in zip(
+                        range(old_start, old_end),
+                        range(new_start, new_end),
+                        strict=True,
+                    )
+                )
+            if tag in {"delete", "replace"}:
+                lines.extend(
+                    {
+                        "kind": "remove",
+                        "text": old_lines[index],
+                        "old_line": index + 1,
+                        "new_line": None,
+                    }
+                    for index in range(old_start, old_end)
+                )
+            if tag in {"insert", "replace"}:
+                lines.extend(
+                    {
+                        "kind": "add",
+                        "text": new_lines[index],
+                        "old_line": None,
+                        "new_line": index + 1,
+                    }
+                    for index in range(new_start, new_end)
+                )
+        if lines:
+            hunks.append({"lines": lines})
+    return hunks
 
 
 @pytest.mark.parametrize(
@@ -617,6 +684,68 @@ def test_patch_result_matches_codex_single_file_snapshots(
     assert "@@" not in block.plain_text
     assert "*** Begin Patch" not in block.plain_text
     assert render_presentation_raw_view(view) == (patch,)
+
+
+def test_patch_preview_start_is_already_a_stable_codex_cell() -> None:
+    patch = "*** Begin Patch\n*** Update File: example.txt\n@@\n-line one\n+line two\n*** End Patch"
+    change = {
+        "path": "example.txt",
+        "action": "modify",
+        "old_content": "line one\n",
+        "new_content": "line two\n",
+        "source_path": None,
+    }
+
+    start = build_tool_start_view(
+        "apply_patch",
+        {"patch": patch},
+        patch_preview=_patch_delta(change),
+        call_id="patch-preview",
+    )
+    result = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": patch},
+        ok=True,
+        data=_patch_delta(change),
+        call_id="patch-preview",
+    )
+
+    assert start.phase == "proposed"
+    assert render_presentation_view(start, terminal_width=120)[0].plain_text == (
+        render_presentation_view(result, terminal_width=120)[0].plain_text
+    )
+
+
+def test_patch_start_rejects_missing_structured_preview() -> None:
+    with pytest.raises(ValueError, match="requires a structured preview"):
+        build_tool_start_view(
+            "apply_patch",
+            {"patch": "*** Begin Patch\n*** End Patch"},
+            call_id="patch-without-preview",
+        )
+
+
+def test_patch_delta_rejects_content_only_hunk_reconstruction() -> None:
+    with pytest.raises(ValueError, match="canonical hunks"):
+        build_native_tool_result_view(
+            "apply_patch",
+            {"patch": "patch"},
+            ok=True,
+            data={
+                "files": [{"path": "file.txt", "action": "modify"}],
+                "delta": {
+                    "exact": True,
+                    "changes": [{
+                        "path": "file.txt",
+                        "action": "modify",
+                        "old_content": "old\n",
+                        "new_content": "new\n",
+                        "source_path": None,
+                    }],
+                },
+            },
+            call_id="patch-without-hunks",
+        )
 
 
 def test_patch_result_sorts_multiple_files_and_uses_file_nodes() -> None:
@@ -711,7 +840,7 @@ def test_patch_long_lines_use_display_width_and_empty_continuation_gutter(
     assert all("1 +" not in item for item in lines[2:])
 
 
-def test_patch_failure_matches_codex_title_only() -> None:
+def test_patch_failure_matches_codex_title_and_diagnostics() -> None:
     patch = "*** Begin Patch\n*** Update File: sample.py\n@@\n-old\n+new\n*** End Patch"
     view = build_native_tool_result_view(
         "apply_patch",
@@ -730,10 +859,10 @@ def test_patch_failure_matches_codex_title_only() -> None:
     )
     block = render_presentation_view(view, terminal_width=80)[0]
 
-    assert block.plain_text == "✘ Failed to apply patch"
-    assert "patch_context_mismatch" not in block.plain_text
-    assert "sample.py" not in block.plain_text
-    assert "other" not in block.plain_text
+    assert block.plain_text.startswith("✘ Failed to apply patch\n")
+    assert "reason: patch_context_mismatch" in block.plain_text
+    assert "file: sample.py" in block.plain_text
+    assert "actual: other" in block.plain_text
     assert _containing_span_style(block, "✘ ") == PATCH_ERROR_STYLE
 
 
@@ -742,6 +871,13 @@ def test_patch_uses_ansi_semantic_styles() -> None:
     start = render_presentation_view(build_tool_start_view(
         "apply_patch",
         {"patch": patch},
+        patch_preview=_patch_delta({
+            "path": "file.txt",
+            "action": "modify",
+            "old_content": "old\n",
+            "new_content": "new\n",
+            "source_path": None,
+        }),
         call_id="patch-style",
     ))[0]
     result = render_presentation_view(build_native_tool_result_view(
@@ -758,7 +894,7 @@ def test_patch_uses_ansi_semantic_styles() -> None:
         call_id="patch-style",
     ))[0]
 
-    assert _containing_span_style(start, "Applying patch") == PATCH_ACTIVITY_STYLE
+    assert "• Edited file.txt" in start.plain_text
     assert _span_style(result, "+1") == PATCH_ADD_STYLE
     assert _span_style(result, "-1") == PATCH_REMOVE_STYLE
 
@@ -797,6 +933,41 @@ def test_patch_dark_truecolor_uses_full_line_backgrounds() -> None:
         span.style.background is None
         for span in _patch_line_containing(block, "keep")
     )
+
+
+def test_patch_theme_scope_backgrounds_override_codex_fallbacks() -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.unknownxyz",
+            "action": "modify",
+            "old_content": "before\n",
+            "new_content": "after\n",
+            "source_path": None,
+        }),
+        call_id="patch-scope",
+    )
+    capabilities = TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
+        color_level=TerminalColorLevel.TRUECOLOR,
+        theme=TerminalTheme(
+            background=(0, 0, 0),
+            scope_backgrounds=(
+                ("markup.inserted", (12, 34, 56)),
+                ("markup.deleted", (74, 34, 29)),
+            ),
+        ),
+    )
+
+    block = render_presentation_view(
+        view,
+        terminal_capabilities=capabilities,
+    )[0]
+
+    assert {span.style.background for span in _patch_line(block, "+")} == {"#0C2238"}
+    assert {span.style.background for span in _patch_line(block, "-")} == {"#4A221D"}
 
 
 def test_patch_light_truecolor_uses_distinct_gutter_backgrounds() -> None:
@@ -999,7 +1170,17 @@ def test_patch_requires_stable_call_id(builder: str) -> None:
 
     with pytest.raises(ValueError, match="requires call_id"):
         if builder == "start":
-            build_tool_start_view("apply_patch", {"patch": patch})
+            build_tool_start_view(
+                "apply_patch",
+                {"patch": patch},
+                patch_preview=_patch_delta({
+                    "path": "file.txt",
+                    "action": "create",
+                    "old_content": None,
+                    "new_content": "new\n",
+                    "source_path": None,
+                }),
+            )
         else:
             build_native_tool_result_view(
                 "apply_patch",
@@ -1045,6 +1226,12 @@ def test_successful_patch_requires_result_file_contract() -> None:
                         "old_content": None,
                         "new_content": "new\n",
                         "source_path": None,
+                        "hunks": [{"lines": [{
+                            "kind": "add",
+                            "text": "new",
+                            "old_line": None,
+                            "new_line": 1,
+                        }]}],
                     }],
                 },
             },

@@ -24,12 +24,11 @@ from mind_app.presentation.text_layout import (
     wrap_styled_lines
 )
 
-PATCH_TITLE_STYLE    = TextStyle(bold=True)
-PATCH_MUTED_STYLE    = TextStyle(dim=True)
-PATCH_ADD_STYLE      = TextStyle(foreground="ansigreen")
-PATCH_REMOVE_STYLE   = TextStyle(foreground="ansired")
-PATCH_ERROR_STYLE    = TextStyle(foreground="ansimagenta", bold=True)
-PATCH_ACTIVITY_STYLE = TextStyle(foreground="ansicyan", bold=True)
+PATCH_TITLE_STYLE  = TextStyle(bold=True)
+PATCH_MUTED_STYLE  = TextStyle(dim=True)
+PATCH_ADD_STYLE    = TextStyle(foreground="ansigreen")
+PATCH_REMOVE_STYLE = TextStyle(foreground="ansired")
+PATCH_ERROR_STYLE  = TextStyle(foreground="ansimagenta", bold=True)
 
 _DARK_TRUECOLOR_ADD_BG            = "#213A2B"
 _DARK_TRUECOLOR_REMOVE_BG         = "#4A221D"
@@ -72,14 +71,10 @@ def render_patch_view(
     palette = _diff_palette(terminal_capabilities)
     if view.phase == "failed":
         spans = _failure_spans(
+            view,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
-    elif not view.files:
-        spans = [
-            TextSpan("• ", PATCH_ACTIVITY_STYLE),
-            TextSpan("Applying patch", PATCH_ACTIVITY_STYLE),
-        ]
     else:
         spans = _success_spans(
             view,
@@ -103,12 +98,12 @@ def _success_spans(
     terminal_width: int | None,
     measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
-    """生成成功或执行中补丁的完整标题和差异正文。"""
+    """生成补丁的完整标题和差异正文。"""
     files   = sorted(view.files, key=_file_sort_path)
     added   = sum(file.added for file in files)
     removed = sum(file.removed for file in files)
 
-    bullet_style = PATCH_ACTIVITY_STYLE if view.phase == "applying" else PATCH_MUTED_STYLE
+    bullet_style = PATCH_MUTED_STYLE
 
     if len(files) == 1:
         file = files[0]
@@ -261,12 +256,13 @@ def _diff_line_spans(
 
 
 def _failure_spans(
+    view: PatchView,
     *,
     terminal_width: int | None,
     measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
-    """生成补丁失败标题。"""
-    return _wrapped_row(
+    """生成补丁失败标题及执行层诊断。"""
+    spans = _wrapped_row(
         [
             TextSpan("✘ ", PATCH_ERROR_STYLE),
             TextSpan("Failed to apply patch", PATCH_ERROR_STYLE),
@@ -275,6 +271,20 @@ def _failure_spans(
         continuation_prefix="  ",
         measure_width=measure_width,
     )
+    for diagnostic in view.diagnostics:
+        for value in diagnostic.values:
+            spans.append(TextSpan("\n"))
+            spans.extend(_wrapped_row(
+                [
+                    TextSpan("  "),
+                    TextSpan(f"{diagnostic.label}: "),
+                    TextSpan(value),
+                ],
+                terminal_width=terminal_width,
+                continuation_prefix="    ",
+                measure_width=measure_width,
+            ))
+    return spans
 
 
 def _wrapped_row(
@@ -301,12 +311,26 @@ def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
     light = _is_light_color(capabilities.theme.background)
     level = capabilities.color_level
 
+    add_scope = _theme_scope_color(
+        capabilities,
+        "markup.inserted",
+        "diff.inserted",
+        "diff.added",
+    )
+
+    remove_scope = _theme_scope_color(
+        capabilities,
+        "markup.deleted",
+        "diff.deleted",
+        "diff.removed",
+    )
+
     if level == TerminalColorLevel.TRUECOLOR:
         return _DiffPalette(
             light=light,
             rich=True,
-            add_background=_palette_rgb((218, 251, 225) if light else (33, 58, 43), level),
-            remove_background=_palette_rgb((255, 235, 233) if light else (74, 34, 29), level),
+            add_background=_palette_rgb(add_scope or ((218, 251, 225) if light else (33, 58, 43)), level),
+            remove_background=_palette_rgb(remove_scope or ((255, 235, 233) if light else (74, 34, 29)), level),
             add_gutter_background=_palette_rgb((172, 238, 187), level) if light else None,
             remove_gutter_background=_palette_rgb((255, 206, 203), level) if light else None,
             gutter_foreground=_palette_rgb((31, 35, 40), level) if light else None,
@@ -315,8 +339,16 @@ def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
         return _DiffPalette(
             light=light,
             rich=True,
-            add_background=_LIGHT_ANSI256_ADD_BG if light else _DARK_ANSI256_ADD_BG,
-            remove_background=_LIGHT_ANSI256_REMOVE_BG if light else _DARK_ANSI256_REMOVE_BG,
+            add_background=(
+                _palette_rgb(add_scope, level)
+                if add_scope is not None
+                else _LIGHT_ANSI256_ADD_BG if light else _DARK_ANSI256_ADD_BG
+            ),
+            remove_background=(
+                _palette_rgb(remove_scope, level)
+                if remove_scope is not None
+                else _LIGHT_ANSI256_REMOVE_BG if light else _DARK_ANSI256_REMOVE_BG
+            ),
             add_gutter_background=_LIGHT_ANSI256_ADD_GUTTER_BG if light else None,
             remove_gutter_background=_LIGHT_ANSI256_REMOVE_GUTTER_BG if light else None,
             gutter_foreground=_LIGHT_ANSI256_GUTTER_FG if light else None,
@@ -335,6 +367,23 @@ def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
 def _palette_rgb(color: RgbColor, level: TerminalColorLevel) -> str:
     """选择目标颜色在当前色阶下的 prompt_toolkit 表示。"""
     return best_color(color, level) or "ansidefault"
+
+
+def _theme_scope_color(
+    capabilities: TerminalCapabilities,
+    *scope_names: str
+) -> RgbColor | None:
+    """按 Codex 的作用域优先级读取补丁背景颜色。"""
+    values = dict(capabilities.theme.scope_backgrounds)
+    for name in scope_names:
+        value = values.get(name)
+        if (
+            isinstance(value, tuple)
+            and len(value) == 3
+            and all(isinstance(component, int) for component in value)
+        ):
+            return typing.cast(RgbColor, value)
+    return None
 
 
 def _line_background(line: PatchLineView, palette: _DiffPalette) -> str | None:

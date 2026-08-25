@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from dataclasses import replace
 from types import SimpleNamespace
 from pathlib import Path
 from typing import cast
@@ -23,6 +24,7 @@ from mind_app.runtime.hooks.models import (
     ToolResultSnapshot,
 )
 from mind_app.runtime.tools import client_call
+from mind_app.runtime.tools.display import show_tool_start
 from mind_app.runtime.durable_effects import (
     EffectJournalPersistenceError,
     EffectJournalDecision,
@@ -159,8 +161,85 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
         call_id="call-1",
     )
     assert run_tool_step.await_args.kwargs["invocation"].arguments == {"value": 1}
+
+
+@pytest.mark.anyio
+async def test_apply_patch_start_uses_read_only_preview_before_execution(monkeypatch) -> None:
+    coordinator = SimpleNamespace()
+
+    async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
+        )
+
+    coordinator.run_invocation = AsyncMock(side_effect=run_allowed)
+    coordinator.record_patch_start = Mock()
+    runner, _ports = _runner(coordinator)
+    preview = Mock(return_value={
+        "ok": True,
+        "data": {"files": [], "delta": {"exact": True, "changes": []}},
+    })
+    runner.patch_preview = preview
+    tool_run = SimpleNamespace(
+        ok=True,
+        fields={"ok": True, "text": "done"},
+        text="done",
+        cost_ms=1,
+        result=None,
+    )
+    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=tool_run))
+    show_start = AsyncMock()
+    show_result = AsyncMock()
+    monkeypatch.setattr(client_call, "show_tool_start", show_start)
+    monkeypatch.setattr(client_call, "show_tool_result", show_result)
+
+    invocation = replace(
+        _invocation(),
+        name="apply_patch",
+        arguments={"patch": "*** Begin Patch\n*** End Patch"},
+    )
+    await runner.execute(invocation, use_coding_trace=False)
+
+    preview.assert_called_once_with(
+        patch="*** Begin Patch\n*** End Patch",
+        expected_sha256=None,
+        force=False,
+    )
+    coordinator.record_patch_start.assert_called_once_with(
+        invocation,
+        preview_data={
+            "files": [],
+            "delta": {"exact": True, "changes": []},
+        },
+    )
+    assert show_start.await_args.kwargs["patch_preview"] == {
+        "files": [],
+        "delta": {"exact": True, "changes": []},
+    }
     show_start.assert_awaited_once()
     show_result.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_malformed_patch_preview_is_skipped_without_blocking_display() -> None:
+    presentation = SimpleNamespace(emit=AsyncMock())
+
+    await show_tool_start(
+        presentation,
+        "apply_patch",
+        {"patch": "patch"},
+        patch_preview={"files": []},
+        call_id="patch-malformed-preview",
+    )
+
+    presentation.emit.assert_not_awaited()
 
 
 @pytest.mark.anyio
