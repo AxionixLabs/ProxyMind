@@ -9,7 +9,12 @@ from mind_core.design.terminal_capabilities import (
     TerminalKind,
     TerminalTheme,
 )
+from mind_core.mcp_status import (
+    McpStatusDetail,
+    McpStatusView,
+)
 
+from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.presentation.renderers.tool import (
     render_generic_tool_result_view,
     render_javascript_result_raw_text,
@@ -183,6 +188,76 @@ def test_batch_views_bound_display_and_keep_complete_transcript() -> None:
     assert "result-5-7" in completed_transcript
 
 
+@pytest.mark.parametrize("terminal_width", (20, 40))
+def test_generic_tool_result_aligns_width_and_skips_empty_branch(
+    terminal_width: int,
+) -> None:
+    view = build_generic_tool_result_view(
+        "remote_tool_with_a_long_name",
+        "\n   \nfirst value " + ("界🙂" * 40) + "\n\nsecond value",
+        ok=True,
+    )
+
+    block = render_presentation_view(
+        view,
+        terminal_width=terminal_width,
+        measure_width=get_cwidth,
+    )[0]
+    display = _rendered_text(block)
+
+    assert all(
+        get_cwidth(line) <= terminal_width
+        for line in display.splitlines()
+    )
+    assert display.splitlines()[1].startswith("  └ first value")
+    assert all(
+        line.strip() not in {"└", "├", "│"}
+        for line in display.splitlines()
+    )
+    assert "second value" in render_presentation_transcript_view(
+        view
+    )[0].plain_text
+
+
+@pytest.mark.parametrize("terminal_width", (20, 40))
+def test_batch_views_clip_nested_rows_and_skip_outer_blank_lines(
+    terminal_width: int,
+) -> None:
+    views = (
+        build_batch_start_view(((
+            "remote_tool_with_a_long_name",
+            {"argument": "value " + ("界🙂" * 40)},
+        ),)),
+        build_batch_completed_view(((
+            "remote_tool_with_a_long_name",
+            True,
+            "\n   \nfirst result " + ("界🙂" * 40) + "\n\nsecond result",
+        ),)),
+    )
+
+    for view in views:
+        display = _rendered_text(render_presentation_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=get_cwidth,
+        )[0])
+        assert all(
+            get_cwidth(line) <= terminal_width
+            for line in display.splitlines()
+        )
+        assert all(
+            line.strip() not in {"└", "├", "│"}
+            for line in display.splitlines()
+        )
+
+    completed = _rendered_text(render_presentation_view(
+        views[1],
+        terminal_width=terminal_width,
+        measure_width=get_cwidth,
+    )[0])
+    assert "  └ first result" in completed
+
+
 def test_tool_start_uses_calling_copy_and_pending_colors() -> None:
     block = render_tool_start_view(build_tool_start_view(
         "remote_tool",
@@ -293,6 +368,31 @@ def test_write_stdin_uses_codex_wait_and_interaction_titles() -> None:
     )
 
 
+def test_write_stdin_uses_full_title_width_budget() -> None:
+    view = build_native_tool_result_view(
+        "write_stdin",
+        {"session_id": "session-1", "stdin": "yes\n"},
+        ok=True,
+        data={
+            "session_id": "session-1",
+            "command": "python -m pytest " + ("very-long-path/" * 20),
+            "status": "running",
+            "output_lines": ["yes"],
+        },
+    )
+
+    block = render_presentation_view(
+        view,
+        terminal_width=20,
+        measure_width=get_cwidth,
+    )[0]
+    display = _rendered_text(block)
+
+    assert display.startswith("↳ Interacted")
+    assert "\n  └ yes" in display
+    assert all(get_cwidth(line) <= 20 for line in display.splitlines())
+
+
 def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
     arguments = {"command": "echo ready"}
     start = render_tool_start_view(build_tool_start_view(
@@ -354,6 +454,59 @@ def test_hook_result_uses_shell_aligned_tree_continuations() -> None:
         "    hook context: first line\n"
         "    second line"
     )
+
+
+def test_hook_result_wraps_all_multiline_fields_with_hanging_indent() -> None:
+    view = HookRunView(
+        id="hook-width",
+        hook_key="project:hook",
+        event="PreToolUse",
+        phase="completed",
+        status="failed",
+        status_message="long status " * 8,
+        duration_ms=25,
+        entries=(HookOutputView("error", "long error " * 12),),
+    )
+
+    display = _rendered_text(render_presentation_view(
+        view,
+        terminal_width=20,
+        measure_width=get_cwidth,
+    )[0])
+    transcript = render_presentation_transcript_view(view)[0].plain_text
+
+    assert all(get_cwidth(line) <= 20 for line in display.splitlines())
+    assert all(
+        index == 0 or line.startswith("  ")
+        for index, line in enumerate(display.splitlines())
+    )
+    assert "long status " * 8 in transcript
+    assert "long error " * 12 in transcript
+
+
+def test_mcp_status_wraps_tree_details_under_their_connectors() -> None:
+    block = render_mcp_status_block(
+        McpStatusView(
+            summary="External MCP failed with a long summary",
+            level="failed",
+            done=True,
+            details=(
+                McpStatusDetail("  ├ first: " + ("detail " * 8), "failed"),
+                McpStatusDetail("  └ second: " + ("detail " * 8), "failed"),
+            ),
+        ),
+        terminal_width=20,
+        measure_width=get_cwidth,
+    )
+    lines = _rendered_text(block).splitlines()
+
+    assert all(get_cwidth(line) <= 20 for line in lines)
+    assert any(line.startswith("  │ ") for line in lines)
+    second_index = next(
+        index for index, line in enumerate(lines)
+        if line.startswith("  └ second:")
+    )
+    assert lines[second_index + 1].startswith("    ")
 
 
 def _patch_delta(*changes):
@@ -1374,7 +1527,7 @@ def test_js_repl_completed_transcript_keeps_omitted_source_and_output() -> None:
     assert "\n└ " not in transcript.plain_text
 
 
-def test_js_repl_display_removes_multiline_embedding_indent() -> None:
+def test_js_repl_display_preserves_source_indent_after_tree_prefix() -> None:
     source = (
         'await host.tool("shell_command", {\n'
         '      command: \'Start-Process "https://example.com"\'\n'
@@ -1394,8 +1547,8 @@ def test_js_repl_display_removes_multiline_embedding_indent() -> None:
     display = "".join(span.text for span in start.spans)
     transcript = render_javascript_result_transcript_view(result).plain_text
 
-    assert "\n    command:" in display
-    assert "\n  });" in display
+    assert "\n      command:" in display
+    assert "\n    });" in display
     assert "\n        command:" not in display
     assert "\n        command:" not in transcript
     assert transcript == "• JavaScript\nJavaScript cell completed."

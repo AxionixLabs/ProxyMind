@@ -78,7 +78,10 @@ def _present_external_mcp_result(
     view: McpStatusView
 ) -> bool:
     """提交一项外部 MCP 最终状态。"""
-    block = render_mcp_status_block(view)
+    block = render_mcp_status_block(
+        view,
+        terminal_width=_mcp_terminal_width(mind),
+    )
     if not block.plain_text:
         return False
 

@@ -82,6 +82,43 @@ def wrap_styled_line(
     return wrapped
 
 
+def layout_styled_line(
+    parts: typing.Iterable[TextSpan],
+    *,
+    first_prefix: TextSpan = TextSpan(""),
+    continuation_prefix: TextSpan = TextSpan(""),
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
+    hard: bool = False,
+) -> list[TextSpan]:
+    """为一条逻辑行添加前缀，并按显示宽度生成对齐的物理行。"""
+    content = list(parts)
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return [
+            *((first_prefix,) if first_prefix.text else ()),
+            *content,
+        ]
+
+    rows = wrap_styled_lines(
+        content,
+        terminal_width=terminal_width,
+        first_prefix=first_prefix.text,
+        continuation_prefix=continuation_prefix.text,
+        measure_width=measure_width,
+        hard=hard,
+    )
+
+    rendered: list[TextSpan] = []
+    for index, row in enumerate(rows):
+        if index:
+            rendered.append(TextSpan("\n"))
+        prefix = first_prefix if index == 0 else continuation_prefix
+        if prefix.text:
+            rendered.append(prefix)
+        rendered.extend(row)
+    return rendered
+
+
 def wrap_styled_lines(
     parts: list[TextSpan],
     *,
@@ -193,11 +230,11 @@ def _wrap_styled_cells(
 
 
 def _styled_cells(parts: list[TextSpan]) -> list[TextSpan]:
-    """把样式片段展开为逐字符显示单元。"""
+    """把样式片段展开为不可拆分的组合显示单元。"""
     return [
-        TextSpan(char, part.style, part.hyperlink)
+        TextSpan(unit, part.style, part.hyperlink)
         for part in parts
-        for char in part.text
+        for unit in _display_text_units(part.text)
     ]
 
 

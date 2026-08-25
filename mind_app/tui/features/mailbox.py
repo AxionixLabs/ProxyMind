@@ -499,12 +499,19 @@ def _present_status(
     details: tuple[McpStatusDetail, ...] = ()
 ) -> None:
     """提交一项收件箱稳定状态。"""
-    block = render_mcp_status_block(McpStatusView(
-        summary=summary,
-        level=level,
-        done=True,
-        details=details,
-    ))
+    block = render_mcp_status_block(
+        McpStatusView(
+            summary=summary,
+            level=level,
+            done=True,
+            details=details,
+        ),
+        terminal_width=getattr(
+            getattr(controller.frontend.application, "viewport", None),
+            "width",
+            None,
+        ),
+    )
     controller.frontend.application.emit(ApplicationView(
         type="tui.mailbox.status",
         renderable=block,

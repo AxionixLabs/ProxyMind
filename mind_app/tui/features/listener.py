@@ -159,7 +159,14 @@ def _present_listener_view(
     view: McpStatusView
 ) -> None:
     """提交一项监听器最终状态。"""
-    block = render_mcp_status_block(view)
+    block = render_mcp_status_block(
+        view,
+        terminal_width=getattr(
+            getattr(controller.frontend.application, "viewport", None),
+            "width",
+            None,
+        ),
+    )
     if not block.plain_text:
         return None
     controller.frontend.application.emit(ApplicationView(

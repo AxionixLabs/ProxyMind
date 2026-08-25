@@ -58,6 +58,7 @@ def render_tool_start_trace(
     if kind is ToolDisplayKind.SHELL:
         command = _shell_command_title(
             arguments.get("command"),
+            title_prefix=SHELL_TRACE_TITLE_PREFIX,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
@@ -229,12 +230,6 @@ def render_tool_trace(
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if kind is ToolDisplayKind.STDIN:
-            command = _shell_command_title(
-                payload.get("command") or args.get("command"),
-                terminal_width=terminal_width,
-                measure_width=measure_width,
-            )
-
             stdin   = str(args.get("stdin") or "")
             control = str(
                 args.get("control")
@@ -242,18 +237,31 @@ def render_tool_trace(
                 or "none"
             ).strip().lower()
 
-            if stdin or control != "none":
-                return f"↳ Interacted with background terminal · {command}".rstrip()
-            return f"• Waited for background terminal · {command}".rstrip()
+            title_prefix = (
+                "↳ Interacted with background terminal · "
+                if stdin or control != "none"
+                else "• Waited for background terminal · "
+            )
+            command = _shell_command_title(
+                payload.get("command") or args.get("command"),
+                title_prefix=title_prefix,
+                terminal_width=terminal_width,
+                measure_width=measure_width,
+            )
+            return f"{title_prefix}{command}".rstrip()
 
+        display_prefix = (
+            "• Running "
+            if name == "exec_command" and payload.get("status") == "running"
+            else "• Ran "
+        )
         command = _shell_command_title(
             payload.get("command") or args.get("command"),
+            title_prefix=SHELL_TRACE_TITLE_PREFIX,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
-
-        verb = "Running" if name == "exec_command" and payload.get("status") == "running" else "Ran"
-        return f"• {verb} {command}".rstrip()
+        return f"{display_prefix}{command}".rstrip()
 
     if kind is ToolDisplayKind.JAVASCRIPT:
         return "• JavaScript"
@@ -376,6 +384,7 @@ def _shell_command_empty_preview_lines(
 def _shell_command_title(
     command: typing.Any,
     *,
+    title_prefix: str = SHELL_TRACE_TITLE_PREFIX,
     terminal_width: int | None = None,
     measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
@@ -391,7 +400,7 @@ def _shell_command_title(
 
     available = max(
         0,
-        terminal_width - max(0, width_of(SHELL_TRACE_TITLE_PREFIX)),
+        terminal_width - max(0, width_of(title_prefix)),
     )
 
     return clip_display_text(

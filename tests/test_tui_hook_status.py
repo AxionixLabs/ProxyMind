@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+from prompt_toolkit.utils import get_cwidth
 
 from mind_app.runtime.hooks.models import (
     HookOutputEntry,
@@ -356,5 +357,46 @@ async def test_tui_hook_records_are_committed_in_transcript() -> None:
         assert "Running PreToolUse hook" in transcript
         assert "PreToolUse hook\n  └ completed · 25ms" in transcript
         assert runtime.document.transcript_snapshot().live_tail is None
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_tui_hook_rows_reflow_after_resize() -> None:
+    runtime = TuiRuntime()
+    adapter = TuiHookStatusAdapter(runtime)
+    runtime.screen._frame_geometry = FrameGeometry(20, 24, 1)
+    completed = _run(
+        "resize",
+        status="failed",
+        status_message="first status line\n" + "long status " * 8,
+        entries=(HookOutputEntry("error", "long error " * 12),),
+    )
+
+    try:
+        await adapter.completed(completed)
+        transcript = fragments_text(
+            runtime.document.blocks[0].transcript_block.fragments
+        )
+        narrow = fragments_text(runtime.document.fragments(
+            width=20,
+            reflow_sources=True,
+        ))
+
+        assert runtime.document.blocks[0].display_renderer is not None
+        assert all(get_cwidth(line) <= 20 for line in narrow.splitlines())
+        assert "\n  long status" in transcript
+
+        runtime.document.set_display_width(60, reflow_sources=True)
+        wide = fragments_text(runtime.document.fragments(
+            width=60,
+            reflow_sources=False,
+        ))
+
+        assert wide != narrow
+        assert all(get_cwidth(line) <= 60 for line in wide.splitlines())
+        assert fragments_text(
+            runtime.document.blocks[0].transcript_block.fragments
+        ) == transcript
     finally:
         await runtime.close()

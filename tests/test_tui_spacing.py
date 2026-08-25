@@ -9909,7 +9909,7 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     f"const value{index} = {index};" for index in range(30)
                 )},
             ),
-            "const value0 = 0;",
+            "const value0 =",
             "const value29 = 29;",
             "… +12 lines",
         ),
@@ -9962,7 +9962,7 @@ async def test_tui_bounds_every_tool_block_family_and_keeps_transcript() -> None
                     for index in range(6)
                 )
             ),
-            "batch result 0-0",
+            "batch result",
             "batch result 5-7",
             "… +2 tools",
         ),
@@ -10211,6 +10211,48 @@ async def test_stable_shell_display_reflows_only_after_resize_settles() -> None:
 
     runtime.document.set_display_width(20, reflow_sources=True)
     assert display_at(20, reflow_sources=False) == narrow
+    assert _transcript_text(runtime.document) == transcript
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("view", (
+    build_batch_completed_view(((
+        "remote_tool_with_a_long_name",
+        True,
+        "batch result " + ("界🙂" * 40),
+    ),)),
+    PlanUpdateView(
+        explanation="explanation " * 12,
+        items=(PlanItemView(
+            step="implement a long plan step " * 8,
+            status="in_progress",
+        ),),
+    ),
+), ids=("batch", "plan"))
+async def test_tree_views_reflow_from_structured_source_after_resize(view) -> None:
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (20, 24)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(view)
+
+    narrow = fragments_text(runtime.document.fragments(
+        width=20,
+        reflow_sources=True,
+    ))
+    transcript = _transcript_text(runtime.document)
+    assert runtime.document.blocks[0].display_renderer is not None
+    assert all(get_cwidth(line) <= 20 for line in narrow.splitlines())
+
+    runtime.document.set_display_width(60, reflow_sources=True)
+    wide = fragments_text(runtime.document.fragments(
+        width=60,
+        reflow_sources=False,
+    ))
+
+    assert wide != narrow
+    assert all(get_cwidth(line) <= 60 for line in wide.splitlines())
     assert _transcript_text(runtime.document) == transcript
 
 

@@ -4,6 +4,7 @@
 import typing
 from functools import partial
 from dataclasses import dataclass
+from prompt_toolkit.utils import get_cwidth
 from mind_app.presentation.formatting import format_duration_ms
 from mind_app.presentation.models import TextStyle
 from mind_app.runtime.hooks.models import (
@@ -18,6 +19,7 @@ from ..rendering.fragments import (
     clip_fragments,
     fragments_text,
     join_formatted_lines,
+    split_formatted_lines,
     transcript_hint,
     wrap_formatted_lines
 )
@@ -43,11 +45,16 @@ class TuiHookStatusAdapter:
 
     async def started(self, run: HookRunSummary) -> None:
         """把 Hook 开始事件直接写入稳定正文。"""
-        block = _render_start(run)
+        width = self._runtime.terminal_width
+        block = _render_start(run, width)
+        transcript = _render_start(run, None)
         self._runtime.append_block(
             block,
             kind="operation",
-            raw_text=fragments_text(block.fragments),
+            transcript_block=transcript,
+            raw_text=fragments_text(transcript.fragments),
+            display_renderer=partial(_render_start, run),
+            display_render_width=width,
         )
 
     async def completed(self, run: HookRunSummary) -> None:
@@ -67,19 +74,27 @@ class TuiHookStatusAdapter:
         )
 
 
-def _render_start(run: HookRunSummary) -> FragmentBlock:
+def _render_start(
+    run: HookRunSummary,
+    width: int | None,
+) -> FragmentBlock:
     """生成一项 Hook 开始记录。"""
     label = f"Running {run.event} hook"
-    fragments: FormattedText = [
-        (prompt_style(MUTED_STYLE), "•"),
-        (prompt_style(BODY_STYLE), f" {label}"),
+    content: FormattedText = [
+        (prompt_style(BODY_STYLE), label),
     ]
     if run.status_message:
-        fragments.extend((
+        content.extend((
             (prompt_style(BODY_STYLE), ": "),
             (prompt_style(MUTED_STYLE), run.status_message),
         ))
-    return FragmentBlock(tuple(fragments))
+    lines = _prefixed_rows(
+        content,
+        first_prefix=[(prompt_style(MUTED_STYLE), "• ")],
+        continuation_prefix=[(prompt_style(MUTED_STYLE), "  ")],
+        width=width,
+    )
+    return FragmentBlock(tuple(join_formatted_lines(lines)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +120,7 @@ def _completion_blocks(
         transcript_key=transcript_key,
     )
 
-    transcript = _render_completion(run, width, full_context=True)
+    transcript = _render_completion(run, None, full_context=True)
 
     return _HookCompletionBlocks(
         display=display,
@@ -122,7 +137,7 @@ def _completion_blocks(
 
 def _render_completion(
     run: HookRunSummary,
-    width: int,
+    width: int | None,
     *,
     full_context: bool,
     transcript_key: str = ""
@@ -132,22 +147,30 @@ def _render_completion(
     if run.status_message:
         header = f"{header}: {run.status_message}"
 
-    result_line: FormattedText = [
-        (prompt_style(MUTED_STYLE), f"  └ {run.status}"),
+    result_content: FormattedText = [
+        (prompt_style(MUTED_STYLE), run.status),
     ]
     if run.duration_ms is not None:
-        result_line.append((
+        result_content.append((
             prompt_style(MUTED_STYLE),
             f" · {format_duration_ms(run.duration_ms)}",
         ))
 
-    lines: list[FormattedText] = [[
-        (prompt_style(_completion_bullet_style(run)), "•"),
-        (prompt_style(BODY_STYLE), f" {header}"),
-    ], result_line]
+    lines = _prefixed_rows(
+        [(prompt_style(BODY_STYLE), header)],
+        first_prefix=[(prompt_style(_completion_bullet_style(run)), "• ")],
+        continuation_prefix=[(prompt_style(BODY_STYLE), "  ")],
+        width=width,
+    )
+    lines.extend(_prefixed_rows(
+        result_content,
+        first_prefix=[(prompt_style(MUTED_STYLE), "  └ ")],
+        continuation_prefix=[(prompt_style(MUTED_STYLE), "    ")],
+        width=width,
+    ))
 
     for entry in run.entries:
-        entry_lines = _entry_lines(entry)
+        entry_lines = _entry_lines(entry, width=width)
 
         if entry.kind == "context" and not full_context:
             lines.extend(_context_preview(
@@ -161,7 +184,11 @@ def _render_completion(
     return FragmentBlock(tuple(join_formatted_lines(lines)))
 
 
-def _entry_lines(entry: HookOutputEntry) -> list[FormattedText]:
+def _entry_lines(
+    entry: HookOutputEntry,
+    *,
+    width: int | None,
+) -> list[FormattedText]:
     """把结构化输出条目转换为带缩进的逻辑行。"""
     prefix = {
         "warning": "warning: ",
@@ -171,17 +198,23 @@ def _entry_lines(entry: HookOutputEntry) -> list[FormattedText]:
         "error": "error: ",
     }[entry.kind]
 
-    source = entry.text.split("\n")
-    first  = source[0] if source else ""
+    source = str(entry.text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while source and not source[0].strip():
+        source.pop(0)
+    while source and not source[-1].strip():
+        source.pop()
+    if not source:
+        return []
 
-    lines: list[FormattedText] = [[
-        (prompt_style(BODY_STYLE), f"    {prefix}{first}"),
-    ]]
-
-    lines.extend(
-        [(prompt_style(BODY_STYLE), f"    {line}" if line else "")]
-        for line in source[1:]
-    )
+    lines: list[FormattedText] = []
+    for index, line in enumerate(source):
+        content = f"{prefix}{line}" if index == 0 else line
+        lines.extend(_prefixed_rows(
+            [(prompt_style(BODY_STYLE), content)],
+            first_prefix=[(prompt_style(BODY_STYLE), "    ")],
+            continuation_prefix=[(prompt_style(BODY_STYLE), "    ")],
+            width=width,
+        ))
 
     return lines
 
@@ -189,20 +222,14 @@ def _entry_lines(entry: HookOutputEntry) -> list[FormattedText]:
 def _context_preview(
     lines: list[FormattedText],
     *,
-    width: int,
+    width: int | None,
     transcript_key: str
 ) -> list[FormattedText]:
     """把上下文限制为三行并保留完整记录提示。"""
-    rows = wrap_formatted_lines(
-        join_formatted_lines(lines),
-        width=max(1, int(width)),
-    )
-    rows = [
-        row
-        if fragments_text(row).startswith("    ")
-        else [(prompt_style(BODY_STYLE), "    "), *row]
-        for row in rows
-    ]
+    if not isinstance(width, int) or width <= 0:
+        return lines
+
+    rows = lines
     rows = [
         clip_fragments(row, width=max(1, int(width)))
         for row in rows
@@ -231,6 +258,35 @@ def _context_preview(
     return [
         *rows[:retained],
         hint,
+    ]
+
+
+def _prefixed_rows(
+    content: FormattedText,
+    *,
+    first_prefix: FormattedText,
+    continuation_prefix: FormattedText,
+    width: int | None,
+) -> list[FormattedText]:
+    """按指定前缀生成宽度感知的格式化物理行。"""
+    if not isinstance(width, int) or width <= 0:
+        logical_rows = split_formatted_lines(content)
+        return [
+            [*(first_prefix if index == 0 else continuation_prefix), *row]
+            for index, row in enumerate(logical_rows)
+        ]
+
+    prefix_width = max(
+        get_cwidth(fragments_text(first_prefix)),
+        get_cwidth(fragments_text(continuation_prefix)),
+    )
+    rows = wrap_formatted_lines(
+        content,
+        width=max(1, width - prefix_width),
+    )
+    return [
+        [*(first_prefix if index == 0 else continuation_prefix), *row]
+        for index, row in enumerate(rows)
     ]
 
 

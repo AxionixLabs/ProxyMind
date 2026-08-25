@@ -68,8 +68,16 @@ def _present(
 
 def render_compact_result(mind: "Mind", status: "CompactLiveStatus") -> None:
     """展示上下文压缩的最终状态。"""
-    view  = external_mcp_status_view(status.snapshot(), detail_limit=0)
-    block = render_mcp_status_block(view)
+    view = external_mcp_status_view(status.snapshot(), detail_limit=0)
+
+    block = render_mcp_status_block(
+        view,
+        terminal_width=getattr(
+            getattr(mind.frontend.application, "viewport", None),
+            "width",
+            None,
+        ),
+    )
 
     if not block.plain_text:
         return None
@@ -509,7 +517,14 @@ def render_fork_result(mind: "Mind", status: ForkLiveStatus) -> None:
     """展示会话分支操作的最终状态。"""
     view = external_mcp_status_view(status.snapshot(), detail_limit=0)
 
-    block = render_mcp_status_block(view)
+    block = render_mcp_status_block(
+        view,
+        terminal_width=getattr(
+            getattr(mind.frontend.application, "viewport", None),
+            "width",
+            None,
+        ),
+    )
     if not block.plain_text:
         return None
 

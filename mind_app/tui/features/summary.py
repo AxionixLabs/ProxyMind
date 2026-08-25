@@ -77,7 +77,11 @@ def command_summary_text(
             ),
             (
                 prompt_style(TextStyle(foreground="#A8B1BB", dim=True)),
-                _summary_line_text(line, terminal_width=terminal_width),
+                _summary_line_text(
+                    line,
+                    terminal_width=terminal_width,
+                    line_prefix=prefix,
+                ),
             ),
         ])
 
@@ -146,13 +150,17 @@ def _summary_command_text(
 def _summary_line_text(
     line: typing.Any,
     *,
-    terminal_width: int | None
+    terminal_width: int | None,
+    line_prefix: str,
 ) -> str:
     """返回适合摘要正文展示的单行文本。"""
-    width     = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
-    available = min(COMMAND_SUMMARY_LINE_MAX, max(12, width - 2))
+    width = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
+    available = min(
+        COMMAND_SUMMARY_LINE_MAX,
+        max(0, width - get_cwidth(line_prefix)),
+    )
 
-    return _clip_inline(line, available)
+    return _clip_inline(line, available) if available > 0 else ""
 
 
 def _clip_inline(value: typing.Any, limit: int) -> str:

@@ -110,7 +110,14 @@ def _present_helix_result(
             "error": error,
         })
 
-    block = render_mcp_status_block(view)
+    block = render_mcp_status_block(
+        view,
+        terminal_width=getattr(
+            getattr(mind.frontend.application, "viewport", None),
+            "width",
+            None,
+        ),
+    )
 
     if not block.plain_text:
         return None

@@ -15,7 +15,8 @@ from mind_app.tui.features.context import exec_status_display_label
 from mind_app.tui.features.processes import monitor_exec_status
 from mind_app.tui.features.summary import (
     CommandSummary,
-    command_summary_title_parts
+    command_summary_text,
+    command_summary_title_parts,
 )
 
 
@@ -199,6 +200,24 @@ def test_command_summary_bolds_action_but_not_command() -> None:
 
     assert any("bold" in style and text == "Started" for text, style in parts)
     assert any("bold" not in style and text == "adb logcat" for text, style in parts)
+
+
+def test_command_summary_uses_actual_tree_prefix_width() -> None:
+    block = command_summary_text(
+        CommandSummary(
+            kind="Shell",
+            command="echo ready",
+            lines=("first " * 20, "second " * 20),
+        ),
+        terminal_width=20,
+        first_line_prefix="  └ ",
+        line_prefix="    ",
+    )
+    lines = fragments_text(block.fragments).splitlines()
+
+    assert all(get_cwidth(line) <= 20 for line in lines)
+    assert lines[1].startswith("  └ ")
+    assert lines[2].startswith("    ")
 
 
 @pytest.mark.anyio

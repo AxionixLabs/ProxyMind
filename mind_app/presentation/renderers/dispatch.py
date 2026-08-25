@@ -165,7 +165,11 @@ def _render_presentation_view(
     if isinstance(view, ApprovalView):
         return (render_approval_view(view),)
     if isinstance(view, HookRunView):
-        return (render_hook_run_view(view),)
+        return (render_hook_run_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, ToolStartView):
         return (render_tool_start_view(
             view,
@@ -173,7 +177,11 @@ def _render_presentation_view(
             measure_width=measure_width,
         ),)
     if isinstance(view, GenericToolResultView):
-        return (render_generic_tool_result_view(view),)
+        return (render_generic_tool_result_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, NativeToolResultView):
         return render_native_tool_result_view(
             view,
@@ -188,13 +196,29 @@ def _render_presentation_view(
             terminal_capabilities=terminal_capabilities,
         ),)
     if isinstance(view, PlanUpdateView):
-        return (render_plan_update_view(view),)
+        return (render_plan_update_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, PlanStepsStartView):
-        return (render_plan_steps_start_view(view),)
+        return (render_plan_steps_start_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, BatchStartView):
-        return (render_batch_start_view(view),)
+        return (render_batch_start_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, BatchCompletedView):
-        return (render_batch_completed_view(view),)
+        return (render_batch_completed_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, FailureView):
         return (render_failure_view(
             view,

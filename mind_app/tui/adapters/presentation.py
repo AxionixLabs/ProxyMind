@@ -61,6 +61,11 @@ _WIDTH_AWARE_VIEWS = (
     GenericToolResultView,
     NativeToolResultView,
     PatchView,
+    BatchStartView,
+    BatchCompletedView,
+    PlanUpdateView,
+    PlanStepsStartView,
+    HookRunView,
     FailureView,
     RunIncompleteView
 )

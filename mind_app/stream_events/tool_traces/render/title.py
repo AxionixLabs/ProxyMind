@@ -67,7 +67,7 @@ def render_tool_trace_parts(
                 *_terminal_input_parts(preview_text),
             ])
         else:
-            indent_prefix = "  " if preview_kind == "code" else "    "
+            indent_prefix = "    "
             parts.extend(
                 [
                     _part("  └ ", PREVIEW_STYLE),
@@ -102,8 +102,16 @@ def _clip_text_preview(
     measure_width: typing.Callable[[str], int] | None
 ) -> str:
     """按轨迹前缀后的可用宽度裁剪文本预览行。"""
+    lines = str(preview_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    if not lines:
+        return ""
     if not isinstance(terminal_width, int) or terminal_width <= 0:
-        return preview_text
+        return "\n".join(lines)
 
     width_of     = measure_width or text_display_width
     prefix_width = max(width_of("  └ "), width_of("    "))
@@ -115,7 +123,7 @@ def _clip_text_preview(
             width=available,
             measure_width=width_of,
         )
-        for line in str(preview_text or "").split("\n")
+        for line in lines
     )
 
 

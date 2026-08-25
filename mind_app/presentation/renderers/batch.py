@@ -18,6 +18,11 @@ from ..styles import (
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
 )
+from ..terminal_text import sanitize_terminal_line
+from ..text_layout import (
+    clip_display_text,
+    text_display_width
+)
 
 BATCH_DOT_STYLE = TextStyle(foreground="#F59E0B", bold=True)
 
@@ -27,13 +32,24 @@ _BATCH_RESULT_PREVIEW_LINES = 5
 _BATCH_PREVIEW_WIDTH        = 120
 
 
-def render_batch_start_view(view: BatchStartView) -> StyledBlock:
+def render_batch_start_view(
+    view: BatchStartView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
+) -> StyledBlock:
     """把并行工具开始视图转换为中立展示块。"""
-    lines = ["• Parallel tools"]
+    title = _display_line(
+        "• Parallel tools",
+        prefix="",
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+    lines = [title]
 
     spans = [
-        TextSpan("•", BATCH_DOT_STYLE),
-        TextSpan(" Parallel tools", TITLE_STYLE),
+        TextSpan(title[:1], BATCH_DOT_STYLE),
+        TextSpan(title[1:], TITLE_STYLE),
     ]
 
     calls         = view.calls[:_BATCH_PREVIEW_CALLS]
@@ -45,22 +61,37 @@ def render_batch_start_view(view: BatchStartView) -> StyledBlock:
         is_last       = index == row_count - 1
         branch        = "└" if is_last else "├"
         detail_prefix = "    " if is_last else "  │ "
+        call_prefix   = f"  {branch} "
 
-        lines.append(f"  {branch} {call.name}")
+        call_name = _display_line(
+            call.name,
+            prefix=call_prefix,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+        lines.append(f"{call_prefix}{call_name}")
 
         spans.extend((
             TextSpan("\n"),
             TextSpan(f"  {branch}", PREVIEW_STYLE),
             TextSpan(" ", PREVIEW_STYLE),
-            TextSpan(call.name, ACTION_TOOL_STYLE),
+            TextSpan(call_name, ACTION_TOOL_STYLE),
         ))
 
-        for line in _argument_lines(call.arguments):
-            lines.append(f"{detail_prefix}└ {line}")
+        for line_index, line in enumerate(_argument_lines(call.arguments)):
+            marker = "└ " if line_index == 0 else "  "
+            prefix = f"{detail_prefix}{marker}"
+            display_line = _display_line(
+                line,
+                prefix=prefix,
+                terminal_width=terminal_width,
+                measure_width=measure_width,
+            )
+            lines.append(f"{prefix}{display_line}")
             spans.extend((
                 TextSpan("\n"),
-                TextSpan(f"{detail_prefix}└ ", PREVIEW_STYLE),
-                *_argument_spans(line),
+                TextSpan(prefix, PREVIEW_STYLE),
+                *_argument_spans(display_line),
             ))
 
     if omitted_calls:
@@ -102,14 +133,25 @@ def render_batch_start_transcript_view(view: BatchStartView) -> StyledBlock:
     return StyledBlock(plain_text="\n".join(lines))
 
 
-def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
+def render_batch_completed_view(
+    view: BatchCompletedView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None
+) -> StyledBlock:
     """把并行工具完成视图转换为中立展示块。"""
     all_ok = all(result.ok for result in view.results)
 
-    lines = ["• Parallel tools completed"]
+    title = _display_line(
+        "• Parallel tools completed",
+        prefix="",
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+    lines = [title]
     spans = [
-        TextSpan("•", SUCCESS_DOT_STYLE if all_ok else ERROR_DOT_STYLE),
-        TextSpan(" Parallel tools completed", TITLE_STYLE),
+        TextSpan(title[:1], SUCCESS_DOT_STYLE if all_ok else ERROR_DOT_STYLE),
+        TextSpan(title[1:], TITLE_STYLE),
     ]
 
     results         = view.results[:_BATCH_PREVIEW_CALLS]
@@ -122,25 +164,41 @@ def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
         branch        = "└" if is_last else "├"
         detail_prefix = "    " if is_last else "  │ "
         status        = "ok" if result.ok else "failed"
+        row_prefix    = f"  {branch} "
+        status_suffix = f"  {status}"
 
-        lines.append(f"  {branch} {result.name}  {status}")
+        result_name = _display_line(
+            result.name,
+            prefix=f"{row_prefix}{status_suffix}",
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+        lines.append(f"{row_prefix}{result_name}{status_suffix}")
 
         spans.extend((
             TextSpan("\n"),
             TextSpan(f"  {branch}", PREVIEW_STYLE),
             TextSpan(" ", PREVIEW_STYLE),
-            TextSpan(result.name, ACTION_TOOL_STYLE),
+            TextSpan(result_name, ACTION_TOOL_STYLE),
             TextSpan("  ", PREVIEW_STYLE),
             TextSpan(status, SUCCESS_DOT_STYLE if result.ok else ERROR_DOT_STYLE),
         ))
 
         for line_index, line in enumerate(_result_preview_lines(result.text)):
             marker = "└ " if line_index == 0 else "  "
-            lines.append(f"{detail_prefix}{marker}{line}")
+            prefix = f"{detail_prefix}{marker}"
+
+            display_line = _display_line(
+                line,
+                prefix=prefix,
+                terminal_width=terminal_width,
+                measure_width=measure_width,
+            )
+            lines.append(f"{prefix}{display_line}")
             spans.extend((
                 TextSpan("\n"),
-                TextSpan(f"{detail_prefix}{marker}", PREVIEW_STYLE),
-                TextSpan(line, PREVIEW_TEXT_STYLE),
+                TextSpan(prefix, PREVIEW_STYLE),
+                TextSpan(display_line, PREVIEW_TEXT_STYLE),
             ))
 
     if omitted_results:
@@ -174,7 +232,7 @@ def render_batch_completed_transcript_view(
 
         lines.append(f"  {branch} {result.name}  {status}")
 
-        result_lines = str(result.text or "").strip("\n").splitlines()
+        result_lines = _trim_outer_blank_lines(result.text)
         for line_index, line in enumerate(result_lines):
             marker = "└ " if line_index == 0 else "  "
             lines.append(f"{detail_prefix}{marker}{line}")
@@ -218,7 +276,7 @@ def _argument_lines(arguments: dict[str, typing.Any]) -> list[str]:
 
 def _result_preview_lines(value: typing.Any) -> list[str]:
     """把并行工具结果压缩为有界多行预览。"""
-    source = str(value or "").strip("\n").splitlines()
+    source = _trim_outer_blank_lines(value)
     if not source:
         return []
 
@@ -256,6 +314,37 @@ def _short_text(value: typing.Any, limit: int = 120) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:max(0, limit - 3)]}..."
+
+
+def _trim_outer_blank_lines(value: typing.Any) -> list[str]:
+    """移除预览边界的空白行，同时保留正文内部空行。"""
+    lines = str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
+def _display_line(
+    value: typing.Any,
+    *,
+    prefix: str,
+    terminal_width: int | None,
+    measure_width: typing.Callable[[str], int] | None
+) -> str:
+    """按树形前缀后的可用宽度生成单行展示文本。"""
+    width_of = measure_width or text_display_width
+    text     = sanitize_terminal_line(value, measure_width=width_of)
+
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return text
+
+    return clip_display_text(
+        text,
+        width=max(0, terminal_width - width_of(prefix)),
+        measure_width=width_of,
+    )
 
 
 if __name__ == '__main__':

@@ -14,6 +14,11 @@ from ..tool_policy import (
     tool_display_spec
 )
 from ..formatting import format_duration_ms
+from ..text_layout import (
+    clip_display_text,
+    text_display_width,
+)
+from ..terminal_text import sanitize_terminal_line
 from ..models import (
     GenericToolResultView,
     NativeToolResultView,
@@ -38,36 +43,65 @@ def render_tool_start_view(
     """把普通工具开始视图转换为中立展示块。"""
     spec = tool_display_spec(view.name)
 
-    title = (
-        render_tool_start_trace(
-            view.name,
-            view.arguments,
-            terminal_width=terminal_width,
-            measure_width=measure_width,
-        )
-        if spec.kind is ToolDisplayKind.SHELL
-        else view.title
+    title = _display_title(
+        (
+            render_tool_start_trace(
+                view.name,
+                view.arguments,
+                terminal_width=terminal_width,
+                measure_width=measure_width,
+            )
+            if spec.kind is ToolDisplayKind.SHELL
+            else view.title
+        ),
+        terminal_width=terminal_width,
+        measure_width=measure_width,
     )
+
+    spans = tuple(render_tool_trace_parts(
+        title,
+        preview=view.preview,
+        ok=None,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    ))
 
     return StyledBlock(
-        plain_text=title,
-        spans=tuple(render_tool_trace_parts(
-            title,
-            preview=view.preview,
-            ok=None,
-        )),
+        plain_text=(
+            "".join(span.text for span in spans)
+            if isinstance(terminal_width, int) and terminal_width > 0
+            else title
+        ),
+        spans=spans,
     )
 
 
-def render_generic_tool_result_view(view: GenericToolResultView) -> StyledBlock:
+def render_generic_tool_result_view(
+    view: GenericToolResultView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
+) -> StyledBlock:
     """把普通工具结果视图转换为中立展示块。"""
+    title = _display_title(
+        view.title,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+    spans = tuple(render_tool_trace_parts(
+        title,
+        preview=view.preview,
+        ok=view.ok,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    ))
     return StyledBlock(
-        plain_text=_generic_trace_text(view.title, view.preview),
-        spans=tuple(render_tool_trace_parts(
-            view.title,
-            preview=view.preview,
-            ok=view.ok,
-        )),
+        plain_text=(
+            "".join(span.text for span in spans)
+            if isinstance(terminal_width, int) and terminal_width > 0
+            else _generic_trace_text(title, view.preview)
+        ),
+        spans=spans,
         preserve_spans=True,
     )
 
@@ -410,14 +444,22 @@ def _native_result_title(
     measure_width: typing.Callable[[str], int] | None
 ) -> str:
     """返回按当前终端宽度生成的原生工具结果标题。"""
-    if tool_display_spec(view.name).kind is not ToolDisplayKind.SHELL:
+    if tool_display_spec(view.name).kind not in {
+        ToolDisplayKind.SHELL,
+        ToolDisplayKind.STDIN,
+    }:
         return fallback
-    return render_tool_trace(
+    title = render_tool_trace(
         view.name,
         view.arguments,
         ok=view.ok,
         data=view.data,
         cost_ms=view.cost_ms,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    )
+    return _display_title(
+        title,
         terminal_width=terminal_width,
         measure_width=measure_width,
     )
@@ -455,8 +497,7 @@ def _generic_trace_text(title: str, preview: TracePreview) -> str:
     if not preview.full:
         return title
 
-    indent = "  " if preview.kind == "code" else "    "
-    indented_preview = preview.full.replace("\n", f"\n{indent}")
+    indented_preview = preview.full.replace("\n", "\n    ")
     return f"{title}\n  └ {indented_preview}"
 
 
@@ -465,9 +506,26 @@ def _coding_trace_text(title: str, preview: TracePreview) -> str:
     if not preview.full:
         return title
 
-    indent = "  " if preview.kind == "code" else "    "
-    indented_preview = preview.full.replace("\n", f"\n{indent}")
+    indented_preview = preview.full.replace("\n", "\n    ")
     return f"{title}\n  └ {indented_preview}"
+
+
+def _display_title(
+    title: str,
+    *,
+    terminal_width: int | None,
+    measure_width: typing.Callable[[str], int] | None,
+) -> str:
+    """返回适合当前终端宽度的单行工具标题。"""
+    width_of = measure_width or text_display_width
+    text = sanitize_terminal_line(title, measure_width=width_of)
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return text
+    return clip_display_text(
+        text,
+        width=terminal_width,
+        measure_width=width_of,
+    )
 
 
 if __name__ == '__main__':
