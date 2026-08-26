@@ -20,7 +20,6 @@ ApprovalState = typing.Literal[
     "approved",
     "denied",
     "cancelled",
-    "expired",
 ]
 
 ApprovalSource = typing.Literal[

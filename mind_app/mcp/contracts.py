@@ -24,7 +24,6 @@ class McpSessionLike(typing.Protocol):
         *,
         meta: dict[str, typing.Any] | None = None,
         args: dict[str, typing.Any] | None = None,
-        execution: dict[str, typing.Any] | None = None,
         call_id: str | None = None,
         turn_context: "TurnContext | None" = None,
         pref_config: typing.Mapping[str, typing.Any] | None = None

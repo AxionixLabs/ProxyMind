@@ -8,15 +8,12 @@ ASSISTANT_OUTPUT_BOUNDARY_EVENTS: frozenset[str] = frozenset({
     "tool.builtin.call",
     "tool.calls.start",
     "tool.approval_required",
-    "tool.approval_review",
     "tool.call",
     "tool.output",
 })
 
 
-def is_assistant_output_boundary(
-    event: StreamEvent,
-) -> bool:
+def is_assistant_output_boundary(event: StreamEvent) -> bool:
     """判断结构化事件是否明确结束当前 assistant 输出块。"""
     return event.type in ASSISTANT_OUTPUT_BOUNDARY_EVENTS
 

@@ -158,7 +158,6 @@ async def test_tool_result_posts_only_transport_fields(
         "test_tool",
         True,
         result,
-        execution={"target": "client"},
         additional_context=(" inspect policy ", "verify output"),
         request_id="tool_result_request_1",
     )
@@ -172,7 +171,6 @@ async def test_tool_result_posts_only_transport_fields(
         "name": "test_tool",
         "ok": True,
         "result": expected,
-        "execution": {"target": "client"},
         "additional_context": ["inspect policy", "verify output"],
     }
 
@@ -361,7 +359,7 @@ async def test_decline_request_allows_reason(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_not_pending_response_raises_expired(monkeypatch) -> None:
+async def test_not_pending_response_raises_request_error(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(404, {
         "detail": {
@@ -370,7 +368,7 @@ async def test_not_pending_response_raises_expired(monkeypatch) -> None:
         },
     }), captured)
 
-    with pytest.raises(tools.ToolApprovalExpired, match="^approval expired$"):
+    with pytest.raises(tools.ToolApprovalRequestError, match="^approval expired$"):
         await tools.post_tool_approval(
             "cid_1",
             "sid_1",

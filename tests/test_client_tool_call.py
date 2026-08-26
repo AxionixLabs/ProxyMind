@@ -35,7 +35,6 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
     ClientToolCallRunner,
-    build_client_tool_post_kwargs,
 )
 from mind_app.runtime.tools.run import hook_tool_response
 from mind_core.permissions import preset_permissions
@@ -518,18 +517,13 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
     assert reconcile_payload["resolution"] == "committed"
     assert reconcile_payload["result_payload"]["call_id"] == "call-1"
     assert reconcile_payload["result_payload"]["result"]["tool"] == "test_tool"
-    assert reconcile_payload["result_payload"]["execution"]["effect"] == {
-        "effect_id": "effect_client_call",
-        "fingerprint": "a" * 64,
-        "replay": "manual",
-    }
+    assert "execution" not in reconcile_payload["result_payload"]
 
 
 @pytest.mark.anyio
 async def test_known_local_result_recovers_server_reconciliation_pause() -> None:
     result_payload = {
         "request_id": "effect-result-test",
-        "execution": {"effect": {"effect_id": "effect_client_call"}},
     }
     journal = SimpleNamespace(
         reconciliation_result=AsyncMock(return_value=result_payload),
@@ -556,7 +550,6 @@ async def test_known_local_result_recovers_server_reconciliation_pause() -> None
 async def test_known_unexecuted_result_reconciles_as_failed() -> None:
     result_payload = {
         "result": {"data": {"executed": False}},
-        "execution": {"effect": {"effect_id": "effect_client_call"}},
     }
     journal = SimpleNamespace(
         reconciliation_result=AsyncMock(return_value=result_payload),
@@ -576,7 +569,7 @@ async def test_known_unexecuted_result_reconciles_as_failed() -> None:
 @pytest.mark.anyio
 async def test_known_effect_ignores_only_journal_persistence_failure() -> None:
     result_payload = {
-        "execution": {"effect": {"effect_id": "effect_client_call"}},
+        "request_id": "effect-result-test",
     }
     journal = SimpleNamespace(
         reconciliation_result=AsyncMock(return_value=result_payload),
@@ -850,27 +843,6 @@ async def test_client_tool_call_applies_post_hook_replacement(
     assert result.text == "replacement"
     assert result.fields["data"] == {"redacted": True}
     assert outcome.additional_context == ("review replacement",)
-
-
-def test_client_tool_post_kwargs_includes_hook_feedback() -> None:
-    outcome = ClientToolCallOutcome(
-        result=ClientToolCallResult(
-            name="test_tool",
-            arguments={},
-            ok=True,
-            text="done",
-            fields={"ok": True, "text": "done"},
-        ),
-        additional_context=(" context ",),
-    )
-
-    assert build_client_tool_post_kwargs(
-        outcome,
-        execution={"kind": "local"},
-    ) == {
-        "execution": {"kind": "local"},
-        "additional_context": ("context",),
-    }
 
 
 def test_client_tool_outcome_rejects_invalid_result() -> None:

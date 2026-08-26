@@ -658,11 +658,6 @@ async def test_exec_command_keeps_tool_policy_and_result_flow(tmp_path) -> None:
             command="echo shared-session",
             yield_time_ms=2000,
             timeout_sec=30,
-            execution={
-                "grantId": "test-shared-session",
-                "state": "approved",
-                "target": "local",
-            },
         )
     finally:
         await coding.close()

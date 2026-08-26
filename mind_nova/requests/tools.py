@@ -68,7 +68,6 @@ class _ToolResultPayload(typing.TypedDict):
     name: str
     ok: bool
     result: _ServerToolResult
-    execution: typing.NotRequired[dict[str, typing.Any]]
     additional_context: typing.NotRequired[list[str]]
 
 
@@ -84,14 +83,6 @@ class _ToolApprovalPayload(typing.TypedDict):
     execpolicy_amendment_id: typing.NotRequired[str]
     reason: typing.NotRequired[str]
     additional_context: typing.NotRequired[list[str]]
-
-
-class ToolApprovalExpired(Exception):
-    """表示服务端审批请求已不再处于 pending 状态。"""
-
-    def __init__(self, message: str = "tool approval not pending") -> None:
-        """保存审批已过期的稳定错误说明。"""
-        super().__init__(message)
 
 
 class ToolApprovalRequestError(Exception):
@@ -111,7 +102,6 @@ async def post_tool_result(
     name: str,
     ok: bool,
     result: _ToolResultValue,
-    execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
     arguments: typing.Mapping[str, typing.Any] | None = None,
     request_id: str | None = None
@@ -126,7 +116,6 @@ async def post_tool_result(
         name=name,
         ok=ok,
         result=result,
-        execution=execution,
         additional_context=additional_context,
         arguments=arguments,
         request_id=request_id,
@@ -151,12 +140,11 @@ def build_tool_result_payload(
     name: str,
     ok: bool,
     result: _ToolResultValue,
-    execution: dict[str, typing.Any] | None = None,
     additional_context: typing.Sequence[str] = (),
     arguments: typing.Mapping[str, typing.Any] | None = None,
     request_id: str | None = None
 ) -> dict[str, typing.Any]:
-    """构建可用于普通投递或效果核对的完整工具结果。"""
+    """构建普通投递和效果核对共用的工具结果。"""
 
     normalized_request_id = (
         resolve_request_id(request_id, prefix="tool_result")
@@ -178,9 +166,6 @@ def build_tool_result_payload(
             arguments=arguments,
         )
     }
-    if isinstance(execution, dict):
-        payload["execution"] = execution
-
     contexts = _normalized_contexts(additional_context)
     if contexts:
         payload["additional_context"] = contexts
@@ -266,8 +251,6 @@ async def post_tool_approval(
     )
     if r.is_error:
         code, message = _tool_approval_error(r)
-        if r.status_code == 404 and code == "approval_not_pending":
-            raise ToolApprovalExpired(message)
         raise ToolApprovalRequestError(
             code,
             message,

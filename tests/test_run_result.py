@@ -44,6 +44,7 @@ from mind_app.runtime.turns.executor import (
     TurnExecution,
     build_turn_input_payload,
 )
+from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
@@ -176,20 +177,11 @@ def _hook(command, *, matcher=None):
 
 
 def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """把工具场景补齐为当前持久执行协议。"""
+    """把工具场景补齐为当前流式协议 envelope。"""
     current = dict(payload)
-    call_id = str(current.get("call_id") or "call_test")
-    execution = dict(current.get("execution") or {})
-    execution.setdefault("target", "local")
-    execution["effect"] = {
-        "effect_id": f"effect_{call_id}",
-        "fingerprint": "a" * 64,
-        "replay": "manual",
-    }
     current.update({
         "proto": "mind.chat",
         "presentation_epoch": 1,
-        "execution": execution,
     })
     return current
 
@@ -229,6 +221,11 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
             interaction=interaction,
         ),
         approval_coordinator=ApprovalCoordinator(interaction),
+        exec_policy_manager=ExecPolicyManager(
+            workspace_root=Path.cwd(),
+            rules_paths=(),
+            writable_rules_path=Path.cwd() / ".pytest_cache" / "test-exec-policy.rules",
+        ),
         stop_anim=AsyncMock(),
         freeze_anim=AsyncMock(),
         await_cleanup=await_cleanup,
@@ -1886,7 +1883,7 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
 
 
 @pytest.mark.anyio
-async def test_stream_commits_output_before_approval_review_round_transition(
+async def test_stream_commits_output_before_tool_round_transition(
     monkeypatch,
 ) -> None:
     result, mind = await _run_stream(monkeypatch, [
@@ -1897,14 +1894,8 @@ async def test_stream_commits_output_before_approval_review_round_transition(
             "text": "first",
         },
         {
-            "type": "tool.approval_review",
+            "type": "tool.calls.start",
             "round": 2,
-            "name": "shell_command",
-            "call_id": "call_ping",
-            "approval": {"id": "approval_ping"},
-            "decision": "deny",
-            "status": "denied",
-            "rationale": "command requires review",
         },
         {
             "type": "text.delta",
@@ -2067,7 +2058,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
             "call_id": "call-client",
             "name": "test_tool",
             "arguments": {"value": 1},
-            "execution": {"target": "client"},
+            "reason": "模型需要调用客户端工具。",
         }),
         {"type": "turn.done"},
     ])
@@ -2084,10 +2075,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
         True,
         {"ok": True, "text": "done"},
     )
-    assert posted_kwargs == {
-        "execution": invocations[0].execution,
-        "arguments": {"value": 1},
-    }
+    assert posted_kwargs["arguments"] == {"value": 1}
 
 
 @pytest.mark.anyio
@@ -2276,14 +2264,11 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
             {
                 "type": "tool.approval_required",
                 "call_id": "call-child",
-                "name": "shell_command",
-                "approval": {
-                    "id": "approval-child",
-                    "tool": "shell_command",
-                    "command": "pytest -q",
-                    "agent_id": "spoofed",
-                    "agent_type": "spoofed",
-                },
+                "approval_id": "approval-child",
+                "kind": "command",
+                "command": "pytest -q",
+                "cwd": ".",
+                "reason": "模型需要运行测试。",
             },
             {"type": "turn.done"},
         ],
@@ -2305,7 +2290,7 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_pre_tool_approval_denial_reports_additional_context(
+async def test_remote_approval_event_is_presented_without_nested_metadata(
     monkeypatch,
 ) -> None:
     class CommandRunner(object):
@@ -2341,25 +2326,22 @@ async def test_pre_tool_approval_denial_reports_additional_context(
         [{
             "type": "tool.approval_required",
             "call_id": "call-denied",
-            "name": "test_tool",
-            "arguments": {"value": 1},
-            "approval": {
-                "id": "approval-denied",
-                "tool": "test_tool",
-                "arguments": {"value": 1},
-            },
+            "approval_id": "approval-denied",
+            "kind": "command",
+            "command": "pytest -q",
+            "cwd": ".",
+            "reason": "模型需要运行测试。",
         }, {"type": "turn.done"}],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
     )
 
     assert result.status == "completed"
-    mind.frontend.interaction.present_approval.assert_not_awaited()
+    mind.frontend.interaction.present_approval.assert_awaited_once()
     approval_kwargs = dict(approval_posts[0][1])
     assert approval_kwargs.pop("turn_id")
     assert approval_kwargs == {
-        "decision": "decline",
-        "reason": "unsafe operation",
-        "additional_context": ("Use the safe tool instead.",),
+        "decision": "accept",
+        "reason": None,
     }
 
 
@@ -2396,21 +2378,17 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         {
             "type": "tool.approval_required",
             "call_id": "call-approved",
-            "name": "test_tool",
-            "arguments": {"value": 1},
-            "approval": {
-                "id": "approval-1",
-                "tool": "test_tool",
-                "arguments": {"value": 1},
-            },
+            "approval_id": "approval-1",
+            "kind": "command",
+            "command": "pytest -q",
+            "cwd": ".",
+            "reason": "模型需要运行测试。",
         },
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-approved",
             "name": "test_tool",
             "arguments": {"value": 1},
-            "approval_id": "approval-1",
-            "approved": True,
         }),
         {"type": "turn.done"},
     ])
@@ -2439,63 +2417,64 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
 
 
 @pytest.mark.anyio
-async def test_stream_posts_only_amendment_id_for_policy_approval(
+async def test_stream_persists_local_shell_rule_from_approval(
     monkeypatch,
 ) -> None:
-    approval_posts = []
+    result_posts = []
 
     async def request_outcome(_coordinator, approval):
-        assert approval["proposed_execpolicy_amendment"]["display"] == "git clone"
+        assert approval["justification"] == "清理临时构建目录。"
+        assert approval["proposed_execpolicy_amendment"]["display"] == "rm -rf"
         return ApprovalOutcome.create(
             "acceptWithExecpolicyAmendment",
             source="user",
             reason="user",
         )
 
-    async def post_tool_approval(*args, **kwargs):
-        approval_posts.append((args, kwargs))
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        result_posts.append((args, kwargs))
+        return {}
 
     monkeypatch.setattr(
         ApprovalCoordinator,
         "request_outcome",
         request_outcome,
     )
-    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
     result, _mind_state = await _run_stream(monkeypatch, [
-        {
-            "type": "tool.approval_required",
+        _durable_tool_call({
+            "type": "tool.call",
             "call_id": "call-amendment",
             "name": "shell_command",
-            "arguments": {"command": "git clone https://example.test/repo.git"},
-            "approval": {
-                "id": "approval-amendment",
-                "tool": "shell_command",
-                "justification": "需要检查源码",
-                "proposed_execpolicy_amendment": {
-                    "id": "amendment_1",
-                    "command_prefix": ["git", "clone"],
-                    "display": "git clone",
-                },
-            },
-        },
+            "arguments": {"command": "rm -rf build"},
+            "reason": "清理临时构建目录。",
+        }),
         {"type": "turn.done"},
     ])
 
     assert result.status == "completed"
-    assert approval_posts[0][0] == (
+    assert result_posts[0][0][:5] == (
         "cid_test",
         "sid_test",
         "call-amendment",
-        "approval-amendment",
+        "shell_command",
+        True,
     )
-    approval_kwargs = dict(approval_posts[0][1])
-    assert approval_kwargs.pop("turn_id")
-    assert approval_kwargs == {
-        "decision": "acceptWithExecpolicyAmendment",
-        "reason": None,
-        "execpolicy_amendment_id": "amendment_1",
-    }
 
 
 @pytest.mark.anyio
@@ -2523,16 +2502,16 @@ async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> No
         {
             "type": "tool.approval_required",
             "call_id": "call-declined",
-            "name": "shell_command",
-            "approval": {
-                "id": "approval-declined",
-                "tool": "shell_command",
-            },
+            "approval_id": "approval-declined",
+            "kind": "command",
+            "command": "pytest -q",
+            "cwd": ".",
+            "reason": "模型需要运行测试。",
         },
         {
             "type": "tool.output",
             "call_id": "call-declined",
-            "name": "shell_command",
+            "name": "test_tool",
             "status": "declined",
             "ok": False,
             "result": {"ok": False, "text": "user denied"},
@@ -2576,12 +2555,11 @@ async def test_noninteractive_approval_decline_is_attributed_to_policy(
             _durable_tool_call({
                 "type": "tool.approval_required",
                 "call_id": "call-policy",
-                "name": "shell_command",
-                "approval": {
-                    "id": "approval-policy",
-                    "tool": "shell_command",
-                    "command": "pytest -q",
-                },
+                "approval_id": "approval-policy",
+                "kind": "command",
+                "command": "pytest -q",
+                "cwd": ".",
+                "reason": "模型需要运行测试。",
             }),
             {"type": "turn.done", "status": "completed"},
         ],
@@ -2630,17 +2608,17 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
                 "type": "tool.approval_required",
                 "turn_id": "turn_cancelled",
                 "call_id": "call-cancelled",
-                "name": "shell_command",
-                "approval": {
-                    "id": "approval-cancelled",
-                    "tool": "shell_command",
-                },
+                "approval_id": "approval-cancelled",
+                "kind": "command",
+                "command": "pytest -q",
+                "cwd": ".",
+                "reason": "模型需要运行测试。",
             },
             {
                 "type": "tool.output",
                 "turn_id": "turn_cancelled",
                 "call_id": "call-cancelled",
-                "name": "shell_command",
+                "name": "test_tool",
                 "status": "cancelled",
                 "ok": False,
                 "result": {"ok": False, "text": "user cancelled"},
@@ -2767,23 +2745,6 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
             {"value": 1},
         ),
         (
-            "shell_command",
-            {
-                "command": "echo original",
-                "cwd": "/tmp/project",
-                "timeout_sec": 120,
-                "yield_time_ms": 250,
-            },
-            {"command": "echo rewritten"},
-            {
-                "command": "echo rewritten",
-                "cwd": "/tmp/project",
-                "timeout_sec": 120,
-                "yield_time_ms": 250,
-            },
-            {"command": "echo original"},
-        ),
-        (
             "apply_patch",
             {
                 "patch": "*** Begin Patch\n*** End Patch",
@@ -2864,31 +2825,19 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     approval_event = {
         "type": "tool.approval_required",
         "call_id": "call-rewrite",
-        "name": tool_name,
-        "arguments": original_arguments,
-        "approval": {
-            "id": "approval-rewrite",
-            "tool": tool_name,
-            "arguments": original_arguments,
-        },
+        "approval_id": "approval-rewrite",
+        "kind": "command",
+        "command": "pytest -q",
+        "cwd": ".",
+        "reason": "模型需要运行测试。",
     }
     call_event = {
         "type": "tool.call",
-        "call_id": "call-rewrite",
-        "name": tool_name,
-        "arguments": original_arguments,
-        "approval_id": "approval-rewrite",
-        "approved": True,
+            "call_id": "call-rewrite",
+            "name": tool_name,
+            "arguments": original_arguments,
+            "reason": "模型需要调用客户端工具。",
     }
-    if tool_name == "shell_command":
-        execution = {
-            "target": "local",
-            "state": "approved",
-            "grantId": "grant-rewrite",
-            "canonicalArguments": original_arguments,
-        }
-        approval_event["execution"] = execution
-        call_event["execution"] = execution
     call_event = _durable_tool_call(call_event)
 
     result, mind = await _run_stream(
@@ -2904,10 +2853,11 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     assert result.status == "completed"
     request = mind.frontend.interaction.present_approval.await_args.args[0]
     approval = request.approval
-    assert approval["arguments"] == expected_arguments
-    if tool_name in {"shell_command", "apply_patch"}:
-        command_field = "patch" if tool_name == "apply_patch" else "command"
-        assert approval["command"] == expected_arguments[command_field]
+    assert approval["arguments"] == {
+        "command": "pytest -q",
+        "cwd": ".",
+    }
+    assert approval["command"] == "pytest -q"
     assert executed == [expected_arguments]
     assert runner.calls[0]["tool_input"] == expected_hook_input
     assert posted[0][0][5] == {"ok": True, "text": "done"}

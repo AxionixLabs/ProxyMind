@@ -281,7 +281,7 @@ class TuiPresentationSink(PresentationSink):
         await self._flush_all_terminal_waits()
 
     async def _emit_patch(self, view: PatchView) -> None:
-        """按 Codex 补丁生命周期提交稳定单元和失败单元。"""
+        """按补丁生命周期提交稳定单元和失败单元。"""
         terminal_width = self.output.terminal_width
 
         block = render_presentation_view(

@@ -373,7 +373,7 @@ def _theme_scope_color(
     capabilities: TerminalCapabilities,
     *scope_names: str
 ) -> RgbColor | None:
-    """按 Codex 的作用域优先级读取补丁背景颜色。"""
+    """按作用域优先级读取补丁背景颜色。"""
     values = dict(capabilities.theme.scope_backgrounds)
     for name in scope_names:
         value = values.get(name)

@@ -18,13 +18,6 @@ TurnDoneStatus: typing.TypeAlias = typing.Literal[
 
 EffectReplay: typing.TypeAlias = typing.Literal["safe", "manual"]
 
-_EXECUTION_EFFECT_FIELDS = frozenset({
-    "effect_id",
-    "fingerprint",
-    "replay",
-})
-
-
 @dataclass(frozen=True, slots=True)
 class ExecutionEffect:
     """描述客户端执行前必须遵守的持久效果约束。"""
@@ -174,9 +167,7 @@ class ToolEvent(StreamEvent):
     name: str = ""
     call_id: str = ""
     arguments: dict[str, typing.Any] = field(default_factory=dict)
-    meta: dict[str, typing.Any] | None = None
-    execution: dict[str, typing.Any] | None = None
-    effect: ExecutionEffect | None = None
+    reason: str = ""
 
     def __post_init__(self) -> None:
         """复制工具事件中的可变映射字段。"""
@@ -185,64 +176,23 @@ class ToolEvent(StreamEvent):
             "arguments",
             copy.deepcopy(dict(self.arguments or {})),
         )
-        if self.meta is not None:
-            object.__setattr__(self, "meta", copy.deepcopy(dict(self.meta)))
-        if self.execution is not None:
-            object.__setattr__(self, "execution", copy.deepcopy(dict(self.execution)))
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ToolApprovalRequiredEvent(ToolEvent):
-    """描述需要客户端决策的工具审批事件。"""
-
-    approval: dict[str, typing.Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        """复制公共工具字段和审批载荷。"""
-        ToolEvent.__post_init__(self)
-        object.__setattr__(
-            self,
-            "approval",
-            copy.deepcopy(dict(self.approval or {})),
-        )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ToolApprovalReviewEvent(StreamEvent):
-    """描述服务端自动审批的持久裁决和解释。"""
-    name: str = ""
+class ToolApprovalRequiredEvent(StreamEvent):
+    """描述符合命令审批契约的客户端决策请求。"""
     call_id: str = ""
-    arguments: dict[str, typing.Any] = field(default_factory=dict)
-    approval: dict[str, typing.Any] = field(default_factory=dict)
-    reviewer: str = "auto_review"
-    decision: typing.Literal["allow", "deny", "failed"] = "failed"
-    status: typing.Literal["approved", "denied", "failed"] = "failed"
-    rationale: str = ""
-    failure_reason: str | None = None
-
-    def __post_init__(self) -> None:
-        """复制自动审批事件中的可变映射字段。"""
-        object.__setattr__(self, "arguments", copy.deepcopy(dict(self.arguments or {})))
-        object.__setattr__(self, "approval", copy.deepcopy(dict(self.approval or {})))
+    reason: str = ""
+    kind: typing.Literal["command", "write_stdin"] = "command"
+    approval_id: str = ""
+    command: typing.Any = ""
+    cwd: str = "."
+    proposed_execpolicy_amendment: dict[str, typing.Any] | None = None
+    available_decisions: tuple[typing.Any, ...] = ()
+    parsed_cmd: tuple[typing.Any, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolCallEvent(ToolEvent):
-    """描述服务端下发的客户端工具调用。"""
-    approval_id: str = ""
-    approved: bool = False
-    approval_required: bool = False
-    approval: dict[str, typing.Any] | None = None
-
-    def __post_init__(self) -> None:
-        """复制已批准调用携带的审批证明。"""
-        ToolEvent.__post_init__(self)
-        if self.approval is not None:
-            object.__setattr__(
-                self,
-                "approval",
-                copy.deepcopy(dict(self.approval)),
-            )
+    """描述服务端下发的原始客户端工具调用。"""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -251,7 +201,7 @@ class ToolOutputEvent(ToolEvent):
     payload: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """复制公共工具字段和输出载荷。"""
+        """复制工具输出载荷。"""
         ToolEvent.__post_init__(self)
         object.__setattr__(self, "payload", copy.deepcopy(dict(self.payload or {})))
 
@@ -431,51 +381,41 @@ def parse_stream_event(
             source_count=_nonnegative_int(raw.get("source_count")),
         )
     if event_type == "tool.approval_required":
+        _reject_removed_tool_fields(
+            raw,
+            event_type,
+            extra={"name", "tool", "arguments", "request_id"},
+        )
         return ToolApprovalRequiredEvent(
             **common,
-            **_tool_fields(raw),
-            approval=_dict(raw.get("approval")),
-        )
-    if event_type == "tool.approval_review":
-        decision = _text(raw.get("decision") or "failed").lower()
-        status = _text(raw.get("status") or "failed").lower()
-        if decision not in {"allow", "deny", "failed"}:
-            raise ValueError("tool.approval_review decision is invalid")
-        if status not in {"approved", "denied", "failed"}:
-            raise ValueError("tool.approval_review status is invalid")
-        return ToolApprovalReviewEvent(
-            **common,
-            name=_text(raw.get("name") or raw.get("tool")),
-            call_id=_text(raw.get("call_id")),
-            arguments=_dict(raw.get("arguments")),
-            approval=_dict(raw.get("approval")),
-            reviewer=_text(raw.get("reviewer") or "auto_review"),
-            decision=typing.cast(typing.Literal["allow", "deny", "failed"], decision),
-            status=typing.cast(typing.Literal["approved", "denied", "failed"], status),
-            rationale=_text(raw.get("rationale")),
-            failure_reason=_optional_text(raw.get("failure_reason")),
+            call_id=_required_text(raw.get("call_id"), "tool.approval_required call_id"),
+            kind=_approval_kind(raw.get("kind")),
+            approval_id=_text(raw.get("approval_id")),
+            command=raw.get("command", ""),
+            cwd=_text(raw.get("cwd")) or ".",
+            reason=_required_text(raw.get("reason"), "tool.approval_required reason"),
+            proposed_execpolicy_amendment=_optional_dict(
+                raw.get("proposed_execpolicy_amendment")
+            ),
+            available_decisions=_tuple_or_empty(raw.get("available_decisions")),
+            parsed_cmd=_tuple_or_empty(raw.get("parsed_cmd")),
         )
     if event_type == "tool.call":
+        _reject_removed_tool_fields(raw, event_type)
         tool_fields = _tool_fields(raw)
-
-        effect = tool_fields["effect"]
-        if effect is None:
-            raise ValueError("tool.call execution.effect is required")
-
+        if tool_fields["name"] in {
+            "shell_command",
+            "exec_command",
+            "write_stdin",
+        } and not tool_fields["reason"]:
+            raise ValueError("tool.call shell reason is required")
         return ToolCallEvent(
             **common,
             **tool_fields,
-            approval_id=_text(raw.get("approval_id")),
-            approved=_truthy(raw.get("approved")),
-            approval_required=_approval_required(raw),
-            approval=(
-                _dict(raw.get("approval"))
-                if isinstance(raw.get("approval"), Mapping)
-                else None
-            ),
         )
 
     if event_type == "tool.output":
+        _reject_removed_tool_fields(raw, event_type)
         return ToolOutputEvent(
             **common,
             **_tool_fields(raw),
@@ -534,50 +474,45 @@ def _common_fields(
 
 
 def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """提取工具事件共享的字段。"""
-    execution = _optional_dict(payload.get("execution"))
-
+    """提取工具事件共享的调用字段。"""
     return {
         "name": _text(payload.get("name") or payload.get("tool")),
         "call_id": _text(payload.get("call_id")),
         "arguments": _dict(payload.get("arguments")),
-        "meta": _optional_dict(payload.get("meta")),
-        "execution": execution,
-        "effect": _execution_effect(execution),
+        "reason": _text(payload.get("reason")),
     }
 
 
-def _execution_effect(execution: dict[str, typing.Any] | None) -> ExecutionEffect | None:
-    """严格解析客户端所需的最小效果执行约束。"""
-    if execution is None or "effect" not in execution:
-        return None
-
-    value = execution.get("effect")
-    if not isinstance(value, dict):
-        raise ValueError("execution.effect must be an object")
-    if set(value) != _EXECUTION_EFFECT_FIELDS:
-        raise ValueError("execution.effect fields are invalid")
-
-    effect_id = _required_text(value.get("effect_id"), "execution.effect effect_id")
-
-    fingerprint = _required_text(
-        value.get("fingerprint"),
-        "execution.effect fingerprint",
-    )
-    if len(fingerprint) != 64 or any(
-        character not in "0123456789abcdef" for character in fingerprint
-    ):
-        raise ValueError("execution.effect fingerprint must be a SHA-256 hex digest")
-
-    replay = _required_text(value.get("replay"), "execution.effect replay")
-    if replay not in {"safe", "manual"}:
-        raise ValueError("execution.effect replay is invalid")
-
-    return ExecutionEffect(
-        effect_id=effect_id,
-        fingerprint=fingerprint.lower(),
-        replay=typing.cast(EffectReplay, replay),
-    )
+def _reject_removed_tool_fields(
+    payload: dict[str, typing.Any],
+    event_type: str,
+    *,
+    extra: set[str] | None = None,
+) -> None:
+    """拒绝旧远端工具授权协议字段，避免静默走兼容分支。"""
+    removed = {
+        "execution",
+        "effect",
+        "grant",
+        "grant_id",
+        "grantId",
+        "policyVersion",
+        "expiresAt",
+        "approval",
+        "approved",
+        "approval_required",
+        "approvalRequired",
+        "meta",
+    }
+    if event_type == "tool.call":
+        removed.add("request_id")
+        removed.add("approval_id")
+    removed.update(extra or ())
+    present = sorted(field for field in removed if field in payload)
+    if present:
+        raise ValueError(
+            f"{event_type} contains removed protocol fields: {', '.join(present)}"
+        )
 
 
 def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -592,28 +527,6 @@ def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
         "stop_reason": _optional_text(payload.get("stop_reason")),
         "stop_sequence": _optional_text(payload.get("stop_sequence")),
     }
-
-
-def _approval_required(payload: dict[str, typing.Any]) -> bool:
-    """读取工具事件顶层的审批要求。"""
-    return any(
-        _truthy(value)
-        for value in (
-            payload.get("approvalRequired"),
-            payload.get("approval_required"),
-        )
-    )
-
-
-def _truthy(value: typing.Any) -> bool:
-    """把协议中的布尔兼容值转换为布尔值。"""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "required"}
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return False
 
 
 def _optional_bool(value: typing.Any) -> bool | None:
@@ -686,6 +599,19 @@ def _turn_input_or_none(value: typing.Any) -> TurnInput | None:
 def _tuple_or_none(value: typing.Any) -> tuple[typing.Any, ...] | None:
     """复制可选列表协议值。"""
     return tuple(copy.deepcopy(value)) if isinstance(value, list) else None
+
+
+def _tuple_or_empty(value: typing.Any) -> tuple[typing.Any, ...]:
+    """读取可选列表并在缺省时返回空元组。"""
+    return tuple(copy.deepcopy(value)) if isinstance(value, list) else ()
+
+
+def _approval_kind(value: typing.Any) -> typing.Literal["command", "write_stdin"]:
+    """读取命令审批类型。"""
+    kind = _text(value) or "command"
+    if kind not in {"command", "write_stdin"}:
+        raise ValueError("tool.approval_required kind is invalid")
+    return typing.cast(typing.Literal["command", "write_stdin"], kind)
 
 
 def _positive_int(value: typing.Any) -> int | None:

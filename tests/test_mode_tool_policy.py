@@ -164,11 +164,6 @@ async def test_filter_mode_tools_preserves_external_mcp_tools(mode) -> None:
         "external": True,
         "server": "docs",
         "transport": "external",
-        "effect": {
-            "scope": "external",
-            "class": "non_replayable",
-            "replay_policy": "manual",
-        },
     }
 
 

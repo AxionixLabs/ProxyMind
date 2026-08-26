@@ -3,6 +3,7 @@
 
 import os
 import shlex
+import time
 import typing
 from engine.observability import observe
 from mind_app.native_coding.base import (
@@ -12,7 +13,21 @@ from mind_app.native_coding.base import (
 from mind_app.native_coding.encoding import normalize_process_output_encoding
 from mind_app.native_coding.exec.output_decoder import CapturedOutputDecoder
 from mind_app.native_coding.exec.process_capture import ProcessCapture
+from mind_app.native_coding.exec.process_capture import (
+    CapturedOutputLine,
+    CapturedProcessResult
+)
+from mind_app.native_coding.exec.process_session import (
+    ProcessSessionManager,
+    ProcessSessionSpec
+)
+from mind_app.native_coding.exec.sandbox_client import (
+    SandboxProtocolError,
+    SandboxUnavailable,
+    sandbox_backend_name,
+)
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from mind_app.runtime.processes import wait_for_process
 
 
 class ShellCommandTools(NativeCodingComponent):
@@ -75,12 +90,14 @@ class ShellCommandTools(NativeCodingComponent):
         core: NativeCodingBase,
         *,
         command_policy: typing.Any,
-        file_audit: typing.Any
+        file_audit: typing.Any,
+        sessions: ProcessSessionManager
     ) -> None:
         """保存共享运行时上下文、命令策略和文件审计依赖。"""
         super().__init__(core)
         self._command_policy = command_policy
         self._file_audit     = file_audit
+        self._sessions       = sessions
 
     @classmethod
     def audit_mode_for_command(
@@ -183,13 +200,24 @@ class ShellCommandTools(NativeCodingComponent):
         cwd: str = ".",
         timeout_sec: int = 60,
         output_encoding: str = "auto",
-        execution: dict[str, typing.Any] | None = None,
-        audit_files: bool = False
+        audit_files: bool = False,
+        sandbox_mode: str = "danger-full-access"
     ) -> dict[str, typing.Any]:
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
         cmd = str(command or "")
         if not cmd.strip():
             return self.fail_result("command_empty")
+        if sandbox_mode not in {
+            "danger-full-access",
+            "read-only",
+            "workspace-read",
+            "workspace-write",
+        }:
+            return self.fail_result(
+                "sandbox_mode_invalid",
+                command=cmd,
+                sandbox_mode=sandbox_mode,
+            )
 
         try:
             normalized_output_encoding = normalize_process_output_encoding(output_encoding)
@@ -202,33 +230,35 @@ class ShellCommandTools(NativeCodingComponent):
             self._record_shell_result(result.get("data") or {})
             return result
 
-        policy = self._command_policy.execution_metadata_policy(
-            execution,
+        policy = self._command_policy.local_command_policy(
             command=cmd,
             cwd=cwd,
-            timeout_sec=timeout_sec
+            timeout_sec=timeout_sec,
+            tool="shell_command",
+            arguments={
+                "command": cmd,
+                "cwd": str(cwd or "."),
+                "timeout_sec": int(timeout_sec or 60),
+                "output_encoding": normalized_output_encoding,
+            },
         )
 
         if not policy["ok"]:
             data = {
-                "command"                : cmd,
-                "risk"                   : policy.get("risk"),
-                "category"               : policy.get("category"),
-                "risk_signals"           : policy.get("reasons") or [],
-                "approval_required"      : bool(policy.get("approval_required")),
-                "project_types"          : policy.get("project_types") or [],
-                "execution_target"       : policy.get("execution_target"),
-                "requires_cloud_sandbox" : bool(policy.get("requires_cloud_sandbox")),
-                "execution"              : policy.get("execution"),
-                "grant_id"               : policy.get("grant_id"),
-                "error"                  : "execution_policy_blocked"
+                "command": cmd,
+                "risk": policy.get("risk"),
+                "category": policy.get("category"),
+                "risk_signals": policy.get("reasons") or [],
+                "project_types": policy.get("project_types") or [],
+                "execution_target": policy.get("execution_target"),
+                "error": "execution_policy_blocked"
             }
             result = {
-                "ok"          : False,
-                "text"        : "shell_command blocked by execution policy",
-                "attachments" : [],
-                "data"        : data,
-                "logs"        : []
+                "ok": False,
+                "text": "shell_command blocked by execution policy",
+                "attachments": [],
+                "data": data,
+                "logs": []
             }
 
             self._record_shell_result(data)
@@ -237,53 +267,31 @@ class ShellCommandTools(NativeCodingComponent):
         workdir = self.resolve_path(cwd)
         if not workdir.is_dir():
             data = {
-                "cwd"     : cwd,
-                "command" : cmd,
-                "error"   : "cwd_not_directory"
+                "cwd": cwd,
+                "command": cmd,
+                "error": "cwd_not_directory"
             }
             result = {
-                "ok"          : False,
-                "text"        : "shell_command cwd is not a directory",
-                "attachments" : [],
-                "data"        : data,
-                "logs"        : []
+                "ok": False,
+                "text": "shell_command cwd is not a directory",
+                "attachments": [],
+                "data": data,
+                "logs": []
             }
             self._record_shell_result(data)
             return result
 
-        if policy.get("execution_target") == "cloud_sandbox":
-            result = self.ok_result(
-                "shell_command requires cloud sandbox",
-                ok=False,
-                command=cmd,
-                cwd=self.relative_path(workdir),
-                risk=policy.get("risk"),
-                category=policy.get("category"),
-                risk_signals=policy.get("reasons") or [],
-                approval_required=bool(policy.get("approval_required")),
-                execution_target="cloud_sandbox",
-                requires_cloud_sandbox=True,
-                execution=policy.get("execution"),
-                grant_id=policy.get("grant_id"),
-                project_types=policy.get("project_types") or [],
-                long_task=bool(policy.get("long_task")),
-                timeout_sec=policy.get("timeout_sec"),
-                output_limit=policy.get("output_limit")
-            )
-            self._record_shell_result(result.get("data") or {})
-            return result
-
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
         output_limit      = int(policy.get("output_limit") or self.max_output_chars)
-        env               = os.environ.copy()
 
+        env     = os.environ.copy()
         runtime = ShellRuntimeResolver.resolve(env=env)
 
         runtime_info = {
-            "name"       : runtime.name,
-            "syntax"     : runtime.syntax,
-            "executable" : runtime.executable,
-            "source"     : runtime.source
+            "name": runtime.name,
+            "syntax": runtime.syntax,
+            "executable": runtime.executable,
+            "source": runtime.source
         }
 
         exec_cmd = list(runtime.prefix or [])
@@ -292,14 +300,49 @@ class ShellCommandTools(NativeCodingComponent):
         audit_mode   = self.audit_mode_for_command(cmd, audit_files=audit_files)
         audit_before = self._capture_shell_audit(audit_mode)
 
-        capture = await ProcessCapture.run_shell(
-            cmd,
-            shell=runtime.prefix or None,
-            cwd=str(workdir),
-            env=env,
-            timeout_sec=effective_timeout,
-            buffer_limit_bytes=max(output_limit * 2, output_limit + 4096)
-        )
+        try:
+            if sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
+                capture = await self._run_sandbox_capture(
+                    command=cmd,
+                    args=tuple(exec_cmd),
+                    cwd=str(workdir),
+                    env=env,
+                    timeout_sec=effective_timeout,
+                    sandbox_mode=sandbox_mode,
+                )
+            else:
+                capture = await ProcessCapture.run_shell(
+                    cmd,
+                    shell=runtime.prefix or None,
+                    cwd=str(workdir),
+                    env=env,
+                    timeout_sec=effective_timeout,
+                    buffer_limit_bytes=max(output_limit * 2, output_limit + 4096)
+                )
+        except (
+            SandboxUnavailable,
+            SandboxProtocolError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            data = {
+                "command": cmd,
+                "cwd": self.relative_path(workdir),
+                "sandbox_mode": sandbox_mode,
+                "execution_backend": sandbox_backend_name(),
+                "error": "sandbox_unavailable",
+                "detail": str(exc).strip() or type(exc).__name__,
+            }
+            result = {
+                "ok": False,
+                "text": "shell_command sandbox unavailable",
+                "attachments": [],
+                "data": data,
+                "logs": [],
+            }
+            self._record_shell_result(data)
+            return result
 
         elapsed_ms  = capture.elapsed_ms
         audit_after = self._capture_shell_audit(audit_mode)
@@ -307,15 +350,15 @@ class ShellCommandTools(NativeCodingComponent):
         shell_file_changes = self._file_audit.diff_file_fingerprints(
             audit_before, audit_after
         ) if audit_mode != "off" else {
-            "changed"        : False,
-            "change_count"   : 0,
-            "created"        : [],
-            "modified"       : [],
-            "deleted"        : [],
-            "created_count"  : 0,
-            "modified_count" : 0,
-            "deleted_count"  : 0,
-            "truncated"      : False
+            "changed": False,
+            "change_count": 0,
+            "created": [],
+            "modified": [],
+            "deleted": [],
+            "created_count": 0,
+            "modified_count": 0,
+            "deleted_count": 0,
+            "truncated": False
         }
 
         decoded_output = CapturedOutputDecoder(
@@ -349,40 +392,42 @@ class ShellCommandTools(NativeCodingComponent):
         )
 
         data = {
-            "command"                   : cmd,
-            "resolved_command"          : exec_cmd,
-            "cwd"                       : self.relative_path(workdir),
-            "risk"                      : policy.get("risk"),
-            "category"                  : policy.get("category"),
-            "risk_signals"              : policy.get("reasons") or [],
-            "approval_required"         : bool(policy.get("approval_required")),
-            "execution_target"          : policy.get("execution_target"),
-            "requires_cloud_sandbox"    : bool(policy.get("requires_cloud_sandbox")),
-            "execution"                 : policy.get("execution"),
-            "grant_id"                  : policy.get("grant_id"),
-            "runtime"                   : runtime_info,
-            "runtime_name"              : runtime.name,
-            "project_types"             : policy.get("project_types") or [],
-            "long_task"                 : bool(policy.get("long_task")),
-            "timeout_sec"               : effective_timeout,
-            "output_limit"              : output_limit,
-            "stdout_truncated"          : stdout_truncated,
-            "stderr_truncated"          : stderr_truncated,
-            "truncated"                 : stdout_truncated or stderr_truncated,
-            "file_audit_enabled"        : audit_mode != "off",
-            "file_audit_mode"           : audit_mode,
-            "shell_file_changes"        : shell_file_changes,
-            "shell_write_detected"      : bool(shell_file_changes.get("changed")),
-            "exit_code"                 : exit_code,
-            "timed_out"                 : capture.timed_out,
-            "elapsed_ms"                : elapsed_ms,
-            "output_encoding"           : normalized_output_encoding,
-            "detected_output_encodings"           : list(decoded_output.encodings),
-            "detected_output_encodings_by_stream" : detected_output_encodings_by_stream,
-            "output_encoding_ambiguous"           : decoded_output.ambiguous,
-            "stdout"                    : out_text,
-            "stderr"                    : err_text,
-            "output_lines"              : list(decoded_output.output_lines)
+            "command": cmd,
+            "resolved_command": exec_cmd,
+            "cwd": self.relative_path(workdir),
+            "risk": policy.get("risk"),
+            "category": policy.get("category"),
+            "risk_signals": policy.get("reasons") or [],
+            "execution_target": policy.get("execution_target"),
+            "runtime": runtime_info,
+            "runtime_name": runtime.name,
+            "sandbox_mode": sandbox_mode,
+            "execution_backend": (
+                sandbox_backend_name()
+                if sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
+                else "local"
+            ),
+            "project_types": policy.get("project_types") or [],
+            "long_task": bool(policy.get("long_task")),
+            "timeout_sec": effective_timeout,
+            "output_limit": output_limit,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+            "truncated": stdout_truncated or stderr_truncated,
+            "file_audit_enabled": audit_mode != "off",
+            "file_audit_mode": audit_mode,
+            "shell_file_changes": shell_file_changes,
+            "shell_write_detected": bool(shell_file_changes.get("changed")),
+            "exit_code": exit_code,
+            "timed_out": capture.timed_out,
+            "elapsed_ms": elapsed_ms,
+            "output_encoding": normalized_output_encoding,
+            "detected_output_encodings": list(decoded_output.encodings),
+            "detected_output_encodings_by_stream": detected_output_encodings_by_stream,
+            "output_encoding_ambiguous": decoded_output.ambiguous,
+            "stdout": out_text,
+            "stderr": err_text,
+            "output_lines": list(decoded_output.output_lines)
         }
 
         if not ok:
@@ -392,12 +437,78 @@ class ShellCommandTools(NativeCodingComponent):
         self._record_shell_result(data)
 
         return {
-            "ok"          : ok,
-            "text"        : f"shell_command {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
-            "attachments" : [],
-            "data"        : data,
-            "logs"        : []
+            "ok": ok,
+            "text": f"shell_command {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
+            "attachments": [],
+            "data": data,
+            "logs": []
         }
+
+    async def _run_sandbox_capture(
+        self,
+        *,
+        command: str,
+        args: tuple[str, ...],
+        cwd: str,
+        env: dict[str, str],
+        timeout_sec: int,
+        sandbox_mode: str,
+    ) -> CapturedProcessResult:
+        """通过当前平台 sidecar 执行一次命令并转换为统一捕获结果。"""
+        started = time.perf_counter()
+        session = await self._sessions.start(ProcessSessionSpec(
+            command=command,
+            args=args,
+            cwd=cwd,
+            display_cwd=self.relative_path(self.resolve_path(cwd)),
+            runtime={
+                "name": sandbox_backend_name(),
+                "source": sandbox_backend_name(),
+            },
+            origin="tool",
+            timeout_sec=max(1, int(timeout_sec)),
+            idle_timeout_sec=max(1, int(timeout_sec)),
+            stdin_enabled=False,
+            env=env,
+            sandbox_mode=sandbox_mode,
+        ))
+
+        timed_out = False
+        try:
+            await wait_for_process(session.process, max(1, int(timeout_sec)) * 1000)
+            if session.process.returncode is None:
+                timed_out = True
+                await self._sessions.apply(session, control="kill")
+                await wait_for_process(session.process, 1000)
+
+            await self._sessions.finalize_if_exited(session)
+
+            async with session.lock:
+                stdout = bytes(session.stdout)
+                stderr = bytes(session.stderr)
+                stdout_dropped = session.stdout_dropped
+                stderr_dropped = session.stderr_dropped
+
+                output_records = tuple(
+                    CapturedOutputLine(stream=stream, data=bytes(chunk))
+                    for _, stream, chunk in session.output_events
+                )
+
+            exit_code = session.process.returncode
+            if exit_code is None:
+                exit_code = -1
+            return CapturedProcessResult(
+                exit_code=int(exit_code),
+                stdout=stdout,
+                stderr=stderr,
+                output_records=output_records,
+                stdout_dropped=stdout_dropped,
+                stderr_dropped=stderr_dropped,
+                timed_out=timed_out,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
+        finally:
+            self._sessions.remove(session.session_id)
 
 
 if __name__ == '__main__':

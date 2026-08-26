@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import copy
-import time
 import uuid
 import typing
 import asyncio
@@ -20,11 +19,7 @@ from mind_app.approval.models import (
     ApprovalRequestKind,
     ApprovalResolutionReason
 )
-from mind_app.approval.policy import (
-    approval_decisions,
-    approval_expired,
-    approval_expires_at_ms
-)
+from mind_app.approval.policy import approval_decisions
 from mind_app.interaction.contracts import ApprovalPresenterPort
 
 DEFAULT_APPROVAL_QUEUE_LIMIT = 64
@@ -36,12 +31,11 @@ class _QueuedApproval(object):
     request: ApprovalRequest
     future: asyncio.Future[ApprovalOutcome]
     waiters: int = 1
-    expiry_task: asyncio.Task[None] | None = None
     presentation_task: asyncio.Task[ApprovalDecisionValue] | None = None
 
 
 class ApprovalCoordinator:
-    """协调前端无关的审批队列、超时、取消和关闭生命周期。"""
+    """协调前端无关的审批队列、取消和关闭生命周期。"""
 
     def __init__(
         self,
@@ -86,7 +80,7 @@ class ApprovalCoordinator:
         request = self._normalize_request(approval)
 
         async with self._lock:
-            immediate = self._immediate_outcome(request)
+            immediate = self._immediate_outcome()
             if immediate is not None:
                 return immediate
 
@@ -115,7 +109,6 @@ class ApprovalCoordinator:
                 )
                 self._by_request_id[request.key.request_id] = entry
                 self._pending.append(entry)
-                self._schedule_expiry(entry)
                 self._changed()
                 self._ensure_worker()
 
@@ -140,10 +133,7 @@ class ApprovalCoordinator:
             entry = self._find(request)
             if entry is None or entry.future.done():
                 return False
-            if decision not in entry.request.decisions and decision not in {
-                "cancel",
-                "expired",
-            }:
+            if decision not in entry.request.decisions and decision != "cancel":
                 raise ValueError(
                     f"unsupported approval decision: {decision}"
                 )
@@ -193,15 +183,19 @@ class ApprovalCoordinator:
         approval: dict[str, typing.Any],
     ) -> ApprovalRequest:
         """把松散审批载荷转换为稳定应用层请求。"""
-        payload = copy.deepcopy(dict(approval))
+        payload     = copy.deepcopy(dict(approval))
         approval_id = self._text(payload.get("id"))
+
         call_id = self._text(
             payload.get("call_id") or payload.get("callId")
         )
+
         tool = self._text(payload.get("tool")) or "shell_command"
+
         request_id = self._text(
             payload.get("request_id") or payload.get("requestId")
         )
+
         if not request_id:
             request_id = ":".join(
                 value for value in (approval_id, call_id) if value
@@ -220,12 +214,10 @@ class ApprovalCoordinator:
             ),
             approval=payload,
             decisions=tuple(approval_decisions(payload)),
-            expires_at_ms=approval_expires_at_ms(payload),
         )
 
     def _immediate_outcome(
         self,
-        request: ApprovalRequest,
     ) -> ApprovalOutcome | None:
         """返回无需进入交互队列即可确定的结果。"""
         if self._closed:
@@ -233,12 +225,6 @@ class ApprovalCoordinator:
                 "decline",
                 source="policy",
                 reason="closed",
-            )
-        if approval_expired(request.approval):
-            return self._outcome(
-                "expired",
-                source="policy",
-                reason="expired",
             )
         return None
 
@@ -308,10 +294,7 @@ class ApprovalCoordinator:
                     async with self._lock:
                         if current.future.done():
                             continue
-                        if decision not in current.request.decisions and decision not in {
-                            "cancel",
-                            "expired",
-                        }:
+                        if decision not in current.request.decisions and decision != "cancel":
                             self._fail_entry(
                                 current,
                                 ValueError(
@@ -323,21 +306,13 @@ class ApprovalCoordinator:
                         if decision == "cancel":
                             self._settle_batch_cancel(current)
                         else:
-                            if decision == "expired":
-                                decision_source: ApprovalDecisionSource = "policy"
-                                resolution_reason: ApprovalResolutionReason = (
-                                    "expired"
-                                )
+                            decision_source = self._interaction.approval_source
+                            if decision_source == "user":
+                                resolution_reason = "user"
+                            elif decision_source == "policy":
+                                resolution_reason = "policy"
                             else:
-                                decision_source = (
-                                    self._interaction.approval_source
-                                )
-                                if decision_source == "user":
-                                    resolution_reason = "user"
-                                elif decision_source == "policy":
-                                    resolution_reason = "policy"
-                                else:
-                                    resolution_reason = "external"
+                                resolution_reason = "external"
                             self._settle_entry(
                                 current,
                                 self._outcome(
@@ -427,7 +402,6 @@ class ApprovalCoordinator:
 
         self._remove_entry(entry)
         entry.future.set_result(outcome)
-        self._cancel_expiry(entry)
         if cancel_presentation:
             self._cancel_presentation(entry)
         self._cancel_empty_session_start()
@@ -442,7 +416,6 @@ class ApprovalCoordinator:
             return None
         self._remove_entry(entry)
         entry.future.set_exception(error)
-        self._cancel_expiry(entry)
         self._cancel_empty_session_start()
 
     def _remove_entry(self, entry: _QueuedApproval) -> None:
@@ -474,38 +447,6 @@ class ApprovalCoordinator:
         ):
             return None
         worker.cancel()
-
-    def _schedule_expiry(self, entry: _QueuedApproval) -> None:
-        """为带 deadline 的请求安排主动过期任务。"""
-        expires_at_ms = entry.request.expires_at_ms
-        if expires_at_ms is None:
-            return None
-        delay = max(0.0, expires_at_ms / 1000.0 - time.time())
-        entry.expiry_task = asyncio.create_task(
-            self._expire(entry, delay=delay),
-            name="approval expiry",
-        )
-
-    async def _expire(
-        self,
-        entry: _QueuedApproval,
-        *,
-        delay: float,
-    ) -> None:
-        """在 deadline 到达时主动释放当前或排队请求。"""
-        await asyncio.sleep(delay)
-        async with self._lock:
-            if entry.future.done():
-                return None
-            self._settle_entry(
-                entry,
-                self._outcome(
-                    "expired",
-                    source="policy",
-                    reason="expired",
-                ),
-            )
-            self._changed()
 
     def _find(
         self,
@@ -583,7 +524,6 @@ class ApprovalCoordinator:
             key=request.key,
             approval=copy.deepcopy(request.approval),
             decisions=request.decisions,
-            expires_at_ms=request.expires_at_ms,
         )
 
     @staticmethod
@@ -599,14 +539,6 @@ class ApprovalCoordinator:
             source=source,
             reason=reason,
         )
-
-    @staticmethod
-    def _cancel_expiry(entry: _QueuedApproval) -> None:
-        """取消不再需要的请求过期任务。"""
-        task = entry.expiry_task
-        entry.expiry_task = None
-        if task is not None and task is not asyncio.current_task():
-            task.cancel()
 
     @staticmethod
     def _cancel_presentation(entry: _QueuedApproval) -> None:

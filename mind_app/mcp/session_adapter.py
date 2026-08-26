@@ -109,7 +109,6 @@ class CompositeToolSession(McpSessionLike):
         *,
         meta: dict[str, typing.Any] | None = None,
         args: dict[str, typing.Any] | None = None,
-        execution: dict[str, typing.Any] | None = None,
         call_id: str | None = None,
         turn_context: "TurnContext | None" = None,
         pref_config: typing.Mapping[str, typing.Any] | None = None
@@ -125,7 +124,6 @@ class CompositeToolSession(McpSessionLike):
                 read_timeout_seconds=read_timeout_seconds,
                 progress_callback=progress_callback,
                 meta=meta,
-                execution=execution,
                 call_id=call_id,
                 turn_context=turn_context,
                 pref_config=pref_config,

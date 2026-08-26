@@ -181,7 +181,6 @@ def _hook(
 
 def _invocation(
     *,
-    execution=None,
     turn_id: str = "turn_test",
     session_started: bool = False,
     model: str = "test-model",
@@ -205,7 +204,6 @@ def _invocation(
         name="shell_command",
         arguments={"command": "rg TODO"},
         meta={"domain": "coding"},
-        execution=execution,
     )
 
 
@@ -1334,7 +1332,7 @@ async def test_pre_tool_use_aggregates_deny_and_omits_execution_metadata() -> No
     runtime = HookRuntime(definitions, command_runner=runner)
 
     decision = await ToolHookEvents(_scope(runtime)).pre_tool_use(
-        _invocation(execution={"grantId": "secret-grant"})
+        _invocation()
     )
 
     assert not decision.allowed
@@ -1438,7 +1436,7 @@ async def test_permission_request_prioritizes_deny_over_allow() -> None:
     decision = await ToolHookEvents(_scope(HookRuntime(
         definitions,
         command_runner=runner,
-    ))).permission_request(_invocation(execution={"grantId": "secret"}))
+    ))).permission_request(_invocation())
 
     assert decision.action == "deny"
     assert decision.reason == "permission blocked"

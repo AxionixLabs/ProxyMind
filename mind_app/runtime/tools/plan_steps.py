@@ -18,10 +18,6 @@ from mind_app.runtime.hooks.models import (
     ToolResultSnapshot
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from .execution_policy import (
-    is_execution_ignored,
-    validate_execution_policy
-)
 from .router import execute_tool
 from .run import hook_tool_response
 
@@ -149,8 +145,6 @@ class StepPlanExecutor:
         name          = str(step.get("tool") or "").strip()
         raw_arguments = step.get("args")
         arguments     = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
-        execution     = step.get("execution") if isinstance(step.get("execution"), dict) else None
-
         observe(
             "plan_step.start",
             run=run_index,
@@ -164,18 +158,6 @@ class StepPlanExecutor:
                 step_index,
                 name,
                 f"unknown plan tool: {name}"
-            )
-
-        policy_result = validate_execution_policy(
-            name=name,
-            execution=execution
-        )
-        if policy_result:
-            return await self._failure(
-                run_index,
-                step_index,
-                name,
-                self._policy_failure_text(policy_result)
             )
 
         try:
@@ -192,7 +174,6 @@ class StepPlanExecutor:
                 call_id=step_call_id,
                 name=name,
                 arguments=arguments,
-                execution=execution,
             )
 
             async def execute_step(
@@ -506,14 +487,6 @@ class StepPlanExecutor:
             return f"{elapsed_sec:.1f}s"
         minutes, seconds = divmod(int(elapsed_sec), 60)
         return f"{minutes}m {seconds:02d}s"
-
-    @staticmethod
-    def _policy_failure_text(policy_result: dict[str, typing.Any]) -> str:
-        """返回执行策略拒绝对应的失败文本。"""
-        if is_execution_ignored(policy_result):
-            return str(policy_result.get("reason") or "execution ignored")
-        return str(policy_result.get("error") or "execution denied")
-
 
 def _plan_steps(plan: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
     """读取已标准化计划中的步骤列表。"""

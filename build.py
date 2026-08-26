@@ -483,9 +483,15 @@ async def post_build() -> None:
                 progress.advance(task)
 
         # Notes: ==== macOS Only ====
-        await authorized_tools(
-            ops, target / schematic.name / kit, target / const.APP_NAME, target / launch[0].name
-        )
+        authorization_targets = [
+            target / schematic.name / kit,
+            target / const.APP_NAME,
+            target / launch[0].name,
+        ]
+        sandbox_target = target / schematic.name / "sandbox" / support
+        if sandbox_target.is_dir():
+            authorization_targets.append(sandbox_target)
+        await authorized_tools(ops, *authorization_targets)
 
         await rename_sensitive(*rename)
 
@@ -528,6 +534,7 @@ async def post_build() -> None:
     schematic, kit = app.parent / const.SCHEMATIC, "supports"
     r, s = schematic / "resources", schematic / kit / support
     skills = schematic / "skills"
+    sandbox = schematic / "sandbox" / support
 
     local_pack, local_file = [
         (r, target / schematic.name / r.name),
@@ -536,6 +543,12 @@ async def post_build() -> None:
     ], [
         launch
     ]
+
+    if sandbox.is_dir():
+        local_pack.append((
+            sandbox,
+            target / schematic.name / "sandbox" / support,
+        ))
 
     dependencies = {
         "本地模块": local_pack,

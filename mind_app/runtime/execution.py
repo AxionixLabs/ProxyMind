@@ -227,16 +227,14 @@ class ToolInvocation:
     name: str
     arguments: dict[str, typing.Any]
     meta: dict[str, typing.Any] | None = None
-    execution: dict[str, typing.Any] | None = None
     effect: ExecutionEffect | None = None
+    reason: str = ""
 
     def __post_init__(self) -> None:
         """复制可变输入，避免调用建立后被外部修改。"""
         object.__setattr__(self, "arguments", dict(self.arguments))
         if self.meta is not None:
             object.__setattr__(self, "meta", dict(self.meta))
-        if self.execution is not None:
-            object.__setattr__(self, "execution", dict(self.execution))
 
     def with_arguments(self, arguments: dict[str, typing.Any]) -> "ToolInvocation":
         """返回替换工具参数后的调用快照。"""

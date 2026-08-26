@@ -9,7 +9,6 @@ from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import (
     DECISION_SHORTCUT_LABELS,
     approval_decision_label,
-    approval_expiry_label,
     approval_prompt
 )
 from mind_app.stream_events.approval_trace import (
@@ -98,14 +97,6 @@ def tui_approval_content_lines(
             max_width=content_width,
         ))
 
-    expiry_lines: list[list[tuple[str, str]]] = []
-
-    if expiry_label := approval_expiry_label(approval):
-        expiry_lines = _wrap_fragment_line(
-            [("class:approval-meta", expiry_label)],
-            max_width=content_width,
-        )
-
     option_groups = _approval_option_groups(
         decisions,
         approval=approval,
@@ -130,7 +121,6 @@ def tui_approval_content_lines(
         question_lines=question_lines,
         detail_groups=detail_groups,
         command_lines=command_lines,
-        expiry_lines=expiry_lines,
         option_groups=option_groups,
         footer_lines=footer_lines,
         max_width=content_width,
@@ -309,7 +299,6 @@ def _fit_approval_sections(
     question_lines: list[list[tuple[str, str]]],
     detail_groups: list[list[list[tuple[str, str]]]],
     command_lines: list[list[tuple[str, str]]],
-    expiry_lines: list[list[tuple[str, str]]],
     option_groups: list[list[list[tuple[str, str]]]],
     footer_lines: list[list[tuple[str, str]]],
     max_width: int,
@@ -320,7 +309,6 @@ def _fit_approval_sections(
         question_lines,
         detail_groups,
         command_lines,
-        expiry_lines,
         option_groups,
         footer_lines,
     )
@@ -339,11 +327,6 @@ def _fit_approval_sections(
             for group in option_groups
         ]
 
-    expiry = _truncate_text_lines(
-        expiry_lines,
-        budget=1,
-        max_width=max_width,
-    )
     compact_details = [
         line
         for group in detail_groups
@@ -366,46 +349,41 @@ def _fit_approval_sections(
     ] = (False, False, False, False, [])
     found_layout = False
 
-    expiry_candidates = (expiry, []) if expiry else ([],)
     for include_details in (bool(compact_details), False):
-        for active_expiry in expiry_candidates:
-            detail_min = min(2, len(compact_details)) if include_details else 0
-            for padding, include_footer, gaps in variants:
-                footer = footer_lines[:1] if include_footer else []
-                gap_count = _approval_gap_count(
-                    has_details=include_details,
-                    has_options=bool(options),
+        detail_min = min(2, len(compact_details)) if include_details else 0
+        for padding, include_footer, gaps in variants:
+            footer = footer_lines[:1] if include_footer else []
+            gap_count = _approval_gap_count(
+                has_details=include_details,
+                has_options=bool(options),
+                has_footer=bool(footer),
+                gaps=gaps,
+            )
+            minimum = (
+                2
+                + detail_min
+                + len(options)
+                + len(footer)
+                + gap_count
+                + _approval_padding_count(
+                    padding=padding,
                     has_footer=bool(footer),
-                    gaps=gaps,
                 )
-                minimum = (
-                    2
-                    + detail_min
-                    + len(active_expiry)
-                    + len(options)
-                    + len(footer)
-                    + gap_count
-                    + _approval_padding_count(
-                        padding=padding,
-                        has_footer=bool(footer),
-                    )
+            )
+            if minimum <= height:
+                layout = (
+                    padding,
+                    bool(footer),
+                    gaps,
+                    include_details,
+                    [],
                 )
-                if minimum <= height:
-                    layout = (
-                        padding,
-                        bool(footer),
-                        gaps,
-                        include_details,
-                        active_expiry,
-                    )
-                    found_layout = True
-                    break
-            if found_layout:
+                found_layout = True
                 break
         if found_layout:
             break
 
-    padding, include_footer, gaps, include_details, expiry = layout
+    padding, include_footer, gaps, include_details, _unused = layout
 
     footer = footer_lines[:1] if include_footer else []
 
@@ -416,8 +394,7 @@ def _fit_approval_sections(
         gaps=gaps,
     )
     fixed_height = (
-        len(expiry)
-        + len(options)
+        len(options)
         + len(footer)
         + gap_count
         + _approval_padding_count(
@@ -464,7 +441,6 @@ def _fit_approval_sections(
         question_lines=question,
         detail_lines=details,
         command_lines=command,
-        expiry_lines=expiry,
         option_lines=options,
         footer_lines=footer,
         padding=padding,
@@ -496,7 +472,6 @@ def _approval_sections(
     question_lines: list[list[tuple[str, str]]],
     detail_groups: list[list[list[tuple[str, str]]]],
     command_lines: list[list[tuple[str, str]]],
-    expiry_lines: list[list[tuple[str, str]]],
     option_groups: list[list[list[tuple[str, str]]]],
     footer_lines: list[list[tuple[str, str]]]
 ) -> list[list[tuple[str, str]]]:
@@ -511,7 +486,6 @@ def _approval_sections(
         question_lines=question_lines,
         detail_lines=details,
         command_lines=command_lines,
-        expiry_lines=expiry_lines,
         option_lines=[line for group in option_groups for line in group],
         footer_lines=footer_lines,
         padding=True,
@@ -524,7 +498,6 @@ def _assemble_approval_sections(
     question_lines: list[list[tuple[str, str]]],
     detail_lines: list[list[tuple[str, str]]],
     command_lines: list[list[tuple[str, str]]],
-    expiry_lines: list[list[tuple[str, str]]],
     option_lines: list[list[tuple[str, str]]],
     footer_lines: list[list[tuple[str, str]]],
     padding: bool,
@@ -542,8 +515,6 @@ def _assemble_approval_sections(
             lines.append([])
 
     lines.extend(command_lines)
-    lines.extend(expiry_lines)
-
     if option_lines:
         if gaps:
             lines.append([])

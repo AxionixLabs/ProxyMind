@@ -17,32 +17,6 @@ class McpToolContext:
     tools: list[dict[str, typing.Any]]
 
 
-def _wire_effect_hint(tool: mcp_types.Tool) -> dict[str, str]:
-    """只信任客户端内置工具的本地效果声明。"""
-    meta = dict(tool.meta or {})
-
-    if bool(meta.get("external")):
-        return {
-            "scope": "external",
-            "class": "non_replayable",
-            "replay_policy": "manual",
-        }
-
-    explicit = meta.get("effect")
-    if bool(meta.get("client_builtin")) and isinstance(explicit, dict):
-        return {
-            "scope": str(explicit.get("scope") or ""),
-            "class": str(explicit.get("class") or ""),
-            "replay_policy": str(explicit.get("replay_policy") or ""),
-        }
-
-    return {
-        "scope": "external",
-        "class": "non_replayable",
-        "replay_policy": "manual",
-    }
-
-
 def build_wire_tools(list_tools: mcp_types.ListToolsResult) -> list[dict[str, typing.Any]]:
     """把 MCP 工具列表转换为传输层工具描述，保留 MCP schema 和 meta。"""
     tools: list[dict[str, typing.Any]] = []
@@ -51,7 +25,6 @@ def build_wire_tools(list_tools: mcp_types.ListToolsResult) -> list[dict[str, ty
         meta = dict(tool.meta or {})
         if bool(meta.get("hidden", False)):
             continue
-        meta["effect"] = _wire_effect_hint(tool)
 
         tools.append(
             {

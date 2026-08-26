@@ -19,12 +19,11 @@ from mind_app.native_coding.exec.process_session import (
 )
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
-from mind_app.native_coding.execution_authorization import (
-    ExecutionAuthorizationError,
-    canonical_arguments,
-    execution_expiration_timestamp,
-    validate_execution_authorization,
-    validate_runtime_identity,
+from mind_app.native_coding.exec.sandbox_client import (
+    SandboxProtocolError,
+    SandboxUnavailable,
+    SidecarProcess,
+    sandbox_backend_name
 )
 
 
@@ -48,8 +47,6 @@ class ExecCommandTools(NativeCodingComponent):
         self._session_manager = sessions
         self._sessions        = sessions.sessions
 
-        self._used_write_grants: dict[str, float] = {}
-
     async def exec_command(
         self,
         *,
@@ -59,10 +56,10 @@ class ExecCommandTools(NativeCodingComponent):
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
-        execution: dict[str, typing.Any] | None = None,
         cid: str = "",
         sid: str = "",
-        audit_files: bool = False
+        audit_files: bool = False,
+        sandbox_mode: str = "danger-full-access"
     ) -> dict[str, typing.Any]:
         """启动一个可持续读取和写入的 shell 命令会话。"""
         await self._session_manager.cleanup()
@@ -71,11 +68,19 @@ class ExecCommandTools(NativeCodingComponent):
         if not cmd.strip():
             return self.fail_result("command_empty")
 
-        policy = self._command_policy.execution_metadata_policy(
-            execution,
+        policy = self._command_policy.local_command_policy(
             command=cmd,
             cwd=cwd,
-            timeout_sec=timeout_sec
+            timeout_sec=timeout_sec,
+            tool="exec_command",
+            arguments={
+                "command": cmd,
+                "cwd": str(cwd or "."),
+                "yield_time_ms": int(yield_time_ms),
+                "max_output_chars": int(max_output_chars),
+                "timeout_sec": int(timeout_sec or 1800),
+                "idle_timeout_sec": int(idle_timeout_sec),
+            },
         )
         if not policy["ok"]:
             return self._policy_blocked_result("exec_command", cmd, cwd, policy)
@@ -87,19 +92,6 @@ class ExecCommandTools(NativeCodingComponent):
                 tool="exec_command",
                 command=cmd,
                 cwd=cwd
-            )
-
-        if policy.get("execution_target") == "cloud_sandbox":
-            return self.ok_result(
-                "exec_command requires cloud sandbox",
-                ok=False,
-                tool="exec_command",
-                command=cmd,
-                cwd=self.relative_path(workdir),
-                execution_target="cloud_sandbox",
-                requires_cloud_sandbox=True,
-                execution=policy.get("execution"),
-                grant_id=policy.get("grant_id")
             )
 
         timeout = self._bounded_int(
@@ -119,10 +111,11 @@ class ExecCommandTools(NativeCodingComponent):
         runtime = ShellRuntimeResolver.resolve(env=env)
 
         runtime_info = {
-            "name"       : runtime.name,
-            "syntax"     : runtime.syntax,
-            "executable" : runtime.executable,
-            "source"     : runtime.source
+            "name": runtime.name,
+            "syntax": runtime.syntax,
+            "executable": runtime.executable,
+            "source": runtime.source,
+            "sandbox_mode": sandbox_mode,
         }
 
         exec_cmd = list(runtime.prefix or [])
@@ -132,21 +125,39 @@ class ExecCommandTools(NativeCodingComponent):
         audit_before = self._capture_shell_audit(audit_mode)
         started      = time.perf_counter()
 
-        session = await self._session_manager.start(ProcessSessionSpec(
-            command=cmd,
-            args=tuple([*(runtime.prefix or []), cmd]),
-            cwd=str(workdir),
-            display_cwd=self.relative_path(workdir),
-            runtime=runtime_info,
-            origin="tool",
-            timeout_sec=timeout,
-            idle_timeout_sec=idle_timeout,
-            owner_cid=str(cid or ""),
-            owner_sid=str(sid or ""),
-            audit_mode=audit_mode,
-            audit_before=audit_before,
-            env=env,
-        ))
+        try:
+            session = await self._session_manager.start(ProcessSessionSpec(
+                command=cmd,
+                args=tuple([*(runtime.prefix or []), cmd]),
+                cwd=str(workdir),
+                display_cwd=self.relative_path(workdir),
+                runtime=runtime_info,
+                origin="tool",
+                timeout_sec=timeout,
+                idle_timeout_sec=idle_timeout,
+                owner_cid=str(cid or ""),
+                owner_sid=str(sid or ""),
+                audit_mode=audit_mode,
+                audit_before=audit_before,
+                env=env,
+                sandbox_mode=sandbox_mode,
+            ))
+        except (
+            SandboxUnavailable,
+            SandboxProtocolError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            return self.fail_result(
+                "sandbox_unavailable",
+                tool="exec_command",
+                command=cmd,
+                cwd=self.relative_path(workdir),
+                sandbox_mode=sandbox_mode,
+                execution_backend=sandbox_backend_name(),
+                detail=str(exc).strip() or type(exc).__name__,
+            )
 
         process = session.process
 
@@ -160,21 +171,23 @@ class ExecCommandTools(NativeCodingComponent):
             output_limit=output_limit,
             elapsed_ms=elapsed_ms,
             extra={
-                "resolved_command"       : exec_cmd,
-                "risk"                   : policy.get("risk"),
-                "category"               : policy.get("category"),
-                "risk_signals"           : policy.get("reasons") or [],
-                "approval_required"      : bool(policy.get("approval_required")),
-                "execution_target"       : policy.get("execution_target"),
-                "requires_cloud_sandbox" : bool(policy.get("requires_cloud_sandbox")),
-                "execution"              : policy.get("execution"),
-                "grant_id"               : policy.get("grant_id"),
-                "project_types"          : policy.get("project_types") or [],
-                "timeout_sec"            : timeout,
-                "idle_timeout_sec"       : idle_timeout,
-                "yield_time_ms"          : yield_ms,
-                "pty"                    : False,
-                "pty_fallback"           : True
+                "resolved_command": exec_cmd,
+                "risk": policy.get("risk"),
+                "category": policy.get("category"),
+                "risk_signals": policy.get("reasons") or [],
+                "execution_target": policy.get("execution_target"),
+                "project_types": policy.get("project_types") or [],
+                "timeout_sec": timeout,
+                "idle_timeout_sec": idle_timeout,
+                "yield_time_ms": yield_ms,
+                "pty": False,
+                "pty_fallback": True,
+                "sandbox_mode": sandbox_mode,
+                "execution_backend": (
+                    sandbox_backend_name()
+                    if sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
+                    else "local"
+                ),
             }
         )
 
@@ -189,7 +202,6 @@ class ExecCommandTools(NativeCodingComponent):
         wait_ms: int = 1000,
         max_output_chars: int = 12000,
         control: str = "none",
-        execution: dict[str, typing.Any] | None = None,
         cid: str = "",
         sid: str = "",
         call_id: str = "",
@@ -213,55 +225,7 @@ class ExecCommandTools(NativeCodingComponent):
         if owner_error is not None:
             return owner_error
 
-        input_text: str      = str(stdin or "")
-        grant_id: str | None = None
-
-        grant_expires_at: float | None = None
-
-        if input_text:
-            try:
-                validate_runtime_identity(cid=cid, sid=sid, call_id=call_id)
-
-                grant_id = validate_execution_authorization(
-                    execution, require_grant=True
-                )
-
-                grant_expires_at = execution_expiration_timestamp(execution)
-
-                now = time.time()
-
-                self._used_write_grants = {
-                    used_grant: expires_at
-                    for used_grant, expires_at in self._used_write_grants.items()
-                    if expires_at > now
-                }
-
-                canonical = canonical_arguments(execution, tool="write_stdin")
-
-                expected = {
-                    "session_id"       : str(session_id or ""),
-                    "stdin"            : input_text,
-                    "wait_ms"          : wait_ms,
-                    "max_output_chars" : max_output_chars,
-                    "control"          : control
-                }
-                if canonical != expected:
-                    raise ExecutionAuthorizationError(
-                        "execution_canonical_arguments_mismatch",
-                        "write_stdin arguments do not match canonicalArguments",
-                    )
-                if grant_id in self._used_write_grants:
-                    raise ExecutionAuthorizationError(
-                        "execution_grant_reused", "grantId has already been used"
-                    )
-            except ExecutionAuthorizationError as exc:
-                return self.fail_result(
-                    exc.reason,
-                    tool="write_stdin",
-                    session_id=str(session_id or ""),
-                    error="execution_policy_blocked",
-                    detail=exc.detail,
-                )
+        input_text: str = str(stdin or "")
 
         output_limit = self._bounded_int(
             max_output_chars,
@@ -283,9 +247,6 @@ class ExecCommandTools(NativeCodingComponent):
 
         started = time.perf_counter()
 
-        if grant_id is not None and grant_expires_at is not None:
-            self._used_write_grants[grant_id] = grant_expires_at
-
         write_error = await self._apply_control_or_stdin(
             session,
             input_text=input_text,
@@ -304,10 +265,10 @@ class ExecCommandTools(NativeCodingComponent):
             output_limit=output_limit,
             elapsed_ms=elapsed_ms,
             extra={
-                "control"       : control_name,
-                "stdin_written" : len(str(stdin or "")),
-                "pty"           : False,
-                "pty_fallback"  : True
+                "control": control_name,
+                "stdin_written": len(str(stdin or "")),
+                "pty": False,
+                "pty_fallback": True
             }
         )
 
@@ -416,7 +377,13 @@ class ExecCommandTools(NativeCodingComponent):
         timed_out = time.time() >= session.expires_at and exit_code is None
 
         if timed_out:
-            await terminate_process_tree(session.process, force=True)
+            if isinstance(session.process, SidecarProcess):
+                await session.process.client.terminate(
+                    session.process.process_id,
+                    signal="kill",
+                )
+            else:
+                await terminate_process_tree(session.process, force=True)
             await wait_for_process(session.process, 1000)
             await self._session_manager.finalize_if_exited(session)
 
@@ -428,27 +395,33 @@ class ExecCommandTools(NativeCodingComponent):
         stderr_truncated = len(stderr_text) > output_limit
 
         data = {
-            "tool"             : tool,
-            "session_id"       : session.session_id,
-            "command"          : session.command,
-            "cwd"              : session.cwd,
-            "status"           : status,
-            "pid"              : session.process.pid,
-            "exit_code"        : exit_code,
-            "timed_out"        : timed_out,
-            "elapsed_ms"       : elapsed_ms,
-            "runtime"          : dict(session.runtime),
-            "runtime_name"     : session.runtime.get("name"),
-            "output"           : clipped_output,
-            "stdout"           : clipped_stdout,
-            "stderr"           : clipped_stderr,
-            "output_lines"     : list(output_lines),
-            "output_truncated" : output_truncated,
-            "stdout_truncated" : stdout_truncated,
-            "stderr_truncated" : stderr_truncated,
-            "truncated"        : output_truncated or stdout_truncated or stderr_truncated,
-            "stdout_dropped"   : dropped_stdout,
-            "stderr_dropped"   : dropped_stderr,
+            "tool": tool,
+            "session_id": session.session_id,
+            "command": session.command,
+            "cwd": session.cwd,
+            "status": status,
+            "pid": session.process.pid,
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "elapsed_ms": elapsed_ms,
+            "runtime": dict(session.runtime),
+            "runtime_name": session.runtime.get("name"),
+            "sandbox_mode": session.runtime.get("sandbox_mode", "danger-full-access"),
+            "execution_backend": (
+                sandbox_backend_name()
+                if isinstance(session.process, SidecarProcess)
+                else "local"
+            ),
+            "output": clipped_output,
+            "stdout": clipped_stdout,
+            "stderr": clipped_stderr,
+            "output_lines": list(output_lines),
+            "output_truncated": output_truncated,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+            "truncated": output_truncated or stdout_truncated or stderr_truncated,
+            "stdout_dropped": dropped_stdout,
+            "stderr_dropped": dropped_stderr,
         }
         data.update(extra or {})
 
@@ -478,15 +451,15 @@ class ExecCommandTools(NativeCodingComponent):
         """计算会话生命周期内的文件变化。"""
         if session.audit_mode == "off":
             return {
-                "changed"        : False,
-                "change_count"   : 0,
-                "created"        : [],
-                "modified"       : [],
-                "deleted"        : [],
-                "created_count"  : 0,
-                "modified_count" : 0,
-                "deleted_count"  : 0,
-                "truncated"      : False
+                "changed": False,
+                "change_count": 0,
+                "created": [],
+                "modified": [],
+                "deleted": [],
+                "created_count": 0,
+                "modified_count": 0,
+                "deleted_count": 0,
+                "truncated": False
             }
 
         audit_after = self._capture_shell_audit(session.audit_mode)
@@ -516,26 +489,22 @@ class ExecCommandTools(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         """构造执行策略拒绝结果。"""
         data = {
-            "tool"                   : tool,
-            "command"                : command,
-            "cwd"                    : cwd,
-            "risk"                   : policy.get("risk"),
-            "category"               : policy.get("category"),
-            "risk_signals"           : policy.get("reasons") or [],
-            "approval_required"      : bool(policy.get("approval_required")),
-            "execution_target"       : policy.get("execution_target"),
-            "requires_cloud_sandbox" : bool(policy.get("requires_cloud_sandbox")),
-            "execution"              : policy.get("execution"),
-            "grant_id"               : policy.get("grant_id"),
-            "error"                  : "execution_policy_blocked"
+            "tool": tool,
+            "command": command,
+            "cwd": cwd,
+            "risk": policy.get("risk"),
+            "category": policy.get("category"),
+            "risk_signals": policy.get("reasons") or [],
+            "execution_target": policy.get("execution_target"),
+            "error": "execution_policy_blocked"
         }
         self._record_shell_result(data)
         return {
-            "ok"          : False,
-            "text"        : f"{tool} blocked by execution policy",
-            "attachments" : [],
-            "data"        : data,
-            "logs"        : []
+            "ok": False,
+            "text": f"{tool} blocked by execution policy",
+            "attachments": [],
+            "data": data,
+            "logs": []
         }
 
     @staticmethod
@@ -559,11 +528,11 @@ class ExecCommandTools(NativeCodingComponent):
             NativeCodingBase.enrich_failure_facts(data)
 
         return {
-            "ok"          : ok,
-            "text"        : f"{tool} {status} session_id={data.get('session_id')} elapsed_ms={data.get('elapsed_ms')}",
-            "attachments" : [],
-            "data"        : data,
-            "logs"        : []
+            "ok": ok,
+            "text": f"{tool} {status} session_id={data.get('session_id')} elapsed_ms={data.get('elapsed_ms')}",
+            "attachments": [],
+            "data": data,
+            "logs": []
         }
 
     @staticmethod
@@ -580,6 +549,7 @@ class ExecCommandTools(NativeCodingComponent):
         except (TypeError, ValueError):
             number = default
         return max(minimum, min(maximum, number))
+
 
 if __name__ == '__main__':
     pass

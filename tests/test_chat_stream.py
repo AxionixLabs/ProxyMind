@@ -1026,17 +1026,10 @@ async def test_foreign_turn_event_is_rejected_before_delivery(
             "type": "tool.call",
             **foreign_identity,
             "event_seq": 1,
-            "call_id": "call_1",
-            "name": "shell_command",
-            "arguments": {},
-            "execution": {
-                "target": "client",
-                "effect": {
-                    "effect_id": "effect_1",
-                    "fingerprint": "a" * 64,
-                    "replay": "manual",
-                },
-            },
+                "call_id": "call_1",
+                "name": "shell_command",
+                "arguments": {},
+                "reason": "模型需要调用 shell。",
         }
 
     _install_reconnect_stream(monkeypatch, streaming)

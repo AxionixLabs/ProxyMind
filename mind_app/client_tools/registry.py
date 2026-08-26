@@ -20,6 +20,7 @@ from .view_image import view_image_tools
 
 if typing.TYPE_CHECKING:
     from mind_app.approval.coordinator import ApprovalCoordinator
+    from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
     from mind_app.runtime.subagents.runtime import SubagentRuntime
 
 JS_REPL_TOOL_NAMES = frozenset({"js_repl", "js_repl_reset"})
@@ -61,7 +62,6 @@ class ClientToolRegistry:
         read_timeout_seconds: typing.Any = None,
         progress_callback: typing.Any = None,
         meta: dict[str, typing.Any] | None = None,
-        execution: dict[str, typing.Any] | None = None,
         call_id: str | None = None,
         turn_context: TurnContext | None = None,
         pref_config: typing.Mapping[str, typing.Any] | None = None
@@ -91,7 +91,6 @@ class ClientToolRegistry:
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=runtime_meta or None,
-            execution=execution,
             call_id=call_id,
             nested_tool_dispatch=(
                 nested_dispatch if callable(nested_dispatch) else None
@@ -104,6 +103,7 @@ def default_registry(
     native_coding: typing.Any = None,
     *,
     execution_root: str | Path | None = None,
+    exec_policy_manager: "ExecPolicyManager | None" = None,
     subagent_runtime: "SubagentRuntime | None" = None,
     approval_coordinator: "ApprovalCoordinator | None" = None,
     features: FeatureSettings | None = None,
@@ -119,6 +119,7 @@ def default_registry(
     coding = coding_tools(
         native_coding,
         approval_coordinator=approval_coordinator,
+        exec_policy_manager=exec_policy_manager,
     )
     if not feature_settings.js_repl:
         coding = [

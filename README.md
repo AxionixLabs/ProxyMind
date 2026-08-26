@@ -461,6 +461,10 @@ mind exec "检查项目并修复问题"
 mind exec "连接外部工具并完成修改" -s workspace-write -a on-request
 ```
 
+本地 sidecar 的平台目录、源码/打包路径和 Windows 接入状态见
+[`CODEX_SANDBOX_INTEGRATION_PLAN.md`](CODEX_SANDBOX_INTEGRATION_PLAN.md)；macOS 接入方案见
+[`MACOS_SANDBOX_SIDECAR_INTEGRATION_PLAN.md`](MACOS_SANDBOX_SIDECAR_INTEGRATION_PLAN.md)。
+
 ---
 
 <a id="interactive-mode"></a>

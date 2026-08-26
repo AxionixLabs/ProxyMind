@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-import time
 
 import pytest
 
@@ -175,22 +174,21 @@ async def test_duplicate_identity_rejects_changed_request() -> None:
 
 
 @pytest.mark.anyio
-async def test_queued_approval_expires_without_waiting_for_current() -> None:
+async def test_queued_approval_waits_for_explicit_resolution() -> None:
     interaction = ControlledInteraction()
     coordinator = ApprovalCoordinator(interaction)
     first = asyncio.create_task(coordinator.request({"id": "first"}))
     await interaction.wait_started("first")
-    expiring = asyncio.create_task(coordinator.request_outcome({
-        "id": "expiring",
-        "expires_at_ms": int(time.time() * 1000) + 20,
-    }))
+    queued = asyncio.create_task(coordinator.request_outcome({"id": "queued"}))
+    await asyncio.sleep(0)
 
-    outcome = await asyncio.wait_for(expiring, timeout=1)
-
-    assert outcome.decision == "expired"
-    assert outcome.source == "policy"
-    assert outcome.reason == "expired"
+    assert not queued.done()
     assert interaction.calls == ["first"]
+    assert await coordinator.resolve("queued", "decline", source="policy")
+    outcome = await queued
+    assert outcome.decision == "decline"
+    assert outcome.source == "policy"
+    assert outcome.reason == "external"
     interaction.finish("first", "decline")
     assert await first == "decline"
 

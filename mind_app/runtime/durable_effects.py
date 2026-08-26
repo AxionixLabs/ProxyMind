@@ -312,18 +312,7 @@ class LocalEffectJournal:
             result = payload.get("reconciliation_result_payload")
             if not isinstance(result, dict):
                 return None
-            execution = result.get("execution")
-            persisted_effect = (
-                execution.get("effect")
-                if isinstance(execution, dict)
-                else None
-            )
-            persisted_effect_id = (
-                persisted_effect.get("effect_id")
-                if isinstance(persisted_effect, dict)
-                else None
-            )
-            if persisted_effect_id != str(effect_id or "").strip():
+            if "execution" in result:
                 return None
             return result
         finally:

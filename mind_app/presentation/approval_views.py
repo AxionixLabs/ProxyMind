@@ -34,7 +34,7 @@ def build_approval_view(
 
 def _approval_decision(decision: str) -> ApprovalDecision:
     """归一化工具审批结果。"""
-    if decision == "expired" or decision in TOOL_APPROVAL_DECISIONS:
+    if decision in TOOL_APPROVAL_DECISIONS:
         return typing.cast(ApprovalDecision, decision)
 
     return "decline"
@@ -42,8 +42,6 @@ def _approval_decision(decision: str) -> ApprovalDecision:
 
 def _approval_state(decision: ApprovalDecision) -> ApprovalState:
     """返回工具审批结果对应的展示状态。"""
-    if decision == "expired":
-        return "expired"
     if decision == "cancel":
         return "cancelled"
     if decision in TOOL_APPROVAL_ACCEPT_DECISIONS:

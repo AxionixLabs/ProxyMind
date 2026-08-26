@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import typing
 from mcp import types as mcp_types
 from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
+from mind_app.approval.policy import approval_execpolicy_amendment
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
-    authorized_arguments,
-    validate_execution_authorization,
-    validate_runtime_identity
+    reject_model_execution
 )
 from mind_app.client_tools.types import (
     ClientTool,
@@ -146,49 +145,6 @@ def read_only_sandbox(runtime: ClientToolRuntime) -> bool:
     return runtime.turn_context.permissions.sandbox_mode == "read-only"
 
 
-def validate_unsandboxed_process_authorization(
-    runtime: ClientToolRuntime
-) -> None:
-    """校验无系统进程沙箱时的本地进程执行权限。"""
-    permissions = runtime.turn_context.permissions
-
-    sandbox_mode = permissions.sandbox_mode
-    if sandbox_mode == "read-only":
-        raise ExecutionAuthorizationError(
-            "sandbox_read_only",
-            "read-only mode does not allow local process execution"
-        )
-
-    execution   = runtime.execution if isinstance(runtime.execution, dict) else {}
-    state       = str(execution.get("state") or "").strip().lower()
-    raw_reasons = execution.get("reasons")
-
-    reasons = {
-        str(reason).strip()
-        for reason in raw_reasons
-        if str(reason).strip()
-    } if isinstance(raw_reasons, list) else set()
-
-    approved = state == "approved" or (
-        state == "allowed" and "session_approval_matched" in reasons
-    )
-
-    if sandbox_mode == "workspace-write" and not approved:
-        raise ExecutionAuthorizationError(
-            "unsandboxed_process_approval_required",
-            "workspace-write local process execution requires explicit approval"
-        )
-    if (
-        sandbox_mode == "danger-full-access"
-        and permissions.approval_policy == "untrusted"
-        and not approved
-    ):
-        raise ExecutionAuthorizationError(
-            "untrusted_process_approval_required",
-            "untrusted local process execution requires explicit approval"
-        )
-
-
 def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
     """校验客户端工作区写入权限。"""
     permissions = runtime.turn_context.permissions
@@ -199,35 +155,17 @@ def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
         )
 
 
-def trusted_arguments(
-    runtime: ClientToolRuntime,
-    arguments: dict[str, typing.Any],
-    *,
-    tool: str,
-    require_grant: bool = True
-) -> dict[str, typing.Any]:
-    """校验调用参数、运行身份和可信执行授权。"""
-    turn = runtime.turn_context
-    validate_runtime_identity(cid=turn.cid, sid=turn.sid, call_id=runtime.call_id)
-    validate_execution_authorization(runtime.execution, require_grant=require_grant)
-    return authorized_arguments(runtime.execution, arguments, tool=tool)
-
-
-def reject_model_execution(arguments: dict[str, typing.Any]) -> None:
-    """拒绝从模型工具参数传入执行授权。"""
-    if "execution" in arguments:
-        raise ExecutionAuthorizationError(
-            "model_execution_forbidden", "execution must come from the trusted tool event"
-        )
-
-
 def coding_tools(
     native_coding: NativeCoding | None = None,
     *,
-    approval_coordinator: "ApprovalCoordinator | None" = None
+    approval_coordinator: "ApprovalCoordinator | None" = None,
+    exec_policy_manager: ExecPolicyManager | None = None,
 ) -> list[ClientTool]:
     """返回编码工具列表。"""
     coding = native_coding or NativeCoding()
+    local_exec_policy = exec_policy_manager or ExecPolicyManager(
+        workspace_root=coding.root
+    )
 
     async def js_repl_handler(
         arguments: dict[str, typing.Any],
@@ -251,11 +189,12 @@ def coding_tools(
             call_id: str
         ) -> dict[str, typing.Any]:
             """通过当前复合工具会话执行内核请求。"""
-            execution = await _nested_execution(
+            await _authorize_nested_tool(
                 runtime,
                 tool=tool_name,
                 arguments=tool_arguments,
                 approval_coordinator=approval_coordinator,
+                exec_policy_manager=local_exec_policy,
                 call_id=call_id,
             )
 
@@ -264,7 +203,6 @@ def coding_tools(
                     tool_name,
                     tool_arguments,
                     call_id,
-                    execution,
                 )
             else:
                 result = await runtime.session.call_tool(
@@ -272,7 +210,6 @@ def coding_tools(
                     tool_arguments,
                     read_timeout_seconds=runtime.read_timeout_seconds,
                     progress_callback=runtime.progress_callback,
-                    execution=execution,
                     call_id=call_id,
                     turn_context=runtime.turn_context,
                     pref_config=runtime.pref_config,
@@ -331,26 +268,18 @@ def coding_tools(
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """执行单条命令。"""
-        if read_only_sandbox(runtime):
-            return sandbox_failure_result(
-                coding,
-                tool="shell_command",
-                arguments=arguments,
-            )
         try:
             reject_model_execution(arguments)
-            args = trusted_arguments(
-                runtime,
-                arguments,
-                tool="shell_command",
-            )
-            validate_unsandboxed_process_authorization(runtime)
+            args = dict(arguments)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="shell_command", arguments=arguments, error=exc
             )
 
-        raw = await coding.shell_command(**args, execution=runtime.execution)
+        raw = await coding.shell_command(
+            **args,
+            sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
+        )
 
         return build_coding_result(
             tool="shell_command",
@@ -403,20 +332,9 @@ def coding_tools(
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """启动可持续命令会话。"""
-        if read_only_sandbox(runtime):
-            return sandbox_failure_result(
-                coding,
-                tool="exec_command",
-                arguments=arguments,
-            )
         try:
             reject_model_execution(arguments)
-            args = trusted_arguments(
-                runtime,
-                arguments,
-                tool="exec_command",
-            )
-            validate_unsandboxed_process_authorization(runtime)
+            args = dict(arguments)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="exec_command", arguments=arguments, error=exc
@@ -424,9 +342,9 @@ def coding_tools(
 
         raw = await coding.exec_command(
             **args,
-            execution=runtime.execution,
             cid=runtime.turn_context.cid,
             sid=runtime.turn_context.sid,
+            sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
         )
 
         return build_coding_result(
@@ -444,22 +362,7 @@ def coding_tools(
         try:
             reject_model_execution(arguments)
 
-            args = trusted_arguments(
-                runtime,
-                arguments,
-                tool="write_stdin",
-            )
-
-            mutates_process = bool(args["stdin"]) or args.get("control") != "none"
-
-            if read_only_sandbox(runtime) and mutates_process:
-                return sandbox_failure_result(
-                    coding,
-                    tool="write_stdin",
-                    arguments=arguments,
-                )
-            if mutates_process:
-                validate_unsandboxed_process_authorization(runtime)
+            args = dict(arguments)
 
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
@@ -468,7 +371,6 @@ def coding_tools(
 
         raw = await coding.write_stdin(
             **args,
-            execution=runtime.execution,
             cid=runtime.turn_context.cid,
             sid=runtime.turn_context.sid,
             call_id=str(runtime.call_id or ""),
@@ -727,31 +629,46 @@ def _nested_tool_response(
     }
 
 
-async def _nested_execution(
+async def _authorize_nested_tool(
     runtime: ClientToolRuntime,
     *,
     tool: str,
     arguments: dict[str, typing.Any],
     approval_coordinator: "ApprovalCoordinator | None",
+    exec_policy_manager: ExecPolicyManager,
     call_id: str
-) -> dict[str, typing.Any] | None:
-    """为嵌套进程调用取得并构造可验证的执行元数据。"""
+) -> None:
+    """按本地规则审批 JavaScript 发起的嵌套进程调用。"""
     if tool not in NESTED_PROCESS_TOOLS:
         return None
 
     permissions = runtime.turn_context.permissions
 
-    requires_approval = (
-        permissions.sandbox_mode == "workspace-write"
-        or permissions.approval_policy == "untrusted"
+    requirement = exec_policy_manager.create_exec_approval_requirement_for_command(
+        str(arguments.get("command") or ""),
+        approval_policy=permissions.approval_policy,
+        sandbox_mode=permissions.sandbox_mode,
+        cwd=arguments.get("cwd") or runtime.turn_context.cwd,
+        tool=tool,
+        amendment_id=f"local-rule-{call_id}",
     )
+    if requirement.state == "forbidden":
+        raise ExecutionAuthorizationError(
+            "local_exec_policy_forbidden",
+            requirement.reason or f"local execution policy forbids nested {tool} command",
+        )
+
+    requires_approval = requirement.state == "needs_approval"
 
     approved  = not requires_approval
     canonical = _nested_canonical_arguments(tool, arguments)
 
     if requires_approval:
-        if approval_coordinator is None or permissions.approval_policy == "never":
-            return None
+        if approval_coordinator is None:
+            raise ExecutionAuthorizationError(
+                "nested_tool_approval_unavailable",
+                f"approval coordinator is required for nested {tool} command",
+            )
 
         agent = runtime.turn_context.agent
 
@@ -768,8 +685,33 @@ async def _nested_execution(
             "agent_depth": agent.depth,
         }
 
+        amendment = requirement.proposed_execpolicy_amendment
+        if amendment is not None:
+            approval["proposed_execpolicy_amendment"] = {
+                "id": amendment.id,
+                "command_prefix": list(amendment.command_prefix),
+                "display": amendment.display,
+            }
+
         decision = await approval_coordinator.request(approval)
         approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
+        if decision == "acceptForSession":
+            exec_policy_manager.add_approval_for_session(
+                str(canonical.get("command") or ""),
+                tool=tool,
+                cwd=canonical.get("cwd") or runtime.turn_context.cwd,
+            )
+        elif decision == "acceptWithExecpolicyAmendment":
+            proposal = approval_execpolicy_amendment(approval)
+            if proposal is None:
+                approved = False
+            else:
+                try:
+                    exec_policy_manager.persist_execpolicy_amendment({
+                        "command_prefix": list(proposal.command_prefix),
+                    })
+                except (OSError, UnicodeError, ValueError):
+                    approved = False
 
     if not approved:
         raise ExecutionAuthorizationError(
@@ -777,14 +719,7 @@ async def _nested_execution(
             f"nested {tool} call was not approved",
         )
 
-    return {
-        "state": "approved" if requires_approval else "allowed",
-        "target": "local",
-        "policyVersion": "client-js-repl-v1",
-        "expiresAt": time.time() + 60,
-        "grantId": f"nested_{call_id}",
-        "canonicalArguments": canonical,
-    }
+    return None
 
 
 if __name__ == '__main__':

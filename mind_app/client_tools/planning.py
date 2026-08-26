@@ -90,13 +90,7 @@ def _normalize_step(
         args = {}
         errors.append(f"steps[{index}] args not dict")
 
-    step: dict[str, typing.Any] = {"tool": tool, "args": dict(args)}
-
-    execution = raw_step.get("execution")
-    if isinstance(execution, dict):
-        step["execution"] = dict(execution)
-
-    return step
+    return {"tool": tool, "args": dict(args)}
 
 
 def normalize_plan_arguments(

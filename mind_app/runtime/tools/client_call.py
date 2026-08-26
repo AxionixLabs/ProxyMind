@@ -99,22 +99,6 @@ ClientToolOperation = typing.Callable[
 ]
 
 
-def build_client_tool_post_kwargs(
-    outcome: ClientToolCallOutcome,
-    *,
-    execution: dict[str, typing.Any] | None
-) -> dict[str, typing.Any]:
-    """构建客户端工具结果回传参数。"""
-    post_kwargs: dict[str, typing.Any] = {
-        "execution": execution,
-    }
-
-    if outcome.additional_context:
-        post_kwargs["additional_context"] = outcome.additional_context
-
-    return post_kwargs
-
-
 class ClientToolCallRunner:
     """执行单个客户端工具调用并生成本地展示。"""
 
@@ -187,19 +171,6 @@ class ClientToolCallRunner:
             ),
             additional_context=tuple(contexts),
         )
-
-    @staticmethod
-    def _execution_with_effect(invocation: ToolInvocation) -> dict[str, typing.Any]:
-        """构建包含规范效果身份的工具结果执行信封。"""
-        effect = invocation.effect
-        execution = dict(invocation.execution or {})
-        if effect is not None:
-            execution["effect"] = {
-                "effect_id": effect.effect_id,
-                "fingerprint": effect.fingerprint,
-                "replay": effect.replay,
-            }
-        return execution
 
     @staticmethod
     def _effect_request_suffix(effect_id: str) -> str:
@@ -328,7 +299,6 @@ class ClientToolCallRunner:
             name=result.name,
             ok=result.ok,
             result=result.fields,
-            execution=self._execution_with_effect(invocation),
             additional_context=outcome.additional_context,
             arguments=invocation.arguments,
             request_id=f"effect-tool-result-{request_suffix}",
@@ -420,7 +390,6 @@ class ClientToolCallRunner:
                 tool_name: str,
                 tool_arguments: dict[str, typing.Any],
                 nested_call_id: str,
-                execution: dict[str, typing.Any] | None,
             ) -> mcp_types.CallToolResult:
                 """把嵌套调用接入同一客户端工具生命周期。"""
                 return await self._execute_nested_tool(
@@ -428,7 +397,6 @@ class ClientToolCallRunner:
                     tool_name=tool_name,
                     arguments=tool_arguments,
                     call_id=nested_call_id,
-                    execution=execution,
                 )
 
             invocation = replace(
@@ -554,7 +522,6 @@ class ClientToolCallRunner:
         tool_name: str,
         arguments: dict[str, typing.Any],
         call_id: str,
-        execution: dict[str, typing.Any] | None
     ) -> mcp_types.CallToolResult:
         """通过普通工具生命周期执行内核发起的嵌套调用。"""
         outcome = await self.execute(
@@ -563,7 +530,6 @@ class ClientToolCallRunner:
                 call_id=call_id,
                 name=tool_name,
                 arguments=arguments,
-                execution=execution,
             ),
             use_coding_trace=coding_trace_tool(tool_name),
             display=False,

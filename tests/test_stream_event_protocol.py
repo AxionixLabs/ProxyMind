@@ -6,7 +6,6 @@ from mind_nova.stream_events import (
     PresentationSupersededEvent,
     TextMetaEvent,
     ToolApprovalRequiredEvent,
-    ToolApprovalReviewEvent,
     ToolCallEvent,
     ToolOutputEvent,
     TurnDoneEvent,
@@ -36,7 +35,7 @@ def parse_stream_event(payload):
 
 
 def _durable_tool_event() -> dict:
-    """构造最新客户端工具执行协议事件。"""
+    """构造最新客户端工具调用协议事件。"""
     return {
         "proto": "mind.chat",
         "cid": "cid_test",
@@ -48,91 +47,18 @@ def _durable_tool_event() -> dict:
         "name": "shell_command",
         "call_id": "call_test",
         "arguments": {"command": "echo ready"},
-        "execution": {
-            "target": "local",
-            "effect": {
-                "effect_id": "effect_test",
-                "fingerprint": "a" * 64,
-                "replay": "manual",
-            },
-        },
+        "reason": "模型需要检查命令输出。",
     }
 
 
-def test_latest_tool_protocol_parses_effect_strictly() -> None:
+def test_latest_tool_protocol_parses_direct_tool_fields() -> None:
     event = parse_stream_event(_durable_tool_event())
 
     assert isinstance(event, ToolCallEvent)
-    assert event.effect is not None
-    assert event.effect.replay == "manual"
-
-
-def test_auto_approval_review_event_preserves_decision_and_rationale() -> None:
-    event = parse_stream_event({
-        "type": "tool.approval_review",
-        "name": "shell_command",
-        "call_id": "call_review",
-        "approval": {"id": "approval_review"},
-        "decision": "allow",
-        "status": "approved",
-        "rationale": "Workspace-scoped read-only command.",
-        "reviewer": "auto_review",
-    })
-
-    assert isinstance(event, ToolApprovalReviewEvent)
-    assert event.decision == "allow"
-    assert event.status == "approved"
-    assert event.rationale == "Workspace-scoped read-only command."
-
-
-@pytest.mark.parametrize("replay", ("safe", "manual"))
-def test_effect_replay_modes_parse_strictly(replay: str) -> None:
-    payload = _durable_tool_event()
-    effect = payload["execution"]["effect"]
-    effect["replay"] = replay
-
-    event = parse_stream_event(payload)
-
-    assert isinstance(event, ToolCallEvent)
-    assert event.effect is not None
-    assert event.effect.replay == replay
-
-
-def test_effect_rejects_unknown_replay_mode() -> None:
-    payload = _durable_tool_event()
-    payload["execution"]["effect"]["replay"] = "provider_idempotent"
-
-    with pytest.raises(ValueError, match="replay is invalid"):
-        parse_stream_event(payload)
-
-
-@pytest.mark.parametrize("mutation", ("unknown", "uppercase_fingerprint"))
-def test_execution_effect_rejects_noncanonical_payload(mutation: str) -> None:
-    payload = _durable_tool_event()
-    effect = payload["execution"]["effect"]
-    if mutation == "unknown":
-        effect["legacy"] = True
-    else:
-        effect["fingerprint"] = "A" * 64
-
-    with pytest.raises(ValueError):
-        parse_stream_event(payload)
-
-
-def test_latest_tool_protocol_requires_effect() -> None:
-    payload = _durable_tool_event()
-    payload["execution"].pop("effect")
-
-    with pytest.raises(ValueError, match="effect"):
-        parse_stream_event(payload)
-
-
-def test_latest_tool_protocol_rejects_removed_effect_fields() -> None:
-    payload = _durable_tool_event()
-    payload["execution"]["effect"]["scope"] = "workspace"
-
-    with pytest.raises(ValueError, match="fields are invalid"):
-        parse_stream_event(payload)
+    assert event.name == "shell_command"
+    assert event.call_id == "call_test"
+    assert event.arguments == {"command": "echo ready"}
+    assert event.reason == "模型需要检查命令输出。"
 
 
 def test_presentation_superseded_requires_preceding_epoch() -> None:
@@ -223,8 +149,7 @@ def test_tool_call_event_normalizes_wire_aliases() -> None:
         "tool": "shell_command",
         "call_id": "call-1",
         "arguments": {"command": "pytest -q"},
-        "meta": {"domain": "coding"},
-        "approvalRequired": "required",
+        "reason": "模型需要运行测试。",
     })
     event = parse_stream_event(payload)
 
@@ -232,27 +157,58 @@ def test_tool_call_event_normalizes_wire_aliases() -> None:
     assert event.name == "shell_command"
     assert event.call_id == "call-1"
     assert event.arguments == {"command": "pytest -q"}
-    assert event.meta == {"domain": "coding"}
-    assert event.execution is not None
-    assert event.execution["target"] == "local"
-    assert event.approval_required is True
+    assert event.reason == "模型需要运行测试。"
 
 
-def test_tool_call_event_parses_false_boolean_text() -> None:
-    payload = _durable_tool_event()
-    payload["approved"] = "false"
-    event = parse_stream_event(payload)
+def test_tool_call_event_accepts_calls_without_execution_metadata() -> None:
+    event = parse_stream_event({
+        "type": "tool.call",
+        "name": "shell_command",
+        "call_id": "call_without_execution",
+        "arguments": {"command": "pwd"},
+        "reason": "模型需要确认工作目录。",
+    })
 
     assert isinstance(event, ToolCallEvent)
-    assert event.approved is False
+    assert event.reason == "模型需要确认工作目录。"
 
 
-def test_all_tool_call_protocols_require_current_durability_fields() -> None:
-    with pytest.raises(ValueError, match="execution.effect"):
+def test_shell_tool_call_requires_model_reason() -> None:
+    with pytest.raises(ValueError, match="shell reason is required"):
         parse_stream_event({
             "type": "tool.call",
             "name": "shell_command",
-            "call_id": "call_legacy",
+            "call_id": "call_without_reason",
+            "arguments": {"command": "pwd"},
+        })
+
+
+@pytest.mark.parametrize("field", ("execution", "grantId", "approval_id", "meta"))
+def test_tool_call_event_rejects_removed_authorization_fields(field: str) -> None:
+    payload = {
+        "type": "tool.call",
+        "name": "shell_command",
+        "call_id": "call_removed_field",
+        "arguments": {"command": "pwd"},
+        "reason": "模型需要确认工作目录。",
+        field: {},
+    }
+
+    with pytest.raises(ValueError, match="removed protocol fields"):
+        parse_stream_event(payload)
+
+
+def test_approval_event_rejects_nested_tool_wrapper() -> None:
+    with pytest.raises(ValueError, match="removed protocol fields"):
+        parse_stream_event({
+            "type": "tool.approval_required",
+            "call_id": "call_nested_approval",
+            "approval_id": "approval_nested",
+            "kind": "command",
+            "command": "pwd",
+            "cwd": ".",
+            "reason": "模型需要确认工作目录。",
+            "approval": {"id": "approval_nested"},
         })
 
 
@@ -430,9 +386,13 @@ def test_stream_event_rejects_invalid_explicit_event_sequence(event_seq) -> None
 def test_tool_approval_and_output_events_copy_payloads() -> None:
     approval = parse_stream_event({
         "type": "tool.approval_required",
-        "name": "shell_command",
         "call_id": "call-1",
-        "approval": {"id": "approval-1"},
+        "approval_id": "approval-1",
+        "kind": "command",
+        "command": "pytest -q",
+        "cwd": ".",
+        "reason": "模型需要运行测试。",
+        "available_decisions": ["accept", "decline"],
     })
     output = parse_stream_event({
         "type": "tool.output",
@@ -443,7 +403,12 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     })
 
     assert isinstance(approval, ToolApprovalRequiredEvent)
-    assert approval.approval == {"id": "approval-1"}
+    assert approval.approval_id == "approval-1"
+    assert approval.call_id == "call-1"
+    assert approval.kind == "command"
+    assert approval.command == "pytest -q"
+    assert approval.reason == "模型需要运行测试。"
+    assert approval.available_decisions == ("accept", "decline")
     assert isinstance(output, ToolOutputEvent)
     assert output.payload["status"] == "completed"
     assert output.payload["result"] == {"ok": True, "text": "done"}

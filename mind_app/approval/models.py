@@ -6,10 +6,7 @@ import typing
 from dataclasses import dataclass
 from mind_nova.tool_approval import ToolApprovalDecision
 
-
-ApprovalDecisionValue: typing.TypeAlias = (
-    ToolApprovalDecision | typing.Literal["expired"]
-)
+ApprovalDecisionValue: typing.TypeAlias = ToolApprovalDecision
 
 ApprovalDecisionSource = typing.Literal[
     "user",
@@ -28,7 +25,6 @@ ApprovalRequestKind = typing.Literal[
 ApprovalResolutionReason = typing.Literal[
     "user",
     "policy",
-    "expired",
     "external",
     "caller_cancelled",
     "batch_cancelled",
@@ -55,7 +51,6 @@ class ApprovalRequest(object):
     key: ApprovalRequestKey
     approval: dict[str, typing.Any]
     decisions: tuple[ApprovalDecisionValue, ...]
-    expires_at_ms: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,22 +104,6 @@ class ExecPolicyAmendmentProposal(object):
     id: str
     command_prefix: tuple[str, ...]
     display: str
-
-
-@dataclass(slots=True)
-class ApprovalRecord(object):
-    """保存审批请求元数据，用于校验后续工具调用。"""
-    approval_id: str
-    call_id: str
-    tool: str
-    arguments: dict[str, typing.Any]
-
-
-@dataclass(slots=True)
-class ApprovalDecision(object):
-    """表示工具调用审批校验后的处理动作。"""
-    action: typing.Literal["allow", "reject", "wait"]
-    result: dict[str, typing.Any] | None = None
 
 
 if __name__ == '__main__':

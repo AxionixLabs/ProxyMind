@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-import time
 
 import pytest
 from prompt_toolkit.keys import Keys
@@ -881,7 +880,7 @@ async def test_cancelling_pending_approval_keeps_current_request() -> None:
 
 
 @pytest.mark.anyio
-async def test_expired_queued_approval_is_skipped_during_advance() -> None:
+async def test_queued_approval_is_presented_after_current_resolution() -> None:
     runtime = TuiRuntime()
     approval = runtime.screen.approval
     coordinator = ApprovalCoordinator(runtime)
@@ -892,11 +891,10 @@ async def test_expired_queued_approval_is_skipped_during_advance() -> None:
         "show_timer": False,
     }))
     await _wait_for_presented_approval(approval, "first")
-    expired = asyncio.create_task(coordinator.request({
-        "id": "expired",
+    queued = asyncio.create_task(coordinator.request({
+        "id": "queued",
         "tool": "shell_command",
-        "command": "echo expired",
-        "expires_at_ms": int(time.time() * 1000) + 20,
+        "command": "echo queued",
     }))
     following = asyncio.create_task(coordinator.request({
         "id": "following",
@@ -905,16 +903,13 @@ async def test_expired_queued_approval_is_skipped_during_advance() -> None:
         "show_timer": False,
     }))
     await _wait_for_pending_count(approval, 2)
-    await asyncio.sleep(0.05)
-
     approval.finish("accept")
 
     assert await first == "accept"
-    assert await expired == "expired"
+    await _wait_for_presented_approval(approval, "queued")
+    approval.finish("decline")
+    assert await queued == "decline"
     await _wait_for_presented_approval(approval, "following")
-    assert approval.state is not None
-    assert approval.state.approval["id"] == "following"
-
     approval.finish("decline")
     assert await following == "decline"
 

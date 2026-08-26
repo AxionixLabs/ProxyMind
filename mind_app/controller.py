@@ -52,6 +52,7 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
+from .native_coding.exec.exec_policy import ExecPolicyManager
 from .native_coding.exec.user_shell import UserShellExecution
 from .approval.coordinator import ApprovalCoordinator
 from .runtime.subagents.runtime import SubagentRuntime
@@ -179,6 +180,9 @@ class Mind(object):
 
         self.native_coding: NativeCoding = NativeCoding(root=self.history_workspace)
         self.user_shell: UserShellExecution = self.native_coding.user_shell
+        self.exec_policy_manager = ExecPolicyManager(
+            workspace_root=self.history_workspace
+        )
 
         self.subagents: SubagentRuntime = (
             kwargs.get("subagent_runtime")
@@ -380,6 +384,7 @@ class Mind(object):
         return default_client_tool_registry(
             self.native_coding,
             execution_root=self.history_workspace,
+            exec_policy_manager=self.exec_policy_manager,
             subagent_runtime=self.subagents,
             approval_coordinator=self.approval_coordinator,
             features=self.features,
@@ -547,6 +552,9 @@ class Mind(object):
 
             self.native_coding = NativeCoding(root=self.history_workspace)
             self.user_shell: UserShellExecution = self.native_coding.user_shell
+            self.exec_policy_manager = ExecPolicyManager(
+                workspace_root=self.history_workspace
+            )
             self.client_tools  = self._build_client_tools()
 
             try:

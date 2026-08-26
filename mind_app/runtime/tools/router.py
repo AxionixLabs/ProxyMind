@@ -66,7 +66,6 @@ async def execute_tool(
         invocation.arguments,
         progress_callback=progress_callback,
         meta=runtime_meta,
-        execution=invocation.execution,
         call_id=invocation.call_id,
         turn_context=invocation.turn,
         pref_config=pref_config,

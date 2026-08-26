@@ -23,6 +23,11 @@ from mind_app.native_coding.exec.process_capture import (
     OrderedOutputBuffer,
     ProcessCapture
 )
+from mind_app.native_coding.exec.sandbox_client import (
+    SandboxClient,
+    SandboxUnavailable,
+    SidecarProcess,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +49,7 @@ class ProcessSessionSpec(object):
     stdin_enabled: bool = True
     env: dict[str, str] | None = None
     background: bool | None = None
+    sandbox_mode: str = "danger-full-access"
 
 
 class ProcessSession(object):
@@ -54,7 +60,7 @@ class ProcessSession(object):
         *,
         session_id: str,
         spec: ProcessSessionSpec,
-        process: asyncio.subprocess.Process,
+        process: asyncio.subprocess.Process | SidecarProcess,
     ) -> None:
         """初始化进程会话及有限输出缓冲区。"""
         self.session_id       = session_id
@@ -112,11 +118,12 @@ class ProcessSessionManager(object):
     BUFFER_LIMIT_BYTES   = 1_000_000
     IO_DRAIN_TIMEOUT_SEC = 2.0
 
-    def __init__(self) -> None:
+    def __init__(self, sandbox_client: SandboxClient | None = None) -> None:
         """初始化进程会话表。"""
         self.sessions: dict[str, ProcessSession] = {}
         self._change_revision: int = 0
         self._change_event = asyncio.Event()
+        self._sandbox_client = sandbox_client
 
     @property
     def change_revision(self) -> int:
@@ -168,19 +175,38 @@ class ProcessSessionManager(object):
 
     async def start(self, spec: ProcessSessionSpec) -> ProcessSession:
         """启动进程并注册可持续读取的会话。"""
+        if spec.sandbox_mode not in {
+            "danger-full-access",
+            "read-only",
+            "workspace-read",
+            "workspace-write",
+        }:
+            raise ValueError(f"sandbox_mode_invalid: {spec.sandbox_mode}")
         await self.cleanup()
 
-        stdin = asyncio.subprocess.PIPE if spec.stdin_enabled else asyncio.subprocess.DEVNULL
+        if spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
+            if self._sandbox_client is None:
+                raise SandboxUnavailable("sandbox client is not configured")
+            process = await self._sandbox_client.spawn(
+                argv=spec.args,
+                cwd=spec.cwd,
+                env=spec.env or {},
+                sandbox_mode=spec.sandbox_mode,
+                stdin_open=spec.stdin_enabled,
+                timeout_ms=max(1, int(spec.timeout_sec)) * 1000,
+            )
+        else:
+            stdin = asyncio.subprocess.PIPE if spec.stdin_enabled else asyncio.subprocess.DEVNULL
 
-        process = await asyncio.create_subprocess_exec(
-            *spec.args,
-            cwd=spec.cwd,
-            env=spec.env,
-            stdin=stdin,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            **subprocess_process_group_kwargs(),
-        )
+            process = await asyncio.create_subprocess_exec(
+                *spec.args,
+                cwd=spec.cwd,
+                env=spec.env,
+                stdin=stdin,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                **subprocess_process_group_kwargs(),
+            )
 
         session = ProcessSession(
             session_id=f"exec_{secrets.token_hex(8)}",
@@ -475,6 +501,26 @@ class ProcessSessionManager(object):
                 bytes=len(input_text.encode(errors="replace")),
             )
 
+        if isinstance(process, SidecarProcess):
+            if control in {"terminate", "kill"}:
+                await process.client.terminate(process.process_id, signal="terminate")
+                return None
+            if control == "interrupt":
+                await process.client.terminate(process.process_id, signal="interrupt")
+                return None
+            if control == "eof":
+                await process.client.write(process.process_id, eof=True)
+                return None
+            if not input_text:
+                return None
+            if process.returncode is not None:
+                return "exec_session_exited"
+            await process.client.write(
+                process.process_id,
+                data=input_text.encode(),
+            )
+            return None
+
         if control == "terminate":
             await terminate_process_tree(process, force=False)
             return None
@@ -542,10 +588,16 @@ class ProcessSessionManager(object):
                     pid=session.process.pid,
                     reason="expired" if expired else "idle",
                 )
-                await terminate_process_tree(
-                    session.process,
-                    force=expired,
-                )
+                if isinstance(session.process, SidecarProcess):
+                    await session.process.client.terminate(
+                        session.process.process_id,
+                        signal="terminate" if not expired else "kill",
+                    )
+                else:
+                    await terminate_process_tree(
+                        session.process,
+                        force=expired,
+                    )
                 await wait_for_process(session.process, 1000)
 
             await self.finalize_if_exited(session)
@@ -591,10 +643,16 @@ class ProcessSessionManager(object):
                 "origin"     : session.origin,
             }
             try:
-                await terminate_process_tree(
-                    session.process,
-                    force=False,
-                )
+                if isinstance(session.process, SidecarProcess):
+                    await session.process.client.terminate(
+                        session.process.process_id,
+                        signal="terminate",
+                    )
+                else:
+                    await terminate_process_tree(
+                        session.process,
+                        force=False,
+                    )
                 if session.process.returncode is None:
                     failures.append({**item, "reason": "process_still_running"})
                     continue
@@ -642,10 +700,18 @@ class ProcessSessionManager(object):
 
         for session in sessions:
             if session.process.returncode is None:
-                await terminate_process_tree(session.process, force=True)
+                if isinstance(session.process, SidecarProcess):
+                    await session.process.client.terminate(
+                        session.process.process_id,
+                        signal="kill",
+                    )
+                else:
+                    await terminate_process_tree(session.process, force=True)
             await self.finalize_if_exited(session)
 
         self.sessions.clear()
+        if self._sandbox_client is not None:
+            await self._sandbox_client.close()
 
     async def finalize_if_exited(self, session: ProcessSession) -> None:
         """在进程退出后收束输出读取任务。"""
@@ -671,7 +737,8 @@ class ProcessSessionManager(object):
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-        ProcessCapture.close_process_transport(session.process)
+        if not isinstance(session.process, SidecarProcess):
+            ProcessCapture.close_process_transport(session.process)
 
         session.finalized = True
         session.output_revision += 1

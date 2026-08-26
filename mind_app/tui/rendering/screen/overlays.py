@@ -32,7 +32,7 @@ def static_pager_header_fragments(
     width: int,
     title: str
 ) -> FormattedText:
-    """生成 Codex 风格的静态页面标题行。"""
+    """生成静态页面标题行。"""
     render_width  = max(0, int(width))
     pattern       = ("/ " * ((render_width + 1) // 2))[:render_width]
     heading       = clip_text(f"/ {title}", width=render_width)

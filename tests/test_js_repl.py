@@ -27,6 +27,7 @@ from mind_app.client_tools.registry import (
 )
 from mind_app.mcp.session_adapter import CompositeToolSession
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from mind_app.native_coding.js_repl import (
     JavaScriptReplPool,
     ReplRuntimeError,
@@ -44,7 +45,6 @@ from mind_app.runtime.hooks.models import (
     ToolCallRunResult,
 )
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
-from mind_app.runtime.tools.execution_policy import validate_execution_policy
 from mind_core.permissions import preset_permissions
 
 
@@ -63,10 +63,6 @@ def _require_node() -> None:
         pytest.fail(f"Unable to parse Node version: {output!r}")
     if tuple(map(int, match.groups())) < (22, 22, 0):
         pytest.fail("Node 22.22.0 or newer is required for js_repl tests")
-
-
-def test_js_repl_does_not_require_shell_execution_metadata() -> None:
-    assert validate_execution_policy(name="js_repl", execution=None) is None
 
 
 def test_js_repl_timeout_contract_and_stderr_tail_match_upstream() -> None:
@@ -1040,9 +1036,15 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
         "nested shell completed",
         output="nested-ok",
     ))
+    exec_policy_manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        writable_rules_path=tmp_path / ".mind" / "rules" / "default.rules",
+    )
     registry = ClientToolRegistry(coding_tools(
         coding,
         approval_coordinator=coordinator,
+        exec_policy_manager=exec_policy_manager,
     ))
     session = CompositeToolSession(client_registry=registry)
     turn = TurnContext.create(
@@ -1056,16 +1058,15 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
         turn_id="turn_nested",
     )
     arguments = {
-        "code": "await host.tool('shell_command', {command: 'echo nested'});",
+        "code": "await host.tool('shell_command', {command: 'rm -rf nested'});",
         "timeout_ms": 5000,
     }
 
-    async def dispatch_nested(tool, args, call_id, execution):
+    async def dispatch_nested(tool, args, call_id):
         events.append("dispatch")
         return await session.call_tool(
             tool,
             args,
-            execution=execution,
             call_id=call_id,
             turn_context=turn,
             pref_config={},
@@ -1079,19 +1080,6 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
             turn_context=turn,
             pref_config={},
             meta={"_nested_tool_dispatch": dispatch_nested},
-            execution={
-                "state": "approved",
-                "target": "local",
-                "policyVersion": "parent-js-repl-test",
-                "expiresAt": 4_102_444_800,
-                "grantId": "parent-js-repl-grant",
-                "canonicalArguments": {
-                    "command": "echo unrelated-parent-command",
-                    "cwd": ".",
-                    "timeout_sec": 60,
-                    "output_encoding": "auto",
-                },
-            },
         )
     finally:
         await coding.close()
@@ -1101,7 +1089,7 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
     assert "nested shell completed" not in result.structuredContent["data"]["output"]
     assert events == ["approval", "dispatch"]
     assert coordinator.requests[0]["tool"] == "shell_command"
-    assert coordinator.requests[0]["command"] == "echo nested"
+    assert coordinator.requests[0]["command"] == "rm -rf nested"
     coding.shell_command.assert_awaited_once()
 
 
@@ -1145,9 +1133,15 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
         output_lines=["nested-ok"],
         exit_code=0,
     ))
+    exec_policy_manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        writable_rules_path=tmp_path / ".mind" / "rules" / "default.rules",
+    )
     registry = ClientToolRegistry(coding_tools(
         coding,
         approval_coordinator=Approval(),
+        exec_policy_manager=exec_policy_manager,
     ))
     session = CompositeToolSession(client_registry=registry)
     turn = TurnContext.create(

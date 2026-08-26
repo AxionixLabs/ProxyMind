@@ -7,9 +7,8 @@ from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
-from mind_app.native_coding.exec.process_session import (
-    ProcessSessionManager,
-)
+from mind_app.native_coding.exec.process_session import ProcessSessionManager
+from mind_app.native_coding.exec.sandbox_client import SandboxClient
 from mind_app.native_coding.exec.user_shell import UserShellExecution
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
@@ -27,12 +26,15 @@ class NativeCoding(NativeCodingBase):
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
 
-        self._process_sessions = ProcessSessionManager()
+        self._sandbox_client   = SandboxClient(workspace_root=self.root)
+        self._process_sessions = ProcessSessionManager(self._sandbox_client)
+
         self.user_shell = UserShellExecution(
             root=self.root,
             sessions=self._process_sessions,
             relative_path=self.relative_path,
         )
+
         self._javascript_repls = JavaScriptReplPool(self.root)
 
         self._patch_engine   = PatchEngine(self)
@@ -43,7 +45,8 @@ class NativeCoding(NativeCodingBase):
         self._shell_command = ShellCommandTools(
             self,
             command_policy=self._command_policy,
-            file_audit=self._file_audit
+            file_audit=self._file_audit,
+            sessions=self._process_sessions,
         )
 
         self._exec_command = ExecCommandTools(
@@ -60,7 +63,7 @@ class NativeCoding(NativeCodingBase):
         cwd: str = ".",
         timeout_sec: int = 60,
         output_encoding: str = "auto",
-        execution: dict[str, typing.Any] | None = None
+        sandbox_mode: str = "danger-full-access"
     ) -> dict[str, typing.Any]:
         """执行单条 shell 命令。"""
         return await self._shell_command.shell_command(
@@ -68,7 +71,7 @@ class NativeCoding(NativeCodingBase):
             cwd=cwd,
             timeout_sec=timeout_sec,
             output_encoding=output_encoding,
-            execution=execution
+            sandbox_mode=sandbox_mode,
         )
 
     async def exec_command(
@@ -80,9 +83,9 @@ class NativeCoding(NativeCodingBase):
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
-        execution: dict[str, typing.Any] | None = None,
         cid: str = "",
         sid: str = "",
+        sandbox_mode: str = "danger-full-access"
     ) -> dict[str, typing.Any]:
         """启动可持续读写的 shell 命令会话。"""
         return await self._exec_command.exec_command(
@@ -92,9 +95,9 @@ class NativeCoding(NativeCodingBase):
             max_output_chars=max_output_chars,
             timeout_sec=timeout_sec,
             idle_timeout_sec=idle_timeout_sec,
-            execution=execution,
             cid=cid,
             sid=sid,
+            sandbox_mode=sandbox_mode,
         )
 
     async def write_stdin(
@@ -105,7 +108,6 @@ class NativeCoding(NativeCodingBase):
         wait_ms: int = 1000,
         max_output_chars: int = 12000,
         control: str = "none",
-        execution: dict[str, typing.Any] | None = None,
         cid: str = "",
         sid: str = "",
         call_id: str = "",
@@ -117,7 +119,6 @@ class NativeCoding(NativeCodingBase):
             wait_ms=wait_ms,
             max_output_chars=max_output_chars,
             control=control,
-            execution=execution,
             cid=cid,
             sid=sid,
             call_id=call_id,
@@ -160,7 +161,7 @@ class NativeCoding(NativeCodingBase):
         session_id: str,
         *,
         revision: int,
-        timeout_sec: float,
+        timeout_sec: float
     ) -> dict[str, typing.Any]:
         """等待本地进程会话事件并返回事件携带的最新快照。"""
         changed = await self._process_sessions.wait_for_update(
@@ -175,6 +176,7 @@ class NativeCoding(NativeCodingBase):
             session_id,
             revision=revision,
         )
+
         snapshot = delta.get("snapshot")
         if not isinstance(snapshot, dict):
             return {
@@ -193,6 +195,7 @@ class NativeCoding(NativeCodingBase):
                 session_id,
                 max_output_chars=120000,
             )
+
         return {
             "changed": True,
             "event": (
@@ -236,9 +239,9 @@ class NativeCoding(NativeCodingBase):
 
         if reason is not None:
             return {
-                "ok"         : False,
-                "reason"     : reason,
-                "session_id" : session.session_id
+                "ok": False,
+                "reason": reason,
+                "session_id": session.session_id
             }
 
         return await self._process_sessions.output_snapshot(

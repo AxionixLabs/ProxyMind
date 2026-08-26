@@ -12,7 +12,9 @@
 - 由独立 Rust sidecar 提供本地执行服务；
 - 运行时目录不依赖 ProxyMind 父目录或其他本地仓库。
 
-当前 sidecar 尚未替换现有 Python 执行链，现有链路继续保持原行为。
+当前 sidecar 已接入现有 Python 执行链：`read-only`、`workspace-read` 和
+`workspace-write` 使用本地 sidecar，`danger-full-access` 才使用显式选择的本地进程路径；
+sidecar 不可用时受限模式直接失败，不自动降级到裸进程。
 
 ## 2. 目标架构
 
@@ -21,7 +23,7 @@ mind_app/native_coding/exec
         |
         | stdio JSONL
         v
-mind_sandbox/bin/mind_sandbox_server.exe
+schematic/sandbox/windows/bin/mind_sandbox_server.exe
         |
         +-- Windows sandbox library
         +-- codex-command-runner.exe
@@ -53,45 +55,25 @@ sidecar 不是 CLI 替代品，只负责启动、读写和终止受限子进程�
 
 `cloud_sandbox` 仍表示远程执行后端，不与本地 Windows 沙箱混用。`danger-full-access` 只能由上层显式选择，不能作为 sidecar 缺失时的自动降级路径。
 
-## 4. 独立构建工程
+## 4. 临时构建目录
 
-正式工程不能通过 `../../codex-main/...` 之类的路径依赖解析 crate。当前已创建独立工程：
-
-```text
-mind_sandbox_build/
-  Cargo.toml
-  Cargo.lock
-  rust-toolchain.toml
-  .cargo/config.toml
-  mind_sandbox_server/
-  windows-sandbox-rs/
-  protocol/
-  async-utils/
-  execpolicy/
-  ext/items/
-  http-client/
-  network-proxy/
-  otel/
-  codex-api/
-  codex-client/
-  websocket-client/
-  utils/...
-```
-
-构建工程只包含 Windows 沙箱入口所需的 20 个内部 crate 和第三方依赖声明，不包含 CLI、TUI、模型、认证或完整 workspace。内部 path 依赖全部指向 `mind_sandbox_build` 自身目录。
+构建使用源码仓库中的 Rust crate 和临时 target 目录，不把 `target/`、Cargo 缓存或源码复制进运行时目录。
 
 运行时发布目录与构建工程分开：
 
 ```text
-mind_sandbox/
+schematic/sandbox/
   README.md
-  bin/
+  windows/bin/
     mind_sandbox_server.exe
     codex-command-runner.exe
     codex-windows-sandbox-setup.exe
+  macos/bin/
+    mind_sandbox_server
 ```
 
-`mind_sandbox` 不保存源码、`target/`、调试符号或 Cargo 缓存。删除其他仓库后，运行时仍可直接启动；需要重建时只需复制整个 `mind_sandbox_build`。
+`schematic/sandbox` 不保存源码、`target/`、调试符号或 Cargo 缓存；运行时目录按平台只保存可执行文件。
+源码只来自 `codex-main/codex-rs`，构建中间产物放在系统临时目录。
 
 ## 5. Sidecar 协议
 
@@ -156,47 +138,46 @@ Target：x86_64-pc-windows-msvc
 Profile：release
 ```
 
-在 `mind_sandbox_build` 目录构建：
+在 `codex-main/codex-rs` 使用临时 target 目录构建：
 
 ```powershell
-rustup run 1.95.0 cargo build --release --target x86_64-pc-windows-msvc
+cargo build --release --locked --package codex-windows-sandbox --bins --target-dir "$env:TEMP\\mind-sandbox-build"
+cargo build --release --locked --package codex-sandboxing --bin mind-sandbox-server --target-dir "$env:TEMP\\mind-sandbox-build"
 ```
 
 发布时只复制：
 
 ```text
 target/x86_64-pc-windows-msvc/release/mind-sandbox-server.exe
-  -> mind_sandbox/bin/mind_sandbox_server.exe
+  -> schematic/sandbox/windows/bin/mind_sandbox_server.exe
 ```
 
-不要复制 `target/`。构建和安装包应记录 `Cargo.lock`、工具链、target 以及 helper 的版本信息。
+只复制生成的 `.exe`，完成后删除临时目录。构建和安装包应记录 `Cargo.lock`、工具链、target 以及 helper 的版本信息。
 
 ## 9. 当前状态
 
 已完成：
 
-1. 已创建独立 `mind_sandbox_build`，不依赖父目录仓库；
-2. 已构建 `mind_sandbox_server.exe` Release 产物；
-3. 已将 sidecar 和两个 helper 放入 `mind_sandbox/bin/`；
-4. 已通过 sidecar 的 JSONL 参数校验、未知方法和关闭流程 smoke test；
-5. 已移除构建缓存和临时 `target/`。
+1. 已将 sidecar 和两个 helper 放入 `schematic/sandbox/windows/bin/`；
+2. 已通过 sidecar 的 JSONL 参数校验、未知方法和关闭流程 smoke test；
+3. 已移除构建缓存和临时 `target/`；
+4. 已将 shell、exec 会话和 stdin 生命周期接入 sidecar；
+5. 已将 shell/exec 审批收敛到客户端本地策略和 `.mind/rules`。
 
 尚未完成：
 
 1. setup readiness 和管理员权限恢复流程；
 2. Windows workspace 外读写、junction/symlink 越界测试；
 3. 长输出、背压、TTY、超时和进程树终止测试；
-4. `mind_app/native_coding/exec` 的 `SandboxClient` 和 Python 执行链切换。
+4. 完成安装包收集和干净机器验证。
 
 ## 10. 下一步
 
 按以下顺序推进：
 
-1. 先在 Windows 上完成 setup readiness 和边界安全测试；
-2. 为 `shell_exec.py` 增加本地 sidecar 客户端路径，缺少 sidecar 时 fail closed；
-3. 为 `exec_command.py` 和 `ProcessSessionManager` 接入交互式 stdin、输出和终止；
-4. 保持 `cloud_sandbox` 远程语义不变；
-5. 完成安装包收集和干净机器验证。
+1. 在 Windows 上完成 setup readiness 和边界安全测试；
+2. 保持 `cloud_sandbox` 仅作为服务端其他工具的远程目标，不参与本地 shell 执行；
+3. 完成安装包收集和干净机器验证。
 
 ## 11. 必测风险
 
@@ -210,4 +191,4 @@ target/x86_64-pc-windows-msvc/release/mind-sandbox-server.exe
 - setup 未完成、权限不足、helper 缺失；
 - 安装路径含空格、非 ASCII 字符或受 Defender 保护。
 
-在上述边界测试通过前，不应把本地沙箱设为默认执行路径，也不应在 sidecar 不可用时自动回退到裸 `subprocess`。
+边界测试未通过前，不应把受限模式标记为可用；sidecar 不可用时必须保持失败闭环。

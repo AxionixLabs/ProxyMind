@@ -11,10 +11,7 @@ from mind_app.approval.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot
 )
-from mind_app.approval.policy import (
-    approval_decisions,
-    approval_expired
-)
+from mind_app.approval.policy import approval_decisions
 from .approval_render import tui_approval_content_lines
 
 
@@ -93,10 +90,6 @@ class TuiApproval(object):
         if owns_session:
             self.begin_session()
         state = self._present(approval)
-        if state is None:
-            if owns_session:
-                await self.end_session()
-            return "expired"
 
         try:
             return await state.future
@@ -217,10 +210,7 @@ class TuiApproval(object):
         state = self.state
         if state is None or state.future.done():
             return None
-        if decision not in state.decisions and decision not in {
-            "cancel",
-            "expired",
-        }:
+        if decision not in state.decisions and decision != "cancel":
             return None
         state.future.set_result(decision)
 
@@ -235,10 +225,8 @@ class TuiApproval(object):
     def _present(
         self,
         approval: dict[str, typing.Any],
-    ) -> ApprovalState | None:
+    ) -> ApprovalState:
         """建立当前单条展示状态。"""
-        if approval_expired(approval):
-            return None
         if self.state is not None:
             raise RuntimeError("cannot present multiple TUI approvals")
         state = ApprovalState(

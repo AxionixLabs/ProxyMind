@@ -94,7 +94,7 @@ async def test_effect_journal_preserves_candidate_result_for_reconciliation(
 
 
 @pytest.mark.anyio
-async def test_effect_journal_exposes_only_identity_bound_reconciliation_result(
+async def test_effect_journal_exposes_stored_reconciliation_result(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "effects.db"
@@ -102,12 +102,6 @@ async def test_effect_journal_exposes_only_identity_bound_reconciliation_result(
     effect = _effect()
     server_result = {
         "request_id": "effect-result-test",
-        "execution": {
-            "effect": {
-                "effect_id": effect.effect_id,
-                "fingerprint": effect.fingerprint,
-            },
-        },
     }
     await journal.begin(effect)
     await journal.mark_unknown(

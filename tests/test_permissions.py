@@ -1,26 +1,20 @@
 # -*- coding: utf-8 -*-
 
-import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from mind_app.approval.policy import (
-    ApprovalStore,
     approval_decisions,
     approval_decision_label,
     approval_from_event,
     approval_prompt,
-    approval_show_timer,
-    validate_tool_approval,
 )
 from mind_app.client_tools.coding.native import (
     coding_tools,
-    validate_unsandboxed_process_authorization,
 )
 from mind_app.client_tools.types import ClientToolRuntime
-from mind_app.native_coding.execution_authorization import ExecutionAuthorizationError
 from mind_app.runtime.execution import (
     AgentContext,
     ToolInvocation,
@@ -45,8 +39,6 @@ from mind_nova.stream_events import (
 
 def _client_runtime(
     permissions: PermissionSettings,
-    *,
-    execution: dict | None = None,
 ) -> ClientToolRuntime:
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -61,20 +53,8 @@ def _client_runtime(
         session=SimpleNamespace(),
         turn_context=turn_context,
         pref_config={},
-        execution=execution,
         call_id="call_test",
     )
-
-
-def _local_execution(arguments: dict) -> dict:
-    return {
-        "state": "approved",
-        "target": "local",
-        "policyVersion": "test-v1",
-        "expiresAt": time.time() + 60,
-        "grantId": "grant_test",
-        "canonicalArguments": dict(arguments),
-    }
 
 
 def _coding_stub() -> SimpleNamespace:
@@ -86,6 +66,7 @@ def _coding_stub() -> SimpleNamespace:
         "logs": [],
     }
     return SimpleNamespace(
+        root=".",
         agent_id="root",
         shell_command=AsyncMock(return_value=result),
         exec_command=AsyncMock(return_value=result),
@@ -203,34 +184,16 @@ async def test_request_payload_normalizes_system_message() -> None:
     assert payload["system_message"] == "keep this focused"
 
 
-def test_never_policy_rejects_approval_required_tool_call() -> None:
-    event = ToolCallEvent(
-        type="tool.call",
-        call_id="call-1",
-        approval_required=True,
-    )
-
-    decision = validate_tool_approval(
-        event=event,
-        name="shell_command",
-        arguments={"command": "pytest -q"},
-        store=ApprovalStore(),
-        approval_policy="never",
-    )
-
-    assert decision.action == "reject"
-    assert decision.result["error"] == "approval disabled by approval policy"
-
-
 @pytest.mark.anyio
-@pytest.mark.parametrize("tool_name", ["shell_command", "exec_command", "apply_patch"])
+@pytest.mark.parametrize("tool_name", ["apply_patch"])
 async def test_read_only_sandbox_rejects_local_mutating_capabilities(
     tool_name,
 ) -> None:
     tool = next(tool for tool in coding_tools() if tool.name == tool_name)
     runtime = _client_runtime(preset_permissions("read-only"))
 
-    result = await tool.handler({}, runtime)
+    arguments = {"patch": "*** Begin Patch\n*** End Patch"}
+    result = await tool.handler(arguments, runtime)
 
     assert result.isError is True
     assert result.structuredContent["data"]["reason"] == "sandbox_read_only"
@@ -310,28 +273,22 @@ async def test_hook_updated_input_reaches_native_shell_handler(
 ) -> None:
     coding = _coding_stub()
     tool = next(item for item in coding_tools(coding) if item.name == tool_name)
-    runtime = _client_runtime(
-        preset_permissions("full-access"),
-        execution=_local_execution(original),
-    )
+    runtime = _client_runtime(preset_permissions("full-access"))
     invocation = ToolInvocation(
         turn=runtime.turn_context,
         call_id="call_test",
         name=tool_name,
         arguments=dict(original),
-        execution=runtime.execution,
     )
 
     effective = ToolCallCoordinator.effective_invocation(
         invocation,
         HookDecision(allowed=True, updated_input=updated_input),
     )
-    runtime.execution = effective.execution
     result = await tool.handler(effective.arguments, runtime)
 
     assert result.isError is False
     assert result.structuredContent["args"] == expected
-    assert effective.execution["canonicalArguments"] == expected
     call = getattr(coding, tool_name).await_args
     for key, value in expected.items():
         assert call.kwargs[key] == value
@@ -376,98 +333,20 @@ async def test_hook_updated_input_reaches_native_shell_handler(
         ),
     ],
 )
-async def test_native_shell_handler_rejects_noncanonical_invocation_arguments(
+async def test_native_shell_handler_accepts_client_arguments_without_remote_grant(
     tool_name,
     canonical,
     arguments,
 ) -> None:
     coding = _coding_stub()
-    coding.fail_result = lambda reason, **data: {
-        "ok": False,
-        "text": reason,
-        "attachments": [],
-        "data": {"reason": reason, **data},
-        "logs": [],
-    }
     tool = next(item for item in coding_tools(coding) if item.name == tool_name)
-    runtime = _client_runtime(
-        preset_permissions("full-access"),
-        execution=_local_execution(canonical),
-    )
+    runtime = _client_runtime(preset_permissions("full-access"))
 
     result = await tool.handler(arguments, runtime)
 
-    assert result.isError is True
-    assert result.structuredContent["data"]["reason"] == (
-        "execution_canonical_arguments_mismatch"
-    )
-    getattr(coding, tool_name).assert_not_awaited()
-
-
-@pytest.mark.parametrize(
-    ("permissions", "state", "reasons", "error_reason"),
-    [
-        (
-            PermissionSettings("workspace-write", "on-request"),
-            "allowed",
-            [],
-            "unsandboxed_process_approval_required",
-        ),
-        (
-            PermissionSettings("workspace-write", "never"),
-            "allowed",
-            [],
-            "unsandboxed_process_approval_required",
-        ),
-        (
-            PermissionSettings("danger-full-access", "untrusted"),
-            "allowed",
-            [],
-            "untrusted_process_approval_required",
-        ),
-    ],
-)
-def test_unsandboxed_process_rejects_unapproved_restricted_modes(
-    permissions,
-    state,
-    reasons,
-    error_reason,
-) -> None:
-    runtime = _client_runtime(
-        permissions,
-        execution={"state": state, "reasons": reasons},
-    )
-
-    with pytest.raises(ExecutionAuthorizationError) as exc_info:
-        validate_unsandboxed_process_authorization(runtime)
-
-    assert exc_info.value.reason == error_reason
-
-
-@pytest.mark.parametrize(
-    ("permissions", "state", "reasons"),
-    [
-        (PermissionSettings("workspace-write", "on-request"), "approved", []),
-        (
-            PermissionSettings("workspace-write", "on-request"),
-            "allowed",
-            ["session_approval_matched"],
-        ),
-        (PermissionSettings("danger-full-access", "never"), "allowed", []),
-        (PermissionSettings("danger-full-access", "on-request"), "allowed", []),
-    ],
-)
-def test_unsandboxed_process_accepts_authorized_modes(
-    permissions,
-    state,
-    reasons,
-) -> None:
-    runtime = _client_runtime(
-        permissions,
-        execution={"state": state, "reasons": reasons},
-    )
-
-    validate_unsandboxed_process_authorization(runtime)
+    assert result.isError is False
+    assert result.structuredContent["args"] == arguments
+    getattr(coding, tool_name).assert_awaited_once()
 
 
 def test_approval_card_presentation_is_owned_by_client() -> None:
@@ -479,7 +358,6 @@ def test_approval_card_presentation_is_owned_by_client() -> None:
     }
 
     assert approval_prompt(approval) == "Would you like to run the following command?"
-    assert approval_show_timer() is True
     assert approval_decision_label("accept") == "Yes, proceed"
     assert approval_decision_label(
         "acceptForSession"
@@ -530,17 +408,21 @@ def test_invalid_amendment_keeps_session_option(proposal) -> None:
     ]
 
 
-def test_approval_uses_execution_target_as_environment() -> None:
+def test_approval_from_event_uses_direct_command_fields() -> None:
     approval = approval_from_event(ToolApprovalRequiredEvent(
         type="tool.approval_required",
-        name="shell_command",
         call_id="call-1",
-        approval={
-            "id": "approval-1",
-            "justification": "需要检查命令输出",
-        },
-        execution={"target": "cloud_sandbox"},
+        approval_id="approval-1",
+        kind="command",
+        command="pytest -q",
+        cwd=".",
+        reason="需要检查命令输出",
     ))
 
-    assert approval["environment"] == "cloud_sandbox"
+    assert approval["id"] == "approval-1"
+    assert approval["call_id"] == "call-1"
+    assert approval["tool"] == "exec_command"
+    assert approval["command"] == "pytest -q"
+    assert approval["cwd"] == "."
+    assert approval["reason"] == "需要检查命令输出"
     assert approval["justification"] == "需要检查命令输出"

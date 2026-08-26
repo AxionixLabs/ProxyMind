@@ -127,12 +127,6 @@ def _review_rationale(approval: dict[str, typing.Any]) -> str:
     ).split())
 
 
-def render_approval_expired_trace(approval: dict[str, typing.Any]) -> str:
-    """生成审批过期后的轨迹标题。"""
-    summary = approval_summary(approval)
-    return f"• Approval expired for {summary} · command was not run".rstrip()
-
-
 def render_approval_cancelled_trace(approval: dict[str, typing.Any]) -> str:
     """生成审批取消后的轨迹标题。"""
     summary = approval_summary(approval)
