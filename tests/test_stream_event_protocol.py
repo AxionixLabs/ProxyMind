@@ -369,6 +369,10 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
         "started_at_ms": 42,
         "plugin_id": "plugin-1",
         "script_path": "scripts/check.ps1",
+        "tty": True,
+        "additional_permissions": {"network": ["example.com"]},
+        "policy_fingerprint": "policy-a",
+        "patch_scope": ["src/app.py"],
         "command": ["pwsh", "-Command", "Get-Date"],
         "cwd": ".",
         "cwd_raw": "C:/workspace",
@@ -392,6 +396,10 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert approval.started_at_ms == 42
     assert approval.plugin_id == "plugin-1"
     assert approval.script_path == "scripts/check.ps1"
+    assert approval.tty is True
+    assert approval.additional_permissions == {"network": ["example.com"]}
+    assert approval.policy_fingerprint == "policy-a"
+    assert approval.patch_scope == ("src/app.py",)
     assert approval.command == ["pwsh", "-Command", "Get-Date"]
     assert approval.cwd == "."
     assert approval.cwd_raw == "C:/workspace"

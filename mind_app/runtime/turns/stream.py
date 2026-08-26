@@ -155,6 +155,11 @@ def _local_exec_policy_requirement(
             tool=tool,
             amendment_id=f"local-rule-{call_id}",
             sandbox_permissions=sandbox_permissions,
+            environment_id=arguments.get("environment_id"),
+            tty=arguments.get("tty"),
+            additional_permissions=arguments.get("additional_permissions"),
+            policy_fingerprint=arguments.get("policy_fingerprint"),
+            patch_scope=arguments.get("patch_scope"),
         )
     except ValueError as error:
         return ExecApprovalRequirement.forbidden(str(error))
@@ -190,6 +195,16 @@ def _local_exec_policy_approval(
             else "local"
         ),
     }
+    for field_name in (
+        "environment_id",
+        "tty",
+        "additional_permissions",
+        "policy_fingerprint",
+        "patch_scope",
+    ):
+        value = invocation.arguments.get(field_name)
+        if value not in (None, "", (), [], {}):
+            approval[field_name] = value
     justification = str(
         invocation.arguments.get("justification") or invocation.reason or ""
     ).strip()
@@ -204,7 +219,7 @@ def _local_exec_policy_approval(
     if justification:
         approval["justification"] = justification
     if requirement.reason:
-        approval["policy_reason"] = requirement.reason
+        approval["reason"] = requirement.reason
     if invocation.reason:
         approval["approval_reason"] = invocation.reason
     selected_reason = approval_reason(approval)
@@ -242,6 +257,13 @@ def _apply_local_exec_policy_approval(
                 tool=invocation.name,
                 cwd=cwd,
                 sandbox_permissions=invocation.arguments.get("sandbox_permissions"),
+                environment_id=invocation.arguments.get("environment_id"),
+                tty=invocation.arguments.get("tty"),
+                additional_permissions=invocation.arguments.get(
+                    "additional_permissions"
+                ),
+                policy_fingerprint=invocation.arguments.get("policy_fingerprint"),
+                patch_scope=invocation.arguments.get("patch_scope"),
             )
         elif decision == "acceptWithExecpolicyAmendment":
             amendment = approval_execpolicy_amendment(approval)

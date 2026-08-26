@@ -707,6 +707,11 @@ async def _authorize_nested_tool(
         tool=tool,
         amendment_id=f"local-rule-{call_id}",
         sandbox_permissions=sandbox_permissions,
+        environment_id=arguments.get("environment_id"),
+        tty=arguments.get("tty"),
+        additional_permissions=arguments.get("additional_permissions"),
+        policy_fingerprint=arguments.get("policy_fingerprint"),
+        patch_scope=arguments.get("patch_scope"),
     )
     if requirement.state == "forbidden":
         raise ExecutionAuthorizationError(
@@ -777,6 +782,11 @@ async def _authorize_nested_tool(
                 tool=tool,
                 cwd=canonical.get("cwd") or runtime.turn_context.cwd,
                 sandbox_permissions=sandbox_permissions,
+                environment_id=canonical.get("environment_id"),
+                tty=canonical.get("tty"),
+                additional_permissions=canonical.get("additional_permissions"),
+                policy_fingerprint=canonical.get("policy_fingerprint"),
+                patch_scope=canonical.get("patch_scope"),
             )
         elif decision == "acceptWithExecpolicyAmendment":
             proposal = approval_execpolicy_amendment(approval)

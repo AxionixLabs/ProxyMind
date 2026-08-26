@@ -191,6 +191,10 @@ class ToolApprovalRequiredEvent(StreamEvent):
     started_at_ms: int | None = None
     plugin_id: str | None = None
     script_path: str | None = None
+    tty: bool = False
+    additional_permissions: dict[str, typing.Any] | None = None
+    policy_fingerprint: str | None = None
+    patch_scope: tuple[str, ...] = ()
     command: typing.Any = ""
     cwd: str = "."
     cwd_raw: str | None = None
@@ -417,6 +421,12 @@ def parse_stream_event(
             started_at_ms=_approval_started_at(raw),
             plugin_id=_optional_text(raw.get("plugin_id")),
             script_path=_optional_text(raw.get("script_path")),
+            tty=_bool_value(raw.get("tty")),
+            additional_permissions=_optional_dict(
+                raw.get("additional_permissions")
+            ),
+            policy_fingerprint=_optional_text(raw.get("policy_fingerprint")),
+            patch_scope=_tuple_or_empty(raw.get("patch_scope")),
             command=raw.get("command", ""),
             cwd=_text(raw.get("cwd")) or ".",
             cwd_raw=_optional_text(raw.get("cwd_raw")) or None,
@@ -577,6 +587,13 @@ def _dict(value: typing.Any) -> dict[str, typing.Any]:
 def _optional_dict(value: typing.Any) -> dict[str, typing.Any] | None:
     """复制可选字典协议值。"""
     return copy.deepcopy(value) if isinstance(value, dict) else None
+
+
+def _bool_value(value: typing.Any) -> bool:
+    """读取协议中的布尔值。"""
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _turn_input_or_none(value: typing.Any) -> TurnInput | None:

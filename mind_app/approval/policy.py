@@ -63,6 +63,14 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         approval["plugin_id"] = event.plugin_id
     if event.script_path:
         approval["script_path"] = event.script_path
+    if event.tty:
+        approval["tty"] = True
+    if event.additional_permissions is not None:
+        approval["additional_permissions"] = dict(event.additional_permissions)
+    if event.policy_fingerprint:
+        approval["policy_fingerprint"] = event.policy_fingerprint
+    if event.patch_scope:
+        approval["patch_scope"] = list(event.patch_scope)
     if event.proposed_execpolicy_amendment is not None:
         approval["proposed_execpolicy_amendment"] = dict(
             event.proposed_execpolicy_amendment
@@ -79,7 +87,6 @@ def approval_reason(approval: dict[str, typing.Any]) -> str:
         "retry_reason",
         "approval_reason",
         "justification",
-        "policy_reason",
         "reason",
     ):
         value = str(approval.get(field_name) or "").strip()

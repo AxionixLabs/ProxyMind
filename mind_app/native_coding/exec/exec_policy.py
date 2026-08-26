@@ -2,9 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import os
-import json
 import re
+import json
 import shlex
+import hashlib
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,8 +30,59 @@ from .execpolicy import (
     PrefixRule
 )
 
+SandboxPermission = Literal[
+    "use_default",
+    "require_escalated"
+]
 
-SandboxPermission = Literal["use_default", "require_escalated"]
+
+@dataclass(frozen=True, slots=True)
+class ExecApprovalCacheKey:
+    """保存会话级命令批准的完整身份。"""
+    tool: str
+    command: tuple[str, ...]
+    cwd: str
+    environment_id: str
+    tty: bool
+    sandbox_permissions: SandboxPermission
+    additional_permissions: str
+    policy_fingerprint: str
+    patch_scope: tuple[str, ...]
+
+
+def _stable_json(value: object) -> str:
+    """将结构化值转换为稳定文本，供身份比较使用。"""
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
+def _normalize_bool(value: object) -> bool:
+    """按常见文本值规范化布尔字段。"""
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _normalize_patch_scope(value: object) -> tuple[str, ...]:
+    """规范化补丁审批涉及的文件范围。"""
+    if value is None:
+        return ()
+    if isinstance(value, (str, Path)):
+        values = (str(value),)
+    else:
+        try:
+            values = tuple(str(item) for item in value)  # type: ignore[arg-type]
+        except TypeError:
+            values = (str(value),)
+    return tuple(sorted({item.strip() for item in values if item.strip()}))
 
 
 def normalize_sandbox_permission(value: object) -> SandboxPermission:
@@ -101,7 +153,6 @@ class ExecApprovalRequest:
 @dataclass(frozen=True, slots=True)
 class ExecPolicyAmendment:
     """表示一次可持久化的命令前缀修订提案。"""
-
     id: str
     command_prefix: tuple[str, ...]
     display: str
@@ -168,7 +219,7 @@ class ExecPolicyManager:
             writable_rules_path
             or default_application_home() / "rules" / "default.rules"
         ).expanduser().resolve()
-        self._session_approvals: set[tuple[str, tuple[str, ...], str, str]] = set()
+        self._session_approvals: set[ExecApprovalCacheKey] = set()
         self._write_lock = threading.RLock()
         self.rules_paths = tuple(
             Path(path) for path in rules_paths
@@ -192,6 +243,12 @@ class ExecPolicyManager:
         """创建当前工作区的策略管理器。"""
         return cls(workspace_root=workspace_root)
 
+    @property
+    def policy_fingerprint(self) -> str:
+        """返回当前规则集合的稳定指纹。"""
+        encoded = _stable_json(self.policy).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
     def decide(
         self,
         command: Sequence[str] | str,
@@ -200,7 +257,12 @@ class ExecPolicyManager:
         sandbox_mode: str = "workspace-write",
         cwd: str | Path | None = None,
         tool: str = "shell_command",
-        sandbox_permissions: object = "use_default"
+        sandbox_permissions: object = "use_default",
+        environment_id: object = "",
+        tty: object = False,
+        additional_permissions: object = None,
+        policy_fingerprint: object = None,
+        patch_scope: object = None,
     ) -> Evaluation:
         """评估命令并返回策略决定。"""
         permission = normalize_sandbox_permission(sandbox_permissions)
@@ -232,6 +294,11 @@ class ExecPolicyManager:
             tool=tool,
             cwd=cwd,
             sandbox_permissions=permission,
+            environment_id=environment_id,
+            tty=tty,
+            additional_permissions=additional_permissions,
+            policy_fingerprint=policy_fingerprint,
+            patch_scope=patch_scope,
         )
         with self._write_lock:
             session_approved = session_key in self._session_approvals
@@ -249,9 +316,15 @@ class ExecPolicyManager:
         tool: str = "shell_command",
         amendment_id: str = "",
         sandbox_permissions: object = "use_default",
+        environment_id: object = "",
+        tty: object = False,
+        additional_permissions: object = None,
+        policy_fingerprint: object = None,
+        patch_scope: object = None,
     ) -> ExecApprovalRequirement:
         """按三态模型生成本地执行要求。"""
         permission = normalize_sandbox_permission(sandbox_permissions)
+
         evaluation = self.decide(
             command,
             approval_policy=approval_policy,
@@ -259,6 +332,11 @@ class ExecPolicyManager:
             cwd=cwd,
             tool=tool,
             sandbox_permissions=permission,
+            environment_id=environment_id,
+            tty=tty,
+            additional_permissions=additional_permissions,
+            policy_fingerprint=policy_fingerprint,
+            patch_scope=patch_scope,
         )
         if evaluation.decision == Decision.Forbidden:
             if (
@@ -298,6 +376,11 @@ class ExecPolicyManager:
             tool=tool,
             cwd=cwd,
             sandbox_permissions=permission,
+            environment_id=environment_id,
+            tty=tty,
+            additional_permissions=additional_permissions,
+            policy_fingerprint=policy_fingerprint,
+            patch_scope=patch_scope,
         )
         with self._write_lock:
             session_approved = session_key in self._session_approvals
@@ -336,6 +419,11 @@ class ExecPolicyManager:
         tool: str = "shell_command",
         cwd: str | Path | None = None,
         sandbox_permissions: object = "use_default",
+        environment_id: object = "",
+        tty: object = False,
+        additional_permissions: object = None,
+        policy_fingerprint: object = None,
+        patch_scope: object = None,
     ) -> None:
         """在当前应用会话内精确批准一次命令形态。"""
         key = self._session_key(
@@ -343,8 +431,13 @@ class ExecPolicyManager:
             tool=tool,
             cwd=cwd,
             sandbox_permissions=sandbox_permissions,
+            environment_id=environment_id,
+            tty=tty,
+            additional_permissions=additional_permissions,
+            policy_fingerprint=policy_fingerprint,
+            patch_scope=patch_scope,
         )
-        if not key[1]:
+        if not key.command:
             raise ValueError("session approval command is required")
         with self._write_lock:
             self._session_approvals.add(key)
@@ -373,10 +466,12 @@ class ExecPolicyManager:
         amendment_id: str,
     ) -> dict[str, object] | None:
         """构造由客户端生成并保存的命令前缀规则提案。"""
-        prefix = self.execpolicy_command_prefix(command)
+        prefix   = self.execpolicy_command_prefix(command)
         identity = str(amendment_id or "").strip()
+
         if prefix is None or not identity:
             return None
+
         return {
             "id": identity,
             "command_prefix": list(prefix),
@@ -571,7 +666,12 @@ class ExecPolicyManager:
         tool: str,
         cwd: str | Path | None,
         sandbox_permissions: object = "use_default",
-    ) -> tuple[str, tuple[str, ...], str, str]:
+        environment_id: object = "",
+        tty: object = False,
+        additional_permissions: object = None,
+        policy_fingerprint: object = None,
+        patch_scope: object = None,
+    ) -> ExecApprovalCacheKey:
         """生成会话级精确批准使用的稳定键。"""
         raw_cwd = Path(cwd or self.workspace_root).expanduser()
         resolved_cwd = (
@@ -579,11 +679,20 @@ class ExecPolicyManager:
             if raw_cwd.is_absolute()
             else (self.workspace_root / raw_cwd).resolve()
         )
-        return (
-            str(tool or "shell_command").strip(),
-            tuple(_split_command(command)),
-            os.path.normcase(str(resolved_cwd)),
-            normalize_sandbox_permission(sandbox_permissions),
+        return ExecApprovalCacheKey(
+            tool=str(tool or "shell_command").strip(),
+            command=tuple(_split_command(command)),
+            cwd=os.path.normcase(str(resolved_cwd)),
+            environment_id=str(environment_id or "").strip(),
+            tty=_normalize_bool(tty),
+            sandbox_permissions=normalize_sandbox_permission(sandbox_permissions),
+            additional_permissions=_stable_json(additional_permissions),
+            policy_fingerprint=(
+                str(policy_fingerprint).strip()
+                if policy_fingerprint is not None and str(policy_fingerprint).strip()
+                else self.policy_fingerprint
+            ),
+            patch_scope=_normalize_patch_scope(patch_scope),
         )
 
     def _has_allow_prefix(self, prefix: tuple[str, ...]) -> bool:

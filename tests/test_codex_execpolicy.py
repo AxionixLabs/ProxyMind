@@ -288,6 +288,49 @@ def test_require_escalated_requests_host_approval_and_is_session_scoped(tmp_path
     ).state == "needs_approval"
 
 
+def test_session_approval_cache_separates_full_execution_identity(tmp_path) -> None:
+    manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
+    identity = {
+        "environment_id": "env-a",
+        "tty": True,
+        "additional_permissions": {"network": ["example.com"]},
+        "policy_fingerprint": "policy-a",
+        "patch_scope": ("src/app.py",),
+    }
+
+    manager.add_approval_for_session(
+        "echo hello",
+        cwd=tmp_path,
+        sandbox_permissions="require_escalated",
+        **identity,
+    )
+
+    assert manager.create_exec_approval_requirement_for_command(
+        "echo hello",
+        cwd=tmp_path,
+        sandbox_mode="workspace-write",
+        sandbox_permissions="require_escalated",
+        **identity,
+    ).state == "skip"
+
+    for field_name, changed_value in (
+        ("environment_id", "env-b"),
+        ("tty", False),
+        ("additional_permissions", {"network": ["other.example"]}),
+        ("policy_fingerprint", "policy-b"),
+        ("patch_scope", ("src/other.py",)),
+    ):
+        changed = dict(identity)
+        changed[field_name] = changed_value
+        assert manager.create_exec_approval_requirement_for_command(
+            "echo hello",
+            cwd=tmp_path,
+            sandbox_mode="workspace-write",
+            sandbox_permissions="require_escalated",
+            **changed,
+        ).state == "needs_approval"
+
+
 def test_sandbox_permission_helpers_validate_and_select_host_mode() -> None:
     assert normalize_sandbox_permission(None) == "use_default"
     assert normalize_sandbox_permission("REQUIRE_ESCALATED") == "require_escalated"

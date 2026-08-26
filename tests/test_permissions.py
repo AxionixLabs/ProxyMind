@@ -461,6 +461,10 @@ def test_approval_event_preserves_identity_and_environment_fields() -> None:
         started_at_ms=42,
         plugin_id="plugin-1",
         script_path="scripts/check.ps1",
+        tty=True,
+        additional_permissions={"network": ["example.com"]},
+        policy_fingerprint="policy-a",
+        patch_scope=("src/app.py",),
         kind="command",
         command=["pwsh", "-Command", "Get-Date"],
         cwd=".",
@@ -473,6 +477,10 @@ def test_approval_event_preserves_identity_and_environment_fields() -> None:
     assert approval["started_at_ms"] == 42
     assert approval["plugin_id"] == "plugin-1"
     assert approval["script_path"] == "scripts/check.ps1"
+    assert approval["tty"] is True
+    assert approval["additional_permissions"] == {"network": ["example.com"]}
+    assert approval["policy_fingerprint"] == "policy-a"
+    assert approval["patch_scope"] == ["src/app.py"]
     assert approval["cwd"] == str(Path("C:/workspace").resolve())
     assert approval["cwd_raw"] == "C:/workspace"
     assert approval["command"] == ["pwsh", "-Command", "Get-Date"]
@@ -489,8 +497,5 @@ def test_approval_reason_uses_retry_then_approval_then_justification() -> None:
         "approval_reason": "policy",
         "justification": "user",
     }) == "policy"
-    assert approval_reason({
-        "policy_reason": "policy",
-        "justification": "user",
-    }) == "user"
+    assert approval_reason({"reason": "policy"}) == "policy"
     assert approval_reason({"justification": "user"}) == "user"
