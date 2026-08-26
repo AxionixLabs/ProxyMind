@@ -390,6 +390,22 @@ def test_approval_uses_amendment_as_second_visible_option() -> None:
     )
 
 
+def test_server_available_decisions_are_authoritative() -> None:
+    assert approval_decisions({
+        "available_decisions": ["accept", "decline"],
+    }) == ["accept", "decline"]
+
+
+def test_server_amendment_option_requires_matching_proposal() -> None:
+    assert approval_decisions({
+        "available_decisions": [
+            "accept",
+            "acceptWithExecpolicyAmendment",
+            "decline",
+        ],
+    }) == ["accept", "decline"]
+
+
 @pytest.mark.parametrize(
     "proposal",
     (

@@ -4,6 +4,7 @@
 import typing
 from mind_nova.stream_events import ToolApprovalRequiredEvent
 from mind_nova import const
+from mind_nova.tool_approval import TOOL_APPROVAL_DECISIONS
 from .models import (
     ApprovalDecisionValue,
     ExecPolicyAmendmentProposal,
@@ -16,17 +17,17 @@ DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
 )
 
 DECISION_LABELS: dict[str, str] = {
-    "accept"                        : "Yes, proceed",
-    "acceptForSession"              : "Yes, for this session",
-    "acceptWithExecpolicyAmendment" : "Yes, and don't ask again for this command prefix",
-    "decline"                       : f"No, and tell {const.APP_DESC} what to do differently",
+    "accept": "Yes, proceed",
+    "acceptForSession": "Yes, for this session",
+    "acceptWithExecpolicyAmendment": "Yes, and don't ask again for this command prefix",
+    "decline": f"No, and tell {const.APP_DESC} what to do differently",
 }
 
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
-    "accept"                        : "y",
-    "acceptForSession"              : "s",
-    "acceptWithExecpolicyAmendment" : "p",
-    "decline"                       : "n/esc",
+    "accept": "y",
+    "acceptForSession": "s",
+    "acceptWithExecpolicyAmendment": "p",
+    "decline": "n/esc",
 }
 
 def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
@@ -51,8 +52,7 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         approval["proposed_execpolicy_amendment"] = dict(
             event.proposed_execpolicy_amendment
         )
-    if event.available_decisions:
-        approval["available_decisions"] = list(event.available_decisions)
+    approval["available_decisions"] = list(event.available_decisions)
     if event.parsed_cmd:
         approval["parsed_cmd"] = list(event.parsed_cmd)
     return approval
@@ -66,7 +66,33 @@ def approval_id_from_event(event: ToolApprovalRequiredEvent) -> str:
 def approval_decisions(
     approval: dict[str, typing.Any] | None = None,
 ) -> list[ApprovalDecisionValue]:
-    """按修订提案返回三个可见审批选项。"""
+    """返回审批请求声明的可用决策集合。"""
+    if isinstance(approval, dict) and "available_decisions" in approval:
+        raw_decisions = approval.get("available_decisions")
+        if not isinstance(raw_decisions, (list, tuple)):
+            raise ValueError("available_decisions must be an array")
+        decisions: list[ApprovalDecisionValue] = []
+        seen: set[str] = set()
+        for raw_decision in raw_decisions:
+            decision = str(raw_decision or "").strip()
+            if not decision:
+                raise ValueError("available_decisions contains an empty item")
+            if decision in seen:
+                continue
+            if decision not in TOOL_APPROVAL_DECISIONS:
+                raise ValueError(f"unsupported approval decision: {decision}")
+            if decision == "cancel":
+                continue
+            seen.add(decision)
+            decisions.append(typing.cast(ApprovalDecisionValue, decision))
+        if approval_execpolicy_amendment(approval) is None:
+            decisions = [
+                decision
+                for decision in decisions
+                if decision != "acceptWithExecpolicyAmendment"
+            ]
+        return decisions
+
     decisions = list(DEFAULT_APPROVAL_DECISIONS)
     if approval_execpolicy_amendment(approval) is not None:
         decisions[1] = "acceptWithExecpolicyAmendment"
@@ -83,9 +109,10 @@ def approval_execpolicy_amendment(
     if not isinstance(raw, dict):
         return None
 
-    amendment_id = str(raw.get("id") or "").strip()
-    display = str(raw.get("display") or "").strip()
+    amendment_id   = str(raw.get("id") or "").strip()
+    display        = str(raw.get("display") or "").strip()
     command_prefix = raw.get("command_prefix")
+
     if (
         not amendment_id
         or not display

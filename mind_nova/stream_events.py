@@ -9,6 +9,10 @@ from dataclasses import (
 )
 from collections.abc import Mapping
 from mind_nova.turn_inputs import TurnInput
+from mind_nova.tool_approval import (
+    TOOL_APPROVAL_DECISIONS,
+    ToolApprovalDecision
+)
 
 TurnDoneStatus: typing.TypeAlias = typing.Literal[
     "completed",
@@ -186,7 +190,7 @@ class ToolApprovalRequiredEvent(StreamEvent):
     command: typing.Any = ""
     cwd: str = "."
     proposed_execpolicy_amendment: dict[str, typing.Any] | None = None
-    available_decisions: tuple[typing.Any, ...] = ()
+    available_decisions: tuple[ToolApprovalDecision, ...] = ()
     parsed_cmd: tuple[typing.Any, ...] = ()
 
 
@@ -386,6 +390,22 @@ def parse_stream_event(
             event_type,
             extra={"name", "tool", "arguments", "request_id"},
         )
+        raw_decisions = raw.get("available_decisions")
+        if not isinstance(raw_decisions, list) or not raw_decisions:
+            raise ValueError(
+                "tool.approval_required available_decisions is required"
+            )
+        available_decisions: list[ToolApprovalDecision] = []
+        for raw_decision in raw_decisions:
+            decision = _required_text(
+                raw_decision,
+                "tool.approval_required available_decisions item",
+            )
+            if decision not in TOOL_APPROVAL_DECISIONS:
+                raise ValueError(
+                    f"unsupported tool approval decision: {decision}"
+                )
+            available_decisions.append(typing.cast(ToolApprovalDecision, decision))
         return ToolApprovalRequiredEvent(
             **common,
             call_id=_required_text(raw.get("call_id"), "tool.approval_required call_id"),
@@ -397,7 +417,7 @@ def parse_stream_event(
             proposed_execpolicy_amendment=_optional_dict(
                 raw.get("proposed_execpolicy_amendment")
             ),
-            available_decisions=_tuple_or_empty(raw.get("available_decisions")),
+            available_decisions=tuple(available_decisions),
             parsed_cmd=_tuple_or_empty(raw.get("parsed_cmd")),
         )
     if event_type == "tool.call":

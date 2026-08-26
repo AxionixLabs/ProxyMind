@@ -55,6 +55,7 @@ from .native_coding import NativeCoding
 from .native_coding.exec.exec_policy import ExecPolicyManager
 from .native_coding.exec.user_shell import UserShellExecution
 from .approval.coordinator import ApprovalCoordinator
+from .approval.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from .runtime.subagents.graph import AgentGraphStore
 from .frontend.contracts import (
@@ -173,6 +174,7 @@ class Mind(object):
         self.approval_coordinator = ApprovalCoordinator(
             self.frontend.interaction
         )
+        self.approval_call_ledger = ApprovalCallLedger()
 
         self.features: FeatureSettings = (
             kwargs.get("feature_settings") or FeatureSettings()

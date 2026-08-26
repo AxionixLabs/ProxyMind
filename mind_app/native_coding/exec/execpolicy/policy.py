@@ -7,6 +7,7 @@ from dataclasses import (
 )
 from pathlib import Path
 from typing import (
+    Callable,
     Iterable,
     Sequence
 )
@@ -175,16 +176,25 @@ class Policy:
         commands: Iterable[Sequence[str]],
         options: MatchOptions | None = None,
         *,
-        heuristics_fallback: Decision | None = None
+        heuristics_fallback: (
+            Decision
+            | Callable[[Sequence[str]], Decision | None]
+            | None
+        ) = None
     ) -> Evaluation:
         """评估一组 shell 中的命令并合并结果。"""
         all_matches: list[object] = []
         decisions: list[Decision] = []
         for command in commands:
+            fallback = (
+                heuristics_fallback(command)
+                if callable(heuristics_fallback)
+                else heuristics_fallback
+            )
             result = self.check_with_options(
                 command,
                 options,
-                heuristics_fallback=heuristics_fallback,
+                heuristics_fallback=fallback,
             )
             all_matches.extend(result.matched_rules)
             if result.decision is not None:
@@ -198,7 +208,11 @@ class Policy:
         self,
         commands: Iterable[Sequence[str]],
         *,
-        heuristics_fallback: Decision | None = None
+        heuristics_fallback: (
+            Decision
+            | Callable[[Sequence[str]], Decision | None]
+            | None
+        ) = None
     ) -> Evaluation:
         """评估一组命令。"""
         return self.check_multiple_with_options(

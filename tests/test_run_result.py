@@ -73,6 +73,11 @@ def parse_stream_event(payload):
         current.setdefault("presentation_epoch", 1)
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
+        if str(current.get("type") or "") == "tool.approval_required":
+            current.setdefault(
+                "available_decisions",
+                ["accept", "acceptForSession", "decline"],
+            )
     return _parse_stream_event(current)
 
 
@@ -2414,6 +2419,99 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         "test_tool",
         True,
     )
+
+
+@pytest.mark.anyio
+async def test_remote_approval_skips_local_shell_policy_on_replayed_call(
+    monkeypatch,
+) -> None:
+    executions = []
+    result_posts = []
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        executions.append(invocation)
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        result_posts.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+    monkeypatch.setattr(stream, "post_tool_approval", AsyncMock())
+
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.approval_required",
+            "call_id": "call-shell-approved",
+            "approval_id": "approval-shell-approved",
+            "kind": "command",
+            "command": "rm -rf build",
+            "cwd": ".",
+            "reason": "模型需要清理构建目录。",
+            "available_decisions": ["accept", "decline"],
+        },
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-shell-approved",
+            "name": "shell_command",
+            "arguments": {"command": "rm -rf build"},
+            "reason": "模型需要清理构建目录。",
+        }),
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert len(executions) == 1
+    assert len(result_posts) == 1
+    mind.frontend.interaction.present_approval.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_local_policy_cancel_interrupts_turn(monkeypatch) -> None:
+    result_posts = []
+
+    async def request_outcome(_coordinator, _approval):
+        return ApprovalOutcome.create(
+            "cancel",
+            source="user",
+            reason="user",
+        )
+
+    async def post_tool_result(*args, **kwargs):
+        result_posts.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(ApprovalCoordinator, "request_outcome", request_outcome)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-local-cancel",
+            "name": "shell_command",
+            "arguments": {"command": "rm -rf build"},
+            "reason": "模型需要清理构建目录。",
+        }),
+    ])
+
+    assert result.status == "interrupted"
+    assert result_posts[0][0][4] is False
+    assert result_posts[0][0][5]["data"] == {
+        "executed": False,
+        "status": "cancelled",
+    }
+    stream.interrupt_turn.assert_awaited_once()
 
 
 @pytest.mark.anyio

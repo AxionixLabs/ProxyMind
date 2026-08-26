@@ -160,8 +160,16 @@ class ExecPolicyManager:
         tool: str = "shell_command",
     ) -> Evaluation:
         """评估命令并返回策略决定。"""
-        words      = _split_command(command)
-        commands   = commands_for_exec_policy(words)
+        words    = _split_command(command)
+        commands = commands_for_exec_policy(words)
+
+        def exec_policy_fallback(parsed_command: Sequence[str]) -> Decision:
+            return render_decision_for_unmatched_command(
+                parsed_command,
+                approval_policy=approval_policy,
+                sandbox_mode=sandbox_mode,
+            )
+
         evaluation = self.policy.check_multiple_with_options(
             commands,
             MatchOptions(
@@ -170,6 +178,7 @@ class ExecPolicyManager:
                     str(item.path) for item in self.policy.host_executables
                 )
             ),
+            heuristics_fallback=exec_policy_fallback,
         )
 
         if evaluation.decision == Decision.Forbidden:
@@ -179,18 +188,7 @@ class ExecPolicyManager:
             session_approved = session_key in self._session_approvals
         if session_approved:
             return Evaluation(decision=Decision.Allow, matched_rules=())
-        if evaluation.is_match:
-            return evaluation
-        dangerous = dangerous_command_match(words)
-
-        decision = render_decision_for_unmatched_command(
-            words,
-            approval_policy=approval_policy,
-            sandbox_mode=sandbox_mode,
-            dangerous_command_match=dangerous,
-        )
-
-        return Evaluation(decision=decision, matched_rules=())
+        return evaluation
 
     def create_exec_approval_requirement_for_command(
         self,

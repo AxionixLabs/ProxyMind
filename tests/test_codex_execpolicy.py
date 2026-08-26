@@ -62,6 +62,43 @@ def test_manager_loads_workspace_rules(tmp_path) -> None:
     assert manager.decide(["adb", "shell", "id"]).decision is Decision.Allow
 
 
+def test_allowed_segment_does_not_hide_dangerous_unmatched_segment(tmp_path) -> None:
+    manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        policy=PolicyParser.new(
+            'prefix_rule(pattern=["git"], decision="allow")\n'
+        ).build(),
+    )
+
+    evaluation = manager.decide(
+        "git status && rm -rf tmp",
+        approval_policy="on-request",
+    )
+
+    assert evaluation.decision is Decision.Prompt
+    assert tuple(
+        getattr(match, "decision", None)
+        for match in evaluation.matched_rules
+    ) == (Decision.Allow,)
+
+
+def test_forbidden_segment_is_stricter_than_allowed_segment(tmp_path) -> None:
+    manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        policy=PolicyParser.new(
+            'prefix_rule(pattern=["git"], decision="allow")\n'
+            'prefix_rule(pattern=["rm"], decision="forbidden")\n'
+        ).build(),
+    )
+
+    assert manager.decide(
+        "git status && rm -rf tmp",
+        approval_policy="on-request",
+    ).decision is Decision.Forbidden
+
+
 def test_session_approval_is_exact_and_does_not_override_forbidden(tmp_path) -> None:
     policy = PolicyParser.new(
         'prefix_rule(pattern=["blocked"], decision="forbidden")\n'

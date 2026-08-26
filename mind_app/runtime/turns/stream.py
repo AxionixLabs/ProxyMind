@@ -10,10 +10,12 @@ from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_core.skills import skills_payload
 from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from mind_app.approval.policy import (
+    approval_decisions,
     approval_execpolicy_amendment,
     approval_from_event,
-    approval_id_from_event,
+    approval_id_from_event
 )
+from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
@@ -228,6 +230,18 @@ def _local_exec_policy_denied_result(
         "error": "local execution policy forbids command",
         "decision": requirement.state,
         "reason": requirement.reason,
+    }
+
+
+def _local_exec_policy_cancelled_result() -> dict[str, typing.Any]:
+    """构造本地审批取消后的未执行结果。"""
+    return {
+        "ok": False,
+        "text": "user cancelled",
+        "data": {
+            "executed": False,
+            "status": "cancelled",
+        },
     }
 
 
@@ -507,6 +521,37 @@ async def _cancel_reconciliation_turn(
     return False
 
 
+async def _interrupt_approval_cancelled_turn(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    call_id: str,
+) -> bool:
+    """中断本地审批取消对应的逻辑轮次。"""
+    request_id = stable_request_id(
+        "approval_cancel",
+        cid,
+        sid,
+        turn_id,
+        call_id,
+    )
+    for attempt in range(2):
+        try:
+            response = await interrupt_turn(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                request_id=request_id,
+            )
+            return response.status in {"accepted", "turn_not_active"}
+        except TurnControlRequestError:
+            if attempt == 0:
+                continue
+            return False
+    return False
+
+
 async def stream_turn(
     mind: "Mind",
     session: McpSessionLike,
@@ -647,6 +692,11 @@ async def stream_turn(
     result_additional_context: tuple[str, ...] = ()
 
     failed_tool_context: list[str] = []
+
+    approval_ledger = getattr(mind, "approval_call_ledger", None)
+    if not isinstance(approval_ledger, ApprovalCallLedger):
+        approval_ledger = ApprovalCallLedger()
+        setattr(mind, "approval_call_ledger", approval_ledger)
 
     prompt_blocked: bool = False
 
@@ -1169,6 +1219,12 @@ async def stream_turn(
                     decision = outcome.decision
                     decision_source = outcome.source
 
+                allowed_decisions = approval_decisions(approval)
+                if decision != "cancel" and decision not in allowed_decisions:
+                    raise RuntimeError(
+                        f"approval decision is not available: {decision}"
+                    )
+
                 observe(
                     "approval.decided",
                     tool=approval_tool,
@@ -1185,6 +1241,21 @@ async def stream_turn(
                 )
 
                 approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
+
+                if approved:
+                    approval_ledger.record_approved(
+                        cid=turn_context.cid,
+                        sid=turn_context.sid,
+                        turn_id=turn_context.turn_id,
+                        call_id=approval_call_id,
+                    )
+                else:
+                    approval_ledger.discard(
+                        cid=turn_context.cid,
+                        sid=turn_context.sid,
+                        turn_id=turn_context.turn_id,
+                        call_id=approval_call_id,
+                    )
 
                 await presentation.emit(build_approval_view(
                     approval,
@@ -1232,6 +1303,22 @@ async def stream_turn(
             if isinstance(event, ToolCallEvent):
                 name      = event.name
                 arguments = dict(event.arguments)
+
+                remote_approval_state = approval_ledger.consume(
+                    cid=turn_context.cid,
+                    sid=turn_context.sid,
+                    turn_id=turn_context.turn_id,
+                    call_id=event.call_id,
+                )
+                if remote_approval_state == "consumed":
+                    observe(
+                        "tool.call.duplicate",
+                        call_id=event.call_id,
+                        turn_id=turn_context.turn_id,
+                    )
+                    continue
+
+                remote_approval_consumed = remote_approval_state == "approved"
 
                 if not name:
                     await post_tool_result(
@@ -1298,13 +1385,15 @@ async def stream_turn(
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
 
-                local_policy_requirement = _local_exec_policy_requirement(
-                    mind.exec_policy_manager,
-                    turn_context,
-                    tool=name,
-                    arguments=arguments,
-                    call_id=event.call_id,
-                )
+                local_policy_requirement = None
+                if not remote_approval_consumed:
+                    local_policy_requirement = _local_exec_policy_requirement(
+                        mind.exec_policy_manager,
+                        turn_context,
+                        tool=name,
+                        arguments=arguments,
+                        call_id=event.call_id,
+                    )
                 if (
                     local_policy_requirement is not None
                     and local_policy_requirement.state == "forbidden"
@@ -1385,10 +1474,14 @@ async def stream_turn(
                         source=local_outcome.source,
                     ))
                     if local_outcome.decision not in TOOL_APPROVAL_ACCEPT_DECISIONS:
-                        local_policy_result = {
-                            "approval_denied": True,
-                            "error": "local execution policy approval declined",
-                        }
+                        local_policy_result = (
+                            _local_exec_policy_cancelled_result()
+                            if local_outcome.decision == "cancel"
+                            else {
+                                "approval_denied": True,
+                                "error": "local execution policy approval declined",
+                            }
+                        )
                         tool_call_coordinator.record_rejected(
                             invocation,
                             "local execution policy approval declined",
@@ -1403,6 +1496,18 @@ async def stream_turn(
                             local_policy_result,
                             arguments=invocation.arguments,
                         )
+                        if local_outcome.decision == "cancel":
+                            interrupted = await _interrupt_approval_cancelled_turn(
+                                cid=turn_context.cid,
+                                sid=turn_context.sid,
+                                turn_id=turn_context.turn_id,
+                                call_id=invocation.call_id,
+                            )
+                            if not interrupted:
+                                raise TurnControlRequestError(
+                                    "failed to interrupt turn after approval cancellation"
+                                )
+                            break
                         await status_control.begin_reply_wait_status()
                         continue
 
@@ -1648,6 +1753,11 @@ async def stream_turn(
         )
 
     finally:
+        approval_ledger.clear_turn(
+            cid=turn_context.cid,
+            sid=turn_context.sid,
+            turn_id=turn_context.turn_id,
+        )
         retrying_status.close()
 
         if on_turn_stream_end is not None and event_stream is not None:

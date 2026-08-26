@@ -414,6 +414,19 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert output.payload["result"] == {"ok": True, "text": "done"}
 
 
+def test_tool_approval_requires_available_decisions() -> None:
+    with pytest.raises(ValueError, match="available_decisions"):
+        parse_stream_event({
+            "type": "tool.approval_required",
+            "call_id": "call-1",
+            "approval_id": "approval-1",
+            "kind": "command",
+            "command": "pytest -q",
+            "cwd": ".",
+            "reason": "模型需要运行测试。",
+        })
+
+
 def test_turn_control_events_preserve_stable_input_identity() -> None:
     accepted = parse_stream_event({
         "type": "turn.input.accepted",
