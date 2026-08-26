@@ -78,6 +78,10 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             "default": ".",
             "description": "命令工作目录。",
         },
+        "shell": {
+            "type": "string",
+            "description": "可选 shell 可执行文件路径；省略时使用系统默认 shell。",
+        },
         "yield_time_ms": {
             "type": "integer",
             "minimum": 0,

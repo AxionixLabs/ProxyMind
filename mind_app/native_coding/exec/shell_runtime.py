@@ -24,9 +24,18 @@ class ShellRuntimeResolver(object):
     def resolve(
         cls,
         *,
-        env: dict[str, str] | None = None
+        env: dict[str, str] | None = None,
+        shell: str | None = None,
     ) -> ShellRuntime:
         """返回可用于执行 shell 字符串的运行时信息。"""
+        requested_shell = str(shell or "").strip()
+        if requested_shell:
+            return cls._runtime_from_shell(
+                [requested_shell],
+                env=env,
+                source="request",
+            )
+
         env_shell = cls._env_shell(env=env)
         if env_shell:
             return cls._runtime_from_shell(env_shell, env=env, source="env")

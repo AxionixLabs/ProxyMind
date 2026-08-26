@@ -44,18 +44,17 @@ class ExecCommandTools(NativeCodingComponent):
     ) -> None:
         """保存共享运行时、执行策略和会话表。"""
         super().__init__(core)
-
         self._command_policy = command_policy
-        self._file_audit     = file_audit
-
+        self._file_audit = file_audit
         self._session_manager = sessions
-        self._sessions        = sessions.sessions
+        self._sessions = sessions.sessions
 
     async def exec_command(
         self,
         *,
         command: str,
         cwd: str = ".",
+        shell: str | None = None,
         yield_time_ms: int = 1000,
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
@@ -124,7 +123,7 @@ class ExecCommandTools(NativeCodingComponent):
         )
 
         env     = os.environ.copy()
-        runtime = ShellRuntimeResolver.resolve(env=env)
+        runtime = ShellRuntimeResolver.resolve(env=env, shell=shell)
 
         runtime_info = {
             "name": runtime.name,

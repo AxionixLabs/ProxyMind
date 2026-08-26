@@ -541,6 +541,7 @@ def _nested_canonical_arguments(
         return {
             "command": str(arguments.get("command") or ""),
             "cwd": str(arguments.get("cwd") or "."),
+            "shell": str(arguments.get("shell") or "") or None,
             "yield_time_ms": int(arguments.get("yield_time_ms", 1000)),
             "max_output_chars": int(arguments.get("max_output_chars") or 24000),
             "timeout_sec": int(arguments.get("timeout_sec") or 1800),

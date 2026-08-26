@@ -81,6 +81,7 @@ class NativeCoding(NativeCodingBase):
         *,
         command: str,
         cwd: str = ".",
+        shell: str | None = None,
         yield_time_ms: int = 1000,
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
@@ -94,6 +95,7 @@ class NativeCoding(NativeCodingBase):
         return await self._exec_command.exec_command(
             command=command,
             cwd=cwd,
+            shell=shell,
             yield_time_ms=yield_time_ms,
             max_output_chars=max_output_chars,
             timeout_sec=timeout_sec,
