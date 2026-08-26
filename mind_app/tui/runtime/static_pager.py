@@ -56,11 +56,14 @@ class StaticPagerCoordinator(object):
         self._cancel_history_backtrack()
         self._viewport.pause_scrollback()
         try:
-            opened = self._screen.set_static_pager(
-                True,
-                request=request,
-                allow_approval=allow_approval,
-            )
+            if allow_approval:
+                opened = self._screen.set_static_pager(
+                    True,
+                    request=request,
+                    allow_approval=True,
+                )
+            else:
+                opened = self._screen.set_static_pager(True, request=request)
         except BaseException:
             self._viewport.schedule_scrollback_flush()
             raise
