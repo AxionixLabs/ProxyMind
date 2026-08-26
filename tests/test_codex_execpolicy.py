@@ -59,9 +59,30 @@ def test_shell_wrapper_commands_are_exposed_to_policy() -> None:
         ["rg", "foo"],
     ]
 
-    assert ["rm", "-rf", "tmp"] in commands_for_exec_policy(
-        ["bash", "-lc", "if true; then rm -rf tmp; fi"]
+    complex_command = ["bash", "-lc", "if true; then rm -rf tmp; fi"]
+    assert commands_for_exec_policy(complex_command) == [complex_command]
+
+
+def test_shell_parser_preserves_quoted_operators_and_argv_values() -> None:
+    assert commands_for_exec_policy(["bash", "-lc", 'echo "a; b && c"']) == [
+        ["echo", "a; b && c"],
+    ]
+    assert commands_for_exec_policy(["echo", "a; b"]) == [["echo", "a; b"]]
+
+
+def test_complex_shell_syntax_cannot_use_inner_allow_rule(tmp_path) -> None:
+    manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        policy=PolicyParser.new(
+            'prefix_rule(pattern=["rm"], decision="allow")\n'
+        ).build(),
     )
+
+    assert manager.decide(
+        ["bash", "-lc", "if true; then rm -rf tmp; fi"],
+        approval_policy="on-request",
+    ).decision is Decision.Prompt
 
 
 def test_manager_loads_workspace_rules(tmp_path) -> None:

@@ -204,8 +204,7 @@ class ExecPolicyManager:
     ) -> Evaluation:
         """评估命令并返回策略决定。"""
         permission = normalize_sandbox_permission(sandbox_permissions)
-        words      = _split_command(command)
-        commands   = commands_for_exec_policy(words)
+        commands = commands_for_exec_policy(command)
 
         def exec_policy_fallback(parsed_command: Sequence[str]) -> Decision:
             return render_decision_for_unmatched_command(
@@ -393,7 +392,7 @@ class ExecPolicyManager:
         """按首个未获显式允许的命令生成修订提案。"""
         words = _split_command(command)
 
-        commands = commands_for_exec_policy(words)
+        commands = commands_for_exec_policy(command)
         if not commands:
             return None
         candidate: Sequence[str] | str | None = None
@@ -612,8 +611,9 @@ def render_decision_for_unmatched_command(
     if match is None:
         match = _dangerous_command_match(words)
 
-    normalized_policy = str(approval_policy or "on-request").strip().casefold()
+    normalized_policy  = str(approval_policy or "on-request").strip().casefold()
     normalized_sandbox = str(sandbox_mode or "workspace-write").strip().casefold()
+
     permission = normalize_sandbox_permission(sandbox_permissions)
 
     if match is not None:
@@ -704,7 +704,7 @@ def load_exec_policy_with_warning(
 
 
 def commands_for_exec_policy(command: Sequence[str] | str) -> list[list[str]]:
-    """提取 shell 命令中的可评估命令序列。"""
+    """按 Codex 的简单命令规则提取可评估命令序列。"""
     words = _split_command(command)
     if not words:
         return []
@@ -712,8 +712,12 @@ def commands_for_exec_policy(command: Sequence[str] | str) -> list[list[str]]:
     if executable in {"sh", "bash", "zsh", "ksh", "dash", "fish", "cmd", "powershell", "pwsh"}:
         scripts = _shell_scripts(words[1:])
         if scripts:
-            return _split_script(scripts[0])
-    return _split_script(" ".join(words))
+            parsed = _parse_plain_script(scripts[0])
+            return parsed if parsed is not None else [words]
+    if isinstance(command, str):
+        parsed = _parse_plain_script(command)
+        return parsed if parsed is not None else [words]
+    return [words]
 
 
 def _split_command(command: Sequence[str] | str) -> list[str]:
@@ -725,22 +729,90 @@ def _split_command(command: Sequence[str] | str) -> list[str]:
     return [str(word) for word in command if str(word)]
 
 
-def _split_script(script: str) -> list[list[str]]:
-    segments = re.split(r"&&|\|\||[;&|]", str(script or ""))
+def _parse_plain_script(script: str) -> list[list[str]] | None:
+    """解析不含动态 shell 语法的简单命令链。"""
+    segments = _split_plain_segments(script)
+    if segments is None:
+        return None
+
     commands: list[list[str]] = []
     for segment in segments:
         try:
             words = shlex.split(segment, posix=True)
         except ValueError:
-            words = [part for part in segment.split() if part]
-        if words and words[0].casefold() in {"then", "do", "else"}:
-            words = words[1:]
-        if words:
-            commands.append(words)
-        for nested in re.findall(r"\$\(([^()]*)\)|`([^`]*)`", segment):
-            nested_script = nested[0] or nested[1]
-            commands.extend(_split_script(nested_script))
-    return commands
+            return None
+        if not words or _is_shell_control_word(words[0]):
+            return None
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            return None
+        commands.append(words)
+    return commands or None
+
+
+def _split_plain_segments(script: str) -> list[str] | None:
+    """按引号外的安全连接符切分脚本，复杂语法返回 None。"""
+    text = str(script or "")
+    segments: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    escaped = False
+    index = 0
+
+    while index < len(text):
+        char = text[index]
+        if escaped:
+            current.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+            index += 1
+            continue
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            current.append(char)
+            index += 1
+            continue
+        if char in "()<>" or char == "$" or char == "`":
+            return None
+        if text.startswith("&&", index) or text.startswith("||", index):
+            segments.append("".join(current).strip())
+            current = []
+            index += 2
+            continue
+        if char in {";", "|"}:
+            segments.append("".join(current).strip())
+            current = []
+            index += 1
+            continue
+        if char == "&":
+            return None
+        current.append(char)
+        index += 1
+
+    if quote is not None or escaped:
+        return None
+    segments.append("".join(current).strip())
+    if any(not segment for segment in segments):
+        return None
+    return segments
+
+
+def _is_shell_control_word(value: str) -> bool:
+    """判断词元是否为需要完整语法分析的 shell 控制词。"""
+    return str(value or "").casefold() in {
+        "if", "then", "elif", "else", "fi",
+        "for", "while", "until", "do", "done",
+        "case", "esac", "select", "function",
+    }
 
 
 def _shell_scripts(args: Sequence[str]) -> tuple[str, ...]:
