@@ -16,7 +16,13 @@ NestedToolDispatch = typing.Callable[
     typing.Awaitable[mcp_types.CallToolResult]
 ]
 
+TurnInterrupt = typing.Callable[
+    [str],
+    typing.Awaitable[bool],
+]
+
 NESTED_TOOL_DISPATCH_META_KEY = "_nested_tool_dispatch"
+TURN_INTERRUPT_META_KEY = "_turn_interrupt"
 
 
 @dataclass(slots=True)
@@ -30,6 +36,7 @@ class ClientToolRuntime:
     meta: dict[str, typing.Any] | None = None
     call_id: str | None = None
     nested_tool_dispatch: NestedToolDispatch | None = None
+    interrupt_turn: TurnInterrupt | None = None
 
 
 ClientToolHandler = typing.Callable[

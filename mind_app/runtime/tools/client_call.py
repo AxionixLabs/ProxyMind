@@ -11,7 +11,10 @@ from dataclasses import (
 )
 from mcp import types as mcp_types
 from engine.observability import observe_exception
-from mind_app.client_tools.types import NESTED_TOOL_DISPATCH_META_KEY
+from mind_app.client_tools.types import (
+    NESTED_TOOL_DISPATCH_META_KEY,
+    TURN_INTERRUPT_META_KEY,
+)
 from mind_app.mcp.contracts import McpSessionLike
 from mind_nova.requests.effects import post_effect_reconciliation
 from mind_nova.requests.tools import build_tool_result_payload
@@ -24,6 +27,7 @@ from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext
 )
+from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_app.runtime.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
@@ -117,6 +121,7 @@ class ClientToolCallRunner:
         effect_reconciler: typing.Callable[..., typing.Awaitable[
             dict[str, typing.Any]
         ]] | None = None,
+        interrupt_turn: typing.Callable[[str], typing.Awaitable[bool]] | None = None,
     ) -> None:
         """绑定工具生命周期端口和持久效果依赖。"""
         self.session               = session
@@ -129,6 +134,7 @@ class ClientToolCallRunner:
         self.patch_preview         = patch_preview
         self.effect_journal        = effect_journal or LocalEffectJournal()
         self.effect_reconciler     = effect_reconciler or post_effect_reconciliation
+        self.interrupt_turn        = interrupt_turn
 
     @staticmethod
     def _outcome_payload(outcome: ClientToolCallOutcome) -> dict[str, typing.Any]:
@@ -399,12 +405,16 @@ class ClientToolCallRunner:
                     call_id=nested_call_id,
                 )
 
+            runtime_meta = {
+                **(invocation.meta or {}),
+                NESTED_TOOL_DISPATCH_META_KEY: dispatch_nested_tool,
+            }
+            if self.interrupt_turn is not None:
+                runtime_meta[TURN_INTERRUPT_META_KEY] = self.interrupt_turn
+
             invocation = replace(
                 invocation,
-                meta={
-                    **(invocation.meta or {}),
-                    NESTED_TOOL_DISPATCH_META_KEY: dispatch_nested_tool,
-                },
+                meta=runtime_meta,
             )
 
         try:
@@ -466,6 +476,8 @@ class ClientToolCallRunner:
 
             hook_response = getattr(tool_run, "hook_response", fields)
 
+        except TurnControlRequestError:
+            raise
         except Exception as exc:
             text = f"{type(exc).__name__}: {exc}"
             ok   = False

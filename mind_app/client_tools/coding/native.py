@@ -4,6 +4,7 @@
 import typing
 from mcp import types as mcp_types
 from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
+from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_app.approval.policy import approval_execpolicy_amendment
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
@@ -694,6 +695,21 @@ async def _authorize_nested_tool(
             }
 
         decision = await approval_coordinator.request(approval)
+        if decision == "cancel":
+            if runtime.interrupt_turn is None:
+                raise ExecutionAuthorizationError(
+                    "nested_tool_approval_cancelled",
+                    f"nested {tool} approval was cancelled",
+                )
+            interrupted = await runtime.interrupt_turn(call_id)
+            if not interrupted:
+                raise ExecutionAuthorizationError(
+                    "nested_tool_approval_cancelled",
+                    f"nested {tool} approval could not interrupt the turn",
+                )
+            raise TurnControlRequestError(
+                f"nested {tool} approval cancelled the turn"
+            )
         approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
         if decision == "acceptForSession":
             exec_policy_manager.add_approval_for_session(

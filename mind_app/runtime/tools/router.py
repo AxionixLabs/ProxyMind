@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.client_tools.types import NESTED_TOOL_DISPATCH_META_KEY
+from mind_app.client_tools.types import (
+    NESTED_TOOL_DISPATCH_META_KEY,
+    TURN_INTERRUPT_META_KEY,
+)
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
 from mind_app.runtime.execution import ToolInvocation
@@ -57,7 +60,13 @@ async def execute_tool(
 
     runtime_meta = (
         invocation.meta
-        if NESTED_TOOL_DISPATCH_META_KEY in (invocation.meta or {})
+        if any(
+            key in (invocation.meta or {})
+            for key in (
+                NESTED_TOOL_DISPATCH_META_KEY,
+                TURN_INTERRUPT_META_KEY,
+            )
+        )
         else None
     )
 

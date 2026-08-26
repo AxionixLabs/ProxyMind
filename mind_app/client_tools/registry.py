@@ -11,6 +11,7 @@ from .types import (
     ClientTool,
     ClientToolRuntime,
     NESTED_TOOL_DISPATCH_META_KEY,
+    TURN_INTERRUPT_META_KEY,
 )
 from .coding import coding_tools
 from .planning import planning_tools
@@ -83,6 +84,10 @@ class ClientToolRegistry:
             NESTED_TOOL_DISPATCH_META_KEY,
             None,
         )
+        turn_interrupt = runtime_meta.pop(
+            TURN_INTERRUPT_META_KEY,
+            None,
+        )
 
         runtime = ClientToolRuntime(
             session=session,
@@ -94,6 +99,9 @@ class ClientToolRegistry:
             call_id=call_id,
             nested_tool_dispatch=(
                 nested_dispatch if callable(nested_dispatch) else None
+            ),
+            interrupt_turn=(
+                turn_interrupt if callable(turn_interrupt) else None
             ),
         )
         return await tool.handler(dict(arguments or {}), runtime)

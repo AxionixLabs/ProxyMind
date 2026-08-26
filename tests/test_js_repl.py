@@ -17,6 +17,7 @@ from mcp import types as mcp_types
 
 from mind_app.client_tools.coding import coding_tools
 from mind_app.client_tools.coding.native import (
+    _authorize_nested_tool,
     _js_repl_arguments,
     _nested_tool_response,
 )
@@ -25,6 +26,7 @@ from mind_app.client_tools.registry import (
     ClientToolRegistry,
     default_registry,
 )
+from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.mcp.session_adapter import CompositeToolSession
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
@@ -46,6 +48,7 @@ from mind_app.runtime.hooks.models import (
 )
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
 from mind_core.permissions import preset_permissions
+from mind_nova.requests.turn_control import TurnControlRequestError
 
 
 def _require_node() -> None:
@@ -1091,6 +1094,48 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
     assert coordinator.requests[0]["tool"] == "shell_command"
     assert coordinator.requests[0]["command"] == "rm -rf nested"
     coding.shell_command.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_nested_approval_cancel_interrupts_turn(tmp_path: Path) -> None:
+    class Coordinator:
+        async def request(self, _approval):
+            return "cancel"
+
+    turn = TurnContext.create(
+        agent=AgentContext.root("sid_nested_cancel"),
+        cid="cid_nested_cancel",
+        sid="sid_nested_cancel",
+        source="test",
+        pref_config={},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("auto"),
+        turn_id="turn_nested_cancel",
+    )
+    interrupt = AsyncMock(return_value=True)
+    runtime = ClientToolRuntime(
+        session=SimpleNamespace(),
+        turn_context=turn,
+        pref_config={},
+        interrupt_turn=interrupt,
+    )
+    manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        writable_rules_path=tmp_path / ".mind" / "rules" / "default.rules",
+    )
+
+    with pytest.raises(TurnControlRequestError):
+        await _authorize_nested_tool(
+            runtime,
+            tool="shell_command",
+            arguments={"command": "rm -rf nested"},
+            approval_coordinator=Coordinator(),
+            exec_policy_manager=manager,
+            call_id="nested-cancel",
+        )
+
+    interrupt.assert_awaited_once_with("nested-cancel")
 
 
 @pytest.mark.anyio

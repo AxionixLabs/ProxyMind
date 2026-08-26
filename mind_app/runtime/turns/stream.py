@@ -13,7 +13,7 @@ from mind_app.approval.policy import (
     approval_decisions,
     approval_execpolicy_amendment,
     approval_from_event,
-    approval_id_from_event
+    approval_id_from_event,
 )
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalDecisionValue
@@ -354,7 +354,7 @@ def _terminal_result_fields(event: TurnTerminalEvent) -> dict[str, typing.Any]:
 
 def _tool_invocation_from_event(
     turn_context: TurnContext,
-    event: ToolEvent | ToolApprovalRequiredEvent,
+    event: ToolEvent,
     tools: list[dict[str, typing.Any]],
     *,
     arguments: dict[str, typing.Any] | None = None,
@@ -375,23 +375,10 @@ def _tool_invocation_from_event(
     )
 
 
-def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
-    """构建前置 Hook 阻止工具时的标准结果。"""
-    text = str(reason or "tool use denied by hook")
-    return {
-        "ok": False,
-        "text": text,
-        "data": {
-            "hook_denied": True,
-            "error": text,
-        },
-    }
-
-
 def _approval_with_updated_input(
     approval: dict[str, typing.Any],
     tool: str,
-    effective_arguments: dict[str, typing.Any] | None
+    effective_arguments: dict[str, typing.Any] | None,
 ) -> dict[str, typing.Any]:
     """返回应用 Hook 参数改写后的审批数据。"""
     if effective_arguments is None:
@@ -416,7 +403,7 @@ def _approval_report_kwargs(
     source: ApprovalSource,
     turn_id: str,
     hook_reason: str = "",
-    additional_context: typing.Sequence[str] = ()
+    additional_context: typing.Sequence[str] = (),
 ) -> dict[str, typing.Any]:
     """构造审批决定回传所需的协议字段。"""
     approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
@@ -444,6 +431,19 @@ def _approval_report_kwargs(
     if not approved and additional_context:
         fields["additional_context"] = additional_context
     return fields
+
+
+def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
+    """构建前置 Hook 阻止工具时的标准结果。"""
+    text = str(reason or "tool use denied by hook")
+    return {
+        "ok": False,
+        "text": text,
+        "data": {
+            "hook_denied": True,
+            "error": text,
+        },
+    }
 
 
 def _extend_request_context(
@@ -698,6 +698,47 @@ async def stream_turn(
         approval_ledger = ApprovalCallLedger()
         setattr(mind, "approval_call_ledger", approval_ledger)
 
+    async def post_client_tool_result(
+        cid: str,
+        sid: str,
+        call_id: str,
+        name: str,
+        ok: bool,
+        result: typing.Any,
+        additional_context: typing.Sequence[str] = (),
+        arguments: typing.Mapping[str, typing.Any] | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        """保存工具结果并在服务端确认后收束本地结果状态。"""
+        approval_ledger.record_result_pending(
+            cid=cid,
+            sid=sid,
+            turn_id=turn_context.turn_id,
+            call_id=call_id,
+            name=name,
+            ok=ok,
+            result=result,
+            arguments=arguments,
+            additional_context=additional_context,
+        )
+        await post_tool_result(
+            cid,
+            sid,
+            call_id,
+            name,
+            ok,
+            result,
+            additional_context=additional_context,
+            arguments=arguments,
+            request_id=request_id,
+        )
+        approval_ledger.mark_result_committed(
+            cid=cid,
+            sid=sid,
+            turn_id=turn_context.turn_id,
+            call_id=call_id,
+        )
+
     prompt_blocked: bool = False
 
     turn_hook_events: TurnHookEvents | None = None
@@ -795,6 +836,15 @@ async def stream_turn(
             additional_context=begin_result.additional_context,
         )
 
+        async def interrupt_nested_turn(call_id: str) -> bool:
+            """中断由嵌套本地工具审批取消的当前轮次。"""
+            return await _interrupt_approval_cancelled_turn(
+                cid=turn_context.cid,
+                sid=turn_context.sid,
+                turn_id=turn_context.turn_id,
+                call_id=call_id,
+            )
+
         client_tool_runner = ClientToolCallRunner(
             session=session,
             output_control=output_control,
@@ -808,6 +858,7 @@ async def stream_turn(
                 "preview_patch",
                 None,
             ),
+            interrupt_turn=interrupt_nested_turn,
         )
         plan_tool_runner = PlanToolCallRunner(
             session=session,
@@ -1142,20 +1193,31 @@ async def stream_turn(
                 await status_control.end_status(immediate=True)
 
                 approval_started_at = time.perf_counter()
-
-                approval_id      = approval_id_from_event(event)
-                approval_tool    = str(approval.get("tool") or "").strip()
+                approval_id = approval_id_from_event(event)
+                approval_tool = str(approval.get("tool") or "").strip()
                 approval_call_id = event.call_id
 
                 permission_decision = None
-
+                approval_invocation: ToolInvocation | None = None
                 if approval_tool:
-                    raw_approval_arguments = approval.get("arguments")
+                    raw_arguments = approval.get("arguments")
                     approval_arguments = (
-                        dict(raw_approval_arguments)
-                        if isinstance(raw_approval_arguments, dict)
+                        dict(raw_arguments)
+                        if isinstance(raw_arguments, dict)
                         else {}
                     )
+                    if (
+                        not approval_arguments
+                        and approval_tool in LOCAL_EXEC_POLICY_TOOLS
+                    ):
+                        command = approval.get("command")
+                        argument_name = (
+                            "stdin"
+                            if approval_tool == "write_stdin"
+                            else "command"
+                        )
+                        if isinstance(command, str) and command.strip():
+                            approval_arguments[argument_name] = command
 
                     approval_invocation = _tool_invocation_from_event(
                         turn_context,
@@ -1164,15 +1226,14 @@ async def stream_turn(
                         arguments=approval_arguments,
                         name=approval_tool,
                     )
-
                     permission_decision = (
                         await tool_call_coordinator.prepare_permission(
                             approval_invocation
                         )
                     )
-                    effective_approval_arguments = None
+                    effective_arguments = None
                     if permission_decision.updated_input is not None:
-                        effective_approval_arguments = dict(
+                        effective_arguments = dict(
                             tool_call_coordinator.effective_invocation(
                                 approval_invocation,
                                 permission_decision,
@@ -1181,7 +1242,7 @@ async def stream_turn(
                     approval = _approval_with_updated_input(
                         approval,
                         approval_tool,
-                        effective_approval_arguments,
+                        effective_arguments,
                     )
 
                 observe(
@@ -1193,31 +1254,23 @@ async def stream_turn(
 
                 decision: ApprovalDecisionValue
                 decision_source: ApprovalSource
-
                 if (
                     permission_decision is not None
                     and permission_decision.action == "deny"
                 ):
-                    decision        = "decline"
-                    decision_source = "hook"
-
+                    decision, decision_source = "decline", "hook"
                 elif (
                     permission_decision is not None
                     and permission_decision.action == "allow"
                 ):
-                    decision        = "accept"
-                    decision_source = "hook"
-
+                    decision, decision_source = "accept", "hook"
                 elif kwargs["permissions"].approval_policy == "never":
-                    decision        = "decline"
-                    decision_source = "policy"
-
+                    decision, decision_source = "decline", "policy"
                 else:
                     outcome = await mind.approval_coordinator.request_outcome(
                         approval
                     )
-                    decision = outcome.decision
-                    decision_source = outcome.source
+                    decision, decision_source = outcome.decision, outcome.source
 
                 allowed_decisions = approval_decisions(approval)
                 if decision != "cancel" and decision not in allowed_decisions:
@@ -1237,12 +1290,80 @@ async def stream_turn(
                         if permission_decision is not None
                         else []
                     ),
-                    elapsed_ms=int((time.perf_counter() - approval_started_at) * 1000),
+                    elapsed_ms=int(
+                        (time.perf_counter() - approval_started_at) * 1000
+                    ),
                 )
 
-                approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
+                await presentation.emit(build_approval_view(
+                    approval,
+                    decision=decision,
+                    source=decision_source,
+                ))
+                try:
+                    await post_tool_approval(
+                        turn_context.cid,
+                        turn_context.sid,
+                        approval_call_id,
+                        approval_id,
+                        **_approval_report_kwargs(
+                            approval,
+                            decision=decision,
+                            source=decision_source,
+                            turn_id=turn_context.turn_id,
+                            hook_reason=(
+                                permission_decision.reason
+                                if permission_decision is not None
+                                else ""
+                            ),
+                            additional_context=(
+                                permission_decision.additional_context
+                                if permission_decision is not None
+                                else ()
+                            ),
+                        ),
+                    )
+                except Exception as error:
+                    approval_ledger.discard(
+                        cid=turn_context.cid,
+                        sid=turn_context.sid,
+                        turn_id=turn_context.turn_id,
+                        call_id=approval_call_id,
+                    )
+                    observe_exception(
+                        "approval.report_failed",
+                        error,
+                        tool=approval_tool,
+                        call_id=approval_call_id,
+                        approval_id=approval_id,
+                        decision=decision,
+                    )
+                    raise
 
+                approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
                 if approved:
+                    if (
+                        approval_invocation is not None
+                        and approval_tool in LOCAL_EXEC_POLICY_TOOLS
+                        and decision in {
+                            "acceptForSession",
+                            "acceptWithExecpolicyAmendment",
+                        }
+                    ):
+                        local_policy_update_error = _apply_local_exec_policy_approval(
+                            mind.exec_policy_manager,
+                            invocation=approval_invocation,
+                            approval=approval,
+                            decision=decision,
+                        )
+                        if local_policy_update_error:
+                            observe(
+                                "approval.local_policy_update_failed",
+                                level="WARNING",
+                                call_id=approval_call_id,
+                                decision=decision,
+                                error=local_policy_update_error,
+                            )
                     approval_ledger.record_approved(
                         cid=turn_context.cid,
                         sid=turn_context.sid,
@@ -1256,61 +1377,41 @@ async def stream_turn(
                         turn_id=turn_context.turn_id,
                         call_id=approval_call_id,
                     )
-
-                await presentation.emit(build_approval_view(
-                    approval,
-                    decision=decision,
-                    source=decision_source,
-                ))
-                try:
-                    approval_post_kwargs = _approval_report_kwargs(
-                        approval,
-                        decision=decision,
-                        source=decision_source,
-                        turn_id=turn_context.turn_id,
-                        hook_reason=(
-                            permission_decision.reason
-                            if permission_decision is not None
-                            else ""
-                        ),
-                        additional_context=(
-                            permission_decision.additional_context
-                            if permission_decision is not None
-                            else ()
-                        ),
-                    )
-                    await post_tool_approval(
-                        turn_context.cid,
-                        turn_context.sid,
-                        event.call_id,
-                        approval_id,
-                        **approval_post_kwargs,
-                    )
-                except Exception as error:
-                    observe_exception(
-                        "approval.report_failed",
-                        error,
-                        tool=approval_tool,
-                        call_id=approval_call_id,
-                        approval_id=approval_id,
-                        decision=decision,
-                    )
-                    raise
                 if not approved:
-                    await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                    await status_control.begin_reply_wait_status(
+                        delay_sec=0.15,
+                        animate_after_sec=0.85,
+                    )
                 continue
 
             if isinstance(event, ToolCallEvent):
                 name      = event.name
                 arguments = dict(event.arguments)
 
-                remote_approval_state = approval_ledger.consume(
+                approval_state = approval_ledger.consume(
                     cid=turn_context.cid,
                     sid=turn_context.sid,
                     turn_id=turn_context.turn_id,
                     call_id=event.call_id,
                 )
-                if remote_approval_state == "consumed":
+                if approval_state == "consumed":
+                    result_record = approval_ledger.result_for(
+                        cid=turn_context.cid,
+                        sid=turn_context.sid,
+                        turn_id=turn_context.turn_id,
+                        call_id=event.call_id,
+                    )
+                    if result_record is not None and result_record.state == "pending":
+                        await post_client_tool_result(
+                            turn_context.cid,
+                            turn_context.sid,
+                            event.call_id,
+                            result_record.name,
+                            result_record.ok,
+                            result_record.result,
+                            additional_context=result_record.additional_context,
+                            arguments=result_record.arguments,
+                        )
                     observe(
                         "tool.call.duplicate",
                         call_id=event.call_id,
@@ -1318,10 +1419,10 @@ async def stream_turn(
                     )
                     continue
 
-                remote_approval_consumed = remote_approval_state == "approved"
+                approval_consumed = approval_state == "approved"
 
                 if not name:
-                    await post_tool_result(
+                    await post_client_tool_result(
                         turn_context.cid,
                         turn_context.sid,
                         event.call_id,
@@ -1346,7 +1447,7 @@ async def stream_turn(
                         invocation,
                         hook_decision.reason,
                     )
-                    await post_tool_result(
+                    await post_client_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
                         invocation.call_id,
@@ -1372,7 +1473,7 @@ async def stream_turn(
                         operation_handler=plan_tool_runner.execute_operation,
                     )
                     tool_result = tool_outcome.result
-                    await post_tool_result(
+                    await post_client_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
                         invocation.call_id,
@@ -1385,15 +1486,13 @@ async def stream_turn(
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
 
-                local_policy_requirement = None
-                if not remote_approval_consumed:
-                    local_policy_requirement = _local_exec_policy_requirement(
-                        mind.exec_policy_manager,
-                        turn_context,
-                        tool=name,
-                        arguments=arguments,
-                        call_id=event.call_id,
-                    )
+                local_policy_requirement = _local_exec_policy_requirement(
+                    mind.exec_policy_manager,
+                    turn_context,
+                    tool=name,
+                    arguments=arguments,
+                    call_id=event.call_id,
+                )
                 if (
                     local_policy_requirement is not None
                     and local_policy_requirement.state == "forbidden"
@@ -1403,7 +1502,7 @@ async def stream_turn(
                         "local execution policy forbids command",
                         result=_local_exec_policy_denied_result(local_policy_requirement),
                     )
-                    await post_tool_result(
+                    await post_client_tool_result(
                         invocation.turn.cid,
                         invocation.turn.sid,
                         invocation.call_id,
@@ -1418,6 +1517,7 @@ async def stream_turn(
                 if (
                     local_policy_requirement is not None
                     and local_policy_requirement.state == "needs_approval"
+                    and not approval_consumed
                 ):
                     if name in {"shell_command", "exec_command"} and not invocation.reason:
                         missing_reason = {
@@ -1429,7 +1529,7 @@ async def stream_turn(
                             "shell approval reason is missing",
                             result=missing_reason,
                         )
-                        await post_tool_result(
+                        await post_client_tool_result(
                             invocation.turn.cid,
                             invocation.turn.sid,
                             invocation.call_id,
@@ -1449,7 +1549,7 @@ async def stream_turn(
                             "local execution policy requires approval",
                             result=local_policy_result,
                         )
-                        await post_tool_result(
+                        await post_client_tool_result(
                             invocation.turn.cid,
                             invocation.turn.sid,
                             invocation.call_id,
@@ -1487,7 +1587,7 @@ async def stream_turn(
                             "local execution policy approval declined",
                             result=local_policy_result,
                         )
-                        await post_tool_result(
+                        await post_client_tool_result(
                             invocation.turn.cid,
                             invocation.turn.sid,
                             invocation.call_id,
@@ -1528,7 +1628,7 @@ async def stream_turn(
                             "local execution policy update failed",
                             result=local_policy_result,
                         )
-                        await post_tool_result(
+                        await post_client_tool_result(
                             invocation.turn.cid,
                             invocation.turn.sid,
                             invocation.call_id,
@@ -1542,12 +1642,17 @@ async def stream_turn(
 
                 use_coding_trace = coding_trace_tool(name)
 
-                tool_outcome = await client_tool_runner.execute(
-                    invocation,
-                    use_coding_trace=use_coding_trace,
-                )
+                try:
+                    tool_outcome = await client_tool_runner.execute(
+                        invocation,
+                        use_coding_trace=use_coding_trace,
+                    )
+                except TurnControlRequestError as error:
+                    interrupted = True
+                    failure_error = str(error)
+                    break
                 tool_result = tool_outcome.result
-                await post_tool_result(
+                await post_client_tool_result(
                     invocation.turn.cid,
                     invocation.turn.sid,
                     invocation.call_id,
@@ -1757,6 +1862,7 @@ async def stream_turn(
             cid=turn_context.cid,
             sid=turn_context.sid,
             turn_id=turn_context.turn_id,
+            preserve_pending_results=result_status not in {"completed", "interrupted"},
         )
         retrying_status.close()
 
