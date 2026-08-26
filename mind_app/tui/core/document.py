@@ -1001,7 +1001,7 @@ class TuiDocument(object):
         gap_before: int | None = None,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
-    ) -> None:
+    ) -> bool:
         """设置当前动态正文并在首次显示时确定块间空行。"""
         block = sanitize_fragment_block(block)
 
@@ -1009,6 +1009,16 @@ class TuiDocument(object):
             block
             if transcript_block is None
             else sanitize_fragment_block(transcript_block)
+        )
+
+        previous_visual = (
+            self.active_block,
+            self.active_transcript_block,
+            self.active_kind,
+            self.active_gap_before,
+            self.active_stream_continuation,
+            self.active_display_renderer,
+            self.active_display_render_width,
         )
 
         if self.active_block is None:
@@ -1039,7 +1049,18 @@ class TuiDocument(object):
         self.active_display_renderer     = display_renderer
         self.active_display_render_width = display_render_width
 
-        self.active_transcript_revision += 1
+        visual_changed = previous_visual != (
+            self.active_block,
+            self.active_transcript_block,
+            self.active_kind,
+            self.active_gap_before,
+            self.active_stream_continuation,
+            self.active_display_renderer,
+            self.active_display_render_width,
+        )
+        if visual_changed:
+            self.active_transcript_revision += 1
+        return visual_changed
 
     def commit_active(
         self,

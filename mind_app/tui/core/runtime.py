@@ -1637,9 +1637,9 @@ class TuiRuntime(object):
         gap_before: int | None = None,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
-    ) -> None:
+    ) -> bool:
         """替换当前流式展示块。"""
-        self._transcript.set_active(
+        return self._transcript.set_active(
             block,
             kind=kind,
             transcript_block=transcript_block,

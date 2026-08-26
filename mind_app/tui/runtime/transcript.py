@@ -81,10 +81,10 @@ class TranscriptCoordinator(object):
         gap_before: int | None,
         display_renderer: WidthBlockRenderer | None,
         display_render_width: int | None
-    ) -> None:
+    ) -> bool:
         """替换动态正文并请求一次稳定画布重绘。"""
         with self._screen.visual_update():
-            self._document.set_active(
+            changed = self._document.set_active(
                 block,
                 kind=kind,
                 transcript_block=transcript_block,
@@ -96,7 +96,9 @@ class TranscriptCoordinator(object):
                 display_render_width=display_render_width,
             )
             self._overlay.content_changed()
-            self._screen.invalidate()
+            if changed:
+                self._screen.invalidate()
+        return changed
 
     def commit_active(
         self,

@@ -51,6 +51,7 @@ from mind_app.presentation.batch_views import (
     build_batch_completed_view,
     build_batch_start_view,
 )
+from mind_app.presentation import code_highlight
 from mind_app.presentation.lifecycle_views import build_failure_view
 from mind_app.presentation.models import (
     NativeToolResultView,
@@ -1362,6 +1363,24 @@ async def test_markdown_stream_retires_stable_prefix_while_running(
         finally:
             await runtime.activity.clear()
             runtime.set_execution_active(False)
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_single_stable_stream_row_retires_before_viewport_batch() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=False)
+        source = "## Stable heading\n\n"
+
+        await runtime.open()
+        try:
+            await output.append_assistant_delta(source)
+
+            assert output._stream_committed_source_end == len(source)
+            assert runtime.document.blocks
+            assert runtime.document.blocks[-1].raw_text == source
+        finally:
             await runtime.close()
 
 
@@ -3355,6 +3374,78 @@ async def test_streaming_fence_never_displays_raw_fence_markers() -> None:
 
     await output.append_assistant_delta("```\n")
     assert "```" not in _document_text(runtime.document)
+
+
+@pytest.mark.parametrize(
+    ("language", "source_lines"),
+    (
+        (
+            "python",
+            ('value = """first\n', "second\n", 'third"""\n', "print(value)\n"),
+        ),
+        (
+            "python",
+            ('"""module docs\n', "continued docs\n", 'end docs"""\n'),
+        ),
+        (
+            "python",
+            ("\n", "\n", "first = 1\n", "\n", "second = 2\n"),
+        ),
+        (
+            "javascript",
+            ("const value = `first\n", "second ${1 + 2}\n", "third`;\n"),
+        ),
+        (
+            "rust",
+            ("/* first\n", "second\n", "third */\n", "let value = 3;\n"),
+        ),
+        (
+            "html",
+            ("<section>\n", "<!-- first\n", "second -->\n", "</section>\n"),
+        ),
+    ),
+)
+def test_streaming_open_code_fence_matches_canonical_highlighting_per_line(
+    language: str,
+    source_lines: tuple[str, ...],
+) -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    source = f"```{language}\n"
+
+    renderer.render(source, width=80)
+    for source_line in source_lines:
+        source += source_line
+        streamed = renderer.render(source, width=80)
+        canonical = render_tui_markdown(source, width=80)
+
+        assert streamed.fragments == canonical.fragments
+
+
+def test_streaming_open_code_fence_lexes_only_appended_complete_lines() -> None:
+    renderer = TuiMarkdownStreamRenderer()
+    source = "```python\n"
+    renderer.render(source, width=80)
+
+    with patch.object(
+        code_highlight,
+        "_lex_regex_suffix",
+        wraps=code_highlight._lex_regex_suffix,
+    ) as lex_suffix:
+        source += "first = 1\n"
+        renderer.render(source, width=80)
+        source += "second = first + 1\n"
+        renderer.render(source, width=80)
+
+    assert [item.args[1] for item in lex_suffix.call_args_list] == [
+        "first = 1\n",
+        "second = first + 1\n",
+    ]
+
+    closed_source = source + "```\n"
+    closed = renderer.render(closed_source, width=80)
+    canonical = render_tui_markdown(closed_source, width=80)
+
+    assert closed.fragments == canonical.fragments
 
 
 @pytest.mark.anyio
@@ -11339,6 +11430,33 @@ async def test_animated_stream_waits_for_complete_source_line() -> None:
         )
 
     assert _document_text(runtime.document) == "• first second third"
+
+
+def test_active_stream_metadata_update_preserves_visual_revision() -> None:
+    runtime = TuiRuntime()
+    block = _block("tail")
+
+    assert runtime.set_active_renderable(
+        block,
+        kind="assistant",
+        raw_text="before",
+    )
+    revision = runtime.document.active_transcript_revision
+
+    with patch.object(
+        runtime.screen,
+        "invalidate",
+        wraps=runtime.screen.invalidate,
+    ) as invalidate:
+        assert not runtime.set_active_renderable(
+            block,
+            kind="assistant",
+            raw_text="after",
+        )
+
+    assert runtime.document.active_transcript_revision == revision
+    assert runtime.document.active_raw_text == "after"
+    invalidate.assert_not_called()
 
 
 @pytest.mark.anyio

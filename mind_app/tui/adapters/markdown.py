@@ -12,23 +12,17 @@ from markdown_it.tree import SyntaxTreeNode
 from prompt_toolkit.utils import get_cwidth
 from pygments import lex
 from pygments.lexers import get_lexer_by_name
-from pygments.token import Token
 from pygments.util import ClassNotFound
+from mind_app.presentation.code_highlight import (
+    StreamingCodeHighlighter,
+    code_token_style
+)
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
     TextStyle
 )
 from mind_app.presentation.terminal_text import sanitize_styled_block
-from mind_app.presentation.styles import (
-    PREVIEW_CODE_COMMENT_STYLE,
-    PREVIEW_CODE_KEYWORD_STYLE,
-    PREVIEW_CODE_NAME_STYLE,
-    PREVIEW_CODE_NUMBER_STYLE,
-    PREVIEW_CODE_OPERATOR_STYLE,
-    PREVIEW_CODE_STRING_STYLE,
-    PREVIEW_CODE_TEXT_STYLE
-)
 from ..core.models import FragmentBlock
 from ..rendering.fragments import iter_text_units
 from ..core.styles import (
@@ -62,6 +56,7 @@ TABLE_RECORD_FIELD_GAP             = 2
 TABLE_RECORD_VALUE_INDENT          = 2
 
 _MARKDOWN = MarkdownIt("commonmark").enable(("table", "strikethrough"))
+
 _REFERENCE_PROBE = MarkdownIt(
     "commonmark",
     {"store_labels": True},
@@ -115,27 +110,27 @@ class TuiMarkdownStreamRenderer(object):
 
     def __init__(self) -> None:
         self._width: int | None = None
-        self._source: str       = ""
-
-        self._stable_source_len: int                  = 0
-        self._stable_lines: list[list[TextSpan]]      = []
-        self._committable_source_len: int             = 0
+        self._source: str = ""
+        self._stable_source_len: int = 0
+        self._stable_lines: list[list[TextSpan]] = []
+        self._committable_source_len: int = 0
         self._committable_lines: list[list[TextSpan]] = []
-        self._stable_source_compatible: bool          = True
-        self._has_reference_definitions: bool         = False
-
+        self._stable_source_compatible: bool = True
+        self._has_reference_definitions: bool = False
         self._streaming_table: _StreamingTableState | None = None
+        self._streaming_code = StreamingCodeHighlighter()
 
     def reset(self) -> None:
         """清空稳定块缓存。"""
-        self._stable_source_len         = 0
-        self._stable_lines              = []
-        self._committable_source_len    = 0
-        self._committable_lines         = []
-        self._stable_source_compatible  = True
+        self._stable_source_len = 0
+        self._stable_lines = []
+        self._committable_source_len = 0
+        self._committable_lines = []
+        self._stable_source_compatible = True
         self._has_reference_definitions = False
-        self._source                    = ""
-        self._streaming_table           = None
+        self._source = ""
+        self._streaming_table = None
+        self._streaming_code.reset()
 
     def stable_prefix(self) -> tuple[int, FragmentBlock]:
         """返回可独立提交的稳定源码长度和渲染块。"""
@@ -179,6 +174,7 @@ class TuiMarkdownStreamRenderer(object):
         self._stable_source_compatible = source_compatible
 
         if final or self._has_reference_definitions:
+            self._streaming_code.reset()
             return self._render_full_document(
                 source,
                 final=final,
@@ -202,6 +198,7 @@ class TuiMarkdownStreamRenderer(object):
 
         if _plain_stream_paragraph(tail):
             self._streaming_table = None
+            self._streaming_code.reset()
             if not self._stable_lines:
                 text = tail.rstrip("\r\n")
                 return FragmentBlock((("", text),)) if text else FragmentBlock(())
@@ -252,6 +249,7 @@ class TuiMarkdownStreamRenderer(object):
                     affected_rows=affected_rows,
                     lines=table_lines,
                 )
+                self._streaming_code.reset()
                 lines = [list(line) for line in self._stable_lines]
                 _extend_rendered_lines(lines, table_lines)
                 return _fragment_block_from_lines(
@@ -301,12 +299,17 @@ class TuiMarkdownStreamRenderer(object):
 
         lines = [list(line) for line in self._stable_lines]
 
+        mutable_nodes = nodes[stable_count:]
+        streaming_code_lines = self._append_streaming_code_fence(
+            tail,
+            mutable_nodes,
+        )
+
         _extend_rendered_lines(
             lines,
-            _render_blocks(
-                nodes[stable_count:],
-                width=render_width,
-            ),
+            streaming_code_lines
+            if streaming_code_lines is not None
+            else _render_blocks(mutable_nodes, width=render_width),
         )
 
         return _fragment_block_from_lines(
@@ -346,6 +349,7 @@ class TuiMarkdownStreamRenderer(object):
         )
 
         self._streaming_table           = None
+        self._streaming_code.reset()
         self._has_reference_definitions = bool(env.get("references"))
 
         return _fragment_block_from_lines(
@@ -353,6 +357,29 @@ class TuiMarkdownStreamRenderer(object):
             hyperlinks=hyperlinks,
             sanitize=False,
         )
+
+    def _append_streaming_code_fence(
+        self,
+        source: str,
+        nodes: list[SyntaxTreeNode],
+    ) -> list[list[TextSpan]] | None:
+        """增量高亮唯一且仍开放的顶层语言代码块。"""
+        if len(nodes) != 1:
+            self._streaming_code.reset()
+            return None
+
+        node = nodes[0]
+        if node.type != "fence" or _closed_fence(source, node):
+            self._streaming_code.reset()
+            return None
+
+        lines = self._streaming_code.render(
+            node.content,
+            language=node.info,
+        )
+        if lines is None:
+            self._streaming_code.reset()
+        return lines
 
     def _append_streaming_table(
         self,
@@ -1993,29 +2020,15 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
 
     try:
         for token_type, value in lex(code, lexer):
-            _append_span(spans, value, _code_style(token_type))
+            _append_span(
+                spans,
+                value,
+                code_token_style(token_type, light_theme=False),
+            )
     except (TypeError, ValueError):
         return _plain_lines(code)
 
     return _split_lines(spans)
-
-
-def _code_style(token_type: typing.Any) -> TextStyle:
-    """把 Pygments token 映射为代码块样式。"""
-    if token_type in Token.Keyword:
-        return PREVIEW_CODE_KEYWORD_STYLE
-    if token_type in Token.Name:
-        return PREVIEW_CODE_NAME_STYLE
-    if token_type in Token.String:
-        return PREVIEW_CODE_STRING_STYLE
-    if token_type in Token.Number:
-        return PREVIEW_CODE_NUMBER_STYLE
-    if token_type in Token.Comment:
-        return PREVIEW_CODE_COMMENT_STYLE
-    if token_type in Token.Operator or token_type in Token.Punctuation:
-        return PREVIEW_CODE_OPERATOR_STYLE
-
-    return PREVIEW_CODE_TEXT_STYLE
 
 
 def _plain_lines(text: str) -> list[list[TextSpan]]:

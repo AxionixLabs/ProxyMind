@@ -27,6 +27,10 @@ from ..core.models import (
     FormattedText,
     FragmentBlock
 )
+from ..core.stream_chunking import (
+    StreamChunkingPolicy,
+    StreamQueueSnapshot
+)
 from ..rendering.fragments import (
     join_formatted_lines,
     wrap_formatted_lines
@@ -43,17 +47,14 @@ from .markdown import (
     render_tui_assistant_markdown,
 )
 
-STREAM_RENDER_REGULAR_SEC     = 1 / 20
-STREAM_RENDER_SLOW_SEC        = 1 / 12
-STREAM_RENDER_VERY_SLOW_SEC   = 1 / 8
-STREAM_RENDER_COST_LIMIT_SEC  = STREAM_RENDER_REGULAR_SEC / 4
-STREAM_RENDER_LONG_TEXT_SIZE  = 2000
-STREAM_RENDER_HUGE_TEXT_SIZE  = 50_000
-STREAM_CATCH_UP_LINES         = 8
-STREAM_CATCH_UP_SEC           = 0.12
-STREAM_STABLE_PREFIX_MIN_ROWS = 4
-STREAM_RESIZE_DEBOUNCE_SEC    = 0.08
-FINAL_RENDER_ASYNC_MIN_SIZE   = 8_000
+STREAM_RENDER_REGULAR_SEC    = 1 / 20
+STREAM_RENDER_SLOW_SEC       = 1 / 12
+STREAM_RENDER_VERY_SLOW_SEC  = 1 / 8
+STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
+STREAM_RENDER_LONG_TEXT_SIZE = 2000
+STREAM_RENDER_HUGE_TEXT_SIZE = 50_000
+STREAM_RESIZE_DEBOUNCE_SEC   = 0.08
+FINAL_RENDER_ASYNC_MIN_SIZE  = 8_000
 
 
 class TuiOutputControl(OutputControlPort):
@@ -92,6 +93,8 @@ class TuiOutputControl(OutputControlPort):
         self._stream_visible_rows: int         = 0
 
         self._stream_oldest_pending_at: float | None = None
+
+        self._stream_chunking = StreamChunkingPolicy()
 
         self._before_render_registered: bool = True
         self._final_render_active: bool      = False
@@ -529,17 +532,21 @@ class TuiOutputControl(OutputControlPort):
             return None
 
         now = time.monotonic()
-        catch_up = bool(
-            pending >= STREAM_CATCH_UP_LINES
-            or (
-                self._stream_oldest_pending_at is not None
-                and now - self._stream_oldest_pending_at >= STREAM_CATCH_UP_SEC
-            )
+        oldest_age_sec = (
+            None
+            if self._stream_oldest_pending_at is None
+            else max(0.0, now - self._stream_oldest_pending_at)
         )
-        self._stream_visible_rows = (
-            len(self._stream_rows)
-            if catch_up
-            else self._stream_visible_rows + 1
+        decision = self._stream_chunking.decide(
+            StreamQueueSnapshot(
+                pending_rows=pending,
+                oldest_age_sec=oldest_age_sec,
+            ),
+            now=now,
+        )
+        self._stream_visible_rows = min(
+            len(self._stream_rows),
+            self._stream_visible_rows + decision.row_count,
         )
         self._render_visible_stream_rows()
 
@@ -591,6 +598,7 @@ class TuiOutputControl(OutputControlPort):
         self._stream_render_handle   = None
         self._stream_rendered_at     = 0.0
         self._stream_render_cost_sec = 0.0
+        self._stream_chunking.reset()
 
         if handle is not None:
             handle.cancel()
@@ -817,14 +825,13 @@ class TuiOutputControl(OutputControlPort):
         ):
             return False
 
-        self.runtime.set_active_renderable(
+        return self.runtime.set_active_renderable(
             block,
             kind="assistant",
             raw_text=raw_text,
             stream_continuation=continuation,
             gap_before=1 if continuation else None,
         )
-        return True
 
     def _commit_visible_stream_prefix(self) -> bool:
         """提交已经完整显示且不再变化的 Markdown 前缀。"""
@@ -833,7 +840,6 @@ class TuiOutputControl(OutputControlPort):
 
         if (
             source_len <= 0
-            or row_count < STREAM_STABLE_PREFIX_MIN_ROWS
             or self._stream_visible_rows < row_count
         ):
             return False
