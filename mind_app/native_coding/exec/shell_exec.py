@@ -27,6 +27,10 @@ from mind_app.native_coding.exec.sandbox_client import (
     sandbox_backend_name,
 )
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from mind_app.native_coding.exec.exec_policy import (
+    effective_sandbox_mode,
+    normalize_sandbox_permission,
+)
 from mind_app.runtime.processes import wait_for_process
 
 
@@ -201,12 +205,22 @@ class ShellCommandTools(NativeCodingComponent):
         timeout_sec: int = 60,
         output_encoding: str = "auto",
         audit_files: bool = False,
-        sandbox_mode: str = "danger-full-access"
+        sandbox_mode: str = "danger-full-access",
+        sandbox_permissions: object = "use_default",
     ) -> dict[str, typing.Any]:
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
         cmd = str(command or "")
         if not cmd.strip():
             return self.fail_result("command_empty")
+        try:
+            permission = normalize_sandbox_permission(sandbox_permissions)
+            sandbox_mode = effective_sandbox_mode(sandbox_mode, permission)
+        except ValueError as exc:
+            return self.fail_result(
+                "sandbox_permissions_invalid",
+                command=cmd,
+                detail=str(exc),
+            )
         if sandbox_mode not in {
             "danger-full-access",
             "read-only",
@@ -291,7 +305,9 @@ class ShellCommandTools(NativeCodingComponent):
             "name": runtime.name,
             "syntax": runtime.syntax,
             "executable": runtime.executable,
-            "source": runtime.source
+            "source": runtime.source,
+            "sandbox_mode": sandbox_mode,
+            "sandbox_permissions": permission,
         }
 
         exec_cmd = list(runtime.prefix or [])
@@ -330,6 +346,7 @@ class ShellCommandTools(NativeCodingComponent):
                 "command": cmd,
                 "cwd": self.relative_path(workdir),
                 "sandbox_mode": sandbox_mode,
+                "sandbox_permissions": permission,
                 "execution_backend": sandbox_backend_name(),
                 "error": "sandbox_unavailable",
                 "detail": str(exc).strip() or type(exc).__name__,
@@ -402,6 +419,7 @@ class ShellCommandTools(NativeCodingComponent):
             "runtime": runtime_info,
             "runtime_name": runtime.name,
             "sandbox_mode": sandbox_mode,
+            "sandbox_permissions": permission,
             "execution_backend": (
                 sandbox_backend_name()
                 if sandbox_mode in {"read-only", "workspace-read", "workspace-write"}

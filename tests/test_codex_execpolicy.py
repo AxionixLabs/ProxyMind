@@ -4,6 +4,8 @@ from mind_app.native_coding.exec.exec_policy import (
     ExecApprovalRequirement,
     ExecPolicyManager,
     commands_for_exec_policy,
+    effective_sandbox_mode,
+    normalize_sandbox_permission,
     render_decision_for_unmatched_command,
 )
 from mind_app.native_coding.exec.execpolicy import Decision, PolicyParser
@@ -189,6 +191,71 @@ def test_requirement_matches_codex_three_state_amendment_and_bypass(tmp_path) ->
     assert prompted.proposed_execpolicy_amendment.command_prefix == (
         "cargo", "build"
     )
+
+
+def test_require_escalated_requests_host_approval_and_is_session_scoped(tmp_path) -> None:
+    manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
+
+    requirement = manager.create_exec_approval_requirement_for_command(
+        "echo hello",
+        approval_policy="on-request",
+        sandbox_mode="workspace-write",
+        sandbox_permissions="require_escalated",
+    )
+    assert requirement.state == "needs_approval"
+    assert requirement.reason == "require_escalated requests host shell execution"
+
+    forbidden = manager.create_exec_approval_requirement_for_command(
+        "Start-Process https://example.com",
+        approval_policy="never",
+        sandbox_mode="workspace-write",
+        sandbox_permissions="require_escalated",
+    )
+    assert forbidden.state == "forbidden"
+
+    full_access = manager.create_exec_approval_requirement_for_command(
+        "echo hello",
+        approval_policy="on-request",
+        sandbox_mode="danger-full-access",
+        sandbox_permissions="require_escalated",
+    )
+    assert full_access.state == "skip"
+
+    manager.add_approval_for_session(
+        "rm -rf build",
+        cwd=tmp_path,
+        sandbox_permissions="require_escalated",
+    )
+    assert manager.create_exec_approval_requirement_for_command(
+        "rm -rf build",
+        cwd=tmp_path,
+        sandbox_mode="workspace-write",
+        sandbox_permissions="require_escalated",
+    ).state == "skip"
+    assert manager.create_exec_approval_requirement_for_command(
+        "rm -rf build",
+        cwd=tmp_path,
+        sandbox_mode="workspace-write",
+        sandbox_permissions="use_default",
+    ).state == "needs_approval"
+
+
+def test_sandbox_permission_helpers_validate_and_select_host_mode() -> None:
+    assert normalize_sandbox_permission(None) == "use_default"
+    assert normalize_sandbox_permission("REQUIRE_ESCALATED") == "require_escalated"
+    assert effective_sandbox_mode("workspace-write", "require_escalated") == (
+        "danger-full-access"
+    )
+    assert effective_sandbox_mode("workspace-write", "use_default") == (
+        "workspace-write"
+    )
+
+    try:
+        normalize_sandbox_permission("with_additional_permissions")
+    except ValueError as error:
+        assert "sandbox_permissions" in str(error)
+    else:
+        raise AssertionError("invalid sandbox permission must be rejected")
 
 
 def test_policy_prompt_never_gets_no_persistent_amendment(tmp_path) -> None:

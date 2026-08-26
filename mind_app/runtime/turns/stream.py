@@ -91,6 +91,7 @@ from ..tools.display import show_tool_result
 from ...native_coding.exec.exec_policy import (
     ExecApprovalRequirement,
     ExecPolicyManager,
+    validate_sandbox_permission_arguments,
 )
 from ..tools.client_call import ClientToolCallRunner
 from ..durable_effects import LocalEffectReconciliationRequired
@@ -140,14 +141,22 @@ def _local_exec_policy_requirement(
         command = arguments.get("stdin")
     if not isinstance(command, str) or not command.strip():
         return None
-    return manager.create_exec_approval_requirement_for_command(
-        command,
-        approval_policy=turn_context.permissions.approval_policy,
-        sandbox_mode=turn_context.permissions.sandbox_mode,
-        cwd=arguments.get("cwd") or turn_context.cwd,
-        tool=tool,
-        amendment_id=f"local-rule-{call_id}",
-    )
+    try:
+        sandbox_permissions = validate_sandbox_permission_arguments(arguments)
+    except ValueError as error:
+        return ExecApprovalRequirement.forbidden(str(error))
+    try:
+        return manager.create_exec_approval_requirement_for_command(
+            command,
+            approval_policy=turn_context.permissions.approval_policy,
+            sandbox_mode=turn_context.permissions.sandbox_mode,
+            cwd=arguments.get("cwd") or turn_context.cwd,
+            tool=tool,
+            amendment_id=f"local-rule-{call_id}",
+            sandbox_permissions=sandbox_permissions,
+        )
+    except ValueError as error:
+        return ExecApprovalRequirement.forbidden(str(error))
 
 
 def _local_exec_policy_approval(
@@ -172,10 +181,27 @@ def _local_exec_policy_approval(
         "risk": "dangerous_command" if requirement.state == "needs_approval" else "local_policy",
         "category": "exec",
         "reasons": ["local_exec_policy"],
-        "environment": "local",
+        "environment": (
+            "host"
+            if str(invocation.arguments.get("sandbox_permissions") or "")
+            .strip()
+            .casefold() == "require_escalated"
+            else "local"
+        ),
     }
-    if invocation.reason:
-        approval["justification"] = invocation.reason
+    justification = str(
+        invocation.arguments.get("justification") or invocation.reason or ""
+    ).strip()
+    if (
+        not justification
+        and str(invocation.arguments.get("sandbox_permissions") or "")
+        .strip()
+        .casefold()
+        == "require_escalated"
+    ):
+        justification = "Command requested host shell execution."
+    if justification:
+        approval["justification"] = justification
     if requirement.reason:
         approval["policy_reason"] = requirement.reason
     amendment = requirement.proposed_execpolicy_amendment
@@ -208,6 +234,7 @@ def _apply_local_exec_policy_approval(
                 command,
                 tool=invocation.name,
                 cwd=cwd,
+                sandbox_permissions=invocation.arguments.get("sandbox_permissions"),
             )
         elif decision == "acceptWithExecpolicyAmendment":
             amendment = approval_execpolicy_amendment(approval)
@@ -1519,7 +1546,19 @@ async def stream_turn(
                     and local_policy_requirement.state == "needs_approval"
                     and not approval_consumed
                 ):
-                    if name in {"shell_command", "exec_command"} and not invocation.reason:
+                    approval_reason = str(
+                        invocation.arguments.get("justification")
+                        or invocation.reason
+                        or ""
+                    ).strip()
+                    requested_sandbox_permissions = str(
+                        invocation.arguments.get("sandbox_permissions") or ""
+                    ).strip().casefold()
+                    if (
+                        name in {"shell_command", "exec_command"}
+                        and not approval_reason
+                        and requested_sandbox_permissions != "require_escalated"
+                    ):
                         missing_reason = {
                             "execution_denied": True,
                             "error": "shell approval reason is missing",

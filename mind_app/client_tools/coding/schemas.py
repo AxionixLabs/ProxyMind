@@ -51,6 +51,16 @@ SHELL_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             "default": "auto",
             "description": "输出文本编码；auto 自动判断，system 使用系统编码。",
         },
+        "sandbox_permissions": {
+            "type": "string",
+            "enum": ["use_default", "require_escalated"],
+            "default": "use_default",
+            "description": "单条命令的沙箱覆盖；require_escalated 需用户审批后使用宿主 shell。",
+        },
+        "justification": {
+            "type": "string",
+            "description": "请求 require_escalated 时展示给用户的审批理由。",
+        },
     },
     "required": ["command"],
     "additionalProperties": False,
@@ -95,6 +105,16 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             "maximum": 1800,
             "default": 300,
             "description": "无读写活动后的自动清理秒数。",
+        },
+        "sandbox_permissions": {
+            "type": "string",
+            "enum": ["use_default", "require_escalated"],
+            "default": "use_default",
+            "description": "单条命令的沙箱覆盖；require_escalated 需用户审批后使用宿主 shell。",
+        },
+        "justification": {
+            "type": "string",
+            "description": "请求 require_escalated 时展示给用户的审批理由。",
         },
     },
     "required": ["command"],

@@ -7,7 +7,10 @@ from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_app.approval.policy import approval_execpolicy_amendment
 from mind_app.native_coding import NativeCoding
-from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from mind_app.native_coding.exec.exec_policy import (
+    ExecPolicyManager,
+    validate_sandbox_permission_arguments
+)
 from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
@@ -44,8 +47,10 @@ JS_REPL_DESCRIPTION = (
     "不要为持久代码包裹整段块作用域。Kernel 禁止 process、node:process、child_process、"
     "node:child_process、worker_threads 和 node:worker_threads。需要执行系统命令、启动程序"
     "或打开浏览器时，不要退出 js_repl 改调外层 shell，而应在 JavaScript 内调用 await "
-    "host.tool(\"shell_command\", {command: \"...\"})；Windows 打开网页示例为 await "
-    "host.tool(\"shell_command\", {command: 'Start-Process \"https://example.com\"'})。"
+    "host.tool(\"shell_command\", {command: \"...\", sandbox_permissions: "
+    "\"require_escalated\", justification: \"...\"})；Windows 打开网页示例为 await "
+    "host.tool(\"shell_command\", {command: 'Start-Process \"https://example.com\"', "
+    "sandbox_permissions: \"require_escalated\", justification: \"打开默认浏览器\"})。"
     "host.tool(name, args) 可调用当前会话的其他工具，并向 JavaScript 返回包含"
     "结构化真实结果的 function_call_output；嵌套调用沿用对应工具的审批和展示流程。"
     "Cell 自身只展示 console.log 等显式输出。"
@@ -272,13 +277,26 @@ def coding_tools(
         try:
             reject_model_execution(arguments)
             args = dict(arguments)
+            validate_sandbox_permission_arguments(args)
+            execution_args = dict(args)
+            execution_args.pop("justification", None)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="shell_command", arguments=arguments, error=exc
             )
+        except ValueError as exc:
+            return authorization_failure_result(
+                coding,
+                tool="shell_command",
+                arguments=arguments,
+                error=ExecutionAuthorizationError(
+                    "sandbox_permissions_invalid",
+                    str(exc),
+                ),
+            )
 
         raw = await coding.shell_command(
-            **args,
+            **execution_args,
             sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
         )
 
@@ -336,13 +354,26 @@ def coding_tools(
         try:
             reject_model_execution(arguments)
             args = dict(arguments)
+            validate_sandbox_permission_arguments(args)
+            execution_args = dict(args)
+            execution_args.pop("justification", None)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="exec_command", arguments=arguments, error=exc
             )
+        except ValueError as exc:
+            return authorization_failure_result(
+                coding,
+                tool="exec_command",
+                arguments=arguments,
+                error=ExecutionAuthorizationError(
+                    "sandbox_permissions_invalid",
+                    str(exc),
+                ),
+            )
 
         raw = await coding.exec_command(
-            **args,
+            **execution_args,
             cid=runtime.turn_context.cid,
             sid=runtime.turn_context.sid,
             sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
@@ -497,6 +528,14 @@ def _nested_canonical_arguments(
             "cwd": str(arguments.get("cwd") or "."),
             "timeout_sec": int(arguments.get("timeout_sec") or 60),
             "output_encoding": str(arguments.get("output_encoding") or "auto"),
+            "sandbox_permissions": str(
+                arguments.get("sandbox_permissions") or "use_default"
+            ),
+            **(
+                {"justification": str(arguments.get("justification") or "")}
+                if "justification" in arguments
+                else {}
+            ),
         }
     if tool == "exec_command":
         return {
@@ -506,6 +545,14 @@ def _nested_canonical_arguments(
             "max_output_chars": int(arguments.get("max_output_chars") or 24000),
             "timeout_sec": int(arguments.get("timeout_sec") or 1800),
             "idle_timeout_sec": int(arguments.get("idle_timeout_sec") or 300),
+            "sandbox_permissions": str(
+                arguments.get("sandbox_permissions") or "use_default"
+            ),
+            **(
+                {"justification": str(arguments.get("justification") or "")}
+                if "justification" in arguments
+                else {}
+            ),
         }
     if tool == "write_stdin":
         return {
@@ -644,7 +691,13 @@ async def _authorize_nested_tool(
         return None
 
     permissions = runtime.turn_context.permissions
-
+    try:
+        sandbox_permissions = validate_sandbox_permission_arguments(arguments)
+    except ValueError as error:
+        raise ExecutionAuthorizationError(
+            "sandbox_permissions_invalid",
+            str(error),
+        ) from error
     requirement = exec_policy_manager.create_exec_approval_requirement_for_command(
         str(arguments.get("command") or ""),
         approval_policy=permissions.approval_policy,
@@ -652,6 +705,7 @@ async def _authorize_nested_tool(
         cwd=arguments.get("cwd") or runtime.turn_context.cwd,
         tool=tool,
         amendment_id=f"local-rule-{call_id}",
+        sandbox_permissions=sandbox_permissions,
     )
     if requirement.state == "forbidden":
         raise ExecutionAuthorizationError(
@@ -679,8 +733,13 @@ async def _authorize_nested_tool(
             "tool": tool,
             "arguments": canonical,
             "command": str(canonical.get("command") or ""),
-            "environment": "local",
-            "justification": "JavaScript requested a nested local process tool.",
+            "environment": (
+                "host" if sandbox_permissions == "require_escalated" else "local"
+            ),
+            "justification": str(
+                arguments.get("justification")
+                or "JavaScript requested a nested local process tool."
+            ),
             "agent_id": agent.agent_id,
             "agent_type": agent.agent_type,
             "agent_depth": agent.depth,
@@ -716,6 +775,7 @@ async def _authorize_nested_tool(
                 str(canonical.get("command") or ""),
                 tool=tool,
                 cwd=canonical.get("cwd") or runtime.turn_context.cwd,
+                sandbox_permissions=sandbox_permissions,
             )
         elif decision == "acceptWithExecpolicyAmendment":
             proposal = approval_execpolicy_amendment(approval)

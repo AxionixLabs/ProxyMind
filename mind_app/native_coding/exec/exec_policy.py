@@ -10,13 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Iterable,
+    Literal,
     Sequence
 )
 from mind_core.application_paths import default_application_home
 from mind_nova import const
 from .command_safety.is_dangerous_command import (
     DangerousCommandMatch,
-    dangerous_command_match
+    dangerous_command_match as _dangerous_command_match,
 )
 from .execpolicy import (
     Decision,
@@ -29,6 +30,44 @@ from .execpolicy import (
 )
 
 
+SandboxPermission = Literal["use_default", "require_escalated"]
+
+
+def normalize_sandbox_permission(value: object) -> SandboxPermission:
+    """规范化单条命令的沙箱权限覆盖。"""
+    normalized = str(value or "use_default").strip().casefold()
+    if normalized == "use_default":
+        return "use_default"
+    if normalized == "require_escalated":
+        return "require_escalated"
+    raise ValueError(
+        "sandbox_permissions must be 'use_default' or 'require_escalated'"
+    )
+
+
+def validate_sandbox_permission_arguments(
+    arguments: dict[str, object],
+) -> SandboxPermission:
+    """校验命令参数中的沙箱覆盖及审批理由组合。"""
+    permission = normalize_sandbox_permission(arguments.get("sandbox_permissions"))
+    if "justification" in arguments and permission == "use_default":
+        raise ValueError(
+            "justification requires an explicit sandbox_permissions value"
+        )
+    return permission
+
+
+def effective_sandbox_mode(
+    sandbox_mode: str,
+    sandbox_permissions: object = "use_default",
+) -> str:
+    """根据单条命令覆盖计算实际执行模式。"""
+    permission = normalize_sandbox_permission(sandbox_permissions)
+    if permission == "require_escalated":
+        return "danger-full-access"
+    return str(sandbox_mode or "workspace-write")
+
+
 @dataclass(frozen=True, slots=True)
 class ExecApprovalRequest:
     """描述一次需要本地执行策略判断的命令请求。"""
@@ -36,6 +75,7 @@ class ExecApprovalRequest:
     approval_policy: str = "on-request"
     sandbox_mode: str = "workspace-write"
     cwd: str = ""
+    sandbox_permissions: SandboxPermission = "use_default"
 
     @classmethod
     def from_command(
@@ -45,6 +85,7 @@ class ExecApprovalRequest:
         approval_policy: str = "on-request",
         sandbox_mode: str = "workspace-write",
         cwd: str = "",
+        sandbox_permissions: object = "use_default",
     ) -> "ExecApprovalRequest":
         """从字符串或词元创建执行审批请求。"""
         words = _split_command(command)
@@ -53,6 +94,7 @@ class ExecApprovalRequest:
             approval_policy=str(approval_policy or "on-request"),
             sandbox_mode=str(sandbox_mode or "workspace-write"),
             cwd=str(cwd or ""),
+            sandbox_permissions=normalize_sandbox_permission(sandbox_permissions),
         )
 
 
@@ -126,7 +168,7 @@ class ExecPolicyManager:
             writable_rules_path
             or default_application_home() / "rules" / "default.rules"
         ).expanduser().resolve()
-        self._session_approvals: set[tuple[str, tuple[str, ...], str]] = set()
+        self._session_approvals: set[tuple[str, tuple[str, ...], str, str]] = set()
         self._write_lock = threading.RLock()
         self.rules_paths = tuple(
             Path(path) for path in rules_paths
@@ -158,8 +200,10 @@ class ExecPolicyManager:
         sandbox_mode: str = "workspace-write",
         cwd: str | Path | None = None,
         tool: str = "shell_command",
+        sandbox_permissions: object = "use_default",
     ) -> Evaluation:
         """评估命令并返回策略决定。"""
+        permission = normalize_sandbox_permission(sandbox_permissions)
         words    = _split_command(command)
         commands = commands_for_exec_policy(words)
 
@@ -183,7 +227,12 @@ class ExecPolicyManager:
 
         if evaluation.decision == Decision.Forbidden:
             return evaluation
-        session_key = self._session_key(command, tool=tool, cwd=cwd)
+        session_key = self._session_key(
+            command,
+            tool=tool,
+            cwd=cwd,
+            sandbox_permissions=permission,
+        )
         with self._write_lock:
             session_approved = session_key in self._session_approvals
         if session_approved:
@@ -199,14 +248,17 @@ class ExecPolicyManager:
         cwd: str | Path | None = None,
         tool: str = "shell_command",
         amendment_id: str = "",
+        sandbox_permissions: object = "use_default",
     ) -> ExecApprovalRequirement:
         """按三态模型生成本地执行要求。"""
+        permission = normalize_sandbox_permission(sandbox_permissions)
         evaluation = self.decide(
             command,
             approval_policy=approval_policy,
             sandbox_mode=sandbox_mode,
             cwd=cwd,
             tool=tool,
+            sandbox_permissions=permission,
         )
         if evaluation.decision == Decision.Forbidden:
             if (
@@ -241,6 +293,33 @@ class ExecPolicyManager:
                 ),
             )
 
+        session_key = self._session_key(
+            command,
+            tool=tool,
+            cwd=cwd,
+            sandbox_permissions=permission,
+        )
+        with self._write_lock:
+            session_approved = session_key in self._session_approvals
+        if (
+            permission == "require_escalated"
+            and str(sandbox_mode or "workspace-write") != "danger-full-access"
+            and not evaluation.matched_rules
+            and not session_approved
+        ):
+            if str(approval_policy or "").strip().casefold() == "never":
+                return ExecApprovalRequirement.forbidden(
+                    "host shell execution requires approval, but approval policy is never"
+                )
+            return ExecApprovalRequirement.needs_approval(
+                reason="require_escalated requests host shell execution",
+                proposed_execpolicy_amendment=(
+                    _as_exec_policy_amendment(proposal)
+                    if proposal is not None
+                    else None
+                ),
+            )
+
         return ExecApprovalRequirement.skip(
             bypass_sandbox=self._all_commands_explicitly_allowed(command),
             proposed_execpolicy_amendment=(
@@ -256,9 +335,15 @@ class ExecPolicyManager:
         *,
         tool: str = "shell_command",
         cwd: str | Path | None = None,
+        sandbox_permissions: object = "use_default",
     ) -> None:
         """在当前应用会话内精确批准一次命令形态。"""
-        key = self._session_key(command, tool=tool, cwd=cwd)
+        key = self._session_key(
+            command,
+            tool=tool,
+            cwd=cwd,
+            sandbox_permissions=sandbox_permissions,
+        )
         if not key[1]:
             raise ValueError("session approval command is required")
         with self._write_lock:
@@ -274,7 +359,8 @@ class ExecPolicyManager:
             return None
 
         words = tuple(str(word) for word in commands[0] if str(word))
-        head = _basename(words[0]) if words else ""
+        head  = _basename(words[0]) if words else ""
+
         if head in {"python", "python3", "py"} and len(words) >= 4:
             if words[1].casefold() == "-m":
                 return words[:4]
@@ -305,10 +391,12 @@ class ExecPolicyManager:
     ) -> dict[str, object] | None:
         """按首个未获显式允许的命令生成修订提案。"""
         words = _split_command(command)
+
         commands = commands_for_exec_policy(words)
         if not commands:
             return None
         candidate: Sequence[str] | str | None = None
+
         options = MatchOptions(
             resolve_host_executables=True,
             host_executable_paths=tuple(
@@ -374,6 +462,7 @@ class ExecPolicyManager:
             raise ValueError("exec policy amendment command prefix is invalid")
 
         prefix = tuple(raw_prefix)
+
         rule = PrefixRule(
             pattern=PrefixPattern.from_values(prefix),
             decision=Decision.Allow,
@@ -400,6 +489,7 @@ class ExecPolicyManager:
         sandbox_mode: str = "workspace-write",
         cwd: str | Path | None = None,
         tool: str = "shell_command",
+        sandbox_permissions: object = "use_default",
     ) -> Evaluation:
         """按策略检查命令。"""
         return self.decide(
@@ -408,6 +498,7 @@ class ExecPolicyManager:
             sandbox_mode=sandbox_mode,
             cwd=cwd,
             tool=tool,
+            sandbox_permissions=sandbox_permissions,
         )
 
     def load_exec_policy(self) -> Policy:
@@ -440,8 +531,8 @@ class ExecPolicyManager:
         directories: list[Path] = []
         seen_directories: set[Path] = set()
 
-        def add_directory(path: Path) -> None:
-            target = path.expanduser().resolve()
+        def add_directory(directory_path: Path) -> None:
+            target = directory_path.expanduser().resolve()
             if target not in seen_directories and target.is_dir():
                 seen_directories.add(target)
                 directories.append(target)
@@ -462,15 +553,15 @@ class ExecPolicyManager:
         requirement_files: list[Path] = []
         for raw_path in requirement_value.split(os.pathsep):
             if raw_path.strip():
-                path = Path(raw_path).expanduser()
-                if path.is_file():
-                    requirement_files.append(path.resolve())
+                requirement_path = Path(raw_path).expanduser()
+                if requirement_path.is_file():
+                    requirement_files.append(requirement_path.resolve())
                     continue
-                add_directory(path)
+                add_directory(requirement_path)
         discovered = self._rule_files(directories)
-        for path in requirement_files:
-            if path not in discovered:
-                discovered.append(path)
+        for requirement_path in requirement_files:
+            if requirement_path not in discovered:
+                discovered.append(requirement_path)
         return tuple(discovered)
 
     def _session_key(
@@ -479,7 +570,8 @@ class ExecPolicyManager:
         *,
         tool: str,
         cwd: str | Path | None,
-    ) -> tuple[str, tuple[str, ...], str]:
+        sandbox_permissions: object = "use_default",
+    ) -> tuple[str, tuple[str, ...], str, str]:
         """生成会话级精确批准使用的稳定键。"""
         raw_cwd = Path(cwd or self.workspace_root).expanduser()
         resolved_cwd = (
@@ -491,6 +583,7 @@ class ExecPolicyManager:
             str(tool or "shell_command").strip(),
             tuple(_split_command(command)),
             os.path.normcase(str(resolved_cwd)),
+            normalize_sandbox_permission(sandbox_permissions),
         )
 
     def _has_allow_prefix(self, prefix: tuple[str, ...]) -> bool:
@@ -512,11 +605,10 @@ def render_decision_for_unmatched_command(
     dangerous_command_match: DangerousCommandMatch | None = None,
 ) -> Decision:
     """按未命中规则时的危险启发式和审批模式给出决定。"""
-    del sandbox_mode
     words = _split_command(command)
     match = dangerous_command_match
     if match is None:
-        match = globals()["dangerous_command_match"](words)
+        match = _dangerous_command_match(words)
     normalized_policy = str(approval_policy or "on-request").strip().casefold()
     if match is not None:
         return Decision.Forbidden if normalized_policy == "never" else Decision.Prompt
@@ -620,7 +712,7 @@ def _split_command(command: Sequence[str] | str) -> list[str]:
 
 
 def _split_script(script: str) -> list[list[str]]:
-    segments = re.split(r"(?:&&|\|\||[;&|])", str(script or ""))
+    segments = re.split(r"&&|\|\||[;&|]", str(script or ""))
     commands: list[list[str]] = []
     for segment in segments:
         try:

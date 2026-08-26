@@ -19,6 +19,10 @@ from mind_app.native_coding.exec.process_session import (
 )
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from mind_app.native_coding.exec.exec_policy import (
+    effective_sandbox_mode,
+    normalize_sandbox_permission
+)
 from mind_app.native_coding.exec.sandbox_client import (
     SandboxProtocolError,
     SandboxUnavailable,
@@ -59,7 +63,8 @@ class ExecCommandTools(NativeCodingComponent):
         cid: str = "",
         sid: str = "",
         audit_files: bool = False,
-        sandbox_mode: str = "danger-full-access"
+        sandbox_mode: str = "danger-full-access",
+        sandbox_permissions: object = "use_default",
     ) -> dict[str, typing.Any]:
         """启动一个可持续读取和写入的 shell 命令会话。"""
         await self._session_manager.cleanup()
@@ -67,6 +72,17 @@ class ExecCommandTools(NativeCodingComponent):
         cmd = str(command or "")
         if not cmd.strip():
             return self.fail_result("command_empty")
+
+        try:
+            permission = normalize_sandbox_permission(sandbox_permissions)
+            sandbox_mode = effective_sandbox_mode(sandbox_mode, permission)
+        except ValueError as exc:
+            return self.fail_result(
+                "sandbox_permissions_invalid",
+                tool="exec_command",
+                command=cmd,
+                detail=str(exc),
+            )
 
         policy = self._command_policy.local_command_policy(
             command=cmd,
@@ -116,6 +132,7 @@ class ExecCommandTools(NativeCodingComponent):
             "executable": runtime.executable,
             "source": runtime.source,
             "sandbox_mode": sandbox_mode,
+            "sandbox_permissions": permission,
         }
 
         exec_cmd = list(runtime.prefix or [])
@@ -183,6 +200,7 @@ class ExecCommandTools(NativeCodingComponent):
                 "pty": False,
                 "pty_fallback": True,
                 "sandbox_mode": sandbox_mode,
+                "sandbox_permissions": permission,
                 "execution_backend": (
                     sandbox_backend_name()
                     if sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
