@@ -200,18 +200,19 @@ class ExecPolicyManager:
         sandbox_mode: str = "workspace-write",
         cwd: str | Path | None = None,
         tool: str = "shell_command",
-        sandbox_permissions: object = "use_default",
+        sandbox_permissions: object = "use_default"
     ) -> Evaluation:
         """评估命令并返回策略决定。"""
         permission = normalize_sandbox_permission(sandbox_permissions)
-        words    = _split_command(command)
-        commands = commands_for_exec_policy(words)
+        words      = _split_command(command)
+        commands   = commands_for_exec_policy(words)
 
         def exec_policy_fallback(parsed_command: Sequence[str]) -> Decision:
             return render_decision_for_unmatched_command(
                 parsed_command,
                 approval_policy=approval_policy,
                 sandbox_mode=sandbox_mode,
+                sandbox_permissions=permission,
             )
 
         evaluation = self.policy.check_multiple_with_options(
@@ -603,6 +604,7 @@ def render_decision_for_unmatched_command(
     approval_policy: str = "on-request",
     sandbox_mode: str = "workspace-write",
     dangerous_command_match: DangerousCommandMatch | None = None,
+    sandbox_permissions: object = "use_default",
 ) -> Decision:
     """按未命中规则时的危险启发式和审批模式给出决定。"""
     words = _split_command(command)
@@ -610,8 +612,9 @@ def render_decision_for_unmatched_command(
     if match is None:
         match = _dangerous_command_match(words)
 
-    normalized_policy  = str(approval_policy or "on-request").strip().casefold()
+    normalized_policy = str(approval_policy or "on-request").strip().casefold()
     normalized_sandbox = str(sandbox_mode or "workspace-write").strip().casefold()
+    permission = normalize_sandbox_permission(sandbox_permissions)
 
     if match is not None:
         return Decision.Forbidden if normalized_policy == "never" else Decision.Prompt
@@ -626,6 +629,7 @@ def render_decision_for_unmatched_command(
             "workspace-read",
             "workspace-write",
         }
+        and permission == "require_escalated"
     ):
         return Decision.Prompt
     return Decision.Allow

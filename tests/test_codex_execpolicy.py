@@ -36,7 +36,7 @@ def test_unmatched_commands_follow_codex_fallback() -> None:
         ["adb", "devices"],
         approval_policy="on-request",
         sandbox_mode="read-only",
-    ) is Decision.Prompt
+    ) is Decision.Allow
     assert render_decision_for_unmatched_command(
         ["adb", "devices"],
         approval_policy="on-request",
@@ -209,7 +209,15 @@ def test_requirement_matches_codex_three_state_amendment_and_bypass(tmp_path) ->
         approval_policy="on-request",
         sandbox_mode="read-only",
     )
-    assert readonly_adb.state == "needs_approval"
+    assert readonly_adb.state == "skip"
+
+    escalated_adb = manager.create_exec_approval_requirement_for_command(
+        "adb devices",
+        approval_policy="on-request",
+        sandbox_mode="read-only",
+        sandbox_permissions="require_escalated",
+    )
+    assert escalated_adb.state == "needs_approval"
 
 
 def test_require_escalated_requests_host_approval_and_is_session_scoped(tmp_path) -> None:
