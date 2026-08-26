@@ -609,12 +609,24 @@ def render_decision_for_unmatched_command(
     match = dangerous_command_match
     if match is None:
         match = _dangerous_command_match(words)
-    normalized_policy = str(approval_policy or "on-request").strip().casefold()
+
+    normalized_policy  = str(approval_policy or "on-request").strip().casefold()
+    normalized_sandbox = str(sandbox_mode or "workspace-write").strip().casefold()
+
     if match is not None:
         return Decision.Forbidden if normalized_policy == "never" else Decision.Prompt
     if normalized_policy == "never":
         return Decision.Allow
     if normalized_policy in {"untrusted", "unless-trusted", "unless_trusted"}:
+        return Decision.Prompt
+    if (
+        normalized_policy == "on-request"
+        and normalized_sandbox in {
+            "read-only",
+            "workspace-read",
+            "workspace-write",
+        }
+    ):
         return Decision.Prompt
     return Decision.Allow
 
@@ -636,9 +648,7 @@ def _evaluation_reason(evaluation: Evaluation, fallback: str) -> str:
     return fallback
 
 
-def _as_exec_policy_amendment(
-    value: dict[str, object] | None,
-) -> ExecPolicyAmendment | None:
+def _as_exec_policy_amendment(value: dict[str, object] | None) -> ExecPolicyAmendment | None:
     """把内部修订字典转换成稳定的策略提案对象。"""
     if not isinstance(value, dict):
         return None
@@ -667,7 +677,7 @@ def _contains_heredoc(command: Sequence[str]) -> bool:
 def load_exec_policy(
     workspace_root: str | Path | None = None,
     *,
-    rules_paths: Iterable[str | Path] | None = None,
+    rules_paths: Iterable[str | Path] | None = None
 ) -> Policy:
     """加载当前工作区的本地执行策略。"""
     return ExecPolicyManager(
@@ -679,7 +689,7 @@ def load_exec_policy(
 def load_exec_policy_with_warning(
     workspace_root: str | Path | None = None,
     *,
-    rules_paths: Iterable[str | Path] | None = None,
+    rules_paths: Iterable[str | Path] | None = None
 ) -> tuple[Policy, tuple[str, ...]]:
     """加载本地执行策略并返回解析警告。"""
     manager = ExecPolicyManager(

@@ -28,7 +28,19 @@ network_rule(host="api.github.com", protocol="https", decision="allow")
 
 def test_unmatched_commands_follow_codex_fallback() -> None:
     assert render_decision_for_unmatched_command(
-        ["git", "status"], approval_policy="on-request"
+        ["git", "status"],
+        approval_policy="on-request",
+        sandbox_mode="danger-full-access",
+    ) is Decision.Allow
+    assert render_decision_for_unmatched_command(
+        ["adb", "devices"],
+        approval_policy="on-request",
+        sandbox_mode="read-only",
+    ) is Decision.Prompt
+    assert render_decision_for_unmatched_command(
+        ["adb", "devices"],
+        approval_policy="on-request",
+        sandbox_mode="danger-full-access",
     ) is Decision.Allow
     assert render_decision_for_unmatched_command(
         ["rm", "-rf", "tmp"], approval_policy="on-request"
@@ -192,6 +204,13 @@ def test_requirement_matches_codex_three_state_amendment_and_bypass(tmp_path) ->
         "cargo", "build"
     )
 
+    readonly_adb = manager.create_exec_approval_requirement_for_command(
+        "adb devices",
+        approval_policy="on-request",
+        sandbox_mode="read-only",
+    )
+    assert readonly_adb.state == "needs_approval"
+
 
 def test_require_escalated_requests_host_approval_and_is_session_scoped(tmp_path) -> None:
     manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
@@ -203,7 +222,7 @@ def test_require_escalated_requests_host_approval_and_is_session_scoped(tmp_path
         sandbox_permissions="require_escalated",
     )
     assert requirement.state == "needs_approval"
-    assert requirement.reason == "require_escalated requests host shell execution"
+    assert requirement.reason == "command requires approval"
 
     forbidden = manager.create_exec_approval_requirement_for_command(
         "Start-Process https://example.com",
