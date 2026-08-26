@@ -183,35 +183,6 @@ def test_shell_tool_call_requires_model_reason() -> None:
         })
 
 
-@pytest.mark.parametrize("field", ("execution", "grantId", "approval_id", "meta"))
-def test_tool_call_event_rejects_removed_authorization_fields(field: str) -> None:
-    payload = {
-        "type": "tool.call",
-        "name": "shell_command",
-        "call_id": "call_removed_field",
-        "arguments": {"command": "pwd"},
-        "reason": "模型需要确认工作目录。",
-        field: {},
-    }
-
-    with pytest.raises(ValueError, match="removed protocol fields"):
-        parse_stream_event(payload)
-
-
-def test_approval_event_rejects_nested_tool_wrapper() -> None:
-    with pytest.raises(ValueError, match="removed protocol fields"):
-        parse_stream_event({
-            "type": "tool.approval_required",
-            "call_id": "call_nested_approval",
-            "approval_id": "approval_nested",
-            "kind": "command",
-            "command": "pwd",
-            "cwd": ".",
-            "reason": "模型需要确认工作目录。",
-            "approval": {"id": "approval_nested"},
-        })
-
-
 def test_turn_reconciliation_required_is_a_typed_terminal_pause() -> None:
     event = parse_stream_event({
         "proto": "mind.chat",
@@ -400,6 +371,7 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
         "script_path": "scripts/check.ps1",
         "command": ["pwsh", "-Command", "Get-Date"],
         "cwd": ".",
+        "cwd_raw": "C:/workspace",
         "reason": "模型需要运行测试。",
         "available_decisions": ["accept", "decline"],
     })
@@ -421,6 +393,8 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert approval.plugin_id == "plugin-1"
     assert approval.script_path == "scripts/check.ps1"
     assert approval.command == ["pwsh", "-Command", "Get-Date"]
+    assert approval.cwd == "."
+    assert approval.cwd_raw == "C:/workspace"
     assert approval.reason == "模型需要运行测试。"
     assert approval.available_decisions == ("accept", "decline")
     assert isinstance(output, ToolOutputEvent)

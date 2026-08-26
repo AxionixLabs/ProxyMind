@@ -8,7 +8,7 @@ from mind_nova import const
 from mind_nova.tool_approval import TOOL_APPROVAL_DECISIONS
 from .models import (
     ApprovalDecisionValue,
-    ExecPolicyAmendmentProposal,
+    ExecPolicyAmendmentProposal
 )
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
@@ -33,9 +33,11 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
 
 def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
     """把直接审批事件字段转换为客户端审批卡载荷。"""
-    tool = "write_stdin" if event.kind == "write_stdin" else "exec_command"
-    raw_cwd = str(event.cwd or ".").strip() or "."
+    tool    = "write_stdin" if event.kind == "write_stdin" else "exec_command"
+    raw_cwd = str(event.cwd_raw or event.cwd or ".").strip() or "."
+
     normalized_cwd = _normalize_approval_cwd(raw_cwd)
+
     approval: dict[str, typing.Any] = {
         "id": event.approval_id or event.call_id,
         "approval_id": event.approval_id,
@@ -100,7 +102,7 @@ def approval_id_from_event(event: ToolApprovalRequiredEvent) -> str:
 
 
 def approval_decisions(
-    approval: dict[str, typing.Any] | None = None,
+    approval: dict[str, typing.Any] | None = None
 ) -> list[ApprovalDecisionValue]:
     """返回审批请求声明的可用决策集合。"""
     if isinstance(approval, dict) and "available_decisions" in approval:
@@ -108,7 +110,9 @@ def approval_decisions(
         if not isinstance(raw_decisions, (list, tuple)):
             raise ValueError("available_decisions must be an array")
         decisions: list[ApprovalDecisionValue] = []
+
         seen: set[str] = set()
+
         for raw_decision in raw_decisions:
             decision = str(raw_decision or "").strip()
             if not decision:
@@ -164,9 +168,7 @@ def approval_execpolicy_amendment(
     )
 
 
-def _approval_prompt_noun(
-    approval: dict[str, typing.Any]
-) -> str:
+def _approval_prompt_noun(approval: dict[str, typing.Any]) -> str:
     """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
 
@@ -180,7 +182,7 @@ def _approval_prompt_noun(
 
 def approval_decision_label(
     decision: str,
-    approval: dict[str, typing.Any] | None = None,
+    approval: dict[str, typing.Any] | None = None
 ) -> str:
     """返回客户端定义的审批选项展示文案。"""
     if decision == "acceptWithExecpolicyAmendment":

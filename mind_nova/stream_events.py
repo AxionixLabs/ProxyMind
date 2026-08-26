@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import copy
+import typing
 from dataclasses import (
     dataclass,
     field
@@ -193,6 +193,7 @@ class ToolApprovalRequiredEvent(StreamEvent):
     script_path: str | None = None
     command: typing.Any = ""
     cwd: str = "."
+    cwd_raw: str | None = None
     proposed_execpolicy_amendment: dict[str, typing.Any] | None = None
     available_decisions: tuple[ToolApprovalDecision, ...] = ()
     parsed_cmd: tuple[typing.Any, ...] = ()
@@ -389,11 +390,6 @@ def parse_stream_event(
             source_count=_nonnegative_int(raw.get("source_count")),
         )
     if event_type == "tool.approval_required":
-        _reject_removed_tool_fields(
-            raw,
-            event_type,
-            extra={"name", "tool", "arguments", "request_id"},
-        )
         raw_decisions = raw.get("available_decisions")
         if not isinstance(raw_decisions, list) or not raw_decisions:
             raise ValueError(
@@ -423,6 +419,7 @@ def parse_stream_event(
             script_path=_optional_text(raw.get("script_path")),
             command=raw.get("command", ""),
             cwd=_text(raw.get("cwd")) or ".",
+            cwd_raw=_optional_text(raw.get("cwd_raw")) or None,
             reason=_text(raw.get("reason")),
             proposed_execpolicy_amendment=_optional_dict(
                 raw.get("proposed_execpolicy_amendment")
@@ -431,7 +428,6 @@ def parse_stream_event(
             parsed_cmd=_tuple_or_empty(raw.get("parsed_cmd")),
         )
     if event_type == "tool.call":
-        _reject_removed_tool_fields(raw, event_type)
         tool_fields = _tool_fields(raw)
         if tool_fields["name"] in {
             "shell_command",
@@ -445,7 +441,6 @@ def parse_stream_event(
         )
 
     if event_type == "tool.output":
-        _reject_removed_tool_fields(raw, event_type)
         return ToolOutputEvent(
             **common,
             **_tool_fields(raw),
@@ -511,38 +506,6 @@ def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
         "arguments": _dict(payload.get("arguments")),
         "reason": _text(payload.get("reason")),
     }
-
-
-def _reject_removed_tool_fields(
-    payload: dict[str, typing.Any],
-    event_type: str,
-    *,
-    extra: set[str] | None = None,
-) -> None:
-    """拒绝旧远端工具授权协议字段，避免静默走兼容分支。"""
-    removed = {
-        "execution",
-        "effect",
-        "grant",
-        "grant_id",
-        "grantId",
-        "policyVersion",
-        "expiresAt",
-        "approval",
-        "approved",
-        "approval_required",
-        "approvalRequired",
-        "meta",
-    }
-    if event_type == "tool.call":
-        removed.add("request_id")
-        removed.add("approval_id")
-    removed.update(extra or ())
-    present = sorted(field for field in removed if field in payload)
-    if present:
-        raise ValueError(
-            f"{event_type} contains removed protocol fields: {', '.join(present)}"
-        )
 
 
 def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:

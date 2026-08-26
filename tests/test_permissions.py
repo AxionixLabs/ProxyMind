@@ -464,6 +464,7 @@ def test_approval_event_preserves_identity_and_environment_fields() -> None:
         kind="command",
         command=["pwsh", "-Command", "Get-Date"],
         cwd=".",
+        cwd_raw="C:/workspace",
         reason="需要确认执行环境",
     ))
 
@@ -472,6 +473,8 @@ def test_approval_event_preserves_identity_and_environment_fields() -> None:
     assert approval["started_at_ms"] == 42
     assert approval["plugin_id"] == "plugin-1"
     assert approval["script_path"] == "scripts/check.ps1"
+    assert approval["cwd"] == str(Path("C:/workspace").resolve())
+    assert approval["cwd_raw"] == "C:/workspace"
     assert approval["command"] == ["pwsh", "-Command", "Get-Date"]
     assert approval["arguments"]["command"] == ["pwsh", "-Command", "Get-Date"]
 
