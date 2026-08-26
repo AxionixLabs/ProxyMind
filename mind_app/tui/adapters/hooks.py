@@ -33,6 +33,7 @@ from ..core.styles import (
 
 HOOK_CONTEXT_MAX_DISPLAY_ROWS: typing.Final[int] = 3
 
+_NEUTRAL_BULLET = TextStyle(foreground="#7F8C9A", bold=True)
 _FAILURE_BULLET = TextStyle(foreground="#FF6B6B", bold=True)
 _WARNING_BULLET = TextStyle(bold=True)
 
@@ -90,7 +91,7 @@ def _render_start(
         ))
     lines = _prefixed_rows(
         content,
-        first_prefix=[(prompt_style(MUTED_STYLE), "• ")],
+        first_prefix=[(prompt_style(_NEUTRAL_BULLET), "• ")],
         continuation_prefix=[(prompt_style(MUTED_STYLE), "  ")],
         width=width,
     )

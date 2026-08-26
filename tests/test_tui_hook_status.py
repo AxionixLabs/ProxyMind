@@ -63,6 +63,9 @@ async def test_tui_hook_adapter_prints_start_as_stable_operation() -> None:
         assert runtime.document.blocks[0].raw_text == (
             "• Running UserPromptSubmit hook: Checking prompt"
         )
+        prefix_style = runtime.document.blocks[0].display_block.fragments[0][0]
+        assert prefix_style == "bold fg:#7F8C9A"
+        assert "dim" not in prefix_style
     finally:
         await runtime.close()
 
