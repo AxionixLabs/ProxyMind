@@ -1719,6 +1719,19 @@ def test_helix_home_success_uses_browser_status() -> None:
     assert status.renderable.fragments[1][0] == prompt_style(BRIGHT_STYLE)
 
 
+def test_helix_link_skip_is_silent() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    helix.render_helix_link_result(mind, False)
+
+    assert views == []
+
+
 @pytest.mark.anyio
 async def test_helix_mode_menu_uses_current_profile() -> None:
     runtime = TuiRuntime()

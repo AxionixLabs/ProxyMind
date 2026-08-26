@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptWriter
 from mind_app.runtime.execution import AgentContext
@@ -132,9 +133,12 @@ def test_failed_agent_uses_existing_list_dot_and_square_in_bare_details() -> Non
     assert listing.options[1].label == "• /root/review"
     assert listing.options[1].detail == "agent_review · failed"
     assert "■" not in listing.options[1].detail
-    assert detail.status == "/root/review · failed"
-    assert "\n■ failed · turns=1 queued=0" in "".join(
-        text for _style, text in snapshot.fragments
+    assert detail.status == "Choose an action for this sub-agent thread."
+    assert detail.options[1].detail == "return to agent list"
+    assert "".join(text for _style, text in snapshot.fragments) == (
+        "/agent\n\n"
+        "  · /root/review\n\n"
+        "    · failed · turns=1 queued=0"
     )
 
 
@@ -182,13 +186,13 @@ def test_agent_detail_menu_exposes_state_specific_actions() -> None:
 
 
 @pytest.mark.anyio
-async def test_manage_agents_closes_selected_thread_and_refreshes() -> None:
+async def test_manage_agents_closes_selected_thread_and_returns_to_input() -> None:
     running = _snapshot("running")
     closed = _snapshot("closed")
     runtime = TuiRuntime()
     views = []
     subagents = SimpleNamespace(
-        snapshots=AsyncMock(side_effect=[(running,), (closed,)]),
+        snapshots=AsyncMock(return_value=(running,)),
         close=AsyncMock(return_value=running),
         get=AsyncMock(return_value=closed),
     )
@@ -217,8 +221,31 @@ async def test_manage_agents_closes_selected_thread_and_refreshes() -> None:
     subagents.close.assert_awaited_once_with("sid_root", running.agent_id)
     subagents.get.assert_not_awaited()
     assert views == []
+    await asyncio.wait_for(task, timeout=1.0)
+
+
+@pytest.mark.anyio
+async def test_manage_agents_back_returns_to_agent_list() -> None:
+    running = _snapshot("running")
+    runtime = TuiRuntime()
+    subagents = SimpleNamespace(
+        snapshots=AsyncMock(return_value=(running,)),
+    )
+    mind = SimpleNamespace(
+        conversation=SimpleNamespace(sid="sid_root"),
+        subagents=subagents,
+    )
+
+    task = asyncio.create_task(manage_agents(runtime, mind))
+    await _wait_for_menu(runtime, "Sub-agents")
+    runtime.screen.menu._choose_index(1)
+    await _wait_for_menu(runtime, "Agent actions")
+    runtime.screen.menu._choose_index(1)
+
+    await _wait_for_menu(runtime, "Sub-agents")
+    assert not task.done()
     runtime.cancel_menu()
-    await task
+    await asyncio.wait_for(task, timeout=1.0)
 
 
 @pytest.mark.anyio
@@ -305,9 +332,11 @@ def test_agent_snapshot_block_shows_recent_shell_activity(tmp_path) -> None:
         text for _style, text in block.fragments
     )
     assert text.startswith(
-        "/agent · /root/review\nrunning · turns=1 queued=0"
+        "/agent\n\n"
+        "  · /root/review\n\n"
+        "    · running · turns=1 queued=0\n"
+        "      ↳ $ rg -n auth mind_app"
     )
-    assert "  $ rg -n auth mind_app" in text
 
 
 def test_agent_snapshot_block_is_visible_while_assistant_is_streaming() -> None:
@@ -326,5 +355,19 @@ def test_agent_snapshot_block_is_visible_while_assistant_is_streaming() -> None:
         value
         for _style, value in runtime.document.fragments(width=80)
     )
-    assert text.startswith("streaming\n\n/agent · /root/review")
+    assert text.startswith(
+        "streaming\n\n/agent\n\n"
+        "  · /root/review\n\n"
+        "    · running · turns=1 queued=0"
+    )
     assert len(runtime.document.blocks) == 0
+
+
+def test_agent_snapshot_block_clips_rows_to_terminal_width() -> None:
+    block = agent_snapshot_block(
+        _snapshot("completed", transcript_path=""),
+        terminal_width=24,
+    )
+
+    lines = "".join(text for _style, text in block.fragments).splitlines()
+    assert all(get_cwidth(line) <= 24 for line in lines)

@@ -220,12 +220,6 @@ def render_helix_notice(
 def render_helix_link_result(mind: "Mind", linked: bool) -> None:
     """展示 Helix 接入操作的最终结果。"""
     if not linked:
-        _present(
-            mind,
-            _label_detail("Helix", "skipped"),
-            view_type="tui.helix.status",
-        )
-        _present(mind, view_type="tui.gap")
         return None
 
     _present_helix_result(mind, state="ready")

@@ -3,6 +3,7 @@
 
 import json
 import typing
+from prompt_toolkit.utils import get_cwidth
 from mind_app.history.transcript import (
     TranscriptEntry,
     TranscriptReader,
@@ -26,10 +27,10 @@ from ..core.models import (
 from ..core.styles import (
     BRIGHT_STYLE,
     COMMAND_STYLE,
-    FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block
 )
+from ..rendering.fragments import clip_text
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -71,7 +72,6 @@ async def manage_agents(
                     root_session_id,
                     snapshot,
                     action,
-                    root_menu,
                 ),
                 name="tui agent menu action",
             )
@@ -107,9 +107,8 @@ async def _run_agent_action(
     root_session_id: str,
     snapshot: AgentSnapshot,
     action: typing.Any,
-    root_menu: typing.Callable[[tuple[AgentSnapshot, ...]], MenuRequest]
 ) -> None:
-    """执行子执行线程菜单动作并刷新仍然可见的父级菜单。"""
+    """执行子执行线程菜单动作并结束 Agent 菜单会话。"""
     session_id = runtime.active_menu_session_id()
     if session_id is None:
         return None
@@ -123,10 +122,16 @@ async def _run_agent_action(
             if not runtime.menu_session_is_active(session_id):
                 return None
             runtime.append_block(
-                agent_snapshot_block(current),
+                agent_snapshot_block(
+                    current,
+                    terminal_width=runtime.terminal_width,
+                ),
                 kind="notice",
             )
-            runtime.finish_menu(None)
+            runtime.dismiss_menu_by_id(
+                _agent_root_view_id(root_session_id),
+                session_id=session_id,
+            )
             return None
         if action is _INTERRUPT_ACTION:
             await mind.subagents.interrupt(root_session_id, snapshot.agent_id)
@@ -137,11 +142,9 @@ async def _run_agent_action(
         else:
             return None
 
-        refreshed = await _agent_snapshots(mind, root_session_id)
         if runtime.menu_session_is_active(session_id):
-            runtime.replace_active_menu_if_id(
+            runtime.dismiss_menu_by_id(
                 _agent_root_view_id(root_session_id),
-                root_menu(refreshed),
                 session_id=session_id,
             )
     except (TypeError, ValueError, RuntimeError) as error:
@@ -209,30 +212,62 @@ def agent_list_menu(
     )
 
 
-def agent_snapshot_block(snapshot: AgentSnapshot) -> FragmentBlock:
+def agent_snapshot_block(
+    snapshot: AgentSnapshot,
+    *,
+    terminal_width: int | None = None,
+) -> FragmentBlock:
     """生成单个执行线程写入正文的当前状态快照。"""
-    status_parts: list[str | TextSpan] = []
-    if snapshot.status == "failed":
-        status_parts.append(TextSpan("■ ", FAILURE_STYLE))
-    status_parts.append(TextSpan(
+    path = _agent_snapshot_line(
+        snapshot.context.task_path,
+        prefix="  · ",
+        terminal_width=terminal_width,
+    )
+    status = _agent_snapshot_line(
         f"{snapshot.status} · turns={snapshot.turn_count} "
         f"queued={snapshot.queued_count}",
-        MUTED_STYLE,
-    ))
+        prefix="    · ",
+        terminal_width=terminal_width,
+    )
 
     parts: list[str | TextSpan] = [
-        TextSpan("/agent ", COMMAND_STYLE),
-        TextSpan("· ", MUTED_STYLE),
-        TextSpan(snapshot.context.task_path, BRIGHT_STYLE),
-        "\n",
-        *status_parts,
+        TextSpan("/agent", COMMAND_STYLE),
+        "\n\n",
+        TextSpan("  · ", MUTED_STYLE),
+        TextSpan(path, BRIGHT_STYLE),
+        "\n\n",
+        TextSpan("    · ", MUTED_STYLE),
+        TextSpan(status, MUTED_STYLE),
     ]
 
     for line in _agent_activity(snapshot):
-        parts.append("\n")
-        parts.append(TextSpan(f"  {line}", MUTED_STYLE))
+        parts.extend((
+            "\n",
+            TextSpan("      ↳ ", MUTED_STYLE),
+            TextSpan(_agent_snapshot_line(
+                line,
+                prefix="      ↳ ",
+                terminal_width=terminal_width,
+            ), MUTED_STYLE),
+        ))
 
     return fragment_block(*parts)
+
+
+def _agent_snapshot_line(
+    value: str,
+    *,
+    prefix: str,
+    terminal_width: int | None,
+) -> str:
+    """按快照行前缀裁剪单行内容。"""
+    text = _inline_text(value, limit=160)
+    if not isinstance(terminal_width, int) or terminal_width <= 0:
+        return text
+    return clip_text(
+        text,
+        width=max(1, terminal_width - get_cwidth(prefix)),
+    )
 
 
 def agent_detail_menu(
@@ -296,10 +331,7 @@ def agent_detail_menu(
     return MenuRequest(
         title="Agent actions",
         view_id=_agent_detail_view_id(root_session_id, snapshot.agent_id),
-        status=(
-            f"{snapshot.context.task_path} · "
-            f"{snapshot.status}"
-        ),
+        status="Choose an action for this sub-agent thread.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
@@ -383,9 +415,7 @@ def _agent_activity(snapshot: AgentSnapshot) -> tuple[str, ...]:
 
     if snapshot.status == "pending":
         return ("Waiting to start",)
-    return (
-        f"turns={snapshot.turn_count} queued={snapshot.queued_count}",
-    )
+    return ()
 
 
 def _activity_text(entry: TranscriptEntry) -> str:
