@@ -25,9 +25,10 @@ from ..core.models import (
     STANDARD_MENU_FOOTER_HINT
 )
 from ..core.styles import (
-    BRIGHT_STYLE,
     COMMAND_STYLE,
-    MUTED_STYLE,
+    TERMINAL_CYAN_STYLE,
+    TERMINAL_DIM_STYLE,
+    TERMINAL_TITLE_STYLE,
     fragment_block
 )
 from ..rendering.fragments import clip_text
@@ -218,37 +219,38 @@ def agent_snapshot_block(
     terminal_width: int | None = None,
 ) -> FragmentBlock:
     """生成单个执行线程写入正文的当前状态快照。"""
-    path = _agent_snapshot_line(
-        snapshot.context.task_path,
-        prefix="  · ",
+    summary = _agent_snapshot_line(
+        f"{snapshot.context.task_path} · {snapshot.status} · "
+        f"turns={snapshot.turn_count} queued={snapshot.queued_count}",
+        prefix="  • ",
         terminal_width=terminal_width,
     )
-    status = _agent_snapshot_line(
-        f"{snapshot.status} · turns={snapshot.turn_count} "
-        f"queued={snapshot.queued_count}",
-        prefix="    · ",
-        terminal_width=terminal_width,
-    )
+    path, separator, status = summary.partition(" · ")
 
     parts: list[str | TextSpan] = [
         TextSpan("/agent", COMMAND_STYLE),
         "\n\n",
-        TextSpan("  · ", MUTED_STYLE),
-        TextSpan(path, BRIGHT_STYLE),
+        TextSpan("Sub-agents", TERMINAL_TITLE_STYLE),
         "\n\n",
-        TextSpan("    · ", MUTED_STYLE),
-        TextSpan(status, MUTED_STYLE),
+        TextSpan("  • ", TERMINAL_DIM_STYLE),
+        TextSpan(path, TERMINAL_CYAN_STYLE),
     ]
+    if separator:
+        parts.extend((
+            TextSpan(" · ", TERMINAL_DIM_STYLE),
+            TextSpan(status, TERMINAL_DIM_STYLE),
+        ))
 
-    for line in _agent_activity(snapshot):
+    for index, line in enumerate(_agent_activity(snapshot)):
+        prefix = "    ↳ " if index == 0 else "      "
         parts.extend((
             "\n",
-            TextSpan("      ↳ ", MUTED_STYLE),
+            TextSpan(prefix, TERMINAL_DIM_STYLE),
             TextSpan(_agent_snapshot_line(
                 line,
-                prefix="      ↳ ",
+                prefix=prefix,
                 terminal_width=terminal_width,
-            ), MUTED_STYLE),
+            ), TERMINAL_DIM_STYLE),
         ))
 
     return fragment_block(*parts)

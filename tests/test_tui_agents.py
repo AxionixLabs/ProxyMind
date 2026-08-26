@@ -137,8 +137,8 @@ def test_failed_agent_uses_existing_list_dot_and_square_in_bare_details() -> Non
     assert detail.options[1].detail == "return to agent list"
     assert "".join(text for _style, text in snapshot.fragments) == (
         "/agent\n\n"
-        "  · /root/review\n\n"
-        "    · failed · turns=1 queued=0"
+        "Sub-agents\n\n"
+        "  • /root/review · failed · turns=1 queued=0"
     )
 
 
@@ -324,6 +324,20 @@ def test_agent_snapshot_block_shows_recent_shell_activity(tmp_path) -> None:
             "arguments": {"command": "rg -n auth mind_app"},
         },
     )
+    writer.append(
+        "tool.started",
+        actor="tool",
+        payload={
+            "call_id": "call_2",
+            "name": "shell_command",
+            "arguments": {
+                "command": (
+                    "rg --files -g '!venv/**' -g '!.git/**' "
+                    "| Select-Object -First 200"
+                ),
+            },
+        },
+    )
     writer.close()
 
     block = agent_snapshot_block(running)
@@ -333,10 +347,17 @@ def test_agent_snapshot_block_shows_recent_shell_activity(tmp_path) -> None:
     )
     assert text.startswith(
         "/agent\n\n"
-        "  · /root/review\n\n"
-        "    · running · turns=1 queued=0\n"
-        "      ↳ $ rg -n auth mind_app"
+        "Sub-agents\n\n"
+        "  • /root/review · running · turns=1 queued=0\n"
+        "    ↳ $ rg -n auth mind_app"
     )
+    assert "      $ rg --files -g '!venv/**' -g '!.git/**' | Select-Object -First 200" in text
+    assert ("bold", "Sub-agents") in block.fragments
+    assert ("dim", "  • ") in block.fragments
+    assert ("fg:ansicyan", "/root/review") in block.fragments
+    assert ("dim", "    ↳ ") in block.fragments
+    assert ("dim", "      ") in block.fragments
+    assert ("dim", "$ rg -n auth mind_app") in block.fragments
 
 
 def test_agent_snapshot_block_is_visible_while_assistant_is_streaming() -> None:
@@ -356,9 +377,8 @@ def test_agent_snapshot_block_is_visible_while_assistant_is_streaming() -> None:
         for _style, value in runtime.document.fragments(width=80)
     )
     assert text.startswith(
-        "streaming\n\n/agent\n\n"
-        "  · /root/review\n\n"
-        "    · running · turns=1 queued=0"
+        "streaming\n\n/agent\n\nSub-agents\n\n"
+        "  • /root/review · running · turns=1 queued=0"
     )
     assert len(runtime.document.blocks) == 0
 
