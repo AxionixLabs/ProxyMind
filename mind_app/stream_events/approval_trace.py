@@ -52,6 +52,9 @@ def approval_shell_commands(approval: dict[str, typing.Any]) -> list[typing.Any]
     arguments        = _approval_arguments(approval)
     argument_command = arguments.get("command")
 
+    if isinstance(argument_command, list):
+        return [argument_command]
+
     text = str(argument_command or "").strip()
     if text:
         return [text]

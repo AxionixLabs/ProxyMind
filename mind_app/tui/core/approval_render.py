@@ -28,6 +28,7 @@ from mind_app.presentation.styles import (
 )
 from .styles import prompt_style
 from ..rendering.text_sanitize import sanitize_formatted_text
+from ..contracts.text import FormattedLine
 
 TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card"              : "",
@@ -130,7 +131,11 @@ def tui_approval_content_lines(
 
 def _approval_environment(approval: dict[str, typing.Any]) -> str:
     """生成审批执行环境的展示名称。"""
-    value = str(approval.get("environment") or "").strip()
+    value = str(
+        approval.get("environment")
+        or approval.get("environment_id")
+        or ""
+    ).strip()
     return value.replace("_", " ")
 
 
@@ -223,6 +228,24 @@ def _approval_command_lines(
         _command_parts(approval_summary(approval)),
         max_width=max_width,
     )
+
+
+def approval_command_pager_lines(
+    approval: dict[str, typing.Any],
+) -> tuple[FormattedLine, ...]:
+    """生成审批命令全屏预览所需的完整格式化行。"""
+    commands = _approval_raw_commands(approval)
+    if not commands:
+        commands = [approval_summary(approval)]
+
+    lines: list[FormattedLine] = []
+    for command_index, command in enumerate(commands):
+        if command_index:
+            lines.append(())
+        for raw_line in _command_raw_lines(command):
+            parts = tuple(_command_parts(raw_line))
+            lines.append(parts or (("class:approval-command", ""),))
+    return tuple(lines)
 
 
 def _approval_raw_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:

@@ -16,11 +16,29 @@ from mind_core.design.terminal_capabilities import (
 )
 from mind_app.tui.core.approval_render import (
     TUI_APPROVAL_STYLE,
+    approval_command_pager_lines,
     tui_approval_content_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.tui.core.styles import build_tui_application_style
+
+
+def test_approval_command_pager_preserves_argv_and_highlighting() -> None:
+    lines = approval_command_pager_lines({
+        "tool": "exec_command",
+        "arguments": {
+            "command": ["pwsh", "-Command", "Get-Date"],
+        },
+    })
+
+    text = "".join(value for line in lines for _style, value in line)
+    assert text == "pwsh -Command Get-Date"
+    assert any(
+        style == "class:approval-command-head"
+        for line in lines
+        for style, _value in line
+    )
 
 
 def test_approval_content_keeps_question_without_card_title() -> None:

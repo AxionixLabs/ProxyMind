@@ -14,6 +14,7 @@ from mind_app.approval.policy import (
     approval_execpolicy_amendment,
     approval_from_event,
     approval_id_from_event,
+    approval_reason,
 )
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalDecisionValue
@@ -204,6 +205,12 @@ def _local_exec_policy_approval(
         approval["justification"] = justification
     if requirement.reason:
         approval["policy_reason"] = requirement.reason
+    if invocation.reason:
+        approval["approval_reason"] = invocation.reason
+    selected_reason = approval_reason(approval)
+    if selected_reason:
+        approval["reason"] = selected_reason
+        approval["justification"] = selected_reason
     amendment = requirement.proposed_execpolicy_amendment
     if amendment is not None:
         approval["proposed_execpolicy_amendment"] = {
@@ -1327,6 +1334,9 @@ async def stream_turn(
                     decision=decision,
                     source=decision_source,
                 ))
+                approval_turn_id = str(
+                    approval.get("turn_id") or turn_context.turn_id
+                ).strip()
                 try:
                     await post_tool_approval(
                         turn_context.cid,
@@ -1337,7 +1347,7 @@ async def stream_turn(
                             approval,
                             decision=decision,
                             source=decision_source,
-                            turn_id=turn_context.turn_id,
+                            turn_id=approval_turn_id,
                             hook_reason=(
                                 permission_decision.reason
                                 if permission_decision is not None

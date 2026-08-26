@@ -241,7 +241,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         output_obj: Output | None = None,
         terminal_capabilities: TerminalCapabilities = (
             DEGRADED_TERMINAL_CAPABILITIES
-        )
+        ),
+        open_static_pager: typing.Callable[[StaticPagerRequest], bool] | None = None,
     ) -> None:
         self.input_model     = input_model
         self.document        = document
@@ -267,6 +268,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._toggle_transcript_overlay    = toggle_transcript_overlay
         self._close_mailbox_overlay        = close_mailbox_overlay
         self._close_static_pager           = close_static_pager
+        self._open_static_pager            = open_static_pager
         self._request_resume_preview       = request_resume_preview
         self._request_resume_transcript    = request_resume_transcript
         self._cancel_resume_preview        = cancel_resume_preview
@@ -416,6 +418,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             focus_input=lambda: self._deactivate_bottom_surface("approval"),
             get_width=lambda: self.terminal_width,
             get_max_height=self._active_view_available_height,
+            open_static_pager=self._open_approval_pager,
         )
         self.approval_control = FormattedTextControl(
             self.approval.fragments,
@@ -1443,6 +1446,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         active: bool,
         *,
         request: StaticPagerRequest | None = None,
+        allow_approval: bool = False,
     ) -> bool:
         """切换静态 pager、终端画面和键盘焦点。"""
         active = bool(active)
@@ -1452,7 +1456,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             self.transcript_overlay.active
             or self.mailbox_overlay.active
             or self.resume_picker.active
-            or self._full_screen_overlay_blocked()
+            or self._full_screen_overlay_blocked(
+                allow_approval=allow_approval,
+            )
         ):
             return False
         if active and request is None:
@@ -1480,6 +1486,16 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                     self._restore_overlay_focus()
         self.invalidate()
         return True
+
+    def _open_approval_pager(self, request: StaticPagerRequest) -> bool:
+        """从审批面板打开命令的只读全屏预览。"""
+        if self._open_static_pager is not None:
+            return self._open_static_pager(request)
+        return self.set_static_pager(
+            True,
+            request=request,
+            allow_approval=True,
+        )
 
     def set_resume_picker(
         self,
@@ -3111,12 +3127,15 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             or self.resume_picker.active
         )
 
-    def _full_screen_overlay_blocked(self) -> bool:
+    def _full_screen_overlay_blocked(self, *, allow_approval: bool = False) -> bool:
         """判断当前临时表面是否禁止打开全屏覆盖层。"""
         return bool(
             self._startup_gate_active
             or self.directory_trust.active
-            or self.bottom_pane.is_active("approval")
+            or (
+                self.bottom_pane.is_active("approval")
+                and not allow_approval
+            )
             or self.bottom_pane.is_active("menu")
             or self._completion_visible()
         )

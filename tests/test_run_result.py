@@ -3023,7 +3023,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     approval = request.approval
     assert approval["arguments"] == {
         "command": "pytest -q",
-        "cwd": ".",
+        "cwd": str(Path(".").resolve()),
     }
     assert approval["command"] == "pytest -q"
     assert executed == [expected_arguments]

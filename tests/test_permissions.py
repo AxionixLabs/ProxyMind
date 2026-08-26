@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from mind_app.approval.policy import (
     approval_decision_label,
     approval_from_event,
     approval_prompt,
+    approval_reason,
 )
 from mind_app.client_tools.coding.native import (
     coding_tools,
@@ -439,6 +441,53 @@ def test_approval_from_event_uses_direct_command_fields() -> None:
     assert approval["call_id"] == "call-1"
     assert approval["tool"] == "exec_command"
     assert approval["command"] == "pytest -q"
-    assert approval["cwd"] == "."
+    assert approval["cwd"] == str(Path(".").resolve())
+    assert approval["cwd_raw"] == "."
+    assert approval["turn_id"] == ""
     assert approval["reason"] == "需要检查命令输出"
     assert approval["justification"] == "需要检查命令输出"
+
+
+def test_approval_event_preserves_identity_and_environment_fields() -> None:
+    approval = approval_from_event(ToolApprovalRequiredEvent(
+        type="tool.approval_required",
+        proto="mind.chat",
+        cid="conversation-1",
+        sid="session-1",
+        turn_id="turn-1",
+        call_id="call-1",
+        approval_id="approval-1",
+        environment_id="workspace-write",
+        started_at_ms=42,
+        plugin_id="plugin-1",
+        script_path="scripts/check.ps1",
+        kind="command",
+        command=["pwsh", "-Command", "Get-Date"],
+        cwd=".",
+        reason="需要确认执行环境",
+    ))
+
+    assert approval["turn_id"] == "turn-1"
+    assert approval["environment_id"] == "workspace-write"
+    assert approval["started_at_ms"] == 42
+    assert approval["plugin_id"] == "plugin-1"
+    assert approval["script_path"] == "scripts/check.ps1"
+    assert approval["command"] == ["pwsh", "-Command", "Get-Date"]
+    assert approval["arguments"]["command"] == ["pwsh", "-Command", "Get-Date"]
+
+
+def test_approval_reason_uses_retry_then_approval_then_justification() -> None:
+    assert approval_reason({
+        "retry_reason": "retry",
+        "approval_reason": "policy",
+        "justification": "user",
+    }) == "retry"
+    assert approval_reason({
+        "approval_reason": "policy",
+        "justification": "user",
+    }) == "policy"
+    assert approval_reason({
+        "policy_reason": "policy",
+        "justification": "user",
+    }) == "user"
+    assert approval_reason({"justification": "user"}) == "user"

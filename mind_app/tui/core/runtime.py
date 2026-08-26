@@ -292,6 +292,12 @@ class TuiRuntime(object):
             toggle_transcript_overlay=self.toggle_transcript_overlay,
             close_mailbox_overlay=self.close_mailbox_overlay,
             close_static_pager=self.close_static_pager,
+            open_static_pager=(
+                lambda request: self._static_pager.open(
+                    request,
+                    allow_approval=True,
+                )
+            ),
             request_resume_preview=self._request_resume_preview,
             request_resume_transcript=self._request_resume_transcript,
             cancel_resume_preview=self._cancel_resume_preview,
@@ -1711,11 +1717,19 @@ class TuiRuntime(object):
         """关闭全屏消息详情并恢复等待中的菜单流程。"""
         self._mailbox_overlay.close()
 
-    def open_static_pager(self, request: StaticPagerRequest) -> bool:
+    def open_static_pager(
+        self,
+        request: StaticPagerRequest,
+        *,
+        allow_approval: bool = False,
+    ) -> bool:
         """打开只读全屏静态页面。"""
         if self._closing:
             return False
-        return self._static_pager.open(request)
+        return self._static_pager.open(
+            request,
+            allow_approval=allow_approval,
+        )
 
     def close_static_pager(self) -> None:
         """关闭只读全屏静态页面。"""

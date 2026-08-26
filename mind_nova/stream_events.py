@@ -187,6 +187,10 @@ class ToolApprovalRequiredEvent(StreamEvent):
     reason: str = ""
     kind: typing.Literal["command", "write_stdin"] = "command"
     approval_id: str = ""
+    environment_id: str | None = None
+    started_at_ms: int | None = None
+    plugin_id: str | None = None
+    script_path: str | None = None
     command: typing.Any = ""
     cwd: str = "."
     proposed_execpolicy_amendment: dict[str, typing.Any] | None = None
@@ -411,9 +415,15 @@ def parse_stream_event(
             call_id=_required_text(raw.get("call_id"), "tool.approval_required call_id"),
             kind=_approval_kind(raw.get("kind")),
             approval_id=_text(raw.get("approval_id")),
+            environment_id=_optional_text(
+                raw.get("environment_id", raw.get("environmentId"))
+            ),
+            started_at_ms=_approval_started_at(raw),
+            plugin_id=_optional_text(raw.get("plugin_id")),
+            script_path=_optional_text(raw.get("script_path")),
             command=raw.get("command", ""),
             cwd=_text(raw.get("cwd")) or ".",
-            reason=_required_text(raw.get("reason"), "tool.approval_required reason"),
+            reason=_text(raw.get("reason")),
             proposed_execpolicy_amendment=_optional_dict(
                 raw.get("proposed_execpolicy_amendment")
             ),
@@ -632,6 +642,16 @@ def _approval_kind(value: typing.Any) -> typing.Literal["command", "write_stdin"
     if kind not in {"command", "write_stdin"}:
         raise ValueError("tool.approval_required kind is invalid")
     return typing.cast(typing.Literal["command", "write_stdin"], kind)
+
+
+def _approval_started_at(payload: dict[str, typing.Any]) -> int | None:
+    """读取审批事件的可选创建时间。"""
+    if "started_at_ms" not in payload or payload.get("started_at_ms") is None:
+        return None
+    value = _nonnegative_int(payload.get("started_at_ms"))
+    if value is None:
+        raise ValueError("tool.approval_required started_at_ms must be non-negative")
+    return value
 
 
 def _positive_int(value: typing.Any) -> int | None:

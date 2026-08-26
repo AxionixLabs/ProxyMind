@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from pathlib import Path
 from mind_nova.stream_events import ToolApprovalRequiredEvent
 from mind_nova import const
 from mind_nova.tool_approval import TOOL_APPROVAL_DECISIONS
@@ -33,21 +34,33 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
 def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
     """把直接审批事件字段转换为客户端审批卡载荷。"""
     tool = "write_stdin" if event.kind == "write_stdin" else "exec_command"
+    raw_cwd = str(event.cwd or ".").strip() or "."
+    normalized_cwd = _normalize_approval_cwd(raw_cwd)
     approval: dict[str, typing.Any] = {
         "id": event.approval_id or event.call_id,
         "approval_id": event.approval_id,
         "call_id": event.call_id,
+        "turn_id": event.turn_id,
         "tool": tool,
         "kind": event.kind,
         "command": event.command,
-        "cwd": event.cwd,
+        "cwd": normalized_cwd,
+        "cwd_raw": raw_cwd,
         "reason": event.reason,
         "justification": event.reason,
         "arguments": {
             "command": event.command,
-            "cwd": event.cwd,
+            "cwd": normalized_cwd,
         },
     }
+    if event.environment_id:
+        approval["environment_id"] = event.environment_id
+    if event.started_at_ms is not None:
+        approval["started_at_ms"] = event.started_at_ms
+    if event.plugin_id:
+        approval["plugin_id"] = event.plugin_id
+    if event.script_path:
+        approval["script_path"] = event.script_path
     if event.proposed_execpolicy_amendment is not None:
         approval["proposed_execpolicy_amendment"] = dict(
             event.proposed_execpolicy_amendment
@@ -56,6 +69,29 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
     if event.parsed_cmd:
         approval["parsed_cmd"] = list(event.parsed_cmd)
     return approval
+
+
+def approval_reason(approval: dict[str, typing.Any]) -> str:
+    """按重试、审批和调用说明的优先级读取最终理由。"""
+    for field_name in (
+        "retry_reason",
+        "approval_reason",
+        "justification",
+        "policy_reason",
+        "reason",
+    ):
+        value = str(approval.get(field_name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _normalize_approval_cwd(value: str) -> str:
+    """将审批事件中的工作目录规范化为绝对路径。"""
+    try:
+        return str(Path(value).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        return value
 
 
 def approval_id_from_event(event: ToolApprovalRequiredEvent) -> str:

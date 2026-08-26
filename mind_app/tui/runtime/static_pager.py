@@ -25,6 +25,7 @@ class StaticPagerScreenPort(typing.Protocol):
         active: bool,
         *,
         request: StaticPagerRequest | None = None,
+        allow_approval: bool = False,
     ) -> bool:
         """切换静态页面并返回是否发生变化。"""
         ...
@@ -45,12 +46,21 @@ class StaticPagerCoordinator(object):
         self._screen = screen
         self._cancel_history_backtrack = cancel_history_backtrack
 
-    def open(self, request: StaticPagerRequest) -> bool:
+    def open(
+        self,
+        request: StaticPagerRequest,
+        *,
+        allow_approval: bool = False,
+    ) -> bool:
         """冻结原生滚屏并打开静态页面。"""
         self._cancel_history_backtrack()
         self._viewport.pause_scrollback()
         try:
-            opened = self._screen.set_static_pager(True, request=request)
+            opened = self._screen.set_static_pager(
+                True,
+                request=request,
+                allow_approval=allow_approval,
+            )
         except BaseException:
             self._viewport.schedule_scrollback_flush()
             raise

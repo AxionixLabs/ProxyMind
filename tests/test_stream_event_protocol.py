@@ -386,10 +386,19 @@ def test_stream_event_rejects_invalid_explicit_event_sequence(event_seq) -> None
 def test_tool_approval_and_output_events_copy_payloads() -> None:
     approval = parse_stream_event({
         "type": "tool.approval_required",
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": 1,
         "call_id": "call-1",
         "approval_id": "approval-1",
         "kind": "command",
-        "command": "pytest -q",
+        "environmentId": "workspace-write",
+        "started_at_ms": 42,
+        "plugin_id": "plugin-1",
+        "script_path": "scripts/check.ps1",
+        "command": ["pwsh", "-Command", "Get-Date"],
         "cwd": ".",
         "reason": "模型需要运行测试。",
         "available_decisions": ["accept", "decline"],
@@ -405,13 +414,37 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert isinstance(approval, ToolApprovalRequiredEvent)
     assert approval.approval_id == "approval-1"
     assert approval.call_id == "call-1"
+    assert approval.turn_id == "turn-1"
     assert approval.kind == "command"
-    assert approval.command == "pytest -q"
+    assert approval.environment_id == "workspace-write"
+    assert approval.started_at_ms == 42
+    assert approval.plugin_id == "plugin-1"
+    assert approval.script_path == "scripts/check.ps1"
+    assert approval.command == ["pwsh", "-Command", "Get-Date"]
     assert approval.reason == "模型需要运行测试。"
     assert approval.available_decisions == ("accept", "decline")
     assert isinstance(output, ToolOutputEvent)
     assert output.payload["status"] == "completed"
     assert output.payload["result"] == {"ok": True, "text": "done"}
+
+
+def test_tool_approval_allows_missing_optional_reason() -> None:
+    approval = parse_stream_event({
+        "type": "tool.approval_required",
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": 1,
+        "call_id": "call-1",
+        "kind": "command",
+        "command": ["git", "status"],
+        "cwd": ".",
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(approval, ToolApprovalRequiredEvent)
+    assert approval.reason == ""
 
 
 def test_tool_approval_requires_available_decisions() -> None:

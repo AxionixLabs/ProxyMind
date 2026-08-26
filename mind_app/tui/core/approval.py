@@ -12,7 +12,11 @@ from mind_app.approval.models import (
     ApprovalQueueSnapshot
 )
 from mind_app.approval.policy import approval_decisions
-from .approval_render import tui_approval_content_lines
+from ..contracts.pager import StaticPagerRequest
+from .approval_render import (
+    approval_command_pager_lines,
+    tui_approval_content_lines,
+)
 
 
 @dataclass(slots=True)
@@ -33,13 +37,15 @@ class TuiApproval(object):
         focus_card: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
         get_width: typing.Callable[[], int],
-        get_max_height: typing.Callable[[], int]
+        get_max_height: typing.Callable[[], int],
+        open_static_pager: typing.Callable[[StaticPagerRequest], bool] | None = None,
     ) -> None:
         self.invalidate     = invalidate
         self.focus_card     = focus_card
         self.focus_input    = focus_input
         self.get_width      = get_width
         self.get_max_height = get_max_height
+        self.open_static_pager = open_static_pager
 
         self.state: ApprovalState | None               = None
         self._default_wait_state: ApprovalState | None = None
@@ -259,6 +265,18 @@ class TuiApproval(object):
     def _build_key_bindings(self) -> KeyBindings:
         """创建审批卡局部按键绑定。"""
         bindings = KeyBindings()
+
+        @bindings.add("c-a")
+        @bindings.add("A")
+        def _(event) -> None:
+            _ = event
+            state = self.state
+            if state is None or self.open_static_pager is None:
+                return None
+            self.open_static_pager(StaticPagerRequest(
+                title="E X E C",
+                lines=approval_command_pager_lines(state.approval),
+            ))
 
         @bindings.add("enter")
         def _(event) -> None:

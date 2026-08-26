@@ -39,7 +39,12 @@ class ResumePickerPort(typing.Protocol):
 class StaticPagerRuntimePort(typing.Protocol):
     """描述 feature 打开只读全屏静态页面所需的能力。"""
 
-    def open_static_pager(self, request: StaticPagerRequest) -> bool:
+    def open_static_pager(
+        self,
+        request: StaticPagerRequest,
+        *,
+        allow_approval: bool = False,
+    ) -> bool:
         """打开静态页面并返回是否成功切换画面。"""
         ...
 
