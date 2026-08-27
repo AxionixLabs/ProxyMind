@@ -80,10 +80,46 @@ def parse_stream_event(payload):
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
         if str(current.get("type") or "") == "tool.approval_required":
+            current.setdefault("approval_id", "approval_test")
+            current.setdefault("started_at_ms", 0)
+            current.setdefault("status", "pending")
+            current.setdefault("ack", None)
+            current.setdefault("reason", "")
             current.setdefault(
                 "available_decisions",
                 ["accept", "acceptForSession", "decline"],
             )
+            kind = current.get("kind", "command")
+            if kind == "command":
+                current.setdefault("environment_id", "workspace-write")
+                if isinstance(current.get("command"), str):
+                    current["command"] = [current["command"]]
+                current.setdefault("command", ["echo", "ready"])
+                current.setdefault("cwd", ".")
+                current.setdefault("cwd_raw", ".")
+                current.setdefault("tty", False)
+                current.setdefault("sandbox_permissions", "use_default")
+                current.setdefault("additional_permissions", None)
+                current.setdefault("proposed_execpolicy_amendment", None)
+                current.setdefault("parsed_cmd", [])
+            elif kind == "apply_patch":
+                current.setdefault("environment_id", "workspace-write")
+                current.setdefault("cwd", ".")
+                current.setdefault("cwd_raw", ".")
+                current.setdefault("files", current.get("patch_scope", ["app.py"]))
+                current.pop("patch_scope", None)
+                current.setdefault("permissions_preapproved", False)
+            elif kind == "network_access":
+                current.setdefault("environment_id", "workspace-write")
+                current.setdefault("cwd", ".")
+                current.setdefault("cwd_raw", ".")
+            elif kind == "request_permissions":
+                current.setdefault("permissions", {})
+            elif kind == "mcp_tool_call":
+                current.setdefault("server", "server")
+                current.setdefault("tool_name", "tool")
+                current.setdefault("arguments", {})
+                current.setdefault("mcp_request_id", "mcp_request_test")
     return _parse_stream_event(current)
 
 
@@ -194,6 +230,43 @@ def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
         "proto": "mind.chat",
         "presentation_epoch": 1,
     })
+    if str(current.get("type") or "") == "tool.approval_required":
+        current.setdefault("approval_id", "approval_test")
+        current.setdefault("started_at_ms", 0)
+        current.setdefault("status", "pending")
+        current.setdefault("ack", None)
+        current.setdefault("reason", "")
+        kind = current.get("kind", "command")
+        if kind == "command":
+            current.setdefault("environment_id", "workspace-write")
+            if isinstance(current.get("command"), str):
+                current["command"] = [current["command"]]
+            current.setdefault("command", ["echo", "ready"])
+            current.setdefault("cwd", ".")
+            current.setdefault("cwd_raw", ".")
+            current.setdefault("tty", False)
+            current.setdefault("sandbox_permissions", "use_default")
+            current.setdefault("additional_permissions", None)
+            current.setdefault("proposed_execpolicy_amendment", None)
+            current.setdefault("parsed_cmd", [])
+        elif kind == "apply_patch":
+            current.setdefault("environment_id", "workspace-write")
+            current.setdefault("cwd", ".")
+            current.setdefault("cwd_raw", ".")
+            current.setdefault("files", current.get("patch_scope", ["app.py"]))
+            current.pop("patch_scope", None)
+            current.setdefault("permissions_preapproved", False)
+        elif kind == "network_access":
+            current.setdefault("environment_id", "workspace-write")
+            current.setdefault("cwd", ".")
+            current.setdefault("cwd_raw", ".")
+        elif kind == "request_permissions":
+            current.setdefault("permissions", {})
+        elif kind == "mcp_tool_call":
+            current.setdefault("server", "server")
+            current.setdefault("tool_name", "tool")
+            current.setdefault("arguments", {})
+            current.setdefault("mcp_request_id", "mcp_request_test")
     return current
 
 
@@ -2351,6 +2424,8 @@ async def test_approval_request_event_is_presented_without_nested_metadata(
     mind.frontend.interaction.present_approval.assert_awaited_once()
     approval_kwargs = dict(approval_posts[0][1])
     assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs.pop("kind") == "command"
+    assert approval_kwargs.pop("approval")["kind"] == "command"
     assert approval_kwargs == {
         "decision": "accept",
         "reason": None,
@@ -2415,6 +2490,8 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
     )
     approval_kwargs = dict(approval_posts[0][1])
     assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs.pop("kind") == "command"
+    assert approval_kwargs.pop("approval")["kind"] == "command"
     assert approval_kwargs == {
         "decision": "accept",
         "reason": None,
@@ -2879,6 +2956,8 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
     assert result.status == "interrupted"
     approval_kwargs = dict(approval_posts[0][1])
     assert approval_kwargs.pop("turn_id")
+    assert approval_kwargs.pop("kind") == "command"
+    assert approval_kwargs.pop("approval")["kind"] == "command"
     assert approval_kwargs == {
         "decision": "cancel",
         "reason": "user cancelled",
@@ -3093,7 +3172,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     assert result.status == "completed"
     request = mind.frontend.interaction.present_approval.await_args.args[0]
     presentation = request.presentation
-    assert presentation.commands == ("pytest -q",)
+    assert presentation.commands == (("pytest -q",),)
     assert presentation.context.kind == "exec"
     assert executed == [expected_arguments]
     assert runner.calls[0]["tool_input"] == expected_hook_input

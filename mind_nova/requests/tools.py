@@ -13,15 +13,17 @@ from mind_nova.requests.reliable import post_json_reliably
 from mind_nova.services import service_endpoints
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
+    TOOL_APPROVAL_DECISIONS_BY_KIND,
     TOOL_APPROVAL_STATUSES,
     TOOL_APPROVAL_TURN_STATUSES,
     ToolApprovalAck,
     ToolApprovalDecision,
+    ToolApprovalKind,
+    ToolApprovalNetworkProtocol,
     ToolApprovalStatus,
     ToolApprovalTurnStatus,
     ToolApprovalSnapshot,
-    ToolApprovalSnapshotItem,
-    ToolApprovalSnapshotStatus
+    ToolApprovalSnapshotItem
 )
 
 _ToolResultValue = typing.Union[
@@ -83,10 +85,23 @@ class _ToolApprovalPayload(typing.TypedDict):
     turn_id: str
     call_id: str
     approval_id: str
+    kind: ToolApprovalKind
     decision: ToolApprovalDecision
     execpolicy_amendment_id: typing.NotRequired[str]
     reason: typing.NotRequired[str]
     additional_context: typing.NotRequired[list[str]]
+    target: typing.NotRequired[str]
+    host: typing.NotRequired[str]
+    protocol: typing.NotRequired[ToolApprovalNetworkProtocol]
+    port: typing.NotRequired[int]
+    network_policy_amendment: typing.NotRequired[dict[str, str]]
+    scope: typing.NotRequired[str]
+    permissions: typing.NotRequired[dict[str, typing.Any]]
+    strict_auto_review: typing.NotRequired[bool]
+    server: typing.NotRequired[str]
+    tool_name: typing.NotRequired[str]
+    arguments: typing.NotRequired[typing.Any]
+    mcp_request_id: typing.NotRequired[str]
 
 
 class ToolApprovalRequestError(Exception):
@@ -123,10 +138,12 @@ async def reconcile_tool_approval_snapshot(
     """读取指定逻辑轮次的审批恢复快照。"""
     normalized_cid = str(cid or "").strip()
     normalized_sid = str(sid or "").strip()
+
     if not normalized_cid:
         raise ToolApprovalSnapshotRequestError("approval snapshot requires cid")
     if not normalized_sid:
         raise ToolApprovalSnapshotRequestError("approval snapshot requires sid")
+
     try:
         normalized_turn_id = normalize_turn_id(turn_id)
     except ValueError as error:
@@ -167,6 +184,7 @@ async def reconcile_tool_approval_snapshot(
             "approval snapshot returned an invalid response",
             status_code=response.status_code,
         )
+
     data = body.get("data")
     if not isinstance(data, dict):
         raise ToolApprovalSnapshotRequestError(
@@ -236,38 +254,69 @@ async def reconcile_tool_approval_snapshot(
 def _approval_snapshot_item(
     value: typing.Any,
     *,
-    expected_turn_id: str,
+    expected_turn_id: str
 ) -> ToolApprovalSnapshotItem:
-    """校验并转换单项审批恢复记录。"""
+    """校验并转换服务端直接返回的审批信封。"""
     if not isinstance(value, dict):
         raise ToolApprovalSnapshotRequestError(
             "approval snapshot item is invalid"
         )
 
     def text_field(name: str, *, required: bool = False) -> str:
-        result = str(value.get(name) or "").strip()
+        raw = value.get(name)
+        if raw is None:
+            result = ""
+        elif isinstance(raw, str):
+            result = raw.strip()
+        else:
+            raise ToolApprovalSnapshotRequestError(
+                f"approval snapshot {name} is invalid"
+            )
         if required and not result:
             raise ToolApprovalSnapshotRequestError(
                 f"approval snapshot {name} is invalid"
             )
         return result
 
+    if text_field("type", required=True) != "tool.approval_required":
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item type is invalid"
+        )
+
     approval_id = text_field("approval_id", required=True)
-    turn_id = text_field("turn_id", required=True)
+    turn_id     = text_field("turn_id", required=True)
+
     if turn_id != expected_turn_id:
         raise ToolApprovalSnapshotRequestError(
             "approval snapshot item turn_id does not match request"
         )
+
     call_id = text_field("call_id", required=True)
-    name = text_field("name", required=True)
-    raw_arguments = value.get("arguments")
-    raw_approval = value.get("approval")
+    kind    = text_field("kind", required=True)
+
+    if kind not in TOOL_APPROVAL_DECISIONS_BY_KIND:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item kind is invalid"
+        )
+
+    removed_fields = {"name", "approval", "patch_scope"}
+    if kind != "mcp_tool_call":
+        removed_fields.add("arguments")
+    present_removed = sorted(field for field in removed_fields if field in value)
+    if present_removed:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot contains removed protocol fields: "
+            + ", ".join(present_removed)
+        )
+
+    started_at_ms = value.get("started_at_ms")
     if (
-        not isinstance(raw_arguments, dict)
-        or not isinstance(raw_approval, dict)
+        isinstance(started_at_ms, bool)
+        or not isinstance(started_at_ms, int)
+        or started_at_ms < 0
     ):
         raise ToolApprovalSnapshotRequestError(
-            "approval snapshot item payload is invalid"
+            "approval snapshot item started_at_ms is invalid"
         )
 
     status = text_field("status", required=True)
@@ -276,58 +325,406 @@ def _approval_snapshot_item(
             "approval snapshot item status is invalid"
         )
 
-    raw_context = value.get("additional_context")
-    if raw_context is None:
-        additional_context: tuple[str, ...] = ()
-    elif isinstance(raw_context, list):
-        additional_context = tuple(
-            str(item).strip()
-            for item in raw_context
-            if str(item).strip()
-        )
-    else:
+    raw_decisions = value.get("available_decisions")
+    if not isinstance(raw_decisions, list) or not raw_decisions:
         raise ToolApprovalSnapshotRequestError(
-            "approval snapshot item additional_context is invalid"
+            "approval snapshot item available_decisions is invalid"
+        )
+    if (
+        len(raw_decisions) > 5
+        or any(
+            not isinstance(item, str)
+            or item not in TOOL_APPROVAL_DECISIONS_BY_KIND[kind]
+            for item in raw_decisions
+        )
+        or len(set(raw_decisions)) != len(raw_decisions)
+    ):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item decisions are invalid"
+        )
+
+    if "ack" not in value:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item ack is missing"
+        )
+    ack = value.get("ack")
+    if status == "resolved" and not isinstance(ack, dict):
+        raise ToolApprovalSnapshotRequestError(
+            "resolved approval snapshot item requires ack"
+        )
+    if status != "resolved" and ack is not None:
+        raise ToolApprovalSnapshotRequestError(
+            "non-resolved approval snapshot item cannot contain ack"
+        )
+    _validate_snapshot_action(value, kind=kind, decisions=raw_decisions)
+    if isinstance(ack, dict):
+        _validate_snapshot_ack(
+            ack,
+            kind=kind,
+            decisions=raw_decisions,
+            envelope=value,
         )
 
     return ToolApprovalSnapshotItem(
         approval_id=approval_id,
         turn_id=turn_id,
         call_id=call_id,
-        name=name,
-        arguments=dict(raw_arguments),
-        approval=dict(raw_approval),
-        status=typing.cast(ToolApprovalSnapshotStatus, status),
-        decision=text_field("decision"),
-        execpolicy_amendment_id=text_field("execpolicy_amendment_id"),
-        reason=text_field("reason"),
-        additional_context=additional_context,
-        ack=(dict(value["ack"]) if isinstance(value.get("ack"), dict) else None),
-        expires_at=_snapshot_float(value.get("expires_at"), "expires_at"),
-        resolved_at=_snapshot_optional_float(value.get("resolved_at"), "resolved_at"),
-        created_at=_snapshot_float(value.get("created_at"), "created_at"),
-        updated_at=_snapshot_float(value.get("updated_at"), "updated_at"),
+        kind=typing.cast(ToolApprovalKind, kind),
+        approval=dict(value),
+        status=status,
+        ack=dict(ack) if isinstance(ack, dict) else None,
     )
 
 
-def _snapshot_float(value: typing.Any, field_name: str) -> float:
-    """读取快照中的非负时间字段。"""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or value < 0
-    ):
+def _snapshot_text(
+    value: typing.Any,
+    name: str,
+    *,
+    allow_empty: bool = False,
+) -> str:
+    """读取快照中的字符串字段。"""
+    if not isinstance(value, str) or (not allow_empty and not value.strip()):
         raise ToolApprovalSnapshotRequestError(
-            f"approval snapshot {field_name} is invalid"
+            f"approval snapshot {name} is invalid"
         )
-    return float(value)
+    return value
 
 
-def _snapshot_optional_float(value: typing.Any, field_name: str) -> float | None:
-    """读取快照中的可选非负时间字段。"""
-    if value is None:
-        return None
-    return _snapshot_float(value, field_name)
+def _snapshot_list(value: typing.Any, name: str) -> list[typing.Any]:
+    """读取快照中的非空数组字段。"""
+    if not isinstance(value, list) or not value:
+        raise ToolApprovalSnapshotRequestError(
+            f"approval snapshot {name} is invalid"
+        )
+    return value
+
+
+def _validate_snapshot_action(
+    value: dict[str, typing.Any],
+    *,
+    kind: str,
+    decisions: list[typing.Any],
+) -> None:
+    """校验快照中按动作区分的必填字段。"""
+    if kind == "command":
+        _snapshot_text(value.get("environment_id"), "environment_id")
+        command = _snapshot_list(value.get("command"), "command")
+        if any(not isinstance(item, str) for item in command):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot command must contain strings"
+            )
+        _snapshot_text(value.get("cwd"), "cwd")
+        _snapshot_text(value.get("cwd_raw"), "cwd_raw")
+        if not isinstance(value.get("reason"), str):
+            raise ToolApprovalSnapshotRequestError("approval snapshot reason is invalid")
+        if not isinstance(value.get("tty"), bool):
+            raise ToolApprovalSnapshotRequestError("approval snapshot tty is invalid")
+        if value.get("sandbox_permissions") not in {
+            "use_default", "require_escalated", "with_additional_permissions"
+        }:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot sandbox_permissions is invalid"
+            )
+        if "additional_permissions" not in value:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot additional_permissions is missing"
+            )
+        if value.get("sandbox_permissions") == "with_additional_permissions":
+            if not isinstance(value.get("additional_permissions"), dict):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot additional_permissions are required"
+                )
+        elif value.get("additional_permissions") is not None:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot additional_permissions are not allowed"
+            )
+        if "proposed_execpolicy_amendment" not in value:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot proposed_execpolicy_amendment is missing"
+            )
+        amendment = value.get("proposed_execpolicy_amendment")
+        has_amendment = "acceptWithExecpolicyAmendment" in decisions
+        if has_amendment != isinstance(amendment, dict):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot execpolicy proposal and decision must appear together"
+            )
+        if isinstance(amendment, dict):
+            if set(amendment) != {"command"}:
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot execpolicy proposal is invalid"
+                )
+            command_prefix = amendment.get("command")
+            if not isinstance(command_prefix, list) or not command_prefix or any(
+                not isinstance(item, str) or not item for item in command_prefix
+            ):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot execpolicy proposal is invalid"
+                )
+        parsed_cmd = value.get("parsed_cmd")
+        if not isinstance(parsed_cmd, list):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot parsed_cmd is invalid"
+            )
+        if any(not isinstance(item, dict) for item in parsed_cmd):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot parsed_cmd must contain objects"
+            )
+    elif kind == "write_stdin":
+        _snapshot_text(value.get("session_id"), "session_id")
+        _snapshot_text(value.get("input"), "input", allow_empty=True)
+        if value.get("control") not in {"none", "interrupt", "terminate"}:
+            raise ToolApprovalSnapshotRequestError("approval snapshot control is invalid")
+        if not isinstance(value.get("reason"), str):
+            raise ToolApprovalSnapshotRequestError("approval snapshot reason is invalid")
+    elif kind == "apply_patch":
+        _snapshot_text(value.get("environment_id"), "environment_id")
+        _snapshot_text(value.get("cwd"), "cwd")
+        _snapshot_text(value.get("cwd_raw"), "cwd_raw")
+        _snapshot_text(value.get("patch"), "patch")
+        files = _snapshot_list(value.get("files"), "files")
+        if any(not isinstance(item, str) or not item.strip() for item in files):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot files must contain non-empty strings"
+            )
+        if not isinstance(value.get("reason"), str):
+            raise ToolApprovalSnapshotRequestError("approval snapshot reason is invalid")
+        if not isinstance(value.get("permissions_preapproved"), bool):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot permissions_preapproved is invalid"
+            )
+    elif kind == "network_access":
+        _snapshot_text(value.get("environment_id"), "environment_id")
+        _snapshot_text(value.get("target"), "target")
+        host = _snapshot_text(value.get("host"), "host")
+        if value.get("protocol") not in {"http", "https", "socks5_tcp", "socks5_udp"}:
+            raise ToolApprovalSnapshotRequestError("network approval protocol is invalid")
+        port = value.get("port")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ToolApprovalSnapshotRequestError("network approval port is invalid")
+        command = _snapshot_list(value.get("command"), "command")
+        if any(not isinstance(item, str) for item in command):
+            raise ToolApprovalSnapshotRequestError(
+                "network approval command must contain strings"
+            )
+        _snapshot_text(value.get("cwd"), "cwd")
+        _snapshot_text(value.get("cwd_raw"), "cwd_raw")
+        if not isinstance(value.get("reason"), str):
+            raise ToolApprovalSnapshotRequestError("approval snapshot reason is invalid")
+        if "proposed_network_policy_amendment" not in value:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot proposed_network_policy_amendment is missing"
+            )
+        proposal = value.get("proposed_network_policy_amendment")
+        has_amendment = "applyNetworkPolicyAmendment" in decisions
+        if has_amendment != isinstance(proposal, dict):
+            raise ToolApprovalSnapshotRequestError(
+                "network policy proposal and decision must appear together"
+            )
+        if isinstance(proposal, dict) and (
+            set(proposal) != {"host", "action"}
+            or proposal.get("host") != host
+            or proposal.get("action") not in {"allow", "deny"}
+        ):
+            raise ToolApprovalSnapshotRequestError(
+                "network policy proposal does not match target"
+            )
+    elif kind == "request_permissions":
+        if "environment_id" in value and value["environment_id"] is not None:
+            _snapshot_text(value["environment_id"], "environment_id")
+        if "cwd" in value and value["cwd"] is not None:
+            _snapshot_text(value["cwd"], "cwd")
+        if not isinstance(value.get("reason"), str):
+            raise ToolApprovalSnapshotRequestError("approval snapshot reason is invalid")
+        if not isinstance(value.get("permissions"), dict):
+            raise ToolApprovalSnapshotRequestError(
+                "permission approval permissions are invalid"
+            )
+    elif kind == "mcp_tool_call":
+        for field_name in ("server", "tool_name", "mcp_request_id"):
+            _snapshot_text(value.get(field_name), field_name)
+        if "arguments" not in value:
+            raise ToolApprovalSnapshotRequestError("MCP approval arguments are missing")
+        if not _is_json_value(value.get("arguments")):
+            raise ToolApprovalSnapshotRequestError("MCP approval arguments are invalid")
+        if not isinstance(value.get("reason"), str):
+            raise ToolApprovalSnapshotRequestError("approval snapshot reason is invalid")
+        annotations = value.get("annotations")
+        if annotations is not None:
+            if not isinstance(annotations, dict) or set(annotations) - {
+                "destructive_hint", "open_world_hint", "read_only_hint"
+            }:
+                raise ToolApprovalSnapshotRequestError("MCP annotations are invalid")
+            if any(
+                item is not None and not isinstance(item, bool)
+                for item in annotations.values()
+            ):
+                raise ToolApprovalSnapshotRequestError(
+                    "MCP annotations must be boolean or null"
+                )
+        for field_name in (
+            "connector_id", "connector_name", "connector_description",
+            "connected_account_email", "tool_title", "tool_description",
+        ):
+            if field_name in value and value[field_name] is not None:
+                _snapshot_text(value[field_name], field_name)
+
+
+def _validate_snapshot_ack(
+    value: dict[str, typing.Any],
+    *,
+    kind: str,
+    decisions: list[typing.Any],
+    envelope: dict[str, typing.Any] | None = None,
+) -> None:
+    """校验快照中的动作回执字段。"""
+    if str(value.get("kind") or "").strip() != kind:
+        raise ToolApprovalSnapshotRequestError("approval snapshot ack kind is invalid")
+    request_id = value.get("request_id")
+    if not isinstance(request_id, str) or len(request_id.strip()) < 8:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot ack request_id is invalid"
+        )
+    decision = value.get("decision")
+    if decision not in TOOL_APPROVAL_DECISIONS_BY_KIND[kind] or decision not in decisions:
+        raise ToolApprovalSnapshotRequestError("approval snapshot ack decision is invalid")
+    expected_tool_status = {
+        "decline": "declined", "cancel": "cancelled"
+    }.get(decision, "approved")
+    if value.get("tool_status") != expected_tool_status:
+        raise ToolApprovalSnapshotRequestError("approval snapshot ack tool_status is invalid")
+    expected_turn_status = "interrupting" if decision == "cancel" else "active"
+    if value.get("turn_status") != expected_turn_status:
+        raise ToolApprovalSnapshotRequestError("approval snapshot ack turn_status is invalid")
+    contexts = value.get("additional_context")
+    if not isinstance(contexts, list) or any(not isinstance(item, str) for item in contexts):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot ack additional_context is invalid"
+        )
+    if not isinstance(value.get("reason"), str):
+        raise ToolApprovalSnapshotRequestError("approval snapshot ack reason is invalid")
+    if kind == "command":
+        amendment_id = value.get("execpolicy_amendment_id")
+        if decision == "acceptWithExecpolicyAmendment":
+            if not isinstance(amendment_id, str) or not amendment_id.strip():
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack execpolicy amendment is missing"
+                )
+        elif amendment_id is not None:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot ack execpolicy amendment is not allowed"
+            )
+    if kind == "network_access":
+        target = _snapshot_text(value.get("target"), "ack target")
+        host = _snapshot_text(value.get("host"), "ack host")
+        if value.get("protocol") not in {"http", "https", "socks5_tcp", "socks5_udp"}:
+            raise ToolApprovalSnapshotRequestError("approval snapshot ack protocol is invalid")
+        port = value.get("port")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ToolApprovalSnapshotRequestError("approval snapshot ack port is invalid")
+        if envelope is not None and (
+            target != envelope.get("target")
+            or host != envelope.get("host")
+            or value.get("protocol") != envelope.get("protocol")
+            or port != envelope.get("port")
+        ):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot ack network target does not match approval"
+            )
+        amendment = value.get("network_policy_amendment")
+        if decision == "applyNetworkPolicyAmendment":
+            if (
+                not isinstance(amendment, dict)
+                or set(amendment) != {"host", "action"}
+                or amendment.get("host") != host
+                or amendment.get("action") not in {"allow", "deny"}
+            ):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack network policy amendment is invalid"
+                )
+            if envelope is not None and amendment != envelope.get(
+                "proposed_network_policy_amendment"
+            ):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack network policy does not match proposal"
+                )
+        elif amendment is not None:
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot ack network policy amendment is not allowed"
+            )
+    elif kind == "request_permissions":
+        granting = decision not in {"decline", "cancel"}
+        fields = (value.get("scope"), value.get("permissions"), value.get("strict_auto_review"))
+        if granting:
+            if value.get("scope") not in {"turn", "session"} or not isinstance(value.get("permissions"), dict):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack permission grant is incomplete"
+                )
+            if envelope is not None and not _json_contains(
+                envelope.get("permissions"), value.get("permissions")
+            ):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack permissions exceed approval"
+                )
+            if not isinstance(value.get("strict_auto_review"), bool):
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack strict_auto_review is invalid"
+                )
+            expected_scope = "session" if decision == "grantForSession" else "turn"
+            expected_strict = decision == "grantForTurnWithStrictAutoReview"
+            if value.get("scope") != expected_scope or value.get("strict_auto_review") is not expected_strict:
+                raise ToolApprovalSnapshotRequestError(
+                    "approval snapshot ack permission grant is inconsistent"
+                )
+        elif any(item is not None for item in fields):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot ack permission fields are not allowed"
+            )
+    elif kind == "mcp_tool_call":
+        server = _snapshot_text(value.get("server"), "ack server")
+        tool_name = _snapshot_text(value.get("tool_name"), "ack tool_name")
+        mcp_request_id = _snapshot_text(value.get("mcp_request_id"), "ack mcp_request_id")
+        if "arguments" not in value:
+            raise ToolApprovalSnapshotRequestError("MCP approval ack arguments are missing")
+        if not _is_json_value(value.get("arguments")):
+            raise ToolApprovalSnapshotRequestError("MCP approval ack arguments are invalid")
+        if envelope is not None and (
+            server != envelope.get("server")
+            or tool_name != envelope.get("tool_name")
+            or value.get("arguments") != envelope.get("arguments")
+            or mcp_request_id != envelope.get("mcp_request_id")
+        ):
+            raise ToolApprovalSnapshotRequestError(
+                "approval snapshot ack MCP request does not match approval"
+            )
+
+
+def _is_json_value(value: typing.Any) -> bool:
+    """判断值是否可由 JSON 表示。"""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_value(item)
+            for key, item in value.items()
+        )
+    return False
+
+
+def _json_contains(container: typing.Any, candidate: typing.Any) -> bool:
+    """判断结构化权限申请是否包含授权内容。"""
+    if isinstance(candidate, dict):
+        return isinstance(container, dict) and all(
+            key in container and _json_contains(container[key], item)
+            for key, item in candidate.items()
+        )
+    if isinstance(candidate, list):
+        return isinstance(container, list) and all(
+            any(_json_contains(item, wanted) for item in container)
+            for wanted in candidate
+        )
+    return container == candidate
 
 
 async def post_tool_result(
@@ -415,6 +812,8 @@ async def post_tool_approval(
     decision: str,
     *,
     turn_id: str,
+    kind: ToolApprovalKind = "command",
+    approval: typing.Mapping[str, typing.Any] | None = None,
     request_id: str | None = None,
     execpolicy_amendment_id: str | None = None,
     reason: str | None = None,
@@ -424,6 +823,7 @@ async def post_tool_approval(
     """把用户对服务端审批请求的决定回传给主循环。"""
     clean_decision = str(decision or "").strip()
     clean_turn_id  = str(turn_id or "").strip()
+    clean_kind = str(kind or "").strip()
 
     normalized_request_id = (
         resolve_request_id(request_id, prefix="approval")
@@ -446,8 +846,12 @@ async def post_tool_approval(
 
     if not clean_turn_id:
         raise ValueError("tool approval requires turn_id")
+    if clean_kind not in TOOL_APPROVAL_DECISIONS_BY_KIND:
+        raise ValueError("tool approval requires a supported kind")
     if clean_decision not in TOOL_APPROVAL_DECISIONS:
         raise ValueError("tool approval requires a supported decision")
+    if clean_decision not in TOOL_APPROVAL_DECISIONS_BY_KIND[clean_kind]:
+        raise ValueError("tool approval decision is invalid for kind")
     typed_decision = typing.cast(ToolApprovalDecision, clean_decision)
     if clean_decision == "acceptWithExecpolicyAmendment":
         if not amendment_id:
@@ -466,10 +870,59 @@ async def post_tool_approval(
         "turn_id"     : clean_turn_id,
         "call_id"     : call_id,
         "approval_id" : approval_id,
+        "kind"        : typing.cast(ToolApprovalKind, clean_kind),
         "decision"    : typed_decision
     }
     if amendment_id:
         payload["execpolicy_amendment_id"] = amendment_id
+
+    context = dict(approval or {})
+    if clean_kind == "network_access":
+        for field_name in ("target", "host", "protocol"):
+            value = str(context.get(field_name) or "").strip()
+            if not value:
+                raise ValueError(f"network approval requires {field_name}")
+            payload[field_name] = value  # type: ignore[literal-required]
+        protocol = str(context.get("protocol") or "").strip()
+        if protocol not in {"http", "https", "socks5_tcp", "socks5_udp"}:
+            raise ValueError("network approval protocol is invalid")
+        payload["protocol"] = protocol
+        port = context.get("port")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ValueError("network approval port is invalid")
+        payload["port"] = port
+        if clean_decision == "applyNetworkPolicyAmendment":
+            proposal = context.get("proposed_network_policy_amendment")
+            if (
+                not isinstance(proposal, dict)
+                or set(proposal) != {"host", "action"}
+                or proposal.get("host") != context.get("host")
+                or proposal.get("action") not in {"allow", "deny"}
+            ):
+                raise ValueError("network policy amendment proposal is missing")
+            payload["network_policy_amendment"] = dict(proposal)
+    elif clean_kind == "request_permissions":
+        if clean_decision not in {"decline", "cancel"}:
+            permissions = context.get("permissions")
+            if not isinstance(permissions, dict):
+                raise ValueError("permission approval requires permissions")
+            payload["permissions"] = dict(permissions)
+            scope = "session" if clean_decision == "grantForSession" else "turn"
+            payload["scope"] = scope
+            payload["strict_auto_review"] = (
+                clean_decision == "grantForTurnWithStrictAutoReview"
+            )
+    elif clean_kind == "mcp_tool_call":
+        for field_name in ("server", "tool_name", "mcp_request_id"):
+            value = str(context.get(field_name) or "").strip()
+            if not value:
+                raise ValueError(f"MCP approval requires {field_name}")
+            payload[field_name] = value  # type: ignore[literal-required]
+        if "arguments" not in context:
+            raise ValueError("MCP approval requires arguments")
+        if not _is_json_value(context["arguments"]):
+            raise ValueError("MCP approval arguments must be JSON")
+        payload["arguments"] = context["arguments"]
     if reason_text:
         payload["reason"] = reason_text
 
@@ -498,6 +951,7 @@ async def post_tool_approval(
         approval_id=approval_id,
         call_id=call_id,
         decision=typed_decision,
+        kind=typing.cast(ToolApprovalKind, clean_kind),
     )
 
 
@@ -567,9 +1021,10 @@ def _tool_approval_ack(
     turn_id: str,
     approval_id: str,
     call_id: str,
-    decision: ToolApprovalDecision
+    decision: ToolApprovalDecision,
+    kind: ToolApprovalKind,
 ) -> ToolApprovalAck:
-    """校验审批响应与当前请求是否严格对应。"""
+    """校验嵌套审批信封与当前请求是否严格对应。"""
     try:
         body = response.json()
     except (TypeError, ValueError) as error:
@@ -579,18 +1034,24 @@ def _tool_approval_ack(
             status_code=response.status_code,
         ) from error
 
-    expected = {
-        "request_id": request_id,
-        "turn_id": turn_id,
-        "approval_id": approval_id,
-        "call_id": call_id,
-        "decision": decision,
-    }
-
+    approval = body.get("approval") if isinstance(body, dict) else None
+    response_status = body.get("status") if isinstance(body, dict) else None
+    if response_status is not None and response_status not in {"resolved", "duplicate"}:
+        raise ToolApprovalRequestError(
+            "approval_ack_invalid",
+            "tool approval response has invalid status",
+            status_code=response.status_code,
+        )
     if (
         not isinstance(body, dict)
         or body.get("ok") is not True
-        or any(str(body.get(key) or "").strip() != value for key, value in expected.items())
+        or str(body.get("request_id") or "").strip() != request_id
+        or not isinstance(approval, dict)
+        or str(approval.get("turn_id") or "").strip() != turn_id
+        or str(approval.get("approval_id") or "").strip() != approval_id
+        or str(approval.get("call_id") or "").strip() != call_id
+        or str(approval.get("kind") or "").strip() != kind
+        or str(approval.get("status") or "").strip() != "resolved"
     ):
         raise ToolApprovalRequestError(
             "approval_ack_mismatch",
@@ -598,8 +1059,39 @@ def _tool_approval_ack(
             status_code=response.status_code,
         )
 
-    tool_status = str(body.get("tool_status") or "").strip()
-    turn_status = str(body.get("turn_status") or "").strip()
+    try:
+        envelope = _approval_snapshot_item(
+            approval,
+            expected_turn_id=turn_id,
+        )
+    except ToolApprovalSnapshotRequestError as error:
+        raise ToolApprovalRequestError(
+            "approval_ack_invalid",
+            str(error),
+            status_code=response.status_code,
+        ) from error
+
+    ack = approval.get("ack")
+    if not isinstance(ack, dict):
+        raise ToolApprovalRequestError(
+            "approval_ack_invalid",
+            "tool approval response has no acknowledgement",
+            status_code=response.status_code,
+        )
+    if (
+        envelope.ack is None
+        or str(ack.get("kind") or "").strip() != kind
+        or str(ack.get("request_id") or "").strip() != request_id
+        or str(ack.get("decision") or "").strip() != decision
+    ):
+        raise ToolApprovalRequestError(
+            "approval_ack_mismatch",
+            "tool approval acknowledgement does not match request",
+            status_code=response.status_code,
+        )
+
+    tool_status = str(ack.get("tool_status") or "").strip()
+    turn_status = str(ack.get("turn_status") or "").strip()
 
     if (
         tool_status not in TOOL_APPROVAL_STATUSES
@@ -611,6 +1103,25 @@ def _tool_approval_ack(
             status_code=response.status_code,
         )
 
+    raw_context = ack.get("additional_context")
+    contexts = (
+        tuple(item for item in raw_context if isinstance(item, str))
+        if isinstance(raw_context, list)
+        else ()
+    )
+    raw_protocol = ack.get("protocol")
+    protocol = (
+        raw_protocol
+        if raw_protocol in {"http", "https", "socks5_tcp", "socks5_udp"}
+        else None
+    )
+    raw_scope = ack.get("scope")
+    scope = (
+        raw_scope
+        if raw_scope in {"turn", "session"}
+        else None
+    )
+
     return ToolApprovalAck(
         request_id=request_id,
         turn_id=turn_id,
@@ -619,6 +1130,33 @@ def _tool_approval_ack(
         decision=decision,
         tool_status=typing.cast(ToolApprovalStatus, tool_status),
         turn_status=typing.cast(ToolApprovalTurnStatus, turn_status),
+        kind=kind,
+        additional_context=contexts,
+        reason=str(ack.get("reason") or ""),
+        scope=scope,
+        permissions=(
+            dict(ack["permissions"])
+            if isinstance(ack.get("permissions"), dict)
+            else None
+        ),
+        strict_auto_review=(
+            ack.get("strict_auto_review")
+            if isinstance(ack.get("strict_auto_review"), bool)
+            else None
+        ),
+        target=str(ack.get("target") or "") or None,
+        host=str(ack.get("host") or "") or None,
+        protocol=protocol,
+        port=ack.get("port") if isinstance(ack.get("port"), int) else None,
+        network_policy_amendment=(
+            dict(ack["network_policy_amendment"])
+            if isinstance(ack.get("network_policy_amendment"), dict)
+            else None
+        ),
+        server=str(ack.get("server") or "") or None,
+        tool_name=str(ack.get("tool_name") or "") or None,
+        arguments=ack.get("arguments"),
+        mcp_request_id=str(ack.get("mcp_request_id") or "") or None,
     )
 
 

@@ -105,11 +105,12 @@ def build_approval_presentation(
     resolved_kind = kind or approval_request_kind(normalized)
     resolved_key  = key or _request_key(normalized, resolved_kind)
 
-    resolved_decisions = tuple(
-        decisions
-        if decisions is not None
-        else approval_decisions(normalized)
-    )
+    if decisions is None:
+        resolved_decisions: tuple[ApprovalDecisionValue, ...] = tuple(
+            approval_decisions(normalized)
+        )
+    else:
+        resolved_decisions = decisions
 
     context = _presentation_context(
         normalized,
@@ -117,7 +118,7 @@ def build_approval_presentation(
         kind=resolved_kind,
         decisions=resolved_decisions,
     )
-    summary = approval_summary(normalized)
+    summary = _approval_summary(normalized, resolved_kind)
 
     if resolved_kind == "exec":
         return ExecApprovalPresentation(
@@ -143,10 +144,44 @@ def build_approval_presentation(
     )
 
 
+def _approval_summary(
+    payload: dict[str, typing.Any],
+    kind: ApprovalRequestKind,
+) -> str:
+    """按动作类别生成卡片操作摘要。"""
+    if kind == "permissions":
+        permissions = payload.get("permissions")
+        if isinstance(permissions, dict):
+            parts: list[str] = []
+            if isinstance(permissions.get("network"), dict):
+                if permissions["network"].get("enabled") is True:
+                    parts.append("network access")
+            if isinstance(permissions.get("file_system"), dict):
+                entries = permissions["file_system"].get("entries")
+                if isinstance(entries, list):
+                    paths = [
+                        str(item.get("path") or "").strip()
+                        for item in entries
+                        if isinstance(item, dict) and str(item.get("path") or "").strip()
+                    ]
+                    if paths:
+                        parts.append("file access: " + ", ".join(paths))
+            if parts:
+                return "; ".join(parts)
+        return "additional permissions"
+    if kind == "mcp":
+        server = _text(payload.get("server"))
+        title = _text(payload.get("tool_title")) or _text(payload.get("tool_name"))
+        return ": ".join(value for value in (server, title) if value) or "MCP tool call"
+    return approval_summary(payload)
+
+
 def approval_request_kind(payload: dict[str, typing.Any]) -> ApprovalRequestKind:
     """按显式 kind 和工具名归一化审批展示类别。"""
     raw_kind = _text(payload.get("kind")).lower()
     if raw_kind in {"exec", "execve", "command", "write_stdin"}:
+        return "exec"
+    if raw_kind == "network_access":
         return "exec"
     if raw_kind in {"apply_patch", "patch", "file_change"}:
         return "apply_patch"
@@ -208,6 +243,9 @@ def _presentation_prompt(
 ) -> str:
     """按规范化动作类别生成审批标题。"""
     if kind == "exec":
+        if str(payload.get("kind") or "") == "network_access":
+            host = _text(payload.get("host")) or "the requested host"
+            return f'Do you want to approve network access to "{host}"?'
         return "Would you like to run the following command?"
     if kind == "apply_patch":
         return "Would you like to make the following edits?"
@@ -231,7 +269,13 @@ def _request_key(
         or call_id
     )
 
-    tool = _text(payload.get("tool")) or "shell_command"
+    tool = _text(payload.get("tool"))
+    if not tool:
+        tool = {
+            "network_access": "exec_command",
+            "request_permissions": "request_permissions",
+            "mcp_tool_call": "mcp_tool_call",
+        }.get(str(payload.get("kind") or ""), "shell_command")
 
     return ApprovalRequestKey(
         request_id=request_id,

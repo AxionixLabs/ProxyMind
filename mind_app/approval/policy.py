@@ -4,8 +4,12 @@
 import typing
 from pathlib import Path
 from mind_nova.stream_events import ToolApprovalRequiredEvent
+from mind_nova.tool_approval import (
+    TOOL_APPROVAL_DECISIONS,
+    TOOL_APPROVAL_DECISIONS_BY_KIND
+)
+from mind_nova.identifiers import stable_request_id
 from mind_nova import const
-from mind_nova.tool_approval import TOOL_APPROVAL_DECISIONS
 from .models import (
     ApprovalDecisionValue,
     ExecPolicyAmendmentProposal
@@ -21,6 +25,10 @@ DECISION_LABELS: dict[str, str] = {
     "accept": "Yes, proceed",
     "acceptForSession": "Yes, for this session",
     "acceptWithExecpolicyAmendment": "Yes, and don't ask again for this command prefix",
+    "applyNetworkPolicyAmendment": "Yes, and allow this host in the future",
+    "grantForTurn": "Yes, grant these permissions for this turn",
+    "grantForTurnWithStrictAutoReview": "Yes, grant for this turn with strict auto review",
+    "grantForSession": "Yes, grant these permissions for this session",
     "decline": f"No, and tell {const.APP_DESC} what to do differently",
 }
 
@@ -28,19 +36,45 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "accept": "y",
     "acceptForSession": "s",
     "acceptWithExecpolicyAmendment": "p",
+    "applyNetworkPolicyAmendment": "p",
+    "grantForTurn": "y",
+    "grantForTurnWithStrictAutoReview": "r",
+    "grantForSession": "s",
     "decline": "n/esc",
 }
 
 def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
     """把直接审批事件字段转换为客户端审批卡载荷。"""
     tool = {
+        "command": "exec_command",
+        "network_access": "exec_command",
         "write_stdin": "write_stdin",
         "apply_patch": "apply_patch",
-    }.get(event.kind, "exec_command")
-    raw_cwd = str(event.cwd_raw or event.cwd or ".").strip() or "."
-
-    normalized_cwd = _normalize_approval_cwd(raw_cwd)
-    operation = event.patch if event.kind == "apply_patch" else event.command
+    }.get(event.kind, "")
+    raw_cwd = str(event.cwd_raw or event.cwd or "").strip()
+    normalized_cwd = _normalize_approval_cwd(raw_cwd) if raw_cwd else ""
+    if event.kind == "apply_patch":
+        operation = event.patch
+        arguments: dict[str, typing.Any] = {
+            "patch": operation,
+            "cwd": normalized_cwd,
+        }
+    elif event.kind == "write_stdin":
+        operation = event.input
+        arguments = {
+            "input": event.input,
+            "control": event.control,
+            "session_id": event.session_id,
+        }
+    elif event.kind == "request_permissions":
+        operation = ""
+        arguments = {"permissions": dict(event.permissions or {})}
+    elif event.kind == "mcp_tool_call":
+        operation = ""
+        arguments = event.arguments
+    else:
+        operation = event.command
+        arguments = {"command": operation, "cwd": normalized_cwd}
 
     approval: dict[str, typing.Any] = {
         "id": event.approval_id or event.call_id,
@@ -53,16 +87,19 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         "cwd_raw": raw_cwd,
         "reason": event.reason,
         "justification": event.reason,
-        "arguments": (
-            {"patch": operation, "cwd": normalized_cwd}
-            if event.kind == "apply_patch"
-            else {"command": operation, "cwd": normalized_cwd}
-        ),
+        "arguments": arguments,
     }
     if event.kind == "apply_patch":
         approval["patch"] = operation
-    else:
+        approval["files"] = list(event.files or event.patch_scope)
+        if event.permissions_preapproved is not None:
+            approval["permissions_preapproved"] = event.permissions_preapproved
+    elif event.kind in {"command", "network_access"}:
         approval["command"] = operation
+    elif event.kind == "write_stdin":
+        approval["input"] = event.input
+        approval["control"] = event.control
+        approval["session_id"] = event.session_id
     if event.environment_id:
         approval["environment_id"] = event.environment_id
     if event.started_at_ms is not None:
@@ -73,6 +110,8 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         approval["script_path"] = event.script_path
     if event.tty:
         approval["tty"] = True
+    if event.kind == "command":
+        approval["sandbox_permissions"] = event.sandbox_permissions
     if event.additional_permissions is not None:
         approval["additional_permissions"] = dict(event.additional_permissions)
     if event.policy_fingerprint:
@@ -83,6 +122,43 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         approval["proposed_execpolicy_amendment"] = dict(
             event.proposed_execpolicy_amendment
         )
+    if event.proposed_network_policy_amendment is not None:
+        approval["proposed_network_policy_amendment"] = dict(
+            event.proposed_network_policy_amendment
+        )
+    if event.target:
+        approval["target"] = event.target
+    if event.host:
+        approval["host"] = event.host
+    if event.protocol:
+        approval["protocol"] = event.protocol
+    if event.port is not None:
+        approval["port"] = event.port
+    if event.permissions is not None:
+        approval["permissions"] = dict(event.permissions)
+    if event.scope is not None:
+        approval["scope"] = event.scope
+    if event.strict_auto_review is not None:
+        approval["strict_auto_review"] = event.strict_auto_review
+    if event.server:
+        approval["server"] = event.server
+    if event.tool_name:
+        approval["tool_name"] = event.tool_name
+    if event.mcp_request_id:
+        approval["mcp_request_id"] = event.mcp_request_id
+    for field_name in (
+        "connector_id", "connector_name", "connector_description",
+        "connected_account_email", "tool_title", "tool_description",
+    ):
+        value = getattr(event, field_name)
+        if value:
+            approval[field_name] = value
+    if event.annotations is not None:
+        approval["annotations"] = dict(event.annotations)
+    if event.status != "pending":
+        approval["status"] = event.status
+    if event.ack is not None:
+        approval["ack"] = dict(event.ack)
     approval["available_decisions"] = list(event.available_decisions)
     if event.parsed_cmd:
         approval["parsed_cmd"] = list(event.parsed_cmd)
@@ -93,42 +169,52 @@ def approval_from_snapshot(
     item: typing.Mapping[str, typing.Any],
 ) -> dict[str, typing.Any]:
     """把服务端快照中的审批记录转换为事件同构载荷。"""
-    raw_approval = item.get("approval")
-    approval = dict(raw_approval) if isinstance(raw_approval, dict) else {}
+    approval    = dict(item)
+    approval_id = str(approval.get("approval_id") or "").strip()
+    call_id     = str(approval.get("call_id") or "").strip()
+    turn_id     = str(approval.get("turn_id") or "").strip()
+    kind        = str(approval.get("kind") or "command").strip()
 
-    approval_id = str(
-        item.get("approval_id")
-        or approval.get("approval_id")
-        or ""
-    ).strip()
-    call_id = str(item.get("call_id") or approval.get("call_id") or "").strip()
-    turn_id = str(item.get("turn_id") or approval.get("turn_id") or "").strip()
-    name = str(item.get("name") or "").strip()
-    kind = str(approval.get("kind") or "command").strip()
-
-    if kind == "apply_patch" or name == "apply_patch":
+    if kind == "apply_patch":
         tool = "apply_patch"
         operation_field = "patch"
-    elif kind == "write_stdin" or name == "write_stdin":
+    elif kind == "write_stdin":
         tool = "write_stdin"
+        operation_field = "input"
+    elif kind == "network_access":
+        tool = "exec_command"
+        operation_field = "command"
+    elif kind in {"request_permissions", "mcp_tool_call"}:
+        tool = ""
         operation_field = "command"
     else:
         tool = "exec_command"
         operation_field = "command"
 
-    raw_arguments = item.get("arguments")
-    arguments = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
     operation = approval.get(operation_field)
-    if not isinstance(operation, str) or not operation:
-        operation = arguments.get(operation_field, "")
 
-    raw_cwd = str(
+    raw_cwd_value = (
         approval.get("cwd_raw")
         or approval.get("cwd")
-        or arguments.get("cwd")
-        or "."
-    ).strip() or "."
-    normalized_cwd = _normalize_approval_cwd(raw_cwd)
+    )
+    raw_cwd = str(raw_cwd_value or "").strip()
+    normalized_cwd = _normalize_approval_cwd(raw_cwd) if raw_cwd else ""
+
+    if kind == "request_permissions":
+        arguments = {"permissions": dict(approval.get("permissions") or {})}
+    elif kind == "mcp_tool_call":
+        arguments = approval.get("arguments")
+    elif kind == "write_stdin":
+        arguments = {
+            "input": str(approval.get("input") or ""),
+            "control": str(approval.get("control") or "none"),
+            "session_id": str(approval.get("session_id") or ""),
+        }
+    else:
+        arguments = {
+            operation_field: operation,
+            "cwd": normalized_cwd,
+        }
 
     approval.update({
         "id": approval_id or call_id,
@@ -139,13 +225,11 @@ def approval_from_snapshot(
         "kind": kind,
         "cwd": normalized_cwd,
         "cwd_raw": raw_cwd,
-        "arguments": {
-            operation_field: operation,
-            "cwd": normalized_cwd,
-        },
-        operation_field: operation,
+        "arguments": arguments,
         "justification": str(approval.get("reason") or "").strip(),
     })
+    if operation and operation_field not in approval:
+        approval[operation_field] = operation
     return approval
 
 
@@ -188,6 +272,12 @@ def approval_decisions(
 
         seen: set[str] = set()
 
+        kind = str(approval.get("kind") or "command").strip()
+
+        allowed_for_kind = TOOL_APPROVAL_DECISIONS_BY_KIND.get(kind)
+        if allowed_for_kind is None:
+            raise ValueError(f"unsupported approval kind: {kind}")
+
         for raw_decision in raw_decisions:
             decision = str(raw_decision or "").strip()
             if not decision:
@@ -196,6 +286,10 @@ def approval_decisions(
                 continue
             if decision not in TOOL_APPROVAL_DECISIONS:
                 raise ValueError(f"unsupported approval decision: {decision}")
+            if decision not in allowed_for_kind:
+                raise ValueError(
+                    f"approval decision is invalid for kind: {kind}"
+                )
             if decision == "cancel":
                 continue
             seen.add(decision)
@@ -215,7 +309,7 @@ def approval_decisions(
 
 
 def approval_execpolicy_amendment(
-    approval: dict[str, typing.Any] | None,
+    approval: dict[str, typing.Any] | None
 ) -> ExecPolicyAmendmentProposal | None:
     """读取可安全展示和回传的执行策略修订提案。"""
     if not isinstance(approval, dict):
@@ -224,14 +318,22 @@ def approval_execpolicy_amendment(
     if not isinstance(raw, dict):
         return None
 
-    amendment_id   = str(raw.get("id") or "").strip()
-    display        = str(raw.get("display") or "").strip()
-    command_prefix = raw.get("command_prefix")
+    command_prefix = raw.get("command")
+    if isinstance(command_prefix, list):
+        if any(not isinstance(value, str) or not value for value in command_prefix):
+            return None
+        command_prefix = tuple(command_prefix)
+        amendment_id = stable_request_id("execpolicy", *command_prefix)
+        display = " ".join(command_prefix)
+    else:
+        amendment_id   = str(raw.get("id") or "").strip()
+        display        = str(raw.get("display") or "").strip()
+        command_prefix = raw.get("command_prefix")
 
     if (
         not amendment_id
         or not display
-        or not isinstance(command_prefix, list)
+        or not isinstance(command_prefix, (list, tuple))
         or not command_prefix
         or any(not isinstance(value, str) or not value for value in command_prefix)
     ):

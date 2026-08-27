@@ -11,7 +11,10 @@ from collections.abc import Mapping
 from mind_nova.turn_inputs import TurnInput
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
-    ToolApprovalDecision
+    TOOL_APPROVAL_DECISIONS_BY_KIND,
+    ToolApprovalDecision,
+    ToolApprovalKind,
+    ToolApprovalSnapshotStatus
 )
 
 TurnDoneStatus: typing.TypeAlias = typing.Literal[
@@ -185,21 +188,48 @@ class ToolApprovalRequiredEvent(StreamEvent):
     """描述需要客户端决定的直接工具审批请求。"""
     call_id: str = ""
     reason: str = ""
-    kind: typing.Literal["command", "write_stdin", "apply_patch"] = "command"
+    kind: ToolApprovalKind = "command"
     approval_id: str = ""
+    status: ToolApprovalSnapshotStatus = "pending"
+    ack: dict[str, typing.Any] | None = None
     environment_id: str | None = None
-    started_at_ms: int | None = None
+    started_at_ms: int = 0
     plugin_id: str | None = None
     script_path: str | None = None
     tty: bool = False
+    sandbox_permissions: str = "use_default"
     additional_permissions: dict[str, typing.Any] | None = None
     policy_fingerprint: str | None = None
     patch_scope: tuple[str, ...] = ()
+    files: tuple[str, ...] = ()
+    permissions_preapproved: bool | None = None
     command: typing.Any = ""
     patch: typing.Any = ""
-    cwd: str = "."
+    cwd: str | None = None
     cwd_raw: str | None = None
     proposed_execpolicy_amendment: dict[str, typing.Any] | None = None
+    proposed_network_policy_amendment: dict[str, typing.Any] | None = None
+    session_id: str = ""
+    input: str = ""
+    control: typing.Literal["none", "interrupt", "terminate"] = "none"
+    target: str = ""
+    host: str = ""
+    protocol: str = ""
+    port: int | None = None
+    permissions: dict[str, typing.Any] | None = None
+    scope: str | None = None
+    strict_auto_review: bool | None = None
+    arguments: typing.Any = None
+    server: str = ""
+    tool_name: str = ""
+    mcp_request_id: str = ""
+    connector_id: str | None = None
+    connector_name: str | None = None
+    connector_description: str | None = None
+    connected_account_email: str | None = None
+    tool_title: str | None = None
+    tool_description: str | None = None
+    annotations: dict[str, bool | None] | None = None
     available_decisions: tuple[ToolApprovalDecision, ...] = ()
     parsed_cmd: tuple[typing.Any, ...] = ()
 
@@ -400,6 +430,24 @@ def parse_stream_event(
             raise ValueError(
                 "tool.approval_required available_decisions is required"
             )
+        if (
+            len(raw_decisions) > 5
+            or any(not isinstance(item, str) for item in raw_decisions)
+            or len(set(raw_decisions)) != len(raw_decisions)
+        ):
+            raise ValueError(
+                "tool.approval_required available_decisions must be unique and contain at most five items"
+            )
+        kind = _approval_kind(raw.get("kind"))
+        removed_fields = {"name", "approval", "patch_scope"}
+        if kind != "mcp_tool_call":
+            removed_fields.add("arguments")
+        present_removed = sorted(field for field in removed_fields if field in raw)
+        if present_removed:
+            raise ValueError(
+                "tool.approval_required contains removed protocol fields: "
+                + ", ".join(present_removed)
+            )
         available_decisions: list[ToolApprovalDecision] = []
         for raw_decision in raw_decisions:
             decision = _required_text(
@@ -410,8 +458,14 @@ def parse_stream_event(
                 raise ValueError(
                     f"unsupported tool approval decision: {decision}"
                 )
+            if decision not in TOOL_APPROVAL_DECISIONS_BY_KIND[kind]:
+                raise ValueError(
+                    f"tool.approval_required decision is invalid for {kind}"
+                )
             available_decisions.append(typing.cast(ToolApprovalDecision, decision))
-        kind = _approval_kind(raw.get("kind"))
+        if "reason" not in raw or not isinstance(raw.get("reason"), str):
+            raise ValueError("tool.approval_required reason is required")
+
         if kind == "apply_patch":
             patch = raw.get("patch")
             if not isinstance(patch, str) or not patch.strip():
@@ -420,33 +474,97 @@ def parse_stream_event(
                 )
         else:
             patch = raw.get("patch", "")
+
+        approval_id = _required_text(
+            raw.get("approval_id"),
+            "tool.approval_required approval_id",
+        )
+        status = _approval_status(raw.get("status"))
+        if "ack" not in raw:
+            raise ValueError("tool.approval_required ack is required")
+        ack = raw.get("ack")
+        if ack is not None and not isinstance(ack, dict):
+            raise ValueError("tool.approval_required ack must be an object or null")
+        if status == "resolved" and ack is None:
+            raise ValueError("resolved tool approval requires ack")
+        if status != "resolved" and ack is not None:
+            raise ValueError("only resolved tool approval may contain ack")
+        _validate_approval_ack(
+            ack,
+            kind=kind,
+            available_decisions=available_decisions,
+            envelope=raw,
+        )
+
+        action_fields = _approval_action_fields(raw, kind)
+        if kind == "request_permissions":
+            action_fields["scope"] = _optional_text(
+                ack.get("scope") if isinstance(ack, dict) else None
+            )
+            action_fields["strict_auto_review"] = (
+                ack.get("strict_auto_review")
+                if isinstance(ack, dict)
+                and isinstance(ack.get("strict_auto_review"), bool)
+                else None
+            )
+
+        files = tuple(action_fields.pop("files", ()))
+        permissions_preapproved = action_fields.pop("permissions_preapproved", None)
+        scope = action_fields.pop("scope", None)
+        strict_auto_review = action_fields.pop("strict_auto_review", None)
+
+        parsed_cmd = (
+            tuple(copy.deepcopy(raw["parsed_cmd"]))
+            if kind == "command"
+            else ()
+        )
         return ToolApprovalRequiredEvent(
             **common,
             call_id=_required_text(raw.get("call_id"), "tool.approval_required call_id"),
             kind=kind,
-            approval_id=_text(raw.get("approval_id")),
-            environment_id=_optional_text(
-                raw.get("environment_id", raw.get("environmentId"))
-            ),
+            approval_id=approval_id,
+            status=status,
+            ack=_optional_dict(ack),
+            environment_id=_optional_text(raw.get("environment_id")),
             started_at_ms=_approval_started_at(raw),
             plugin_id=_optional_text(raw.get("plugin_id")),
             script_path=_optional_text(raw.get("script_path")),
             tty=_bool_value(raw.get("tty")),
+            sandbox_permissions=_approval_sandbox_permissions(raw, kind),
             additional_permissions=_optional_dict(
                 raw.get("additional_permissions")
             ),
             policy_fingerprint=_optional_text(raw.get("policy_fingerprint")),
-            patch_scope=_tuple_or_empty(raw.get("patch_scope")),
+            patch_scope=files,
+            files=files,
+            permissions_preapproved=permissions_preapproved,
             command=raw.get("command", ""),
             patch=patch,
-            cwd=_text(raw.get("cwd")) or ".",
-            cwd_raw=_optional_text(raw.get("cwd_raw")) or None,
+            cwd=(
+                _optional_text(raw.get("cwd"))
+                if kind not in {"command", "apply_patch", "network_access"}
+                else _required_text(
+                    raw.get("cwd"),
+                    "tool.approval_required cwd",
+                )
+            ),
+            cwd_raw=(
+                _optional_text(raw.get("cwd_raw"))
+                if kind not in {"command", "apply_patch", "network_access"}
+                else _required_text(
+                    raw.get("cwd_raw"),
+                    "tool.approval_required cwd_raw",
+                )
+            ),
             reason=_text(raw.get("reason")),
             proposed_execpolicy_amendment=_optional_dict(
                 raw.get("proposed_execpolicy_amendment")
             ),
+            scope=scope,
+            strict_auto_review=strict_auto_review,
+            **action_fields,
             available_decisions=tuple(available_decisions),
-            parsed_cmd=_tuple_or_empty(raw.get("parsed_cmd")),
+            parsed_cmd=parsed_cmd,
         )
     if event_type == "tool.call":
         tool_fields = _tool_fields(raw)
@@ -629,24 +747,401 @@ def _tuple_or_empty(value: typing.Any) -> tuple[typing.Any, ...]:
 
 def _approval_kind(
     value: typing.Any,
-) -> typing.Literal["command", "write_stdin", "apply_patch"]:
+) -> ToolApprovalKind:
     """读取直接审批请求的操作类型。"""
-    kind = _text(value) or "command"
-    if kind not in {"command", "write_stdin", "apply_patch"}:
+    kind = _required_text(value, "tool.approval_required kind")
+    if kind not in TOOL_APPROVAL_DECISIONS_BY_KIND:
         raise ValueError("tool.approval_required kind is invalid")
-    return typing.cast(
-        typing.Literal["command", "write_stdin", "apply_patch"],
-        kind,
-    )
+    return typing.cast(ToolApprovalKind, kind)
 
 
-def _approval_started_at(payload: dict[str, typing.Any]) -> int | None:
-    """读取审批事件的可选创建时间。"""
-    if "started_at_ms" not in payload or payload.get("started_at_ms") is None:
+def _approval_status(value: typing.Any) -> ToolApprovalSnapshotStatus:
+    """读取审批信封的生命周期状态。"""
+    status = _required_text(value, "tool.approval_required status")
+    if status not in {"pending", "resolved", "expired", "cancelled"}:
+        raise ValueError("tool.approval_required status is invalid")
+    return status
+
+
+def _approval_action_fields(
+    payload: dict[str, typing.Any],
+    kind: ToolApprovalKind,
+) -> dict[str, typing.Any]:
+    """读取并校验动作专属审批字段。"""
+    fields: dict[str, typing.Any] = {}
+    if kind == "command":
+        _required_text(payload.get("environment_id"), "tool.approval_required environment_id")
+        _required_string_list(payload.get("command"), "tool.approval_required command")
+        _required_text(payload.get("cwd"), "tool.approval_required cwd")
+        _required_text(payload.get("cwd_raw"), "tool.approval_required cwd_raw")
+        if not isinstance(payload.get("tty"), bool):
+            raise ValueError("tool.approval_required tty is required")
+        if "additional_permissions" not in payload:
+            raise ValueError("tool.approval_required additional_permissions is required")
+        if "proposed_execpolicy_amendment" not in payload:
+            raise ValueError(
+                "tool.approval_required proposed_execpolicy_amendment is required"
+            )
+        parsed_cmd = payload.get("parsed_cmd")
+        if not isinstance(parsed_cmd, list):
+            raise ValueError("tool.approval_required parsed_cmd is required")
+        if any(not isinstance(item, dict) for item in parsed_cmd):
+            raise ValueError("tool.approval_required parsed_cmd must contain objects")
+        if payload.get("sandbox_permissions") == "with_additional_permissions" and not isinstance(
+            payload.get("additional_permissions"), dict
+        ):
+            raise ValueError(
+                "tool.approval_required additional_permissions are required"
+            )
+        if payload.get("sandbox_permissions") != "with_additional_permissions" and payload.get(
+            "additional_permissions"
+        ) is not None:
+            raise ValueError(
+                "tool.approval_required additional_permissions are not allowed"
+            )
+        amendment = payload.get("proposed_execpolicy_amendment")
+        has_amendment = "acceptWithExecpolicyAmendment" in {
+            str(item) for item in payload.get("available_decisions", [])
+        }
+        if has_amendment != isinstance(amendment, dict):
+            raise ValueError(
+                "tool.approval_required execpolicy proposal and decision must appear together"
+            )
+        if isinstance(amendment, dict):
+            if set(amendment) != {"command"}:
+                raise ValueError(
+                    "tool.approval_required execpolicy proposal is invalid"
+                )
+            command_prefix = amendment.get("command")
+            if not isinstance(command_prefix, list) or not command_prefix or any(
+                not isinstance(item, str) or not item for item in command_prefix
+            ):
+                raise ValueError(
+                    "tool.approval_required execpolicy proposal is invalid"
+                )
+    elif kind == "write_stdin":
+        fields["session_id"] = _required_text(
+            payload.get("session_id"),
+            "tool.approval_required session_id",
+        )
+        if "input" not in payload or not isinstance(payload.get("input"), str):
+            raise ValueError("tool.approval_required input is required")
+        fields["input"] = payload["input"]
+        control = payload.get("control")
+        if control not in {"none", "interrupt", "terminate"}:
+            raise ValueError("tool.approval_required control is invalid")
+        fields["control"] = control
+    elif kind == "apply_patch":
+        _required_text(
+            payload.get("environment_id"),
+            "tool.approval_required environment_id",
+        )
+        _required_text(payload.get("cwd"), "tool.approval_required cwd")
+        _required_text(payload.get("cwd_raw"), "tool.approval_required cwd_raw")
+        files = _required_string_list(
+            payload.get("files"),
+            "tool.approval_required files",
+        )
+        if "permissions_preapproved" not in payload or not isinstance(
+            payload.get("permissions_preapproved"), bool
+        ):
+            raise ValueError(
+                "tool.approval_required permissions_preapproved is required"
+            )
+        fields["files"] = tuple(files)
+        fields["permissions_preapproved"] = payload["permissions_preapproved"]
+    elif kind == "network_access":
+        _required_text(
+            payload.get("environment_id"),
+            "tool.approval_required environment_id",
+        )
+        _required_text(payload.get("cwd"), "tool.approval_required cwd")
+        _required_text(payload.get("cwd_raw"), "tool.approval_required cwd_raw")
+        fields["target"] = _required_text(
+            payload.get("target"), "tool.approval_required target"
+        )
+        fields["host"] = _required_text(
+            payload.get("host"), "tool.approval_required host"
+        )
+        protocol = _required_text(
+            payload.get("protocol"), "tool.approval_required protocol"
+        )
+        if protocol not in {"http", "https", "socks5_tcp", "socks5_udp"}:
+            raise ValueError("tool.approval_required protocol is invalid")
+        fields["protocol"] = protocol
+        port = _required_positive_int(
+            payload.get("port"), "tool.approval_required port"
+        )
+        if port > 65535:
+            raise ValueError("tool.approval_required port is invalid")
+        fields["port"] = port
+        command = payload.get("command")
+        if not isinstance(command, list) or not command or any(
+            not isinstance(item, str) for item in command
+        ):
+            raise ValueError("tool.approval_required network command is required")
+        if "proposed_network_policy_amendment" not in payload:
+            raise ValueError(
+                "tool.approval_required proposed_network_policy_amendment is required"
+            )
+        proposal = _optional_dict(payload.get("proposed_network_policy_amendment"))
+        if proposal is not None:
+            if set(proposal) != {"host", "action"}:
+                raise ValueError("network policy proposal is invalid")
+            if not isinstance(proposal.get("host"), str) or not proposal.get("host"):
+                raise ValueError("network policy proposal host is required")
+            if proposal.get("action") not in {"allow", "deny"}:
+                raise ValueError("network policy proposal action is invalid")
+            if proposal["host"] != fields["host"]:
+                raise ValueError("network policy proposal host must match target host")
+        has_amendment = "applyNetworkPolicyAmendment" in {
+            str(item) for item in payload.get("available_decisions", [])
+        }
+        if has_amendment != (proposal is not None):
+            raise ValueError("network policy proposal and decision must appear together")
+        fields["proposed_network_policy_amendment"] = proposal
+    elif kind == "request_permissions":
+        for name in ("environment_id", "cwd"):
+            raw_value = payload.get(name)
+            if raw_value is not None and not isinstance(raw_value, str):
+                raise ValueError(
+                    f"tool.approval_required {name} must be a string or null"
+                )
+        raw_permissions = payload.get("permissions")
+        if not isinstance(raw_permissions, dict):
+            raise ValueError("tool.approval_required permissions are required")
+        fields["permissions"] = copy.deepcopy(raw_permissions)
+    elif kind == "mcp_tool_call":
+        fields["server"] = _required_text(
+            payload.get("server"), "tool.approval_required server"
+        )
+        fields["tool_name"] = _required_text(
+            payload.get("tool_name"), "tool.approval_required tool_name"
+        )
+        if "arguments" not in payload:
+            raise ValueError("tool.approval_required arguments are required")
+        arguments = payload["arguments"]
+        if not _is_json_value(arguments):
+            raise ValueError("tool.approval_required arguments must be JSON")
+        fields["arguments"] = copy.deepcopy(arguments)
+        fields["mcp_request_id"] = _required_text(
+            payload.get("mcp_request_id"), "tool.approval_required mcp_request_id"
+        )
+        for name in (
+            "connector_id", "connector_name", "connector_description",
+            "connected_account_email", "tool_title", "tool_description",
+        ):
+            raw_value = payload.get(name)
+            if raw_value is not None and not isinstance(raw_value, str):
+                raise ValueError(f"tool.approval_required {name} must be a string")
+            fields[name] = _optional_text(raw_value)
+        fields["annotations"] = _mcp_annotations(payload.get("annotations"))
+    return fields
+
+
+def _approval_sandbox_permissions(
+    payload: dict[str, typing.Any],
+    kind: ToolApprovalKind,
+) -> str:
+    """读取命令动作的沙箱权限字段。"""
+    if kind != "command":
+        return "use_default"
+    value = payload.get("sandbox_permissions")
+    if value not in {
+        "use_default",
+        "require_escalated",
+        "with_additional_permissions",
+    }:
+        raise ValueError("tool.approval_required sandbox_permissions is invalid")
+    return typing.cast(str, value)
+
+
+def _required_list(value: typing.Any, field_name: str) -> list[typing.Any]:
+    """读取必填非空数组字段。"""
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field_name} is required")
+    return value
+
+
+def _required_string_list(value: typing.Any, field_name: str) -> list[str]:
+    """读取必填的非空字符串数组字段。"""
+    values = _required_list(value, field_name)
+    if any(not isinstance(item, str) or not item.strip() for item in values):
+        raise ValueError(f"{field_name} must contain non-empty strings")
+    return values
+
+
+def _validate_approval_ack(
+    value: dict[str, typing.Any] | None,
+    *,
+    kind: ToolApprovalKind,
+    available_decisions: list[ToolApprovalDecision],
+    envelope: dict[str, typing.Any] | None = None,
+) -> None:
+    """校验终态审批回执与动作类型及决定集合一致。"""
+    if value is None:
+        return
+    if _required_text(value.get("kind"), "tool approval ack kind") != kind:
+        raise ValueError("tool approval ack kind does not match approval")
+    request_id = _required_text(value.get("request_id"), "tool approval ack request_id")
+    if len(request_id) < 8:
+        raise ValueError("tool approval ack request_id is too short")
+    decision = _required_text(value.get("decision"), "tool approval ack decision")
+    if decision not in TOOL_APPROVAL_DECISIONS_BY_KIND[kind]:
+        raise ValueError("tool approval ack decision is invalid for kind")
+    if decision not in available_decisions:
+        raise ValueError("tool approval ack decision is not available")
+
+    expected_tool_status = {
+        "decline": "declined",
+        "cancel": "cancelled",
+    }.get(decision, "approved")
+    if value.get("tool_status") != expected_tool_status:
+        raise ValueError("tool approval ack tool_status is inconsistent")
+    expected_turn_status = "interrupting" if decision == "cancel" else "active"
+    if value.get("turn_status") != expected_turn_status:
+        raise ValueError("tool approval ack turn_status is inconsistent")
+
+    contexts = value.get("additional_context")
+    if not isinstance(contexts, list) or any(
+        not isinstance(item, str) for item in contexts
+    ):
+        raise ValueError("tool approval ack additional_context is invalid")
+    if not isinstance(value.get("reason"), str):
+        raise ValueError("tool approval ack reason is invalid")
+
+    if kind == "command":
+        amendment_id = value.get("execpolicy_amendment_id")
+        if decision == "acceptWithExecpolicyAmendment":
+            if not isinstance(amendment_id, str) or not amendment_id.strip():
+                raise ValueError("tool approval ack execpolicy amendment is missing")
+        elif amendment_id is not None:
+            raise ValueError("tool approval ack execpolicy amendment is not allowed")
+
+    if kind == "network_access":
+        target = _required_text(value.get("target"), "tool approval ack target")
+        host = _required_text(value.get("host"), "tool approval ack host")
+        if value.get("protocol") not in {
+            "http", "https", "socks5_tcp", "socks5_udp"
+        }:
+            raise ValueError("tool approval ack protocol is invalid")
+        port = value.get("port")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ValueError("tool approval ack port is invalid")
+        if envelope is not None and (
+            target != envelope.get("target")
+            or host != envelope.get("host")
+            or value.get("protocol") != envelope.get("protocol")
+            or port != envelope.get("port")
+        ):
+            raise ValueError("tool approval ack network target does not match approval")
+        amendment = value.get("network_policy_amendment")
+        if decision == "applyNetworkPolicyAmendment":
+            if not isinstance(amendment, dict):
+                raise ValueError("tool approval ack network policy amendment is required")
+            if (
+                set(amendment) != {"host", "action"}
+                or amendment.get("host") != host
+                or amendment.get("action") not in {"allow", "deny"}
+            ):
+                raise ValueError("tool approval ack network policy host does not match")
+            if envelope is not None and amendment != envelope.get(
+                "proposed_network_policy_amendment"
+            ):
+                raise ValueError("tool approval ack network policy does not match proposal")
+        elif amendment is not None:
+            raise ValueError("tool approval ack network policy amendment is not allowed")
+    elif kind == "request_permissions":
+        granting = decision not in {"decline", "cancel"}
+        scope = value.get("scope")
+        permissions = value.get("permissions")
+        strict_auto_review = value.get("strict_auto_review")
+        if granting:
+            if scope not in {"turn", "session"} or not isinstance(permissions, dict):
+                raise ValueError("tool approval ack permission grant is incomplete")
+            if envelope is not None and not _json_contains(
+                envelope.get("permissions"), permissions
+            ):
+                raise ValueError("tool approval ack permissions exceed approval")
+            if not isinstance(strict_auto_review, bool):
+                raise ValueError("tool approval ack strict_auto_review is required")
+            expected_scope = "session" if decision == "grantForSession" else "turn"
+            expected_strict = decision == "grantForTurnWithStrictAutoReview"
+            if scope != expected_scope or strict_auto_review is not expected_strict:
+                raise ValueError("tool approval ack permission grant is inconsistent")
+        elif any(item is not None for item in (scope, permissions, strict_auto_review)):
+            raise ValueError("tool approval ack permission fields are not allowed")
+    elif kind == "mcp_tool_call":
+        server = _required_text(value.get("server"), "tool approval ack server")
+        tool_name = _required_text(value.get("tool_name"), "tool approval ack tool_name")
+        if "arguments" not in value:
+            raise ValueError("tool approval ack arguments are required")
+        if not _is_json_value(value.get("arguments")):
+            raise ValueError("tool approval ack arguments must be JSON")
+        if envelope is not None and (
+            server != envelope.get("server")
+            or tool_name != envelope.get("tool_name")
+            or value.get("arguments") != envelope.get("arguments")
+            or value.get("mcp_request_id") != envelope.get("mcp_request_id")
+        ):
+            raise ValueError("tool approval ack MCP request does not match approval")
+        _required_text(value.get("mcp_request_id"), "tool approval ack mcp_request_id")
+
+
+def _mcp_annotations(value: typing.Any) -> dict[str, bool | None] | None:
+    """读取 MCP 工具的严格行为提示字段。"""
+    if value is None:
         return None
+    if not isinstance(value, dict):
+        raise ValueError("tool.approval_required annotations must be an object")
+    allowed = {"destructive_hint", "open_world_hint", "read_only_hint"}
+    if set(value) - allowed:
+        raise ValueError("tool.approval_required annotations contain unknown fields")
+    result: dict[str, bool | None] = {}
+    for name in allowed:
+        raw = value.get(name)
+        if raw is not None and not isinstance(raw, bool):
+            raise ValueError(f"tool.approval_required {name} must be boolean or null")
+        result[name] = raw
+    return result
+
+
+def _is_json_value(value: typing.Any) -> bool:
+    """判断值是否可由 JSON 表示。"""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_value(item)
+            for key, item in value.items()
+        )
+    return False
+
+
+def _json_contains(container: typing.Any, candidate: typing.Any) -> bool:
+    """判断结构化权限申请是否包含授权内容。"""
+    if isinstance(candidate, dict):
+        return isinstance(container, dict) and all(
+            key in container and _json_contains(container[key], item)
+            for key, item in candidate.items()
+        )
+    if isinstance(candidate, list):
+        return isinstance(container, list) and all(
+            any(_json_contains(item, wanted) for item in container)
+            for wanted in candidate
+        )
+    return container == candidate
+
+
+def _approval_started_at(payload: dict[str, typing.Any]) -> int:
+    """读取审批信封中的创建时间。"""
     value = _nonnegative_int(payload.get("started_at_ms"))
     if value is None:
-        raise ValueError("tool.approval_required started_at_ms must be non-negative")
+        raise ValueError(
+            "tool.approval_required started_at_ms is required and must be non-negative"
+        )
     return value
 
 

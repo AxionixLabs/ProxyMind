@@ -10,6 +10,7 @@ ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "approved",
     "consumed",
     "unknown",
+    "terminal",
 ]
 
 ToolResultState: typing.TypeAlias = typing.Literal[
@@ -81,6 +82,32 @@ class ApprovalCallLedger(object):
         key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
         with self._lock:
             self._states.pop(key, None)
+
+    def record_terminal(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        call_id: str,
+    ) -> None:
+        """记录已收束且不应由旧事件重新打开的审批调用。"""
+        key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
+        with self._lock:
+            self._states[key] = "terminal"
+
+    def is_terminal(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        call_id: str,
+    ) -> bool:
+        """判断审批是否已经由快照或终态事件收束。"""
+        key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
+        with self._lock:
+            return self._states.get(key) == "terminal"
 
     def consume(
         self,

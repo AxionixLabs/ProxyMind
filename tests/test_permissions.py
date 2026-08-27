@@ -47,19 +47,21 @@ from mind_nova.stream_events import (
 
 def test_approval_from_snapshot_matches_event_shape() -> None:
     approval = approval_from_snapshot({
+        "type": "tool.approval_required",
         "approval_id": "approval_1",
         "turn_id": "turn_1",
         "call_id": "call_1",
-        "name": "apply_patch",
-        "arguments": {"patch": "*** Update File: a.txt\n+ok\n", "cwd": "."},
-        "approval": {
-            "type": "tool.approval_required",
-            "kind": "apply_patch",
-            "patch": "*** Update File: a.txt\n+ok\n",
-            "cwd": ".",
-            "available_decisions": ["accept", "decline"],
-            "reason": "需要修改文件",
-        },
+        "kind": "apply_patch",
+        "environment_id": "workspace-write",
+        "patch": "*** Update File: a.txt\n+ok\n",
+        "files": ["a.txt"],
+        "cwd": ".",
+        "cwd_raw": ".",
+        "permissions_preapproved": False,
+        "available_decisions": ["accept", "decline", "cancel"],
+        "status": "pending",
+        "ack": None,
+        "reason": "需要修改文件",
     })
 
     assert approval["id"] == "approval_1"
@@ -478,6 +480,46 @@ def test_approval_from_event_uses_direct_command_fields() -> None:
     assert approval["turn_id"] == ""
     assert approval["reason"] == "需要检查命令输出"
     assert approval["justification"] == "需要检查命令输出"
+
+
+def test_approval_from_event_preserves_network_permissions_and_mcp_fields() -> None:
+    network = approval_from_event(ToolApprovalRequiredEvent(
+        type="tool.approval_required",
+        call_id="call-network",
+        approval_id="approval-network",
+        kind="network_access",
+        target="https://api.example.com/v1",
+        host="api.example.com",
+        protocol="https",
+        port=443,
+        command=["curl", "https://api.example.com/v1"],
+        proposed_network_policy_amendment={
+            "host": "api.example.com",
+            "action": "allow",
+        },
+        available_decisions=(
+            "accept", "applyNetworkPolicyAmendment", "decline"
+        ),
+    ))
+    mcp = approval_from_event(ToolApprovalRequiredEvent(
+        type="tool.approval_required",
+        call_id="call-mcp",
+        approval_id="approval-mcp",
+        kind="mcp_tool_call",
+        server="github",
+        tool_name="create_issue",
+        arguments={"title": "Bug"},
+        mcp_request_id="mcp-request-1",
+        annotations={"read_only_hint": False},
+        available_decisions=("accept", "decline"),
+    ))
+
+    assert network["tool"] == "exec_command"
+    assert network["host"] == "api.example.com"
+    assert network["proposed_network_policy_amendment"]["action"] == "allow"
+    assert mcp["tool"] == ""
+    assert mcp["server"] == "github"
+    assert mcp["arguments"] == {"title": "Bug"}
 
 
 def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> None:

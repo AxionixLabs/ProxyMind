@@ -88,6 +88,8 @@ def approval_report_kwargs(
         "decision": decision,
         "reason": reason,
         "turn_id": turn_id,
+        "kind": str(approval.get("kind") or "command"),
+        "approval": dict(approval),
     }
     if decision == "acceptWithExecpolicyAmendment":
         amendment = approval_execpolicy_amendment(approval)
@@ -146,17 +148,18 @@ class ApprovalEventHandler:
                     call_id=item.call_id,
                 )
                 continue
+            if item.status in {"resolved", "expired", "cancelled"}:
+                self.ledger.record_terminal(
+                    cid=snapshot.cid,
+                    sid=snapshot.sid,
+                    turn_id=snapshot.turn_id,
+                    call_id=item.call_id,
+                )
+                continue
             if item.status != "pending":
                 continue
 
-            restored_approval = approval_from_snapshot({
-                "approval_id": item.approval_id,
-                "turn_id": item.turn_id,
-                "call_id": item.call_id,
-                "name": item.name,
-                "arguments": item.arguments,
-                "approval": item.approval,
-            })
+            restored_approval = approval_from_snapshot(item.approval)
             self._add_agent_identity(restored_approval)
 
             restored_outcome = (
@@ -196,11 +199,32 @@ class ApprovalEventHandler:
                     turn_id=snapshot.turn_id,
                     call_id=item.call_id,
                 )
+            else:
+                self.ledger.record_terminal(
+                    cid=snapshot.cid,
+                    sid=snapshot.sid,
+                    turn_id=snapshot.turn_id,
+                    call_id=item.call_id,
+                )
 
     async def handle(self, event: ToolApprovalRequiredEvent) -> None:
         """处理审批请求并把决定同步到服务端和本地账本。"""
         turn_context = self.turn_context
         approval     = approval_from_event(event)
+
+        if self.ledger.is_terminal(
+            cid=turn_context.cid,
+            sid=turn_context.sid,
+            turn_id=turn_context.turn_id,
+            call_id=event.call_id,
+        ):
+            observe(
+                "approval.replayed_terminal",
+                status=event.status,
+                call_id=event.call_id,
+                approval_id=approval_id_from_event(event),
+            )
+            return
 
         if self.ledger.is_approved(
             cid=turn_context.cid,
@@ -211,6 +235,33 @@ class ApprovalEventHandler:
             observe(
                 "approval.replayed",
                 tool=str(approval.get("tool") or ""),
+                call_id=event.call_id,
+                approval_id=approval_id_from_event(event),
+            )
+            return
+
+        if event.status != "pending":
+            if (
+                event.status == "resolved"
+                and isinstance(event.ack, dict)
+                and str(event.ack.get("tool_status") or "") == "approved"
+            ):
+                self.ledger.record_approved(
+                    cid=turn_context.cid,
+                    sid=turn_context.sid,
+                    turn_id=turn_context.turn_id,
+                    call_id=event.call_id,
+                )
+            else:
+                self.ledger.record_terminal(
+                    cid=turn_context.cid,
+                    sid=turn_context.sid,
+                    turn_id=turn_context.turn_id,
+                    call_id=event.call_id,
+                )
+            observe(
+                "approval.replayed_terminal",
+                status=event.status,
                 call_id=event.call_id,
                 approval_id=approval_id_from_event(event),
             )
@@ -394,6 +445,14 @@ class ApprovalEventHandler:
         """恢复审批事件中工具 Hook 使用的参数。"""
         raw_arguments = approval.get("arguments")
         arguments = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
+        if tool in LOCAL_EXEC_POLICY_TOOLS:
+            command = arguments.get("command")
+            if isinstance(command, list):
+                arguments["command"] = (
+                    command[0]
+                    if len(command) == 1
+                    else " ".join(str(item) for item in command)
+                )
         if arguments or tool not in LOCAL_EXEC_POLICY_TOOLS:
             return arguments
 

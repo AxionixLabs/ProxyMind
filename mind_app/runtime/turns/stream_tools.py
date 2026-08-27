@@ -38,7 +38,7 @@ from .stream_policy import (
     local_exec_policy_cancelled_result,
     local_exec_policy_denied_result,
     local_exec_policy_requirement,
-    local_patch_approval,
+    local_patch_approval
 )
 
 if typing.TYPE_CHECKING:
@@ -173,6 +173,14 @@ class ToolEventHandler:
                 )
             observe(
                 "tool.call.duplicate",
+                call_id=event.call_id,
+                turn_id=turn_context.turn_id,
+            )
+            return ToolCallHandlingResult.handled()
+
+        if approval_state == "terminal":
+            observe(
+                "tool.call.terminal_replay",
                 call_id=event.call_id,
                 turn_id=turn_context.turn_id,
             )

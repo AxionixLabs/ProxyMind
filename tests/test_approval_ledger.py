@@ -56,3 +56,19 @@ def test_failed_turn_can_preserve_pending_tool_result() -> None:
 
     ledger.clear_turn(cid="cid", sid="sid", turn_id="turn")
     assert ledger.result_for(**key) is None
+
+
+def test_terminal_approval_is_not_reopened_by_replayed_event() -> None:
+    ledger = ApprovalCallLedger()
+    key = {
+        "cid": "cid",
+        "sid": "sid",
+        "turn_id": "turn",
+        "call_id": "call",
+    }
+
+    ledger.record_terminal(**key)
+
+    assert ledger.is_terminal(**key) is True
+    assert ledger.is_approved(**key) is False
+    assert ledger.consume(**key) == "terminal"

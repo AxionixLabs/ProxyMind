@@ -31,6 +31,49 @@ def parse_stream_event(payload):
         current.setdefault("presentation_epoch", 1)
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
+        if str(current.get("type") or "") == "tool.approval_required":
+            current.setdefault("approval_id", "approval_test")
+            current.setdefault("started_at_ms", 0)
+            current.setdefault("status", "pending")
+            current.setdefault("ack", None)
+            current.setdefault("reason", "")
+            current.setdefault(
+                "available_decisions",
+                ["accept", "acceptForSession", "decline"],
+            )
+            kind = current.get("kind", "command")
+            if kind == "command":
+                current.setdefault("environment_id", "workspace-write")
+                if isinstance(current.get("command"), str):
+                    current["command"] = [current["command"]]
+                current.setdefault("command", ["echo", "ready"])
+                current.setdefault("cwd", ".")
+                current.setdefault("cwd_raw", ".")
+                current.setdefault("tty", False)
+                current.setdefault("sandbox_permissions", "use_default")
+                current.setdefault("additional_permissions", None)
+                current.setdefault("proposed_execpolicy_amendment", None)
+                current.setdefault("parsed_cmd", [])
+            elif kind == "apply_patch":
+                current.setdefault("environment_id", "workspace-write")
+                current.setdefault("cwd_raw", current.get("cwd", "."))
+                current.setdefault(
+                    "files",
+                    current.get("patch_scope", ["app.py"]),
+                )
+                current.pop("patch_scope", None)
+                current.setdefault("permissions_preapproved", False)
+            elif kind == "network_access":
+                current.setdefault("environment_id", "workspace-write")
+                current.setdefault("cwd", ".")
+                current.setdefault("cwd_raw", ".")
+            elif kind == "request_permissions":
+                current.setdefault("permissions", {})
+            elif kind == "mcp_tool_call":
+                current.setdefault("server", "server")
+                current.setdefault("tool_name", "tool")
+                current.setdefault("arguments", {})
+                current.setdefault("mcp_request_id", "mcp_request_test")
     return _parse_stream_event(current)
 
 
@@ -365,14 +408,16 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
         "call_id": "call-1",
         "approval_id": "approval-1",
         "kind": "command",
-        "environmentId": "workspace-write",
+        "environment_id": "workspace-write",
         "started_at_ms": 42,
         "plugin_id": "plugin-1",
         "script_path": "scripts/check.ps1",
         "tty": True,
+        "sandbox_permissions": "with_additional_permissions",
         "additional_permissions": {"network": ["example.com"]},
+        "proposed_execpolicy_amendment": None,
         "policy_fingerprint": "policy-a",
-        "patch_scope": ["src/app.py"],
+        "parsed_cmd": [],
         "command": ["pwsh", "-Command", "Get-Date"],
         "cwd": ".",
         "cwd_raw": "C:/workspace",
@@ -399,7 +444,7 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert approval.tty is True
     assert approval.additional_permissions == {"network": ["example.com"]}
     assert approval.policy_fingerprint == "policy-a"
-    assert approval.patch_scope == ("src/app.py",)
+    assert approval.patch_scope == ()
     assert approval.command == ["pwsh", "-Command", "Get-Date"]
     assert approval.cwd == "."
     assert approval.cwd_raw == "C:/workspace"
@@ -436,7 +481,7 @@ def test_patch_approval_event_keeps_patch_separate_from_command() -> None:
         "approval_id": "approval-patch",
         "kind": "apply_patch",
         "patch": "*** Begin Patch\n*** Update File: app.py\n@@\n-old\n+new\n*** End Patch",
-        "patch_scope": ["app.py"],
+        "files": ["app.py"],
         "cwd": ".",
         "available_decisions": ["accept", "decline"],
     })
@@ -447,16 +492,145 @@ def test_patch_approval_event_keeps_patch_separate_from_command() -> None:
     assert approval.command == ""
 
 
-def test_tool_approval_requires_available_decisions() -> None:
-    with pytest.raises(ValueError, match="available_decisions"):
+def test_network_approval_event_preserves_policy_proposal() -> None:
+    approval = parse_stream_event({
+        "type": "tool.approval_required",
+        "call_id": "call-network",
+        "approval_id": "approval-network",
+        "kind": "network_access",
+        "target": "https://api.example.com/v1",
+        "host": "api.example.com",
+        "protocol": "https",
+        "port": 443,
+        "command": ["curl", "https://api.example.com/v1"],
+        "cwd": "D:/workspace",
+        "cwd_raw": ".",
+        "proposed_network_policy_amendment": {
+            "host": "api.example.com",
+            "action": "allow",
+        },
+        "available_decisions": [
+            "accept", "applyNetworkPolicyAmendment", "decline", "cancel"
+        ],
+    })
+
+    assert isinstance(approval, ToolApprovalRequiredEvent)
+    assert approval.kind == "network_access"
+    assert approval.host == "api.example.com"
+    assert approval.protocol == "https"
+    assert approval.port == 443
+    assert approval.proposed_network_policy_amendment == {
+        "host": "api.example.com",
+        "action": "allow",
+    }
+
+
+def test_permissions_and_mcp_approval_events_are_strictly_typed() -> None:
+    permissions = parse_stream_event({
+        "type": "tool.approval_required",
+        "call_id": "call-permissions",
+        "approval_id": "approval-permissions",
+        "kind": "request_permissions",
+        "cwd": "D:/workspace",
+        "permissions": {"network": {"enabled": True}},
+        "available_decisions": [
+            "grantForTurn", "grantForTurnWithStrictAutoReview",
+            "grantForSession", "decline", "cancel",
+        ],
+    })
+    mcp = parse_stream_event({
+        "type": "tool.approval_required",
+        "call_id": "call-mcp",
+        "approval_id": "approval-mcp",
+        "kind": "mcp_tool_call",
+        "server": "github",
+        "tool_name": "create_issue",
+        "arguments": {"title": "Bug"},
+        "mcp_request_id": "mcp-request-1",
+        "connector_id": "connector-github",
+        "connector_name": "GitHub",
+        "connector_description": "Repository service.",
+        "connected_account_email": "user@example.com",
+        "tool_title": "Create issue",
+        "tool_description": "Create an issue.",
+        "annotations": {
+            "destructive_hint": False,
+            "open_world_hint": True,
+            "read_only_hint": False,
+        },
+        "available_decisions": ["accept", "decline", "cancel"],
+    })
+
+    assert isinstance(permissions, ToolApprovalRequiredEvent)
+    assert permissions.permissions == {"network": {"enabled": True}}
+    assert isinstance(mcp, ToolApprovalRequiredEvent)
+    assert mcp.server == "github"
+    assert mcp.arguments == {"title": "Bug"}
+    assert mcp.annotations == {
+        "destructive_hint": False,
+        "open_world_hint": True,
+        "read_only_hint": False,
+    }
+
+
+def test_mcp_approval_accepts_null_json_arguments() -> None:
+    approval = parse_stream_event({
+        "type": "tool.approval_required",
+        "call_id": "call-mcp-null",
+        "approval_id": "approval-mcp-null",
+        "kind": "mcp_tool_call",
+        "arguments": None,
+        "server": "github",
+        "tool_name": "list_repositories",
+        "mcp_request_id": "mcp-request-null",
+        "available_decisions": ["accept", "decline", "cancel"],
+    })
+
+    assert isinstance(approval, ToolApprovalRequiredEvent)
+    assert approval.arguments is None
+
+
+def test_mcp_approval_rejects_policy_extension() -> None:
+    with pytest.raises(ValueError, match="unsupported tool approval decision"):
         parse_stream_event({
             "type": "tool.approval_required",
+            "call_id": "call-mcp",
+            "approval_id": "approval-mcp",
+            "kind": "mcp_tool_call",
+            "server": "github",
+            "tool_name": "create_issue",
+            "arguments": {},
+            "mcp_request_id": "mcp-request-1",
+            "available_decisions": ["acceptWithMcpPolicyAmendment"],
+        })
+
+
+def test_tool_approval_requires_available_decisions() -> None:
+    with pytest.raises(ValueError, match="available_decisions"):
+        _parse_stream_event({
+            "type": "tool.approval_required",
+            "proto": "mind.chat",
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_test",
+            "event_seq": 1,
+            "presentation_epoch": 1,
             "call_id": "call-1",
             "approval_id": "approval-1",
             "kind": "command",
-            "command": "pytest -q",
+            "started_at_ms": 0,
+            "status": "pending",
+            "ack": None,
+            "environment_id": "workspace-write",
+            "command": ["pytest", "-q"],
             "cwd": ".",
+            "cwd_raw": ".",
             "reason": "模型需要运行测试。",
+            "tty": False,
+            "sandbox_permissions": "use_default",
+            "additional_permissions": None,
+            "proposed_execpolicy_amendment": None,
+            "parsed_cmd": [],
         })
 
 

@@ -3,6 +3,7 @@
 from mind_app.approval.presentation import (
     ApplyPatchApprovalPresentation,
     ExecApprovalPresentation,
+    ToolApprovalPresentation,
     build_approval_presentation,
     ensure_approval_presentation,
 )
@@ -82,6 +83,54 @@ def test_explicit_kind_controls_presentation_title_without_tool_name() -> None:
     assert presentation.context.prompt == (
         "Would you like to grant these permissions?"
     )
+
+
+def test_network_presentation_uses_command_surface_and_network_title() -> None:
+    presentation = build_approval_presentation({
+        "kind": "network_access",
+        "approval_id": "approval-network",
+        "call_id": "call-network",
+        "target": "https://api.example.com/v1",
+        "host": "api.example.com",
+        "command": ["curl", "https://api.example.com/v1"],
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(presentation, ExecApprovalPresentation)
+    assert presentation.context.kind == "exec"
+    assert presentation.context.prompt == (
+        'Do you want to approve network access to "api.example.com"?'
+    )
+
+
+def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> None:
+    permissions = build_approval_presentation({
+        "kind": "request_permissions",
+        "approval_id": "approval-permissions",
+        "call_id": "call-permissions",
+        "permissions": {
+            "network": {"enabled": True},
+            "file_system": {
+                "entries": [{"path": "D:/workspace/out", "access": "write"}]
+            },
+        },
+        "available_decisions": ["grantForTurn", "decline"],
+    })
+    mcp = build_approval_presentation({
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp",
+        "call_id": "call-mcp",
+        "server": "github",
+        "tool_name": "create_issue",
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(permissions, ToolApprovalPresentation)
+    assert permissions.summary == (
+        "network access; file access: D:/workspace/out"
+    )
+    assert isinstance(mcp, ToolApprovalPresentation)
+    assert mcp.summary == "github: create_issue"
 
 
 def test_approval_trace_uses_codex_execpolicy_amendment_wording() -> None:

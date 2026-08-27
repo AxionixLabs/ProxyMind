@@ -4,12 +4,81 @@
 import typing
 from dataclasses import dataclass
 
-ToolApprovalDecision: typing.TypeAlias = typing.Literal[
+ToolApprovalKind: typing.TypeAlias = typing.Literal[
+    "command",
+    "write_stdin",
+    "apply_patch",
+    "network_access",
+    "request_permissions",
+    "mcp_tool_call",
+]
+
+ToolApprovalCommandDecision: typing.TypeAlias = typing.Literal[
     "accept",
     "acceptForSession",
     "acceptWithExecpolicyAmendment",
     "decline",
     "cancel",
+]
+
+ToolApprovalWriteStdinDecision: typing.TypeAlias = typing.Literal[
+    "accept",
+    "acceptForSession",
+    "decline",
+    "cancel",
+]
+
+ToolApprovalPatchDecision: typing.TypeAlias = typing.Literal[
+    "accept",
+    "acceptForSession",
+    "decline",
+    "cancel",
+]
+
+ToolApprovalNetworkDecision: typing.TypeAlias = typing.Literal[
+    "accept",
+    "acceptForSession",
+    "applyNetworkPolicyAmendment",
+    "decline",
+    "cancel",
+]
+
+ToolApprovalPermissionsDecision: typing.TypeAlias = typing.Literal[
+    "grantForTurn",
+    "grantForTurnWithStrictAutoReview",
+    "grantForSession",
+    "decline",
+    "cancel",
+]
+
+ToolApprovalMcpDecision: typing.TypeAlias = typing.Literal[
+    "accept",
+    "decline",
+    "cancel",
+]
+
+ToolApprovalDecision: typing.TypeAlias = typing.Literal[
+    "accept",
+    "acceptForSession",
+    "acceptWithExecpolicyAmendment",
+    "applyNetworkPolicyAmendment",
+    "grantForTurn",
+    "grantForTurnWithStrictAutoReview",
+    "grantForSession",
+    "decline",
+    "cancel",
+]
+
+ToolApprovalNetworkProtocol: typing.TypeAlias = typing.Literal[
+    "http", "https", "socks5_tcp", "socks5_udp"
+]
+
+ToolApprovalNetworkPolicyAction: typing.TypeAlias = typing.Literal[
+    "allow", "deny"
+]
+
+ToolApprovalPermissionScope: typing.TypeAlias = typing.Literal[
+    "turn", "session"
 ]
 
 ToolApprovalStatus: typing.TypeAlias = typing.Literal[
@@ -43,6 +112,10 @@ TOOL_APPROVAL_DECISIONS: frozenset[ToolApprovalDecision] = frozenset[
     "accept",
     "acceptForSession",
     "acceptWithExecpolicyAmendment",
+    "applyNetworkPolicyAmendment",
+    "grantForTurn",
+    "grantForTurnWithStrictAutoReview",
+    "grantForSession",
     "decline",
     "cancel",
 })
@@ -53,7 +126,33 @@ TOOL_APPROVAL_ACCEPT_DECISIONS: frozenset[ToolApprovalDecision] = frozenset[
     "accept",
     "acceptForSession",
     "acceptWithExecpolicyAmendment",
+    "applyNetworkPolicyAmendment",
+    "grantForTurn",
+    "grantForTurnWithStrictAutoReview",
+    "grantForSession",
 })
+
+TOOL_APPROVAL_DECISIONS_BY_KIND: dict[ToolApprovalKind, frozenset[str]] = {
+    "command": frozenset({
+        "accept", "acceptForSession", "acceptWithExecpolicyAmendment",
+        "decline", "cancel",
+    }),
+    "write_stdin": frozenset({
+        "accept", "acceptForSession", "decline", "cancel",
+    }),
+    "apply_patch": frozenset({
+        "accept", "acceptForSession", "decline", "cancel",
+    }),
+    "network_access": frozenset({
+        "accept", "acceptForSession", "applyNetworkPolicyAmendment",
+        "decline", "cancel",
+    }),
+    "request_permissions": frozenset({
+        "grantForTurn", "grantForTurnWithStrictAutoReview", "grantForSession",
+        "decline", "cancel",
+    }),
+    "mcp_tool_call": frozenset({"accept", "decline", "cancel"}),
+}
 
 TOOL_APPROVAL_STATUSES: frozenset[ToolApprovalStatus] = frozenset[
     ToolApprovalStatus
@@ -90,6 +189,21 @@ class ToolApprovalAck(object):
     decision: ToolApprovalDecision
     tool_status: ToolApprovalStatus
     turn_status: ToolApprovalTurnStatus
+    kind: ToolApprovalKind = "command"
+    additional_context: tuple[str, ...] = ()
+    reason: str = ""
+    scope: ToolApprovalPermissionScope | None = None
+    permissions: dict[str, typing.Any] | None = None
+    strict_auto_review: bool | None = None
+    target: str | None = None
+    host: str | None = None
+    protocol: ToolApprovalNetworkProtocol | None = None
+    port: int | None = None
+    network_policy_amendment: dict[str, str] | None = None
+    server: str | None = None
+    tool_name: str | None = None
+    arguments: typing.Any = None
+    mcp_request_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,19 +212,15 @@ class ToolApprovalSnapshotItem(object):
     approval_id: str
     turn_id: str
     call_id: str
-    name: str
-    arguments: dict[str, typing.Any]
+    kind: ToolApprovalKind
     approval: dict[str, typing.Any]
     status: ToolApprovalSnapshotStatus
-    decision: str
-    execpolicy_amendment_id: str
-    reason: str
-    additional_context: tuple[str, ...]
     ack: dict[str, typing.Any] | None
-    expires_at: float
-    resolved_at: float | None
-    created_at: float
-    updated_at: float
+
+    @property
+    def decision(self) -> str:
+        """返回终态审批记录中的决定。"""
+        return str(self.ack.get("decision") or "") if self.ack else ""
 
 
 @dataclass(frozen=True, slots=True)
