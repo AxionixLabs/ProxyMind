@@ -66,7 +66,10 @@ from .document import (
     WidthBlockRenderer
 )
 from .input import TuiInputModel
-from .interrupt import TuiExitReason
+from .interrupt import (
+    InterruptDisposition,
+    TuiExitReason
+)
 from .keymap import TuiRuntimeKeymap
 from ..rendering.text_sanitize import sanitize_fragment_block
 from .queued import TuiSubmission
@@ -670,16 +673,18 @@ class TuiRuntime(object):
             self._running_background_shell_status_label,
         )
 
-    def _handle_input_interrupt(self) -> None:
+    def _handle_input_interrupt(self) -> InterruptDisposition:
         """按当前前台交互状态分派输入中断。"""
         if self._inline_process_future is not None:
             if self.submissions.discard_input_draft():
-                return None
+                return InterruptDisposition.DRAFT_DISCARDED
             self.resolve_inline_process("interrupt")
-            self.submissions.interrupt_input()
-            return None
+            disposition = self.submissions.interrupt_input()
+            if disposition is InterruptDisposition.EXIT_REQUESTED:
+                return disposition
+            return InterruptDisposition.CONSUMED
 
-        self.submissions.interrupt_input()
+        return self.submissions.interrupt_input()
 
     def _drain_menu_actions(self) -> None:
         """执行当前批次菜单动作并隔离同步异常。"""
@@ -1854,7 +1859,7 @@ class TuiRuntime(object):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None
+        handler: typing.Callable[[], InterruptDisposition] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         self.submissions.bind_interrupt_handler(handler)
@@ -1915,14 +1920,6 @@ class TuiRuntime(object):
         submission = self._consumed_submission
         self._consumed_submission = None
         return submission
-
-    def request_turn_interrupt(self) -> None:
-        """把当前轮次标记为用户主动中断。"""
-        self.submissions.request_turn_interrupt()
-
-    def consume_turn_interrupt(self) -> bool:
-        """消费并返回当前轮次是否由用户主动中断。"""
-        return self.submissions.consume_turn_interrupt()
 
     def consume_exit_request(self) -> TuiExitReason | None:
         """消费并返回主输入区是否已请求退出。"""

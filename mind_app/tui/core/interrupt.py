@@ -2,13 +2,23 @@
 # Notes: ==== Mind™ ====
 
 import time
+import enum
 import typing
 
 TuiExitReason = typing.Literal["interrupt", "eof"]
 
 
+class InterruptDisposition(enum.Enum):
+    """描述一次 TUI 中断请求由当前控制面处理后的结果。"""
+    IGNORED = "ignored"
+    CONSUMED = "consumed"
+    DRAFT_DISCARDED = "draft_discarded"
+    EXIT_ARMED = "exit_armed"
+    EXIT_REQUESTED = "exit_requested"
+
+
 class TuiInterruptState(object):
-    """管理主输入区的连续取消、轮次中断和退出请求。"""
+    """管理主输入区的连续取消手势和退出请求。"""
 
     def __init__(
         self,
@@ -19,7 +29,6 @@ class TuiInterruptState(object):
         self.timeout_sec = max(0.1, float(timeout_sec))
         self._clock = clock
         self._armed_until = 0.0
-        self._turn_interrupt_requested = False
         self._exit_reason: TuiExitReason | None = None
 
     @property
@@ -51,20 +60,9 @@ class TuiInterruptState(object):
         self._exit_reason = None
         return reason
 
-    def request_turn_interrupt(self) -> None:
-        """记录由用户发起的当前轮次中断。"""
-        self._turn_interrupt_requested = True
-
-    def consume_turn_interrupt(self) -> bool:
-        """消费并返回当前轮次的用户中断标记。"""
-        requested = self._turn_interrupt_requested
-        self._turn_interrupt_requested = False
-        return requested
-
     def clear(self) -> None:
-        """清空全部中断和退出状态。"""
+        """清空连续按键和退出状态。"""
         self._armed_until = 0.0
-        self._turn_interrupt_requested = False
         self._exit_reason = None
 
 

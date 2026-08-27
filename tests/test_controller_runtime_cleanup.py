@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
@@ -30,6 +31,38 @@ def test_controller_tracks_helix_tool_profile_with_link_state() -> None:
     Mind.unlink_service_mcp(controller)
     assert Mind.tool_profile_for_turn(controller) is None
     assert controller.service_tool_profile is None
+
+
+@pytest.mark.anyio
+async def test_repeated_cancellation_forces_shielded_cleanup() -> None:
+    cleanup_started = asyncio.Event()
+    cleanup_cancelled = asyncio.Event()
+
+    async def cleanup() -> None:
+        cleanup_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            cleanup_cancelled.set()
+
+    async def wait_after_prior_cancellation() -> None:
+        current = asyncio.current_task()
+        assert current is not None
+        current.cancel()
+        try:
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            pass
+        await Mind.await_cleanup(cleanup())
+
+    waiting = asyncio.create_task(wait_after_prior_cancellation())
+    await cleanup_started.wait()
+
+    waiting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiting
+
+    assert cleanup_cancelled.is_set()
 
 
 @pytest.mark.anyio

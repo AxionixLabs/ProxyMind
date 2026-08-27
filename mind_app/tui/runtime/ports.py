@@ -13,6 +13,7 @@ from ..contracts.resume import (
 from ..contracts.text import FragmentBlock
 from mind_app.frontend.contracts import ActivityStatusKind
 from ..core.document import TuiBlockKind
+from ..core.interrupt import InterruptDisposition
 from ..core.queued import TuiSubmission
 from mind_core.skills import SkillSpec
 
@@ -96,14 +97,6 @@ class TurnRuntimePort(typing.Protocol):
         """返回当前是否存在归属未确认的输入。"""
         ...
 
-    def request_turn_interrupt(self) -> None:
-        """把当前轮次标记为用户主动中断。"""
-        ...
-
-    def consume_turn_interrupt(self) -> bool:
-        """消费并返回当前轮次是否由用户主动中断。"""
-        ...
-
     def set_execution_active(self, active: bool) -> None:
         """更新模型轮次执行状态。"""
         ...
@@ -118,7 +111,7 @@ class TurnRuntimePort(typing.Protocol):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None
+        handler: typing.Callable[[], InterruptDisposition] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         ...
@@ -151,6 +144,15 @@ class TurnRuntimePort(typing.Protocol):
 
 class TurnInputRuntimePort(typing.Protocol):
     """描述活动轮次输入对账所需的最小运行时能力。"""
+
+    def start_background_task(
+        self,
+        coroutine: typing.Coroutine[typing.Any, typing.Any, None],
+        *,
+        name: str
+    ) -> asyncio.Task[None]:
+        """托管不阻塞当前轮次关闭的远端控制请求。"""
+        ...
 
     def resolve_pending_steer(self, client_message_id: str) -> None:
         """停止展示一条已经完成归属转换的输入。"""
@@ -218,7 +220,7 @@ class ForegroundRuntimePort(typing.Protocol):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None
+        handler: typing.Callable[[], InterruptDisposition] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         ...

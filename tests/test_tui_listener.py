@@ -20,6 +20,7 @@ from mind_app.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
+from mind_app.tui.core.interrupt import InterruptDisposition
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.mailbox import TuiMailboxFeature
@@ -517,7 +518,7 @@ async def test_listener_start_interrupt_stops_transport_and_clears_spinner(
     await listener.wait_started.wait()
 
     controller.pause_release.set()
-    assert foreground.cancel()
+    assert foreground.handle_interrupt() is InterruptDisposition.CONSUMED
     await waiting
 
     transcript = fragments_text(runtime.document.fragments(width=80))

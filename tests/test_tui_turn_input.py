@@ -9,6 +9,7 @@ import pytest
 from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.interrupt import InterruptDisposition
 from mind_app.tui.core.styles import query_block, text_block
 from mind_app.tui.session import turn_input as turn_input_session
 from mind_app.tui.session.turn import execute_tui_model_turn
@@ -84,7 +85,9 @@ def _mark_started(
 @pytest.mark.anyio
 async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> None:
     steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
+    interrupt = AsyncMock(return_value=SimpleNamespace(status="accepted"))
     monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -94,8 +97,6 @@ async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> Non
         sid="sid_1",
         turn_id="turn_001",
     )
-    fallback = Mock(return_value=True)
-
     assert control.submit(_submission("too early"), False)
     assert runtime.submissions.pending_steers.active
     assert not runtime.submissions.queued_messages.active
@@ -104,7 +105,8 @@ async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> Non
 
     assert control.submit(_submission("queue early"), True)
     assert runtime.submissions.rollback_queued_input()
-    assert control.interrupt(fallback)
+    control.request_interrupt()
+    interrupt.assert_not_awaited()
 
     _mark_started(control, "turn_other")
     await asyncio.sleep(0)
@@ -120,7 +122,7 @@ async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> Non
         call.kwargs["turn_input"].text
         for call in steer.await_args_list
     ] == ["too early", "ready"]
-    fallback.assert_called_once()
+    interrupt.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -835,7 +837,7 @@ async def test_pending_reconciliation_retries_until_classified(
 
 
 @pytest.mark.anyio
-async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
+async def test_remote_interrupt_uses_bound_turn_once(
     monkeypatch,
 ) -> None:
     interrupt = AsyncMock(return_value=SimpleNamespace(status="accepted"))
@@ -854,9 +856,11 @@ async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
         turn_id="turn_001",
     )
     _mark_started(control)
-    fallback = Mock(return_value=True)
 
-    assert control.interrupt(fallback)
+    control.request_interrupt()
+    control.request_interrupt()
+    while interrupt.await_count < 1:
+        await asyncio.sleep(0)
     await control.close()
 
     interrupt.assert_awaited_once_with(
@@ -865,18 +869,14 @@ async def test_remote_interrupt_uses_bound_turn_without_local_cancel(
         turn_id="turn_001",
         request_id="interrupt_request_1",
     )
-    fallback.assert_not_called()
-
-
 @pytest.mark.anyio
-async def test_late_interrupt_keeps_stream_alive_for_logical_settlement(
+async def test_late_remote_interrupt_accepts_turn_not_steerable(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "interrupt_turn",
-        AsyncMock(return_value=SimpleNamespace(status="turn_not_steerable")),
+    interrupt = AsyncMock(
+        return_value=SimpleNamespace(status="turn_not_steerable")
     )
+    monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         TuiRuntime(),
@@ -886,16 +886,15 @@ async def test_late_interrupt_keeps_stream_alive_for_logical_settlement(
         turn_id="turn_001",
     )
     _mark_started(control)
-    fallback = Mock(return_value=True)
 
-    assert control.interrupt(fallback)
+    control.request_interrupt()
+    while interrupt.await_count < 1:
+        await asyncio.sleep(0)
     await control.close()
-
-    fallback.assert_not_called()
 
 
 @pytest.mark.anyio
-async def test_interrupt_retries_with_the_same_turn_before_local_fallback(
+async def test_remote_interrupt_retries_with_the_same_turn(
     monkeypatch,
 ) -> None:
     interrupt = AsyncMock(side_effect=[
@@ -912,11 +911,66 @@ async def test_interrupt_retries_with_the_same_turn_before_local_fallback(
         turn_id="turn_001",
     )
     _mark_started(control)
-    fallback = Mock(return_value=True)
-
-    assert control.interrupt(fallback)
+    control.request_interrupt()
+    while interrupt.await_count < 2:
+        await asyncio.sleep(0)
     await control.close()
 
     assert interrupt.await_count == 2
     assert interrupt.await_args_list[0] == interrupt.await_args_list[1]
-    fallback.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_local_interrupt_does_not_wait_for_remote_request(
+    monkeypatch,
+) -> None:
+    remote_started = asyncio.Event()
+    release_remote = asyncio.Event()
+    turn_started = asyncio.Event()
+    turn_cancelled = asyncio.Event()
+
+    async def wait_for_remote(**_kwargs):
+        remote_started.set()
+        await release_remote.wait()
+        return SimpleNamespace(status="accepted")
+
+    async def turn() -> None:
+        turn_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            turn_cancelled.set()
+
+    monkeypatch.setattr(turn_input_session, "interrupt_turn", wait_for_remote)
+
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    _mark_started(control)
+
+    execution = asyncio.create_task(execute_tui_model_turn(
+        application,
+        runtime,
+        turn(),
+        turn_input_control=control,
+    ))
+    await turn_started.wait()
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
+    await remote_started.wait()
+    await asyncio.wait_for(execution, timeout=0.1)
+
+    assert turn_cancelled.is_set()
+    assert not release_remote.is_set()
+
+    release_remote.set()
+    await runtime.close()

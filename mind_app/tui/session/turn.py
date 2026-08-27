@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from engine.observability import observe
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -23,6 +24,7 @@ from ...runtime.turns.executor import (
     resolve_turn_hook_scope
 )
 from ..runtime.ports import TurnRuntimePort
+from ..core.interrupt import InterruptDisposition
 from .turn_input import TuiTurnInputControl
 from ..core.styles import (
     BODY_STYLE,
@@ -34,6 +36,17 @@ from ..core.styles import (
 if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ...runtime.turns.result import RunResult
+
+
+class _TurnInterruptState(object):
+    """保存单次活动轮次的用户中断来源。"""
+
+    def __init__(self) -> None:
+        self.requested = False
+
+    def request(self) -> None:
+        """记录当前轮次已收到用户中断。"""
+        self.requested = True
 
 
 def emit_tui_interrupt_notice(application: ApplicationSink) -> None:
@@ -58,7 +71,7 @@ async def execute_tui_model_turn(
     *,
     turn_input_control: TuiTurnInputControl | None = None,
     stream_command_handler: typing.Callable[
-        [str, typing.Callable[[], bool]],
+        [str, typing.Callable[[], InterruptDisposition]],
         bool,
     ] | None = None,
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
@@ -72,20 +85,28 @@ async def execute_tui_model_turn(
         name="tui application failure",
     )
 
-    interrupted: bool = False
+    interrupt_state = _TurnInterruptState()
 
     fatal_error: BaseException | None = None
 
-    def cancel_turn() -> bool:
-        """取消模型任务并记录响应中断来源。"""
-        cancelled = (
-            turn_input_control.interrupt(task.cancel)
-            if turn_input_control is not None
-            else task.cancel()
+    def cancel_turn() -> InterruptDisposition:
+        """先取消本地模型任务，再异步同步远端中断。"""
+        if task.done():
+            return InterruptDisposition.IGNORED
+
+        interrupt_state.request()
+        task.cancel()
+
+        observe(
+            "tui.turn.interrupt.local",
+            task_name=task.get_name(),
+            remote_control=turn_input_control is not None,
         )
-        if cancelled:
-            runtime.request_turn_interrupt()
-        return cancelled
+
+        if turn_input_control is not None:
+            turn_input_control.request_interrupt()
+
+        return InterruptDisposition.CONSUMED
 
     try:
         runtime.set_execution_active(True)
@@ -114,7 +135,7 @@ async def execute_tui_model_turn(
     except asyncio.CancelledError:
         if not task.done():
             task.cancel()
-        if not runtime.consume_turn_interrupt():
+        if not interrupt_state.requested:
             raise
 
         interrupted = True
@@ -122,7 +143,7 @@ async def execute_tui_model_turn(
 
     else:
         interrupted = bool(
-            runtime.consume_turn_interrupt()
+            interrupt_state.requested
             or getattr(result, "status", "") == "interrupted"
         )
 
@@ -137,9 +158,6 @@ async def execute_tui_model_turn(
             application_failure,
             return_exceptions=True,
         )
-
-        if not interrupted:
-            runtime.consume_turn_interrupt()
 
         runtime.bind_stream_command_handler(None)
         runtime.bind_turn_input_handler(None)

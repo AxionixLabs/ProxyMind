@@ -27,6 +27,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from mind_core.skills import SkillSpec
 from mind_app.presentation.terminal_text import sanitize_terminal_text
+from .interrupt import InterruptDisposition
 from .token_menu import (
     CommittedTokenQuery,
     DismissedToken,
@@ -73,6 +74,11 @@ SKILL_SEARCH_MODES: typing.Final[tuple[str, ...]] = (
 
 def _ignore_action() -> None:
     """忽略尚未绑定的输入动作。"""
+
+
+def _ignore_interrupt() -> InterruptDisposition:
+    """返回尚未绑定的输入中断结果。"""
+    return InterruptDisposition.IGNORED
 
 
 def _ignore_input_layout() -> None:
@@ -249,8 +255,11 @@ class TuiInputModel(object):
             lambda: self.skills,
         )
 
-        self.interrupt_handler: typing.Callable[[], None] = _ignore_action
-        self.exit_handler: typing.Callable[[], None]      = _ignore_action
+        self.interrupt_handler: typing.Callable[[], InterruptDisposition] = (
+            _ignore_interrupt
+        )
+
+        self.exit_handler: typing.Callable[[], None] = _ignore_action
 
         self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
@@ -1462,7 +1471,10 @@ class TuiInputModel(object):
         self.auto_suggest.shell_mode = self.shell_mode
         self._shell_mode_undo_transition = None
 
-    def bind_interrupt(self, handler: typing.Callable[[], None]) -> None:
+    def bind_interrupt(
+        self,
+        handler: typing.Callable[[], InterruptDisposition]
+    ) -> None:
         """绑定主运行时提供的输入中断处理函数。"""
         self.interrupt_handler = handler
 
@@ -1489,10 +1501,11 @@ class TuiInputModel(object):
         """通知布局层按当前输入和补全状态刷新画面。"""
         self._input_layout_handler()
 
-    def handle_interrupt(self, buffer) -> None:
+    def handle_interrupt(self, buffer) -> InterruptDisposition:
         """把 Ctrl+C 交给主运行时统一清理草稿或中断任务。"""
-        self.interrupt_handler()
+        disposition = self.interrupt_handler()
         self.notify_input_layout()
+        return disposition
 
     def completion_menu_completions(self, document: Document) -> tuple[Completion, ...] | None:
         """返回当前未被关闭的命令或 skill 菜单项。"""

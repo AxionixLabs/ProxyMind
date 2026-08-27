@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 import asyncio
 from dataclasses import replace
-from engine.observability import observe_exception
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_nova.identifiers import new_request_id
 from mind_nova.requests.chat import TurnStreamEndReason
 from mind_nova.requests.turn_control import (
@@ -57,7 +61,8 @@ class TuiTurnInputControl(object):
 
         self._ledger: PendingSteerLedger = PendingSteerLedger()
 
-        self._steer_task: asyncio.Task[None] | None = None
+        self._steer_task: asyncio.Task[None] | None     = None
+        self._interrupt_task: asyncio.Task[None] | None = None
 
         self._tasks: set[asyncio.Task[None]] = set()
 
@@ -159,19 +164,28 @@ class TuiTurnInputControl(object):
             raise ValueError(f"invalid turn stream end reason: {reason}")
         self._stream_end_reason = reason
 
-    def interrupt(self, fallback: typing.Callable[[], bool]) -> bool:
-        """请求远端中断当前轮次，并在请求失败时执行本地取消。"""
+    def request_interrupt(self) -> None:
+        """幂等调度远端中断，不阻塞本地轮次关闭。"""
         cid, sid, turn_id = self._target
         if (
             not cid
             or not sid
             or not turn_id
             or self._ready_turn_id != turn_id
+            or self._interrupt_task is not None
         ):
-            return fallback()
+            return None
 
-        self._start(self._send_interrupt(cid, sid, turn_id, fallback))
-        return True
+        self._interrupt_task = self._runtime.start_background_task(
+            self._send_interrupt(cid, sid, turn_id),
+            name="tui remote turn interrupt",
+        )
+        observe(
+            "turn.interrupt.requested",
+            cid=cid,
+            sid=sid,
+            turn_id=turn_id,
+        )
 
     def restore_draft(self, submission: TuiSubmission) -> None:
         """恢复从本地队列取回消息关联的结构化草稿。"""
@@ -389,10 +403,9 @@ class TuiTurnInputControl(object):
         cid: str,
         sid: str,
         turn_id: str,
-        fallback: typing.Callable[[], bool]
     ) -> None:
-        """提交远端中断，并在无法匹配活动轮次时取消本地任务。"""
-        response   = None
+        """提交远端中断并记录传输失败。"""
+        started_at = time.perf_counter()
         request_id = new_request_id("interrupt")
 
         for attempt in range(2):
@@ -403,17 +416,33 @@ class TuiTurnInputControl(object):
                     turn_id=turn_id,
                     request_id=request_id,
                 )
-                break
+                observe(
+                    "turn.interrupt.remote",
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                    status=response.status,
+                    elapsed_ms=int(
+                        (time.perf_counter() - started_at) * 1000
+                    ),
+                )
+                return None
             except TurnControlRequestError as error:
                 if attempt == 0:
                     continue
-                observe_exception("turn.interrupt.failed", error, level="WARNING")
-
-        if response is None or response.status not in {
-            "accepted",
-            "turn_not_steerable",
-        }:
-            fallback()
+                observe_exception(
+                    "turn.interrupt.failed",
+                    error,
+                    level="WARNING",
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                    elapsed_ms=int(
+                        (time.perf_counter() - started_at) * 1000
+                    ),
+                )
 
     @staticmethod
     def _input_from_submission(submission: TuiSubmission) -> TurnInput:

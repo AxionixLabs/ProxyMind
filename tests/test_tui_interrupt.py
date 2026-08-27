@@ -12,7 +12,10 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.core.interrupt import TuiInterruptState
+from mind_app.tui.core.interrupt import (
+    InterruptDisposition,
+    TuiInterruptState
+)
 from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.submission import TuiInterruptRequested
@@ -46,7 +49,7 @@ async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     )
 
 
-def test_interrupt_state_expires_and_consumes_requests() -> None:
+def test_interrupt_state_expires_and_consumes_exit_requests() -> None:
     clock = [10.0]
     state = TuiInterruptState(timeout_sec=2.0, clock=lambda: clock[0])
 
@@ -55,10 +58,6 @@ def test_interrupt_state_expires_and_consumes_requests() -> None:
 
     clock[0] = 12.1
     assert not state.exit_armed
-
-    state.request_turn_interrupt()
-    assert state.consume_turn_interrupt()
-    assert not state.consume_turn_interrupt()
 
     state.request_exit()
     assert state.consume_exit_request() == "interrupt"
@@ -74,12 +73,16 @@ async def test_double_ctrl_c_exits_and_precedes_queued_message() -> None:
         paste_store={},
     ))
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_ARMED
+    )
     assert "Ctrl + C again to exit" == _fragments_text(
         runtime.screen._footer_fragments()
     )
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_REQUESTED
+    )
     with pytest.raises(TuiInterruptRequested):
         await runtime.read_message(PromptContext(model="test"))
 
@@ -243,31 +246,35 @@ async def test_ctrl_c_clears_multiline_input_without_top_canvas_spacer() -> None
                 await runtime.close()
 
 
-def test_finished_turn_is_not_marked_as_interrupted() -> None:
+def test_ignored_turn_interrupt_only_arms_exit() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    runtime.bind_interrupt_handler(lambda: False)
+    runtime.bind_interrupt_handler(lambda: InterruptDisposition.IGNORED)
 
-    runtime.submissions.interrupt_input()
+    disposition = runtime.submissions.interrupt_input()
 
-    assert not runtime.consume_turn_interrupt()
+    assert disposition is InterruptDisposition.EXIT_ARMED
     assert runtime.submissions.interrupt_state.exit_armed
 
 
 def test_ctrl_c_during_stream_clears_draft_without_interrupt() -> None:
     runtime = TuiRuntime()
-    interrupt = Mock(return_value=True)
+    interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
     runtime.set_execution_active(True)
     runtime.bind_interrupt_handler(interrupt)
     runtime.screen.input.buffer.text = "draft while streaming"
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.DRAFT_DISCARDED
+    )
 
     assert runtime.screen.input.buffer.text == ""
     interrupt.assert_not_called()
     assert not runtime.submissions.interrupt_state.exit_armed
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
 
     interrupt.assert_called_once_with()
     assert runtime.submissions.interrupt_state.exit_armed
@@ -275,18 +282,22 @@ def test_ctrl_c_during_stream_clears_draft_without_interrupt() -> None:
 
 def test_ctrl_c_during_foreground_barrier_clears_without_interrupt() -> None:
     runtime = TuiRuntime()
-    interrupt = Mock(return_value=True)
+    interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
     runtime.set_foreground_active(True)
     runtime.bind_interrupt_handler(interrupt)
     runtime.screen.input.buffer.text = "draft while waiting"
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.DRAFT_DISCARDED
+    )
 
     assert runtime.screen.input.buffer.text == ""
     interrupt.assert_not_called()
     assert not runtime.submissions.interrupt_state.exit_armed
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
 
     interrupt.assert_called_once_with()
     assert runtime.submissions.interrupt_state.exit_armed
@@ -294,7 +305,7 @@ def test_ctrl_c_during_foreground_barrier_clears_without_interrupt() -> None:
 
 def test_ctrl_c_clears_at_query_and_completion_without_interrupt() -> None:
     runtime = TuiRuntime()
-    interrupt = Mock(return_value=True)
+    interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
     runtime.bind_interrupt_handler(interrupt)
     model = runtime.input_model
     buffer = runtime.screen.input.buffer
@@ -303,8 +314,9 @@ def test_ctrl_c_clears_at_query_and_completion_without_interrupt() -> None:
 
     assert model.completion_menu_completions(buffer.document) == ()
 
-    model.handle_interrupt(buffer)
+    disposition = model.handle_interrupt(buffer)
 
+    assert disposition is InterruptDisposition.DRAFT_DISCARDED
     assert buffer.text == ""
     assert buffer.complete_state is None
     assert model.completion_menu_completions(buffer.document) is None
@@ -329,7 +341,9 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     ))
     await started.wait()
 
-    runtime.submissions.interrupt_input()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
     await task
 
     assert not runtime.execution_active
@@ -386,7 +400,6 @@ async def test_stream_quit_command_cancels_turn_without_queueing_message() -> No
         await asyncio.Future()
 
     def handle(_value, cancel_turn) -> bool:
-        runtime.request_turn_interrupt()
         cancel_turn()
         return True
 

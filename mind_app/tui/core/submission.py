@@ -7,6 +7,7 @@ import collections
 from prompt_toolkit.buffer import Buffer
 from .input import TuiInputModel
 from .interrupt import (
+    InterruptDisposition,
     TuiExitReason,
     TuiInterruptState
 )
@@ -31,9 +32,9 @@ from ..prompting.commands import (
 _INPUT_CLOSED = object()
 
 
-def _ignore_interrupt() -> bool:
+def _ignore_interrupt() -> InterruptDisposition:
     """忽略未绑定的中断请求。"""
-    return False
+    return InterruptDisposition.IGNORED
 
 
 def _ignore_stream_command(_command: str) -> bool:
@@ -123,7 +124,10 @@ class TuiSubmissionFlow(object):
         self._exit_event = asyncio.Event()
 
         self._exit_expiry_task: asyncio.Task[None] | None  = None
-        self._interrupt_handler: typing.Callable[[], bool] = _ignore_interrupt
+
+        self._interrupt_handler: typing.Callable[
+            [], InterruptDisposition
+        ] = _ignore_interrupt
 
         self._stream_command_handler: typing.Callable[[str], bool] = (
             _ignore_stream_command
@@ -370,7 +374,7 @@ class TuiSubmissionFlow(object):
 
     def bind_interrupt_handler(
         self,
-        handler: typing.Callable[[], bool] | None
+        handler: typing.Callable[[], InterruptDisposition] | None
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
         self._interrupt_handler = (
@@ -404,14 +408,6 @@ class TuiSubmissionFlow(object):
             handler if handler is not None else _ignore_queued_restore
         )
 
-    def request_turn_interrupt(self) -> None:
-        """把当前轮次标记为用户主动中断。"""
-        self.interrupt_state.request_turn_interrupt()
-
-    def consume_turn_interrupt(self) -> bool:
-        """消费并返回当前轮次是否由用户主动中断。"""
-        return self.interrupt_state.consume_turn_interrupt()
-
     def consume_exit_request(self) -> TuiExitReason | None:
         """消费并返回主输入区是否已请求退出。"""
         reason = self.interrupt_state.consume_exit_request()
@@ -438,10 +434,10 @@ class TuiSubmissionFlow(object):
 
         return True
 
-    def interrupt_input(self) -> None:
+    def interrupt_input(self) -> InterruptDisposition:
         """按输入、活动和退出确认的优先级处理中断请求。"""
         if self.discard_input_draft():
-            return None
+            return InterruptDisposition.DRAFT_DISCARDED
 
         self.input_model.cancel_history_backtrack()
         if self.interrupt_state.exit_armed:
@@ -449,12 +445,17 @@ class TuiSubmissionFlow(object):
             self._cancel_exit_expiry()
             self._exit_event.set()
             self._invalidate()
-            return None
+            return InterruptDisposition.EXIT_REQUESTED
 
         self.interrupt_state.arm_exit()
         self._schedule_exit_expiry()
-        self._interrupt_handler()
+        disposition = self._interrupt_handler()
+
         self._invalidate()
+
+        if disposition is InterruptDisposition.IGNORED:
+            return InterruptDisposition.EXIT_ARMED
+        return disposition
 
     def exit_input(self) -> None:
         """请求从空闲且空白的主输入区正常退出。"""

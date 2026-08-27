@@ -13,6 +13,7 @@ from engine.errors import AppError
 from mind_app.frontend.contracts import ActivityStatusKind
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..runtime.ports import ForegroundRuntimePort
+from ..core.interrupt import InterruptDisposition
 from ..core.styles import (
     MUTED_STYLE,
     text_block
@@ -112,6 +113,12 @@ class TuiForegroundTasks(object):
                 cancelled = task.cancel() or cancelled
         return cancelled
 
+    def handle_interrupt(self) -> InterruptDisposition:
+        """处理中断手势并返回前台任务是否已消费。"""
+        if self.cancel():
+            return InterruptDisposition.CONSUMED
+        return InterruptDisposition.IGNORED
+
     def start_helix_link(self) -> bool:
         """按统一生命周期启动 Helix 接入任务。"""
         return self.start(
@@ -195,7 +202,7 @@ class TuiForegroundTasks(object):
     def handle_stream_command(
         self,
         value: str,
-        cancel_turn: typing.Callable[[], bool],
+        cancel_turn: typing.Callable[[], InterruptDisposition],
     ) -> bool:
         """分派允许在模型流式输出期间执行的命令。"""
         command = str(value or "").strip().casefold()
@@ -254,7 +261,7 @@ class TuiForegroundTasks(object):
         self.runtime.discard_pending_submission()
         self.runtime.set_foreground_active(True)
         self.runtime.bind_stream_command_handler(self._handle_wait_command)
-        self.runtime.bind_interrupt_handler(self.cancel)
+        self.runtime.bind_interrupt_handler(self.handle_interrupt)
 
         try:
             while pending:

@@ -325,6 +325,9 @@ class _AgentRecord:
 class AgentControl:
     """管理单个根会话树中的执行主体和轮次任务。"""
 
+    SHUTDOWN_WAIT_TIMEOUT_SEC: typing.Final[float]       = 2.0
+    SHUTDOWN_FORCE_WAIT_TIMEOUT_SEC: typing.Final[float] = 0.1
+
     def __init__(
         self,
         root: AgentContext,
@@ -900,7 +903,10 @@ class AgentControl:
         async with self._condition:
             self._shutdown = True
             self._condition.notify_all()
-        await self._close_records(None)
+        await self._close_records(
+            None,
+            wait_timeout_sec=self.SHUTDOWN_WAIT_TIMEOUT_SEC,
+        )
         return await self.snapshots()
 
     def _start(
@@ -1054,7 +1060,9 @@ class AgentControl:
 
     async def _close_records(
         self,
-        root_agent_id: str | None
+        root_agent_id: str | None,
+        *,
+        wait_timeout_sec: float | None = None,
     ) -> dict[str, AgentSnapshot]:
         """关闭给定执行主体并等待活动任务退出。"""
         tasks: list[tuple[str, asyncio.Task[None]]] = []
@@ -1111,14 +1119,71 @@ class AgentControl:
             self._condition.notify_all()
 
         if tasks:
-            await asyncio.gather(
-                *(task for _, task in tasks),
-                return_exceptions=True,
-            )
+            pending_tasks: set[asyncio.Task[None]] = set()
+            task_values = tuple(task for _, task in tasks)
+
+            if wait_timeout_sec is None:
+                await asyncio.gather(*task_values, return_exceptions=True)
+            else:
+                done_tasks, pending_tasks = await asyncio.wait(
+                    task_values,
+                    timeout=max(0.0, float(wait_timeout_sec)),
+                )
+                if done_tasks:
+                    await asyncio.gather(*done_tasks, return_exceptions=True)
+
+            if pending_tasks:
+                graceful_timeout_ids = tuple(
+                    agent_id
+                    for agent_id, task in tasks
+                    if task in pending_tasks
+                )
+                observe_exception(
+                    "subagent.shutdown.timeout",
+                    TimeoutError("subagent shutdown deadline exceeded"),
+                    level="WARNING",
+                    timeout_sec=wait_timeout_sec,
+                    agent_ids=list(graceful_timeout_ids),
+                )
+
+                for task in pending_tasks:
+                    task.cancel()
+
+                forced_done, pending_tasks = await asyncio.wait(
+                    pending_tasks,
+                    timeout=self.SHUTDOWN_FORCE_WAIT_TIMEOUT_SEC,
+                )
+                if forced_done:
+                    await asyncio.gather(
+                        *forced_done,
+                        return_exceptions=True,
+                    )
+
+                if pending_tasks:
+                    for task in pending_tasks:
+                        task.add_done_callback(self._observe_detached_task)
+
             for agent_id, task in tasks:
                 await self._clear_task(agent_id, task)
 
         return previous
+
+    @staticmethod
+    def _observe_detached_task(task: asyncio.Task[None]) -> None:
+        """观察超过强制取消截止时间后才完成的任务异常。"""
+        if task.cancelled():
+            return None
+        try:
+            error = task.exception()
+        except asyncio.CancelledError:
+            return None
+        if error is not None:
+            observe_exception(
+                "subagent.shutdown.task_failed",
+                error,
+                level="WARNING",
+                task_name=task.get_name(),
+            )
 
     def _publish_checkpoint(self) -> None:
         """向非阻塞端口发布当前执行树快照。"""

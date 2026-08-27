@@ -15,6 +15,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope,
 )
 from mind_app.runtime.subagents.control import (
+    AgentControl,
     AgentGraphCheckpoint,
     AgentGraphRecord,
     AgentStateError,
@@ -926,3 +927,110 @@ async def test_runtime_coordinates_two_agents_through_interrupt_resume_and_exit(
             agent_type="worker",
             task_name="late",
         )
+
+
+@pytest.mark.anyio
+async def test_cancelled_root_wait_preserves_running_agent() -> None:
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(**_kwargs):
+        started.set()
+        await release.wait()
+        return RunResult(status="completed", assistant_text="child done")
+
+    controller.stream_handler = execute
+    spawned = await runtime.spawn(
+        parent,
+        "long child task",
+        {},
+        agent_type="worker",
+        task_name="worker",
+        agent_id="agent_worker",
+    )
+    await started.wait()
+
+    await runtime.wait_updates(
+        parent.sid,
+        [spawned.agent_id],
+        timeout_sec=0,
+        caller=parent.agent,
+    )
+    waiter = asyncio.create_task(runtime.wait_updates(
+        parent.sid,
+        [spawned.agent_id],
+        timeout_sec=30,
+        caller=parent.agent,
+    ))
+    await asyncio.sleep(0)
+
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    active = await runtime.get(parent.sid, spawned.agent_id)
+    assert active.status == "running"
+
+    release.set()
+    completed = await runtime.wait(
+        parent.sid,
+        [spawned.agent_id],
+        timeout_sec=1,
+    )
+    assert completed.snapshots[0].status == "completed"
+    assert completed.snapshots[0].result.assistant_text == "child done"
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_shutdown_bounds_slow_cancellation_cleanup(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        AgentControl,
+        "SHUTDOWN_WAIT_TIMEOUT_SEC",
+        0.01,
+    )
+    controller = _Controller()
+    runtime = SubagentRuntime(controller)
+    parent = _parent_turn()
+    started = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+    cleanup_forced = asyncio.Event()
+
+    async def execute(**_kwargs):
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cleanup_started.set()
+            try:
+                await release_cleanup.wait()
+                cleanup_finished.set()
+            except asyncio.CancelledError:
+                cleanup_forced.set()
+                raise
+            raise
+
+    controller.stream_handler = execute
+    await runtime.spawn(
+        parent,
+        "slow cleanup",
+        {},
+        agent_type="worker",
+        task_name="worker",
+        agent_id="agent_slow",
+    )
+    await started.wait()
+
+    shutdown = asyncio.create_task(runtime.shutdown())
+    await cleanup_started.wait()
+    await asyncio.wait_for(shutdown, timeout=0.2)
+
+    assert not cleanup_finished.is_set()
+    assert cleanup_forced.is_set()

@@ -21,6 +21,7 @@ from mind_app.presentation.models import (
 )
 from server import config_service_base_url
 from ..core.models import FragmentBlock
+from ..core.interrupt import InterruptDisposition
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
     BODY_STYLE,
@@ -163,10 +164,9 @@ StreamResolvedAction = StreamLocalAction | StreamBarrierAction
 @dataclass(frozen=True, slots=True)
 class StreamCommandRequest(object):
     """保存一次已授权流式命令的规范输入。"""
-
     value: str
     normalized: str
-    cancel_turn: typing.Callable[[], bool]
+    cancel_turn: typing.Callable[[], InterruptDisposition]
 
 
 StreamActionResolver = typing.Callable[
@@ -365,7 +365,7 @@ class TuiCommandDispatcher(object):
                 action = resolver(StreamCommandRequest(
                     value=value,
                     normalized=value.casefold(),
-                    cancel_turn=lambda: False,
+                    cancel_turn=lambda: InterruptDisposition.IGNORED,
                 ))
                 if policy == "local_snapshot":
                     valid = isinstance(action, StreamLocalAction)
@@ -469,7 +469,7 @@ class TuiCommandDispatcher(object):
     def handle_stream_command(
         self,
         value: str,
-        cancel_turn: typing.Callable[[], bool]
+        cancel_turn: typing.Callable[[], InterruptDisposition]
     ) -> bool:
         """分派模型流式期间可执行的本地命令。"""
         normalized = str(value or "").strip().casefold()

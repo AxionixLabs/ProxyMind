@@ -274,7 +274,12 @@ class Mind(object):
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
-            await task
+            current = asyncio.current_task()
+            if current is not None and current.cancelling() > 1:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            else:
+                await task
             raise
 
     def _session_hook_context(

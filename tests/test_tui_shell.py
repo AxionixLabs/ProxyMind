@@ -11,6 +11,7 @@ from prompt_toolkit.utils import get_cwidth
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.process_session import ProcessSessionManager
 from mind_app.tui.core.models import FragmentBlock
+from mind_app.tui.core.interrupt import InterruptDisposition
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import TUI_APPLICATION_OVERRIDES
 from mind_app.tui.features.shell import run_shell_escape
@@ -1381,8 +1382,11 @@ async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     )
 
     runtime.screen.input.buffer.text = "draft"
-    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+    disposition = runtime.input_model.handle_interrupt(
+        runtime.screen.input.buffer
+    )
 
+    assert disposition is InterruptDisposition.DRAFT_DISCARDED
     assert not task.done()
     assert runtime.screen.input.buffer.text == ""
     assert not runtime.submissions.interrupt_state.exit_armed
@@ -1391,13 +1395,19 @@ async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     )
     assert runtime.inline_process_session_id == "exec_shell"
 
-    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+    disposition = runtime.input_model.handle_interrupt(
+        runtime.screen.input.buffer
+    )
 
+    assert disposition is InterruptDisposition.CONSUMED
     assert await task == "interrupt"
     assert runtime.submissions.interrupt_state.exit_armed
 
-    runtime.input_model.handle_interrupt(runtime.screen.input.buffer)
+    disposition = runtime.input_model.handle_interrupt(
+        runtime.screen.input.buffer
+    )
 
+    assert disposition is InterruptDisposition.EXIT_REQUESTED
     assert runtime.submissions.interrupt_state.exit_requested
 
     runtime.dismiss_inline_process("exec_shell")
