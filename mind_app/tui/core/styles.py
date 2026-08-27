@@ -294,8 +294,7 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "tui-menu.footer.right.plugins.current": "bold nodim ansimagenta",
             "token-menu.hint": "#20262C",
             "token-menu.hint.key": "#68737D dim",
-            "approval-question": "bold #005F87",
-            "approval-command-question": "bold",
+            "approval-question": "bold",
             "approval-context": "#53606C",
             "approval-field-label": "bold #43505C",
             "approval-field-value": "#53606C",
@@ -454,10 +453,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         else "ansicyan"
     )
 
-    for style_class in (
-        "footer.model",
-        "approval-question",
-    ):
+    for style_class in ("footer.model",):
         styles[style_class] = f"fg:{accent} bold"
 
     selection = selection_color(

@@ -95,6 +95,7 @@ def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
         approval=approval,
         width=80,
     )
+    assert card_lines[1][0][0] == "class:approval-question"
     summary = next(line for line in card_lines if "Edited" in _line_texts([line])[0])
     assert summary[0] == ("class:approval-patch-action", "Edited")
     assert summary[2] == ("class:approval-patch-path", "src/app.py")
@@ -140,6 +141,7 @@ def test_approval_content_keeps_question_without_card_title() -> None:
 
     assert text_lines[0] == ""
     assert text_lines[1] == "Would you like to run the following command?"
+    assert lines[1][0][0] == "class:approval-question"
     assert text_lines[command_index - 1] == ""
     assert text_lines[command_index + 1] == ""
     assert text_lines[-2] == ""
@@ -392,7 +394,28 @@ def test_approval_surface_uses_no_background() -> None:
     question = TUI_APPROVAL_STYLE.get_attrs_for_style_str(
         "class:approval-question"
     )
-    assert question.color == "4DE3FF"
+    assert question.color == ""
+    assert question.bold
+
+
+@pytest.mark.parametrize("background", ((0, 0, 0), (255, 255, 255)))
+def test_approval_question_uses_terminal_default_foreground(
+    background: tuple[int, int, int],
+) -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=background),
+        ),
+    )
+
+    question = style.get_attrs_for_style_str("class:approval-question")
+    assert question.color == ""
+    assert question.bold
 
 
 @pytest.mark.parametrize(

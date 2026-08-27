@@ -42,7 +42,7 @@ from ..contracts.text import FormattedLine
 
 TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card": "",
-    "approval-question": "bold #4DE3FF",
+    "approval-question": "bold",
     "approval-context": "#7D8A98",
     "approval-field-label": "bold #AAB7C4",
     "approval-field-value": "#AAB7C4",
