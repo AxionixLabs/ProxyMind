@@ -48,11 +48,11 @@ _MCP_ACTIONS: typing.Final[frozenset[str]] = frozenset({
 })
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
-    ("start", "start", "启动 enabled=true 的外接 MCP 服务；已启动则保持当前连接。"),
-    ("force", "force", "本轮临时启动所有已配置的外接 MCP 服务，包括 enabled=false 的。不会修改配置文件。"),
-    ("stop", "stop", "断开当前所有外接 MCP 连接。HTTP/SSE 只是断开连接；stdio 类型会随连接释放关闭对应子进程。"),
-    ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
-    ("status", "status", "查看状态，不启动、不停止。"),
+    ("start", "start", "Start configured external MCP services with enabled=true; keep already running services connected."),
+    ("force", "force", "Temporarily start all configured external MCP services for this turn, including enabled=false. Does not modify the config file."),
+    ("stop", "stop", "Disconnect all external MCP services. HTTP/SSE services are disconnected; stdio services close their child processes when released."),
+    ("restart", "restart", "Disconnect external MCP services, reload the config, and start services with enabled=true."),
+    ("status", "status", "View status without starting or stopping services."),
 )
 
 MCP_DEFAULT_TERMINAL_WIDTH = 120

@@ -39,10 +39,10 @@ if typing.TYPE_CHECKING:
     from ..runtime.ports import MenuSelectionPort
 
 MODEL_EFFORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
-    ("low", "Low", "低推理，优先速度"),
-    ("medium", "Medium", "默认档位，平衡速度与质量"),
-    ("high", "High", "高推理，提升复杂任务质量"),
-    ("xhigh", "Extra high", "最高推理，适合困难任务"),
+    ("low", "Low", "Lower reasoning, prioritizes speed"),
+    ("medium", "Medium", "Default level, balances speed and quality"),
+    ("high", "High", "Higher reasoning, improves quality on complex tasks"),
+    ("xhigh", "Extra high", "Highest reasoning, for difficult tasks"),
 )
 
 

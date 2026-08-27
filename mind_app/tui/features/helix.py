@@ -56,8 +56,8 @@ DOWNLOAD_OPTIONS: tuple[tuple[bool, str, str], ...] = (
 )
 
 TOOL_PROFILE_OPTIONS: tuple[tuple[ToolFilterMode, str, str], ...] = (
-    ("app", "app", "应用自动化、设备、媒体与性能工具"),
-    ("api", "api", "API 自动化、安全与接口性能工具"),
+    ("app", "app", "Application automation, device, media, and performance tools"),
+    ("api", "api", "API automation, security, and interface performance tools"),
 )
 
 

@@ -15,7 +15,7 @@ from .skills import (
 )
 from .files import (
     FileSearchManager,
-    file_completions,
+    file_completions
 )
 
 StreamCommandPolicy = typing.Literal[
@@ -85,14 +85,10 @@ class TuiCommandSpec(object):
         """返回命令或指定子命令在活动轮次中的执行策略。"""
         if subcommand is None:
             return self.stream_policy
-        return next(
-            (
-                policy
-                for name, policy in self.stream_subcommand_policies
-                if name == subcommand
-            ),
-            self.stream_policy,
-        )
+        for name, policy in self.stream_subcommand_policies:
+            if name == subcommand:
+                return policy
+        return self.stream_policy
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,63 +100,63 @@ class SlashCommandQuery(object):
 
 TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
-        "new", "/new", "开始新对话",
+        "new", "/new", "New conversation",
         accepts_arguments=True,
     ),
     TuiCommandSpec(
-        "resume", "/resume", "恢复最近会话",
+        "resume", "/resume", "Resume a session",
         surface_on_bare=True,
     ),
     TuiCommandSpec(
-        "archive", "/archive", "归档当前会话并退出",
+        "archive", "/archive", "Archive and exit",
     ),
     TuiCommandSpec(
-        "fork", "/fork", "复制当前对话上下文",
+        "fork", "/fork", "Fork conversation",
     ),
     TuiCommandSpec(
-        "permissions", "/permissions", "切换权限模式",
+        "permissions", "/permissions", "Switch permissions",
         surface_on_bare=True,
         stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
-        "model", "/model", "设置主模型 ID",
+        "model", "/model", "Set primary model",
         completion_text="/model ",
         parameterized=True,
         stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
-        "provider", "/provider", "切换模型 Provider",
+        "provider", "/provider", "Switch model provider",
         surface_on_bare=True,
         stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
-        "effort", "/effort", "设置主模型推理强度",
+        "effort", "/effort", "Set reasoning effort",
         surface_on_bare=True,
         stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
-        "preferences", "/preferences", "打开偏好配置页面",
+        "preferences", "/preferences", "Open preferences",
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
-        "compact", "/compact", "压缩当前对话上下文",
+        "compact", "/compact", "Compact context",
     ),
     TuiCommandSpec(
-        "tools", "/tools", "查看可用 MCP 工具",
+        "tools", "/tools", "View MCP tools",
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
-        "hooks", "/hooks", "管理生命周期 Hooks",
+        "hooks", "/hooks", "Manage hooks",
         surface_on_bare=True,
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
-        "agent", "/agent", "查看和管理子代理线程",
+        "agent", "/agent", "Manage sub-agents",
         surface_on_bare=True,
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
-        "listen", "/listen", "管理远端请求监听器",
+        "listen", "/listen", "Manage listener",
         subcommands=("start", "stop", "status"),
         surface_on_bare=True,
         stream_policy="interactive_panel",
@@ -171,29 +167,29 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         ),
     ),
     TuiCommandSpec(
-        "mailbox", "/mailbox", "查看和处理远端请求消息",
+        "mailbox", "/mailbox", "Manage mailbox",
         surface_on_bare=True,
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
-        "diff", "/diff", "查看 Git 工作区差异（包含未跟踪文件）",
+        "diff", "/diff", "View Git changes",
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
-        "copy", "/copy", "复制最近一次助手回复原文",
+        "copy", "/copy", "Copy latest reply",
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
-        "ps", "/ps", "查看后台终端",
+        "ps", "/ps", "View terminals",
         surface_on_bare=True,
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
-        "stop", "/stop", "停止全部后台终端",
+        "stop", "/stop", "Stop all terminals",
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
-        "mcp", "/mcp", "管理外部 MCP 服务",
+        "mcp", "/mcp", "Manage MCP services",
         subcommands=("start", "force", "stop", "restart", "status"),
         surface_on_bare=True,
         stream_subcommand_policies=(
@@ -205,36 +201,36 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         ),
     ),
     TuiCommandSpec(
-        "helix_link", "/helix-link", "接入 Helix MCP",
+        "helix_link", "/helix-link", "Connect Helix MCP",
         surface_on_bare=True,
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
-        "helix_mode", "/helix-mode", "选择 Helix 工具过滤模式",
+        "helix_mode", "/helix-mode", "Set Helix tool mode",
         surface_on_bare=True,
         stream_policy="settings_settlement",
     ),
     TuiCommandSpec(
-        "helix_unlink", "/helix-unlink", "移除 Helix MCP",
+        "helix_unlink", "/helix-unlink", "Remove Helix MCP",
     ),
     TuiCommandSpec(
-        "helix_home", "/helix-home", "打开 Helix 首页",
+        "helix_home", "/helix-home", "Open Helix home",
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
-        "helix_stop", "/helix-stop", "停止 Helix 服务",
+        "helix_stop", "/helix-stop", "Stop Helix service",
     ),
     TuiCommandSpec(
-        "skills", "/skills", "打开 skills 列表",
+        "skills", "/skills", "Open skills",
         surface_on_bare=True,
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
-        "shutdown", "/shutdown", "停止本地后台服务并退出",
+        "shutdown", "/shutdown", "Stop local services",
         stream_policy="interrupt",
     ),
     TuiCommandSpec(
-        "quit", "/quit", "退出会话",
+        "quit", "/quit", "Exit session",
         aliases=("/q", "quit", "exit"),
         stream_policy="interrupt",
     ),

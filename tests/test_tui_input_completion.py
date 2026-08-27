@@ -299,7 +299,7 @@ def test_token_menu_keeps_short_meta_content_width() -> None:
 def test_token_menu_wraps_command_meta_to_terminal_width() -> None:
     item = TokenMenuItem(
         display_text="/mcp",
-        meta_text="管理外部 MCP 服务",
+        meta_text="Manage MCP services",
         kind="command",
     )
     control = TokenCompletionMenuControl(
@@ -313,13 +313,13 @@ def test_token_menu_wraps_command_meta_to_terminal_width() -> None:
     ]
 
     assert content.line_count == 2
-    assert "管理外部 MCP" in lines[0]
-    assert lines[1].rstrip().endswith("服务")
+    assert "Manage MCP" in lines[0]
+    assert lines[1].rstrip().endswith("services")
     assert all(get_cwidth(line) <= 24 for line in lines)
     assert control.preferred_height(24, 2, False, None) == 2
 
     wide_content = control.create_content(control.preferred_width(80), 1)
-    assert "管理外部 MCP 服务" in fragments_text(wide_content.get_line(0))
+    assert "Manage MCP services" in fragments_text(wide_content.get_line(0))
 
 
 def test_token_menu_render_snapshot_for_mixed_rows() -> None:
