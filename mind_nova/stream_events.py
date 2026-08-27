@@ -182,10 +182,10 @@ class ToolEvent(StreamEvent):
         )
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolApprovalRequiredEvent(StreamEvent):
-    """描述符合命令审批契约的客户端决策请求。"""
+    """描述需要客户端决定的直接工具审批请求。"""
     call_id: str = ""
     reason: str = ""
-    kind: typing.Literal["command", "write_stdin"] = "command"
+    kind: typing.Literal["command", "write_stdin", "apply_patch"] = "command"
     approval_id: str = ""
     environment_id: str | None = None
     started_at_ms: int | None = None
@@ -196,6 +196,7 @@ class ToolApprovalRequiredEvent(StreamEvent):
     policy_fingerprint: str | None = None
     patch_scope: tuple[str, ...] = ()
     command: typing.Any = ""
+    patch: typing.Any = ""
     cwd: str = "."
     cwd_raw: str | None = None
     proposed_execpolicy_amendment: dict[str, typing.Any] | None = None
@@ -410,10 +411,19 @@ def parse_stream_event(
                     f"unsupported tool approval decision: {decision}"
                 )
             available_decisions.append(typing.cast(ToolApprovalDecision, decision))
+        kind = _approval_kind(raw.get("kind"))
+        if kind == "apply_patch":
+            patch = raw.get("patch")
+            if not isinstance(patch, str) or not patch.strip():
+                raise ValueError(
+                    "tool.approval_required apply_patch patch is required"
+                )
+        else:
+            patch = raw.get("patch", "")
         return ToolApprovalRequiredEvent(
             **common,
             call_id=_required_text(raw.get("call_id"), "tool.approval_required call_id"),
-            kind=_approval_kind(raw.get("kind")),
+            kind=kind,
             approval_id=_text(raw.get("approval_id")),
             environment_id=_optional_text(
                 raw.get("environment_id", raw.get("environmentId"))
@@ -428,6 +438,7 @@ def parse_stream_event(
             policy_fingerprint=_optional_text(raw.get("policy_fingerprint")),
             patch_scope=_tuple_or_empty(raw.get("patch_scope")),
             command=raw.get("command", ""),
+            patch=patch,
             cwd=_text(raw.get("cwd")) or ".",
             cwd_raw=_optional_text(raw.get("cwd_raw")) or None,
             reason=_text(raw.get("reason")),
@@ -616,12 +627,17 @@ def _tuple_or_empty(value: typing.Any) -> tuple[typing.Any, ...]:
     return tuple(copy.deepcopy(value)) if isinstance(value, list) else ()
 
 
-def _approval_kind(value: typing.Any) -> typing.Literal["command", "write_stdin"]:
-    """读取命令审批类型。"""
+def _approval_kind(
+    value: typing.Any,
+) -> typing.Literal["command", "write_stdin", "apply_patch"]:
+    """读取直接审批请求的操作类型。"""
     kind = _text(value) or "command"
-    if kind not in {"command", "write_stdin"}:
+    if kind not in {"command", "write_stdin", "apply_patch"}:
         raise ValueError("tool.approval_required kind is invalid")
-    return typing.cast(typing.Literal["command", "write_stdin"], kind)
+    return typing.cast(
+        typing.Literal["command", "write_stdin", "apply_patch"],
+        kind,
+    )
 
 
 def _approval_started_at(payload: dict[str, typing.Any]) -> int | None:

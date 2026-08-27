@@ -429,6 +429,24 @@ def test_tool_approval_allows_missing_optional_reason() -> None:
     assert approval.reason == ""
 
 
+def test_patch_approval_event_keeps_patch_separate_from_command() -> None:
+    approval = parse_stream_event({
+        "type": "tool.approval_required",
+        "call_id": "call-patch",
+        "approval_id": "approval-patch",
+        "kind": "apply_patch",
+        "patch": "*** Begin Patch\n*** Update File: app.py\n@@\n-old\n+new\n*** End Patch",
+        "patch_scope": ["app.py"],
+        "cwd": ".",
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(approval, ToolApprovalRequiredEvent)
+    assert approval.kind == "apply_patch"
+    assert approval.patch.startswith("*** Begin Patch")
+    assert approval.command == ""
+
+
 def test_tool_approval_requires_available_decisions() -> None:
     with pytest.raises(ValueError, match="available_decisions"):
         parse_stream_event({

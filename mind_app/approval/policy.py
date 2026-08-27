@@ -33,10 +33,14 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
 
 def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
     """把直接审批事件字段转换为客户端审批卡载荷。"""
-    tool    = "write_stdin" if event.kind == "write_stdin" else "exec_command"
+    tool = {
+        "write_stdin": "write_stdin",
+        "apply_patch": "apply_patch",
+    }.get(event.kind, "exec_command")
     raw_cwd = str(event.cwd_raw or event.cwd or ".").strip() or "."
 
     normalized_cwd = _normalize_approval_cwd(raw_cwd)
+    operation = event.patch if event.kind == "apply_patch" else event.command
 
     approval: dict[str, typing.Any] = {
         "id": event.approval_id or event.call_id,
@@ -45,16 +49,20 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         "turn_id": event.turn_id,
         "tool": tool,
         "kind": event.kind,
-        "command": event.command,
         "cwd": normalized_cwd,
         "cwd_raw": raw_cwd,
         "reason": event.reason,
         "justification": event.reason,
-        "arguments": {
-            "command": event.command,
-            "cwd": normalized_cwd,
-        },
+        "arguments": (
+            {"patch": operation, "cwd": normalized_cwd}
+            if event.kind == "apply_patch"
+            else {"command": operation, "cwd": normalized_cwd}
+        ),
     }
+    if event.kind == "apply_patch":
+        approval["patch"] = operation
+    else:
+        approval["command"] = operation
     if event.environment_id:
         approval["environment_id"] = event.environment_id
     if event.started_at_ms is not None:
@@ -183,6 +191,8 @@ def _approval_prompt_noun(approval: dict[str, typing.Any]) -> str:
         return "command"
     if tool == "write_stdin":
         return "session input"
+    if tool == "apply_patch":
+        return "patch"
 
     return "tool action"
 
@@ -207,6 +217,8 @@ def approval_prompt(approval: dict[str, typing.Any] | None) -> str:
     noun = _approval_prompt_noun(approval or {})
     if noun == "command":
         return "Would you like to run the following command?"
+    if noun == "patch":
+        return "Would you like to apply the following patch?"
     return f"Would you like to approve the following {noun}?"
 
 

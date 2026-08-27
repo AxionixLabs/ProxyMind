@@ -221,6 +221,8 @@ def _approval_command_lines(
     """生成审批命令区域。"""
     commands = _approval_raw_commands(approval)
     if commands:
+        if str(approval.get("tool") or "").strip() == "apply_patch":
+            return _single_patch_lines(commands[0], max_width=max_width)
         return _single_command_lines(commands[0], max_width=max_width)
 
     return _wrap_prefixed_line(
@@ -254,7 +256,9 @@ def _approval_raw_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
         "shell_command",
         "exec_command",
     }:
-        fallback = approval.get("command", approval.get("resolved_command"))
+        fallback = approval.get("patch")
+        if fallback in (None, ""):
+            fallback = approval.get("command", approval.get("resolved_command"))
 
         if isinstance(fallback, list):
             return [fallback]
@@ -262,6 +266,23 @@ def _approval_raw_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
         return [text] if text else []
 
     return approval_shell_commands(approval)
+
+
+def _single_patch_lines(
+    patch: typing.Any,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """把补丁正文转换为多行审批预览。"""
+    raw_lines = _command_raw_lines(patch)
+    lines: list[list[tuple[str, str]]] = []
+    for raw_line in raw_lines:
+        lines.extend(_wrap_prefixed_line(
+            ("class:approval-context", "  "),
+            [("class:approval-command", raw_line)],
+            max_width=max_width,
+        ))
+    return lines
 
 
 def _single_command_lines(

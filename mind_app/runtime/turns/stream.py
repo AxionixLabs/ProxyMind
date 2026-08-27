@@ -236,6 +236,68 @@ def _local_exec_policy_approval(
     return approval
 
 
+def _local_patch_approval(
+    mind: "Mind",
+    invocation: ToolInvocation,
+) -> dict[str, typing.Any]:
+    """构造补丁专用的本地审批请求。"""
+    arguments = dict(invocation.arguments)
+    patch = str(arguments.get("patch") or "")
+    preview: dict[str, typing.Any] | None = None
+    preview_patch = getattr(getattr(mind, "native_coding", None), "preview_patch", None)
+    if callable(preview_patch):
+        expected_sha256 = arguments.get("expected_sha256")
+        if not isinstance(expected_sha256, dict):
+            expected_sha256 = None
+        try:
+            candidate = preview_patch(
+                patch=patch,
+                expected_sha256=expected_sha256,
+                force=bool(arguments.get("force", False)),
+            )
+        except (OSError, TypeError, ValueError, UnicodeError, KeyError):
+            candidate = None
+        if isinstance(candidate, dict) and candidate.get("ok"):
+            preview = candidate.get("data")
+            if not isinstance(preview, dict):
+                preview = None
+
+    scope: list[str] = []
+    if preview is not None:
+        files = preview.get("files")
+        if isinstance(files, list):
+            scope = [
+                str(item.get("path") or "").strip()
+                for item in files
+                if isinstance(item, dict) and str(item.get("path") or "").strip()
+            ]
+
+    reason = str(invocation.reason or "apply_patch requests workspace changes").strip()
+    approval_id = f"local-patch-{invocation.call_id}"
+    approval: dict[str, typing.Any] = {
+        "id": approval_id,
+        "approval_id": approval_id,
+        "request_id": approval_id,
+        "call_id": invocation.call_id,
+        "turn_id": invocation.turn.turn_id,
+        "started_at_ms": int(time.time() * 1000),
+        "tool": "apply_patch",
+        "kind": "apply_patch",
+        "arguments": arguments,
+        "patch": patch,
+        "cwd": str(arguments.get("cwd") or invocation.turn.cwd),
+        "patch_scope": scope,
+        "category": "apply_patch",
+        "risk": "workspace_write",
+        "available_decisions": ["accept", "decline"],
+        "reason": reason,
+        "justification": reason,
+    }
+    if preview is not None:
+        approval["preview"] = preview
+    return approval
+
+
 def _apply_local_exec_policy_approval(
     manager: ExecPolicyManager,
     *,
@@ -1572,6 +1634,82 @@ async def stream_turn(
                     )
                     await status_control.begin_reply_wait_status()
                     continue
+
+                if (
+                    name == "apply_patch"
+                    and str(arguments.get("patch") or "").strip()
+                    and kwargs["permissions"].approval_policy == "untrusted"
+                    and not approval_consumed
+                ):
+                    approval_coordinator = getattr(mind, "approval_coordinator", None)
+                    if approval_coordinator is None:
+                        patch_result = {
+                            "approval_denied": True,
+                            "error": "patch approval coordinator is unavailable",
+                        }
+                        tool_call_coordinator.record_rejected(
+                            invocation,
+                            "patch approval coordinator is unavailable",
+                            result=patch_result,
+                        )
+                        await post_client_tool_result(
+                            invocation.turn.cid,
+                            invocation.turn.sid,
+                            invocation.call_id,
+                            invocation.name,
+                            False,
+                            patch_result,
+                            arguments=invocation.arguments,
+                        )
+                        await status_control.begin_reply_wait_status()
+                        continue
+
+                    patch_approval = _local_patch_approval(mind, invocation)
+                    patch_outcome = await approval_coordinator.request_outcome(
+                        patch_approval
+                    )
+                    await presentation.emit(build_approval_view(
+                        patch_approval,
+                        decision=patch_outcome.decision,
+                        source=patch_outcome.source,
+                    ))
+                    if patch_outcome.decision not in TOOL_APPROVAL_ACCEPT_DECISIONS:
+                        patch_result = (
+                            _local_exec_policy_cancelled_result()
+                            if patch_outcome.decision == "cancel"
+                            else {
+                                "approval_denied": True,
+                                "error": "patch approval declined",
+                            }
+                        )
+                        tool_call_coordinator.record_rejected(
+                            invocation,
+                            "patch approval declined",
+                            result=patch_result,
+                        )
+                        await post_client_tool_result(
+                            invocation.turn.cid,
+                            invocation.turn.sid,
+                            invocation.call_id,
+                            invocation.name,
+                            False,
+                            patch_result,
+                            arguments=invocation.arguments,
+                        )
+                        if patch_outcome.decision == "cancel":
+                            interrupted = await _interrupt_approval_cancelled_turn(
+                                cid=turn_context.cid,
+                                sid=turn_context.sid,
+                                turn_id=turn_context.turn_id,
+                                call_id=invocation.call_id,
+                            )
+                            if not interrupted:
+                                raise TurnControlRequestError(
+                                    "failed to interrupt turn after patch approval cancellation"
+                                )
+                            break
+                        await status_control.begin_reply_wait_status()
+                        continue
 
                 if (
                     local_policy_requirement is not None

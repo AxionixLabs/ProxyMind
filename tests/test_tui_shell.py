@@ -138,11 +138,11 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
     assert runtime.document.active_kind == "assistant"
     fragments = runtime.document.fragments(width=80)
     text = "".join(value for _style, value in fragments)
-    assert "model stream\n\n/ps · Background terminals" in text
-    assert "  · adb logcat\n    ↳ process 0 line 2" in text
+    assert "model stream\n\n/ps\n\nBackground terminals" in text
+    assert "  • adb logcat\n    ↳ process 0 line 2" in text
     assert "      process 0 line 3\n      process 0 line 4" in text
-    assert "  · npm run dev\n    ↳ process 1 line 2" in text
-    assert "  · pytest -q\n    ↳ process 2 line 2" in text
+    assert "  • npm run dev\n    ↳ process 1 line 2" in text
+    assert "  • pytest -q\n    ↳ process 2 line 2" in text
     assert "process 0 line 1" not in text
     assert "hidden command" not in text
     assert text.endswith("  … and 1 more running")
@@ -157,7 +157,7 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
         for style, value in fragments
         if style == "class:ps.stream.command"
     ]
-    assert stream_text.startswith("  · ")
+    assert stream_text.startswith("  • ")
     assert stream_text.endswith("  … and 1 more running")
     assert command_text == ["adb logcat", "npm run dev", "pytest -q"]
     command_style = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
@@ -165,6 +165,16 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
     )
     assert command_style.color == "ansicyan"
     assert command_style.dim is False
+    stream_style = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
+        "class:ps.stream"
+    )
+    assert stream_style.color == ""
+    assert stream_style.dim is True
+    title_style = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
+        "class:ps.title"
+    )
+    assert title_style.color == ""
+    assert title_style.bold is True
 
     active = runtime.document.active_block
     assert active is not None
@@ -913,7 +923,7 @@ async def test_ps_appends_snapshot_without_opening_viewer() -> None:
         for _style, value in runtime.document.blocks[-1].display_block.fragments
     )
     assert text.startswith("/ps\n\nBackground terminals\n\n")
-    assert "  · long task\n    ↳ line 1\n      line 2" in text
+    assert "  • long task\n    ↳ line 1\n      line 2" in text
 
 
 @pytest.mark.anyio

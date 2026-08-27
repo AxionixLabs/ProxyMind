@@ -41,6 +41,18 @@ def test_approval_command_pager_preserves_argv_and_highlighting() -> None:
     )
 
 
+def test_patch_approval_pager_uses_patch_body() -> None:
+    lines = approval_command_pager_lines({
+        "tool": "apply_patch",
+        "patch": "*** Begin Patch\n+new line",
+    })
+
+    assert [
+        "".join(value for _style, value in line)
+        for line in lines
+    ] == ["*** Begin Patch", "+new line"]
+
+
 def test_approval_content_keeps_question_without_card_title() -> None:
     approval = {
         "tool": "shell_command",

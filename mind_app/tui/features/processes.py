@@ -347,20 +347,12 @@ def exec_stream_snapshots_block(
     """生成流式或历史状态使用的后台终端摘要。"""
     width = _terminal_width(terminal_width)
 
-    if mode == "history":
-        fragments: list[tuple[str, str]] = [
-            ("class:prompt.command.slash", "/ps"),
-            ("", "\n\n"),
-            ("class:ps.title", "Background terminals"),
-            ("", "\n\n"),
-        ]
-    else:
-        fragments = [
-            ("class:prompt.command.slash", "/ps"),
-            ("class:ps.meta", " · "),
-            ("class:ps.title", "Background terminals"),
-            ("", "\n\n"),
-        ]
+    fragments: list[tuple[str, str]] = [
+        ("class:prompt.command.slash", "/ps"),
+        ("", "\n\n"),
+        ("class:ps.title", "Background terminals"),
+        ("", "\n\n"),
+    ]
 
     rows: list[StyleAndTextTuples] = []
 
@@ -370,7 +362,7 @@ def exec_stream_snapshots_block(
             width - 4,
         )
         rows.append([
-            ("class:ps.stream", "  · "),
+            ("class:ps.stream", "  • "),
             ("class:ps.stream.command", command),
         ])
 
@@ -443,19 +435,10 @@ def _exec_stream_snapshot_error_block(
     detail = _clip_inline(error, max(1, terminal_width - 4))
 
     header = (
-        (
-            ("class:prompt.command.slash", "/ps"),
-            ("", "\n\n"),
-            ("class:ps.title", "Background terminals"),
-            ("", "\n\n"),
-        )
-        if mode == "history"
-        else (
-            ("class:prompt.command.slash", "/ps"),
-            ("class:ps.meta", " · "),
-            ("class:ps.title", "Background terminals"),
-            ("", "\n\n"),
-        )
+        ("class:prompt.command.slash", "/ps"),
+        ("", "\n\n"),
+        ("class:ps.title", "Background terminals"),
+        ("", "\n\n"),
     )
     return FragmentBlock((*header, (
         "class:ps.stream", f"  • {detail or type(error).__name__}"

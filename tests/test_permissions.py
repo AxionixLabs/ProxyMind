@@ -13,6 +13,7 @@ from mind_app.approval.policy import (
     approval_prompt,
     approval_reason,
 )
+from mind_app.runtime.turns.stream import _local_patch_approval
 from mind_app.client_tools.coding.native import (
     coding_tools,
 )
@@ -446,6 +447,38 @@ def test_approval_from_event_uses_direct_command_fields() -> None:
     assert approval["turn_id"] == ""
     assert approval["reason"] == "需要检查命令输出"
     assert approval["justification"] == "需要检查命令输出"
+
+
+def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> None:
+    coding = SimpleNamespace(
+        preview_patch=lambda **_kwargs: {
+            "ok": True,
+            "data": {"files": [{"path": "src/app.py"}]},
+        }
+    )
+    runtime = _client_runtime(preset_permissions("read-only"))
+    invocation = ToolInvocation(
+        turn=runtime.turn_context,
+        call_id="call-patch",
+        name="apply_patch",
+        arguments={"patch": "*** Begin Patch", "cwd": str(tmp_path)},
+        reason="需要更新实现",
+    )
+
+    approval = _local_patch_approval(
+        SimpleNamespace(native_coding=coding),
+        invocation,
+    )
+
+    assert approval["kind"] == "apply_patch"
+    assert approval["tool"] == "apply_patch"
+    assert approval["approval_id"] == "local-patch-call-patch"
+    assert approval["turn_id"] == runtime.turn_context.turn_id
+    assert approval["started_at_ms"] >= 0
+    assert approval["patch_scope"] == ["src/app.py"]
+    assert approval["available_decisions"] == ["accept", "decline"]
+    assert approval_prompt(approval) == "Would you like to apply the following patch?"
+    assert approval_decisions(approval) == ["accept", "decline"]
 
 
 def test_approval_event_preserves_identity_and_environment_fields() -> None:

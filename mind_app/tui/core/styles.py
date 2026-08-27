@@ -52,6 +52,10 @@ SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B")
 COMMAND_STYLE = TextStyle(foreground="ansimagenta")
+# 对齐上游终端摘要：次要文本只降低亮度，命令文本使用 ANSI 青色。
+TERMINAL_DIM_STYLE  = TextStyle(dim=True)
+TERMINAL_CYAN_STYLE = TextStyle(foreground="ansicyan")
+TERMINAL_TITLE_STYLE = TextStyle(bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
 
@@ -139,16 +143,16 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "shell.status": "fg:#87919D",
     "shell.stdout": "fg:#D8DCE2",
     "shell.stderr": "fg:#B8C1CB",
-    "ps.title": "fg:#F4F7FA bold",
+    "ps.title": "bold",
     "ps.separator": "fg:#69727D",
-    "ps.meta": "fg:#87919D",
+    "ps.meta": "italic",
     "ps.warning": "fg:#FFB86B bold",
     "ps.command": "fg:#D8DCE2",
     "ps.help": "fg:#69727D",
-    "ps.output": "fg:#A8B1BB dim",
-    "ps.stream": "fg:#87919D dim",
+    "ps.output": "dim",
+    "ps.stream": "dim",
     "ps.stream.command": "fg:ansicyan nodim",
-    "ps.waiting": "fg:#87919D",
+    "ps.waiting": "dim",
     "ps.error": "fg:#FF6B6B",
     "scrollback.history-notice": "fg:#87919D dim",
     "transcript.overlay.title": "fg:#87919D dim",
@@ -444,7 +448,6 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         "approval-question",
     ):
         styles[style_class] = f"fg:{accent} bold"
-    styles["ps.stream.command"] = f"fg:{accent} nodim"
 
     selection = selection_color(
         capabilities.color_level,
