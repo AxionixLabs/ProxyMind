@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import time
 import typing
 from dataclasses import dataclass
-from mind_nova.tool_approval import ToolApprovalDecision
+from mind_nova.tool_approval import (
+    ToolApprovalDecision,
+    ToolApprovalKind
+)
 
 if typing.TYPE_CHECKING:
     from .presentation import ApprovalPresentation
@@ -17,13 +21,7 @@ ApprovalDecisionSource = typing.Literal[
     "auto_review",
 ]
 
-ApprovalRequestKind = typing.Literal[
-    "exec",
-    "permissions",
-    "apply_patch",
-    "mcp",
-    "tool",
-]
+ApprovalRequestKind: typing.TypeAlias = ToolApprovalKind
 
 ApprovalResolutionReason = typing.Literal[
     "user",
@@ -49,9 +47,29 @@ class ApprovalRequestKey(object):
 
 
 @dataclass(frozen=True, slots=True)
+class ApprovalPayload(object):
+    """保存一次审批请求的规范化类别和字段快照。"""
+    kind: ApprovalRequestKind
+    values: dict[str, typing.Any]
+
+    def __post_init__(self) -> None:
+        """复制载荷，避免队列状态受到调用方修改。"""
+        object.__setattr__(self, "values", copy.deepcopy(self.values))
+
+    def get(self, name: str, default: typing.Any = None) -> typing.Any:
+        """读取规范化载荷中的字段。"""
+        return self.values.get(name, default)
+
+    def as_dict(self) -> dict[str, typing.Any]:
+        """返回供展示或效果处理使用的独立字段副本。"""
+        return copy.deepcopy(self.values)
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalRequest(object):
     """保存应用层审批队列使用的规范化请求。"""
     key: ApprovalRequestKey
+    payload: ApprovalPayload
     presentation: "ApprovalPresentation"
     decisions: tuple[ApprovalDecisionValue, ...]
 

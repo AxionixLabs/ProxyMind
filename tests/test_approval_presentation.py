@@ -7,6 +7,7 @@ from mind_app.approval.presentation import (
     build_approval_presentation,
     ensure_approval_presentation,
 )
+from mind_app.approval.factory import build_approval_request
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
 
@@ -21,7 +22,7 @@ def test_command_payload_is_normalized_to_exec_presentation() -> None:
     })
 
     assert isinstance(presentation, ExecApprovalPresentation)
-    assert presentation.context.kind == "exec"
+    assert presentation.context.kind == "command"
     assert presentation.context.approval_id == "approval-command"
     assert presentation.commands == (("pwsh", "-Command", "Get-Date"),)
     assert presentation.context.prompt == (
@@ -79,7 +80,7 @@ def test_explicit_kind_controls_presentation_title_without_tool_name() -> None:
         "kind": "permissions",
     })
 
-    assert presentation.context.kind == "permissions"
+    assert presentation.context.kind == "request_permissions"
     assert presentation.context.prompt == (
         "Would you like to grant these permissions?"
     )
@@ -97,7 +98,7 @@ def test_network_presentation_uses_command_surface_and_network_title() -> None:
     })
 
     assert isinstance(presentation, ExecApprovalPresentation)
-    assert presentation.context.kind == "exec"
+    assert presentation.context.kind == "network_access"
     assert presentation.context.prompt == (
         'Do you want to approve network access to "api.example.com"?'
     )
@@ -131,6 +132,25 @@ def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> Non
     )
     assert isinstance(mcp, ToolApprovalPresentation)
     assert mcp.summary == "github: create_issue"
+
+
+def test_approval_request_keeps_canonical_kind_and_payload_snapshot() -> None:
+    source = {
+        "id": "approval-permissions",
+        "kind": "request_permissions",
+        "permissions": {"network": {"enabled": True}},
+        "available_decisions": ["grantForTurn", "decline"],
+    }
+
+    request = build_approval_request(source)
+    source["kind"] = "command"
+    source["permissions"]["network"]["enabled"] = False
+
+    assert request.key.kind == "request_permissions"
+    assert request.payload.kind == "request_permissions"
+    assert request.payload.get("permissions") == {
+        "network": {"enabled": True}
+    }
 
 
 def test_approval_trace_uses_codex_execpolicy_amendment_wording() -> None:

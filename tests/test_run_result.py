@@ -3173,7 +3173,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     request = mind.frontend.interaction.present_approval.await_args.args[0]
     presentation = request.presentation
     assert presentation.commands == (("pytest -q",),)
-    assert presentation.context.kind == "exec"
+    assert presentation.context.kind == "command"
     assert executed == [expected_arguments]
     assert runner.calls[0]["tool_input"] == expected_hook_input
     assert posted[0][0][5] == {"ok": True, "text": "done"}

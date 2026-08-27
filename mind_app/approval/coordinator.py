@@ -6,6 +6,7 @@ import uuid
 import typing
 import asyncio
 import contextlib
+from collections.abc import Mapping
 from collections import deque
 from dataclasses import dataclass
 from engine.observability import observe_exception
@@ -18,11 +19,7 @@ from mind_app.approval.models import (
     ApprovalRequestKey,
     ApprovalResolutionReason
 )
-from mind_app.approval.presentation import (
-    approval_request_kind,
-    build_approval_presentation
-)
-from mind_app.approval.policy import approval_decisions
+from mind_app.approval.factory import build_approval_request
 from mind_app.interaction.contracts import ApprovalPresenterPort
 
 DEFAULT_APPROVAL_QUEUE_LIMIT = 64
@@ -60,7 +57,6 @@ class ApprovalCoordinator:
         self._session_active = False
         self._coordinator_id = uuid.uuid4().hex
         self._revision = 0
-        self._local_request_sequence = 0
 
     @property
     def snapshot(self) -> ApprovalQueueSnapshot:
@@ -69,7 +65,7 @@ class ApprovalCoordinator:
 
     async def request(
         self,
-        approval: dict[str, typing.Any],
+        approval: Mapping[str, typing.Any] | ApprovalRequest,
     ) -> ApprovalDecisionValue:
         """提交审批请求并返回对应决策。"""
         outcome = await self.request_outcome(approval)
@@ -77,7 +73,7 @@ class ApprovalCoordinator:
 
     async def request_outcome(
         self,
-        approval: dict[str, typing.Any],
+        approval: Mapping[str, typing.Any] | ApprovalRequest,
     ) -> ApprovalOutcome:
         """提交审批请求并返回带来源和收束原因的终态。"""
         request = self._normalize_request(approval)
@@ -126,7 +122,7 @@ class ApprovalCoordinator:
 
     async def restore_pending(
         self,
-        approval: dict[str, typing.Any],
+        approval: Mapping[str, typing.Any] | ApprovalRequest,
     ) -> bool:
         """恢复一项尚未解决的审批，并交由现有队列展示。"""
         request = self._normalize_request(approval)
@@ -216,52 +212,12 @@ class ApprovalCoordinator:
 
     def _normalize_request(
         self,
-        approval: dict[str, typing.Any],
+        approval: Mapping[str, typing.Any] | ApprovalRequest,
     ) -> ApprovalRequest:
-        """把松散审批载荷转换为稳定应用层请求。"""
-        payload     = copy.deepcopy(dict(approval))
-        approval_id = self._text(payload.get("id"))
-
-        call_id = self._text(
-            payload.get("call_id") or payload.get("callId")
-        )
-
-        tool = self._text(payload.get("tool")) or "shell_command"
-
-        request_id = self._text(
-            payload.get("request_id") or payload.get("requestId")
-        )
-
-        if not request_id:
-            request_id = ":".join(
-                value for value in (approval_id, call_id) if value
-            )
-        if not request_id:
-            self._local_request_sequence += 1
-            request_id = f"local-approval-{self._local_request_sequence}"
-
-        kind = approval_request_kind(payload)
-
-        key = ApprovalRequestKey(
-            request_id=request_id,
-            approval_id=approval_id,
-            call_id=call_id,
-            tool=tool,
-            kind=kind,
-        )
-
-        decisions = tuple(approval_decisions(payload))
-
-        return ApprovalRequest(
-            key=key,
-            presentation=build_approval_presentation(
-                payload,
-                key=key,
-                kind=kind,
-                decisions=decisions,
-            ),
-            decisions=decisions,
-        )
+        """把审批载荷统一转换为稳定应用层请求。"""
+        if isinstance(approval, ApprovalRequest):
+            return approval
+        return build_approval_request(approval)
 
     def _immediate_outcome(
         self,
@@ -578,6 +534,7 @@ class ApprovalCoordinator:
         """复制快照中的请求载荷，避免观察者修改内部队列。"""
         return ApprovalRequest(
             key=request.key,
+            payload=copy.deepcopy(request.payload),
             presentation=copy.deepcopy(request.presentation),
             decisions=request.decisions,
         )

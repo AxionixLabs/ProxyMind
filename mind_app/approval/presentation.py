@@ -9,7 +9,6 @@ from mind_app.stream_events.approval_trace import (
     approval_shell_commands,
     approval_summary
 )
-
 from .models import (
     ApprovalDecisionValue,
     ApprovalRequestKey,
@@ -120,7 +119,7 @@ def build_approval_presentation(
     )
     summary = _approval_summary(normalized, resolved_kind)
 
-    if resolved_kind == "exec":
+    if resolved_kind in {"command", "write_stdin", "network_access"}:
         return ExecApprovalPresentation(
             context=context,
             commands=_command_values(normalized),
@@ -149,7 +148,7 @@ def _approval_summary(
     kind: ApprovalRequestKind,
 ) -> str:
     """按动作类别生成卡片操作摘要。"""
-    if kind == "permissions":
+    if kind == "request_permissions":
         permissions = payload.get("permissions")
         if isinstance(permissions, dict):
             parts: list[str] = []
@@ -169,7 +168,7 @@ def _approval_summary(
             if parts:
                 return "; ".join(parts)
         return "additional permissions"
-    if kind == "mcp":
+    if kind == "mcp_tool_call":
         server = _text(payload.get("server"))
         title = _text(payload.get("tool_title")) or _text(payload.get("tool_name"))
         return ": ".join(value for value in (server, title) if value) or "MCP tool call"
@@ -177,29 +176,33 @@ def _approval_summary(
 
 
 def approval_request_kind(payload: dict[str, typing.Any]) -> ApprovalRequestKind:
-    """按显式 kind 和工具名归一化审批展示类别。"""
+    """按显式 kind 和工具名归一化审批类别。"""
     raw_kind = _text(payload.get("kind")).lower()
-    if raw_kind in {"exec", "execve", "command", "write_stdin"}:
-        return "exec"
+    if raw_kind in {"exec", "execve", "command"}:
+        return "command"
+    if raw_kind == "write_stdin":
+        return "write_stdin"
     if raw_kind == "network_access":
-        return "exec"
+        return "network_access"
     if raw_kind in {"apply_patch", "patch", "file_change"}:
         return "apply_patch"
     if raw_kind in {"permissions", "permission", "request_permissions"}:
-        return "permissions"
+        return "request_permissions"
     if raw_kind in {"mcp", "mcp_elicitation", "mcp_tool_call"}:
-        return "mcp"
+        return "mcp_tool_call"
 
     tool = _text(payload.get("tool")).lower()
-    if tool in {"shell_command", "exec_command", "write_stdin"}:
-        return "exec"
+    if tool in {"shell_command", "exec_command"}:
+        return "command"
+    if tool == "write_stdin":
+        return "write_stdin"
     if tool in {"apply_patch", "patch"}:
         return "apply_patch"
     if "permission" in tool:
-        return "permissions"
+        return "request_permissions"
     if tool.startswith("mcp"):
-        return "mcp"
-    return "tool"
+        return "mcp_tool_call"
+    return "command"
 
 
 def _presentation_context(
@@ -242,14 +245,16 @@ def _presentation_prompt(
     kind: ApprovalRequestKind,
 ) -> str:
     """按规范化动作类别生成审批标题。"""
-    if kind == "exec":
-        if str(payload.get("kind") or "") == "network_access":
+    if kind in {"command", "write_stdin", "network_access"}:
+        if kind == "network_access":
             host = _text(payload.get("host")) or "the requested host"
             return f'Do you want to approve network access to "{host}"?'
+        if kind == "write_stdin":
+            return "Would you like to send the following input?"
         return "Would you like to run the following command?"
     if kind == "apply_patch":
         return "Would you like to make the following edits?"
-    if kind == "permissions":
+    if kind == "request_permissions":
         return "Would you like to grant these permissions?"
     return approval_prompt(payload)
 

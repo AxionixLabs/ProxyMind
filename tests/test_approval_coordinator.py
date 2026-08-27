@@ -128,7 +128,7 @@ async def test_duplicate_identity_shares_one_decision_future() -> None:
 async def test_presenter_cannot_mutate_authoritative_request() -> None:
     class MutatingInteraction(ControlledInteraction):
         async def present_approval(self, request):
-            assert request.presentation.context.kind == "exec"
+            assert request.presentation.context.kind == "command"
             return await super().present_approval(request)
 
     interaction = MutatingInteraction()
