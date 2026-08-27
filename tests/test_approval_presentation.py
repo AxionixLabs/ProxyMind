@@ -6,6 +6,8 @@ from mind_app.approval.presentation import (
     build_approval_presentation,
     ensure_approval_presentation,
 )
+from mind_app.presentation.approval_views import build_approval_view
+from mind_app.presentation.renderers.approval import render_approval_view
 
 
 def test_command_payload_is_normalized_to_exec_presentation() -> None:
@@ -79,4 +81,91 @@ def test_explicit_kind_controls_presentation_title_without_tool_name() -> None:
     assert presentation.context.kind == "permissions"
     assert presentation.context.prompt == (
         "Would you like to grant these permissions?"
+    )
+
+
+def test_approval_trace_uses_codex_execpolicy_amendment_wording() -> None:
+    approval = {
+        "tool": "shell_command",
+        "arguments": {
+            "command": "env GIT_CONFIG_GLOBAL=/dev/null git status",
+        },
+        "proposed_execpolicy_amendment": {
+            "id": "rule-1",
+            "command_prefix": [
+                "env",
+                "GIT_CONFIG_GLOBAL=/dev/null",
+                "GIT_CONFIG_SYSTEM=/dev/null",
+                "GIT_TERMINAL_PROMPT=0",
+            ],
+            "display": (
+                "env 'GIT_CONFIG_GLOBAL=/dev/null' "
+                "'GIT_CONFIG_SYSTEM=/dev/null' 'GIT_TERMINAL_PROMPT=0'"
+            ),
+        },
+    }
+
+    block = render_approval_view(build_approval_view(
+        approval,
+        decision="acceptWithExecpolicyAmendment",
+    ))
+
+    assert block.plain_text == (
+        "✔ You approved mind to always run commands that start with "
+        "env 'GIT_CONFIG_GLOBAL=/dev/null' 'GIT_CONFIG_SYSTEM=/dev/null' "
+        "'GIT_TERMINAL..."
+    )
+
+
+def test_approval_trace_uses_codex_session_wording() -> None:
+    approval = {
+        "tool": "shell_command",
+        "arguments": {"command": "git status"},
+    }
+
+    block = render_approval_view(build_approval_view(
+        approval,
+        decision="acceptForSession",
+    ))
+
+    assert block.plain_text == (
+        "✔ You approved mind to run git status every time this session"
+    )
+
+
+def test_approval_trace_uses_shared_codex_snippet_limit() -> None:
+    command = "git " + ("x" * 100)
+    approval = {
+        "tool": "shell_command",
+        "arguments": {"command": command},
+    }
+
+    block = render_approval_view(build_approval_view(
+        approval,
+        decision="accept",
+    ))
+
+    assert block.plain_text == (
+        "✔ You approved mind to run "
+        + command[:77]
+        + "... this time"
+    )
+
+
+def test_approval_trace_does_not_split_combining_graphemes() -> None:
+    command = "e\u0301" * 100
+    approval = {
+        "tool": "shell_command",
+        "arguments": {"command": command},
+    }
+
+    block = render_approval_view(build_approval_view(
+        approval,
+        decision="accept",
+    ))
+
+    assert block.plain_text == (
+        "✔ You approved mind to run "
+        + command[:77 * 2]
+        + "... this time"
     )
