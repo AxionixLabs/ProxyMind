@@ -89,6 +89,66 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
     return approval
 
 
+def approval_from_snapshot(
+    item: typing.Mapping[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """把服务端快照中的审批记录转换为事件同构载荷。"""
+    raw_approval = item.get("approval")
+    approval = dict(raw_approval) if isinstance(raw_approval, dict) else {}
+
+    approval_id = str(
+        item.get("approval_id")
+        or approval.get("approval_id")
+        or ""
+    ).strip()
+    call_id = str(item.get("call_id") or approval.get("call_id") or "").strip()
+    turn_id = str(item.get("turn_id") or approval.get("turn_id") or "").strip()
+    name = str(item.get("name") or "").strip()
+    kind = str(approval.get("kind") or "command").strip()
+
+    if kind == "apply_patch" or name == "apply_patch":
+        tool = "apply_patch"
+        operation_field = "patch"
+    elif kind == "write_stdin" or name == "write_stdin":
+        tool = "write_stdin"
+        operation_field = "command"
+    else:
+        tool = "exec_command"
+        operation_field = "command"
+
+    raw_arguments = item.get("arguments")
+    arguments = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
+    operation = approval.get(operation_field)
+    if not isinstance(operation, str) or not operation:
+        operation = arguments.get(operation_field, "")
+
+    raw_cwd = str(
+        approval.get("cwd_raw")
+        or approval.get("cwd")
+        or arguments.get("cwd")
+        or "."
+    ).strip() or "."
+    normalized_cwd = _normalize_approval_cwd(raw_cwd)
+
+    approval.update({
+        "id": approval_id or call_id,
+        "approval_id": approval_id,
+        "call_id": call_id,
+        "turn_id": turn_id,
+        "tool": tool,
+        "kind": kind,
+        "cwd": normalized_cwd,
+        "cwd_raw": raw_cwd,
+        "arguments": {
+            operation_field: operation,
+            "cwd": normalized_cwd,
+        },
+        operation_field: operation,
+        "justification": str(approval.get("reason") or "").strip(),
+    })
+    return approval
+
+
 def approval_reason(approval: dict[str, typing.Any]) -> str:
     """按重试、审批和调用说明的优先级读取最终理由。"""
     for field_name in (

@@ -10,6 +10,7 @@ from mind_app.approval.policy import (
     approval_decisions,
     approval_decision_label,
     approval_from_event,
+    approval_from_snapshot,
     approval_prompt,
     approval_reason,
 )
@@ -42,6 +43,32 @@ from mind_nova.stream_events import (
     ToolCallEvent,
     parse_stream_event,
 )
+
+
+def test_approval_from_snapshot_matches_event_shape() -> None:
+    approval = approval_from_snapshot({
+        "approval_id": "approval_1",
+        "turn_id": "turn_1",
+        "call_id": "call_1",
+        "name": "apply_patch",
+        "arguments": {"patch": "*** Update File: a.txt\n+ok\n", "cwd": "."},
+        "approval": {
+            "type": "tool.approval_required",
+            "kind": "apply_patch",
+            "patch": "*** Update File: a.txt\n+ok\n",
+            "cwd": ".",
+            "available_decisions": ["accept", "decline"],
+            "reason": "需要修改文件",
+        },
+    })
+
+    assert approval["id"] == "approval_1"
+    assert approval["tool"] == "apply_patch"
+    assert approval["arguments"] == {
+        "patch": "*** Update File: a.txt\n+ok\n",
+        "cwd": str(Path(".").resolve()),
+    }
+    assert approval["justification"] == "需要修改文件"
 
 
 def _client_runtime(

@@ -16,6 +16,7 @@ from mind_nova.stream_events import (
     TurnFailedEvent,
     TurnLogicalSettledEvent,
 )
+from mind_nova.tool_approval import ToolApprovalSnapshot
 
 
 @pytest.fixture(autouse=True)
@@ -1002,6 +1003,118 @@ async def test_sequence_gap_attaches_from_last_confirmed_event(monkeypatch) -> N
     assert [
         event.text for event in events if isinstance(event, TextDeltaEvent)
     ] == ["one", "two", "three"]
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+
+
+@pytest.mark.anyio
+async def test_attach_restores_approval_snapshot_before_replay(monkeypatch) -> None:
+    calls = []
+    restored = []
+    snapshot = ToolApprovalSnapshot(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        turn_status="waiting_approval",
+        turn_settled=False,
+        last_event_seq=4,
+        approvals=(),
+    )
+
+    async def restore(value):
+        restored.append(value)
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "segment_id": "segment_1",
+                "text": "first",
+            }
+            raise OSError("connection lost")
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 2,
+            "next_input": None,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(
+        chat,
+        "reconcile_tool_approval_snapshot",
+        AsyncMock(return_value=snapshot),
+    )
+
+    events = [
+        event async for event in chat.stream_chat(
+            {},
+            "hello",
+            [],
+            on_approval_snapshot=restore,
+        )
+    ]
+
+    assert [event.event_seq for event in events] == [1, 2]
+    assert restored == [snapshot]
+    chat.reconcile_tool_approval_snapshot.assert_awaited_once_with(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+
+
+@pytest.mark.anyio
+async def test_snapshot_failure_does_not_block_event_attach(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "segment_id": "segment_1",
+                "text": "first",
+            }
+            raise OSError("connection lost")
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 2,
+            "next_input": None,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(
+        chat,
+        "reconcile_tool_approval_snapshot",
+        AsyncMock(side_effect=chat.ToolApprovalSnapshotRequestError(
+            "snapshot unavailable",
+            status_code=503,
+        )),
+    )
+
+    events = [
+        event async for event in chat.stream_chat(
+            {},
+            "hello",
+            [],
+            on_approval_snapshot=AsyncMock(),
+        )
+    ]
+
+    assert [event.event_seq for event in events] == [1, 2]
     assert calls == [
         "https://example.com/mind-chat",
         "https://example.com/mind-attach",

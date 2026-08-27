@@ -124,6 +124,39 @@ class ApprovalCoordinator:
             await self._release_waiter(entry, cancelled=False)
             return outcome
 
+    async def restore_pending(
+        self,
+        approval: dict[str, typing.Any],
+    ) -> bool:
+        """恢复一项尚未解决的审批，并交由现有队列展示。"""
+        request = self._normalize_request(approval)
+
+        async with self._lock:
+            if self._closed:
+                return False
+
+            existing = self._by_request_id.get(request.key.request_id)
+            if existing is not None:
+                if existing.request != request:
+                    raise ValueError(
+                        "restored approval identity conflicts with pending request"
+                    )
+                return False
+
+            if len(self._by_request_id) >= self._queue_limit:
+                return False
+
+            entry = _QueuedApproval(
+                request=request,
+                future=asyncio.get_running_loop().create_future(),
+                waiters=0,
+            )
+            self._by_request_id[request.key.request_id] = entry
+            self._pending.append(entry)
+            self._changed()
+            self._ensure_worker()
+            return True
+
     async def resolve(
         self,
         request: ApprovalRequestKey | str,
@@ -429,7 +462,16 @@ class ApprovalCoordinator:
         if entry.future.done():
             return None
         self._remove_entry(entry)
-        entry.future.set_exception(error)
+        if entry.waiters:
+            entry.future.set_exception(error)
+        else:
+            entry.future.set_result(
+                self._outcome(
+                    "decline",
+                    source="policy",
+                    reason="presentation_failed",
+                )
+            )
         self._cancel_empty_session_start()
 
     def _remove_entry(self, entry: _QueuedApproval) -> None:

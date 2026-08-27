@@ -23,6 +23,13 @@ ToolApprovalTurnStatus: typing.TypeAlias = typing.Literal[
     "interrupting",
 ]
 
+ToolApprovalSnapshotStatus: typing.TypeAlias = typing.Literal[
+    "pending",
+    "resolved",
+    "expired",
+    "cancelled",
+]
+
 ToolLifecycleStatus: typing.TypeAlias = typing.Literal[
     "completed",
     "failed",
@@ -83,6 +90,39 @@ class ToolApprovalAck(object):
     decision: ToolApprovalDecision
     tool_status: ToolApprovalStatus
     turn_status: ToolApprovalTurnStatus
+
+
+@dataclass(frozen=True, slots=True)
+class ToolApprovalSnapshotItem(object):
+    """描述恢复快照中的单项审批记录。"""
+    approval_id: str
+    turn_id: str
+    call_id: str
+    name: str
+    arguments: dict[str, typing.Any]
+    approval: dict[str, typing.Any]
+    status: ToolApprovalSnapshotStatus
+    decision: str
+    execpolicy_amendment_id: str
+    reason: str
+    additional_context: tuple[str, ...]
+    ack: dict[str, typing.Any] | None
+    expires_at: float
+    resolved_at: float | None
+    created_at: float
+    updated_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class ToolApprovalSnapshot(object):
+    """描述指定逻辑轮次的审批恢复快照。"""
+    cid: str
+    sid: str
+    turn_id: str
+    turn_status: str
+    turn_settled: bool
+    last_event_seq: int
+    approvals: tuple[ToolApprovalSnapshotItem, ...]
 
 
 if __name__ == '__main__':

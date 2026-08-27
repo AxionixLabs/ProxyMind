@@ -98,6 +98,19 @@ class ApprovalCallLedger(object):
                 self._states[key] = "consumed"
             return state
 
+    def is_approved(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        call_id: str,
+    ) -> bool:
+        """判断调用是否已有尚未消费的允许决定。"""
+        key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
+        with self._lock:
+            return self._states.get(key) == "approved"
+
     def record_result_pending(
         self,
         *,

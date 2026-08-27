@@ -44,6 +44,98 @@ def _response(status_code, body):
     )
 
 
+def _install_snapshot_client(monkeypatch, response, captured) -> None:
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return response
+
+    monkeypatch.setattr(tools.httpx, "AsyncClient", ClientStub)
+    monkeypatch.setattr(
+        tools.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.test{path}",
+    )
+    monkeypatch.setattr(
+        tools.Channel,
+        "make_headers",
+        lambda: {"authorization": "test"},
+    )
+
+
+@pytest.mark.anyio
+async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> None:
+    captured = {}
+    _install_snapshot_client(monkeypatch, httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "cid": "cid_1",
+                "sid": "sid_1",
+                "turn_id": "turn_001",
+                "turn_status": "waiting_approval",
+                "turn_settled": False,
+                "last_event_seq": 8,
+                "approvals": [{
+                    "approval_id": "approval_1",
+                    "turn_id": "turn_001",
+                    "call_id": "call_1",
+                    "name": "exec_command",
+                    "arguments": {"command": "echo ready", "cwd": "."},
+                    "approval": {
+                        "type": "tool.approval_required",
+                        "kind": "command",
+                        "command": "echo ready",
+                        "cwd": ".",
+                        "available_decisions": ["accept", "decline"],
+                    },
+                    "status": "pending",
+                    "decision": "",
+                    "execpolicy_amendment_id": "",
+                    "reason": "需要执行命令",
+                    "additional_context": [],
+                    "ack": None,
+                    "expires_at": 100.0,
+                    "resolved_at": None,
+                    "created_at": 90.0,
+                    "updated_at": 90.0,
+                }],
+            },
+        },
+        request=httpx.Request("POST", "https://example.test/turn/approval-snapshot"),
+    ), captured)
+
+    snapshot = await tools.reconcile_tool_approval_snapshot(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        timeout=3.0,
+    )
+
+    assert snapshot.cid == "cid_1"
+    assert snapshot.last_event_seq == 8
+    assert snapshot.approvals[0].status == "pending"
+    assert snapshot.approvals[0].approval_id == "approval_1"
+    assert captured["url"] == "https://example.test/turn/approval-snapshot"
+    assert captured["json"] == {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "turn_id": "turn_001",
+    }
+    assert captured["timeout"] == 3.0
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("result", "expected"),

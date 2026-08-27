@@ -26,6 +26,11 @@ from mind_nova.stream_events import (
     TurnLogicalSettledEvent,
     parse_stream_event
 )
+from mind_nova.tool_approval import ToolApprovalSnapshot
+from mind_nova.requests.tools import (
+    ToolApprovalSnapshotRequestError,
+    reconcile_tool_approval_snapshot,
+)
 from mind_nova import const
 
 ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
@@ -52,6 +57,11 @@ TurnStreamEndReason: typing.TypeAlias = typing.Literal[
 
 ReconnectStatusCallback: typing.TypeAlias = typing.Callable[[bool], None]
 
+ApprovalSnapshotCallback: typing.TypeAlias = typing.Callable[
+    [ToolApprovalSnapshot],
+    typing.Awaitable[None] | None,
+]
+
 
 class _TurnStreamState(enum.Enum):
     RUNNING      = "running"
@@ -75,6 +85,7 @@ class TurnEventStream(object):
         timeout: float,
         kwargs: dict[str, typing.Any],
         on_reconnect_status: ReconnectStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     ) -> None:
         """保存请求参数并初始化逻辑轮次观察状态。"""
         self._request = (pref_config, message, tools, attachments, kwargs)
@@ -99,6 +110,7 @@ class TurnEventStream(object):
         self._reconnect_clear_handle: asyncio.TimerHandle | None = None
 
         self._on_reconnect_status = on_reconnect_status
+        self._on_approval_snapshot = on_approval_snapshot
 
         self.end_reason: TurnStreamEndReason | None = None
 
@@ -297,6 +309,8 @@ class TurnEventStream(object):
                 self._payload_stream = self._open_chat_stream()
                 return True
 
+        await self._restore_approval_snapshot(attach_target)
+
         payload: dict[str, typing.Any] = dict(attach_target)
         payload["after_seq"] = self.last_event_seq
 
@@ -307,6 +321,24 @@ class TurnEventStream(object):
             self._timeout,
         )
         return True
+
+    async def _restore_approval_snapshot(
+        self,
+        attach_target: dict[str, str]
+    ) -> None:
+        """在重新接入前读取并交付审批恢复快照。"""
+        callback = self._on_approval_snapshot
+        if callback is None:
+            return None
+
+        try:
+            snapshot = await reconcile_tool_approval_snapshot(**attach_target)
+        except ToolApprovalSnapshotRequestError:
+            return None
+
+        result = callback(snapshot)
+        if result is not None:
+            await result
 
     def _validate_turn_identity(self, event: ChatStreamEvent) -> None:
         """拒绝缺失坐标或不属于当前逻辑轮次的业务事件。"""
@@ -499,6 +531,7 @@ def stream_chat(
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     timeout: float = 60.0,
     on_reconnect_status: ReconnectStatusCallback | None = None,
+    on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     *_,
     **kwargs
 ) -> TurnEventStream:
@@ -511,6 +544,7 @@ def stream_chat(
         timeout,
         kwargs,
         on_reconnect_status,
+        on_approval_snapshot,
     )
 
 

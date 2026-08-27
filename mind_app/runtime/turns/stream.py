@@ -8,11 +8,15 @@ from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_core.skills import skills_payload
-from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
+from mind_nova.tool_approval import (
+    TOOL_APPROVAL_ACCEPT_DECISIONS,
+    ToolApprovalSnapshot
+)
 from mind_app.approval.policy import (
     approval_decisions,
     approval_execpolicy_amendment,
     approval_from_event,
+    approval_from_snapshot,
     approval_id_from_event,
     approval_reason,
 )
@@ -847,15 +851,87 @@ async def stream_turn(
         approval_ledger = ApprovalCallLedger()
         setattr(mind, "approval_call_ledger", approval_ledger)
 
+    async def restore_approval_snapshot(
+        snapshot: ToolApprovalSnapshot,
+    ) -> None:
+        """恢复重连前的未决审批，并提交用户随后作出的决定。"""
+        if (
+            snapshot.cid != turn_context.cid
+            or snapshot.sid != turn_context.sid
+            or snapshot.turn_id != turn_context.turn_id
+        ):
+            raise ValueError("approval snapshot does not belong to current turn")
+
+        for item in snapshot.approvals:
+            if (
+                item.status == "resolved"
+                and item.decision in TOOL_APPROVAL_ACCEPT_DECISIONS
+            ):
+                approval_ledger.record_approved(
+                    cid=snapshot.cid,
+                    sid=snapshot.sid,
+                    turn_id=snapshot.turn_id,
+                    call_id=item.call_id,
+                )
+                continue
+            if item.status != "pending":
+                continue
+
+            restored_approval = approval_from_snapshot({
+                "approval_id": item.approval_id,
+                "turn_id": item.turn_id,
+                "call_id": item.call_id,
+                "name": item.name,
+                "arguments": item.arguments,
+                "approval": item.approval,
+            })
+            if turn_context.agent.depth > 0:
+                restored_approval["agent_id"] = turn_context.agent.agent_id
+                restored_approval["agent_type"] = turn_context.agent.agent_type
+                restored_approval["agent_depth"] = turn_context.agent.depth
+
+            restored_outcome = await mind.approval_coordinator.request_outcome(
+                restored_approval
+            )
+            restored_decision = restored_outcome.decision
+            if (
+                restored_decision != "cancel"
+                and restored_decision not in approval_decisions(restored_approval)
+            ):
+                raise RuntimeError(
+                    "restored approval decision is not available: "
+                    f"{restored_decision}"
+                )
+
+            await post_tool_approval(
+                snapshot.cid,
+                snapshot.sid,
+                item.call_id,
+                item.approval_id,
+                **_approval_report_kwargs(
+                    restored_approval,
+                    decision=restored_decision,
+                    source=typing.cast(ApprovalSource, restored_outcome.source),
+                    turn_id=snapshot.turn_id,
+                ),
+            )
+            if restored_decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
+                approval_ledger.record_approved(
+                    cid=snapshot.cid,
+                    sid=snapshot.sid,
+                    turn_id=snapshot.turn_id,
+                    call_id=item.call_id,
+                )
+
     async def post_client_tool_result(
         cid: str,
         sid: str,
         call_id: str,
-        name: str,
+        tool_name: str,
         ok: bool,
-        result: typing.Any,
+        tool_result: typing.Any,
         additional_context: typing.Sequence[str] = (),
-        arguments: typing.Mapping[str, typing.Any] | None = None,
+        tool_arguments: typing.Mapping[str, typing.Any] | None = None,
         request_id: str | None = None,
     ) -> None:
         """保存工具结果并在服务端确认后收束本地结果状态。"""
@@ -864,21 +940,21 @@ async def stream_turn(
             sid=sid,
             turn_id=turn_context.turn_id,
             call_id=call_id,
-            name=name,
+            name=tool_name,
             ok=ok,
-            result=result,
-            arguments=arguments,
+            result=tool_result,
+            arguments=tool_arguments,
             additional_context=additional_context,
         )
         await post_tool_result(
             cid,
             sid,
             call_id,
-            name,
+            tool_name,
             ok,
-            result,
+            tool_result,
             additional_context=additional_context,
-            arguments=arguments,
+            arguments=tool_arguments,
             request_id=request_id,
         )
         approval_ledger.mark_result_committed(
@@ -1025,6 +1101,7 @@ async def stream_turn(
             message,
             tools,
             on_reconnect_status=retrying_status.set_transport,
+            on_approval_snapshot=restore_approval_snapshot,
             **kwargs,
         )
 
@@ -1335,6 +1412,19 @@ async def stream_turn(
 
             if isinstance(event, ToolApprovalRequiredEvent):
                 approval = approval_from_event(event)
+                if approval_ledger.is_approved(
+                    cid=turn_context.cid,
+                    sid=turn_context.sid,
+                    turn_id=turn_context.turn_id,
+                    call_id=event.call_id,
+                ):
+                    observe(
+                        "approval.replayed",
+                        tool=str(approval.get("tool") or ""),
+                        call_id=event.call_id,
+                        approval_id=approval_id_from_event(event),
+                    )
+                    continue
                 if turn_context.agent.depth > 0:
                     approval["agent_id"] = turn_context.agent.agent_id
                     approval["agent_type"] = turn_context.agent.agent_type
@@ -1562,7 +1652,7 @@ async def stream_turn(
                             result_record.ok,
                             result_record.result,
                             additional_context=result_record.additional_context,
-                            arguments=result_record.arguments,
+                            tool_arguments=result_record.arguments,
                         )
                     observe(
                         "tool.call.duplicate",
@@ -1607,7 +1697,7 @@ async def stream_turn(
                         False,
                         _hook_denied_result(hook_decision.reason),
                         additional_context=hook_decision.additional_context,
-                        arguments=invocation.arguments,
+                        tool_arguments=invocation.arguments,
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.15)
                     continue
@@ -1632,7 +1722,7 @@ async def stream_turn(
                         tool_result.name,
                         tool_result.ok,
                         tool_result.fields,
-                        arguments=invocation.arguments,
+                        tool_arguments=invocation.arguments,
                         additional_context=tool_outcome.additional_context,
                     )
                     await status_control.begin_reply_wait_status(delay_sec=0.75)
@@ -1661,7 +1751,7 @@ async def stream_turn(
                         invocation.name,
                         False,
                         _local_exec_policy_denied_result(local_policy_requirement),
-                        arguments=invocation.arguments,
+                        tool_arguments=invocation.arguments,
                     )
                     await status_control.begin_reply_wait_status()
                     continue
@@ -1707,7 +1797,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             patch_result,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         await status_control.begin_reply_wait_status()
                         continue
@@ -1741,7 +1831,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             patch_result,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         if patch_outcome.decision == "cancel":
                             interrupted = await _interrupt_approval_cancelled_turn(
@@ -1780,7 +1870,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             patch_result,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         await status_control.begin_reply_wait_status()
                         continue
@@ -1790,7 +1880,7 @@ async def stream_turn(
                     and local_policy_requirement.state == "needs_approval"
                     and not approval_consumed
                 ):
-                    approval_reason = str(
+                    shell_approval_reason = str(
                         invocation.arguments.get("justification")
                         or invocation.reason
                         or ""
@@ -1800,7 +1890,7 @@ async def stream_turn(
                     ).strip().casefold()
                     if (
                         name in {"shell_command", "exec_command"}
-                        and not approval_reason
+                        and not shell_approval_reason
                         and requested_sandbox_permissions != "require_escalated"
                     ):
                         missing_reason = {
@@ -1819,7 +1909,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             missing_reason,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         await status_control.begin_reply_wait_status()
                         continue
@@ -1839,7 +1929,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             local_policy_result,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         await status_control.begin_reply_wait_status()
                         continue
@@ -1877,7 +1967,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             local_policy_result,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         if local_outcome.decision == "cancel":
                             interrupted = await _interrupt_approval_cancelled_turn(
@@ -1918,7 +2008,7 @@ async def stream_turn(
                             invocation.name,
                             False,
                             local_policy_result,
-                            arguments=invocation.arguments,
+                            tool_arguments=invocation.arguments,
                         )
                         await status_control.begin_reply_wait_status()
                         continue
@@ -1942,7 +2032,7 @@ async def stream_turn(
                     tool_result.name,
                     tool_result.ok,
                     tool_result.fields,
-                    arguments=invocation.arguments,
+                    tool_arguments=invocation.arguments,
                     additional_context=tool_outcome.additional_context,
                 )
                 await status_control.begin_reply_wait_status(delay_sec=0.75)

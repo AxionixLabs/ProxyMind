@@ -5,6 +5,7 @@ import httpx
 import typing
 from engine.channel import Channel
 from mind_nova.identifiers import (
+    normalize_turn_id,
     resolve_request_id,
     stable_request_id
 )
@@ -17,7 +18,10 @@ from mind_nova.tool_approval import (
     ToolApprovalAck,
     ToolApprovalDecision,
     ToolApprovalStatus,
-    ToolApprovalTurnStatus
+    ToolApprovalTurnStatus,
+    ToolApprovalSnapshot,
+    ToolApprovalSnapshotItem,
+    ToolApprovalSnapshotStatus
 )
 
 _ToolResultValue = typing.Union[
@@ -93,6 +97,237 @@ class ToolApprovalRequestError(Exception):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+
+
+class ToolApprovalSnapshotRequestError(Exception):
+    """描述审批恢复快照请求失败或返回无效响应。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+    ) -> None:
+        """保存快照请求失败对应的 HTTP 状态码。"""
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def reconcile_tool_approval_snapshot(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    timeout: float = 10.0,
+) -> ToolApprovalSnapshot:
+    """读取指定逻辑轮次的审批恢复快照。"""
+    normalized_cid = str(cid or "").strip()
+    normalized_sid = str(sid or "").strip()
+    if not normalized_cid:
+        raise ToolApprovalSnapshotRequestError("approval snapshot requires cid")
+    if not normalized_sid:
+        raise ToolApprovalSnapshotRequestError("approval snapshot requires sid")
+    try:
+        normalized_turn_id = normalize_turn_id(turn_id)
+    except ValueError as error:
+        raise ToolApprovalSnapshotRequestError(str(error)) from error
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                service_endpoints.endpoint("/turn/approval-snapshot"),
+                json={
+                    "cid": normalized_cid,
+                    "sid": normalized_sid,
+                    "turn_id": normalized_turn_id,
+                },
+                headers=Channel.make_headers(),
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot request failed",
+            status_code=error.response.status_code,
+        ) from error
+    except httpx.HTTPError as error:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot request failed"
+        ) from error
+
+    try:
+        body = response.json()
+    except (TypeError, ValueError) as error:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot returned an invalid response",
+            status_code=response.status_code,
+        ) from error
+
+    if not isinstance(body, dict) or body.get("ok") is not True:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot returned an invalid response",
+            status_code=response.status_code,
+        )
+    data = body.get("data")
+    if not isinstance(data, dict):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot data is invalid",
+            status_code=response.status_code,
+        )
+
+    expected = {
+        "cid": normalized_cid,
+        "sid": normalized_sid,
+        "turn_id": normalized_turn_id,
+    }
+    if any(
+        str(data.get(key) or "").strip() != value
+        for key, value in expected.items()
+    ):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot identity does not match request",
+            status_code=response.status_code,
+        )
+
+    raw_approvals = data.get("approvals")
+    if not isinstance(raw_approvals, list):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot approvals are invalid",
+            status_code=response.status_code,
+        )
+
+    approvals = tuple(
+        _approval_snapshot_item(item, expected_turn_id=normalized_turn_id)
+        for item in raw_approvals
+    )
+    turn_status = str(data.get("turn_status") or "").strip()
+    if not turn_status:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot turn_status is invalid",
+            status_code=response.status_code,
+        )
+    last_event_seq = data.get("last_event_seq")
+    if (
+        isinstance(last_event_seq, bool)
+        or not isinstance(last_event_seq, int)
+        or last_event_seq < 0
+    ):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot last_event_seq is invalid",
+            status_code=response.status_code,
+        )
+    turn_settled = data.get("turn_settled")
+    if not isinstance(turn_settled, bool):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot turn_settled is invalid",
+            status_code=response.status_code,
+        )
+
+    return ToolApprovalSnapshot(
+        cid=normalized_cid,
+        sid=normalized_sid,
+        turn_id=normalized_turn_id,
+        turn_status=turn_status,
+        turn_settled=turn_settled,
+        last_event_seq=last_event_seq,
+        approvals=approvals,
+    )
+
+
+def _approval_snapshot_item(
+    value: typing.Any,
+    *,
+    expected_turn_id: str,
+) -> ToolApprovalSnapshotItem:
+    """校验并转换单项审批恢复记录。"""
+    if not isinstance(value, dict):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item is invalid"
+        )
+
+    def text_field(name: str, *, required: bool = False) -> str:
+        result = str(value.get(name) or "").strip()
+        if required and not result:
+            raise ToolApprovalSnapshotRequestError(
+                f"approval snapshot {name} is invalid"
+            )
+        return result
+
+    approval_id = text_field("approval_id", required=True)
+    turn_id = text_field("turn_id", required=True)
+    if turn_id != expected_turn_id:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item turn_id does not match request"
+        )
+    call_id = text_field("call_id", required=True)
+    name = text_field("name", required=True)
+    raw_arguments = value.get("arguments")
+    raw_approval = value.get("approval")
+    if (
+        not isinstance(raw_arguments, dict)
+        or not isinstance(raw_approval, dict)
+    ):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item payload is invalid"
+        )
+
+    status = text_field("status", required=True)
+    if status not in {"pending", "resolved", "expired", "cancelled"}:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item status is invalid"
+        )
+
+    raw_context = value.get("additional_context")
+    if raw_context is None:
+        additional_context: tuple[str, ...] = ()
+    elif isinstance(raw_context, list):
+        additional_context = tuple(
+            str(item).strip()
+            for item in raw_context
+            if str(item).strip()
+        )
+    else:
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot item additional_context is invalid"
+        )
+
+    return ToolApprovalSnapshotItem(
+        approval_id=approval_id,
+        turn_id=turn_id,
+        call_id=call_id,
+        name=name,
+        arguments=dict(raw_arguments),
+        approval=dict(raw_approval),
+        status=typing.cast(ToolApprovalSnapshotStatus, status),
+        decision=text_field("decision"),
+        execpolicy_amendment_id=text_field("execpolicy_amendment_id"),
+        reason=text_field("reason"),
+        additional_context=additional_context,
+        ack=(dict(value["ack"]) if isinstance(value.get("ack"), dict) else None),
+        expires_at=_snapshot_float(value.get("expires_at"), "expires_at"),
+        resolved_at=_snapshot_optional_float(value.get("resolved_at"), "resolved_at"),
+        created_at=_snapshot_float(value.get("created_at"), "created_at"),
+        updated_at=_snapshot_float(value.get("updated_at"), "updated_at"),
+    )
+
+
+def _snapshot_float(value: typing.Any, field_name: str) -> float:
+    """读取快照中的非负时间字段。"""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or value < 0
+    ):
+        raise ToolApprovalSnapshotRequestError(
+            f"approval snapshot {field_name} is invalid"
+        )
+    return float(value)
+
+
+def _snapshot_optional_float(value: typing.Any, field_name: str) -> float | None:
+    """读取快照中的可选非负时间字段。"""
+    if value is None:
+        return None
+    return _snapshot_float(value, field_name)
 
 
 async def post_tool_result(

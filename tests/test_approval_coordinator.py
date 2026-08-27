@@ -392,3 +392,48 @@ async def test_last_caller_cancellation_stops_empty_session_start() -> None:
     assert coordinator.snapshot.unresolved_count == 0
     assert interaction.calls == []
     await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_restore_pending_reuses_fifo_worker_without_waiter() -> None:
+    interaction = ControlledInteraction()
+    coordinator = ApprovalCoordinator(interaction)
+    approval = {
+        "id": "restored",
+        "approval_id": "restored",
+        "call_id": "call-restored",
+        "turn_id": "turn-restored",
+        "tool": "exec_command",
+        "kind": "command",
+        "command": "echo restored",
+        "available_decisions": ["accept", "decline"],
+    }
+
+    assert await coordinator.restore_pending(approval)
+    await interaction.wait_started("restored")
+    assert coordinator.snapshot.current is not None
+    assert coordinator.snapshot.current.key.call_id == "call-restored"
+
+    assert await coordinator.resolve("restored", "accept", source="user")
+    await asyncio.wait_for(interaction.ended.wait(), timeout=1)
+    assert coordinator.snapshot.unresolved_count == 0
+    assert interaction.calls == ["restored"]
+
+
+@pytest.mark.anyio
+async def test_restore_pending_deduplicates_matching_request() -> None:
+    interaction = ControlledInteraction()
+    coordinator = ApprovalCoordinator(interaction)
+    approval = {
+        "id": "restored",
+        "tool": "exec_command",
+        "command": "echo restored",
+    }
+
+    assert await coordinator.restore_pending(approval)
+    assert not await coordinator.restore_pending(dict(approval))
+    await interaction.wait_started("restored")
+    interaction.finish("restored", "decline")
+
+    await asyncio.wait_for(interaction.ended.wait(), timeout=1)
+    assert interaction.calls == ["restored"]
