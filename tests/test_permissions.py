@@ -14,9 +14,9 @@ from mind_app.approval.policy import (
     approval_prompt,
     approval_reason,
 )
-from mind_app.runtime.turns.stream import (
-    _apply_local_patch_approval,
-    _local_patch_approval,
+from mind_app.runtime.turns.stream_policy import (
+    apply_local_patch_approval,
+    local_patch_approval,
 )
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from mind_app.client_tools.coding.native import (
@@ -496,7 +496,7 @@ def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> N
         reason="需要更新实现",
     )
 
-    approval = _local_patch_approval(
+    approval = local_patch_approval(
         SimpleNamespace(native_coding=coding),
         invocation,
     )
@@ -528,7 +528,7 @@ def test_patch_session_approval_updates_file_cache(tmp_path) -> None:
         "environment_id": "env-a",
     }
 
-    assert _apply_local_patch_approval(
+    assert apply_local_patch_approval(
         manager,
         approval=approval,
         decision="acceptForSession",

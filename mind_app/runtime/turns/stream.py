@@ -4,27 +4,9 @@
 import time
 import typing
 import asyncio
-from mind_app.mcp.contracts import McpSessionLike
-from mind_app.mcp.tool_store import meta_for_tool
-from mind_app.client_tools.planning import PLAN_STEPS_TOOL
-from mind_core.skills import skills_payload
-from mind_nova.tool_approval import (
-    TOOL_APPROVAL_ACCEPT_DECISIONS,
-    ToolApprovalSnapshot
-)
-from mind_app.approval.policy import (
-    approval_decisions,
-    approval_execpolicy_amendment,
-    approval_from_event,
-    approval_from_snapshot,
-    approval_id_from_event,
-    approval_reason,
-)
 from mind_app.approval.ledger import ApprovalCallLedger
-from mind_app.approval.models import (
-    ApprovalDecisionValue,
-    ApprovalOutcome
-)
+from mind_app.mcp.contracts import McpSessionLike
+from mind_core.skills import skills_payload
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
 from mind_nova.identifiers import stable_request_id
@@ -43,7 +25,6 @@ from mind_nova.stream_events import (
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
-    ToolEvent,
     ToolOutputEvent,
     TurnDoneEvent,
     TurnFailedEvent,
@@ -74,18 +55,12 @@ from .result import (
     RunResult,
     RunStatus
 )
-from ...presentation.approval_views import build_approval_view
-from ...presentation.models import ApprovalSource
 from ...presentation.run_views import (
     build_run_completed_view,
     build_run_incomplete_view,
     build_run_started_view
 )
 from ..support.loop_support import finish_failure
-from ..execution import (
-    ToolInvocation,
-    TurnContext
-)
 from ..hooks.tool import ToolCallCoordinator
 from ..hooks.models import StopHookDecision
 from ..hooks.turn import (
@@ -94,13 +69,6 @@ from ..hooks.turn import (
 )
 from ..environment.exec_env import build_runtime_exec_env
 from ..support.session_policy import friendly_exception_text
-from ..tools.run import server_tool_output_result
-from ..tools.display import show_tool_result
-from ...native_coding.exec.exec_policy import (
-    ExecApprovalRequirement,
-    ExecPolicyManager,
-    validate_sandbox_permission_arguments,
-)
 from ..tools.client_call import ClientToolCallRunner
 from ..durable_effects import LocalEffectReconciliationRequired
 from ..tools.plan_call import PlanToolCallRunner
@@ -113,7 +81,10 @@ from .executor import (
     turn_continuation_count
 )
 from ..support.idle_status import IdleStatusTimer
-from ...stream_events.tool_trace import coding_trace_tool
+from .stream_approval import ApprovalEventHandler
+from .stream_tools import (
+    ToolEventHandler,
+)
 from ...stream_events.lifecycle import handle_lifecycle_event
 from ...stream_events.assistant_boundary import is_assistant_output_boundary
 from ...stream_state.segment import SegmentTracker
@@ -126,276 +97,6 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 MAX_STOP_CONTINUATIONS = 3
-
-LOCAL_EXEC_POLICY_TOOLS = frozenset({
-    "shell_command",
-    "exec_command",
-    "write_stdin",
-})
-
-
-def _local_exec_policy_requirement(
-    manager: ExecPolicyManager,
-    turn_context: TurnContext,
-    *,
-    tool: str,
-    arguments: dict[str, typing.Any],
-    call_id: str,
-) -> ExecApprovalRequirement | None:
-    """返回 shell/exec 工具的本地执行要求。"""
-    if tool not in LOCAL_EXEC_POLICY_TOOLS:
-        return None
-    command = arguments.get("command")
-    if tool == "write_stdin":
-        command = arguments.get("stdin")
-    if not isinstance(command, str) or not command.strip():
-        return None
-    try:
-        sandbox_permissions = validate_sandbox_permission_arguments(arguments)
-    except ValueError as error:
-        return ExecApprovalRequirement.forbidden(str(error))
-    try:
-        return manager.create_exec_approval_requirement_for_command(
-            command,
-            approval_policy=turn_context.permissions.approval_policy,
-            sandbox_mode=turn_context.permissions.sandbox_mode,
-            cwd=arguments.get("cwd") or turn_context.cwd,
-            tool=tool,
-            amendment_id=f"local-rule-{call_id}",
-            sandbox_permissions=sandbox_permissions,
-            environment_id=arguments.get("environment_id"),
-            tty=arguments.get("tty"),
-            additional_permissions=arguments.get("additional_permissions"),
-            policy_fingerprint=arguments.get("policy_fingerprint"),
-            patch_scope=arguments.get("patch_scope"),
-        )
-    except ValueError as error:
-        return ExecApprovalRequirement.forbidden(str(error))
-
-
-def _local_exec_policy_approval(
-    *,
-    invocation: ToolInvocation,
-    requirement: ExecApprovalRequirement,
-) -> dict[str, typing.Any]:
-    """构造客户端本地执行策略审批请求。"""
-    command = str(
-        invocation.arguments.get("command")
-        or invocation.arguments.get("stdin")
-        or ""
-    )
-    approval: dict[str, typing.Any] = {
-        "id": f"local-exec-{invocation.call_id}",
-        "request_id": f"local-exec-{invocation.call_id}",
-        "call_id": invocation.call_id,
-        "tool": invocation.name,
-        "arguments": dict(invocation.arguments),
-        "command": command,
-        "cwd": str(invocation.arguments.get("cwd") or invocation.turn.cwd),
-        "risk": "dangerous_command" if requirement.state == "needs_approval" else "local_policy",
-        "category": "exec",
-        "reasons": ["local_exec_policy"],
-        "environment": (
-            "host"
-            if str(invocation.arguments.get("sandbox_permissions") or "")
-            .strip()
-            .casefold() == "require_escalated"
-            else "local"
-        ),
-    }
-    for field_name in (
-        "environment_id",
-        "tty",
-        "additional_permissions",
-        "policy_fingerprint",
-        "patch_scope",
-    ):
-        value = invocation.arguments.get(field_name)
-        if value not in (None, "", (), [], {}):
-            approval[field_name] = value
-    justification = str(
-        invocation.arguments.get("justification") or invocation.reason or ""
-    ).strip()
-    if (
-        not justification
-        and str(invocation.arguments.get("sandbox_permissions") or "")
-        .strip()
-        .casefold()
-        == "require_escalated"
-    ):
-        justification = "Command requested host shell execution."
-    if justification:
-        approval["justification"] = justification
-    if requirement.reason:
-        approval["reason"] = requirement.reason
-    if invocation.reason:
-        approval["approval_reason"] = invocation.reason
-    selected_reason = approval_reason(approval)
-    if selected_reason:
-        approval["reason"] = selected_reason
-        approval["justification"] = selected_reason
-    amendment = requirement.proposed_execpolicy_amendment
-    if amendment is not None:
-        approval["proposed_execpolicy_amendment"] = {
-            "id": amendment.id,
-            "command_prefix": list(amendment.command_prefix),
-            "display": amendment.display,
-        }
-    return approval
-
-
-def _local_patch_approval(
-    mind: "Mind",
-    invocation: ToolInvocation,
-) -> dict[str, typing.Any]:
-    """构造补丁专用的本地审批请求。"""
-    arguments = dict(invocation.arguments)
-    patch = str(arguments.get("patch") or "")
-    preview: dict[str, typing.Any] | None = None
-    preview_patch = getattr(getattr(mind, "native_coding", None), "preview_patch", None)
-    if callable(preview_patch):
-        expected_sha256 = arguments.get("expected_sha256")
-        if not isinstance(expected_sha256, dict):
-            expected_sha256 = None
-        try:
-            candidate = preview_patch(
-                patch=patch,
-                expected_sha256=expected_sha256,
-                force=bool(arguments.get("force", False)),
-            )
-        except (OSError, TypeError, ValueError, UnicodeError, KeyError):
-            candidate = None
-        if isinstance(candidate, dict) and candidate.get("ok"):
-            preview = candidate.get("data")
-            if not isinstance(preview, dict):
-                preview = None
-
-    scope: list[str] = []
-    if preview is not None:
-        files = preview.get("files")
-        if isinstance(files, list):
-            scope = [
-                str(item.get("path") or "").strip()
-                for item in files
-                if isinstance(item, dict) and str(item.get("path") or "").strip()
-            ]
-
-    reason = str(invocation.reason or "apply_patch requests workspace changes").strip()
-    approval_id = f"local-patch-{invocation.call_id}"
-    approval: dict[str, typing.Any] = {
-        "id": approval_id,
-        "approval_id": approval_id,
-        "request_id": approval_id,
-        "call_id": invocation.call_id,
-        "turn_id": invocation.turn.turn_id,
-        "started_at_ms": int(time.time() * 1000),
-        "tool": "apply_patch",
-        "kind": "apply_patch",
-        "arguments": arguments,
-        "patch": patch,
-        "cwd": str(arguments.get("cwd") or invocation.turn.cwd),
-        "patch_scope": scope,
-        "category": "apply_patch",
-        "risk": "workspace_write",
-        "available_decisions": [
-            "accept",
-            "acceptForSession",
-            "decline",
-        ],
-        "reason": reason,
-        "justification": reason,
-    }
-    environment_id = str(arguments.get("environment_id") or "").strip()
-    if environment_id:
-        approval["environment_id"] = environment_id
-    if preview is not None:
-        approval["preview"] = preview
-    return approval
-
-
-def _apply_local_patch_approval(
-    manager: ExecPolicyManager,
-    *,
-    approval: dict[str, typing.Any],
-    decision: ApprovalDecisionValue,
-) -> str | None:
-    """保存补丁文件的本会话批准结果。"""
-    if decision != "acceptForSession":
-        return None
-    try:
-        manager.add_patch_approval_for_session(
-            approval.get("patch_scope"),
-            cwd=approval.get("cwd"),
-            environment_id=approval.get("environment_id"),
-        )
-    except (OSError, UnicodeError, ValueError) as error:
-        return str(error).strip() or type(error).__name__
-    return None
-
-
-def _apply_local_exec_policy_approval(
-    manager: ExecPolicyManager,
-    *,
-    invocation: ToolInvocation,
-    approval: dict[str, typing.Any],
-    decision: ApprovalDecisionValue,
-) -> str | None:
-    """把本地审批的会话或持久化选择写入策略管理器。"""
-    command = str(
-        invocation.arguments.get("command")
-        or invocation.arguments.get("stdin")
-        or ""
-    )
-    cwd = invocation.arguments.get("cwd") or invocation.turn.cwd
-    try:
-        if decision == "acceptForSession":
-            manager.add_approval_for_session(
-                command,
-                tool=invocation.name,
-                cwd=cwd,
-                sandbox_permissions=invocation.arguments.get("sandbox_permissions"),
-                environment_id=invocation.arguments.get("environment_id"),
-                tty=invocation.arguments.get("tty"),
-                additional_permissions=invocation.arguments.get(
-                    "additional_permissions"
-                ),
-                policy_fingerprint=invocation.arguments.get("policy_fingerprint"),
-                patch_scope=invocation.arguments.get("patch_scope"),
-            )
-        elif decision == "acceptWithExecpolicyAmendment":
-            amendment = approval_execpolicy_amendment(approval)
-            if amendment is None:
-                return "local execution policy amendment is invalid"
-            manager.persist_execpolicy_amendment({
-                "command_prefix": list(amendment.command_prefix),
-            })
-    except (OSError, UnicodeError, ValueError) as error:
-        return str(error).strip() or type(error).__name__
-    return None
-
-
-def _local_exec_policy_denied_result(
-    requirement: ExecApprovalRequirement,
-) -> dict[str, typing.Any]:
-    """构造本地执行策略拒绝结果。"""
-    return {
-        "execution_denied": True,
-        "error": "local execution policy forbids command",
-        "decision": requirement.state,
-        "reason": requirement.reason,
-    }
-
-
-def _local_exec_policy_cancelled_result() -> dict[str, typing.Any]:
-    """构造本地审批取消后的未执行结果。"""
-    return {
-        "ok": False,
-        "text": "user cancelled",
-        "data": {
-            "executed": False,
-            "status": "cancelled",
-        },
-    }
 
 
 class _RetryingStatus(object):
@@ -503,100 +204,6 @@ def _terminal_result_fields(event: TurnTerminalEvent) -> dict[str, typing.Any]:
         if event.can_continue is not None:
             fields["can_continue"] = event.can_continue
     return fields
-
-
-def _tool_invocation_from_event(
-    turn_context: TurnContext,
-    event: ToolEvent,
-    tools: list[dict[str, typing.Any]],
-    *,
-    arguments: dict[str, typing.Any] | None = None,
-    name: str | None = None,
-) -> ToolInvocation:
-    """从流式事件构建不暴露内部授权字段的工具调用上下文。"""
-    event_name = str(name or getattr(event, "name", "")).strip()
-    local_meta = meta_for_tool(tools, event_name)
-    event_arguments = getattr(event, "arguments", {})
-
-    return ToolInvocation(
-        turn=turn_context,
-        call_id=event.call_id,
-        name=event_name,
-        arguments=dict(event_arguments if arguments is None else arguments),
-        meta=local_meta,
-        reason=event.reason,
-    )
-
-
-def _approval_with_updated_input(
-    approval: dict[str, typing.Any],
-    tool: str,
-    effective_arguments: dict[str, typing.Any] | None,
-) -> dict[str, typing.Any]:
-    """返回应用 Hook 参数改写后的审批数据。"""
-    if effective_arguments is None:
-        return approval
-
-    updated = dict(approval)
-    updated["tool"] = tool or updated.get("tool") or ""
-    updated["arguments"] = dict(effective_arguments)
-
-    if tool in {"shell_command", "exec_command", "apply_patch"}:
-        command_field = "patch" if tool == "apply_patch" else "command"
-        command = effective_arguments.get(command_field)
-        if isinstance(command, str):
-            updated["command"] = command
-    return updated
-
-
-def _approval_report_kwargs(
-    approval: dict[str, typing.Any],
-    *,
-    decision: ApprovalDecisionValue,
-    source: ApprovalSource,
-    turn_id: str,
-    hook_reason: str = "",
-    additional_context: typing.Sequence[str] = (),
-) -> dict[str, typing.Any]:
-    """构造审批决定回传所需的协议字段。"""
-    approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
-    if approved:
-        reason = None
-    elif source == "hook":
-        reason = hook_reason
-    elif source == "policy":
-        reason = "approval policy is never"
-    elif decision == "cancel":
-        reason = "user cancelled"
-    else:
-        reason = "user denied"
-
-    fields: dict[str, typing.Any] = {
-        "decision": decision,
-        "reason": reason,
-        "turn_id": turn_id,
-    }
-    if decision == "acceptWithExecpolicyAmendment":
-        amendment = approval_execpolicy_amendment(approval)
-        if amendment is None:
-            raise RuntimeError("approval amendment decision is missing proposal")
-        fields["execpolicy_amendment_id"] = amendment.id
-    if not approved and additional_context:
-        fields["additional_context"] = additional_context
-    return fields
-
-
-def _hook_denied_result(reason: str) -> dict[str, typing.Any]:
-    """构建前置 Hook 阻止工具时的标准结果。"""
-    text = str(reason or "tool use denied by hook")
-    return {
-        "ok": False,
-        "text": text,
-        "data": {
-            "hook_denied": True,
-            "error": text,
-        },
-    }
 
 
 def _extend_request_context(
@@ -846,82 +453,12 @@ async def stream_turn(
 
     failed_tool_context: list[str] = []
 
-    approval_ledger = getattr(mind, "approval_call_ledger", None)
-    if not isinstance(approval_ledger, ApprovalCallLedger):
+    configured_approval_ledger = getattr(mind, "approval_call_ledger", None)
+    if isinstance(configured_approval_ledger, ApprovalCallLedger):
+        approval_ledger = configured_approval_ledger
+    else:
         approval_ledger = ApprovalCallLedger()
         setattr(mind, "approval_call_ledger", approval_ledger)
-
-    async def restore_approval_snapshot(
-        snapshot: ToolApprovalSnapshot,
-    ) -> None:
-        """恢复重连前的未决审批，并提交用户随后作出的决定。"""
-        if (
-            snapshot.cid != turn_context.cid
-            or snapshot.sid != turn_context.sid
-            or snapshot.turn_id != turn_context.turn_id
-        ):
-            raise ValueError("approval snapshot does not belong to current turn")
-
-        for item in snapshot.approvals:
-            if (
-                item.status == "resolved"
-                and item.decision in TOOL_APPROVAL_ACCEPT_DECISIONS
-            ):
-                approval_ledger.record_approved(
-                    cid=snapshot.cid,
-                    sid=snapshot.sid,
-                    turn_id=snapshot.turn_id,
-                    call_id=item.call_id,
-                )
-                continue
-            if item.status != "pending":
-                continue
-
-            restored_approval = approval_from_snapshot({
-                "approval_id": item.approval_id,
-                "turn_id": item.turn_id,
-                "call_id": item.call_id,
-                "name": item.name,
-                "arguments": item.arguments,
-                "approval": item.approval,
-            })
-            if turn_context.agent.depth > 0:
-                restored_approval["agent_id"] = turn_context.agent.agent_id
-                restored_approval["agent_type"] = turn_context.agent.agent_type
-                restored_approval["agent_depth"] = turn_context.agent.depth
-
-            restored_outcome = await mind.approval_coordinator.request_outcome(
-                restored_approval
-            )
-            restored_decision = restored_outcome.decision
-            if (
-                restored_decision != "cancel"
-                and restored_decision not in approval_decisions(restored_approval)
-            ):
-                raise RuntimeError(
-                    "restored approval decision is not available: "
-                    f"{restored_decision}"
-                )
-
-            await post_tool_approval(
-                snapshot.cid,
-                snapshot.sid,
-                item.call_id,
-                item.approval_id,
-                **_approval_report_kwargs(
-                    restored_approval,
-                    decision=restored_decision,
-                    source=typing.cast(ApprovalSource, restored_outcome.source),
-                    turn_id=snapshot.turn_id,
-                ),
-            )
-            if restored_decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
-                approval_ledger.record_approved(
-                    cid=snapshot.cid,
-                    sid=snapshot.sid,
-                    turn_id=snapshot.turn_id,
-                    call_id=item.call_id,
-                )
 
     async def post_client_tool_result(
         cid: str,
@@ -1043,10 +580,21 @@ async def stream_turn(
             command_sessions=getattr(mind, "command_hook_sessions", None),
             failure_context_sink=failed_tool_context.extend,
         )
+        approval_handler = ApprovalEventHandler(
+            controller=mind,
+            turn_context=turn_context,
+            tools=tools,
+            ledger=approval_ledger,
+            coordinator=tool_call_coordinator,
+            status_control=status_control,
+            presentation=presentation,
+            post_approval=post_tool_approval,
+        )
 
-        turn_hook_events = TurnHookEvents(hook_scope)
+        active_turn_hook_events = TurnHookEvents(hook_scope)
+        turn_hook_events = active_turn_hook_events
 
-        begin_result = await turn_hook_events.begin(message)
+        begin_result = await active_turn_hook_events.begin(message)
         if begin_result.message != message:
             transcript.append(
                 "message.updated",
@@ -1095,13 +643,27 @@ async def stream_turn(
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
         )
+        tool_event_handler = ToolEventHandler(
+            controller=mind,
+            turn_context=turn_context,
+            tools=tools,
+            ledger=approval_ledger,
+            coordinator=tool_call_coordinator,
+            client_runner=client_tool_runner,
+            plan_runner=plan_tool_runner,
+            status_control=status_control,
+            presentation=presentation,
+            transcript=transcript,
+            post_result=post_client_tool_result,
+            interrupt_turn=interrupt_nested_turn,
+        )
 
         event_stream = stream_chat(
             pref_config,
             message,
             tools,
             on_reconnect_status=retrying_status.set_transport,
-            on_approval_snapshot=restore_approval_snapshot,
+            on_approval_snapshot=approval_handler.restore_snapshot,
             **kwargs,
         )
 
@@ -1238,12 +800,16 @@ async def stream_turn(
 
                 reconciliation_required: bool = True
 
-                failure_error = event.error or "effect outcome requires reconciliation"
+                reconciliation_error = (
+                    event.error or "effect outcome requires reconciliation"
+                )
 
                 if not cancelled:
-                    failure_error = (
-                        f"{failure_error}; failed to release the suspended turn"
+                    reconciliation_error = (
+                        f"{reconciliation_error}; "
+                        "failed to release the suspended turn"
                     )
+                failure_error = reconciliation_error
 
                 observe(
                     "stream.reconciliation_required",
@@ -1411,675 +977,19 @@ async def stream_turn(
                 continue
 
             if isinstance(event, ToolApprovalRequiredEvent):
-                approval = approval_from_event(event)
-                if approval_ledger.is_approved(
-                    cid=turn_context.cid,
-                    sid=turn_context.sid,
-                    turn_id=turn_context.turn_id,
-                    call_id=event.call_id,
-                ):
-                    observe(
-                        "approval.replayed",
-                        tool=str(approval.get("tool") or ""),
-                        call_id=event.call_id,
-                        approval_id=approval_id_from_event(event),
-                    )
-                    continue
-                if turn_context.agent.depth > 0:
-                    approval["agent_id"] = turn_context.agent.agent_id
-                    approval["agent_type"] = turn_context.agent.agent_type
-                    approval["agent_depth"] = turn_context.agent.depth
-                await status_control.end_status(immediate=True)
-
-                approval_started_at = time.perf_counter()
-                approval_id = approval_id_from_event(event)
-                approval_tool = str(approval.get("tool") or "").strip()
-                approval_call_id = event.call_id
-
-                permission_decision = None
-                approval_invocation: ToolInvocation | None = None
-                if approval_tool:
-                    raw_arguments = approval.get("arguments")
-                    approval_arguments = (
-                        dict(raw_arguments)
-                        if isinstance(raw_arguments, dict)
-                        else {}
-                    )
-                    if (
-                        not approval_arguments
-                        and approval_tool in LOCAL_EXEC_POLICY_TOOLS
-                    ):
-                        command = approval.get("command")
-                        argument_name = (
-                            "stdin"
-                            if approval_tool == "write_stdin"
-                            else "command"
-                        )
-                        if isinstance(command, str) and command.strip():
-                            approval_arguments[argument_name] = command
-
-                    approval_invocation = _tool_invocation_from_event(
-                        turn_context,
-                        event,
-                        tools,
-                        arguments=approval_arguments,
-                        name=approval_tool,
-                    )
-                    permission_decision = (
-                        await tool_call_coordinator.prepare_permission(
-                            approval_invocation
-                        )
-                    )
-                    effective_arguments = None
-                    if permission_decision.updated_input is not None:
-                        effective_arguments = dict(
-                            tool_call_coordinator.effective_invocation(
-                                approval_invocation,
-                                permission_decision,
-                            ).arguments
-                        )
-                    approval = _approval_with_updated_input(
-                        approval,
-                        approval_tool,
-                        effective_arguments,
-                    )
-
-                observe(
-                    "approval.requested",
-                    tool=approval_tool,
-                    call_id=approval_call_id,
-                    approval_id=approval_id,
-                )
-
-                decision: ApprovalDecisionValue
-                decision_source: ApprovalSource
-                if (
-                    permission_decision is not None
-                    and permission_decision.action == "deny"
-                ):
-                    decision, decision_source = "decline", "hook"
-                elif (
-                    permission_decision is not None
-                    and permission_decision.action == "allow"
-                ):
-                    decision, decision_source = "accept", "hook"
-                elif kwargs["permissions"].approval_policy == "never":
-                    decision, decision_source = "decline", "policy"
-                else:
-                    outcome = await mind.approval_coordinator.request_outcome(
-                        approval
-                    )
-                    decision, decision_source = outcome.decision, outcome.source
-
-                allowed_decisions = approval_decisions(approval)
-                if decision != "cancel" and decision not in allowed_decisions:
-                    raise RuntimeError(
-                        f"approval decision is not available: {decision}"
-                    )
-
-                observe(
-                    "approval.decided",
-                    tool=approval_tool,
-                    call_id=approval_call_id,
-                    approval_id=approval_id,
-                    decision=decision,
-                    decision_source=decision_source,
-                    hook_keys=(
-                        list(permission_decision.hook_keys)
-                        if permission_decision is not None
-                        else []
-                    ),
-                    elapsed_ms=int(
-                        (time.perf_counter() - approval_started_at) * 1000
-                    ),
-                )
-
-                await presentation.emit(build_approval_view(
-                    approval,
-                    decision=decision,
-                    source=decision_source,
-                ))
-                approval_turn_id = str(
-                    approval.get("turn_id") or turn_context.turn_id
-                ).strip()
-                try:
-                    await post_tool_approval(
-                        turn_context.cid,
-                        turn_context.sid,
-                        approval_call_id,
-                        approval_id,
-                        **_approval_report_kwargs(
-                            approval,
-                            decision=decision,
-                            source=decision_source,
-                            turn_id=approval_turn_id,
-                            hook_reason=(
-                                permission_decision.reason
-                                if permission_decision is not None
-                                else ""
-                            ),
-                            additional_context=(
-                                permission_decision.additional_context
-                                if permission_decision is not None
-                                else ()
-                            ),
-                        ),
-                    )
-                except Exception as error:
-                    approval_ledger.discard(
-                        cid=turn_context.cid,
-                        sid=turn_context.sid,
-                        turn_id=turn_context.turn_id,
-                        call_id=approval_call_id,
-                    )
-                    observe_exception(
-                        "approval.report_failed",
-                        error,
-                        tool=approval_tool,
-                        call_id=approval_call_id,
-                        approval_id=approval_id,
-                        decision=decision,
-                    )
-                    raise
-
-                approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
-                if approved:
-                    if (
-                        approval_invocation is not None
-                        and approval_tool in LOCAL_EXEC_POLICY_TOOLS
-                        and decision in {
-                            "acceptForSession",
-                            "acceptWithExecpolicyAmendment",
-                        }
-                    ):
-                        local_policy_update_error = _apply_local_exec_policy_approval(
-                            mind.exec_policy_manager,
-                            invocation=approval_invocation,
-                            approval=approval,
-                            decision=decision,
-                        )
-                        if local_policy_update_error:
-                            observe(
-                                "approval.local_policy_update_failed",
-                                level="WARNING",
-                                call_id=approval_call_id,
-                                decision=decision,
-                                error=local_policy_update_error,
-                            )
-                    approval_ledger.record_approved(
-                        cid=turn_context.cid,
-                        sid=turn_context.sid,
-                        turn_id=turn_context.turn_id,
-                        call_id=approval_call_id,
-                    )
-                else:
-                    approval_ledger.discard(
-                        cid=turn_context.cid,
-                        sid=turn_context.sid,
-                        turn_id=turn_context.turn_id,
-                        call_id=approval_call_id,
-                    )
-                if not approved:
-                    await status_control.begin_reply_wait_status(
-                        delay_sec=0.15,
-                        animate_after_sec=0.85,
-                    )
+                await approval_handler.handle(event)
                 continue
 
             if isinstance(event, ToolCallEvent):
-                name      = event.name
-                arguments = dict(event.arguments)
-
-                approval_state = approval_ledger.consume(
-                    cid=turn_context.cid,
-                    sid=turn_context.sid,
-                    turn_id=turn_context.turn_id,
-                    call_id=event.call_id,
-                )
-                if approval_state == "consumed":
-                    result_record = approval_ledger.result_for(
-                        cid=turn_context.cid,
-                        sid=turn_context.sid,
-                        turn_id=turn_context.turn_id,
-                        call_id=event.call_id,
-                    )
-                    if result_record is not None and result_record.state == "pending":
-                        await post_client_tool_result(
-                            turn_context.cid,
-                            turn_context.sid,
-                            event.call_id,
-                            result_record.name,
-                            result_record.ok,
-                            result_record.result,
-                            additional_context=result_record.additional_context,
-                            tool_arguments=result_record.arguments,
-                        )
-                    observe(
-                        "tool.call.duplicate",
-                        call_id=event.call_id,
-                        turn_id=turn_context.turn_id,
-                    )
-                    continue
-
-                approval_consumed = approval_state == "approved"
-
-                if not name:
-                    await post_client_tool_result(
-                        turn_context.cid,
-                        turn_context.sid,
-                        event.call_id,
-                        "",
-                        False,
-                        {"error": "tool.call missing name/tool"},
-                    )
-                    await status_control.begin_reply_wait_status()
-                    continue
-
-                invocation = _tool_invocation_from_event(
-                    turn_context,
-                    event,
-                    tools,
-                    arguments=arguments,
-                )
-
-                hook_decision = await tool_call_coordinator.prepare(invocation)
-
-                if not hook_decision.allowed:
-                    tool_call_coordinator.record_rejected(
-                        invocation,
-                        hook_decision.reason,
-                    )
-                    await post_client_tool_result(
-                        invocation.turn.cid,
-                        invocation.turn.sid,
-                        invocation.call_id,
-                        invocation.name,
-                        False,
-                        _hook_denied_result(hook_decision.reason),
-                        additional_context=hook_decision.additional_context,
-                        tool_arguments=invocation.arguments,
-                    )
-                    await status_control.begin_reply_wait_status(delay_sec=0.15)
-                    continue
-
-                invocation = tool_call_coordinator.effective_invocation(
-                    invocation,
-                    hook_decision,
-                )
-                arguments = dict(invocation.arguments)
-
-                if name == PLAN_STEPS_TOOL:
-                    tool_outcome = await client_tool_runner.execute(
-                        invocation,
-                        use_coding_trace=False,
-                        operation_handler=plan_tool_runner.execute_operation,
-                    )
-                    tool_result = tool_outcome.result
-                    await post_client_tool_result(
-                        invocation.turn.cid,
-                        invocation.turn.sid,
-                        invocation.call_id,
-                        tool_result.name,
-                        tool_result.ok,
-                        tool_result.fields,
-                        tool_arguments=invocation.arguments,
-                        additional_context=tool_outcome.additional_context,
-                    )
-                    await status_control.begin_reply_wait_status(delay_sec=0.75)
-                    continue
-
-                local_policy_requirement = _local_exec_policy_requirement(
-                    mind.exec_policy_manager,
-                    turn_context,
-                    tool=name,
-                    arguments=arguments,
-                    call_id=event.call_id,
-                )
-                if (
-                    local_policy_requirement is not None
-                    and local_policy_requirement.state == "forbidden"
-                ):
-                    tool_call_coordinator.record_rejected(
-                        invocation,
-                        "local execution policy forbids command",
-                        result=_local_exec_policy_denied_result(local_policy_requirement),
-                    )
-                    await post_client_tool_result(
-                        invocation.turn.cid,
-                        invocation.turn.sid,
-                        invocation.call_id,
-                        invocation.name,
-                        False,
-                        _local_exec_policy_denied_result(local_policy_requirement),
-                        tool_arguments=invocation.arguments,
-                    )
-                    await status_control.begin_reply_wait_status()
-                    continue
-
-                if (
-                    name == "apply_patch"
-                    and str(arguments.get("patch") or "").strip()
-                    and kwargs["permissions"].approval_policy == "untrusted"
-                    and not approval_consumed
-                ):
-                    approval_coordinator = getattr(mind, "approval_coordinator", None)
-                    patch_approval = _local_patch_approval(mind, invocation)
-                    patch_scope = patch_approval.get("patch_scope")
-                    patch_cwd = patch_approval.get("cwd")
-                    patch_environment_id = patch_approval.get("environment_id")
-                    patch_session_approved = (
-                        mind.exec_policy_manager.patch_scope_approved_for_session(
-                            patch_scope,
-                            cwd=patch_cwd,
-                            environment_id=patch_environment_id,
-                        )
-                    )
-                    if patch_session_approved:
-                        patch_outcome = ApprovalOutcome.create(
-                            "acceptForSession",
-                            source="policy",
-                            reason="policy",
-                        )
-                    elif approval_coordinator is None:
-                        patch_result = {
-                            "approval_denied": True,
-                            "error": "patch approval coordinator is unavailable",
-                        }
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "patch approval coordinator is unavailable",
-                            result=patch_result,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            patch_result,
-                            tool_arguments=invocation.arguments,
-                        )
-                        await status_control.begin_reply_wait_status()
-                        continue
-                    else:
-                        patch_outcome = await approval_coordinator.request_outcome(
-                            patch_approval
-                        )
-                        await presentation.emit(build_approval_view(
-                            patch_approval,
-                            decision=patch_outcome.decision,
-                            source=patch_outcome.source,
-                        ))
-                    if patch_outcome.decision not in TOOL_APPROVAL_ACCEPT_DECISIONS:
-                        patch_result = (
-                            _local_exec_policy_cancelled_result()
-                            if patch_outcome.decision == "cancel"
-                            else {
-                                "approval_denied": True,
-                                "error": "patch approval declined",
-                            }
-                        )
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "patch approval declined",
-                            result=patch_result,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            patch_result,
-                            tool_arguments=invocation.arguments,
-                        )
-                        if patch_outcome.decision == "cancel":
-                            interrupted = await _interrupt_approval_cancelled_turn(
-                                cid=turn_context.cid,
-                                sid=turn_context.sid,
-                                turn_id=turn_context.turn_id,
-                                call_id=invocation.call_id,
-                            )
-                            if not interrupted:
-                                raise TurnControlRequestError(
-                                    "failed to interrupt turn after patch approval cancellation"
-                                )
-                            break
-                        await status_control.begin_reply_wait_status()
-                        continue
-                    patch_policy_update_error = _apply_local_patch_approval(
-                        mind.exec_policy_manager,
-                        approval=patch_approval,
-                        decision=patch_outcome.decision,
-                    )
-                    if patch_policy_update_error:
-                        patch_result = {
-                            "approval_denied": True,
-                            "error": "patch approval cache update failed",
-                            "detail": patch_policy_update_error,
-                        }
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "patch approval cache update failed",
-                            result=patch_result,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            patch_result,
-                            tool_arguments=invocation.arguments,
-                        )
-                        await status_control.begin_reply_wait_status()
-                        continue
-
-                if (
-                    local_policy_requirement is not None
-                    and local_policy_requirement.state == "needs_approval"
-                    and not approval_consumed
-                ):
-                    shell_approval_reason = str(
-                        invocation.arguments.get("justification")
-                        or invocation.reason
-                        or ""
-                    ).strip()
-                    requested_sandbox_permissions = str(
-                        invocation.arguments.get("sandbox_permissions") or ""
-                    ).strip().casefold()
-                    if (
-                        name in {"shell_command", "exec_command"}
-                        and not shell_approval_reason
-                        and requested_sandbox_permissions != "require_escalated"
-                    ):
-                        missing_reason = {
-                            "execution_denied": True,
-                            "error": "shell approval reason is missing",
-                        }
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "shell approval reason is missing",
-                            result=missing_reason,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            missing_reason,
-                            tool_arguments=invocation.arguments,
-                        )
-                        await status_control.begin_reply_wait_status()
-                        continue
-                    if kwargs["permissions"].approval_policy == "never":
-                        local_policy_result = _local_exec_policy_denied_result(
-                            local_policy_requirement
-                        )
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "local execution policy requires approval",
-                            result=local_policy_result,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            local_policy_result,
-                            tool_arguments=invocation.arguments,
-                        )
-                        await status_control.begin_reply_wait_status()
-                        continue
-
-                    local_approval = _local_exec_policy_approval(
-                        invocation=invocation,
-                        requirement=local_policy_requirement,
-                    )
-                    local_outcome = await mind.approval_coordinator.request_outcome(
-                        local_approval
-                    )
-                    await presentation.emit(build_approval_view(
-                        local_approval,
-                        decision=local_outcome.decision,
-                        source=local_outcome.source,
-                    ))
-                    if local_outcome.decision not in TOOL_APPROVAL_ACCEPT_DECISIONS:
-                        local_policy_result = (
-                            _local_exec_policy_cancelled_result()
-                            if local_outcome.decision == "cancel"
-                            else {
-                                "approval_denied": True,
-                                "error": "local execution policy approval declined",
-                            }
-                        )
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "local execution policy approval declined",
-                            result=local_policy_result,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            local_policy_result,
-                            tool_arguments=invocation.arguments,
-                        )
-                        if local_outcome.decision == "cancel":
-                            interrupted = await _interrupt_approval_cancelled_turn(
-                                cid=turn_context.cid,
-                                sid=turn_context.sid,
-                                turn_id=turn_context.turn_id,
-                                call_id=invocation.call_id,
-                            )
-                            if not interrupted:
-                                raise TurnControlRequestError(
-                                    "failed to interrupt turn after approval cancellation"
-                                )
-                            break
-                        await status_control.begin_reply_wait_status()
-                        continue
-
-                    policy_update_error = _apply_local_exec_policy_approval(
-                        mind.exec_policy_manager,
-                        invocation=invocation,
-                        approval=local_approval,
-                        decision=local_outcome.decision,
-                    )
-                    if policy_update_error:
-                        local_policy_result = {
-                            "approval_denied": True,
-                            "error": "local execution policy update failed",
-                            "detail": policy_update_error,
-                        }
-                        tool_call_coordinator.record_rejected(
-                            invocation,
-                            "local execution policy update failed",
-                            result=local_policy_result,
-                        )
-                        await post_client_tool_result(
-                            invocation.turn.cid,
-                            invocation.turn.sid,
-                            invocation.call_id,
-                            invocation.name,
-                            False,
-                            local_policy_result,
-                            tool_arguments=invocation.arguments,
-                        )
-                        await status_control.begin_reply_wait_status()
-                        continue
-
-                use_coding_trace = coding_trace_tool(name)
-
-                try:
-                    tool_outcome = await client_tool_runner.execute(
-                        invocation,
-                        use_coding_trace=use_coding_trace,
-                    )
-                except TurnControlRequestError as error:
+                tool_handling = await tool_event_handler.handle_call(event)
+                if tool_handling.status == "interrupted":
                     interrupted = True
-                    failure_error = str(error)
+                    failure_error = tool_handling.error
                     break
-                tool_result = tool_outcome.result
-                await post_client_tool_result(
-                    invocation.turn.cid,
-                    invocation.turn.sid,
-                    invocation.call_id,
-                    tool_result.name,
-                    tool_result.ok,
-                    tool_result.fields,
-                    tool_arguments=invocation.arguments,
-                    additional_context=tool_outcome.additional_context,
-                )
-                await status_control.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
             if isinstance(event, ToolOutputEvent):
-                name = event.name
-                if not name:
-                    continue
-
-                arguments = dict(event.arguments)
-
-                use_coding_trace = coding_trace_tool(name)
-                tool_run         = server_tool_output_result(event.payload)
-
-                transcript.append(
-                    (
-                        "tool.failed"
-                        if tool_run.status == "failed"
-                        else "tool.completed"
-                    ),
-                    actor="tool",
-                    payload={
-                        "call_id": event.call_id,
-                        "name": name,
-                        "arguments": arguments,
-                        "ok": tool_run.ok,
-                        "status": tool_run.status,
-                        "duration_ms": tool_run.cost_ms,
-                        "result": tool_run.fields,
-                    },
-                )
-
-                if use_coding_trace:
-                    await status_control.end_status()
-
-                if tool_run.status not in {"declined", "cancelled"}:
-                    await show_tool_result(
-                        presentation,
-                        name,
-                        arguments,
-                        tool_run,
-                        use_coding_trace=use_coding_trace,
-                        call_id=event.call_id,
-                    )
-
-                await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                await tool_event_handler.handle_output(event)
                 continue
 
             if await handle_lifecycle_event(
