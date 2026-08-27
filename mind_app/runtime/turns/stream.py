@@ -17,7 +17,10 @@ from mind_app.approval.policy import (
     approval_reason,
 )
 from mind_app.approval.ledger import ApprovalCallLedger
-from mind_app.approval.models import ApprovalDecisionValue
+from mind_app.approval.models import (
+    ApprovalDecisionValue,
+    ApprovalOutcome
+)
 from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
 from mind_nova.identifiers import stable_request_id
@@ -119,6 +122,7 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 MAX_STOP_CONTINUATIONS = 3
+
 LOCAL_EXEC_POLICY_TOOLS = frozenset({
     "shell_command",
     "exec_command",
@@ -289,13 +293,40 @@ def _local_patch_approval(
         "patch_scope": scope,
         "category": "apply_patch",
         "risk": "workspace_write",
-        "available_decisions": ["accept", "decline"],
+        "available_decisions": [
+            "accept",
+            "acceptForSession",
+            "decline",
+        ],
         "reason": reason,
         "justification": reason,
     }
+    environment_id = str(arguments.get("environment_id") or "").strip()
+    if environment_id:
+        approval["environment_id"] = environment_id
     if preview is not None:
         approval["preview"] = preview
     return approval
+
+
+def _apply_local_patch_approval(
+    manager: ExecPolicyManager,
+    *,
+    approval: dict[str, typing.Any],
+    decision: ApprovalDecisionValue,
+) -> str | None:
+    """保存补丁文件的本会话批准结果。"""
+    if decision != "acceptForSession":
+        return None
+    try:
+        manager.add_patch_approval_for_session(
+            approval.get("patch_scope"),
+            cwd=approval.get("cwd"),
+            environment_id=approval.get("environment_id"),
+        )
+    except (OSError, UnicodeError, ValueError) as error:
+        return str(error).strip() or type(error).__name__
+    return None
 
 
 def _apply_local_exec_policy_approval(
@@ -1642,7 +1673,24 @@ async def stream_turn(
                     and not approval_consumed
                 ):
                     approval_coordinator = getattr(mind, "approval_coordinator", None)
-                    if approval_coordinator is None:
+                    patch_approval = _local_patch_approval(mind, invocation)
+                    patch_scope = patch_approval.get("patch_scope")
+                    patch_cwd = patch_approval.get("cwd")
+                    patch_environment_id = patch_approval.get("environment_id")
+                    patch_session_approved = (
+                        mind.exec_policy_manager.patch_scope_approved_for_session(
+                            patch_scope,
+                            cwd=patch_cwd,
+                            environment_id=patch_environment_id,
+                        )
+                    )
+                    if patch_session_approved:
+                        patch_outcome = ApprovalOutcome.create(
+                            "acceptForSession",
+                            source="policy",
+                            reason="policy",
+                        )
+                    elif approval_coordinator is None:
                         patch_result = {
                             "approval_denied": True,
                             "error": "patch approval coordinator is unavailable",
@@ -1663,16 +1711,15 @@ async def stream_turn(
                         )
                         await status_control.begin_reply_wait_status()
                         continue
-
-                    patch_approval = _local_patch_approval(mind, invocation)
-                    patch_outcome = await approval_coordinator.request_outcome(
-                        patch_approval
-                    )
-                    await presentation.emit(build_approval_view(
-                        patch_approval,
-                        decision=patch_outcome.decision,
-                        source=patch_outcome.source,
-                    ))
+                    else:
+                        patch_outcome = await approval_coordinator.request_outcome(
+                            patch_approval
+                        )
+                        await presentation.emit(build_approval_view(
+                            patch_approval,
+                            decision=patch_outcome.decision,
+                            source=patch_outcome.source,
+                        ))
                     if patch_outcome.decision not in TOOL_APPROVAL_ACCEPT_DECISIONS:
                         patch_result = (
                             _local_exec_policy_cancelled_result()
@@ -1708,6 +1755,33 @@ async def stream_turn(
                                     "failed to interrupt turn after patch approval cancellation"
                                 )
                             break
+                        await status_control.begin_reply_wait_status()
+                        continue
+                    patch_policy_update_error = _apply_local_patch_approval(
+                        mind.exec_policy_manager,
+                        approval=patch_approval,
+                        decision=patch_outcome.decision,
+                    )
+                    if patch_policy_update_error:
+                        patch_result = {
+                            "approval_denied": True,
+                            "error": "patch approval cache update failed",
+                            "detail": patch_policy_update_error,
+                        }
+                        tool_call_coordinator.record_rejected(
+                            invocation,
+                            "patch approval cache update failed",
+                            result=patch_result,
+                        )
+                        await post_client_tool_result(
+                            invocation.turn.cid,
+                            invocation.turn.sid,
+                            invocation.call_id,
+                            invocation.name,
+                            False,
+                            patch_result,
+                            arguments=invocation.arguments,
+                        )
                         await status_control.begin_reply_wait_status()
                         continue
 

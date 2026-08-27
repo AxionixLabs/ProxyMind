@@ -331,6 +331,48 @@ def test_session_approval_cache_separates_full_execution_identity(tmp_path) -> N
         ).state == "needs_approval"
 
 
+def test_patch_session_approval_is_cached_per_file(tmp_path) -> None:
+    manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
+
+    manager.add_patch_approval_for_session(
+        ("src/app.py", "src/lib.py"),
+        cwd=tmp_path,
+        environment_id="env-a",
+    )
+
+    assert manager.patch_scope_approved_for_session(
+        ("src/app.py",),
+        cwd=tmp_path,
+        environment_id="env-a",
+    ) is True
+    assert manager.patch_scope_approved_for_session(
+        ("src/lib.py", "src/app.py"),
+        cwd=tmp_path,
+        environment_id="env-a",
+    ) is True
+    assert manager.patch_scope_approved_for_session(
+        ("src/other.py",),
+        cwd=tmp_path,
+        environment_id="env-a",
+    ) is False
+    assert manager.patch_scope_approved_for_session(
+        ("src/app.py",),
+        cwd=tmp_path,
+        environment_id="env-b",
+    ) is False
+
+
+def test_empty_patch_scope_does_not_match_or_create_session_approval(tmp_path) -> None:
+    manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
+
+    manager.add_patch_approval_for_session((), cwd=tmp_path)
+
+    assert manager.patch_scope_approved_for_session((), cwd=tmp_path) is False
+    assert manager.patch_scope_approved_for_session(
+        ("src/app.py",), cwd=tmp_path
+    ) is False
+
+
 def test_sandbox_permission_helpers_validate_and_select_host_mode() -> None:
     assert normalize_sandbox_permission(None) == "use_default"
     assert normalize_sandbox_permission("REQUIRE_ESCALATED") == "require_escalated"

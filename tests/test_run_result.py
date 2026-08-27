@@ -59,7 +59,7 @@ from mind_app.runtime.tools import client_call
 from mind_app.runtime.durable_effects import LocalEffectJournal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
-from mind_core.permissions import preset_permissions
+from mind_core.permissions import PermissionSettings, preset_permissions
 from mind_nova.stream_events import (
     TurnInputAcceptedEvent,
     parse_stream_event as _parse_stream_event,
@@ -275,6 +275,7 @@ async def _run_stream(
     on_turn_interrupted: typing.Callable[[], None] | None = None,
     mind_state: SimpleNamespace | None = None,
     show_hook_lifecycle: bool = False,
+    permissions: PermissionSettings | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -294,7 +295,7 @@ async def _run_stream(
         show_hook_lifecycle=show_hook_lifecycle
     )
     mind.output_session = output_session
-    permissions = preset_permissions("auto")
+    permissions = permissions or preset_permissions("auto")
     root_agent = AgentContext.root("sid_test")
     turn_context = TurnContext.create(
         agent=(
@@ -2643,6 +2644,77 @@ async def test_stream_persists_local_shell_rule_from_approval(
         "shell_command",
         True,
     )
+
+
+@pytest.mark.anyio
+async def test_local_patch_session_approval_skips_next_matching_patch(
+    monkeypatch,
+) -> None:
+    approval_calls = []
+    executions = []
+
+    async def request_outcome(_coordinator, approval):
+        approval_calls.append(approval)
+        return ApprovalOutcome.create(
+            "acceptForSession",
+            source="user",
+            reason="user",
+        )
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        executions.append(invocation)
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
+        )
+
+    monkeypatch.setattr(
+        ApprovalCoordinator,
+        "request_outcome",
+        request_outcome,
+    )
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", AsyncMock(return_value={}))
+
+    mind = _mind()
+    mind.native_coding = SimpleNamespace(
+        preview_patch=lambda **_kwargs: {
+            "ok": True,
+            "data": {"files": [{"path": "src/app.py"}]},
+        },
+    )
+    patch_event = _durable_tool_call({
+        "type": "tool.call",
+        "call_id": "call-local-patch",
+        "name": "apply_patch",
+        "arguments": {"patch": "*** Begin Patch\n*** End Patch"},
+    })
+    untrusted = PermissionSettings("workspace-write", "untrusted")
+
+    first, _ = await _run_stream(
+        monkeypatch,
+        [patch_event, {"type": "turn.done"}],
+        mind_state=mind,
+        permissions=untrusted,
+    )
+    second, _ = await _run_stream(
+        monkeypatch,
+        [patch_event, {"type": "turn.done"}],
+        mind_state=mind,
+        permissions=untrusted,
+    )
+
+    assert first.status == "completed"
+    assert second.status == "completed"
+    assert len(approval_calls) == 1
+    assert len(executions) == 2
 
 
 @pytest.mark.anyio

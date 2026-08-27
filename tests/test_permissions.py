@@ -13,7 +13,11 @@ from mind_app.approval.policy import (
     approval_prompt,
     approval_reason,
 )
-from mind_app.runtime.turns.stream import _local_patch_approval
+from mind_app.runtime.turns.stream import (
+    _apply_local_patch_approval,
+    _local_patch_approval,
+)
+from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from mind_app.client_tools.coding.native import (
     coding_tools,
 )
@@ -476,9 +480,37 @@ def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> N
     assert approval["turn_id"] == runtime.turn_context.turn_id
     assert approval["started_at_ms"] >= 0
     assert approval["patch_scope"] == ["src/app.py"]
-    assert approval["available_decisions"] == ["accept", "decline"]
+    assert approval["available_decisions"] == [
+        "accept",
+        "acceptForSession",
+        "decline",
+    ]
     assert approval_prompt(approval) == "Would you like to make the following edits?"
-    assert approval_decisions(approval) == ["accept", "decline"]
+    assert approval_decisions(approval) == [
+        "accept",
+        "acceptForSession",
+        "decline",
+    ]
+
+
+def test_patch_session_approval_updates_file_cache(tmp_path) -> None:
+    manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
+    approval = {
+        "patch_scope": ["src/app.py", "src/lib.py"],
+        "cwd": str(tmp_path),
+        "environment_id": "env-a",
+    }
+
+    assert _apply_local_patch_approval(
+        manager,
+        approval=approval,
+        decision="acceptForSession",
+    ) is None
+    assert manager.patch_scope_approved_for_session(
+        ["src/app.py"],
+        cwd=tmp_path,
+        environment_id="env-a",
+    ) is True
 
 
 def test_approval_event_preserves_identity_and_environment_fields() -> None:

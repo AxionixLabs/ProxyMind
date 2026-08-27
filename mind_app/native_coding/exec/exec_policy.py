@@ -50,6 +50,13 @@ class ExecApprovalCacheKey:
     patch_scope: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ApplyPatchApprovalCacheKey:
+    """保存补丁会话批准对应的环境和单个文件。"""
+    environment_id: str
+    path: str
+
+
 def _stable_json(value: object) -> str:
     """将结构化值转换为稳定文本，供身份比较使用。"""
     try:
@@ -210,21 +217,33 @@ class ExecPolicyManager:
         *,
         policy: Policy | None = None,
         rules_paths: Iterable[str | Path] | None = None,
-        writable_rules_path: str | Path | None = None,
+        writable_rules_path: str | Path | None = None
     ) -> None:
         """创建策略管理器并加载当前工作区的规则。"""
         self.workspace_root = Path(workspace_root or os.getcwd()).resolve()
         self.warnings: list[str] = []
+
         self.writable_rules_path = Path(
             writable_rules_path
             or default_application_home() / "rules" / "default.rules"
         ).expanduser().resolve()
-        self._session_approvals: set[ExecApprovalCacheKey] = set()
+
+        self._session_approvals: set[ExecApprovalCacheKey]             = set()
+        self._session_patch_approvals: set[ApplyPatchApprovalCacheKey] = set()
+
         self._write_lock = threading.RLock()
+
         self.rules_paths = tuple(
             Path(path) for path in rules_paths
         ) if rules_paths is not None else self._discover_rules_paths()
+
         self.policy = policy or self._load_policy()
+
+    @property
+    def policy_fingerprint(self) -> str:
+        """返回当前规则集合的稳定指纹。"""
+        encoded = _stable_json(self.policy).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
     def _rule_files(directories: Iterable[Path]) -> list[Path]:
@@ -242,12 +261,6 @@ class ExecPolicyManager:
     def current(cls, workspace_root: str | Path | None = None) -> "ExecPolicyManager":
         """创建当前工作区的策略管理器。"""
         return cls(workspace_root=workspace_root)
-
-    @property
-    def policy_fingerprint(self) -> str:
-        """返回当前规则集合的稳定指纹。"""
-        encoded = _stable_json(self.policy).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
 
     def decide(
         self,
@@ -442,6 +455,42 @@ class ExecPolicyManager:
         with self._write_lock:
             self._session_approvals.add(key)
 
+    def patch_scope_approved_for_session(
+        self,
+        patch_scope: object,
+        *,
+        cwd: str | Path | None = None,
+        environment_id: object = "",
+    ) -> bool:
+        """判断补丁涉及的全部文件是否已获本会话批准。"""
+        keys = self._patch_approval_keys(
+            patch_scope,
+            cwd=cwd,
+            environment_id=environment_id,
+        )
+        if not keys:
+            return False
+        with self._write_lock:
+            return all(key in self._session_patch_approvals for key in keys)
+
+    def add_patch_approval_for_session(
+        self,
+        patch_scope: object,
+        *,
+        cwd: str | Path | None = None,
+        environment_id: object = "",
+    ) -> None:
+        """将补丁中的每个文件加入本会话批准集合。"""
+        keys = self._patch_approval_keys(
+            patch_scope,
+            cwd=cwd,
+            environment_id=environment_id,
+        )
+        if not keys:
+            return None
+        with self._write_lock:
+            self._session_patch_approvals.update(keys)
+
     def execpolicy_command_prefix(
         self,
         command: Sequence[str] | str,
@@ -477,6 +526,72 @@ class ExecPolicyManager:
             "command_prefix": list(prefix),
             "display": shlex.join(prefix),
         }
+
+    def persist_execpolicy_amendment(
+        self,
+        amendment: dict[str, object],
+    ) -> Path:
+        """校验规则提案并把允许前缀写入本地规则文件。"""
+        raw_prefix = amendment.get("command_prefix")
+        if not isinstance(raw_prefix, list) or not raw_prefix:
+            raise ValueError("exec policy amendment command prefix is required")
+        if any(not isinstance(value, str) or not value for value in raw_prefix):
+            raise ValueError("exec policy amendment command prefix is invalid")
+
+        prefix = tuple(raw_prefix)
+
+        rule = PrefixRule(
+            pattern=PrefixPattern.from_values(prefix),
+            decision=Decision.Allow,
+            source=str(self.writable_rules_path),
+        )
+        with self._write_lock:
+            if not self._has_allow_prefix(prefix):
+                target = self.writable_rules_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = target.read_text(encoding=const.CHARSET) if target.is_file() else ""
+                if source and not source.endswith("\n"):
+                    source += "\n"
+                encoded_prefix = json.dumps(list(prefix), ensure_ascii=False)
+                source += f'prefix_rule(pattern={encoded_prefix}, decision="allow")\n'
+                target.write_text(source, encoding=const.CHARSET)
+                self.policy.add_prefix_rule(rule)
+        return self.writable_rules_path
+
+    def check(
+        self,
+        command: Sequence[str] | str,
+        *,
+        approval_policy: str = "on-request",
+        sandbox_mode: str = "workspace-write",
+        cwd: str | Path | None = None,
+        tool: str = "shell_command",
+        sandbox_permissions: object = "use_default",
+    ) -> Evaluation:
+        """按策略检查命令。"""
+        return self.decide(
+            command,
+            approval_policy=approval_policy,
+            sandbox_mode=sandbox_mode,
+            cwd=cwd,
+            tool=tool,
+            sandbox_permissions=sandbox_permissions,
+        )
+
+    def load_exec_policy(self) -> Policy:
+        """返回当前管理器加载的本地策略。"""
+        return self.policy
+
+    def load_exec_policy_with_warning(self) -> tuple[Policy, tuple[str, ...]]:
+        """返回本地策略及其加载警告。"""
+        return self.policy, tuple(self.warnings)
+
+    def commands_for_exec_policy(
+        self,
+        command: Sequence[str] | str,
+    ) -> list[list[str]]:
+        """提取命令中可用于策略评估的 shell 子命令。"""
+        return commands_for_exec_policy(command)
 
     def _proposed_amendment_for_command(
         self,
@@ -544,72 +659,6 @@ class ExecPolicyManager:
             )
             for parsed in commands
         )
-
-    def persist_execpolicy_amendment(
-        self,
-        amendment: dict[str, object],
-    ) -> Path:
-        """校验规则提案并把允许前缀写入本地规则文件。"""
-        raw_prefix = amendment.get("command_prefix")
-        if not isinstance(raw_prefix, list) or not raw_prefix:
-            raise ValueError("exec policy amendment command prefix is required")
-        if any(not isinstance(value, str) or not value for value in raw_prefix):
-            raise ValueError("exec policy amendment command prefix is invalid")
-
-        prefix = tuple(raw_prefix)
-
-        rule = PrefixRule(
-            pattern=PrefixPattern.from_values(prefix),
-            decision=Decision.Allow,
-            source=str(self.writable_rules_path),
-        )
-        with self._write_lock:
-            if not self._has_allow_prefix(prefix):
-                target = self.writable_rules_path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = target.read_text(encoding=const.CHARSET) if target.is_file() else ""
-                if source and not source.endswith("\n"):
-                    source += "\n"
-                encoded_prefix = json.dumps(list(prefix), ensure_ascii=False)
-                source += f'prefix_rule(pattern={encoded_prefix}, decision="allow")\n'
-                target.write_text(source, encoding=const.CHARSET)
-                self.policy.add_prefix_rule(rule)
-        return self.writable_rules_path
-
-    def check(
-        self,
-        command: Sequence[str] | str,
-        *,
-        approval_policy: str = "on-request",
-        sandbox_mode: str = "workspace-write",
-        cwd: str | Path | None = None,
-        tool: str = "shell_command",
-        sandbox_permissions: object = "use_default",
-    ) -> Evaluation:
-        """按策略检查命令。"""
-        return self.decide(
-            command,
-            approval_policy=approval_policy,
-            sandbox_mode=sandbox_mode,
-            cwd=cwd,
-            tool=tool,
-            sandbox_permissions=sandbox_permissions,
-        )
-
-    def load_exec_policy(self) -> Policy:
-        """返回当前管理器加载的本地策略。"""
-        return self.policy
-
-    def load_exec_policy_with_warning(self) -> tuple[Policy, tuple[str, ...]]:
-        """返回本地策略及其加载警告。"""
-        return self.policy, tuple(self.warnings)
-
-    def commands_for_exec_policy(
-        self,
-        command: Sequence[str] | str,
-    ) -> list[list[str]]:
-        """提取命令中可用于策略评估的 shell 子命令。"""
-        return commands_for_exec_policy(command)
 
     def _load_policy(self) -> Policy:
         policy = Policy.empty()
@@ -695,6 +744,42 @@ class ExecPolicyManager:
             patch_scope=_normalize_patch_scope(patch_scope),
         )
 
+    def _patch_approval_keys(
+        self,
+        patch_scope: object,
+        *,
+        cwd: str | Path | None,
+        environment_id: object,
+    ) -> tuple[ApplyPatchApprovalCacheKey, ...]:
+        """生成按文件拆分的补丁会话批准键。"""
+        base = Path(cwd or self.workspace_root).expanduser()
+        if not base.is_absolute():
+            base = self.workspace_root / base
+        try:
+            base = base.resolve()
+        except (OSError, RuntimeError, ValueError):
+            base = Path(os.path.normpath(str(base)))
+
+        raw_values = _normalize_patch_scope(patch_scope)
+        keys: set[ApplyPatchApprovalCacheKey] = set()
+        normalized_environment = str(environment_id or "").strip()
+        if not normalized_environment:
+            normalized_environment = os.path.normcase(str(self.workspace_root))
+        for raw_path in raw_values:
+            path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                path = base / path
+            try:
+                normalized_path = os.path.normcase(str(path.resolve()))
+            except (OSError, RuntimeError, ValueError):
+                normalized_path = os.path.normcase(os.path.normpath(str(path)))
+            if normalized_path:
+                keys.add(ApplyPatchApprovalCacheKey(
+                    environment_id=normalized_environment,
+                    path=normalized_path,
+                ))
+        return tuple(sorted(keys, key=lambda key: (key.environment_id, key.path)))
+
     def _has_allow_prefix(self, prefix: tuple[str, ...]) -> bool:
         """判断当前策略是否已包含相同的简单允许前缀。"""
         for rule in self.policy.prefix_rules:
@@ -744,6 +829,48 @@ def render_decision_for_unmatched_command(
     return Decision.Allow
 
 
+def load_exec_policy(
+    workspace_root: str | Path | None = None,
+    *,
+    rules_paths: Iterable[str | Path] | None = None
+) -> Policy:
+    """加载当前工作区的本地执行策略。"""
+    return ExecPolicyManager(
+        workspace_root=workspace_root,
+        rules_paths=rules_paths,
+    ).policy
+
+
+def load_exec_policy_with_warning(
+    workspace_root: str | Path | None = None,
+    *,
+    rules_paths: Iterable[str | Path] | None = None
+) -> tuple[Policy, tuple[str, ...]]:
+    """加载本地执行策略并返回解析警告。"""
+    manager = ExecPolicyManager(
+        workspace_root=workspace_root,
+        rules_paths=rules_paths,
+    )
+    return manager.policy, tuple(manager.warnings)
+
+
+def commands_for_exec_policy(command: Sequence[str] | str) -> list[list[str]]:
+    """按 Codex 的简单命令规则提取可评估命令序列。"""
+    words = _split_command(command)
+    if not words:
+        return []
+    executable = _basename(words[0])
+    if executable in {"sh", "bash", "zsh", "ksh", "dash", "fish", "cmd", "powershell", "pwsh"}:
+        scripts = _shell_scripts(words[1:])
+        if scripts:
+            parsed = _parse_plain_script(scripts[0])
+            return parsed if parsed is not None else [words]
+    if isinstance(command, str):
+        parsed = _parse_plain_script(command)
+        return parsed if parsed is not None else [words]
+    return [words]
+
+
 def _has_prompt_rule(evaluation: Evaluation) -> bool:
     """判断评估是否命中了显式 prompt 规则。"""
     return any(
@@ -785,48 +912,6 @@ def _as_exec_policy_amendment(value: dict[str, object] | None) -> ExecPolicyAmen
 def _contains_heredoc(command: Sequence[str]) -> bool:
     """判断命令参数中是否包含 heredoc 重定向。"""
     return any("<<" in str(value) for value in command)
-
-
-def load_exec_policy(
-    workspace_root: str | Path | None = None,
-    *,
-    rules_paths: Iterable[str | Path] | None = None
-) -> Policy:
-    """加载当前工作区的本地执行策略。"""
-    return ExecPolicyManager(
-        workspace_root=workspace_root,
-        rules_paths=rules_paths,
-    ).policy
-
-
-def load_exec_policy_with_warning(
-    workspace_root: str | Path | None = None,
-    *,
-    rules_paths: Iterable[str | Path] | None = None
-) -> tuple[Policy, tuple[str, ...]]:
-    """加载本地执行策略并返回解析警告。"""
-    manager = ExecPolicyManager(
-        workspace_root=workspace_root,
-        rules_paths=rules_paths,
-    )
-    return manager.policy, tuple(manager.warnings)
-
-
-def commands_for_exec_policy(command: Sequence[str] | str) -> list[list[str]]:
-    """按 Codex 的简单命令规则提取可评估命令序列。"""
-    words = _split_command(command)
-    if not words:
-        return []
-    executable = _basename(words[0])
-    if executable in {"sh", "bash", "zsh", "ksh", "dash", "fish", "cmd", "powershell", "pwsh"}:
-        scripts = _shell_scripts(words[1:])
-        if scripts:
-            parsed = _parse_plain_script(scripts[0])
-            return parsed if parsed is not None else [words]
-    if isinstance(command, str):
-        parsed = _parse_plain_script(command)
-        return parsed if parsed is not None else [words]
-    return [words]
 
 
 def _split_command(command: Sequence[str] | str) -> list[str]:
