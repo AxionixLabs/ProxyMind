@@ -51,6 +51,9 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     assert runtime.screen.process_status.label == (
         "1 background terminal running · /ps to view · /stop to close"
     )
+    assert runtime.screen.background_shell_status.label == (
+        "1 background terminal running · /ps to view · /stop to close"
+    )
     assert workspace_updates == [Path("D:/workspace")]
     mind.fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
 

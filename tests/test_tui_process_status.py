@@ -13,7 +13,6 @@ from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.context import (
     exec_status_display_label,
-    user_shell_status_display_label,
 )
 from mind_app.tui.features.processes import monitor_exec_status
 from mind_app.tui.features.summary import (
@@ -77,42 +76,43 @@ def test_process_status_is_inline_when_activity_is_visible() -> None:
     )
 
 
-def test_user_shell_status_uses_the_existing_background_slot() -> None:
+def test_background_shell_slot_switches_between_manual_and_all_sessions() -> None:
     runtime = TuiRuntime()
     runtime.screen.set_activity_renderable(
         FragmentBlock((("class:status", "• Thinking"),)),
     )
     runtime.set_user_shell_status_label(
-        "Shell · +1 · /ps to view · /stop to close"
+        "1 background terminal running · /ps to view · /stop to close"
+    )
+    runtime.set_background_shell_status_label(
+        "2 background terminals running · /ps to view · /stop to close"
     )
 
     assert runtime.screen._status_fragments() == [
         ("class:status", "• Thinking"),
     ]
     assert fragments_text(runtime.screen._process_status_fragments()) == (
-        "• Shell · +1 · /ps to view · /stop to close"
+        "• 1 background terminal running · /ps to view · /stop to close"
     )
     assert runtime.screen._process_status_height() == 1
 
-    runtime.set_user_shell_status_label(
-        "Shell · +2 more · /ps to view · /stop to close"
-    )
+    runtime.screen.clear_activity_renderable()
 
     assert fragments_text(runtime.screen._process_status_fragments()) == (
-        "• Shell · +2 more · /ps to view · /stop to close"
+        "• 2 background terminals running · /ps to view · /stop to close"
     )
 
 
-def test_user_shell_status_display_label_uses_total_shell_count() -> None:
-    assert user_shell_status_display_label({
+def test_exec_status_display_label_uses_actual_terminal_count() -> None:
+    assert exec_status_display_label({
         "items": [{"origin": "tui_shell"}],
-    }) == "Shell · +1 · /ps to view · /stop to close"
-    assert user_shell_status_display_label({
+    }) == "1 background terminal running · /ps to view · /stop to close"
+    assert exec_status_display_label({
         "items": [
             {"origin": "tui_shell"},
             {"origin": "tui_shell"},
         ],
-    }) == "Shell · +2 more · /ps to view · /stop to close"
+    }) == "2 background terminals running · /ps to view · /stop to close"
 
 
 def test_process_status_footer_is_static_dim() -> None:
@@ -331,6 +331,11 @@ async def test_process_status_monitor_splits_model_and_user_shell_sources() -> N
             "set_user_shell_status_label",
             wraps=runtime.set_user_shell_status_label,
         ) as set_user_shell,
+        patch.object(
+            runtime,
+            "set_background_shell_status_label",
+            wraps=runtime.set_background_shell_status_label,
+        ) as set_background_shell,
     ):
         with pytest.raises(asyncio.CancelledError):
             await monitor_exec_status(runtime, mind)
@@ -340,7 +345,11 @@ async def test_process_status_monitor_splits_model_and_user_shell_sources() -> N
         "",
     ]
     assert [call.args[0] for call in set_user_shell.call_args_list] == [
-        "Shell · +1 · /ps to view · /stop to close",
+        "1 background terminal running · /ps to view · /stop to close",
+        "",
+    ]
+    assert [call.args[0] for call in set_background_shell.call_args_list] == [
+        "2 background terminals running · /ps to view · /stop to close",
         "",
     ]
 

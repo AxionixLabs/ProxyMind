@@ -21,7 +21,6 @@ from ..features.context import (
     WORKSPACE_LABEL_REFRESH,
     exec_status_display_label,
     split_exec_snapshot_by_origin,
-    user_shell_status_display_label,
     primary_model_from_config,
     primary_model_prompt_label,
     workspace_display_label
@@ -213,8 +212,11 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
         model_snapshot,
         line_width=runtime.terminal_width,
     ))
-    runtime.set_user_shell_status_label(user_shell_status_display_label(
+    runtime.set_user_shell_status_label(exec_status_display_label(
         user_shell_snapshot,
+    ))
+    runtime.set_background_shell_status_label(exec_status_display_label(
+        exec_snapshot,
     ))
 
     if runtime.directory_trust_active:

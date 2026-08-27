@@ -455,10 +455,12 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
                 {
                     "session_id": "exec_first",
                     "command": "ping -t 8.8.8.8",
+                    "origin": "tui_shell",
                 },
                 {
                     "session_id": "exec_second",
                     "command": "adb devices",
+                    "origin": "tui_shell",
                 },
             ],
         }),
@@ -482,7 +484,10 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
     assert runtime.inline_process_session_id == "exec_second"
     assert runtime.screen.process_status.label == ""
     assert runtime.screen.user_shell_status.label == (
-        "Shell · +1 · /ps to view · /stop to close"
+        "1 background terminal running · /ps to view · /stop to close"
+    )
+    assert runtime.screen.background_shell_status.label == (
+        "1 background terminal running · /ps to view · /stop to close"
     )
     assert runtime.screen._process_status_height() == 1
 
@@ -789,6 +794,7 @@ async def test_stop_all_stops_immediately_and_cancels_background_watchers() -> N
         cancel_background_session_task=cancelled.append,
         set_process_status_label=status_labels.append,
         set_user_shell_status_label=lambda _label: None,
+        set_background_shell_status_label=lambda _label: None,
         process_completion_snapshots=lambda: (),
         inline_process_session_id="",
         inline_process_session_ids=(),

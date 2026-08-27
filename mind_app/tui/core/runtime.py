@@ -173,8 +173,9 @@ class TuiRuntime(object):
         self._menu_actions: deque[MenuAction] = deque()
         self._menu_action_scheduled: bool     = False
 
-        self._running_process_status_label: str    = ""
-        self._running_user_shell_status_label: str = ""
+        self._running_process_status_label: str          = ""
+        self._running_user_shell_status_label: str       = ""
+        self._running_background_shell_status_label: str = ""
 
         self._inline_process_session_id: str                           = ""
         self._inline_process_future: asyncio.Future[typing.Any] | None = None
@@ -665,6 +666,9 @@ class TuiRuntime(object):
         self.screen.user_shell_status.set_label(
             self._running_user_shell_status_label,
         )
+        self.screen.background_shell_status.set_label(
+            self._running_background_shell_status_label,
+        )
 
     def _handle_input_interrupt(self) -> None:
         """按当前前台交互状态分派输入中断。"""
@@ -840,6 +844,11 @@ class TuiRuntime(object):
     def set_user_shell_status_label(self, label: str) -> None:
         """更新手动 Shell 后台动画摘要。"""
         self._running_user_shell_status_label = str(label or "")
+        self._refresh_process_status()
+
+    def set_background_shell_status_label(self, label: str) -> None:
+        """更新全部后台 Shell 的动画摘要。"""
+        self._running_background_shell_status_label = str(label or "")
         self._refresh_process_status()
 
     def retain_process_completion(
@@ -2024,9 +2033,11 @@ class TuiRuntime(object):
         self.task_state.clear()
         self._running_process_status_label = ""
         self._running_user_shell_status_label = ""
+        self._running_background_shell_status_label = ""
         self._process_completions.clear()
         self.screen.process_status.clear()
         self.screen.user_shell_status.clear()
+        self.screen.background_shell_status.clear()
 
         await self.screen.menu.close()
         # Future.set_result 会在当前事件循环的下一次调度中恢复等待方。

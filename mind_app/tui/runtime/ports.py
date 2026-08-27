@@ -271,6 +271,10 @@ class ProcessRuntimePort(typing.Protocol):
         """更新手动 Shell 后台动画摘要行。"""
         ...
 
+    def set_background_shell_status_label(self, label: str) -> None:
+        """更新全部后台 Shell 动画摘要行。"""
+        ...
+
     def process_completion_snapshots(self) -> tuple[dict[str, typing.Any], ...]:
         """返回等待用户确认的进程完成快照。"""
         ...

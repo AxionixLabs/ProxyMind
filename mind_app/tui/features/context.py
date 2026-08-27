@@ -139,25 +139,6 @@ def exec_status_display_label(
     )
 
 
-def user_shell_status_display_label(snapshot: typing.Any) -> str:
-    """生成手动 Shell 后台动画使用的简短状态摘要。"""
-    if not isinstance(snapshot, dict):
-        return ""
-
-    raw_items = snapshot.get("items")
-    if not isinstance(raw_items, list):
-        return ""
-
-    items = [item for item in raw_items if isinstance(item, dict)]
-    if not items:
-        return ""
-
-    total  = len(items)
-    suffix = f"+{total}" if total == 1 else f"+{total} more"
-
-    return f"Shell · {suffix} · /ps to view · /stop to close"
-
-
 def split_exec_snapshot_by_origin(
     snapshot: typing.Any
 ) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]:

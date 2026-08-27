@@ -17,8 +17,7 @@ from ..core.models import FragmentBlock
 from ..rendering.fragments import clip_text
 from .context import (
     exec_status_display_label,
-    split_exec_snapshot_by_origin,
-    user_shell_status_display_label
+    split_exec_snapshot_by_origin
 )
 from ..core.status_frames import status_indicator_fragment
 from ..core.styles import (
@@ -82,6 +81,7 @@ async def monitor_exec_status(
                 )
                 _set_exec_status(runtime, model_snapshot)
                 _set_user_shell_status(runtime, user_shell_snapshot)
+                _set_background_shell_status(runtime, filtered)
                 revision = int(snapshot.get("revision") or revision)
             except (OSError, RuntimeError, TypeError, ValueError):
                 revision = -1
@@ -119,6 +119,7 @@ async def monitor_exec_status(
     finally:
         runtime.set_process_status_label("")
         runtime.set_user_shell_status_label("")
+        runtime.set_background_shell_status_label("")
 
 
 def _set_exec_status(
@@ -146,7 +147,7 @@ def _set_user_shell_status(
     *,
     excluded_session_id: str = ""
 ) -> None:
-    """更新现有后台动画槽位中的手动 Shell 摘要。"""
+    """更新手动 Shell 的后台摘要。"""
     filtered = _without_running_session(
         snapshot,
         excluded_session_id,
@@ -154,7 +155,25 @@ def _set_user_shell_status(
     )
 
     runtime.set_user_shell_status_label(
-        user_shell_status_display_label(filtered),
+        exec_status_display_label(filtered),
+    )
+
+
+def _set_background_shell_status(
+    runtime: "ProcessRuntimePort",
+    snapshot: typing.Any,
+    *,
+    excluded_session_id: str = ""
+) -> None:
+    """更新全部后台 Shell 的摘要。"""
+    filtered = _without_running_session(
+        snapshot,
+        excluded_session_id,
+        runtime=runtime,
+    )
+
+    runtime.set_background_shell_status_label(
+        exec_status_display_label(filtered),
     )
 
 
@@ -262,6 +281,7 @@ async def stop_all_exec_sessions(
 
     runtime.set_process_status_label("")
     runtime.set_user_shell_status_label("")
+    runtime.set_background_shell_status_label("")
 
 
 def render_no_background_terminals(
@@ -559,14 +579,25 @@ async def _watch_user_shell_session(
     application = mind.frontend.application
 
     try:
-        running = await execution.running_exec_sessions()
+        source = getattr(mind, "native_coding", None)
+        running_sessions = getattr(source, "running_exec_sessions", None)
+        if not callable(running_sessions):
+            running_sessions = execution.running_exec_sessions
+        running = await running_sessions()
+        filtered = _without_running_session(
+            running,
+            session_id,
+            runtime=runtime,
+        )
+        _, user_shell_snapshot = split_exec_snapshot_by_origin(filtered)
         _set_user_shell_status(
             runtime,
-            running,
-            excluded_session_id=session_id,
+            user_shell_snapshot,
         )
+        _set_background_shell_status(runtime, filtered)
     except (OSError, RuntimeError, TypeError, ValueError):
         runtime.set_user_shell_status_label("")
+        runtime.set_background_shell_status_label("")
 
     live_block = exec_session_user_shell_block(
         state.get("snapshot"),
