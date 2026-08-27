@@ -13,6 +13,7 @@ from engine.animation import AsyncAnimManager
 from engine.ports import terminate_port_process
 from engine.errors import AppError
 from mind_core.preference import Preferences
+from mind_core.application_paths import ApplicationLayout
 from mind_core.config_session import ConfigSession
 from mind_core.agent_config import AgentSettings
 from mind_core.feature_config import FeatureSettings
@@ -122,6 +123,9 @@ class Mind(object):
         self.history_workspace: str = normalize_workspace(
             kwargs.get("workspace_root") or Path.cwd()
         )
+        self.application_layout: ApplicationLayout | None = kwargs.get(
+            "application_layout"
+        )
 
         self.pref: Preferences               = kwargs["pref"]
         self.config_session: ConfigSession   = kwargs["config_session"]
@@ -180,7 +184,10 @@ class Mind(object):
             kwargs.get("feature_settings") or FeatureSettings()
         )
 
-        self.native_coding: NativeCoding = NativeCoding(root=self.history_workspace)
+        self.native_coding: NativeCoding = NativeCoding(
+            root=self.history_workspace,
+            application_layout=self.application_layout,
+        )
         self.user_shell: UserShellExecution = self.native_coding.user_shell
         self.exec_policy_manager = ExecPolicyManager(
             workspace_root=self.history_workspace
@@ -557,7 +564,10 @@ class Mind(object):
 
             self.command_hook_sessions.clear()
 
-            self.native_coding = NativeCoding(root=self.history_workspace)
+            self.native_coding = NativeCoding(
+                root=self.history_workspace,
+                application_layout=self.application_layout,
+            )
             self.user_shell: UserShellExecution = self.native_coding.user_shell
             self.exec_policy_manager = ExecPolicyManager(
                 workspace_root=self.history_workspace

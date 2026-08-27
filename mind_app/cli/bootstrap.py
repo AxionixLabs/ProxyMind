@@ -22,11 +22,14 @@ from engine.observability import (
     observe,
     observe_exception
 )
-from mind_core.application_paths import resolve_application_layout
+from mind_core.application_paths import (
+    ApplicationLayout,
+    resolve_application_layout
+)
 from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
-from mind_nova import const
 from mind_nova.services import service_endpoints
+from mind_nova import const
 from ..controller import Mind
 from ..frontend.contracts import (
     ApplicationView,
@@ -415,6 +418,7 @@ async def _run_application(
             power=power,
             output_mode=output_mode,
             permissions=permissions,
+            application_layout=app_layout,
             hook_registry=hook_registry,
             hook_startup_warnings=hook_startup_warnings,
             agent_settings=agent_settings,
@@ -457,6 +461,7 @@ async def _run_controller(
     power: int,
     output_mode: OutputMode,
     permissions: PermissionSettings,
+    application_layout: ApplicationLayout | None = None,
     hook_registry: HookRegistry | None = None,
     hook_startup_warnings: tuple[str, ...] = (),
     agent_settings: AgentSettings | None = None,
@@ -498,6 +503,7 @@ async def _run_controller(
             hook_registry=hook_registry or HookRegistry(),
             hook_startup_warnings=hook_startup_warnings,
             hook_status=hook_status,
+            application_layout=application_layout,
             agent_settings=agent_settings or AgentSettings(),
             feature_settings=feature_settings or FeatureSettings(),
         )

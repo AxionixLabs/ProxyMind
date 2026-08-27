@@ -23,6 +23,11 @@ def default_application_home() -> Path:
     ).expanduser()
 
 
+def is_packaged_executable(path: str | Path) -> bool:
+    """根据可执行文件路径判断是否为独立应用入口。"""
+    return Path(path).name.strip().lower() in PACKAGED_ENTRY_NAMES
+
+
 @dataclass(frozen=True, slots=True)
 class ApplicationLayout(object):
     """描述当前应用入口及其本地资源目录。"""
@@ -44,7 +49,7 @@ def _packaged_executable(entry_path: Path, executable: str | Path | None) -> Pat
         sys.executable if executable is None else executable
     ).expanduser()
 
-    if runtime_executable.name.strip().lower() in PACKAGED_ENTRY_NAMES:
+    if is_packaged_executable(runtime_executable):
         return runtime_executable.resolve()
 
     return entry_path.expanduser().resolve()
@@ -64,7 +69,7 @@ def resolve_application_layout(
     if (
         argv0 is None
         and entry_name != SOURCE_ENTRY_NAME
-        and entry_name not in PACKAGED_ENTRY_NAMES
+        and not is_packaged_executable(entry_path)
         and entry_file is not None
     ):
         source_entry = Path(entry_file)
@@ -77,7 +82,7 @@ def resolve_application_layout(
     if entry_name == SOURCE_ENTRY_NAME:
         resolved_entry = Path(entry_file or entry_path).expanduser().resolve()
         mode: ApplicationMode = "source"
-    elif entry_name in PACKAGED_ENTRY_NAMES:
+    elif is_packaged_executable(entry_path):
         resolved_entry = _packaged_executable(entry_path, executable)
         mode = "packaged"
     else:

@@ -2,7 +2,16 @@
 
 import pytest
 
-from mind_core.application_paths import resolve_application_layout
+from mind_core.application_paths import (
+    is_packaged_executable,
+    resolve_application_layout,
+)
+
+
+def test_packaged_executable_is_judged_by_path_name(tmp_path) -> None:
+    assert is_packaged_executable(tmp_path / "mind") is True
+    assert is_packaged_executable(tmp_path / "MIND.EXE") is True
+    assert is_packaged_executable(tmp_path / "python") is False
 
 
 def test_source_layout_uses_mind_py_directory(tmp_path) -> None:

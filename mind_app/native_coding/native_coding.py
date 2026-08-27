@@ -3,6 +3,7 @@
 
 import os
 import typing
+from mind_core.application_paths import ApplicationLayout
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
@@ -22,11 +23,31 @@ from mind_app.native_coding.js_repl import (
 class NativeCoding(NativeCodingBase):
     """由可组合工具组件支撑的原生编码服务入口。"""
 
-    def __init__(self, root: str | os.PathLike[str] | None = None) -> None:
+    def __init__(
+        self,
+        root: str | os.PathLike[str] | None = None,
+        *,
+        application_layout: ApplicationLayout | None = None,
+    ) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
 
-        self._sandbox_client   = SandboxClient(workspace_root=self.root)
+        self._sandbox_client   = SandboxClient(
+            workspace_root=self.root,
+            application_root=(
+                application_layout.root if application_layout is not None else None
+            ),
+            packaged=(
+                application_layout.packaged
+                if application_layout is not None
+                else None
+            ),
+            platform=(
+                application_layout.platform
+                if application_layout is not None
+                else None
+            ),
+        )
         self._process_sessions = ProcessSessionManager(self._sandbox_client)
 
         self.user_shell = UserShellExecution(

@@ -2,12 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import os
+import sys
 import json
 import base64
 import typing
 import asyncio
-import sys
 from pathlib import Path
+from mind_core.application_paths import is_packaged_executable
 
 
 class SandboxUnavailable(RuntimeError):
@@ -60,6 +61,15 @@ class _SidecarStream(object):
         self._chunks.put_nowait(None)
 
     async def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            while True:
+                chunk = await self._chunks.get()
+                if chunk is None:
+                    result = bytes(self._buffer)
+                    self._buffer.clear()
+                    return result
+                self._buffer.extend(chunk)
+
         requested = max(1, int(size or 1))
         while not self._buffer:
             chunk = await self._chunks.get()
@@ -67,7 +77,7 @@ class _SidecarStream(object):
                 return b""
             self._buffer.extend(chunk)
 
-        if size is None or size < 0 or len(self._buffer) <= requested:
+        if len(self._buffer) <= requested:
             result = bytes(self._buffer)
             self._buffer.clear()
             return result
@@ -81,10 +91,12 @@ class _SidecarStdin(object):
     """把同步 write/drain 调用转换为 sidecar 的异步写请求。"""
 
     def __init__(self, client: "SandboxClient", process_id: str) -> None:
-        self._client = client
+        self._client     = client
         self._process_id = process_id
+
         self._pending = bytearray()
         self._closing = False
+
         self._close_task: asyncio.Task[None] | None = None
 
     def is_closing(self) -> bool:
@@ -124,13 +136,16 @@ class SidecarProcess(object):
     """表示由 sidecar 管理的逻辑进程。"""
 
     def __init__(self, client: "SandboxClient", process_id: str) -> None:
-        self.client = client
+        self.client     = client
         self.process_id = process_id
-        self.pid = process_id
+        self.pid        = process_id
+
         self.returncode: int | None = None
-        self.stdin = _SidecarStdin(client, process_id)
+
+        self.stdin  = _SidecarStdin(client, process_id)
         self.stdout = _SidecarStream()
         self.stderr = _SidecarStream()
+
         self._exit_event = asyncio.Event()
 
     async def wait(self) -> int:
@@ -153,8 +168,9 @@ class SidecarProcess(object):
 class SandboxClient(object):
     """管理当前平台的 sandbox sidecar 及其逻辑进程。"""
 
+    PROTOCOL_VERSION    = 1
     REQUEST_TIMEOUT_SEC = 30.0
-    READY_TIMEOUT_SEC = 10.0
+    READY_TIMEOUT_SEC   = 10.0
 
     def __init__(
         self,
@@ -166,32 +182,37 @@ class SandboxClient(object):
         platform: str | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
-        self.platform = (sys.platform if platform is None else platform).strip().lower()
-        self.platform_name = sandbox_platform_name(self.platform)
-        self.packaged = self._is_packaged_runtime() if packaged is None else bool(packaged)
+        self.platform       = (sys.platform if platform is None else platform).strip().lower()
+        self.platform_name  = sandbox_platform_name(self.platform)
+        self.packaged       = self._is_packaged_runtime() if packaged is None else bool(packaged)
+
         self.application_root = (
             Path(application_root).expanduser().resolve()
             if application_root is not None
             else self._default_application_root()
         )
+
         self.executable = self._resolve_executable(executable)
 
         self._sidecar: asyncio.subprocess.Process | None = None
-        self._reader_task: asyncio.Task[None] | None = None
-        self._start_lock = asyncio.Lock()
-        self._write_lock = asyncio.Lock()
-        self._request_number = 0
+        self._reader_task: asyncio.Task[None] | None     = None
+
+        self._start_lock: asyncio.Lock = asyncio.Lock()
+        self._write_lock: asyncio.Lock = asyncio.Lock()
+
+        self._request_number: int = 0
+
         self._pending: dict[str, asyncio.Future[dict[str, typing.Any]]] = {}
-        self._ready: asyncio.Future[bool] | None = None
-        self._processes: dict[str, SidecarProcess] = {}
-        self._early_events: dict[str, list[dict[str, typing.Any]]] = {}
+        self._ready: asyncio.Future[bool] | None                        = None
+        self._processes: dict[str, SidecarProcess]                      = {}
+        self._early_events: dict[str, list[dict[str, typing.Any]]]      = {}
 
     @staticmethod
     def _is_packaged_runtime() -> bool:
         """判断当前进程是否由独立应用入口启动。"""
         if bool(getattr(sys, "frozen", False)):
             return True
-        return Path(sys.executable).name.strip().lower() in {"mind", "mind.exe"}
+        return is_packaged_executable(sys.executable)
 
     def _default_application_root(self) -> Path:
         """返回源码或打包入口对应的应用根目录。"""
@@ -260,8 +281,10 @@ class SandboxClient(object):
                     asyncio.shield(self._ready),
                     timeout=self.READY_TIMEOUT_SEC,
                 )
-            except (asyncio.TimeoutError, RuntimeError) as exc:
+            except (SandboxUnavailable, asyncio.TimeoutError, RuntimeError) as exc:
                 await self._abort_sidecar()
+                if isinstance(exc, SandboxUnavailable):
+                    raise
                 raise SandboxUnavailable("sandbox sidecar did not become ready") from exc
 
     async def spawn(
@@ -276,20 +299,20 @@ class SandboxClient(object):
         timeout_ms: int | None = None,
     ) -> SidecarProcess:
         await self.ensure_started()
-        response = await self._request(
-            "spawn",
-            {
-                "argv": [str(item) for item in argv],
-                "cwd": str(Path(cwd).resolve()),
-                "workspace_roots": [str(self.workspace_root)],
-                "mode": str(sandbox_mode),
-                "level": "restricted-token",
-                "env": {str(key): str(value) for key, value in env.items()},
-                "stdin_open": bool(stdin_open),
-                "tty": bool(tty),
-                "timeout_ms": timeout_ms,
-            },
-        )
+        params: dict[str, typing.Any] = {
+            "argv": [str(item) for item in argv],
+            "cwd": str(Path(cwd).resolve()),
+            "workspace_roots": [str(self.workspace_root)],
+            "mode": str(sandbox_mode),
+            "env": {str(key): str(value) for key, value in env.items()},
+            "stdin_open": bool(stdin_open),
+            "tty": bool(tty),
+            "timeout_ms": timeout_ms,
+        }
+        if self.platform != "darwin":
+            params["level"] = "restricted-token"
+        response = await self._request("spawn", params)
+
         process_id = str(response.get("process_id") or "").strip()
         if not process_id:
             raise SandboxProtocolError("sidecar spawn response missing process_id")
@@ -399,6 +422,18 @@ class SandboxClient(object):
                     continue
                 event = str(message.get("event") or "").strip()
                 if event == "ready":
+                    try:
+                        protocol_version = int(message["protocol_version"])
+                    except (KeyError, TypeError, ValueError):
+                        protocol_version = None
+                    if protocol_version != self.PROTOCOL_VERSION:
+                        error = SandboxUnavailable(
+                            "unsupported sandbox sidecar protocol version: "
+                            f"{message.get('protocol_version')!r}"
+                        )
+                        if self._ready is not None and not self._ready.done():
+                            self._ready.set_exception(error)
+                        return
                     if self._ready is not None and not self._ready.done():
                         self._ready.set_result(True)
                     continue

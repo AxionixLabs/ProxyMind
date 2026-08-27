@@ -1,7 +1,12 @@
+import asyncio
+
 from mind_app.native_coding.exec.sandbox_client import (
     SandboxClient,
+    _SidecarStream,
     sandbox_backend_name,
 )
+from mind_app.native_coding.native_coding import NativeCoding
+from mind_core.application_paths import ApplicationLayout
 
 
 def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch) -> None:
@@ -54,3 +59,80 @@ def test_packaged_macos_sidecar_path_is_separate(tmp_path, monkeypatch) -> None:
     assert client.executable == expected.resolve()
     assert client.available is True
     assert sandbox_backend_name("darwin") == "macos-sidecar"
+
+
+def test_spawn_payload_only_sends_windows_fields_to_windows_sidecar(
+    tmp_path, monkeypatch
+) -> None:
+    captured: dict[str, dict[str, object]] = {}
+
+    async def run(platform: str) -> None:
+        client = SandboxClient(
+            workspace_root=tmp_path,
+            application_root=tmp_path,
+            packaged=False,
+            platform=platform,
+        )
+
+        async def fake_ensure_started() -> None:
+            return None
+
+        async def fake_request(method: str, params: dict[str, object]) -> dict[str, str]:
+            captured[platform] = dict(params)
+            return {"process_id": f"sandbox-{platform}"}
+
+        monkeypatch.setattr(client, "ensure_started", fake_ensure_started)
+        monkeypatch.setattr(client, "_request", fake_request)
+        await client.spawn(
+            argv=("echo", "ok"),
+            cwd=tmp_path,
+            env={},
+            sandbox_mode="workspace-write",
+            stdin_open=False,
+        )
+
+    asyncio.run(run("darwin"))
+    asyncio.run(run("win32"))
+
+    assert "level" not in captured["darwin"]
+    assert captured["win32"]["level"] == "restricted-token"
+
+
+def test_native_coding_reuses_application_layout_for_sandbox_paths(tmp_path) -> None:
+    layout = ApplicationLayout(
+        mode="packaged",
+        platform="darwin",
+        executable=tmp_path / "Mind.app" / "Contents" / "MacOS" / "mind",
+        root=tmp_path / "Mind.app" / "Contents" / "MacOS",
+        supports=(
+            tmp_path
+            / "Mind.app"
+            / "Contents"
+            / "MacOS"
+            / "schematic"
+            / "supports"
+            / "macos"
+        ),
+    )
+    coding = NativeCoding(root=tmp_path / "workspace", application_layout=layout)
+
+    try:
+        assert coding._sandbox_client.application_root == layout.root
+        assert coding._sandbox_client.packaged is True
+        assert coding._sandbox_client.platform == layout.platform
+    finally:
+        asyncio.run(coding.close())
+
+
+def test_sidecar_stream_read_without_size_collects_until_eof() -> None:
+    """验证无 size 的读取会合并全部事件块并等待 EOF。"""
+
+    async def run() -> None:
+        stream = _SidecarStream()
+        stream.feed(b"first")
+        stream.feed(b"second")
+        stream.close()
+
+        assert await stream.read() == b"firstsecond"
+
+    asyncio.run(run())

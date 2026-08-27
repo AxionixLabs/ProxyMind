@@ -39,13 +39,17 @@ async def test_extensions_are_normalized_before_provider_bundle_is_copied(
     resources = schematic / "resources"
     supports = schematic / "supports" / "macos"
     skills = schematic / "skills"
+    sidecar = schematic / "sandbox" / "macos" / "bin" / "mind_sandbox_server"
     launcher = resources / "automation" / f"{const.APP_NAME}.sh"
     provider_root = supports / "helix.app" / "Contents" / "MacOS"
 
     launcher.parent.mkdir(parents=True)
     skills.mkdir(parents=True)
+    sidecar.parent.mkdir(parents=True)
     provider_root.mkdir(parents=True)
     launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    sidecar.write_bytes(b"sidecar")
+    sidecar.chmod(0o755)
 
     provider_extension = provider_root / "module.cpython-311-darwin.so"
     provider_destination = provider_root / "module.so"

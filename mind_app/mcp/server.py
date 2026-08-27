@@ -135,6 +135,7 @@ class MindMcpRuntime(object):
             workspace_root=Path.cwd(),
             permissions=permissions,
             hook_registry=hook_registry,
+            application_layout=layout,
             agent_settings=AgentSettings.from_config(config_resolution.config),
             feature_settings=FeatureSettings.from_config(
                 config_resolution.config

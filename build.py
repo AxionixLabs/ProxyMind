@@ -332,6 +332,19 @@ async def report_binary_info(command: list[str]) -> None:
     compile_log(result)
 
 
+def validate_sidecar_asset(ops: str, sandbox: Path) -> Path:
+    """校验当前平台的 sidecar 产物存在且可执行。"""
+    executable_name = (
+        "mind_sandbox_server.exe" if ops == "win32" else "mind_sandbox_server"
+    )
+    executable = sandbox / "bin" / executable_name
+    if not executable.is_file():
+        raise AppError(f"未找到 {ops} sidecar 可执行文件: {executable}")
+    if ops == "darwin" and not os.access(executable, os.X_OK):
+        raise AppError(f"macOS sidecar 不具备执行权限: {executable}")
+    return executable
+
+
 async def packaging() -> tuple[
     str,
     Path,
@@ -535,6 +548,7 @@ async def post_build() -> None:
     r, s = schematic / "resources", schematic / kit / support
     skills = schematic / "skills"
     sandbox = schematic / "sandbox" / support
+    validate_sidecar_asset(ops, sandbox)
 
     local_pack, local_file = [
         (r, target / schematic.name / r.name),
