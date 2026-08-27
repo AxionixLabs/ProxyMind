@@ -9,6 +9,7 @@ from prompt_toolkit.keys import Keys
 
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.input import TuiInputModel
+from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 
 
@@ -278,12 +279,12 @@ async def test_folded_paste_history_recall_resubmits_original_text() -> None:
     buffer.text = placeholder
 
     assert await submit(runtime) == original.strip()
-    assert runtime.input_model.history.get_strings() == [placeholder]
+    assert runtime.input_model.history.get_strings() == [original.strip()]
 
     runtime.input_model._navigate_history(buffer, step=-1, count=1)
 
-    assert buffer.text == placeholder
-    assert runtime.input_model.restore_submission(buffer.text) == original.strip()
+    assert buffer.text == original.strip()
+    assert runtime.input_model.submission_state() == {}
     assert await submit(runtime) == original.strip()
 
 
@@ -299,16 +300,13 @@ async def test_identical_paste_labels_restore_each_history_original() -> None:
         buffer.text = placeholder
         assert await submit(runtime) == original
 
-    assert runtime.input_model.history.get_strings() == [
-        "[Pasted Content 1200 chars]",
-        "[Pasted Content 1200 chars]",
-    ]
+    assert runtime.input_model.history.get_strings() == list(originals)
 
     runtime.input_model._navigate_history(buffer, step=-1, count=1)
-    assert runtime.input_model.restore_submission(buffer.text) == originals[1]
+    assert buffer.text == originals[1]
 
     runtime.input_model._navigate_history(buffer, step=-1, count=1)
-    assert runtime.input_model.restore_submission(buffer.text) == originals[0]
+    assert buffer.text == originals[0]
 
 
 @pytest.mark.anyio
@@ -330,8 +328,8 @@ async def test_multiple_folded_pastes_keep_surrounding_editable_text() -> None:
 
     runtime.input_model._navigate_history(buffer, step=-1, count=1)
 
-    assert buffer.text == editable
-    assert set(runtime.input_model.submission_state()) == {first, second}
+    assert buffer.text == expected
+    assert runtime.input_model.submission_state() == {}
     assert await submit(runtime) == expected
 
 
@@ -345,13 +343,35 @@ async def test_shell_history_restores_folded_paste_for_resubmission() -> None:
     buffer.text = placeholder
 
     assert await submit(runtime) == f"! {original.strip()}"
-    assert runtime.input_model.history.get_strings() == [f"! {placeholder}"]
+    assert runtime.input_model.history.get_strings() == [f"! {original.strip()}"]
 
     runtime.input_model._navigate_history(buffer, step=-1, count=1)
 
     assert runtime.input_model.shell_mode
-    assert buffer.text == placeholder
+    assert buffer.text == original.strip()
     assert await submit(runtime) == f"! {original.strip()}"
+
+
+@pytest.mark.anyio
+async def test_literal_bang_paste_stays_a_normal_query() -> None:
+    runtime = TuiRuntime()
+    original = "! literal pasted content " * 80
+    placeholder = runtime.input_model._display_paste(original, "")
+    buffer = runtime.screen.input.buffer
+    buffer.text = placeholder
+
+    assert await submit(runtime) == original.strip()
+    assert not runtime.input_model.shell_mode
+    assert runtime.input_model.history.get_strings() == [placeholder]
+    assert runtime.document.blocks[-1].kind == "user"
+    assert fragments_text(runtime.document.blocks[-1].display_block.fragments).startswith(
+        "› ! literal pasted content"
+    )
+
+    runtime.input_model._navigate_history(buffer, step=-1, count=1)
+    assert not runtime.input_model.shell_mode
+    assert buffer.text == placeholder
+    assert runtime.input_model.restore_submission(buffer.text) == original.strip()
 
 
 @pytest.mark.anyio

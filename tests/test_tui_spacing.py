@@ -10276,7 +10276,8 @@ async def test_bounded_tool_blocks_keep_real_terminal_layout_stable(
                 status_position = positions[runtime.screen.status_window]
 
                 assert f">_ {const.APP_DESC}" in printed
-                assert "exercise bounded tool layout" in printed
+                assert "exercise bounded" in printed
+                assert "tool layout" in printed
                 assert "assistant line 0" in printed
                 assert "assistant line 23" in printed
                 assert visible_marker in visible

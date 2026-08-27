@@ -1615,11 +1615,11 @@ async def test_input_prompt_is_separate_from_multiline_and_wrapped_text(
 
                 assert prompt_position.width == 2
                 assert input_position.xpos == prompt_position.xpos + 2
-                assert input_position.width == 18
+                assert input_position.width == 17
                 assert runtime.screen.input.window.get_line_prefix is None
                 assert rendered_input_lines(runtime) == [
-                    f"{prompt} abcdefghijklmnopqr",
-                    "  s",
+                    f"{prompt} abcdefghijklmnopq",
+                    "  rs",
                     "  second",
                 ]
                 assert cursor.x - input_position.xpos == len("second")

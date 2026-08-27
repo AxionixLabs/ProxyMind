@@ -119,6 +119,8 @@ from ..rendering.fragments import (
 )
 from .styles import (
     ASSISTANT_PREFIX_CLASS,
+    QUERY_PREFIX_WIDTH,
+    QUERY_RIGHT_MARGIN_WIDTH,
     build_tui_application_style,
     exit_summary_fragments
 )
@@ -190,7 +192,8 @@ from ..contracts.screen import (
 class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
-    INPUT_TEXT_LEFT_MARGIN: typing.Final[int]        = 2
+    INPUT_TEXT_LEFT_MARGIN: typing.Final[int]        = QUERY_PREFIX_WIDTH
+    INPUT_TEXT_RIGHT_MARGIN: typing.Final[int]       = QUERY_RIGHT_MARGIN_WIDTH
     QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
     COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
     COMPLETION_HINT_HEIGHT: typing.Final[int]        = 2
@@ -368,8 +371,19 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             dont_extend_height=True,
             style="class:input-surface",
         )
+        self.input_right_margin_window = Window(
+            width=Dimension.exact(self.INPUT_TEXT_RIGHT_MARGIN),
+            height=self._input_dimension,
+            dont_extend_width=True,
+            dont_extend_height=True,
+            style="class:input-surface",
+        )
         self.input_editor = VSplit(
-            [self.input_prompt_window, self.input],
+            [
+                self.input_prompt_window,
+                self.input,
+                self.input_right_margin_window,
+            ],
             height=self._input_dimension,
             window_too_small=self.input.window,
         )
@@ -3391,7 +3405,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         text = self.input.buffer.text
         rows = display_line_count(
             text,
-            width=max(1, width - self.INPUT_TEXT_LEFT_MARGIN),
+            width=max(
+                1,
+                width
+                - self.INPUT_TEXT_LEFT_MARGIN
+                - self.INPUT_TEXT_RIGHT_MARGIN,
+            ),
         )
 
         if text.endswith("\n"):

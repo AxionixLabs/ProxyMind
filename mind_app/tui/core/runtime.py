@@ -78,6 +78,7 @@ from .view import ViewIdentity
 from .styles import (
     failure_text_block,
     query_block,
+    query_display_block,
     query_preview_block,
     text_block
 )
@@ -1561,7 +1562,13 @@ class TuiRuntime(object):
     ) -> bool:
         """把采样边界接纳的用户输入追加到当前逻辑轮次。"""
         visible = submission.visible_text.strip()
-        if not visible and submission.attachments:
+
+        display_text = (
+            visible
+            if submission.shell_mode
+            else submission.value.strip()
+        )
+        if not display_text and submission.attachments:
             labels = [
                 label
                 for item in submission.attachments
@@ -1571,12 +1578,23 @@ class TuiRuntime(object):
                     ).strip()
                 )
             ]
-            visible = f"[Attachment: {', '.join(labels) or 'attachment'}]"
+            display_text = f"[Attachment: {', '.join(labels) or 'attachment'}]"
 
-        if not visible:
+        if not display_text:
             return False
 
-        self.append_block(query_block(visible), kind="user")
+        width      = self.terminal_width
+        transcript = query_block(display_text, command_aware=False)
+        renderer   = partial(query_display_block, display_text)
+
+        self.append_block(
+            renderer(width),
+            kind="user",
+            transcript_block=transcript,
+            raw_text=display_text,
+            display_renderer=renderer,
+            display_render_width=width,
+        )
 
         if not self.document.bind_latest_user_turn(turn_id, submission.value):
             raise RuntimeError("accepted turn input could not be bound")
@@ -2196,7 +2214,11 @@ class TuiRuntime(object):
             value = str(submission)
             visible = value
 
-        model_submission = self._is_model_submission(value)
+        literal_bang_paste = self._is_literal_bang_paste(submission, value)
+        model_submission = self._is_model_submission(
+            value,
+            literal_bang_paste=literal_bang_paste,
+        )
         if model_submission:
             self.set_turn_start_pending(True)
 
@@ -2211,11 +2233,28 @@ class TuiRuntime(object):
 
         if (
             visible
-            and not submission_replaces_query(value)
+            and not (
+                submission_replaces_query(value)
+                and not literal_bang_paste
+            )
             and not slash_command_notice_message(value)
         ):
-            block = query_block(visible)
-            self.document.stage_submission(block, raw_text=visible)
+            display_text = (
+                value.strip()
+                if isinstance(submission, TuiSubmission)
+                and not submission.shell_mode
+                else visible
+            )
+            transcript = query_block(display_text, command_aware=False)
+            renderer = partial(query_display_block, display_text)
+            width = self.terminal_width
+            self.document.stage_submission(
+                renderer(width),
+                transcript_block=transcript,
+                raw_text=display_text,
+                display_renderer=renderer,
+                display_render_width=width,
+            )
             if resolve_tui_command(value) is not None:
                 self.invalidate()
             else:
@@ -2229,11 +2268,30 @@ class TuiRuntime(object):
 
         return value
 
-    def _is_model_submission(self, value: str) -> bool:
+    @staticmethod
+    def _is_literal_bang_paste(
+        submission: TuiSubmission | object,
+        value: str,
+    ) -> bool:
+        """判断展开后的感叹号文本是否仍属于普通粘贴输入。"""
+        return bool(
+            isinstance(submission, TuiSubmission)
+            and submission.literal_bang_paste
+            and str(value or "").strip() == submission.value.strip()
+        )
+
+    def _is_model_submission(
+        self,
+        value: str,
+        *,
+        literal_bang_paste: bool = False,
+    ) -> bool:
         """判断提交是否应进入模型轮次等待交接。"""
         normalized = str(value or "").strip()
         if not normalized:
             return self.has_pending_attachments
+        if literal_bang_paste:
+            return True
         return not normalized.startswith(("/", "!")) and normalized not in {
             "$",
             "\\",

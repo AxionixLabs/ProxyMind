@@ -471,6 +471,45 @@ async def test_queued_pastes_keep_independent_placeholder_snapshots() -> None:
     assert (first, second) == contents
 
 
+def test_queued_preview_uses_expanded_submission_text() -> None:
+    queue = TuiQueuedMessages()
+    original = "expanded queued content " * 80
+    placeholder = "[Pasted Content 1840 chars]"
+    queue.append(TuiSubmission(
+        value=original,
+        editable_text=placeholder,
+        paste_store={placeholder: original},
+    ))
+
+    text = _fragments_text(queue.fragments(width=100))
+
+    assert placeholder not in text
+    assert "expanded queued content" in text
+
+
+@pytest.mark.anyio
+async def test_queued_literal_bang_paste_is_not_rejected_as_shell() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    original = "! literal queued paste " * 80
+    placeholder = runtime.input_model._display_paste(original, "")
+    runtime.screen.input.buffer.text = placeholder
+
+    runtime.screen.input.buffer.validate_and_handle()
+
+    assert runtime.submissions.queued_messages.active
+    value = await runtime.read_message(PromptContext(model="test"))
+
+    assert value == original.strip()
+    assert runtime.document.blocks[-1].kind == "user"
+    assert "disabled while a task is in progress" not in _fragments_text(
+        runtime.document.fragments(width=100)
+    )
+    assert _fragments_text(
+        runtime.document.blocks[-1].display_block.fragments
+    ).startswith("› ! literal queued paste")
+
+
 def test_rollback_duplicate_queue_does_not_remove_previous_history() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)

@@ -120,7 +120,9 @@ class TuiInputHistory(InMemoryHistory):
 
     def __init__(self) -> None:
         super().__init__()
+
         self._entries: list[TuiInputHistoryEntry] = []
+        self._pending_auto_text: str | None       = None
 
     @staticmethod
     def _plain_entry(text: str) -> TuiInputHistoryEntry:
@@ -135,7 +137,17 @@ class TuiInputHistory(InMemoryHistory):
 
     def append_string(self, string: str) -> None:
         """追加一条不带粘贴映射的普通历史。"""
-        self._append_entry(self._plain_entry(string))
+        value = str(string or "")
+        if self._pending_auto_text is not None:
+            expected = self._pending_auto_text
+            self._pending_auto_text = None
+            if value == expected:
+                return None
+        self._append_entry(self._plain_entry(value))
+
+    def _suppress_next_automatic_append(self, text: str) -> None:
+        """抑制 prompt-toolkit 随提交自动重复写入的编辑文本。"""
+        self._pending_auto_text = str(text or "")
 
     def append_submission(
         self,
@@ -168,13 +180,23 @@ class TuiInputHistory(InMemoryHistory):
         super().append_string(entry.visible_text)
         self._entries.append(entry)
 
-    def rollback_latest(self, text: str) -> None:
+    def rollback_latest(
+        self,
+        text: str,
+        *,
+        alternate_text: str | None = None,
+    ) -> None:
         """仅在最后一项匹配时撤销对应历史记录。"""
-        if self._storage and self._storage[-1] == text:
+        self._pending_auto_text = None
+        candidates = {str(text)}
+        if alternate_text is not None:
+            candidates.add(str(alternate_text))
+
+        if self._storage and self._storage[-1] in candidates:
             self._storage.pop()
             if self._entries:
                 self._entries.pop()
-        if self._loaded_strings and self._loaded_strings[0] == text:
+        if self._loaded_strings and self._loaded_strings[0] in candidates:
             self._loaded_strings.pop(0)
 
 
@@ -1762,23 +1784,59 @@ class TuiInputModel(object):
         """恢复被撤回提交文本关联的折叠粘贴状态。"""
         self.paste_store = dict(state)
 
-    def rollback_submission_history(self, text: str) -> None:
+    def rollback_submission_history(
+        self,
+        text: str,
+        *,
+        alternate_text: str | None = None,
+    ) -> None:
         """撤销最近一次匹配的输入历史提交。"""
-        self.history.rollback_latest(text)
+        self.history.rollback_latest(text, alternate_text=alternate_text)
 
     def record_submission_history(
         self,
         editable_text: str,
         paste_store: dict[str, str],
         *,
+        value: str,
         shell_mode: bool
     ) -> bool:
-        """记录一次提交对应的完整可编辑历史。"""
-        return self.history.append_submission(
-            editable_text,
-            paste_store,
+        """按提交文本和原始编辑意图记录输入历史。"""
+        original_text = str(editable_text or "")
+        submitted_text = str(value or "").strip()
+
+        preserve_literal_paste = bool(
+            not shell_mode
+            and paste_store
+            and not original_text.lstrip().startswith("!")
+            and submitted_text.lstrip().startswith("!")
+        )
+
+        if shell_mode:
+            history_text = submitted_text[1:].lstrip()
+            history_paste_store: dict[str, str] = {}
+        elif preserve_literal_paste:
+            history_text = original_text
+            history_paste_store = dict(paste_store)
+        else:
+            history_text = submitted_text
+            history_paste_store = {}
+
+        recorded = self.history.append_submission(
+            history_text,
+            history_paste_store,
             shell_mode=shell_mode,
         )
+        automatic_text = (
+            f"! {original_text.strip()}"
+            if shell_mode and original_text.strip()
+            else "!"
+            if shell_mode
+            else original_text
+        )
+        if automatic_text:
+            self.history._suppress_next_automatic_append(automatic_text)
+        return recorded
 
     def restore_submission(self, text: str) -> str:
         """还原折叠粘贴内容并清理提交文本。"""

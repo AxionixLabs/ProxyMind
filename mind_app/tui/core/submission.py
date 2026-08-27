@@ -223,7 +223,8 @@ class TuiSubmissionFlow(object):
 
         if submission.history_recorded:
             self.input_model.rollback_submission_history(
-                submission.visible_text
+                submission.value,
+                alternate_text=submission.visible_text,
             )
 
         self._append_notice(FragmentBlock((
@@ -344,7 +345,10 @@ class TuiSubmissionFlow(object):
         self._queued_restore_handler(item)
 
         if item.history_recorded:
-            self.input_model.rollback_submission_history(item.visible_text)
+            self.input_model.rollback_submission_history(
+                item.value,
+                alternate_text=item.visible_text,
+            )
 
         self.queued_submission_text = None
 
@@ -428,6 +432,7 @@ class TuiSubmissionFlow(object):
         buffer.cursor_position = 0
 
         self.input_model.clear_submission_state()
+        self.input_model.notify_input_layout()
         self.interrupt_state.disarm_exit()
         self._cancel_exit_expiry()
         self._invalidate()
@@ -498,6 +503,7 @@ class TuiSubmissionFlow(object):
         history_recorded = self.input_model.record_submission_history(
             editable_text,
             paste_store,
+            value=value,
             shell_mode=shell_mode,
         )
 
@@ -512,7 +518,11 @@ class TuiSubmissionFlow(object):
         submission_deferred = self._is_submission_deferred()
 
         if submission_deferred:
-            policy = stream_command_policy(value)
+            policy = (
+                None
+                if submission.literal_bang_paste
+                else stream_command_policy(value)
+            )
             if policy is not None:
                 self._dispatch_stream_command(submission, policy=policy)
                 buffer.text = ""
@@ -631,7 +641,8 @@ class TuiSubmissionFlow(object):
                 and slash_command_notice_message(submission.value)
             ):
                 self.input_model.rollback_submission_history(
-                    submission.visible_text
+                    submission.value,
+                    alternate_text=submission.visible_text,
                 )
 
         self.clear_exit_confirmation()

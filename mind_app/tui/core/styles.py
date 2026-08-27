@@ -52,12 +52,18 @@ SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B")
 COMMAND_STYLE = TextStyle(foreground="ansimagenta")
-# 对齐上游终端摘要：次要文本只降低亮度，命令文本使用 ANSI 青色。
-TERMINAL_DIM_STYLE  = TextStyle(dim=True)
-TERMINAL_CYAN_STYLE = TextStyle(foreground="ansicyan")
+
+# 终端摘要文本只降低亮度，命令文本使用 ANSI 青色。
+TERMINAL_DIM_STYLE   = TextStyle(dim=True)
+TERMINAL_CYAN_STYLE  = TextStyle(foreground="ansicyan")
 TERMINAL_TITLE_STYLE = TextStyle(bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
+
+QUERY_PREFIX              = "› "
+QUERY_CONTINUATION_PREFIX = "  "
+QUERY_PREFIX_WIDTH        = 2
+QUERY_RIGHT_MARGIN_WIDTH  = 1
 
 TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "assistant.prefix": "bold fg:#7F8C9A",
@@ -732,6 +738,50 @@ def query_block(
     return FragmentBlock(tuple(fragments))
 
 
+def query_display_block(
+    text: str,
+    terminal_width: int
+) -> FragmentBlock:
+    """按终端宽度生成带续行缩进的用户 query 显示块。"""
+    width = max(1, int(terminal_width))
+    value = (
+        str(text)
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .rstrip("\n")
+    )
+    lines = value.split("\n")
+
+    body = join_formatted_lines([
+        [("class:prompt", line)]
+        for line in lines
+    ])
+
+    safe_body = sanitize_fragment_block(FragmentBlock(tuple(body)))
+
+    wrapped = wrap_formatted_lines(
+        list(safe_body.fragments),
+        width=max(
+            1,
+            width - QUERY_PREFIX_WIDTH - QUERY_RIGHT_MARGIN_WIDTH,
+        ),
+    )
+    if not wrapped:
+        return FragmentBlock(())
+
+    rows: list[list[tuple[str, str]]] = []
+    for index, row in enumerate(wrapped):
+        rows.append([
+            (
+                "class:prompt.kicker",
+                QUERY_PREFIX if index == 0 else QUERY_CONTINUATION_PREFIX,
+            ),
+            *row,
+        ])
+
+    return FragmentBlock(tuple(join_formatted_lines(rows)))
+
+
 def query_preview_block(
     text: str,
     terminal_width: int,
@@ -742,9 +792,9 @@ def query_preview_block(
     """生成保留完整记录入口的宽度感知用户输入预览。"""
     width = max(1, int(terminal_width))
     limit = max(2, int(max_rows))
-    block = sanitize_fragment_block(query_block(text, command_aware=False))
+    block = query_display_block(text, width)
 
-    rows = wrap_formatted_lines(list(block.fragments), width=width)
+    rows = split_formatted_lines(list(block.fragments))
     if len(rows) <= limit:
         return block
 

@@ -110,7 +110,10 @@ class TuiDocumentState(object):
     active_transcript_revision: int
     stable_transcript_revision: int
     pending_submission: FragmentBlock | None
+    pending_submission_transcript_block: FragmentBlock | None
     pending_submission_raw_text: str | None
+    pending_submission_display_renderer: WidthBlockRenderer | None
+    pending_submission_display_render_width: int | None
     active_tail: tuple[TranscriptBlock, ...]
     stable_lines: tuple[FormattedText, ...]
     stable_block_end_lines: tuple[int, ...]
@@ -140,8 +143,11 @@ class TuiDocument(object):
         self.active_transcript_revision: int = 0
         self.stable_transcript_revision: int = 0
 
-        self._pending_submission: FragmentBlock | None = None
-        self._pending_submission_raw_text: str | None  = None
+        self._pending_submission: FragmentBlock | None                       = None
+        self._pending_submission_transcript_block: FragmentBlock | None      = None
+        self._pending_submission_raw_text: str | None                        = None
+        self._pending_submission_display_renderer: WidthBlockRenderer | None = None
+        self._pending_submission_display_render_width: int | None            = None
 
         self._active_tail: list[TranscriptBlock] = []
 
@@ -593,26 +599,49 @@ class TuiDocument(object):
         self,
         block: FragmentBlock,
         *,
-        raw_text: str | None = None
+        transcript_block: FragmentBlock | None = None,
+        raw_text: str | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> None:
         """暂存等待命令分派决定展示方式的用户输入。"""
         if self._pending_submission is not None:
             raise RuntimeError("cannot stage multiple TUI submissions")
         self._pending_submission = sanitize_fragment_block(block)
+        self._pending_submission_transcript_block = (
+            sanitize_fragment_block(transcript_block)
+            if transcript_block is not None
+            else None
+        )
         self._pending_submission_raw_text = (
             str(raw_text) if raw_text is not None else None
         )
+        self._pending_submission_display_renderer = display_renderer
+        self._pending_submission_display_render_width = display_render_width
 
     def commit_submission(self) -> FragmentBlock | None:
         """把暂存用户输入提交为稳定正文块。"""
         block    = self._pending_submission
+        transcript_block = self._pending_submission_transcript_block
         raw_text = self._pending_submission_raw_text
+        display_renderer = self._pending_submission_display_renderer
+        display_render_width = self._pending_submission_display_render_width
 
         self._pending_submission          = None
+        self._pending_submission_transcript_block = None
         self._pending_submission_raw_text = None
+        self._pending_submission_display_renderer = None
+        self._pending_submission_display_render_width = None
 
         if block is not None:
-            self.append_block(block, kind="user", raw_text=raw_text)
+            self.append_block(
+                block,
+                kind="user",
+                transcript_block=transcript_block,
+                raw_text=raw_text,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
+            )
         return block
 
     def discard_submission(self) -> bool:
@@ -620,7 +649,10 @@ class TuiDocument(object):
         changed = self._pending_submission is not None
 
         self._pending_submission          = None
+        self._pending_submission_transcript_block = None
         self._pending_submission_raw_text = None
+        self._pending_submission_display_renderer = None
+        self._pending_submission_display_render_width = None
 
         return changed
 
@@ -743,7 +775,10 @@ class TuiDocument(object):
         self._reset_active()
 
         self._pending_submission          = None
+        self._pending_submission_transcript_block = None
         self._pending_submission_raw_text = None
+        self._pending_submission_display_renderer = None
+        self._pending_submission_display_render_width = None
 
         self._active_tail.clear()
 
@@ -925,7 +960,12 @@ class TuiDocument(object):
             active_transcript_revision=self.active_transcript_revision,
             stable_transcript_revision=self.stable_transcript_revision,
             pending_submission=deepcopy(self._pending_submission),
+            pending_submission_transcript_block=deepcopy(
+                self._pending_submission_transcript_block
+            ),
             pending_submission_raw_text=self._pending_submission_raw_text,
+            pending_submission_display_renderer=self._pending_submission_display_renderer,
+            pending_submission_display_render_width=self._pending_submission_display_render_width,
             active_tail=deepcopy(tuple(self._active_tail)),
             stable_lines=deepcopy(tuple(self._stable_lines)),
             stable_block_end_lines=tuple(self._stable_block_end_lines),
@@ -954,7 +994,12 @@ class TuiDocument(object):
         self.stable_transcript_revision = state.stable_transcript_revision
 
         self._pending_submission          = deepcopy(state.pending_submission)
+        self._pending_submission_transcript_block = deepcopy(
+            state.pending_submission_transcript_block
+        )
         self._pending_submission_raw_text = state.pending_submission_raw_text
+        self._pending_submission_display_renderer = state.pending_submission_display_renderer
+        self._pending_submission_display_render_width = state.pending_submission_display_render_width
 
         self._active_tail = deepcopy(list(state.active_tail))
 

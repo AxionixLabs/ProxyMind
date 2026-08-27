@@ -55,6 +55,16 @@ class TuiSubmission(object):
         command = self.editable_text.strip()
         return f"! {command}" if command else "!"
 
+    @property
+    def literal_bang_paste(self) -> bool:
+        """判断普通输入展开后以感叹号开头的粘贴文本。"""
+        return bool(
+            not self.shell_mode
+            and self.paste_store
+            and not self.editable_text.lstrip().startswith("!")
+            and self.value.lstrip().startswith("!")
+        )
+
 
 class TuiQueuedMessages(object):
     """管理执行期间由用户主动排队的可编辑输入。"""
@@ -306,7 +316,7 @@ def _submission_preview_lines(
     """生成一条消息的终端折行预览。"""
     content_width = max(1, int(width) - get_cwidth("  ↳ "))
 
-    text = sanitize_terminal_text(item.visible_text)
+    text = sanitize_terminal_text(item.value or item.visible_text)
 
     wrapped = wrap_formatted_lines(
         [(text_style, text)],

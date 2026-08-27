@@ -8,12 +8,17 @@ from prompt_toolkit.utils import get_cwidth
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.document import TuiDocument
 from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
+from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.render import (
     fragments_text,
     split_formatted_lines
 )
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import query_block
+from mind_app.tui.core.styles import (
+    query_block,
+    query_display_block,
+    query_preview_block,
+)
 
 
 def test_slash_command_uses_codex_command_transcript_style() -> None:
@@ -33,6 +38,87 @@ def test_non_slash_input_keeps_existing_transcript_style() -> None:
         ("class:prompt.kicker", "› "),
         ("class:prompt", "hello"),
     )
+
+
+def test_query_display_prefixes_every_wrapped_physical_line() -> None:
+    block = query_display_block("abcdefghijklmnopqrstuv", 12)
+
+    assert fragments_text(block.fragments) == (
+        "› abcdefghi\n"
+        "  jklmnopqr\n"
+        "  stuv"
+    )
+    assert all(
+        get_cwidth(line) <= 12
+        for line in fragments_text(block.fragments).splitlines()
+    )
+
+
+def test_query_display_preserves_prefixed_blank_logical_lines() -> None:
+    block = query_display_block("a\n\nb", 20)
+
+    assert fragments_text(block.fragments) == "› a\n  \n  b"
+
+
+def test_query_display_drops_trailing_newlines_but_keeps_internal_blanks() -> None:
+    block = query_display_block("a\n\n\n", 20)
+
+    assert fragments_text(block.fragments) == "› a"
+
+
+def test_query_preview_wraps_before_applying_row_limit() -> None:
+    block = query_preview_block(
+        "abcdefghijklmnopqrstuv",
+        12,
+        transcript_key="turn-preview",
+        max_rows=4,
+    )
+
+    assert fragments_text(block.fragments).splitlines() == [
+        "› abcdefghi",
+        "  jklmnopqr",
+        "  stuv",
+    ]
+
+
+@pytest.mark.anyio
+async def test_read_message_uses_expanded_paste_for_query_display() -> None:
+    runtime = TuiRuntime()
+    original = "expanded query content " * 80
+    placeholder = runtime.input_model._display_paste(original, "")
+    runtime.screen.input.buffer.text = placeholder
+
+    runtime.screen.input.buffer.validate_and_handle()
+    value = await runtime.read_message(PromptContext(model="test"))
+
+    assert value == original.strip()
+    cell = runtime.document.blocks[-1]
+    display = fragments_text(cell.display_block.fragments)
+    assert placeholder not in display
+    assert display.startswith("› expanded query content")
+    assert cell.raw_text == original.strip()
+    assert fragments_text(cell.transcript_block.fragments) == (
+        "› " + original.strip()
+    )
+
+
+def test_steer_submission_uses_expanded_paste_for_query_display() -> None:
+    runtime = TuiRuntime()
+    original = "steer content " * 80
+    placeholder = runtime.input_model._display_paste(original, "")
+    submission = TuiSubmission(
+        value=original.strip(),
+        editable_text=placeholder,
+        paste_store={placeholder: original},
+    )
+
+    assert runtime.append_turn_input("turn-steer", submission)
+    cell = runtime.document.blocks[-1]
+    display = fragments_text(cell.display_block.fragments)
+
+    assert placeholder not in display
+    assert display.startswith("› steer content")
+    assert cell.raw_text == original.strip()
 
 
 def test_submitted_query_has_transparent_padding_before_response() -> None:
