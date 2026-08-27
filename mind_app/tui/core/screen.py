@@ -322,6 +322,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             invalidate=self.invalidate,
             get_width=lambda: self.terminal_width,
         )
+        self.user_shell_status = TuiProcessStatus(
+            invalidate=self.invalidate,
+            get_width=lambda: self.terminal_width,
+        )
 
         self.input = TextArea(
             name=INPUT_BUFFER_NAME,
@@ -387,7 +391,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.status_control = FormattedTextControl(self._status_fragments)
 
         self.process_status_control = FormattedTextControl(
-            self.process_status.fragments
+            self._process_status_fragments,
         )
 
         self.queued_control = FormattedTextControl(self._queued_fragments)
@@ -2098,6 +2102,24 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             for line in split_formatted_lines(composed)
         )
 
+    def _process_status_fragments(self) -> FormattedText:
+        """生成后台动画槽位中的模型和手动 Shell 状态。"""
+        lines: list[FormattedText] = []
+
+        if self.activity_block is None:
+            model_fragments = self.process_status.fragments()
+            if model_fragments:
+                lines.append(model_fragments)
+
+        user_shell_fragments = self.user_shell_status.fragments()
+        if user_shell_fragments:
+            lines.append(user_shell_fragments)
+
+        if not lines:
+            return []
+
+        return join_formatted_lines(lines)
+
     def _queued_fragments(self, *, width: int | None = None) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
         pending_active = self.pending_steers.active
@@ -3082,9 +3104,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """计算后台进程状态内容的自然高度。"""
         if self.bottom_pane.transient_active:
             return 0
-        if self.activity_block is not None:
-            return 0
-        return int(self.process_status.active)
+
+        height = int(self.user_shell_status.active)
+        if self.activity_block is None:
+            height += int(self.process_status.active)
+        return height
 
     def _process_status_height(self) -> int:
         """计算后台进程状态区域占用行数。"""

@@ -295,6 +295,7 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "token-menu.hint": "#20262C",
             "token-menu.hint.key": "#68737D dim",
             "approval-question": "bold #005F87",
+            "approval-command-question": "bold",
             "approval-context": "#53606C",
             "approval-field-label": "bold #43505C",
             "approval-field-value": "#53606C",

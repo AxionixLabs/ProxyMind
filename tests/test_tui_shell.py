@@ -443,6 +443,10 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
         "origin": "tui_shell",
         "output_lines": [],
     }
+    async def wait_for_update(*_args, **_kwargs):
+        await asyncio.sleep(0)
+        return {"changed": False}
+
     user_shell = SimpleNamespace(
         start_user_shell_session=AsyncMock(return_value=current),
         running_exec_sessions=AsyncMock(return_value={
@@ -459,7 +463,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
             ],
         }),
         exec_session_output_snapshot=AsyncMock(return_value=current),
-        wait_exec_session_update=AsyncMock(return_value={"changed": False}),
+        wait_exec_session_update=wait_for_update,
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
@@ -476,8 +480,9 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
         assert await run_shell_escape(runtime, mind, "!adb devices")
 
     assert runtime.inline_process_session_id == "exec_second"
-    assert runtime.screen.process_status.label == (
-        "1 background terminal running · /ps to view · /stop to close"
+    assert runtime.screen.process_status.label == ""
+    assert runtime.screen.user_shell_status.label == (
+        "Shell · +1 · /ps to view · /stop to close"
     )
     assert runtime.screen._process_status_height() == 1
 
@@ -783,6 +788,7 @@ async def test_stop_all_stops_immediately_and_cancels_background_watchers() -> N
     runtime = SimpleNamespace(
         cancel_background_session_task=cancelled.append,
         set_process_status_label=status_labels.append,
+        set_user_shell_status_label=lambda _label: None,
         process_completion_snapshots=lambda: (),
         inline_process_session_id="",
         inline_process_session_ids=(),

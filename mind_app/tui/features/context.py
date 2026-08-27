@@ -124,16 +124,76 @@ def exec_status_display_label(
         return ""
 
     count = snapshot.get("count")
+
     total = (
         int(count)
         if isinstance(count, int) and count >= len(items)
         else len(items)
     )
+
     plural = "" if total == 1 else "s"
+
     return (
         f"{total} background terminal{plural} running"
         " · /ps to view · /stop to close"
     )
+
+
+def user_shell_status_display_label(snapshot: typing.Any) -> str:
+    """生成手动 Shell 后台动画使用的简短状态摘要。"""
+    if not isinstance(snapshot, dict):
+        return ""
+
+    raw_items = snapshot.get("items")
+    if not isinstance(raw_items, list):
+        return ""
+
+    items = [item for item in raw_items if isinstance(item, dict)]
+    if not items:
+        return ""
+
+    total  = len(items)
+    suffix = f"+{total}" if total == 1 else f"+{total} more"
+
+    return f"Shell · {suffix} · /ps to view · /stop to close"
+
+
+def split_exec_snapshot_by_origin(
+    snapshot: typing.Any
+) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]:
+    """按用户 Shell 来源拆分后台终端快照。"""
+    current   = dict(snapshot) if isinstance(snapshot, dict) else {}
+    raw_items = current.get("items")
+
+    items = [
+        item
+        for item in raw_items
+        if isinstance(item, dict)
+    ] if isinstance(raw_items, list) else []
+
+    model_items = [
+        item
+        for item in items
+        if str(item.get("origin") or "") != "tui_shell"
+    ]
+    user_shell_items = [
+        item
+        for item in items
+        if str(item.get("origin") or "") == "tui_shell"
+    ]
+
+    def project(selected: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
+        result = dict(current)
+        result.update({
+            "items": selected,
+            "count": len(selected),
+            "background_items": selected,
+            "background_count": len(selected),
+        })
+        return result
+
+    return project(model_items), project(user_shell_items)
+
 
 async def save_primary_pref_field(
     session: ConfigSession,

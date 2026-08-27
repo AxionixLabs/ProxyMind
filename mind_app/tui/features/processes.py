@@ -15,7 +15,11 @@ from mind_app.frontend import (
 )
 from ..core.models import FragmentBlock
 from ..rendering.fragments import clip_text
-from .context import exec_status_display_label
+from .context import (
+    exec_status_display_label,
+    split_exec_snapshot_by_origin,
+    user_shell_status_display_label
+)
 from ..core.status_frames import status_indicator_fragment
 from ..core.styles import (
     BODY_STYLE,
@@ -73,7 +77,11 @@ async def monitor_exec_status(
                     runtime.inline_process_session_id,
                     runtime=runtime,
                 )
-                _set_exec_status(runtime, filtered)
+                model_snapshot, user_shell_snapshot = (
+                    split_exec_snapshot_by_origin(filtered)
+                )
+                _set_exec_status(runtime, model_snapshot)
+                _set_user_shell_status(runtime, user_shell_snapshot)
                 revision = int(snapshot.get("revision") or revision)
             except (OSError, RuntimeError, TypeError, ValueError):
                 revision = -1
@@ -110,6 +118,7 @@ async def monitor_exec_status(
 
     finally:
         runtime.set_process_status_label("")
+        runtime.set_user_shell_status_label("")
 
 
 def _set_exec_status(
@@ -131,17 +140,36 @@ def _set_exec_status(
     ))
 
 
+def _set_user_shell_status(
+    runtime: "ProcessRuntimePort",
+    snapshot: typing.Any,
+    *,
+    excluded_session_id: str = ""
+) -> None:
+    """更新现有后台动画槽位中的手动 Shell 摘要。"""
+    filtered = _without_running_session(
+        snapshot,
+        excluded_session_id,
+        runtime=runtime,
+    )
+
+    runtime.set_user_shell_status_label(
+        user_shell_status_display_label(filtered),
+    )
+
+
 def _without_running_session(
     snapshot: typing.Any,
     session_id: str,
     *,
-    runtime: "ProcessRuntimePort",
+    runtime: "ProcessRuntimePort"
 ) -> dict[str, typing.Any]:
     """返回按来源和当前会话过滤后的后台进程快照。"""
-    current = dict(snapshot) if isinstance(snapshot, dict) else {}
-    excluded = str(session_id or "").strip()
+    current        = dict(snapshot) if isinstance(snapshot, dict) else {}
+    excluded       = str(session_id or "").strip()
     background_ids = frozenset(runtime.background_process_session_ids)
-    inline_ids = frozenset(runtime.inline_process_session_ids)
+    inline_ids     = frozenset(runtime.inline_process_session_ids)
+
     items = [
         item
         for item in _running_items(current)
@@ -153,10 +181,12 @@ def _without_running_session(
             background_ids=background_ids,
         )
     ]
+
     current["items"] = items
     current["count"] = len(items)
     current["background_items"] = items
     current["background_count"] = len(items)
+
     return current
 
 
@@ -164,7 +194,7 @@ def _is_background_session_item(
     item: dict[str, typing.Any],
     *,
     inline_ids: frozenset[str],
-    background_ids: frozenset[str],
+    background_ids: frozenset[str]
 ) -> bool:
     """判断单个会话是否属于当前 TUI 的后台终端投影。"""
     if item.get("background"):
@@ -231,6 +261,7 @@ async def stop_all_exec_sessions(
         runtime.cancel_background_session_task(item.get("session_id"))
 
     runtime.set_process_status_label("")
+    runtime.set_user_shell_status_label("")
 
 
 def render_no_background_terminals(
@@ -529,13 +560,13 @@ async def _watch_user_shell_session(
 
     try:
         running = await execution.running_exec_sessions()
-        _set_exec_status(
+        _set_user_shell_status(
             runtime,
             running,
             excluded_session_id=session_id,
         )
     except (OSError, RuntimeError, TypeError, ValueError):
-        runtime.set_process_status_label("")
+        runtime.set_user_shell_status_label("")
 
     live_block = exec_session_user_shell_block(
         state.get("snapshot"),
