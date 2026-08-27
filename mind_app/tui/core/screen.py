@@ -287,9 +287,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
         self._validate_keymap(keymap)
 
-        self._startup_gate_active: bool        = False
-        self._startup_surface_cleared: bool    = False
-        self._startup_transition_pending: bool = False
+        self._startup_gate_active: bool     = False
+        self._startup_surface_cleared: bool = False
+
+        self._clear_for_viewport_change_pending: bool = False
 
         self._visual_update_depth: int  = 0
         self._visual_update_dirty: bool = False
@@ -1313,8 +1314,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return None
 
         self._startup_gate_active = active
-        self._startup_surface_cleared = False
         if active:
+            self._startup_surface_cleared = False
             self.application.layout.focus(self.startup_menu_control)
         else:
             self._focus_input()
@@ -1327,9 +1328,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._startup_surface_cleared = True
         self.application.renderer.clear()
 
-    def prepare_startup_transition(self) -> None:
-        """请求在下一帧原子清理启动卡片并绘制主画布。"""
-        self._startup_transition_pending = True
+    def clear_for_viewport_change(self) -> None:
+        """请求在启动表面切换后的下一帧清理视口残留。"""
+        if not self._startup_surface_cleared:
+            return None
+        self._clear_for_viewport_change_pending = True
         self.synchronize_next_render()
 
     def refresh_input_layout(self) -> None:
@@ -1725,8 +1728,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
         try:
             self._capture_frame_geometry(application)
-            if self._startup_transition_pending:
-                self._startup_transition_pending = False
+            if self._clear_for_viewport_change_pending:
+                self._clear_for_viewport_change_pending = False
                 self.application.renderer.clear()
             elif (
                 self._startup_gate_active

@@ -2074,7 +2074,7 @@ class TuiRuntime(object):
         if self.screen.menu.active:
             await self.screen.menu.close()
         self.screen.set_startup_gate(False)
-        self.screen.prepare_startup_transition()
+        self.screen.clear_for_viewport_change()
         await self._play_startup_animation()
         self.viewport.refresh_geometry()
 
@@ -2086,7 +2086,7 @@ class TuiRuntime(object):
             await self.screen.menu.close()
         self._settle_startup_presentation()
         self.screen.set_startup_gate(False)
-        self.screen.prepare_startup_transition()
+        self.screen.clear_for_viewport_change()
 
     async def finish_directory_trust(self) -> None:
         """关闭目录信任界面并保留或释放启动输入屏障。"""

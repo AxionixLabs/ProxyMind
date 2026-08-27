@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import replace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -97,6 +97,27 @@ async def test_startup_review_commits_final_intro_without_animation(
         fragments_text(item.display_block.fragments)
         for item in runtime.document.blocks
     ] == [f">_ {const.APP_DESC} (v{const.APP_VERSION})"]
+
+
+@pytest.mark.anyio
+async def test_startup_gate_does_not_clear_without_startup_surface() -> None:
+    with create_pipe_input() as input_obj:
+        runtime = TuiRuntime(input_obj=input_obj, output_obj=DummyOutput())
+        runtime.begin_startup_gate()
+        renderer = runtime.screen.application.renderer
+
+        with patch.object(renderer, "clear", wraps=renderer.clear) as clear:
+            await runtime.open()
+            try:
+                assert clear.call_count == 0
+
+                await runtime.finish_startup_gate()
+                for _ in range(20):
+                    await asyncio.sleep(0)
+
+                assert clear.call_count == 0
+            finally:
+                await runtime.close()
 
 
 @pytest.mark.anyio
