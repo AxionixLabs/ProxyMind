@@ -218,7 +218,7 @@ def approval_prompt(approval: dict[str, typing.Any] | None) -> str:
     if noun == "command":
         return "Would you like to run the following command?"
     if noun == "patch":
-        return "Would you like to apply the following patch?"
+        return "Would you like to make the following edits?"
     return f"Would you like to approve the following {noun}?"
 
 

@@ -477,7 +477,7 @@ def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> N
     assert approval["started_at_ms"] >= 0
     assert approval["patch_scope"] == ["src/app.py"]
     assert approval["available_decisions"] == ["accept", "decline"]
-    assert approval_prompt(approval) == "Would you like to apply the following patch?"
+    assert approval_prompt(approval) == "Would you like to make the following edits?"
     assert approval_decisions(approval) == ["accept", "decline"]
 
 

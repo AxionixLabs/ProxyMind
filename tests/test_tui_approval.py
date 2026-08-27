@@ -17,6 +17,7 @@ from mind_core.design.terminal_capabilities import (
 from mind_app.tui.core.approval_render import (
     TUI_APPROVAL_STYLE,
     approval_command_pager_lines,
+    approval_pager_title,
     tui_approval_content_lines,
 )
 from mind_app.tui.core.runtime import TuiRuntime
@@ -51,6 +52,75 @@ def test_patch_approval_pager_uses_patch_body() -> None:
         "".join(value for _style, value in line)
         for line in lines
     ] == ["*** Begin Patch", "+new line"]
+
+
+def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
+    approval = {
+        "tool": "apply_patch",
+        "call_id": "call-patch",
+        "arguments": {"patch": "*** Begin Patch"},
+        "patch": "*** Begin Patch",
+        "preview": {
+            "delta": {
+                "changes": [{
+                    "path": "src/app.py",
+                    "action": "modify",
+                    "old_content": "old\n",
+                    "new_content": "new\n",
+                    "source_path": None,
+                    "hunks": [{"lines": [
+                        {"kind": "remove", "text": "old", "old_line": 1, "new_line": None},
+                        {"kind": "add", "text": "new", "old_line": None, "new_line": 1},
+                    ]}],
+                }],
+            },
+            "files": [{"path": "src/app.py"}],
+        },
+    }
+
+    assert approval_pager_title(approval) == "P A T C H"
+    lines = approval_command_pager_lines(approval)
+    text = ["".join(value for _style, value in line) for line in lines]
+    assert text == ["• Edited src/app.py (+1 -1)", "    1 -old", "    1 +new"]
+    header_styles = lines[0]
+    assert header_styles[0] == ("dim", "• ")
+    assert header_styles[1] == ("bold", "Edited")
+    assert header_styles[2] == ("", " ")
+    assert header_styles[3] == ("", "src/app.py")
+    assert header_styles[6] == ("fg:ansigreen", "+1")
+    assert header_styles[8] == ("fg:ansired", "-1")
+
+    card_lines = tui_approval_content_lines(
+        ["accept", "decline"],
+        approval=approval,
+        width=80,
+    )
+    summary = next(line for line in card_lines if "Edited" in _line_texts([line])[0])
+    assert summary[0] == ("class:approval-patch-action", "Edited")
+    assert summary[2] == ("class:approval-patch-path", "src/app.py")
+    assert not TUI_APPROVAL_STYLE.get_attrs_for_style_str(
+        "class:approval-patch-path"
+    ).bold
+
+    rich_capabilities = TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.WINDOWS_TERMINAL, "Windows Terminal"),
+        color_level=TerminalColorLevel.TRUECOLOR,
+        theme=TerminalTheme(background=(31, 31, 31)),
+    )
+    rich_lines = approval_command_pager_lines(
+        approval,
+        terminal_capabilities=rich_capabilities,
+    )
+    assert any(
+        "bg:#4A221D" in style
+        for line in rich_lines
+        for style, _value in line
+    )
+    assert any(
+        "bg:#213A2B" in style
+        for line in rich_lines
+        for style, _value in line
+    )
 
 
 def test_approval_content_keeps_question_without_card_title() -> None:

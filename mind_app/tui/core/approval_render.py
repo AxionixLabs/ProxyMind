@@ -5,6 +5,10 @@ import re
 import typing
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import (
     DECISION_SHORTCUT_LABELS,
@@ -17,6 +21,12 @@ from mind_app.stream_events.approval_trace import (
 )
 from mind_app.stream_events.command_preview import command_text
 from mind_app.stream_events.tool_traces.command_parts import render_command_parts
+from mind_app.presentation.patch_views import build_patch_start_view
+from mind_app.presentation.models import (
+    PatchView,
+    StyledBlock
+)
+from mind_app.presentation.renderers.patch import render_patch_view
 from mind_app.presentation.styles import (
     COMMAND_STYLE,
     COMMAND_FLAG_STYLE,
@@ -26,30 +36,35 @@ from mind_app.presentation.styles import (
     COMMAND_PATH_STYLE,
     COMMAND_STRING_STYLE
 )
-from .styles import prompt_style
+from .styles import prompt_style, styled_block_fragments
 from ..rendering.text_sanitize import sanitize_formatted_text
 from ..contracts.text import FormattedLine
 
 TUI_APPROVAL_STYLE = Style.from_dict({
-    "approval-card"              : "",
-    "approval-question"          : "bold #4DE3FF",
-    "approval-context"           : "#7D8A98",
-    "approval-field-label"       : "bold #AAB7C4",
-    "approval-field-value"       : "#AAB7C4",
-    "approval-meta"              : "dim #8896A5",
-    "approval-omitted"           : "dim #8896A5",
-    "approval-footer"            : "dim #8896A5",
-    "approval-option"            : "#8B96A3",
-    "approval-option-selected"   : "bold #5B8DEF",
-    "approval-shortcut"          : "bold #C4CED8",
-    "approval-shortcut-selected" : "bold #C7F7FF",
-    "approval-command"           : prompt_style(COMMAND_STYLE),
-    "approval-command-head"      : prompt_style(COMMAND_HEAD_STYLE),
-    "approval-command-flag"      : prompt_style(COMMAND_FLAG_STYLE),
-    "approval-command-path"      : prompt_style(COMMAND_PATH_STYLE),
-    "approval-command-string"    : prompt_style(COMMAND_STRING_STYLE),
-    "approval-command-number"    : prompt_style(COMMAND_NUMBER_STYLE),
-    "approval-command-operator"  : prompt_style(COMMAND_OPERATOR_STYLE),
+    "approval-card": "",
+    "approval-question": "bold #4DE3FF",
+    "approval-context": "#7D8A98",
+    "approval-field-label": "bold #AAB7C4",
+    "approval-field-value": "#AAB7C4",
+    "approval-meta": "dim #8896A5",
+    "approval-omitted": "dim #8896A5",
+    "approval-footer": "dim #8896A5",
+    "approval-option": "#8B96A3",
+    "approval-option-selected": "bold #5B8DEF",
+    "approval-shortcut": "bold #C4CED8",
+    "approval-shortcut-selected": "bold #C7F7FF",
+    "approval-command": prompt_style(COMMAND_STYLE),
+    "approval-command-head": prompt_style(COMMAND_HEAD_STYLE),
+    "approval-command-flag": prompt_style(COMMAND_FLAG_STYLE),
+    "approval-command-path": prompt_style(COMMAND_PATH_STYLE),
+    "approval-command-string": prompt_style(COMMAND_STRING_STYLE),
+    "approval-command-number": prompt_style(COMMAND_NUMBER_STYLE),
+    "approval-command-operator": prompt_style(COMMAND_OPERATOR_STYLE),
+    "approval-patch-action": "bold",
+    "approval-patch-path": "",
+    "approval-patch-count-add": "ansigreen",
+    "approval-patch-count-remove": "ansired",
+    "approval-patch-context": "",
 })
 
 
@@ -222,7 +237,7 @@ def _approval_command_lines(
     commands = _approval_raw_commands(approval)
     if commands:
         if str(approval.get("tool") or "").strip() == "apply_patch":
-            return _single_patch_lines(commands[0], max_width=max_width)
+            return _patch_approval_card_lines(approval, max_width=max_width)
         return _single_command_lines(commands[0], max_width=max_width)
 
     return _wrap_prefixed_line(
@@ -234,8 +249,16 @@ def _approval_command_lines(
 
 def approval_command_pager_lines(
     approval: dict[str, typing.Any],
+    *,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> tuple[FormattedLine, ...]:
-    """生成审批命令全屏预览所需的完整格式化行。"""
+    """生成审批请求全屏预览所需的完整格式化行。"""
+    if str(approval.get("tool") or "").strip() == "apply_patch":
+        return approval_patch_pager_lines(
+            approval,
+            terminal_capabilities=terminal_capabilities,
+        )
+
     commands = _approval_raw_commands(approval)
     if not commands:
         commands = [approval_summary(approval)]
@@ -248,6 +271,129 @@ def approval_command_pager_lines(
             parts = tuple(_command_parts(raw_line))
             lines.append(parts or (("class:approval-command", ""),))
     return tuple(lines)
+
+
+def approval_pager_title(approval: dict[str, typing.Any]) -> str:
+    """返回审批全屏页面的操作标题。"""
+    return (
+        "P A T C H"
+        if str(approval.get("tool") or "").strip() == "apply_patch"
+        else "E X E C"
+    )
+
+
+def approval_patch_pager_lines(
+    approval: dict[str, typing.Any],
+    *,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
+) -> tuple[FormattedLine, ...]:
+    """生成补丁审批全屏页面的结构化差异行。"""
+    view = _patch_view_from_approval(approval)
+    if view is None or not view.files:
+        return _raw_patch_pager_lines(approval)
+
+    block = render_patch_view(
+        view,
+        terminal_width=None,
+        terminal_capabilities=terminal_capabilities,
+    )
+    lines = _styled_block_lines(block)
+    return lines or _raw_patch_pager_lines(approval)
+
+
+def _patch_approval_card_lines(
+    approval: dict[str, typing.Any],
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成底部审批卡中的补丁文件摘要。"""
+    view = _patch_view_from_approval(approval)
+    if view is None or not view.files:
+        commands = _approval_raw_commands(approval)
+        return _single_patch_lines(commands[0] if commands else "", max_width=max_width)
+
+    lines: list[list[tuple[str, str]]] = []
+    for index, file in enumerate(view.files):
+        path = file.new_path or file.old_path
+        action = {
+            "add": "Added",
+            "delete": "Deleted",
+            "rename": "Renamed",
+        }.get(file.action, "Edited")
+        lines.extend(_wrap_fragment_line(
+            _patch_file_summary_fragments(
+                action,
+                path,
+                added=file.added,
+                removed=file.removed,
+            ),
+            max_width=max_width,
+        ))
+        if index < len(view.files) - 1:
+            lines.append([])
+    return lines
+
+
+def _patch_file_summary_fragments(
+    action: str,
+    path: str,
+    *,
+    added: int,
+    removed: int,
+) -> list[tuple[str, str]]:
+    """生成补丁卡片中的动作、路径和增删统计片段。"""
+    return [
+        ("class:approval-patch-action", action),
+        ("class:approval-patch-context", " "),
+        ("class:approval-patch-path", path),
+        ("class:approval-patch-context", " ("),
+        ("class:approval-patch-count-add", f"+{added}"),
+        ("class:approval-patch-context", " "),
+        ("class:approval-patch-count-remove", f"-{removed}"),
+        ("class:approval-patch-context", ")"),
+    ]
+
+
+def _patch_view_from_approval(approval: dict[str, typing.Any]) -> PatchView | None:
+    """从审批载荷中的 preview 构造结构化补丁视图。"""
+    preview = approval.get("preview")
+    if not isinstance(preview, dict):
+        return None
+    arguments = approval.get("arguments")
+    if not isinstance(arguments, dict):
+        arguments = {"patch": approval.get("patch", "")}
+    try:
+        return build_patch_start_view(
+            arguments,
+            preview_data=preview,
+            call_id=str(approval.get("call_id") or approval.get("id") or "preview"),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _styled_block_lines(block: StyledBlock) -> tuple[FormattedLine, ...]:
+    """把结构化补丁渲染块拆分为静态页面可用的格式化行。"""
+    rows: list[list[tuple[str, str]]] = [[]]
+    for style, text in styled_block_fragments(block):
+        chunks = str(text).split("\n")
+        for index, chunk in enumerate(chunks):
+            if chunk:
+                rows[-1].append((style, chunk))
+            if index < len(chunks) - 1:
+                rows.append([])
+    return tuple(tuple(row) for row in rows)
+
+
+def _raw_patch_pager_lines(
+    approval: dict[str, typing.Any],
+) -> tuple[FormattedLine, ...]:
+    """生成没有结构化预览时的原始补丁页面行。"""
+    patch = approval.get("patch", approval.get("command", ""))
+    return tuple(
+        tuple(_command_parts(raw_line)) or (("class:approval-command", ""),)
+        for raw_line in _command_raw_lines(patch)
+    )
 
 
 def _approval_raw_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:

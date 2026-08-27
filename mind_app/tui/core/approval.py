@@ -11,10 +11,15 @@ from mind_app.approval.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot
 )
+from mind_core.design.terminal_capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
 from mind_app.approval.policy import approval_decisions
 from ..contracts.pager import StaticPagerRequest
 from .approval_render import (
     approval_command_pager_lines,
+    approval_pager_title,
     tui_approval_content_lines,
 )
 
@@ -38,6 +43,7 @@ class TuiApproval(object):
         focus_input: typing.Callable[[], None],
         get_width: typing.Callable[[], int],
         get_max_height: typing.Callable[[], int],
+        terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
         open_static_pager: typing.Callable[[StaticPagerRequest], bool] | None = None,
     ) -> None:
         self.invalidate     = invalidate
@@ -45,12 +51,17 @@ class TuiApproval(object):
         self.focus_input    = focus_input
         self.get_width      = get_width
         self.get_max_height = get_max_height
-        self.open_static_pager = open_static_pager
 
-        self.state: ApprovalState | None               = None
+        self.terminal_capabilities = terminal_capabilities
+        self.open_static_pager     = open_static_pager
+
+        self.state: ApprovalState | None = None
+
         self._default_wait_state: ApprovalState | None = None
-        self.selected_index: int                       = 0
-        self._session_active: bool                     = False
+
+        self.selected_index: int = 0
+
+        self._session_active: bool = False
 
         self._snapshot = ApprovalQueueSnapshot(
             current=None,
@@ -274,8 +285,11 @@ class TuiApproval(object):
             if state is None or self.open_static_pager is None:
                 return None
             self.open_static_pager(StaticPagerRequest(
-                title="E X E C",
-                lines=approval_command_pager_lines(state.approval),
+                title=approval_pager_title(state.approval),
+                lines=approval_command_pager_lines(
+                    state.approval,
+                    terminal_capabilities=self.terminal_capabilities,
+                ),
             ))
 
         @bindings.add("enter")

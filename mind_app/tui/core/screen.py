@@ -419,6 +419,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             focus_input=lambda: self._deactivate_bottom_surface("approval"),
             get_width=lambda: self.terminal_width,
             get_max_height=self._active_view_available_height,
+            terminal_capabilities=terminal_capabilities,
             open_static_pager=self._open_approval_pager,
         )
         self.approval_control = FormattedTextControl(
