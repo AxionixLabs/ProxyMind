@@ -2271,7 +2271,7 @@ class TuiRuntime(object):
             await self.begin_approval_session()
             owns_session = True
         try:
-            return await self.screen.approval.request(dict(request.approval))
+            return await self.screen.approval.request(request.presentation)
         finally:
             if owns_session:
                 await self.end_approval_session()

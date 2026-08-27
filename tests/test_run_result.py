@@ -2288,10 +2288,10 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
 
     assert result.status == "completed"
     request = mind.frontend.interaction.present_approval.await_args.args[0]
-    approval = request.approval
-    assert approval["agent_id"] == "agent_child"
-    assert approval["agent_type"] == "worker"
-    assert approval["agent_depth"] == 1
+    presentation = request.presentation
+    assert presentation.context.agent_id == "agent_child"
+    assert presentation.context.agent_type == "worker"
+    assert presentation.context.agent_depth == 1
     assert approval_posts[0][0][:4] == (
         "cid_test",
         "sid_test",
@@ -3020,12 +3020,9 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
 
     assert result.status == "completed"
     request = mind.frontend.interaction.present_approval.await_args.args[0]
-    approval = request.approval
-    assert approval["arguments"] == {
-        "command": "pytest -q",
-        "cwd": str(Path(".").resolve()),
-    }
-    assert approval["command"] == "pytest -q"
+    presentation = request.presentation
+    assert presentation.commands == ("pytest -q",)
+    assert presentation.context.kind == "exec"
     assert executed == [expected_arguments]
     assert runner.calls[0]["tool_input"] == expected_hook_input
     assert posted[0][0][5] == {"ok": True, "text": "done"}

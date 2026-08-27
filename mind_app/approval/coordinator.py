@@ -16,8 +16,11 @@ from mind_app.approval.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest,
     ApprovalRequestKey,
-    ApprovalRequestKind,
     ApprovalResolutionReason
+)
+from mind_app.approval.presentation import (
+    approval_request_kind,
+    build_approval_presentation
 )
 from mind_app.approval.policy import approval_decisions
 from mind_app.interaction.contracts import ApprovalPresenterPort
@@ -204,16 +207,27 @@ class ApprovalCoordinator:
             self._local_request_sequence += 1
             request_id = f"local-approval-{self._local_request_sequence}"
 
+        kind = approval_request_kind(payload)
+
+        key = ApprovalRequestKey(
+            request_id=request_id,
+            approval_id=approval_id,
+            call_id=call_id,
+            tool=tool,
+            kind=kind,
+        )
+
+        decisions = tuple(approval_decisions(payload))
+
         return ApprovalRequest(
-            key=ApprovalRequestKey(
-                request_id=request_id,
-                approval_id=approval_id,
-                call_id=call_id,
-                tool=tool,
-                kind=self._request_kind(tool),
+            key=key,
+            presentation=build_approval_presentation(
+                payload,
+                key=key,
+                kind=kind,
+                decisions=decisions,
             ),
-            approval=payload,
-            decisions=tuple(approval_decisions(payload)),
+            decisions=decisions,
         )
 
     def _immediate_outcome(
@@ -522,7 +536,7 @@ class ApprovalCoordinator:
         """复制快照中的请求载荷，避免观察者修改内部队列。"""
         return ApprovalRequest(
             key=request.key,
-            approval=copy.deepcopy(request.approval),
+            presentation=copy.deepcopy(request.presentation),
             decisions=request.decisions,
         )
 
@@ -549,24 +563,9 @@ class ApprovalCoordinator:
             task.cancel()
 
     @staticmethod
-    def _request_kind(tool: str) -> ApprovalRequestKind:
-        """按工具名归一化审批展示类别。"""
-        normalized = tool.strip().lower()
-        if normalized in {"shell_command", "exec_command", "write_stdin"}:
-            return "exec"
-        if normalized in {"apply_patch", "patch"}:
-            return "apply_patch"
-        if "permission" in normalized:
-            return "permissions"
-        if normalized.startswith("mcp"):
-            return "mcp"
-        return "tool"
-
-    @staticmethod
     def _text(value: typing.Any) -> str:
         """把可选协议字段规范化为去除首尾空白的文本。"""
         return str(value or "").strip()
-
 
 if __name__ == '__main__':
     pass

@@ -27,7 +27,7 @@ class ControlledInteraction(object):
         self.snapshots.append(snapshot)
 
     async def present_approval(self, request):
-        request_id = request.approval["id"]
+        request_id = request.key.approval_id or request.key.request_id
         self.calls.append(request_id)
         self.started.setdefault(request_id, asyncio.Event()).set()
         future = self.decisions.setdefault(
@@ -128,7 +128,7 @@ async def test_duplicate_identity_shares_one_decision_future() -> None:
 async def test_presenter_cannot_mutate_authoritative_request() -> None:
     class MutatingInteraction(ControlledInteraction):
         async def present_approval(self, request):
-            request.approval["command"] = "echo mutated"
+            assert request.presentation.context.kind == "exec"
             return await super().present_approval(request)
 
     interaction = MutatingInteraction()

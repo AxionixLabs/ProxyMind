@@ -11,23 +11,26 @@ from mind_app.approval.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot
 )
+from mind_app.approval.presentation import (
+    ApprovalPresentation,
+    ensure_approval_presentation
+)
 from mind_core.design.terminal_capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from mind_app.approval.policy import approval_decisions
 from ..contracts.pager import StaticPagerRequest
 from .approval_render import (
     approval_command_pager_lines,
     approval_pager_title,
-    tui_approval_content_lines,
+    tui_approval_content_lines
 )
 
 
 @dataclass(slots=True)
 class ApprovalState(object):
     """保存审批表面当前展示的单条请求。"""
-    approval: dict[str, typing.Any]
+    presentation: ApprovalPresentation
     decisions: list[ApprovalDecisionValue]
     future: asyncio.Future[ApprovalDecisionValue]
 
@@ -100,13 +103,14 @@ class TuiApproval(object):
 
     async def request(
         self,
-        approval: dict[str, typing.Any],
+        presentation: ApprovalPresentation | dict[str, typing.Any],
     ) -> ApprovalDecisionValue:
         """展示一条审批并等待当前用户动作。"""
+        presentation = ensure_approval_presentation(presentation)
         owns_session = not self._session_active
         if owns_session:
             self.begin_session()
-        state = self._present(approval)
+        state = self._present(presentation)
 
         try:
             return await state.future
@@ -119,11 +123,15 @@ class TuiApproval(object):
             if owns_session:
                 await self.end_session()
 
-    def begin(self, approval: dict[str, typing.Any]) -> bool:
+    def begin(
+        self,
+        presentation: ApprovalPresentation | dict[str, typing.Any]
+    ) -> bool:
         """建立单条审批状态，供控件级调用方分步等待。"""
+        presentation = ensure_approval_presentation(presentation)
         if not self._session_active:
             self.begin_session()
-        state = self._present(approval)
+        state = self._present(presentation)
         self._default_wait_state = state
         return state is not None
 
@@ -191,7 +199,7 @@ class TuiApproval(object):
 
         lines = tui_approval_content_lines(
             state.decisions,
-            approval=state.approval,
+            approval=state.presentation,
             pending_count=self.pending_count,
             selected_index=self.selected_index,
             width=max(1, self.get_width() - 4),
@@ -241,14 +249,14 @@ class TuiApproval(object):
 
     def _present(
         self,
-        approval: dict[str, typing.Any],
+        presentation: ApprovalPresentation,
     ) -> ApprovalState:
         """建立当前单条展示状态。"""
         if self.state is not None:
             raise RuntimeError("cannot present multiple TUI approvals")
         state = ApprovalState(
-            approval=dict(approval),
-            decisions=approval_decisions(approval),
+            presentation=presentation,
+            decisions=list(presentation.context.decisions),
             future=asyncio.get_running_loop().create_future(),
         )
         self.state = state
@@ -285,9 +293,9 @@ class TuiApproval(object):
             if state is None or self.open_static_pager is None:
                 return None
             self.open_static_pager(StaticPagerRequest(
-                title=approval_pager_title(state.approval),
+                title=approval_pager_title(state.presentation),
                 lines=approval_command_pager_lines(
-                    state.approval,
+                    state.presentation,
                     terminal_capabilities=self.terminal_capabilities,
                 ),
             ))

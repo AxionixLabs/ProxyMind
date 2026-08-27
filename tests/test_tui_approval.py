@@ -858,7 +858,7 @@ async def test_approval_queue_advances_fifo_without_restoring_input() -> None:
     await _wait_for_pending_count(approval, 1)
 
     assert approval.state is not None
-    assert approval.state.approval["id"] == "first"
+    assert approval.state.presentation.context.approval_id == "first"
     assert approval.pending_count == 1
     assert runtime.screen.bottom_pane.active_surface == "approval"
     assert "1 approval waiting" in "".join(
@@ -870,7 +870,7 @@ async def test_approval_queue_advances_fifo_without_restoring_input() -> None:
     assert await first == "accept"
     await _wait_for_presented_approval(approval, "second")
     assert approval.state is not None
-    assert approval.state.approval["id"] == "second"
+    assert approval.state.presentation.context.approval_id == "second"
     assert approval.pending_count == 0
     assert runtime.screen.bottom_pane.active_surface == "approval"
 
@@ -962,7 +962,7 @@ async def test_cancelling_current_approval_advances_to_pending_request() -> None
 
     await _wait_for_presented_approval(approval, "second")
     assert approval.state is not None
-    assert approval.state.approval["id"] == "second"
+    assert approval.state.presentation.context.approval_id == "second"
     assert approval.pending_count == 0
     assert runtime.screen.bottom_pane.active_surface == "approval"
 
@@ -995,7 +995,7 @@ async def test_cancelling_pending_approval_keeps_current_request() -> None:
         await second
 
     assert approval.state is not None
-    assert approval.state.approval["id"] == "first"
+    assert approval.state.presentation.context.approval_id == "first"
     assert approval.pending_count == 0
 
     approval.finish("decline")
@@ -1040,7 +1040,7 @@ async def test_queued_approval_is_presented_after_current_resolution() -> None:
 async def _wait_for_presented_approval(approval, approval_id: str) -> None:
     for _ in range(40):
         state = approval.state
-        if state is not None and state.approval.get("id") == approval_id:
+        if state is not None and state.presentation.context.approval_id == approval_id:
             return None
         await asyncio.sleep(0)
     raise AssertionError(f"approval was not presented: {approval_id}")

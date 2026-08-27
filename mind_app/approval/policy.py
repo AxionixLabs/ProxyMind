@@ -199,11 +199,13 @@ def _approval_prompt_noun(approval: dict[str, typing.Any]) -> str:
 
 def approval_decision_label(
     decision: str,
-    approval: dict[str, typing.Any] | None = None
+    approval: dict[str, typing.Any] | None = None,
+    *,
+    amendment: ExecPolicyAmendmentProposal | None = None
 ) -> str:
     """返回客户端定义的审批选项展示文案。"""
     if decision == "acceptWithExecpolicyAmendment":
-        amendment = approval_execpolicy_amendment(approval)
+        amendment = amendment or approval_execpolicy_amendment(approval)
         if amendment is not None:
             return (
                 "Yes, and don't ask again for commands that start with "

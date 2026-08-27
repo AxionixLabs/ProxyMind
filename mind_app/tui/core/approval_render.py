@@ -10,20 +10,20 @@ from mind_core.design.terminal_capabilities import (
     TerminalCapabilities
 )
 from mind_app.approval.models import ApprovalDecisionValue
+from mind_app.approval.presentation import (
+    ApplyPatchApprovalPresentation,
+    ApprovalCommand,
+    ApprovalPresentation,
+    ExecApprovalPresentation,
+    ToolApprovalPresentation,
+    ensure_approval_presentation,
+)
 from mind_app.approval.policy import (
     DECISION_SHORTCUT_LABELS,
     approval_decision_label,
-    approval_prompt
 )
-from mind_app.stream_events.approval_trace import (
-    approval_shell_commands,
-    approval_summary
-)
-from mind_app.stream_events.command_preview import command_text
 from mind_app.stream_events.tool_traces.command_parts import render_command_parts
-from mind_app.presentation.patch_views import build_patch_start_view
 from mind_app.presentation.models import (
-    PatchView,
     StyledBlock
 )
 from mind_app.presentation.renderers.patch import render_patch_view
@@ -71,17 +71,18 @@ TUI_APPROVAL_STYLE = Style.from_dict({
 def tui_approval_content_lines(
     decisions: list[ApprovalDecisionValue],
     *,
-    approval: dict[str, typing.Any],
+    approval: ApprovalPresentation | dict[str, typing.Any],
     pending_count: int = 0,
     selected_index: int = 0,
     width: int | None = None,
     max_height: int | None = None,
 ) -> list[list[tuple[str, str]]]:
     """按当前可用空间生成审批面板内容行。"""
+    approval = ensure_approval_presentation(approval)
     content_width = max(1, int(width or 80))
 
     question_lines = _wrap_fragment_line(
-        [("class:approval-question", approval_prompt(approval))],
+        [("class:approval-question", approval.context.prompt)],
         max_width=content_width,
     )
 
@@ -91,7 +92,7 @@ def tui_approval_content_lines(
     ):
         question_lines = [*question_lines, source_line]
 
-    command_lines = _approval_command_lines(
+    command_lines = _approval_operation_lines(
         approval,
         max_width=content_width,
     )
@@ -105,7 +106,7 @@ def tui_approval_content_lines(
             max_width=content_width,
         ))
 
-    justification = str(approval.get("justification") or "").strip()
+    justification = approval.context.justification
     if justification:
         detail_groups.append(_approval_field_lines(
             "Reason",
@@ -144,14 +145,9 @@ def tui_approval_content_lines(
     )
 
 
-def _approval_environment(approval: dict[str, typing.Any]) -> str:
+def _approval_environment(approval: ApprovalPresentation) -> str:
     """生成审批执行环境的展示名称。"""
-    value = str(
-        approval.get("environment")
-        or approval.get("environment_id")
-        or ""
-    ).strip()
-    return value.replace("_", " ")
+    return approval.context.environment
 
 
 def _approval_field_lines(
@@ -169,16 +165,16 @@ def _approval_field_lines(
 
 
 def _approval_agent_source_line(
-    approval: dict[str, typing.Any],
+    approval: ApprovalPresentation,
     *,
     max_width: int,
 ) -> list[tuple[str, str]]:
     """生成子执行线程审批请求的可信来源行。"""
-    agent_id = str(approval.get("agent_id") or "").strip()
+    agent_id = approval.context.agent_id
     if not agent_id:
         return []
 
-    agent_type = str(approval.get("agent_type") or "agent").strip() or "agent"
+    agent_type = approval.context.agent_type
     return _clip_fragment_line(
         sanitize_formatted_text([(
             "class:approval-meta",
@@ -191,7 +187,7 @@ def _approval_agent_source_line(
 def _approval_option_groups(
     decisions: list[ApprovalDecisionValue],
     *,
-    approval: dict[str, typing.Any],
+    approval: ApprovalPresentation,
     selected_index: int,
     max_width: int,
 ) -> list[list[list[tuple[str, str]]]]:
@@ -228,40 +224,74 @@ def _approval_option_groups(
     return groups
 
 
-def _approval_command_lines(
-    approval: dict[str, typing.Any],
+def _approval_operation_lines(
+    approval: ApprovalPresentation,
     *,
     max_width: int,
 ) -> list[list[tuple[str, str]]]:
-    """生成审批命令区域。"""
-    commands = _approval_raw_commands(approval)
-    if commands:
-        if str(approval.get("tool") or "").strip() == "apply_patch":
-            return _patch_approval_card_lines(approval, max_width=max_width)
-        return _single_command_lines(commands[0], max_width=max_width)
+    """按审批展示类型生成卡片操作区域。"""
+    if isinstance(approval, ApplyPatchApprovalPresentation):
+        return _patch_approval_card_lines(approval, max_width=max_width)
+    if isinstance(approval, ExecApprovalPresentation):
+        return _exec_approval_card_lines(approval, max_width=max_width)
+    return _tool_approval_card_lines(approval, max_width=max_width)
 
+
+def _exec_approval_card_lines(
+    approval: ExecApprovalPresentation,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成命令类审批卡片中的操作行。"""
+    if approval.commands:
+        return _single_command_lines(approval.commands[0], max_width=max_width)
+    return _approval_summary_lines(approval.summary, max_width=max_width)
+
+
+def _tool_approval_card_lines(
+    approval: ToolApprovalPresentation,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成未细分工具审批卡片中的操作行。"""
+    if approval.operations:
+        return _single_command_lines(approval.operations[0], max_width=max_width)
+    return _approval_summary_lines(approval.summary, max_width=max_width)
+
+
+def _approval_summary_lines(
+    summary: str,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成没有具体操作内容时的审批摘要。"""
     return _wrap_prefixed_line(
         ("class:approval-context", "$ "),
-        _command_parts(approval_summary(approval)),
+        _command_parts(summary),
         max_width=max_width,
     )
 
 
 def approval_command_pager_lines(
-    approval: dict[str, typing.Any],
+    approval: ApprovalPresentation | dict[str, typing.Any],
     *,
     terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> tuple[FormattedLine, ...]:
     """生成审批请求全屏预览所需的完整格式化行。"""
-    if str(approval.get("tool") or "").strip() == "apply_patch":
+    approval = ensure_approval_presentation(approval)
+    if isinstance(approval, ApplyPatchApprovalPresentation):
         return approval_patch_pager_lines(
             approval,
             terminal_capabilities=terminal_capabilities,
         )
 
-    commands = _approval_raw_commands(approval)
+    commands = (
+        approval.commands
+        if isinstance(approval, ExecApprovalPresentation)
+        else approval.operations
+    )
     if not commands:
-        commands = [approval_summary(approval)]
+        commands = (approval.summary,)
 
     lines: list[FormattedLine] = []
     for command_index, command in enumerate(commands):
@@ -273,22 +303,29 @@ def approval_command_pager_lines(
     return tuple(lines)
 
 
-def approval_pager_title(approval: dict[str, typing.Any]) -> str:
+def approval_pager_title(
+    approval: ApprovalPresentation | dict[str, typing.Any],
+) -> str:
     """返回审批全屏页面的操作标题。"""
+    approval = ensure_approval_presentation(approval)
     return (
         "P A T C H"
-        if str(approval.get("tool") or "").strip() == "apply_patch"
+        if isinstance(approval, ApplyPatchApprovalPresentation)
         else "E X E C"
     )
 
 
 def approval_patch_pager_lines(
-    approval: dict[str, typing.Any],
+    approval: ApplyPatchApprovalPresentation | dict[str, typing.Any],
     *,
     terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> tuple[FormattedLine, ...]:
     """生成补丁审批全屏页面的结构化差异行。"""
-    view = _patch_view_from_approval(approval)
+    presentation = ensure_approval_presentation(approval)
+    if not isinstance(presentation, ApplyPatchApprovalPresentation):
+        raise TypeError("patch pager requires an apply_patch approval")
+    approval = presentation
+    view = approval.patch_view
     if view is None or not view.files:
         return _raw_patch_pager_lines(approval)
 
@@ -302,15 +339,14 @@ def approval_patch_pager_lines(
 
 
 def _patch_approval_card_lines(
-    approval: dict[str, typing.Any],
+    approval: ApplyPatchApprovalPresentation,
     *,
     max_width: int,
 ) -> list[list[tuple[str, str]]]:
     """生成底部审批卡中的补丁文件摘要。"""
-    view = _patch_view_from_approval(approval)
+    view = approval.patch_view
     if view is None or not view.files:
-        commands = _approval_raw_commands(approval)
-        return _single_patch_lines(commands[0] if commands else "", max_width=max_width)
+        return _single_patch_lines(approval.patch, max_width=max_width)
 
     lines: list[list[tuple[str, str]]] = []
     for index, file in enumerate(view.files):
@@ -354,24 +390,6 @@ def _patch_file_summary_fragments(
     ]
 
 
-def _patch_view_from_approval(approval: dict[str, typing.Any]) -> PatchView | None:
-    """从审批载荷中的 preview 构造结构化补丁视图。"""
-    preview = approval.get("preview")
-    if not isinstance(preview, dict):
-        return None
-    arguments = approval.get("arguments")
-    if not isinstance(arguments, dict):
-        arguments = {"patch": approval.get("patch", "")}
-    try:
-        return build_patch_start_view(
-            arguments,
-            preview_data=preview,
-            call_id=str(approval.get("call_id") or approval.get("id") or "preview"),
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
 def _styled_block_lines(block: StyledBlock) -> tuple[FormattedLine, ...]:
     """把结构化补丁渲染块拆分为静态页面可用的格式化行。"""
     rows: list[list[tuple[str, str]]] = [[]]
@@ -386,32 +404,13 @@ def _styled_block_lines(block: StyledBlock) -> tuple[FormattedLine, ...]:
 
 
 def _raw_patch_pager_lines(
-    approval: dict[str, typing.Any],
+    approval: ApplyPatchApprovalPresentation,
 ) -> tuple[FormattedLine, ...]:
     """生成没有结构化预览时的原始补丁页面行。"""
-    patch = approval.get("patch", approval.get("command", ""))
     return tuple(
         tuple(_command_parts(raw_line)) or (("class:approval-command", ""),)
-        for raw_line in _command_raw_lines(patch)
+        for raw_line in _command_raw_lines(approval.patch)
     )
-
-
-def _approval_raw_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
-    """读取审批请求中的命令原文。"""
-    if str(approval.get("tool") or "").strip() not in {
-        "shell_command",
-        "exec_command",
-    }:
-        fallback = approval.get("patch")
-        if fallback in (None, ""):
-            fallback = approval.get("command", approval.get("resolved_command"))
-
-        if isinstance(fallback, list):
-            return [fallback]
-        text = str(fallback or "").strip()
-        return [text] if text else []
-
-    return approval_shell_commands(approval)
 
 
 def _single_patch_lines(
@@ -456,11 +455,10 @@ def _single_command_lines(
 
 def _command_raw_lines(command: typing.Any) -> list[str]:
     """保留命令预览中的原始换行。"""
-    text = (
-        command_text(command)
-        if isinstance(command, list)
-        else str(command or "").strip()
-    )
+    if isinstance(command, (list, tuple)):
+        text = " ".join(str(item) for item in command)
+    else:
+        text = str(command or "").strip()
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     while lines and not lines[-1]:
         lines.pop()
@@ -957,12 +955,17 @@ def _trim_trailing_space(
 def _decision_parts(
     decision: str,
     *,
-    approval: dict[str, typing.Any],
+    approval: ApprovalPresentation,
     label_style: str,
     shortcut_style: str,
 ) -> list[tuple[str, str]]:
     """生成审批选项标签和快捷键片段。"""
-    label    = approval_decision_label(decision, approval)
+    amendment = (
+        approval.amendment
+        if isinstance(approval, ExecApprovalPresentation)
+        else None
+    )
+    label    = approval_decision_label(decision, amendment=amendment)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
     parts    = [(label_style, label)]
 

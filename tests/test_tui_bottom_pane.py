@@ -332,7 +332,7 @@ async def _wait_for_approval(
 ) -> None:
     for _ in range(40):
         state = runtime.screen.approval.state
-        if state is not None and state.approval.get("id") == approval_id:
+        if state is not None and state.presentation.context.approval_id == approval_id:
             return None
         await asyncio.sleep(0)
     raise AssertionError(f"approval was not presented: {approval_id}")

@@ -1776,7 +1776,7 @@ def test_tiny_window_uses_neutral_fallback_without_warning() -> None:
 async def _wait_for_approval(runtime: TuiRuntime, approval_id: str) -> None:
     for _ in range(100):
         state = runtime.screen.approval.state
-        if state is not None and state.approval.get("id") == approval_id:
+        if state is not None and state.presentation.context.approval_id == approval_id:
             return None
         await asyncio.sleep(0)
     raise AssertionError(f"approval was not shown: {approval_id}")

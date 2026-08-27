@@ -1,0 +1,314 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
+import typing
+from dataclasses import dataclass
+from mind_app.presentation.models import PatchView
+from mind_app.presentation.patch_views import build_patch_start_view
+from mind_app.stream_events.approval_trace import (
+    approval_shell_commands,
+    approval_summary
+)
+
+from .models import (
+    ApprovalDecisionValue,
+    ApprovalRequestKey,
+    ApprovalRequestKind,
+    ExecPolicyAmendmentProposal
+)
+from .policy import (
+    approval_decisions,
+    approval_execpolicy_amendment,
+    approval_prompt
+)
+
+ApprovalCommand: typing.TypeAlias = str | tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalPresentationContext(object):
+    """保存所有审批展示类型共享的身份和文案。"""
+    request_id: str
+    approval_id: str
+    call_id: str
+    kind: ApprovalRequestKind
+    tool: str
+    prompt: str
+    decisions: tuple[ApprovalDecisionValue, ...]
+    environment: str = ""
+    justification: str = ""
+    agent_id: str = ""
+    agent_type: str = ""
+    agent_depth: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExecApprovalPresentation(object):
+    """保存命令类审批的展示数据。"""
+    context: ApprovalPresentationContext
+    commands: tuple[ApprovalCommand, ...]
+    summary: str
+    amendment: ExecPolicyAmendmentProposal | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyPatchApprovalPresentation(object):
+    """保存补丁审批的展示数据。"""
+    context: ApprovalPresentationContext
+    patch: str
+    summary: str
+    patch_view: PatchView | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolApprovalPresentation(object):
+    """保存尚未细分动作的工具审批展示数据。"""
+    context: ApprovalPresentationContext
+    operations: tuple[ApprovalCommand, ...]
+    summary: str
+
+
+ApprovalPresentation: typing.TypeAlias = (
+    ExecApprovalPresentation
+    | ApplyPatchApprovalPresentation
+    | ToolApprovalPresentation
+)
+
+
+def ensure_approval_presentation(
+    value: ApprovalPresentation | dict[str, typing.Any]
+) -> ApprovalPresentation:
+    """在展示边界把原始载荷转换为按类型区分的请求。"""
+    if isinstance(
+        value,
+        (
+            ExecApprovalPresentation,
+            ApplyPatchApprovalPresentation,
+            ToolApprovalPresentation,
+        ),
+    ):
+        return value
+    if isinstance(value, dict):
+        return build_approval_presentation(value)
+    raise TypeError("approval presentation must be a typed request or object")
+
+
+def build_approval_presentation(
+    payload: dict[str, typing.Any],
+    *,
+    key: ApprovalRequestKey | None = None,
+    kind: ApprovalRequestKind | None = None,
+    decisions: tuple[ApprovalDecisionValue, ...] | None = None
+) -> ApprovalPresentation:
+    """把原始审批载荷一次转换为按动作区分的不可变展示对象。"""
+    normalized    = dict(payload)
+    resolved_kind = kind or approval_request_kind(normalized)
+    resolved_key  = key or _request_key(normalized, resolved_kind)
+
+    resolved_decisions = tuple(
+        decisions
+        if decisions is not None
+        else approval_decisions(normalized)
+    )
+
+    context = _presentation_context(
+        normalized,
+        key=resolved_key,
+        kind=resolved_kind,
+        decisions=resolved_decisions,
+    )
+    summary = approval_summary(normalized)
+
+    if resolved_kind == "exec":
+        return ExecApprovalPresentation(
+            context=context,
+            commands=_command_values(normalized),
+            summary=summary,
+            amendment=approval_execpolicy_amendment(normalized),
+        )
+
+    if resolved_kind == "apply_patch":
+        patch, patch_view = _patch_values(normalized, context=context)
+        return ApplyPatchApprovalPresentation(
+            context=context,
+            patch=patch,
+            summary=summary,
+            patch_view=patch_view,
+        )
+
+    return ToolApprovalPresentation(
+        context=context,
+        operations=_tool_operation_values(normalized),
+        summary=summary,
+    )
+
+
+def approval_request_kind(payload: dict[str, typing.Any]) -> ApprovalRequestKind:
+    """按显式 kind 和工具名归一化审批展示类别。"""
+    raw_kind = _text(payload.get("kind")).lower()
+    if raw_kind in {"exec", "execve", "command", "write_stdin"}:
+        return "exec"
+    if raw_kind in {"apply_patch", "patch", "file_change"}:
+        return "apply_patch"
+    if raw_kind in {"permissions", "permission", "request_permissions"}:
+        return "permissions"
+    if raw_kind in {"mcp", "mcp_elicitation", "mcp_tool_call"}:
+        return "mcp"
+
+    tool = _text(payload.get("tool")).lower()
+    if tool in {"shell_command", "exec_command", "write_stdin"}:
+        return "exec"
+    if tool in {"apply_patch", "patch"}:
+        return "apply_patch"
+    if "permission" in tool:
+        return "permissions"
+    if tool.startswith("mcp"):
+        return "mcp"
+    return "tool"
+
+
+def _presentation_context(
+    payload: dict[str, typing.Any],
+    *,
+    key: ApprovalRequestKey,
+    kind: ApprovalRequestKind,
+    decisions: tuple[ApprovalDecisionValue, ...],
+) -> ApprovalPresentationContext:
+    """构造展示类型共享的字段。"""
+    environment = _text(
+        payload.get("environment")
+        or payload.get("environment_id")
+    ).replace("_", " ")
+
+    justification = _text(payload.get("justification"))
+    agent_depth   = payload.get("agent_depth")
+
+    if isinstance(agent_depth, bool) or not isinstance(agent_depth, int):
+        agent_depth = None
+
+    return ApprovalPresentationContext(
+        request_id=key.request_id,
+        approval_id=key.approval_id,
+        call_id=key.call_id,
+        kind=kind,
+        tool=key.tool,
+        prompt=_presentation_prompt(payload, kind),
+        decisions=decisions,
+        environment=environment,
+        justification=justification,
+        agent_id=_text(payload.get("agent_id")),
+        agent_type=_text(payload.get("agent_type")) or "agent",
+        agent_depth=agent_depth,
+    )
+
+
+def _presentation_prompt(
+    payload: dict[str, typing.Any],
+    kind: ApprovalRequestKind,
+) -> str:
+    """按规范化动作类别生成审批标题。"""
+    if kind == "exec":
+        return "Would you like to run the following command?"
+    if kind == "apply_patch":
+        return "Would you like to make the following edits?"
+    if kind == "permissions":
+        return "Would you like to grant these permissions?"
+    return approval_prompt(payload)
+
+
+def _request_key(
+    payload: dict[str, typing.Any],
+    kind: ApprovalRequestKind,
+) -> ApprovalRequestKey:
+    """从独立载荷构造展示测试所需的稳定身份。"""
+    approval_id = _text(payload.get("approval_id") or payload.get("id"))
+    call_id     = _text(payload.get("call_id"))
+
+    request_id = _text(
+        payload.get("request_id")
+        or payload.get("requestId")
+        or approval_id
+        or call_id
+    )
+
+    tool = _text(payload.get("tool")) or "shell_command"
+
+    return ApprovalRequestKey(
+        request_id=request_id,
+        approval_id=approval_id,
+        call_id=call_id,
+        tool=tool,
+        kind=kind,
+    )
+
+
+def _command_values(
+    payload: dict[str, typing.Any],
+) -> tuple[ApprovalCommand, ...]:
+    """读取命令审批中的 shell 操作并转换为不可变值。"""
+    return tuple(_command_value(value) for value in approval_shell_commands(payload))
+
+
+def _tool_operation_values(
+    payload: dict[str, typing.Any],
+) -> tuple[ApprovalCommand, ...]:
+    """读取未细分工具审批中的操作并转换为不可变值。"""
+    tool = _text(payload.get("tool")).lower()
+    if tool in {"shell_command", "exec_command", "write_stdin"}:
+        return _command_values(payload)
+
+    fallback = payload.get("patch")
+    if fallback in (None, ""):
+        fallback = payload.get("command", payload.get("resolved_command"))
+    if fallback in (None, ""):
+        return ()
+    return (_command_value(fallback),)
+
+
+def _patch_values(
+    payload: dict[str, typing.Any],
+    *,
+    context: ApprovalPresentationContext
+) -> tuple[str, PatchView | None]:
+    """读取补丁正文并在有结构化预览时构造补丁视图。"""
+    arguments      = payload.get("arguments")
+    arguments_dict = dict(arguments) if isinstance(arguments, dict) else {}
+    raw_patch      = payload.get("patch", arguments_dict.get("patch", ""))
+    patch          = _command_text(raw_patch)
+
+    preview = payload.get("preview")
+    if not isinstance(preview, dict):
+        return patch, None
+
+    try:
+        view = build_patch_start_view(
+            arguments_dict or {"patch": patch},
+            preview_data=preview,
+            call_id=context.call_id or context.approval_id or "preview",
+        )
+    except (KeyError, TypeError, ValueError):
+        view = None
+    return patch, view
+
+
+def _command_value(value: typing.Any) -> ApprovalCommand:
+    """把单项操作转换为字符串或不可变参数元组。"""
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item) for item in value)
+    return str(value or "").strip()
+
+
+def _command_text(value: typing.Any) -> str:
+    """把操作值转换为补丁正文文本。"""
+    if isinstance(value, (list, tuple)):
+        return " ".join(str(item) for item in value)
+    return str(value or "").strip()
+
+
+def _text(value: typing.Any) -> str:
+    """把可选字段转换为去除首尾空白的文本。"""
+    return str(value or "").strip()
+
+
+if __name__ == '__main__':
+    pass

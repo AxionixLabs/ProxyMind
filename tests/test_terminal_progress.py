@@ -214,7 +214,7 @@ async def test_tui_approval_batch_switches_terminal_progress_once() -> None:
     }))
     for _ in range(40):
         state = runtime.screen.approval.state
-        if state is not None and state.approval.get("id") == "first":
+        if state is not None and state.presentation.context.approval_id == "first":
             break
         await asyncio.sleep(0)
     else:
@@ -224,7 +224,7 @@ async def test_tui_approval_batch_switches_terminal_progress_once() -> None:
     assert await first == "accept"
     for _ in range(40):
         state = runtime.screen.approval.state
-        if state is not None and state.approval.get("id") == "second":
+        if state is not None and state.presentation.context.approval_id == "second":
             break
         await asyncio.sleep(0)
     else:

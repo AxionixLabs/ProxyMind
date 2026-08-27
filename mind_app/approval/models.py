@@ -6,6 +6,9 @@ import typing
 from dataclasses import dataclass
 from mind_nova.tool_approval import ToolApprovalDecision
 
+if typing.TYPE_CHECKING:
+    from .presentation import ApprovalPresentation
+
 ApprovalDecisionValue: typing.TypeAlias = ToolApprovalDecision
 
 ApprovalDecisionSource = typing.Literal[
@@ -49,7 +52,7 @@ class ApprovalRequestKey(object):
 class ApprovalRequest(object):
     """保存应用层审批队列使用的规范化请求。"""
     key: ApprovalRequestKey
-    approval: dict[str, typing.Any]
+    presentation: "ApprovalPresentation"
     decisions: tuple[ApprovalDecisionValue, ...]
 
 
