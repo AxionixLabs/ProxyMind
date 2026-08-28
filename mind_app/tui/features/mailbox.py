@@ -304,7 +304,7 @@ class TuiMailboxFeature(object):
 
     def bind_listener(self) -> None:
         """绑定当前监听器，并将内存消息同步到 TUI 快照。"""
-        listener = getattr(self.controller, "subscription_runtime", None)
+        listener = self.controller.subscription.current
         if listener is self._listener:
             self._refresh()
             return None

@@ -85,7 +85,7 @@ def _feature(
     views = []
     runtime = TuiRuntime()
     controller = SimpleNamespace(
-        subscription_runtime=listener,
+        subscription=SimpleNamespace(current=listener),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -351,7 +351,7 @@ async def test_mailbox_auto_binds_listener_started_after_tui() -> None:
     feature.set_auto_run(True)
     listener = _Listener(_request("1", "first"))
 
-    feature.controller.subscription_runtime = listener
+    feature.controller.subscription.current = listener
     feature.bind_listener()
 
     assert await runtime.submissions.read_submission() == MailboxRunRequest(

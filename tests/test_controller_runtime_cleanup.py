@@ -73,7 +73,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     async def step(name):
         timeline.append(name)
 
-    controller.stop_subscription_listener = lambda: step("subscription")
+    controller.subscription = SimpleNamespace(
+        close=lambda: step("subscription"),
+    )
     controller.cancel_service_runtime_startup = (
         lambda: step("service_startup")
     )

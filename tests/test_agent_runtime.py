@@ -14,6 +14,7 @@ from mind_app.subscription.models import (
     AgentSessionRuntime,
 )
 from mind_app.subscription.runtime import AgentRuntime
+from mind_app.subscription.lifecycle import SubscriptionRuntimeOwner
 from mind_app.subscription.loop import AgentSupervisor
 
 
@@ -497,9 +498,7 @@ async def test_agent_runtime_interrupted_message_is_not_left_running() -> None:
 
 
 @pytest.mark.anyio
-async def test_controller_pauses_then_reuses_and_releases_subscription_listener(
-    monkeypatch,
-) -> None:
+async def test_subscription_owner_pauses_reuses_and_releases_listener() -> None:
     listener = SimpleNamespace(
         start_background=Mock(),
         bind_inbox_changed=Mock(),
@@ -507,30 +506,29 @@ async def test_controller_pauses_then_reuses_and_releases_subscription_listener(
         shutdown=AsyncMock(),
     )
     factory = Mock(return_value=listener)
-    monkeypatch.setattr(
-        "mind_app.subscription.runtime.AgentRuntime",
-        factory,
-    )
     controller = object.__new__(Mind)
-    controller.subscription_runtime = None
+    subscription = SubscriptionRuntimeOwner(
+        controller,
+        runtime_factory=factory,
+    )
 
-    first = controller.start_subscription_listener()
-    second = controller.start_subscription_listener()
+    first = subscription.start()
+    second = subscription.start()
 
     assert first is second is listener
     factory.assert_called_once_with(controller)
     assert listener.start_background.call_count == 2
 
-    await controller.pause_subscription_listener()
+    await subscription.pause()
 
-    assert controller.subscription_runtime is listener
+    assert subscription.current is listener
     listener.stop.assert_awaited_once_with()
     listener.bind_inbox_changed.assert_not_called()
 
-    assert controller.start_subscription_listener() is listener
+    assert subscription.start() is listener
 
-    await controller.stop_subscription_listener()
+    await subscription.close()
 
-    assert controller.subscription_runtime is None
+    assert subscription.current is None
     listener.bind_inbox_changed.assert_called_once_with(None)
     listener.shutdown.assert_awaited_once_with()

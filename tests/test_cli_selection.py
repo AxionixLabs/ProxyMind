@@ -637,7 +637,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         recent_conversation_sessions=Mock(return_value=[record]),
         resume_conversation=resume_conversation,
         attach=SimpleNamespace(add_pending_attachments=attachments),
-        stop_subscription_listener=AsyncMock(),
+        subscription=SimpleNamespace(close=AsyncMock()),
         task_event=asyncio.Event(),
         permissions=preset_permissions("auto"),
     )
@@ -693,7 +693,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         initial_images=("screen.png",),
         initial_model="review-model",
     )
-    mind.stop_subscription_listener.assert_awaited_once_with()
+    mind.subscription.close.assert_awaited_once_with()
     assert events == ["load", "resume", "replace", "run"]
 
 
@@ -811,11 +811,14 @@ async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
 async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
     listener = object()
     run_tui_loop = AsyncMock()
+    subscription = SimpleNamespace(
+        start=Mock(return_value=listener),
+        close=AsyncMock(),
+    )
     mind = SimpleNamespace(
         attach=SimpleNamespace(add_pending_attachments=Mock()),
         permissions=preset_permissions("auto"),
-        start_subscription_listener=Mock(return_value=listener),
-        stop_subscription_listener=AsyncMock(),
+        subscription=subscription,
     )
     monkeypatch.setattr(
         "mind_app.tui.session.loop.run_tui_loop",
@@ -825,22 +828,25 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
     result = await run_selected_command(mind, AgentListenCommand())
 
     assert result is None
-    mind.start_subscription_listener.assert_called_once_with()
+    subscription.start.assert_called_once_with()
     run_tui_loop.assert_awaited_once_with(
         mind,
         initial_prompt=None,
         initial_images=(),
         initial_model=None,
     )
-    mind.stop_subscription_listener.assert_awaited_once_with()
+    subscription.close.assert_awaited_once_with()
 
 
 @pytest.mark.anyio
 async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
+    subscription = SimpleNamespace(
+        start=Mock(),
+        close=AsyncMock(),
+    )
     mind = SimpleNamespace(
         permissions=preset_permissions("auto"),
-        start_subscription_listener=Mock(),
-        stop_subscription_listener=AsyncMock(),
+        subscription=subscription,
     )
     monkeypatch.setattr(
         "mind_app.tui.session.loop.run_tui_loop",
@@ -850,7 +856,7 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="TUI failed"):
         await run_selected_command(mind, AgentListenCommand())
 
-    mind.stop_subscription_listener.assert_awaited_once_with()
+    subscription.close.assert_awaited_once_with()
 
 
 @pytest.mark.anyio

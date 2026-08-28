@@ -151,7 +151,7 @@ async def run_selected_command(
 
 async def _run_agent_listener_session(mind: "Mind") -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
-    mind.start_subscription_listener()
+    mind.subscription.start()
     await _run_tui_session(
         mind,
         prompt=None,
@@ -181,7 +181,7 @@ async def _run_tui_session(
             initial_model=model,
         )
     finally:
-        await mind.stop_subscription_listener()
+        await mind.subscription.close()
 
 
 async def _select_resume_session(

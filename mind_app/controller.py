@@ -57,6 +57,7 @@ from .approval.coordinator import ApprovalCoordinator
 from .approval.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from .runtime.subagents.graph import AgentGraphStore
+from .subscription.lifecycle import SubscriptionRuntimeOwner
 from .frontend.contracts import (
     ActivityStatusKind,
     Frontend
@@ -98,7 +99,6 @@ def _normalize_tool_profile(value: str) -> ToolFilterMode:
 
 if typing.TYPE_CHECKING:
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
-    from .subscription.runtime import AgentRuntime
     from server import ConfigServiceRuntime
 
 
@@ -224,7 +224,7 @@ class Mind(object):
 
         self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
 
-        self.subscription_runtime: AgentRuntime | None = None
+        self.subscription = SubscriptionRuntimeOwner(self)
 
         self.client_tools: ClientToolRegistry = self._build_client_tools()
         self.builtin_tools: BuiltinToolRegistry = self._build_builtin_tools()
@@ -653,17 +653,6 @@ class Mind(object):
         )
         self.keepalive_task.add_done_callback(self.keepalive_task_done)
         observe("keepalive.started")
-
-    def start_subscription_listener(self) -> "AgentRuntime":
-        """启动或复用当前进程的远端请求监听器。"""
-        from .subscription.runtime import AgentRuntime
-
-        runtime = self.subscription_runtime
-        if runtime is None:
-            runtime = AgentRuntime(self)
-            self.subscription_runtime = runtime
-        runtime.start_background()
-        return runtime
 
     def hook_scope(
         self,
@@ -1117,20 +1106,6 @@ class Mind(object):
         await config_service.stop()
         observe("config_service.stopped")
 
-    async def pause_subscription_listener(self) -> None:
-        """停止远端请求传输并保留当前进程的收件箱。"""
-        runtime = self.subscription_runtime
-        if runtime is not None:
-            await runtime.stop()
-
-    async def stop_subscription_listener(self) -> None:
-        """停止并释放当前进程的远端请求监听器。"""
-        runtime = self.subscription_runtime
-        self.subscription_runtime = None
-        if runtime is not None:
-            runtime.bind_inbox_changed(None)
-            await runtime.shutdown()
-
     async def refresh_pref_if_stale(
         self,
         *,
@@ -1223,7 +1198,7 @@ class Mind(object):
         """关闭主控制器持有的运行时资源，并按退出策略处理本地后台进程。"""
         observe("runtime.close.start")
         try:
-            await self.stop_subscription_listener()
+            await self.subscription.close()
             await self.cancel_service_runtime_startup()
 
             await self.subagents.shutdown()

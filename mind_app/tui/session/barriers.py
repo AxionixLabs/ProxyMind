@@ -182,7 +182,7 @@ class TuiForegroundTasks(object):
             "Listener",
             lambda: run_listener_action(self.mind, action),
             cancel_cleanup=(
-                self.mind.pause_subscription_listener
+                self.mind.subscription.pause
                 if action == "start"
                 else None
             ),

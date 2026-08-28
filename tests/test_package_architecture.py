@@ -71,7 +71,7 @@ def test_packaged_backend_is_self_contained() -> None:
     )
 
 
-def test_controller_does_not_expose_turn_use_case_facades() -> None:
+def test_controller_does_not_expose_runtime_facades() -> None:
     controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
     tree = ast.parse(
         controller_path.read_text(encoding="utf-8-sig"),
@@ -88,7 +88,14 @@ def test_controller_does_not_expose_turn_use_case_facades() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
 
-    assert not {"calling", "run_turn_lifecycle", "stream_turn"} & methods
+    assert not {
+        "calling",
+        "pause_subscription_listener",
+        "run_turn_lifecycle",
+        "start_subscription_listener",
+        "stop_subscription_listener",
+        "stream_turn",
+    } & methods
     assert not (
         PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
     ).exists()

@@ -87,7 +87,11 @@ class _OperationController(object):
             runtime=runtime,
             application=SimpleNamespace(emit=sink._emit_active),
         )
-        self.subscription_runtime = listener
+        self.subscription = SimpleNamespace(
+            current=listener,
+            start=self._start_subscription,
+            pause=self._pause_subscription,
+        )
         self.animate = True
         self.pause_started = asyncio.Event()
         self.pause_release = asyncio.Event()
@@ -96,15 +100,15 @@ class _OperationController(object):
     def await_cleanup(awaitable):
         return awaitable
 
-    def start_subscription_listener(self) -> _OperationListener:
-        self.subscription_runtime.running = True
-        return self.subscription_runtime
+    def _start_subscription(self) -> _OperationListener:
+        self.subscription.current.running = True
+        return self.subscription.current
 
-    async def pause_subscription_listener(self) -> None:
+    async def _pause_subscription(self) -> None:
         self.pause_started.set()
         await self.pause_release.wait()
-        self.subscription_runtime.running = False
-        self.subscription_runtime.ready = False
+        self.subscription.current.running = False
+        self.subscription.current.ready = False
 
 
 def _request(
@@ -141,7 +145,9 @@ def _text(parts) -> str:
 def test_listener_messages_update_existing_footer_without_adding_height() -> None:
     runtime = TuiRuntime()
     listener = _Listener(_request("1", "inspect workspace", summary="Inspect"))
-    controller = SimpleNamespace(subscription_runtime=listener)
+    controller = SimpleNamespace(
+        subscription=SimpleNamespace(current=listener),
+    )
 
     initial_height = runtime.screen._footer_height()
     TuiMailboxFeature(runtime, controller).bind_listener()
@@ -266,7 +272,9 @@ async def test_listener_menu_uses_command_description(
 ) -> None:
     runtime = SimpleNamespace(select_menu=AsyncMock(return_value="start"))
     listener = _OperationListener(running=running, ready=ready)
-    controller = SimpleNamespace(subscription_runtime=listener)
+    controller = SimpleNamespace(
+        subscription=SimpleNamespace(current=listener),
+    )
 
     selected = await choose_listener_action(runtime, controller)
 
@@ -364,7 +372,7 @@ def test_listener_status_uses_query_layout_instead_of_stop_result_style(
         for index in range(pending):
             listener.inbox.add(_request(str(index), f"message {index}"))
     controller = SimpleNamespace(
-        subscription_runtime=listener,
+        subscription=SimpleNamespace(current=listener),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),

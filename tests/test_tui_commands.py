@@ -1384,6 +1384,7 @@ async def test_dispatcher_routes_listener_status_to_stable_output(
 
     runtime = SimpleNamespace()
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
         ),
@@ -1421,6 +1422,7 @@ async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
 
     runtime = TuiRuntime()
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
         ),
@@ -1520,6 +1522,7 @@ async def test_dispatcher_runs_listener_transition_as_foreground_task(
         wait=AsyncMock(),
     )
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
         ),

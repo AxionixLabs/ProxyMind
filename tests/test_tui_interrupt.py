@@ -119,6 +119,7 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
     task_event = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         frontend=SimpleNamespace(
             runtime=runtime,

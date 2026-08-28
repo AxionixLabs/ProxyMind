@@ -60,6 +60,7 @@ async def test_effort_command_updates_footer_context_immediately(
         },
     }
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
         pref=SimpleNamespace(to_config=lambda: stale_config),

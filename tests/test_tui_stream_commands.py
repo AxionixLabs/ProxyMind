@@ -295,6 +295,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     pref_config = {"primary": {"model": "test-model"}}
 
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
@@ -390,6 +391,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
     pref_config = {"primary": {"model": "test-model"}}
 
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=initial_permissions,
         task_event=task_event,
         stop_runtime_on_exit=False,
@@ -479,6 +481,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
     turn_messages = []
 
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
@@ -561,6 +564,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     link_cancelled = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
@@ -646,6 +650,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     model_started = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,
@@ -730,6 +735,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
 
     cancel_startup = AsyncMock(side_effect=cancel_service_runtime_startup)
     mind = SimpleNamespace(
+        subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
         stop_runtime_on_exit=False,

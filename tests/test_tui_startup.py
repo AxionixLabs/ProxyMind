@@ -82,6 +82,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
     class MindStub(object):
         task_event = asyncio.Event()
+        subscription = SimpleNamespace(current=None)
         permissions = preset_permissions("auto")
         pref = SimpleNamespace(to_config=lambda: {
             "primary": {"model": "test-model"},

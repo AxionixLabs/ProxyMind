@@ -98,11 +98,11 @@ def render_listener_result(
 
 def render_listener_status(controller: "Mind") -> None:
     """把当前监听器状态作为命令查询结果写入稳定正文。"""
-    listener = getattr(controller, "subscription_runtime", None)
+    listener = controller.subscription.current
     running  = listener is not None and listener.is_running()
     ready    = listener is not None and listener.is_ready()
     pending  = listener.inbox.pending_count() if listener is not None else 0
-    state = "listening" if ready else "connecting" if running else "stopped"
+    state    = "listening" if ready else "connecting" if running else "stopped"
 
     block = fragment_block(
         TextSpan("/listen status", COMMAND_STYLE),
@@ -206,7 +206,7 @@ async def choose_listener_action(
     controller: "Mind"
 ) -> ListenerOperation | None:
     """在主 TUI 中选择监听器启动或停止操作。"""
-    listener = getattr(controller, "subscription_runtime", None)
+    listener = controller.subscription.current
 
     selected = await runtime.select_menu(MenuRequest(
         title="Update Listener",
@@ -229,19 +229,19 @@ async def run_listener_action(
     action: ListenerOperation
 ) -> ListenerOutcome:
     """执行监听器启动或停止操作，并返回稳定结果状态。"""
-    listener = getattr(controller, "subscription_runtime", None)
+    listener = controller.subscription.current
 
     if action == "start":
         if listener is not None and listener.is_ready():
             return "already_ready"
 
         await _begin_listener_activity(controller, "Listener starting")
-        listener = controller.start_subscription_listener()
+        listener = controller.subscription.start()
         try:
             await listener.wait_until_ready()
         except TimeoutError:
             await controller.await_cleanup(
-                controller.pause_subscription_listener()
+                controller.subscription.pause()
             )
             raise
 
@@ -251,7 +251,7 @@ async def run_listener_action(
         return "already_stopped"
 
     await _begin_listener_activity(controller, "Listener stopping")
-    await controller.pause_subscription_listener()
+    await controller.subscription.pause()
 
     return "stopped"
 
