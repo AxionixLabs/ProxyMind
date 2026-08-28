@@ -519,6 +519,7 @@ async def _run_controller(
         output_mode == "tui"
         and isinstance(command, (InteractiveCommand, ResumeCommand))
     )
+    config_service = None
 
     try:
         controller.service_runtime.bind(server, service_context)
@@ -553,7 +554,14 @@ async def _run_controller(
                 _emit_helix_skipped(controller)
 
         if output_mode == "tui":
-            await controller.start_config_service()
+            from server import ConfigServiceRuntime
+
+            config_service = ConfigServiceRuntime(
+                config_session,
+                log_level=const.SHOW_LEVEL,
+            )
+            await config_service.start()
+            observe("config_service.started")
 
         runtime_workspace_root = await fetch_runtime_workspace_root()
         if runtime_workspace_root is not None:
@@ -672,7 +680,12 @@ async def _run_controller(
                 completed=completed,
             )
         finally:
-            report.close()
+            try:
+                if config_service is not None:
+                    await config_service.stop()
+                    observe("config_service.stopped")
+            finally:
+                report.close()
 
 
 async def start_tui_external_mcp(controller: Mind) -> None:

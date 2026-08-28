@@ -521,19 +521,23 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
             SimpleNamespace(hooks=()),
         )[1]),
         service_runtime=SimpleNamespace(bind=Mock()),
-        start_config_service=AsyncMock(),
         external_mcp=SimpleNamespace(current=None),
         is_service_mcp_linked=lambda: False,
         set_history_workspace=Mock(),
         exit_code=0,
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
+    config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
 
     def build_controller(*_args, **kwargs):
         controller_arguments.update(kwargs)
         return controller
 
     monkeypatch.setattr(bootstrap, "Mind", build_controller)
+    monkeypatch.setattr(
+        "server.ConfigServiceRuntime",
+        lambda *_args, **_kwargs: config_service,
+    )
     monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
     monkeypatch.setattr(
@@ -619,7 +623,6 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         frontend=frontend,
         history_workspace=str(tmp_path),
         service_runtime=SimpleNamespace(bind=Mock()),
-        start_config_service=AsyncMock(),
         external_mcp=SimpleNamespace(current=None),
         is_service_mcp_linked=lambda: False,
         set_history_workspace=Mock(),
@@ -627,6 +630,11 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
     )
 
     monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
+    config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+    monkeypatch.setattr(
+        "server.ConfigServiceRuntime",
+        lambda *_args, **_kwargs: config_service,
+    )
     monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
     monkeypatch.setattr(

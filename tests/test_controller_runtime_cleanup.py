@@ -99,7 +99,6 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.external_mcp = SimpleNamespace(
         close=lambda: step("external_mcp"),
     )
-    controller.stop_config_service = lambda: step("config_service")
 
     await Mind.close_runtime_resources(controller)
 
@@ -112,7 +111,6 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "event_reporting",
         "native_coding",
         "external_mcp",
-        "config_service",
         "service_runtime",
     ]
 

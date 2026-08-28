@@ -95,10 +95,6 @@ def _normalize_tool_profile(value: str) -> ToolFilterMode:
     return value
 
 
-if typing.TYPE_CHECKING:
-    from server import ConfigServiceRuntime
-
-
 class Mind(object):
     """维护共享状态，并暴露稳定的应用接口。"""
 
@@ -208,8 +204,6 @@ class Mind(object):
         self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
-
-        self.config_service: ConfigServiceRuntime | None = None
 
         self.external_mcp = ExternalMcpRuntimeOwner(self)
         self.service_runtime = ServiceRuntimeOwner()
@@ -988,29 +982,6 @@ class Mind(object):
         """把指定 archived 会话迁移回 active 集合。"""
         return self.history_store.unarchive_session(cid=cid, sid=sid)
 
-    async def start_config_service(self) -> None:
-        """启动应用生命周期内的配置服务。"""
-        if self.config_service is None:
-            from server import ConfigServiceRuntime
-
-            self.config_service = ConfigServiceRuntime(
-                self.config_session,
-                log_level=self.level,
-            )
-        await self.config_service.start()
-        observe("config_service.started")
-
-    async def stop_config_service(self) -> None:
-        """停止应用生命周期内的配置服务。"""
-        config_service = self.config_service
-        self.config_service = None
-
-        if config_service is None:
-            return None
-
-        await config_service.stop()
-        observe("config_service.stopped")
-
     async def refresh_pref_if_stale(
         self,
         *,
@@ -1069,7 +1040,6 @@ class Mind(object):
                 await asyncio.gather(*close_tasks, return_exceptions=True)
 
             await self.external_mcp.close()
-            await self.stop_config_service()
             await self.service_runtime.close()
         except BaseException as error:
             observe_exception("runtime.close.failed", error)

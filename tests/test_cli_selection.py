@@ -916,7 +916,16 @@ def test_each_cli_command_resolves_its_output_mode(
 
 
 @pytest.mark.anyio
-async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    "start_error",
+    [None, RuntimeError("config service failed")],
+    ids=["ready", "start-failed"],
+)
+async def test_agent_listen_owns_config_service_lifecycle(
+    monkeypatch,
+    tmp_path,
+    start_error,
+) -> None:
     tui_runtime = TuiRuntime()
     tui_runtime.open = AsyncMock()
     frontend = SimpleNamespace(
@@ -926,15 +935,24 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     controller = SimpleNamespace(
         frontend=frontend,
         service_runtime=SimpleNamespace(bind=Mock()),
-        start_config_service=AsyncMock(),
         external_mcp=SimpleNamespace(current=None),
         is_service_mcp_linked=lambda: False,
         set_history_workspace=Mock(),
         exit_code=0,
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
+    config_session = SimpleNamespace()
+    config_service = SimpleNamespace(
+        start=AsyncMock(side_effect=start_error),
+        stop=AsyncMock(),
+    )
+    config_service_factory = Mock(return_value=config_service)
 
     monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
+    monkeypatch.setattr(
+        "server.ConfigServiceRuntime",
+        config_service_factory,
+    )
     server_calls = []
     monkeypatch.setattr(
         bootstrap,
@@ -969,7 +987,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     )
     report = SimpleNamespace(close=Mock())
 
-    await bootstrap._run_controller(
+    operation = bootstrap._run_controller(
         AgentListenCommand(helix_profile="api"),
         frontend=frontend,
         design=None,
@@ -977,7 +995,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         home=tmp_path,
         reports=tmp_path,
         preference=preference,
-        config_session=SimpleNamespace(),
+        config_session=config_session,
         report=report,
         runtime_spec=SimpleNamespace(
             launch_command=[],
@@ -989,8 +1007,22 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         permissions=preset_permissions("auto"),
     )
 
-    controller.start_config_service.assert_awaited_once_with()
-    confirm_helix.assert_awaited_once_with(controller)
+    if start_error is None:
+        await operation
+    else:
+        with pytest.raises(RuntimeError, match="config service failed"):
+            await operation
+
+    config_service_factory.assert_called_once_with(
+        config_session,
+        log_level=const.SHOW_LEVEL,
+    )
+    config_service.start.assert_awaited_once_with()
+    config_service.stop.assert_awaited_once_with()
+    if start_error is None:
+        confirm_helix.assert_awaited_once_with(controller)
+    else:
+        confirm_helix.assert_not_awaited()
     assert server_calls == [
         (([],), {"env": {}, "cwd": str(tmp_path)}),
     ]
