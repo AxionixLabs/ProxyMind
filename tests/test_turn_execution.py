@@ -21,7 +21,6 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope,
 )
 from mind_app.runtime.support.conversation import ConversationTurn
-from mind_app.runtime.turns import executor as turn_executor
 from mind_app.runtime.turns import root as root_turns
 from mind_app.runtime.turns.executor import (
     TurnExecution,
@@ -29,6 +28,7 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
     resolve_turn_hook_scope,
 )
+from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
 from mind_app.history.transcript import (
     ConversationTranscriptStore,
     TranscriptReader,
@@ -49,8 +49,9 @@ class _Report(object):
 
 
 class _ExecutionController(object):
-    def __init__(self) -> None:
+    def __init__(self, *, event_reporting=None) -> None:
         self.sessions = []
+        self.event_reporting = event_reporting
 
     async def with_mcp_session(self, pref_config, function):
         self.sessions.append(pref_config)
@@ -76,6 +77,17 @@ class _ReportPool(object):
 
     async def close_session(self, cid, sid, *, drain=True) -> None:
         self.closed.append((cid, sid, drain))
+
+
+def _event_reporting(
+    report: _Report,
+    *,
+    pool: _ReportPool | None = None,
+) -> EventReportRuntimeOwner:
+    return EventReportRuntimeOwner(
+        pool=pool,
+        report_factory=lambda _cid, _sid: report,
+    )
 
 
 def _empty_hook_scope(context: TurnContext) -> HookExecutionScope:
@@ -447,15 +459,14 @@ async def test_concurrent_turn_executions_keep_contexts_isolated() -> None:
 
 
 @pytest.mark.anyio
-async def test_execute_turn_opens_and_closes_owned_report(monkeypatch) -> None:
+async def test_execute_turn_opens_and_closes_owned_report() -> None:
     report = _Report()
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
 
     async def operation(*_args):
         return RunResult(status="completed")
 
     result = await execute_turn(
-        _ExecutionController(),
+        _ExecutionController(event_reporting=_event_reporting(report)),
         {},
         _child_execution(),
         operation,
@@ -467,11 +478,12 @@ async def test_execute_turn_opens_and_closes_owned_report(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_execute_turn_reuses_controller_report_without_turn_close() -> None:
-    mind = _ExecutionController()
+async def test_execute_turn_reuses_session_report_without_turn_close() -> None:
     report = _Report()
     pool = _ReportPool(report)
-    mind.event_reports = pool
+    mind = _ExecutionController(
+        event_reporting=_event_reporting(report, pool=pool)
+    )
 
     async def operation(*_args):
         return RunResult(status="completed")
@@ -491,10 +503,11 @@ async def test_execute_turn_reuses_controller_report_without_turn_close() -> Non
 
 @pytest.mark.anyio
 async def test_execute_turn_discards_pooled_report_after_cancellation() -> None:
-    mind = _ExecutionController()
     report = _Report()
     pool = _ReportPool(report)
-    mind.event_reports = pool
+    mind = _ExecutionController(
+        event_reporting=_event_reporting(report, pool=pool)
+    )
 
     async def operation(*_args):
         raise asyncio.CancelledError()
@@ -507,12 +520,12 @@ async def test_execute_turn_discards_pooled_report_after_cancellation() -> None:
 
 
 @pytest.mark.anyio
-async def test_execute_turn_keeps_child_reports_turn_scoped(monkeypatch) -> None:
-    mind = _ExecutionController()
+async def test_execute_turn_keeps_child_reports_turn_scoped() -> None:
     report = _Report()
     pool = _ReportPool(_Report())
-    mind.event_reports = pool
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+    mind = _ExecutionController(
+        event_reporting=_event_reporting(report, pool=pool)
+    )
 
     async def operation(*_args):
         return RunResult(status="completed")
@@ -533,19 +546,17 @@ async def test_execute_turn_keeps_child_reports_turn_scoped(monkeypatch) -> None
     ],
 )
 async def test_execute_turn_closes_owned_report_for_failure_and_cancellation(
-    monkeypatch,
     failure,
     expected_drain,
 ) -> None:
     report = _Report()
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
 
     async def operation(*_args):
         raise failure
 
     with pytest.raises(type(failure)):
         await execute_turn(
-            _ExecutionController(),
+            _ExecutionController(event_reporting=_event_reporting(report)),
             {},
             _child_execution(),
             operation,

@@ -20,6 +20,10 @@ from mind_nova.events import EventReport
 from mind_nova.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
 from mind_app.runtime.execution import TurnContext
+from mind_app.runtime.turns.event_reporting import (
+    EventReportLifetime,
+    TurnEventReportHandle,
+)
 from mind_app.runtime.tools.mode_policy import (
     ToolFilterMode,
     filter_mode_tools
@@ -356,24 +360,20 @@ async def execute_turn(
 
     report = event_report
 
-    report_pool       = None
-    owns_event_report = False
+    report_handle: TurnEventReportHandle | None = None
 
     if report is None:
-        if context.agent.depth == 0:
-            report_pool = getattr(mind, "event_reports", None)
-        if report_pool is not None:
-            report = await report_pool.acquire(
-                context.cid,
-                context.sid,
-            )
-        else:
-            report = EventReport(
-                context.cid,
-                context.sid,
-            )
-            owns_event_report = True
-            await report.open()
+        lifetime = (
+            EventReportLifetime.SESSION
+            if context.agent.depth == 0
+            else EventReportLifetime.TURN
+        )
+        report_handle = await mind.event_reporting.acquire(
+            context.cid,
+            context.sid,
+            lifetime=lifetime,
+        )
+        report = report_handle.report
     assert report is not None
 
     operation_started = asyncio.Event()
@@ -437,14 +437,10 @@ async def execute_turn(
         )
         return result
     finally:
-        if owns_event_report:
-            await mind.await_cleanup(report.close(drain=not interrupted))
-        elif interrupted and report_pool is not None:
-            await mind.await_cleanup(report_pool.close_session(
-                context.cid,
-                context.sid,
-                drain=False,
-            ))
+        if report_handle is not None:
+            await mind.await_cleanup(
+                report_handle.release(interrupted=interrupted)
+            )
 
 
 def _record_session_setup_failure(

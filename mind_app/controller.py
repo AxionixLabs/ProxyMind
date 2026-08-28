@@ -26,7 +26,6 @@ from mind_core.hooks import (
     SessionEndReason
 )
 from mind_nova.identifiers import short_uid
-from mind_nova.events import EventReportPool
 from .reporting import RunReport
 from engine.observability import (
     observe,
@@ -35,6 +34,7 @@ from engine.observability import (
 from .attach import Attach
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
+from .runtime.turns.event_reporting import EventReportRuntimeOwner
 from .runtime.support.conversation import (
     ConversationState,
     ConversationTurn
@@ -156,8 +156,8 @@ class Mind(object):
         self.transcripts: ConversationTranscriptStore = (
             kwargs.get("transcript_store") or ConversationTranscriptStore()
         )
-        self.event_reports: EventReportPool = (
-            kwargs.get("event_report_pool") or EventReportPool()
+        self.event_reporting = EventReportRuntimeOwner(
+            pool=kwargs.get("event_report_pool"),
         )
 
         self._conversation_lifecycle_id: int = 0
@@ -991,7 +991,7 @@ class Mind(object):
             last_assistant_message=self.last_assistant_reply_snapshot(),
             before_dispatch=record_session_end,
         )
-        await self.event_reports.close_session(cid, sid)
+        await self.event_reporting.close_session(cid, sid)
 
     async def archive_conversation(self) -> dict[str, typing.Any]:
         """将当前根会话迁移到 archived 集合并结束其生命周期。"""
@@ -1172,7 +1172,7 @@ class Mind(object):
                 await approval_coordinator.close()
             self.command_hook_sessions.clear()
             await self.hook_registry.close()
-            await self.event_reports.close()
+            await self.event_reporting.close()
 
             with contextlib.suppress(Exception):
                 await self.native_coding.close()

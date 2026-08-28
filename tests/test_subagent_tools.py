@@ -16,6 +16,7 @@ from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
+from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
@@ -36,6 +37,9 @@ class _Controller:
         self.messages = []
         self.stream_handler = None
         self.config_session = SimpleNamespace(load=lambda: {})
+        self.event_reporting = EventReportRuntimeOwner(
+            report_factory=lambda _cid, _sid: _EventReport(),
+        )
 
     def hook_scope(self, context):
         return HookExecutionScope.empty(context)
@@ -56,6 +60,14 @@ class _Controller:
     @staticmethod
     async def await_cleanup(awaitable) -> None:
         await awaitable
+
+
+class _EventReport:
+    async def open(self) -> None:
+        return None
+
+    async def close(self, *, drain: bool = True) -> None:
+        return None
 
 
 def _root_turn() -> TurnContext:

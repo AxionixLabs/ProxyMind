@@ -24,6 +24,7 @@ from mind_app.runtime.subagents.control import (
 from mind_app.runtime.subagents.delivery import AgentMessageReceipt
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
+from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
 from mind_app.runtime.subagents.graph import AgentGraphStore
 from mind_app.runtime.subagents.mailbox import (
     AgentMailboxStore,
@@ -55,6 +56,9 @@ class _Controller:
         self.config_session = SimpleNamespace(load=lambda: {
             "skills": {"enabled": ["__test_none__"], "disabled": []},
         })
+        self.event_reporting = EventReportRuntimeOwner(
+            report_factory=lambda _cid, _sid: _EventReport(),
+        )
 
     def hook_scope(self, context):
         return HookExecutionScope.empty(context)
@@ -75,6 +79,14 @@ class _Controller:
     @staticmethod
     async def await_cleanup(awaitable) -> None:
         await awaitable
+
+
+class _EventReport:
+    async def open(self) -> None:
+        return None
+
+    async def close(self, *, drain: bool = True) -> None:
+        return None
 
 
 class _Delivery:

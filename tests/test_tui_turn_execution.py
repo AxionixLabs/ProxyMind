@@ -9,7 +9,7 @@ from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.support.conversation import ConversationTurn
-from mind_app.runtime.turns import executor as turn_executor
+from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
 from mind_app.tui.session import turn as tui_turn
 from mind_app.tui.session.turn import run_tui_model_turn
 from mind_core.permissions import preset_permissions
@@ -28,6 +28,27 @@ class _Report:
     async def close(self, *, drain: bool = True) -> None:
         self.events.append("report.close")
         self.closed.append(drain)
+
+
+class _ReportPool:
+    def __init__(self, report: _Report) -> None:
+        self.report = report
+
+    async def acquire(self, _cid: str, _sid: str) -> _Report:
+        await self.report.open()
+        return self.report
+
+    async def close_session(
+        self,
+        _cid: str,
+        _sid: str,
+        *,
+        drain: bool = True,
+    ) -> None:
+        await self.report.close(drain=drain)
+
+    async def close(self, *, drain: bool = True) -> None:
+        await self.report.close(drain=drain)
 
 
 class _Attachments:
@@ -58,6 +79,10 @@ class _TuiController:
         self.conversation_calls = []
         self.hook_scopes = []
         self.tool_filter_mode = "app"
+        self.event_report = _Report(self.events)
+        self.event_reporting = EventReportRuntimeOwner(
+            pool=_ReportPool(self.event_report),
+        )
 
     async def begin_conversation_turn(
         self,
@@ -126,15 +151,13 @@ def tui_turn_operations(monkeypatch):
 
 @pytest.mark.anyio
 async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
-    monkeypatch,
     tui_turn_operations,
 ) -> None:
     controller = _TuiController(attachments=[{
         "filename": "screen.png",
         "kind": "image",
     }])
-    report = _Report(controller.events)
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+    report = controller.event_report
     permissions = preset_permissions("auto")
     pref_config = {"primary": {"model": "test-model"}}
     prepared_attachments = []
@@ -165,10 +188,9 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
         "report.open",
         "session",
         "operation",
-        "report.close",
     ]
     assert report.opened == 1
-    assert report.closed == [True]
+    assert report.closed == []
 
     runner, call = controller.lifecycle_calls[0]
     assert runner is tui_turn_operations
@@ -207,12 +229,9 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
 
 @pytest.mark.anyio
 async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
-    monkeypatch,
     tui_turn_operations,
 ) -> None:
     controller = _TuiController()
-    report = _Report(controller.events)
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
 
     async def with_mcp_session(_pref_config, function):
         controller.tool_filter_mode = "api"
@@ -239,13 +258,10 @@ async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
 
 @pytest.mark.anyio
 async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
-    monkeypatch,
     tui_turn_operations,
 ) -> None:
     controller = _TuiController()
     controller.tool_filter_mode = None
-    report = _Report(controller.events)
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
 
     async def with_mcp_session(_pref_config, function):
         controller.tool_filter_mode = "app"
@@ -274,13 +290,11 @@ async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
 
 
 @pytest.mark.anyio
-async def test_tui_turn_closes_report_after_failure(
-    monkeypatch,
+async def test_tui_turn_keeps_session_report_after_failure(
     tui_turn_operations,
 ) -> None:
     controller = _TuiController(failure=RuntimeError("stream failed"))
-    report = _Report(controller.events)
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+    report = controller.event_report
 
     with pytest.raises(RuntimeError, match="stream failed"):
         await run_tui_model_turn(
@@ -291,17 +305,15 @@ async def test_tui_turn_closes_report_after_failure(
         )
 
     assert report.opened == 1
-    assert report.closed == [True]
+    assert report.closed == []
 
 
 @pytest.mark.anyio
 async def test_tui_turn_closes_report_without_drain_after_cancellation(
-    monkeypatch,
     tui_turn_operations,
 ) -> None:
     controller = _TuiController(failure=asyncio.CancelledError())
-    report = _Report(controller.events)
-    monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
+    report = controller.event_report
 
     with pytest.raises(asyncio.CancelledError):
         await run_tui_model_turn(

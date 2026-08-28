@@ -87,6 +87,11 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         for node in controller.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    assigned_attributes = {
+        node.attr
+        for node in ast.walk(controller)
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
+    }
 
     assert not {
         "calling",
@@ -102,3 +107,4 @@ def test_controller_does_not_expose_runtime_facades() -> None:
     assert not (
         PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
     ).exists()
+    assert "event_reports" not in assigned_attributes
