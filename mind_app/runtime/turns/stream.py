@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import copy
 import time
-import httpx
 import typing
 import asyncio
 from mind_app.approval.ledger import ApprovalCallLedger
@@ -31,7 +29,6 @@ from mind_nova.stream_events import (
 )
 from mind_nova.requests.tools import (
     ToolResultRequestError,
-    build_tool_result_payload,
     get_tool_result_status,
     post_tool_approval,
     post_tool_result
@@ -75,6 +72,7 @@ from .stream_tools import (
 from .stream_setup import prepare_stream_turn
 from .stream_outcome import StreamTurnOutcome
 from .stream_model import ModelStreamEventHandler
+from .stream_effects import ToolResultDelivery
 from ...stream_events.lifecycle import handle_lifecycle_event
 from engine.observability import (
     observe,
@@ -276,15 +274,6 @@ async def stream_turn(
     failed_tool_context: list[str] = []
 
     tool_batch_buffer = ToolCallBatchBuffer()
-    tool_result_lock = asyncio.Lock()
-    tool_result_futures: dict[
-        tuple[str, str, str],
-        asyncio.Future[None],
-    ] = {}
-    tool_result_payloads: dict[
-        tuple[str, str, str],
-        dict[str, typing.Any],
-    ] = {}
 
     configured_approval_ledger = getattr(mind, "approval_call_ledger", None)
     if isinstance(configured_approval_ledger, ApprovalCallLedger):
@@ -292,330 +281,6 @@ async def stream_turn(
     else:
         approval_ledger = ApprovalCallLedger()
         setattr(mind, "approval_call_ledger", approval_ledger)
-
-    async def post_client_tool_result(
-        cid: str,
-        sid: str,
-        call_id: str,
-        tool_name: str,
-        ok: bool,
-        tool_result: typing.Any,
-        additional_context: typing.Sequence[str] = (),
-        tool_arguments: typing.Mapping[str, typing.Any] | None = None,
-        request_id: str | None = None,
-    ) -> None:
-        """冻结单个工具结果，并以唯一请求完成一次持久投递。"""
-        frozen_result = copy.deepcopy(tool_result)
-        frozen_context = tuple(str(value) for value in additional_context)
-        frozen_arguments = (
-            copy.deepcopy(dict(tool_arguments))
-            if tool_arguments is not None
-            else None
-        )
-        payload = build_tool_result_payload(
-            cid=cid,
-            sid=sid,
-            call_id=call_id,
-            name=tool_name,
-            ok=ok,
-            result=frozen_result,
-            additional_context=frozen_context,
-            arguments=frozen_arguments,
-            request_id=request_id,
-        )
-        identity = (str(cid), str(sid), str(call_id))
-        loop = asyncio.get_running_loop()
-        async with tool_result_lock:
-            previous_payload = tool_result_payloads.get(identity)
-            if previous_payload is not None and previous_payload != payload:
-                raise ToolResultRequestError(
-                    "tool_result_local_conflict",
-                    "one call_id cannot receive different frozen results",
-                    details={"call_id": call_id},
-                )
-            tool_result_payloads[identity] = payload
-            future = tool_result_futures.get(identity)
-            owner = future is None
-            if owner:
-                future = loop.create_future()
-                tool_result_futures[identity] = future
-
-        if not owner:
-            await future
-            return
-
-        first_error: ToolResultRequestError | None = None
-        try:
-            await _deliver_frozen_tool_result(
-                cid=cid,
-                sid=sid,
-                call_id=call_id,
-                tool_name=tool_name,
-                ok=ok,
-                tool_result=frozen_result,
-                additional_context=frozen_context,
-                tool_arguments=frozen_arguments,
-                request_id=payload["request_id"],
-            )
-        except asyncio.CancelledError:
-            if not future.done():
-                future.cancel()
-            async with tool_result_lock:
-                tool_result_futures.pop(identity, None)
-            raise
-        except Exception as error:
-            if not future.done():
-                future.set_exception(error)
-                future.exception()
-            async with tool_result_lock:
-                tool_result_futures.pop(identity, None)
-            raise
-        else:
-            if not future.done():
-                future.set_result(None)
-
-    async def _deliver_frozen_tool_result(
-        *,
-        cid: str,
-        sid: str,
-        call_id: str,
-        tool_name: str,
-        ok: bool,
-        tool_result: typing.Any,
-        additional_context: typing.Sequence[str],
-        tool_arguments: typing.Mapping[str, typing.Any] | None,
-        request_id: str,
-    ) -> None:
-        """投递冻结结果并在暂态登记窗口内按原请求重试。"""
-        retryable_delivery_codes = {
-            "tool_call_missing",
-            "tool_call_not_ready",
-            "tool_result_ack_invalid",
-            "tool_result_ack_mismatch",
-        }
-        queryable_codes = {
-            *retryable_delivery_codes,
-            "request_id_conflict",
-            "tool_call_already_completed",
-            "tool_result_reconciliation_required",
-            "tool_call_execution_timed_out",
-            "tool_call_cancelled",
-            "tool_call_turn_closed",
-        }
-
-        async def reconcile_effect(effect_id: str) -> bool:
-            """用已冻结结果核对服务端尚未确定的客户端效果。"""
-            try:
-                if await client_tool_runner.reconcile_known_effect(effect_id):
-                    return True
-            except asyncio.CancelledError:
-                raise
-            except (OSError, RuntimeError, TypeError, ValueError):
-                pass
-
-            frozen_payload = build_tool_result_payload(
-                cid=cid,
-                sid=sid,
-                call_id=call_id,
-                name=tool_name,
-                ok=ok,
-                result=tool_result,
-                additional_context=additional_context,
-                arguments=tool_arguments,
-                request_id=request_id,
-            )
-            result_envelope = frozen_payload["result"]
-            result_data = result_envelope.get("data")
-            resolution: typing.Literal["failed", "committed"] = (
-                "failed"
-                if (
-                    result_envelope.get("ok") is False
-                    or (
-                        isinstance(result_data, dict)
-                        and result_data.get("executed") is False
-                    )
-                )
-                else "committed"
-            )
-            reconcile_error = ""
-            if resolution == "failed":
-                if isinstance(result_data, dict):
-                    reconcile_error = str(
-                        result_data.get("error") or ""
-                    ).strip()
-                if not reconcile_error:
-                    reconcile_error = str(
-                        result_envelope.get("text") or ""
-                    ).strip()
-                if not reconcile_error:
-                    reconcile_error = "client tool result reported failure"
-
-            await post_effect_reconciliation(
-                effect_id=effect_id,
-                request_id=stable_request_id(
-                    "effect_reconcile",
-                    effect_id,
-                    request_id,
-                ),
-                resolution=resolution,
-                result_payload=frozen_payload,
-                error=reconcile_error,
-                metadata={"source": "client_tool_result_delivery"},
-            )
-            return True
-        try:
-            await post_tool_result(
-                cid,
-                sid,
-                call_id,
-                tool_name,
-                ok,
-                tool_result,
-                additional_context=additional_context,
-                arguments=tool_arguments,
-                request_id=request_id,
-            )
-            return
-        except ToolResultRequestError as delivery_error:
-            first_error = delivery_error
-            if not (
-                delivery_error.retryable
-                or delivery_error.code in queryable_codes
-            ):
-                raise
-
-        if first_error is None:
-            raise RuntimeError("tool result delivery did not produce an error")
-        last_error = first_error
-        for delay in (0.1, 0.25, 0.5):
-            await asyncio.sleep(delay)
-            try:
-                status = await get_tool_result_status(
-                    cid=cid,
-                    sid=sid,
-                    call_id=call_id,
-                )
-            except ToolResultRequestError as status_error:
-                last_error = status_error
-                if (
-                    first_error.retryable
-                    or first_error.code in retryable_delivery_codes
-                ):
-                    try:
-                        await post_tool_result(
-                            cid,
-                            sid,
-                            call_id,
-                            tool_name,
-                            ok,
-                            tool_result,
-                            additional_context=additional_context,
-                            arguments=tool_arguments,
-                            request_id=request_id,
-                        )
-                        return
-                    except ToolResultRequestError as retry_error:
-                        last_error = retry_error
-                        if not (
-                            retry_error.retryable
-                            or retry_error.code in {
-                                "tool_call_missing",
-                                "tool_call_not_ready",
-                            }
-                        ):
-                            raise
-                continue
-
-            if (
-                status.get("reconciliation_required") is True
-                and first_error.code not in {
-                    "request_id_conflict",
-                    "tool_call_already_completed",
-                    "tool_call_mismatch",
-                }
-            ):
-                effect_id = str(status.get("effect_id") or "").strip()
-                if effect_id:
-                    try:
-                        if await reconcile_effect(effect_id):
-                            return
-                    except asyncio.CancelledError:
-                        raise
-                    except (
-                        httpx.HTTPError,
-                        OSError,
-                        RuntimeError,
-                        TypeError,
-                        ValueError,
-                    ) as reconcile_error:
-                        last_error = ToolResultRequestError(
-                            "tool_result_reconciliation_failed",
-                            "tool result effect reconciliation failed",
-                            retryable=True,
-                            details={
-                                **status,
-                                "effect_id": effect_id,
-                                "reconcile_error": (
-                                    f"{type(reconcile_error).__name__}: "
-                                    f"{reconcile_error}"
-                                ),
-                            },
-                        )
-                else:
-                    last_error = ToolResultRequestError(
-                        "tool_result_reconciliation_required",
-                        "tool result requires effect reconciliation",
-                        retryable=False,
-                        details=status,
-                    )
-                if not last_error.retryable:
-                    raise last_error
-                continue
-
-            if status.get("result_received") is True:
-                if status.get("request_id") == request_id:
-                    return
-                raise ToolResultRequestError(
-                    "tool_result_request_conflict",
-                    "authoritative result belongs to a different request",
-                    details=status,
-                )
-            if status.get("tool_status") in {
-                "execution_timed_out",
-                "cancelled",
-                "turn_closed",
-            }:
-                raise ToolResultRequestError(
-                    f"tool_call_{status['tool_status']}",
-                    "tool call is no longer waiting for a result",
-                    details=status,
-                )
-            if not (
-                first_error.retryable
-                or first_error.code in retryable_delivery_codes
-            ):
-                raise first_error
-            try:
-                await post_tool_result(
-                    cid,
-                    sid,
-                    call_id,
-                    tool_name,
-                    ok,
-                    tool_result,
-                    additional_context=additional_context,
-                    arguments=tool_arguments,
-                    request_id=request_id,
-                )
-                return
-            except ToolResultRequestError as retry_error:
-                last_error = retry_error
-                if not (
-                    retry_error.retryable
-                    or retry_error.code in retryable_delivery_codes
-                ):
-                    raise
-        raise last_error
 
     prompt_blocked: bool = False
 
@@ -733,6 +398,12 @@ async def stream_turn(
             ),
             interrupt_turn=interrupt_nested_turn,
         )
+        tool_result_delivery = ToolResultDelivery(
+            reconcile_known_effect=client_tool_runner.reconcile_known_effect,
+            post_result=post_tool_result,
+            get_status=get_tool_result_status,
+            post_reconciliation=post_effect_reconciliation,
+        )
         plan_tool_runner = PlanToolCallRunner(
             session=session,
             output_control=output_control,
@@ -754,7 +425,7 @@ async def stream_turn(
             status_control=status_control,
             presentation=presentation,
             transcript=transcript,
-            post_result=post_client_tool_result,
+            post_result=tool_result_delivery.deliver,
             interrupt_turn=interrupt_nested_turn,
         )
 
