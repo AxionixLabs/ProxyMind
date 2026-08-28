@@ -17,11 +17,6 @@ from mind_nova.requests.turn_control import (
 from mind_nova.turn_inputs import TurnInput
 from mind_app.frontend.contracts import WaitRetryState
 from mind_nova.stream_events import (
-    TextDeltaEvent,
-    TextDoneEvent,
-    TextMetaEvent,
-    PresentationSupersededEvent,
-    StreamEvent,
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
@@ -32,8 +27,7 @@ from mind_nova.stream_events import (
     TurnFailedEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
-    TurnReconciliationRequiredEvent,
-    TurnRetryingEvent
+    TurnReconciliationRequiredEvent
 )
 from mind_nova.requests.tools import (
     ToolResultRequestError,
@@ -44,13 +38,7 @@ from mind_nova.requests.tools import (
 )
 from mind_nova.requests.effects import post_effect_reconciliation
 from ...output import (
-    AssistantOutputBoundary,
-    AssistantPresentationSuperseded,
-    AssistantResponseSuperseded,
-    AssistantSegmentCompleted,
-    AssistantTextDelta,
     OutputControlPort,
-    ResponseIdentity,
     SourcesOutput
 )
 from .result import RunResult
@@ -86,9 +74,8 @@ from .stream_tools import (
 )
 from .stream_setup import prepare_stream_turn
 from .stream_outcome import StreamTurnOutcome
+from .stream_model import ModelStreamEventHandler
 from ...stream_events.lifecycle import handle_lifecycle_event
-from ...stream_events.assistant_boundary import is_assistant_output_boundary
-from ...stream_state.segment import SegmentTracker
 from engine.observability import (
     observe,
     observe_exception
@@ -144,20 +131,6 @@ class _RetryingStatus(object):
         self.state = state
         if self.sink is not None:
             self.sink(state)
-
-
-def _response_identity(
-    event: StreamEvent,
-    tracker: SegmentTracker,
-) -> ResponseIdentity:
-    """把当前领域事件映射为机器输出使用的稳定响应身份。"""
-    presentation_epoch, round_no, attempt = tracker.response_identity(event)
-    return ResponseIdentity(
-        turn_id=event.turn_id,
-        presentation_epoch=presentation_epoch,
-        round=round_no,
-        attempt=attempt,
-    )
 
 
 def _extend_request_context(
@@ -651,40 +624,24 @@ async def stream_turn(
     stop_decision = StopHookDecision.stop()
     event_stream  = None
 
-    tracker: SegmentTracker  = SegmentTracker()
-
     transcript = mind.transcripts.writer(
         turn_context.transcript_path,
         session_id=turn_context.sid,
         turn_id=turn_context.turn_id,
     )
 
-    def record_pending_assistant_output(*, complete_only: bool = False) -> None:
-        """按稳定 item 身份把助手输出写入会话记录。"""
-        for item_identity, item_id, assistant_output in tracker.drain_assistant_outputs(
-            complete_only=complete_only,
-        ):
-            if not assistant_output:
-                continue
-            item_epoch, item_round, item_attempt = item_identity
-            payload = {
-                "content": assistant_output,
-                "item_id": item_id,
-                "presentation_epoch": item_epoch,
-                "round": item_round,
-                "attempt": item_attempt,
-            }
-            transcript.append(
-                "message.created",
-                actor="assistant",
-                payload=payload,
-            )
-
     idle_wait = IdleStatusTimer(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
     retrying_status = _RetryingStatus(callbacks.retry_state)
+    model_events = ModelStreamEventHandler(
+        transcript=transcript,
+        content=content,
+        status_control=status_control,
+        provider_retry_sink=retrying_status.set_provider,
+        idle_reschedule=idle_wait.reschedule,
+    )
 
     try:
         transcript.open()
@@ -832,12 +789,8 @@ async def stream_turn(
 
             event_type = event.type
 
-            if not isinstance(event, TurnRetryingEvent):
-                retrying_status.set_provider(False)
-
-            if is_assistant_output_boundary(event):
-                record_pending_assistant_output()
-                await content.emit(AssistantOutputBoundary())
+            if await model_events.handle(event):
+                continue
 
             if event_type == "turn.start":
                 if callbacks.input_event is not None:
@@ -845,39 +798,6 @@ async def stream_turn(
                 continue
 
             if event_type == "turn.thinking":
-                await status_control.begin_reply_wait_status()
-                continue
-
-            if isinstance(event, TurnRetryingEvent):
-                retrying_status.set_provider(True)
-                record_pending_assistant_output()
-
-                had_assistant_output = tracker.on_turn_retrying(event)
-
-                if had_assistant_output:
-                    superseded_payload = {
-                        "scope": "response",
-                        "presentation_epoch": event.presentation_epoch,
-                        "round": event.round,
-                        "attempt": event.attempt,
-                        "reason": event.reason,
-                    }
-                    if event.supersedes_item_id:
-                        superseded_payload["supersedes_item_id"] = (
-                            event.supersedes_item_id
-                        )
-                    transcript.append(
-                        "message.superseded",
-                        actor="assistant",
-                        payload=superseded_payload,
-                    )
-                    await content.emit(AssistantResponseSuperseded(
-                        turn_id=event.turn_id,
-                        presentation_epoch=event.presentation_epoch,
-                        round=event.round,
-                        attempt=event.attempt,
-                        item_id=event.supersedes_item_id,
-                    ))
                 await status_control.begin_reply_wait_status()
                 continue
 
@@ -973,91 +893,6 @@ async def stream_turn(
                 )
                 break
 
-            if isinstance(event, TextDeltaEvent):
-                event_identity = tracker.response_identity(event)
-                if tracker.should_ignore_item(
-                    event.item_id,
-                    identity=event_identity,
-                ):
-                    continue
-
-                identity     = _response_identity(event, tracker)
-                item_changed = tracker.on_text_delta(event)
-
-                if item_changed:
-                    tracker.defer_current_output()
-                    record_pending_assistant_output(complete_only=True)
-                    tracker.remember_current_output()
-                    await content.emit(AssistantOutputBoundary())
-                await content.emit(AssistantTextDelta(
-                    event.text,
-                    identity,
-                    item_id=event.item_id,
-                ))
-                idle_wait.reschedule()
-                continue
-
-            if isinstance(event, PresentationSupersededEvent):
-                record_pending_assistant_output()
-                transcript.append(
-                    "message.superseded",
-                    actor="assistant",
-                    payload={
-                        "scope": "presentation",
-                        "presentation_epoch": event.superseded_epoch,
-                        "superseded_by_epoch": event.presentation_epoch,
-                        "reason": event.reason,
-                    },
-                )
-                tracker.on_presentation_superseded(event)
-                await content.emit(AssistantPresentationSuperseded(
-                    turn_id=event.turn_id,
-                    superseded_epoch=event.superseded_epoch,
-                    presentation_epoch=event.presentation_epoch,
-                ))
-                continue
-
-            if isinstance(event, TextDoneEvent):
-                event_identity = tracker.response_identity(event)
-                if tracker.should_ignore_item(
-                    event.item_id,
-                    identity=event_identity,
-                ):
-                    continue
-
-                identity           = _response_identity(event, tracker)
-                output_was_drained = tracker.was_output_drained(event.item_id)
-
-                tracker.on_text_done(event)
-
-                if output_was_drained and event.final_text is not None:
-                    epoch    = identity.presentation_epoch
-                    round_no = identity.round
-                    attempt  = identity.attempt
-
-                    transcript.append(
-                        "message.updated",
-                        actor="assistant",
-                        payload={
-                            "content": event.final_text,
-                            "item_id": event.item_id,
-                            "presentation_epoch": epoch,
-                            "round": round_no,
-                            "attempt": attempt,
-                        },
-                    )
-                await content.emit(AssistantSegmentCompleted(
-                    identity,
-                    final_text=event.final_text,
-                    item_id=event.item_id,
-                ))
-                await status_control.begin_reply_wait_status()
-                continue
-
-            if isinstance(event, TextMetaEvent):
-                tracker.on_text_meta(event)
-                continue
-
             if isinstance(event, TurnDoneEvent):
 
                 if tool_batch_buffer.active:
@@ -1100,7 +935,7 @@ async def stream_turn(
                 continue
 
             if isinstance(event, ToolBuiltinDoneEvent):
-                tracker.on_builtin_done(event)
+                model_events.record_builtin_sources(event)
                 await status_control.end_status()
                 continue
 
@@ -1260,11 +1095,11 @@ async def stream_turn(
             )
 
         if outcome.is_completed and turn_context.agent.depth == 0:
-            record_pending_assistant_output()
-            mind.remember_last_assistant_reply(tracker.assistant_text())
+            model_events.flush_pending()
+            mind.remember_last_assistant_reply(model_events.assistant_text)
 
         await status_control.end_status()
-        await content.emit(SourcesOutput(tuple(tracker.iter_sources())))
+        await content.emit(SourcesOutput(model_events.sources))
 
         if outcome.is_completed and not outcome.is_failed:
             await presentation.emit(build_run_completed_view(
@@ -1307,7 +1142,7 @@ async def stream_turn(
                 getattr(event_stream, "end_reason", None) or "cancelled"
             )
 
-        record_pending_assistant_output()
+        model_events.flush_pending()
 
         record_turn_finished(
             transcript,
@@ -1326,9 +1161,7 @@ async def stream_turn(
                             outcome=stop_outcome,
                             error=outcome.error,
                             usage=outcome.usage,
-                            last_assistant_message=(
-                                tracker.assistant_text()
-                            ),
+                            last_assistant_message=model_events.assistant_text,
                             continuation_count=turn_continuation_count(
                                 turn_execution
                             ),
@@ -1339,9 +1172,7 @@ async def stream_turn(
                         outcome=stop_outcome,
                         error=outcome.error,
                         usage=outcome.usage,
-                        last_assistant_message=(
-                            tracker.assistant_text()
-                        ),
+                        last_assistant_message=model_events.assistant_text,
                         continuation_count=turn_continuation_count(
                             turn_execution
                         ),
@@ -1361,7 +1192,7 @@ async def stream_turn(
             output_control.stop(blink=not outcome.is_interrupted)
         )
 
-    result = outcome.build_result(tracker.assistant_text())
+    result = outcome.build_result(model_events.assistant_text)
 
     if stop_decision.should_continue and outcome.continuation_allowed:
         continuation_count = turn_continuation_count(turn_execution)
