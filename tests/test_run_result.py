@@ -1979,7 +1979,7 @@ async def test_stream_commits_output_before_tool_round_transition(
             "text": "first",
         },
         {
-            "type": "tool.calls.start",
+            "type": "tool.builtin.call",
             "round": 2,
         },
         {

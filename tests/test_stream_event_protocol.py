@@ -7,6 +7,8 @@ from mind_nova.stream_events import (
     TextMetaEvent,
     ToolApprovalRequiredEvent,
     ToolCallEvent,
+    ToolCallsDoneEvent,
+    ToolCallsStartEvent,
     ToolOutputEvent,
     TurnDoneEvent,
     TurnFailedEvent,
@@ -102,6 +104,63 @@ def test_latest_tool_protocol_parses_direct_tool_fields() -> None:
     assert event.call_id == "call_test"
     assert event.arguments == {"command": "echo ready"}
     assert event.reason == "模型需要检查命令输出。"
+
+
+def test_tool_call_batch_boundaries_are_typed_and_strict() -> None:
+    start = parse_stream_event({
+        "type": "tool.calls.start",
+        "batch_id": "batch-1",
+        "call_ids": ["call-a", "call-b"],
+        "count": 2,
+        "ready": True,
+        "timeout_sec": 60,
+    })
+    done = parse_stream_event({
+        "type": "tool.calls.done",
+        "batch_id": "batch-1",
+        "call_ids": ["call-a", "call-b"],
+        "count": 2,
+        "ready": True,
+        "timeout_sec": 60,
+    })
+
+    assert isinstance(start, ToolCallsStartEvent)
+    assert start.call_ids == ("call-a", "call-b")
+    assert start.timeout_sec == 60
+    assert isinstance(done, ToolCallsDoneEvent)
+    assert done.timeout_sec == 60
+
+    for invalid in (
+        {"ready": False},
+        {"count": 1},
+        {"call_ids": ["call-a", "call-a"]},
+    ):
+        payload = {
+            "type": "tool.calls.start",
+            "batch_id": "batch-1",
+            "call_ids": ["call-a", "call-b"],
+            "count": 2,
+            "ready": True,
+            **invalid,
+        }
+        with pytest.raises(ValueError):
+            parse_stream_event(payload)
+
+
+def test_tool_call_requires_name_and_call_id() -> None:
+    with pytest.raises(ValueError, match="name is required"):
+        parse_stream_event({
+            "type": "tool.call",
+            "call_id": "call-a",
+            "reason": "execute",
+        })
+    with pytest.raises(ValueError, match="call_id is required"):
+        parse_stream_event({
+            "type": "tool.call",
+            "name": "shell_command",
+            "arguments": {"command": "pwd"},
+            "reason": "execute",
+        })
 
 
 def test_presentation_superseded_requires_preceding_epoch() -> None:

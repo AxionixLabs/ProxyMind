@@ -240,6 +240,26 @@ class ToolCallEvent(ToolEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ToolCallsStartEvent(StreamEvent):
+    """描述客户端工具批次已原子登记并可以开始接收调用。"""
+    batch_id: str = ""
+    call_ids: tuple[str, ...] = ()
+    count: int = 0
+    ready: typing.Literal[True] = True
+    timeout_sec: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolCallsDoneEvent(StreamEvent):
+    """描述客户端工具批次的调用事件已经完整发送。"""
+    batch_id: str = ""
+    call_ids: tuple[str, ...] = ()
+    count: int = 0
+    ready: typing.Literal[True] = True
+    timeout_sec: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ToolOutputEvent(ToolEvent):
     """描述服务端工具输出回灌事件。"""
     payload: dict[str, typing.Any] = field(default_factory=dict)
@@ -275,6 +295,8 @@ ChatStreamEvent: typing.TypeAlias = (
     | ToolBuiltinDoneEvent
     | ToolApprovalRequiredEvent
     | ToolCallEvent
+    | ToolCallsStartEvent
+    | ToolCallsDoneEvent
     | ToolOutputEvent
     | UnknownStreamEvent
 )
@@ -284,8 +306,6 @@ _MARKER_EVENT_TYPES = {
     "turn.start",
     "turn.thinking",
     "tool.builtin.call",
-    "tool.calls.start",
-    "tool.calls.done",
 }
 
 
@@ -308,6 +328,17 @@ def parse_stream_event(
         raise ValueError("stream event contains a removed protocol field")
 
     common = _common_fields(raw, event_type)
+
+    if event_type == "tool.calls.start":
+        return ToolCallsStartEvent(
+            **common,
+            **_tool_calls_boundary_fields(raw, "tool.calls.start"),
+        )
+    if event_type == "tool.calls.done":
+        return ToolCallsDoneEvent(
+            **common,
+            **_tool_calls_boundary_fields(raw, "tool.calls.done"),
+        )
 
     if event_type in _MARKER_EVENT_TYPES:
         return MarkerEvent(**common)
@@ -568,6 +599,10 @@ def parse_stream_event(
         )
     if event_type == "tool.call":
         tool_fields = _tool_fields(raw)
+        if not tool_fields["name"]:
+            raise ValueError("tool.call name is required")
+        if not tool_fields["call_id"]:
+            raise ValueError("tool.call call_id is required")
         if tool_fields["name"] in {
             "shell_command",
             "exec_command",
@@ -644,6 +679,41 @@ def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
         "call_id": _text(payload.get("call_id")),
         "arguments": _dict(payload.get("arguments")),
         "reason": _text(payload.get("reason")),
+    }
+
+
+def _tool_calls_boundary_fields(
+    payload: dict[str, typing.Any],
+    event_type: str,
+) -> dict[str, typing.Any]:
+    """读取并校验客户端工具批次边界字段。"""
+    batch_id = _required_text(payload.get("batch_id"), f"{event_type} batch_id")
+    raw_call_ids = payload.get("call_ids")
+    if not isinstance(raw_call_ids, list) or not raw_call_ids:
+        raise ValueError(f"{event_type} call_ids must be a non-empty list")
+    call_ids = tuple(
+        _required_text(value, f"{event_type} call_ids")
+        for value in raw_call_ids
+    )
+    if len(set(call_ids)) != len(call_ids):
+        raise ValueError(f"{event_type} call_ids must be unique")
+    count = _required_positive_int(payload.get("count"), f"{event_type} count")
+    if count != len(call_ids):
+        raise ValueError(f"{event_type} count does not match call_ids")
+    if payload.get("ready") is not True:
+        raise ValueError(f"{event_type} ready must be true")
+    timeout_sec = payload.get("timeout_sec")
+    if timeout_sec is not None:
+        timeout_sec = _required_positive_int(
+            timeout_sec,
+            f"{event_type} timeout_sec",
+        )
+    return {
+        "batch_id": batch_id,
+        "call_ids": call_ids,
+        "count": count,
+        "ready": True,
+        "timeout_sec": timeout_sec,
     }
 
 

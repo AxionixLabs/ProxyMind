@@ -9,7 +9,10 @@ from mind_nova.identifiers import (
     resolve_request_id,
     stable_request_id
 )
-from mind_nova.requests.reliable import post_json_reliably
+from mind_nova.requests.reliable import (
+    get_json_reliably,
+    post_json_reliably,
+)
 from mind_nova.services import service_endpoints
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
@@ -42,6 +45,16 @@ _TOOL_RESULT_ENVELOPE_KEYS = frozenset({
     "data",
 })
 
+_TOOL_RESULT_STATUS_VALUES = frozenset({
+    "waiting_result",
+    "result_received",
+    "execution_timed_out",
+    "cancelled",
+    "missing",
+    "not_ready",
+    "turn_closed",
+})
+
 _TOOL_RESULT_METADATA_KEYS = frozenset({
     "ok",
     "tool",
@@ -49,7 +62,6 @@ _TOOL_RESULT_METADATA_KEYS = frozenset({
     "args",
     "text",
     "attachments",
-    "target",
 })
 
 
@@ -62,7 +74,6 @@ class _ServerToolResult(typing.TypedDict):
     text: str
     attachments: list[typing.Any]
     data: dict[str, typing.Any]
-    target: typing.NotRequired[str]
 
 
 class _ToolResultPayload(typing.TypedDict):
@@ -112,6 +123,40 @@ class ToolApprovalRequestError(Exception):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+
+
+class ToolResultRequestError(Exception):
+    """描述工具结果投递的结构化生命周期错误。"""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 0,
+        retryable: bool = False,
+        details: typing.Mapping[str, typing.Any] | None = None,
+        trace_id: str = "",
+    ) -> None:
+        """保存服务端错误码、可重试标志和权威状态字段。"""
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.retryable = retryable
+        self.details = dict(details or {})
+        self.trace_id = str(trace_id or "").strip()
+
+    @property
+    def tool_status(self) -> str | None:
+        """返回服务端报告的工具生命周期状态。"""
+        value = self.details.get("tool_status")
+        return str(value) if value else None
+
+    @property
+    def call_id(self) -> str | None:
+        """返回服务端错误关联的工具调用标识。"""
+        value = self.details.get("call_id")
+        return str(value) if value else None
 
 
 class ToolApprovalSnapshotRequestError(Exception):
@@ -753,15 +798,211 @@ async def post_tool_result(
         request_id=request_id,
     )
 
-    r = await post_json_reliably(
-        service_endpoints.endpoint("/tool-result"),
-        headers=headers,
-        payload=payload,
-        timeout=30.0,
-        client_factory=httpx.AsyncClient,
+    try:
+        r = await post_json_reliably(
+            service_endpoints.endpoint("/tool-result"),
+            headers=headers,
+            payload=payload,
+            timeout=30.0,
+            client_factory=httpx.AsyncClient,
+        )
+    except (httpx.HTTPError, OSError) as error:
+        raise ToolResultRequestError(
+            "tool_result_transport_error",
+            "tool result delivery could not reach the service",
+            retryable=True,
+        ) from error
+    if r.is_error:
+        raise _tool_result_error(r)
+    return _tool_result_ack(r, request_id=payload["request_id"])
+
+
+def _tool_result_error(response: httpx.Response) -> ToolResultRequestError:
+    """把服务端结果投递错误解析为稳定的客户端异常。"""
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        body = None
+    details = body.get("details") if isinstance(body, dict) else None
+    if not isinstance(details, dict):
+        details = {}
+    code = str(details.get("code") or "tool_result_http_error").strip()
+    message = str(details.get("message") or "tool result delivery failed").strip()
+    return ToolResultRequestError(
+        code,
+        message,
+        status_code=response.status_code,
+        retryable=details.get("retryable") is True,
+        details=details,
+        trace_id=(body.get("trace_id") if isinstance(body, dict) else ""),
     )
-    r.raise_for_status()
-    return r.json()
+
+
+def _tool_result_ack(
+    response: httpx.Response,
+    *,
+    request_id: str,
+) -> dict[str, typing.Any]:
+    """校验工具结果成功回执并确认其对应当前请求。"""
+    try:
+        body = response.json()
+    except (TypeError, ValueError) as error:
+        raise ToolResultRequestError(
+            "tool_result_ack_invalid",
+            "tool result returned an invalid response",
+            status_code=response.status_code,
+        ) from error
+    data = body.get("data") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or body.get("ok") is not True
+        or not isinstance(data, dict)
+        or data.get("status") not in {"matched", "already_received"}
+        or data.get("delivered") is not True
+        or not isinstance(data.get("already_received"), bool)
+        or str(data.get("request_id") or "").strip() != request_id
+    ):
+        raise ToolResultRequestError(
+            "tool_result_ack_mismatch",
+            "tool result acknowledgement does not match request",
+            status_code=response.status_code,
+        )
+    return dict(body)
+
+
+async def get_tool_result_status(
+    *,
+    cid: str,
+    sid: str,
+    call_id: str,
+    timeout: float = 10.0,
+    retry_delays: typing.Sequence[float] = (0.0, 0.2, 0.5),
+) -> dict[str, typing.Any]:
+    """读取工具调用的权威持久状态，不修改服务端生命周期。"""
+    normalized_cid = str(cid or "").strip()
+    normalized_sid = str(sid or "").strip()
+    normalized_call_id = str(call_id or "").strip()
+    if not normalized_cid or not normalized_sid or not normalized_call_id:
+        raise ValueError("tool result status requires cid, sid and call_id")
+    try:
+        response = await get_json_reliably(
+            service_endpoints.endpoint("/tool-result/status"),
+            headers=Channel.make_headers(),
+            params={
+                "cid": normalized_cid,
+                "sid": normalized_sid,
+                "call_id": normalized_call_id,
+            },
+            timeout=timeout,
+            client_factory=httpx.AsyncClient,
+            retry_delays=retry_delays,
+        )
+    except (httpx.HTTPError, OSError) as error:
+        raise ToolResultRequestError(
+            "tool_result_status_transport_error",
+            "tool result status could not be read from the service",
+            retryable=True,
+        ) from error
+    if response.is_error:
+        raise _tool_result_error(response)
+    try:
+        body = response.json()
+    except (TypeError, ValueError) as error:
+        raise ToolResultRequestError(
+            "tool_result_status_invalid",
+            "tool result status returned an invalid response",
+            status_code=response.status_code,
+        ) from error
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(body, dict) or body.get("ok") is not True or not isinstance(data, dict):
+        raise ToolResultRequestError(
+            "tool_result_status_invalid",
+            "tool result status returned an invalid response",
+            status_code=response.status_code,
+        )
+    if (
+        str(data.get("cid") or "") != normalized_cid
+        or str(data.get("sid") or "") != normalized_sid
+        or str(data.get("call_id") or "") != normalized_call_id
+        or data.get("tool_status") not in _TOOL_RESULT_STATUS_VALUES
+        or not isinstance(data.get("result_received"), bool)
+    ):
+        raise ToolResultRequestError(
+            "tool_result_status_mismatch",
+            "tool result status does not match request",
+            status_code=response.status_code,
+        )
+    return dict(data)
+
+
+async def renew_tool_result(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    call_id: str,
+    name: str,
+    extension_seconds: int = 60,
+    request_id: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, typing.Any]:
+    """续期仍处于等待结果状态的客户端工具调用。"""
+    normalized_request_id = (
+        resolve_request_id(request_id, prefix="tool_result_renew")
+        if request_id is not None
+        else stable_request_id(
+            "tool_result_renew", cid, sid, turn_id, call_id, name, extension_seconds
+        )
+    )
+    if isinstance(extension_seconds, bool) or not isinstance(extension_seconds, int):
+        raise ValueError("extension_seconds must be an integer")
+    payload = {
+        "request_id": normalized_request_id,
+        "cid": cid,
+        "sid": sid,
+        "turn_id": turn_id,
+        "call_id": call_id,
+        "name": name,
+        "extension_seconds": extension_seconds,
+    }
+    try:
+        response = await post_json_reliably(
+            service_endpoints.endpoint("/tool-result/renew"),
+            headers=Channel.make_headers(),
+            payload=payload,
+            timeout=timeout,
+            client_factory=httpx.AsyncClient,
+        )
+    except (httpx.HTTPError, OSError) as error:
+        raise ToolResultRequestError(
+            "tool_result_renew_transport_error",
+            "tool result renewal could not reach the service",
+            retryable=True,
+        ) from error
+    if response.is_error:
+        raise _tool_result_error(response)
+    try:
+        body = response.json()
+    except (TypeError, ValueError) as error:
+        raise ToolResultRequestError(
+            "tool_result_renew_invalid",
+            "tool result renewal returned an invalid response",
+            status_code=response.status_code,
+        ) from error
+    data = body.get("data") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or body.get("ok") is not True
+        or not isinstance(data, dict)
+        or data.get("status") != "renewed"
+        or str(data.get("request_id") or "") != normalized_request_id
+    ):
+        raise ToolResultRequestError(
+            "tool_result_renew_mismatch",
+            "tool result renewal acknowledgement does not match request",
+            status_code=response.status_code,
+        )
+    return dict(data)
 
 
 def build_tool_result_payload(
@@ -986,7 +1227,9 @@ def _tool_result_for_server(
 
     if _TOOL_RESULT_ENVELOPE_KEYS.issubset(result):
         raw_data = result.get("data")
-        data = raw_data if isinstance(raw_data, dict) else {"value": raw_data}
+        data = dict(raw_data) if isinstance(raw_data, dict) else {"value": raw_data}
+        if "target" in result and result.get("target") not in {None, ""}:
+            data["target"] = result["target"]
     else:
         data = {
             key: value
@@ -1006,10 +1249,6 @@ def _tool_result_for_server(
         "attachments": attachments,
         "data": data,
     }
-
-    target = str(result.get("target") or "").strip()
-    if target:
-        payload["target"] = target
 
     return payload
 

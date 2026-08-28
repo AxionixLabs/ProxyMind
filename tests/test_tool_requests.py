@@ -149,8 +149,8 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
                     "command": "echo ready",
                     "exit_code": 0,
                     "stdout": "ready\n",
+                    "target": "local",
                 },
-                "target": "local",
             },
             {
                 "ok": True,
@@ -163,8 +163,8 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
                     "command": "echo ready",
                     "exit_code": 0,
                     "stdout": "ready\n",
+                    "target": "local",
                 },
-                "target": "local",
             },
         ),
         (
@@ -174,8 +174,11 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
                 "args": {},
                 "text": "snapshot ready",
                 "attachments": [{"kind": "file", "path": "snapshot.json"}],
-                "data": {"serial": "device-1", "battery": 80},
-                "target": "device-1",
+                "data": {
+                    "serial": "device-1",
+                    "battery": 80,
+                    "target": "device-1",
+                },
             },
             {
                 "ok": True,
@@ -184,8 +187,11 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
                 "args": {},
                 "text": "snapshot ready",
                 "attachments": [{"kind": "file", "path": "snapshot.json"}],
-                "data": {"serial": "device-1", "battery": 80},
-                "target": "device-1",
+                "data": {
+                    "serial": "device-1",
+                    "battery": 80,
+                    "target": "device-1",
+                },
             },
         ),
         (
@@ -238,7 +244,15 @@ async def test_tool_result_posts_only_transport_fields(
     expected,
 ) -> None:
     captured = {}
-    _install_client(monkeypatch, _response(200, {"ok": True}), captured)
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "status": "matched",
+            "delivered": True,
+            "already_received": False,
+            "request_id": "tool_result_request_1",
+        },
+    }), captured)
 
     await tools.post_tool_result(
         "cid_1",
@@ -267,7 +281,15 @@ async def test_tool_result_posts_only_transport_fields(
 @pytest.mark.anyio
 async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
     captured = {}
-    _install_client(monkeypatch, _response(200, {"ok": True}), captured)
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "status": "matched",
+            "delivered": True,
+            "already_received": False,
+            "request_id": "tool_result_9ddb978992517da2c728b8cf787020552b6f47fc",
+        },
+    }), captured)
 
     await tools.post_tool_result(
         "cid_1",
@@ -312,7 +334,15 @@ async def test_tool_result_rejects_invalid_request_id() -> None:
 @pytest.mark.anyio
 async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
     captured = {}
-    _install_client(monkeypatch, _response(200, {"ok": True}), captured)
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "status": "matched",
+            "delivered": True,
+            "already_received": False,
+            "request_id": "tool_result_9ddb978992517da2c728b8cf787020552b6f47fc",
+        },
+    }), captured)
 
     await tools.post_tool_result(
         "cid_1",
@@ -339,8 +369,7 @@ async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
         "args": {"code": "6 * 7"},
         "text": "42",
         "attachments": [],
-        "data": {"output": "42"},
-        "target": "native_coding",
+        "data": {"output": "42", "target": "native_coding"},
     }
 
 

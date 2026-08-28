@@ -28,6 +28,8 @@ from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_nova.stream_events import (
     ToolApprovalRequiredEvent,
     ToolCallEvent,
+    ToolCallsDoneEvent,
+    ToolCallsStartEvent,
     ToolEvent,
     ToolOutputEvent
 )
@@ -107,6 +109,58 @@ class ToolCallHandlingResult:
         return cls(status="interrupted", error=error)
 
 
+class ToolCallBatchBuffer:
+    """在执行前收集并校验一个已登记的客户端工具批次。"""
+
+    def __init__(self) -> None:
+        """初始化空批次缓冲区。"""
+        self._start: ToolCallsStartEvent | None = None
+        self._calls: dict[str, ToolCallEvent] = {}
+
+    @property
+    def active(self) -> bool:
+        """返回当前是否处于等待批次调用事件的状态。"""
+        return self._start is not None
+
+    def begin(self, event: ToolCallsStartEvent) -> None:
+        """登记批次声明并拒绝嵌套批次。"""
+        if self._start is not None:
+            raise ValueError("tool.calls.start arrived before previous batch completed")
+        self._start = event
+        self._calls = {}
+
+    def accept(self, event: ToolCallEvent) -> tuple[ToolCallEvent, ...]:
+        """接收批内调用，批次外调用直接作为单调用返回。"""
+        if self._start is None:
+            return (event,)
+        if event.call_id not in self._start.call_ids:
+            raise ValueError("tool.call call_id is not declared by tool.calls.start")
+        if event.call_id in self._calls:
+            raise ValueError("duplicate tool.call in one batch")
+        self._calls[event.call_id] = event
+        return ()
+
+    def complete(self, event: ToolCallsDoneEvent) -> tuple[ToolCallEvent, ...]:
+        """校验批次结束声明并按声明顺序释放调用。"""
+        start = self._start
+        if start is None:
+            raise ValueError("tool.calls.done arrived without tool.calls.start")
+        if (
+            event.batch_id != start.batch_id
+            or event.call_ids != start.call_ids
+            or event.count != start.count
+            or event.timeout_sec != start.timeout_sec
+        ):
+            raise ValueError("tool.calls.done does not match tool.calls.start")
+        missing = [call_id for call_id in start.call_ids if call_id not in self._calls]
+        if missing:
+            raise ValueError("tool.calls.done arrived before every tool.call")
+        calls = tuple(self._calls[call_id] for call_id in start.call_ids)
+        self._start = None
+        self._calls = {}
+        return calls
+
+
 class ToolEventHandler:
     """处理工具调用、审批策略和服务端工具输出事件。"""
 
@@ -156,23 +210,6 @@ class ToolEventHandler:
             call_id=event.call_id,
         )
         if approval_state == "consumed":
-            result_record = self.ledger.result_for(
-                cid=turn_context.cid,
-                sid=turn_context.sid,
-                turn_id=turn_context.turn_id,
-                call_id=event.call_id,
-            )
-            if result_record is not None and result_record.state == "pending":
-                await self.post_result(
-                    turn_context.cid,
-                    turn_context.sid,
-                    event.call_id,
-                    result_record.name,
-                    result_record.ok,
-                    result_record.result,
-                    additional_context=result_record.additional_context,
-                    tool_arguments=result_record.arguments,
-                )
             observe(
                 "tool.call.duplicate",
                 call_id=event.call_id,

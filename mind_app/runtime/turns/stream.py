@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import time
 import typing
 import asyncio
@@ -25,6 +26,8 @@ from mind_nova.stream_events import (
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
+    ToolCallsDoneEvent,
+    ToolCallsStartEvent,
     ToolOutputEvent,
     TurnDoneEvent,
     TurnFailedEvent,
@@ -35,6 +38,9 @@ from mind_nova.stream_events import (
     TurnTerminalEvent
 )
 from mind_nova.requests.tools import (
+    ToolResultRequestError,
+    build_tool_result_payload,
+    get_tool_result_status,
     post_tool_approval,
     post_tool_result
 )
@@ -83,6 +89,7 @@ from .executor import (
 from ..support.idle_status import IdleStatusTimer
 from .stream_approval import ApprovalEventHandler
 from .stream_tools import (
+    ToolCallBatchBuffer,
     ToolEventHandler,
 )
 from ...stream_events.lifecycle import handle_lifecycle_event
@@ -453,6 +460,17 @@ async def stream_turn(
 
     failed_tool_context: list[str] = []
 
+    tool_batch_buffer = ToolCallBatchBuffer()
+    tool_result_lock = asyncio.Lock()
+    tool_result_futures: dict[
+        tuple[str, str, str],
+        asyncio.Future[None],
+    ] = {}
+    tool_result_payloads: dict[
+        tuple[str, str, str],
+        dict[str, typing.Any],
+    ] = {}
+
     configured_approval_ledger = getattr(mind, "approval_call_ledger", None)
     if isinstance(configured_approval_ledger, ApprovalCallLedger):
         approval_ledger = configured_approval_ledger
@@ -471,35 +489,186 @@ async def stream_turn(
         tool_arguments: typing.Mapping[str, typing.Any] | None = None,
         request_id: str | None = None,
     ) -> None:
-        """保存工具结果并在服务端确认后收束本地结果状态。"""
-        approval_ledger.record_result_pending(
+        """冻结单个工具结果，并以唯一请求完成一次持久投递。"""
+        frozen_result = copy.deepcopy(tool_result)
+        frozen_context = tuple(str(value) for value in additional_context)
+        frozen_arguments = (
+            copy.deepcopy(dict(tool_arguments))
+            if tool_arguments is not None
+            else None
+        )
+        payload = build_tool_result_payload(
             cid=cid,
             sid=sid,
-            turn_id=turn_context.turn_id,
             call_id=call_id,
             name=tool_name,
             ok=ok,
-            result=tool_result,
-            arguments=tool_arguments,
-            additional_context=additional_context,
-        )
-        await post_tool_result(
-            cid,
-            sid,
-            call_id,
-            tool_name,
-            ok,
-            tool_result,
-            additional_context=additional_context,
-            arguments=tool_arguments,
+            result=frozen_result,
+            additional_context=frozen_context,
+            arguments=frozen_arguments,
             request_id=request_id,
         )
-        approval_ledger.mark_result_committed(
-            cid=cid,
-            sid=sid,
-            turn_id=turn_context.turn_id,
-            call_id=call_id,
-        )
+        identity = (str(cid), str(sid), str(call_id))
+        loop = asyncio.get_running_loop()
+        async with tool_result_lock:
+            previous_payload = tool_result_payloads.get(identity)
+            if previous_payload is not None and previous_payload != payload:
+                raise ToolResultRequestError(
+                    "tool_result_local_conflict",
+                    "one call_id cannot receive different frozen results",
+                    details={"call_id": call_id},
+                )
+            tool_result_payloads[identity] = payload
+            future = tool_result_futures.get(identity)
+            owner = future is None
+            if owner:
+                future = loop.create_future()
+                tool_result_futures[identity] = future
+
+        if not owner:
+            await future
+            return
+
+        first_error: ToolResultRequestError | None = None
+        try:
+            await _deliver_frozen_tool_result(
+                cid=cid,
+                sid=sid,
+                call_id=call_id,
+                tool_name=tool_name,
+                ok=ok,
+                tool_result=frozen_result,
+                additional_context=frozen_context,
+                tool_arguments=frozen_arguments,
+                request_id=payload["request_id"],
+            )
+        except asyncio.CancelledError:
+            if not future.done():
+                future.cancel()
+            async with tool_result_lock:
+                tool_result_futures.pop(identity, None)
+            raise
+        except Exception as error:
+            if not future.done():
+                future.set_exception(error)
+                future.exception()
+            async with tool_result_lock:
+                tool_result_futures.pop(identity, None)
+            raise
+        else:
+            if not future.done():
+                future.set_result(None)
+
+    async def _deliver_frozen_tool_result(
+        *,
+        cid: str,
+        sid: str,
+        call_id: str,
+        tool_name: str,
+        ok: bool,
+        tool_result: typing.Any,
+        additional_context: typing.Sequence[str],
+        tool_arguments: typing.Mapping[str, typing.Any] | None,
+        request_id: str,
+    ) -> None:
+        """投递冻结结果并在暂态登记窗口内按原请求重试。"""
+        try:
+            await post_tool_result(
+                cid,
+                sid,
+                call_id,
+                tool_name,
+                ok,
+                tool_result,
+                additional_context=additional_context,
+                arguments=tool_arguments,
+                request_id=request_id,
+            )
+            return
+        except ToolResultRequestError as delivery_error:
+            first_error = delivery_error
+            if not (
+                delivery_error.retryable
+                or delivery_error.code in {"tool_call_missing", "tool_call_not_ready"}
+            ):
+                raise
+
+        if first_error is None:
+            raise RuntimeError("tool result delivery did not produce an error")
+        last_error = first_error
+        for delay in (0.1, 0.25, 0.5):
+            await asyncio.sleep(delay)
+            try:
+                status = await get_tool_result_status(
+                    cid=cid,
+                    sid=sid,
+                    call_id=call_id,
+                )
+            except ToolResultRequestError as status_error:
+                last_error = status_error
+                try:
+                    await post_tool_result(
+                        cid,
+                        sid,
+                        call_id,
+                        tool_name,
+                        ok,
+                        tool_result,
+                        additional_context=additional_context,
+                        arguments=tool_arguments,
+                        request_id=request_id,
+                    )
+                    return
+                except ToolResultRequestError as retry_error:
+                    last_error = retry_error
+                    if not (
+                        retry_error.retryable
+                        or retry_error.code in {
+                            "tool_call_missing",
+                            "tool_call_not_ready",
+                        }
+                    ):
+                        raise
+                continue
+            if status.get("result_received") is True:
+                if status.get("request_id") == request_id:
+                    return
+                raise ToolResultRequestError(
+                    "tool_result_request_conflict",
+                    "authoritative result belongs to a different request",
+                    details=status,
+                )
+            if status.get("tool_status") in {
+                "execution_timed_out",
+                "cancelled",
+                "turn_closed",
+            }:
+                raise ToolResultRequestError(
+                    f"tool_call_{status['tool_status']}",
+                    "tool call is no longer waiting for a result",
+                    details=status,
+                )
+            try:
+                await post_tool_result(
+                    cid,
+                    sid,
+                    call_id,
+                    tool_name,
+                    ok,
+                    tool_result,
+                    additional_context=additional_context,
+                    arguments=tool_arguments,
+                    request_id=request_id,
+                )
+                return
+            except ToolResultRequestError as retry_error:
+                last_error = retry_error
+                if not (
+                    retry_error.retryable
+                    or retry_error.code in {"tool_call_missing", "tool_call_not_ready"}
+                ):
+                    raise
+        raise last_error
 
     prompt_blocked: bool = False
 
@@ -740,6 +909,9 @@ async def stream_turn(
 
             if isinstance(event, TurnFailedEvent):
 
+                if tool_batch_buffer.active:
+                    raise ValueError("turn.failed arrived before tool.calls.done")
+
                 turn_failed        = True
                 failure_error      = event.error
                 turn_usage         = dict(event.usage)
@@ -919,6 +1091,9 @@ async def stream_turn(
 
             if isinstance(event, TurnDoneEvent):
 
+                if tool_batch_buffer.active:
+                    raise ValueError("turn.done arrived before tool.calls.done")
+
                 turn_usage         = dict(event.usage)
                 turn_terminal_meta = _terminal_result_fields(event)
                 turn_can_continue  = event.can_continue is True
@@ -968,12 +1143,22 @@ async def stream_turn(
                 await status_control.end_status()
                 continue
 
-            if event_type == "tool.calls.start":
+            if isinstance(event, ToolCallsStartEvent):
+                tool_batch_buffer.begin(event)
                 await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
-            if event_type == "tool.calls.done":
+            if isinstance(event, ToolCallsDoneEvent):
+                ready_calls = tool_batch_buffer.complete(event)
                 await status_control.begin_reply_wait_status(delay_sec=0.75)
+                for ready_call in ready_calls:
+                    tool_handling = await tool_event_handler.handle_call(ready_call)
+                    if tool_handling.status == "interrupted":
+                        interrupted = True
+                        failure_error = tool_handling.error
+                        break
+                if interrupted:
+                    break
                 continue
 
             if isinstance(event, ToolApprovalRequiredEvent):
@@ -981,10 +1166,13 @@ async def stream_turn(
                 continue
 
             if isinstance(event, ToolCallEvent):
-                tool_handling = await tool_event_handler.handle_call(event)
-                if tool_handling.status == "interrupted":
-                    interrupted = True
-                    failure_error = tool_handling.error
+                for ready_call in tool_batch_buffer.accept(event):
+                    tool_handling = await tool_event_handler.handle_call(ready_call)
+                    if tool_handling.status == "interrupted":
+                        interrupted = True
+                        failure_error = tool_handling.error
+                        break
+                if interrupted:
                     break
                 continue
 
@@ -1000,6 +1188,29 @@ async def stream_turn(
                 continue
 
             continue
+
+    except ToolResultRequestError as error:
+        result_status = "reconciliation_required"
+        reconciliation_required = True
+        failure_error = f"{error.code}: {error}"
+        observe(
+            "stream.tool_result_delivery_failed",
+            level="ERROR",
+            turn_id=turn_context.turn_id,
+            call_id=error.details.get("call_id"),
+            code=error.code,
+            status_code=error.status_code,
+            trace_id=error.trace_id,
+        )
+        if turn_context.agent.depth == 0:
+            await mind.await_cleanup(mind.stop_anim("wait"))
+        await finish_failure(
+            status_control,
+            presentation,
+            ev_report,
+            phase="turn.tool_result_delivery_failed",
+            error=failure_error,
+        )
 
     except LocalEffectReconciliationRequired as error:
         result_status = "reconciliation_required"
@@ -1152,7 +1363,6 @@ async def stream_turn(
             cid=turn_context.cid,
             sid=turn_context.sid,
             turn_id=turn_context.turn_id,
-            preserve_pending_results=result_status not in {"completed", "interrupted"},
         )
         retrying_status.close()
 
