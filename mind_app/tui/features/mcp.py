@@ -115,7 +115,7 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
         configured   = []
         config_error = str(error)
 
-    runtime      = getattr(mind, "external_mcp", None)
+    runtime      = mind.external_mcp.current
     group        = getattr(runtime, "group", None) if runtime is not None else None
     tools        = getattr(group, "tools", {}) if group is not None else {}
     server_stats = getattr(group, "server_stats", {}) if group is not None else {}
@@ -363,7 +363,7 @@ def render_mcp_action_failure(
 
 def render_mcp_action_cancelled(mind: typing.Any, action: McpAction) -> None:
     """展示外部 MCP 操作取消后的最终结果。"""
-    if action == "stop" and getattr(mind, "external_mcp", None) is None:
+    if action == "stop" and mind.external_mcp.current is None:
         render_external_mcp_stop_status(mind)
         return None
     render_mcp_action_interrupted(mind, action)
@@ -397,7 +397,7 @@ def render_external_mcp_start_status(
             details=(McpStatusDetail(f"  └ {detail}", "failed"),),
         )
     else:
-        runtime  = getattr(mind, "external_mcp", None)
+        runtime  = mind.external_mcp.current
         snapshot = getattr(runtime, "last_start_snapshot", {})
         if not isinstance(snapshot, dict) or not snapshot:
             return False
@@ -584,7 +584,7 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> bool:
     if action == "status":
         return False
 
-    external_runtime = getattr(mind, "external_mcp", None)
+    external_runtime = mind.external_mcp.current
     was_started      = bool(getattr(external_runtime, "started", False))
 
     if action == "stop":
@@ -593,25 +593,25 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> bool:
             await runtime.begin_operation_status(
                 lambda: {"summary": "External MCP stopping"},
             )
-        await mind.stop_external_mcp_runtime()
+        await mind.external_mcp.close()
     elif action == "force":
-        runtime = getattr(mind, "external_mcp", None)
+        runtime = mind.external_mcp.current
         if bool(getattr(runtime, "started", False)):
             await _begin_external_mcp_restart_activity(mind)
-            await mind.restart_external_mcp_runtime(
+            await mind.external_mcp.restart(
                 include_disabled=True,
                 defer_activity_stop=True,
             )
         else:
-            await mind.start_external_mcp_runtime(
+            await mind.external_mcp.start(
                 include_disabled=True,
                 defer_activity_stop=True,
             )
     elif action == "start":
-        await mind.start_external_mcp_runtime(defer_activity_stop=True)
+        await mind.external_mcp.start(defer_activity_stop=True)
     else:
         await _begin_external_mcp_restart_activity(mind)
-        await mind.restart_external_mcp_runtime(defer_activity_stop=True)
+        await mind.external_mcp.restart(defer_activity_stop=True)
 
     return was_started
 

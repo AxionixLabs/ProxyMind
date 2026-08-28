@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
@@ -13,6 +13,7 @@ from mind_app.runtime.mcp import external
 from mind_app.runtime.mcp import service_runtime
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
+from mind_app.runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
@@ -147,20 +148,26 @@ async def test_tui_starts_external_mcp_before_helix_background(
         return True
 
     class MindStub(object):
-        external_mcp = SimpleNamespace(last_start_snapshot={
-            "done": True,
-            "items": [
-                {"name": "docs", "state": "ready", "tools": 2},
-            ],
-        })
         frontend = SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         )
 
+        def __init__(self) -> None:
+            runtime = SimpleNamespace(last_start_snapshot={
+                "done": True,
+                "items": [
+                    {"name": "docs", "state": "ready", "tools": 2},
+                ],
+            })
+            self.external_mcp = SimpleNamespace(
+                current=runtime,
+                start=self._start_external_mcp,
+            )
+
         def is_service_mcp_linked(self):
             return False
 
-        async def start_external_mcp_runtime(
+        async def _start_external_mcp(
             self,
             *,
             defer_activity_stop=False,
@@ -359,6 +366,33 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
 
 
 @pytest.mark.anyio
+async def test_external_owner_reuses_runtime_for_start_and_restart() -> None:
+    runtime = SimpleNamespace(
+        start=AsyncMock(),
+        restart=AsyncMock(),
+        stop=AsyncMock(),
+    )
+    factory = Mock(return_value=runtime)
+    mind = SimpleNamespace(await_cleanup=Mind.await_cleanup)
+    owner = ExternalMcpRuntimeOwner(mind, runtime_factory=factory)
+
+    await owner.start(include_disabled=True)
+    await owner.start()
+    await owner.restart(defer_activity_stop=True)
+
+    assert owner.current is runtime
+    factory.assert_called_once_with(mind)
+    assert runtime.start.await_args_list == [
+        call(include_disabled=True, defer_activity_stop=False),
+        call(include_disabled=False, defer_activity_stop=False),
+    ]
+    runtime.restart.assert_awaited_once_with(
+        include_disabled=False,
+        defer_activity_stop=True,
+    )
+
+
+@pytest.mark.anyio
 async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
@@ -398,21 +432,28 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
 
 
 @pytest.mark.anyio
-async def test_mind_external_stop_waits_for_runtime_cleanup_when_cancelled() -> None:
+async def test_external_owner_waits_for_runtime_cleanup_when_cancelled() -> None:
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
     cleanup_finished = asyncio.Event()
 
     class RuntimeStub(object):
+        async def start(self, **_kwargs) -> None:
+            return None
+
         async def stop(self) -> None:
             cleanup_started.set()
             await release_cleanup.wait()
             cleanup_finished.set()
 
-    mind = Mind.__new__(Mind)
-    mind.external_mcp = RuntimeStub()
+    mind = SimpleNamespace(await_cleanup=Mind.await_cleanup)
+    owner = ExternalMcpRuntimeOwner(
+        mind,
+        runtime_factory=Mock(return_value=RuntimeStub()),
+    )
+    await owner.start()
 
-    stop_task = asyncio.create_task(mind.stop_external_mcp_runtime())
+    stop_task = asyncio.create_task(owner.close())
     await cleanup_started.wait()
     stop_task.cancel()
 
@@ -423,7 +464,7 @@ async def test_mind_external_stop_waits_for_runtime_cleanup_when_cancelled() -> 
         await stop_task
 
     assert cleanup_finished.is_set()
-    assert mind.external_mcp is None
+    assert owner.current is None
 
 
 @pytest.mark.anyio
@@ -435,7 +476,7 @@ async def test_model_turn_keeps_external_tool_snapshot_from_session_start(
     captured_groups = []
     initial_runtime = SimpleNamespace(group=None)
     mind = SimpleNamespace(
-        external_mcp=initial_runtime,
+        external_mcp=SimpleNamespace(current=initial_runtime),
         client_tools=object(),
         is_service_mcp_linked=lambda: False,
     )

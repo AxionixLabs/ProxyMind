@@ -24,6 +24,17 @@ class _Runtime(object):
         return None
 
 
+def _external_mcp_owner(runtime=None, **operations):
+    """构造外部 MCP 所有者测试替身。"""
+    methods = {
+        "start": AsyncMock(),
+        "restart": AsyncMock(),
+        "close": AsyncMock(),
+    }
+    methods.update(operations)
+    return SimpleNamespace(current=runtime, **methods)
+
+
 @pytest.mark.anyio
 async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch) -> None:
     runtime = _Runtime()
@@ -113,7 +124,9 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
                 "zentao": {"command": "zentao-server"},
             },
         }),
-        external_mcp=SimpleNamespace(started=True, group=group),
+        external_mcp=_external_mcp_owner(
+            SimpleNamespace(started=True, group=group),
+        ),
     )
 
     summary = mcp.summarize_external_runtime(mind)
@@ -148,18 +161,17 @@ def test_parse_mcp_command(command, expected) -> None:
 
 @pytest.mark.anyio
 async def test_force_uses_start_when_runtime_is_not_running(monkeypatch) -> None:
+    owner = _external_mcp_owner()
     mind = SimpleNamespace(
-        external_mcp=None,
-        start_external_mcp_runtime=AsyncMock(),
-        restart_external_mcp_runtime=AsyncMock(),
+        external_mcp=owner,
     )
     await mcp.run_mcp_action(mind, "force")
 
-    mind.start_external_mcp_runtime.assert_awaited_once_with(
+    owner.start.assert_awaited_once_with(
         include_disabled=True,
         defer_activity_stop=True,
     )
-    mind.restart_external_mcp_runtime.assert_not_awaited()
+    owner.restart.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -171,9 +183,9 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
         started.set()
         await asyncio.Future()
 
+    owner = _external_mcp_owner(start=start_runtime)
     mind = SimpleNamespace(
-        external_mcp=None,
-        start_external_mcp_runtime=start_runtime,
+        external_mcp=owner,
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -206,9 +218,11 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
 )
 async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
     views = []
+    owner = _external_mcp_owner(
+        SimpleNamespace(started=True) if started else None,
+    )
     mind = SimpleNamespace(
-        external_mcp=(SimpleNamespace(started=True) if started else None),
-        stop_external_mcp_runtime=AsyncMock(),
+        external_mcp=owner,
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -233,11 +247,12 @@ async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
 @pytest.mark.anyio
 async def test_mcp_stop_failure_has_stop_specific_status() -> None:
     views = []
+    owner = _external_mcp_owner(
+        SimpleNamespace(started=True),
+        close=AsyncMock(side_effect=AppError("cleanup failed")),
+    )
     mind = SimpleNamespace(
-        external_mcp=SimpleNamespace(started=True),
-        stop_external_mcp_runtime=AsyncMock(
-            side_effect=AppError("cleanup failed"),
-        ),
+        external_mcp=owner,
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -271,7 +286,7 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         cleanup_finished.set()
 
     async def stop_runtime() -> None:
-        mind.external_mcp = None
+        owner.current = None
         cleanup_task = asyncio.create_task(cleanup())
         try:
             await asyncio.shield(cleanup_task)
@@ -279,9 +294,12 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
             await cleanup_task
             raise
 
+    owner = _external_mcp_owner(
+        SimpleNamespace(started=True),
+        close=stop_runtime,
+    )
     mind = SimpleNamespace(
-        external_mcp=SimpleNamespace(started=True),
-        stop_external_mcp_runtime=stop_runtime,
+        external_mcp=owner,
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -351,7 +369,9 @@ def test_external_mcp_start_result_is_committed_to_tui(
 ) -> None:
     views = []
     mind = SimpleNamespace(
-        external_mcp=SimpleNamespace(last_start_snapshot=snapshot),
+        external_mcp=_external_mcp_owner(
+            SimpleNamespace(last_start_snapshot=snapshot),
+        ),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -381,7 +401,9 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
     }
     views = []
     mind = SimpleNamespace(
-        external_mcp=SimpleNamespace(last_start_snapshot=snapshot),
+        external_mcp=_external_mcp_owner(
+            SimpleNamespace(last_start_snapshot=snapshot),
+        ),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -403,16 +425,18 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
 def test_mcp_force_result_keeps_activity_prefix() -> None:
     views = []
     mind = SimpleNamespace(
-        external_mcp=SimpleNamespace(last_start_snapshot={
-            "done": True,
-            "items": [{
-                "name": "docs",
-                "state": "ready",
-                "tools": 4,
-                "discovered": 4,
-                "filtered": 0,
-            }],
-        }),
+        external_mcp=_external_mcp_owner(SimpleNamespace(
+            last_start_snapshot={
+                "done": True,
+                "items": [{
+                    "name": "docs",
+                    "state": "ready",
+                    "tools": 4,
+                    "discovered": 4,
+                    "filtered": 0,
+                }],
+            },
+        )),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),

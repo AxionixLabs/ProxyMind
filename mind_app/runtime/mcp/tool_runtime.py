@@ -70,7 +70,7 @@ class ExternalMcpProvider(object):
 
     def group(self) -> typing.Any:
         """返回外部 MCP 分组，未启动时返回空。"""
-        runtime = self._mind.external_mcp
+        runtime = self._mind.external_mcp.current
         return runtime.group if runtime else None
 
 

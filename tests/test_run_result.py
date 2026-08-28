@@ -499,7 +499,7 @@ def test_run_result_preserves_nested_usage_and_terminal_metadata() -> None:
 async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
     expected = RunResult(status="completed", assistant_text="done")
     mind = SimpleNamespace(
-        external_mcp=None,
+        external_mcp=SimpleNamespace(current=None),
         client_tools=object(),
         is_service_mcp_linked=lambda: False,
     )

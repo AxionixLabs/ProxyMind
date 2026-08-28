@@ -238,7 +238,7 @@ class TuiForegroundTasks(object):
         if mcp_action not in {"start", "force"}:
             return False
 
-        external_mcp = getattr(self.mind, "external_mcp", None)
+        external_mcp = self.mind.external_mcp.current
 
         if bool(getattr(external_mcp, "started", False)):
             if mcp_action == "start":

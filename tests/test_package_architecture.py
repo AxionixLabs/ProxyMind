@@ -91,8 +91,11 @@ def test_controller_does_not_expose_runtime_facades() -> None:
     assert not {
         "calling",
         "pause_subscription_listener",
+        "restart_external_mcp_runtime",
         "run_turn_lifecycle",
+        "start_external_mcp_runtime",
         "start_subscription_listener",
+        "stop_external_mcp_runtime",
         "stop_subscription_listener",
         "stream_turn",
     } & methods

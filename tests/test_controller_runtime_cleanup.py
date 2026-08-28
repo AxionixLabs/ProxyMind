@@ -95,7 +95,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         close=lambda: step("native_coding"),
     )
     controller._native_coding_close_tasks = set()
-    controller.stop_external_mcp_runtime = lambda: step("external_mcp")
+    controller.external_mcp = SimpleNamespace(
+        close=lambda: step("external_mcp"),
+    )
     controller.stop_config_service = lambda: step("config_service")
     controller.stop_keepalive_supervisor = lambda: step("keepalive")
     controller.server_manager = None

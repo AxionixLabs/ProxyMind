@@ -574,16 +574,17 @@ async def _run_controller(
             if output_mode == "tui" and not interactive_tui:
                 await start_tui_external_mcp(controller)
             elif output_mode != "tui":
-                await controller.start_external_mcp_runtime()
+                await controller.external_mcp.start()
 
             await preference_task
             service_endpoints.configure(await domain_task)
+            external_runtime = controller.external_mcp.current
 
             observe(
                 "startup.ready",
                 external_mcp=bool(
-                    controller.external_mcp is not None
-                    and controller.external_mcp.group is not None
+                    external_runtime is not None
+                    and external_runtime.group is not None
                 ),
                 helix_linked=controller.is_service_mcp_linked(),
             )
@@ -680,7 +681,7 @@ async def start_tui_external_mcp(controller: Mind) -> None:
     )
 
     try:
-        await controller.start_external_mcp_runtime(defer_activity_stop=True)
+        await controller.external_mcp.start(defer_activity_stop=True)
     except asyncio.CancelledError:
         await controller.await_cleanup(finish_mcp_activity(controller, "start"))
         raise

@@ -34,7 +34,7 @@ from engine.observability import (
 )
 from .attach import Attach
 from .runtime.mcp.keepalive import run_keepalive
-from .runtime.mcp.external import ExternalMcpRuntime
+from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.support.conversation import (
     ConversationState,
     ConversationTurn
@@ -222,7 +222,7 @@ class Mind(object):
 
         self.config_service: ConfigServiceRuntime | None = None
 
-        self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
+        self.external_mcp = ExternalMcpRuntimeOwner(self)
 
         self.subscription = SubscriptionRuntimeOwner(self)
 
@@ -1136,45 +1136,6 @@ class Mind(object):
         await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
         return self.pref.to_config()
 
-    async def start_external_mcp_runtime(
-        self,
-        *,
-        include_disabled: bool = False,
-        defer_activity_stop: bool = False
-    ) -> None:
-        """启动应用生命周期级外部 MCP 运行时。"""
-        if self.external_mcp is None:
-            self.external_mcp = ExternalMcpRuntime(self)
-
-        await self.external_mcp.start(
-            include_disabled=include_disabled,
-            defer_activity_stop=defer_activity_stop,
-        )
-
-    async def restart_external_mcp_runtime(
-        self,
-        *,
-        include_disabled: bool = False,
-        defer_activity_stop: bool = False
-    ) -> None:
-        """重启应用生命周期级外部 MCP 运行时。"""
-        if self.external_mcp is None:
-            self.external_mcp = ExternalMcpRuntime(self)
-
-        await self.external_mcp.restart(
-            include_disabled=include_disabled,
-            defer_activity_stop=defer_activity_stop,
-        )
-
-    async def stop_external_mcp_runtime(self) -> None:
-        """停止应用生命周期级外部 MCP 运行时。"""
-        runtime = self.external_mcp
-
-        self.external_mcp = None
-
-        if runtime is not None:
-            await self.await_cleanup(runtime.stop())
-
     async def stop_keepalive_supervisor(self) -> None:
         """停止应用生命周期内的本地后台服务保活任务。"""
         was_running = self.keepalive_stop is not None or self.keepalive_task is not None
@@ -1221,7 +1182,7 @@ class Mind(object):
             if close_tasks:
                 await asyncio.gather(*close_tasks, return_exceptions=True)
 
-            await self.stop_external_mcp_runtime()
+            await self.external_mcp.close()
             await self.stop_config_service()
             await self.stop_keepalive_supervisor()
 

@@ -154,7 +154,7 @@ class MindMcpRuntime(object):
             service_endpoints.configure(
                 await ServiceConfig(config_session).load_domain()
             )
-            await mind.start_external_mcp_runtime()
+            await mind.external_mcp.start()
         except BaseException:
             await mind.close_runtime_resources()
             raise

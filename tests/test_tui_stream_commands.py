@@ -313,7 +313,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         is_service_mcp_linked=lambda: False,
         require_service_runtime_context=lambda: object(),
-        external_mcp=None,
+        external_mcp=SimpleNamespace(current=None),
         cancel_service_runtime_startup=AsyncMock(),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
@@ -408,7 +408,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         apply_permissions=Mock(return_value=updated_permissions),
-        external_mcp=None,
+        external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
     )
 
@@ -497,7 +497,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
-        external_mcp=None,
+        external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
     )
 
@@ -578,7 +578,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         is_service_mcp_linked=lambda: False,
         require_service_runtime_context=lambda: object(),
-        external_mcp=None,
+        external_mcp=SimpleNamespace(current=None),
         cancel_service_runtime_startup=AsyncMock(),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
@@ -662,7 +662,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
-        external_mcp=None,
+        external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
     )
 
