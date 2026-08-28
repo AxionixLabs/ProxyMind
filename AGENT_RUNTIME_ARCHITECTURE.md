@@ -10,6 +10,8 @@
 ## 文档权威与当前边界
 
 - 本文档是 ProxyMind Agent Runtime 的目标 ADR，不表示目标目录已经存在。
+- `PROTOCOL.md` 是 Mind Runtime 线上字段、状态、事件、恢复和错误语义的唯一
+  规范源；本地 Runtime 只实现客户端所有权，不复制服务端状态机。
 - `AGENT_RUNTIME_MIGRATION.md` 是阶段状态的唯一权威来源；准备性拆分
   不能自动计入后续阶段。
 - `AGENTS.md` 定义当前可执行的生产依赖规则。迁移计划没有启用
@@ -28,6 +30,11 @@
 
 本地 Command/Event 必须显式携带所属的线上坐标，并在 adapter 边界完成
 本地 `run_id` 与线上 `turn_id` / `attempt` 的映射。
+
+线上 `event_seq` 的客户端水位按 `cid + sid` 归属 Session，而不是归属单次
+Turn 或连接。`mind_nova` 只实现事件解析、去重和 attach；跨 Turn 水位由
+`mind_app` 的 `SessionEventCursorStore` 持有。本地 `RunEvent.sequence` 仍只在
+单个本地 Run 内递增，两者不得互相赋值或比较。
 
 ## 决策结论
 
@@ -268,7 +275,8 @@ running -> cancelled
 | `mind_app/runtime/subagents/control.py` | `runtime/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
 | `mind_app/runtime/durable_effects.py` | `stores/effect_journal.py`、`stores/outbox.py` | 作为现有效果状态机的正式落点，不降级为日志工具 |
-| `mind_nova/requests`、`stream_events.py` | `protocol/`、`capabilities/model.py` | 请求/事件类型与传输实现分开，协议不得导入 `engine` |
+| `mind_nova/requests`、`stream_events.py` | `protocol/`、`capabilities/model.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；后续继续把请求/事件类型与传输实现分开，协议不得导入 `engine` |
+| `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
 | `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | 只做边界翻译和生命周期接入 |
 | `engine` | capability 的基础实现 | 保持平台基础设施定位，禁止反向依赖 Agent 业务 |

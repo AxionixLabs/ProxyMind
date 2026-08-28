@@ -8,6 +8,15 @@ from dataclasses import (
     field
 )
 from collections.abc import Mapping
+from mind_nova.item_projection import (
+    ItemKind,
+    ItemStatus,
+    builtin_done_item_status as _builtin_done_item_status,
+    default_item_projection as _default_item_projection,
+    reject_item_projection as _reject_item_projection,
+    tool_output_item_status as _tool_output_item_status,
+    validate_item_fields as _item_fields,
+)
 from mind_nova.turn_inputs import TurnInput
 from mind_nova.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
@@ -48,8 +57,29 @@ class StreamEvent:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ItemStreamEvent(StreamEvent):
+    """描述带有稳定 Canonical Item 投影的可展示事件。"""
+    item_id: str = ""
+    item_kind: ItemKind = "custom"
+    item_status: ItemStatus = "registered"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class MarkerEvent(StreamEvent):
     """描述不携带业务载荷的流式标记。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StreamGapEvent(StreamEvent):
+    """描述非持久事件回放缺口控制信号。"""
+    gap_kind: typing.Literal["retained_prefix", "internal"]
+    requested_after_seq: int
+    first_event_seq: int | None = None
+    next_seq: int | None = None
+    expected_event_seq: int | None = None
+    observed_event_seq: int | None = None
+    replay_required: bool = False
+    retryable: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -123,53 +153,94 @@ class PresentationSupersededEvent(StreamEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TextDeltaEvent(StreamEvent):
+class TextDeltaEvent(ItemStreamEvent):
     """描述 assistant 正文增量。"""
     text: str = ""
     segment_id: str = ""
 
-    @property
-    def item_id(self) -> str:
-        """返回稳定的 assistant 输出项身份。"""
-        return self.segment_id
-
+    def __post_init__(self) -> None:
+        """补齐正文增量的稳定 Item 投影。"""
+        _default_item_projection(
+            self,
+            item_id=self.segment_id,
+            item_kind="text",
+            item_status="in_progress",
+        )
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TextDoneEvent(StreamEvent):
+class TextDoneEvent(ItemStreamEvent):
     """描述 assistant 正文段完成事件。"""
     segment_id: str = ""
     final_text: str | None = None
 
-    @property
-    def item_id(self) -> str:
-        """返回稳定的 assistant 输出项身份。"""
-        return self.segment_id
-
+    def __post_init__(self) -> None:
+        """补齐正文完成事件的稳定 Item 投影。"""
+        _default_item_projection(
+            self,
+            item_id=self.segment_id,
+            item_kind="text",
+            item_status="completed",
+        )
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TextMetaEvent(StreamEvent):
+class TextMetaEvent(ItemStreamEvent):
     """描述 assistant 正文段的来源与标注元数据。"""
     segment_id: str = ""
     annotations: tuple[typing.Any, ...] | None = None
     citations: tuple[typing.Any, ...] | None = None
     sources: tuple[typing.Any, ...] | None = None
     source_count: int | None = None
+    builtin_call_ids: tuple[str, ...] | None = None
 
-    @property
-    def item_id(self) -> str:
-        """返回稳定的 assistant 输出项身份。"""
-        return self.segment_id
+    def __post_init__(self) -> None:
+        """补齐正文元数据事件的稳定 Item 投影。"""
+        _default_item_projection(
+            self,
+            item_id=self.segment_id,
+            item_kind="text",
+            item_status="completed",
+        )
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolBuiltinCallEvent(ItemStreamEvent):
+    """描述 provider 内置工具执行过程。"""
+    builtin_call_id: str = ""
+    builtin_type: str = ""
+    payload: dict[str, typing.Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """复制内置工具载荷。"""
+        _default_item_projection(
+            self,
+            item_id=self.builtin_call_id,
+            item_kind="builtin_tool",
+            item_status="in_progress",
+        )
+        object.__setattr__(self, "payload", copy.deepcopy(dict(self.payload or {})))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ToolBuiltinDoneEvent(StreamEvent):
+class ToolBuiltinDoneEvent(ItemStreamEvent):
     """描述内置工具完成后的来源元数据。"""
+    builtin_call_id: str = ""
+    builtin_type: str = ""
     sources: tuple[typing.Any, ...] | None = None
     source_count: int | None = None
 
+    def __post_init__(self) -> None:
+        """补齐内置工具完成事件的稳定 Item 投影。"""
+        _default_item_projection(
+            self,
+            item_id=self.builtin_call_id,
+            item_kind="builtin_tool",
+            item_status=_builtin_done_item_status(
+                getattr(self, "status", "completed")
+            ),
+        )
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ToolEvent(StreamEvent):
+class ToolEvent(ItemStreamEvent):
     """描述工具事件的公共调用字段。"""
     name: str = ""
     call_id: str = ""
@@ -178,13 +249,29 @@ class ToolEvent(StreamEvent):
 
     def __post_init__(self) -> None:
         """复制工具事件中的可变映射字段。"""
+        if self.type == "tool.call":
+            item_id = self.call_id
+            item_kind: ItemKind = "tool_call"
+            item_status: ItemStatus = "waiting_result"
+        else:
+            item_id = f"{self.call_id}:output" if self.call_id else ""
+            item_kind = "tool_output"
+            payload = getattr(self, "payload", {})
+            status = payload.get("status") if isinstance(payload, dict) else None
+            item_status = _tool_output_item_status(status)
+        _default_item_projection(
+            self,
+            item_id=item_id,
+            item_kind=item_kind,
+            item_status=item_status,
+        )
         object.__setattr__(
             self,
             "arguments",
             copy.deepcopy(dict(self.arguments or {})),
         )
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ToolApprovalRequiredEvent(StreamEvent):
+class ToolApprovalRequiredEvent(ItemStreamEvent):
     """描述需要客户端决定的直接工具审批请求。"""
     call_id: str = ""
     reason: str = ""
@@ -233,6 +320,15 @@ class ToolApprovalRequiredEvent(StreamEvent):
     available_decisions: tuple[ToolApprovalDecision, ...] = ()
     parsed_cmd: tuple[typing.Any, ...] = ()
 
+    def __post_init__(self) -> None:
+        """补齐审批事件的稳定 Item 投影。"""
+        _default_item_projection(
+            self,
+            item_id=self.approval_id,
+            item_kind="approval",
+            item_status="waiting_approval",
+        )
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolCallEvent(ToolEvent):
@@ -255,8 +351,6 @@ class ToolCallsDoneEvent(StreamEvent):
     batch_id: str = ""
     call_ids: tuple[str, ...] = ()
     count: int = 0
-    ready: typing.Literal[True] = True
-    timeout_sec: int | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -282,6 +376,7 @@ class UnknownStreamEvent(StreamEvent):
 
 ChatStreamEvent: typing.TypeAlias = (
     MarkerEvent
+    | StreamGapEvent
     | TurnFailedEvent
     | TurnDoneEvent
     | TurnRetryingEvent
@@ -292,6 +387,7 @@ ChatStreamEvent: typing.TypeAlias = (
     | TextDeltaEvent
     | TextDoneEvent
     | TextMetaEvent
+    | ToolBuiltinCallEvent
     | ToolBuiltinDoneEvent
     | ToolApprovalRequiredEvent
     | ToolCallEvent
@@ -305,8 +401,18 @@ _MARKER_EVENT_TYPES = {
     "ping",
     "turn.start",
     "turn.thinking",
-    "tool.builtin.call",
 }
+
+_ITEM_EVENT_TYPES = frozenset({
+    "text.delta",
+    "text.done",
+    "text.meta",
+    "tool.call",
+    "tool.output",
+    "tool.approval_required",
+    "tool.builtin.call",
+    "tool.builtin.done",
+})
 
 
 def parse_stream_event(
@@ -327,17 +433,20 @@ def parse_stream_event(
     ):
         raise ValueError("stream event contains a removed protocol field")
 
+    if event_type == "stream.gap":
+        return _stream_gap_event(raw)
+
     common = _common_fields(raw, event_type)
 
     if event_type == "tool.calls.start":
         return ToolCallsStartEvent(
             **common,
-            **_tool_calls_boundary_fields(raw, "tool.calls.start"),
+            **_tool_calls_start_fields(raw),
         )
     if event_type == "tool.calls.done":
         return ToolCallsDoneEvent(
             **common,
-            **_tool_calls_boundary_fields(raw, "tool.calls.done"),
+            **_tool_calls_done_fields(raw),
         )
 
     if event_type in _MARKER_EVENT_TYPES:
@@ -420,38 +529,88 @@ def parse_stream_event(
             reason=_text(raw.get("reason")) or "attempt_restarted",
         )
     if event_type == "text.delta":
+        segment_id = _required_text(
+            raw.get("segment_id"),
+            "text.delta segment_id",
+        )
         return TextDeltaEvent(
             **common,
-            text=str(raw.get("text") or ""),
-            segment_id=_required_text(
-                raw.get("segment_id"),
-                "text.delta segment_id",
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=segment_id,
+                expected_kind="text",
+                expected_status="in_progress",
             ),
+            text=str(raw.get("text") or ""),
+            segment_id=segment_id,
         )
     if event_type == "text.done":
+        segment_id = _required_text(
+            raw.get("segment_id"),
+            "text.done segment_id",
+        )
         return TextDoneEvent(
             **common,
-            segment_id=_required_text(
-                raw.get("segment_id"),
-                "text.done segment_id",
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=segment_id,
+                expected_kind="text",
+                expected_status="completed",
             ),
+            segment_id=segment_id,
             final_text=_optional_content_text(raw.get("final_text")),
         )
     if event_type == "text.meta":
+        segment_id = _required_text(
+            raw.get("segment_id"),
+            "text.meta segment_id",
+        )
         return TextMetaEvent(
             **common,
-            segment_id=_required_text(
-                raw.get("segment_id"),
-                "text.meta segment_id",
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=segment_id,
+                expected_kind="text",
+                expected_status="completed",
             ),
+            segment_id=segment_id,
             annotations=_tuple_or_none(raw.get("annotations")),
             citations=_tuple_or_none(raw.get("citations")),
             sources=_tuple_or_none(raw.get("sources")),
             source_count=_nonnegative_int(raw.get("source_count")),
+            builtin_call_ids=_text_tuple_or_none(raw.get("builtin_call_ids")),
+        )
+    if event_type == "tool.builtin.call":
+        builtin_call_id = _text(raw.get("builtin_call_id"))
+        return ToolBuiltinCallEvent(
+            **common,
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=builtin_call_id,
+                expected_kind="builtin_tool",
+                expected_status="in_progress",
+            ),
+            builtin_call_id=builtin_call_id,
+            builtin_type=_text(raw.get("builtin_type")),
+            payload=raw,
         )
     if event_type == "tool.builtin.done":
+        builtin_call_id = _text(raw.get("builtin_call_id"))
         return ToolBuiltinDoneEvent(
             **common,
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=builtin_call_id,
+                expected_kind="builtin_tool",
+                expected_status=_builtin_done_item_status(raw.get("status")),
+            ),
+            builtin_call_id=builtin_call_id,
+            builtin_type=_text(raw.get("builtin_type")),
             sources=_tuple_or_none(raw.get("sources")),
             source_count=_nonnegative_int(raw.get("source_count")),
         )
@@ -551,6 +710,13 @@ def parse_stream_event(
         )
         return ToolApprovalRequiredEvent(
             **common,
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=approval_id,
+                expected_kind="approval",
+                expected_status="waiting_approval",
+            ),
             call_id=_required_text(raw.get("call_id"), "tool.approval_required call_id"),
             kind=kind,
             approval_id=approval_id,
@@ -598,6 +764,8 @@ def parse_stream_event(
             parsed_cmd=parsed_cmd,
         )
     if event_type == "tool.call":
+        if "tool" in raw:
+            raise ValueError("tool.call contains removed protocol field: tool")
         tool_fields = _tool_fields(raw)
         if not tool_fields["name"]:
             raise ValueError("tool.call name is required")
@@ -611,16 +779,35 @@ def parse_stream_event(
             raise ValueError("tool.call shell reason is required")
         return ToolCallEvent(
             **common,
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=tool_fields["call_id"],
+                expected_kind="tool_call",
+                expected_status="waiting_result",
+            ),
             **tool_fields,
         )
 
     if event_type == "tool.output":
+        if "tool" in raw:
+            raise ValueError("tool.output contains removed protocol field: tool")
+        tool_fields = _tool_fields(raw)
+        call_id = _required_text(tool_fields["call_id"], "tool.output call_id")
         return ToolOutputEvent(
             **common,
-            **_tool_fields(raw),
+            **_item_fields(
+                raw,
+                event_type=event_type,
+                source_id=f"{call_id}:output",
+                expected_kind="tool_output",
+                expected_status=_tool_output_item_status(raw.get("status")),
+            ),
+            **tool_fields,
             payload=raw,
         )
 
+    _reject_item_projection(raw, event_type=event_type)
     return UnknownStreamEvent(**common, payload=raw)
 
 
@@ -629,6 +816,9 @@ def _common_fields(
     event_type: str
 ) -> dict[str, typing.Any]:
     """提取所有流式事件共享的字段。"""
+    if event_type not in _ITEM_EVENT_TYPES:
+        _reject_item_projection(payload, event_type=event_type)
+
     display = payload.get("display")
     if event_type == "ping":
         proto = _text(payload.get("proto"))
@@ -675,18 +865,18 @@ def _common_fields(
 def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """提取工具事件共享的调用字段。"""
     return {
-        "name": _text(payload.get("name") or payload.get("tool")),
+        "name": _text(payload.get("name")),
         "call_id": _text(payload.get("call_id")),
         "arguments": _dict(payload.get("arguments")),
         "reason": _text(payload.get("reason")),
     }
 
 
-def _tool_calls_boundary_fields(
+def _tool_calls_boundary_identity(
     payload: dict[str, typing.Any],
     event_type: str,
 ) -> dict[str, typing.Any]:
-    """读取并校验客户端工具批次边界字段。"""
+    """读取并校验客户端工具批次共享身份字段。"""
     batch_id = _required_text(payload.get("batch_id"), f"{event_type} batch_id")
     raw_call_ids = payload.get("call_ids")
     if not isinstance(raw_call_ids, list) or not raw_call_ids:
@@ -700,21 +890,81 @@ def _tool_calls_boundary_fields(
     count = _required_positive_int(payload.get("count"), f"{event_type} count")
     if count != len(call_ids):
         raise ValueError(f"{event_type} count does not match call_ids")
-    if payload.get("ready") is not True:
-        raise ValueError(f"{event_type} ready must be true")
-    timeout_sec = payload.get("timeout_sec")
-    if timeout_sec is not None:
-        timeout_sec = _required_positive_int(
-            timeout_sec,
-            f"{event_type} timeout_sec",
-        )
     return {
         "batch_id": batch_id,
         "call_ids": call_ids,
         "count": count,
+    }
+
+
+def _tool_calls_start_fields(
+    payload: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """读取仅属于 tool.calls.start 的就绪与执行预算字段。"""
+    fields = _tool_calls_boundary_identity(payload, "tool.calls.start")
+    if payload.get("ready") is not True:
+        raise ValueError("tool.calls.start ready must be true")
+    timeout_sec = payload.get("timeout_sec")
+    if timeout_sec is not None:
+        timeout_sec = _required_positive_int(
+            timeout_sec,
+            "tool.calls.start timeout_sec",
+        )
+    return {
+        **fields,
         "ready": True,
         "timeout_sec": timeout_sec,
     }
+
+
+def _tool_calls_done_fields(
+    payload: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """读取 tool.calls.done 的完整批次身份。"""
+    return _tool_calls_boundary_identity(payload, "tool.calls.done")
+
+
+def _stream_gap_event(payload: dict[str, typing.Any]) -> StreamGapEvent:
+    """解析不占用持久事件序号的回放缺口信号。"""
+    _reject_item_projection(payload, event_type="stream.gap")
+    gap_kind = _required_text(payload.get("gap_kind"), "stream.gap gap_kind")
+    if gap_kind not in {"retained_prefix", "internal"}:
+        raise ValueError("stream.gap gap_kind is invalid")
+
+    requested_after_seq = _nonnegative_int(payload.get("requested_after_seq"))
+    if requested_after_seq is None:
+        raise ValueError("stream.gap requested_after_seq must be non-negative")
+
+    first_event_seq = _positive_int(payload.get("first_event_seq"))
+    next_seq = _nonnegative_int(payload.get("next_seq"))
+    expected_event_seq = _positive_int(payload.get("expected_event_seq"))
+    observed_event_seq = _positive_int(payload.get("observed_event_seq"))
+
+    if gap_kind == "retained_prefix":
+        if first_event_seq is None or next_seq is None:
+            raise ValueError("retained_prefix stream.gap requires replay floor")
+        if next_seq != first_event_seq - 1 or next_seq < requested_after_seq:
+            raise ValueError("retained_prefix stream.gap replay floor is invalid")
+    elif expected_event_seq is None or observed_event_seq is None:
+        raise ValueError("internal stream.gap requires sequence coordinates")
+
+    return StreamGapEvent(
+        type="stream.gap",
+        cid=_required_text(payload.get("cid"), "stream.gap cid"),
+        sid=_required_text(payload.get("sid"), "stream.gap sid"),
+        turn_id=_required_text(payload.get("turn_id"), "stream.gap turn_id"),
+        gap_kind=typing.cast(
+            typing.Literal["retained_prefix", "internal"],
+            gap_kind,
+        ),
+        requested_after_seq=requested_after_seq,
+        first_event_seq=first_event_seq,
+        next_seq=next_seq,
+        expected_event_seq=expected_event_seq,
+        observed_event_seq=observed_event_seq,
+        replay_required=_bool_value(payload.get("replay_required")),
+        retryable=_bool_value(payload.get("retryable")),
+    )
 
 
 def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -808,6 +1058,18 @@ def _turn_input_or_none(value: typing.Any) -> TurnInput | None:
 def _tuple_or_none(value: typing.Any) -> tuple[typing.Any, ...] | None:
     """复制可选列表协议值。"""
     return tuple(copy.deepcopy(value)) if isinstance(value, list) else None
+
+
+def _text_tuple_or_none(value: typing.Any) -> tuple[str, ...] | None:
+    """读取可选的非空文本列表协议值。"""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("expected a list of text values")
+    return tuple(
+        _required_text(item, "list item")
+        for item in value
+    )
 
 
 def _tuple_or_empty(value: typing.Any) -> tuple[typing.Any, ...]:

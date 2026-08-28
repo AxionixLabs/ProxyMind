@@ -21,6 +21,7 @@ from mind_nova.requests.turn_control import (
 from mind_nova.services import service_endpoints
 from mind_nova.stream_events import (
     ChatStreamEvent,
+    StreamGapEvent,
     TurnDoneEvent,
     TurnFailedEvent,
     TurnLogicalSettledEvent,
@@ -86,6 +87,7 @@ class TurnEventStream(object):
         kwargs: dict[str, typing.Any],
         on_reconnect_status: ReconnectStatusCallback | None = None,
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+        initial_event_seq: int = 0,
     ) -> None:
         """保存请求参数并初始化逻辑轮次观察状态。"""
         self._request = (pref_config, message, tools, attachments, kwargs)
@@ -114,7 +116,13 @@ class TurnEventStream(object):
 
         self.end_reason: TurnStreamEndReason | None = None
 
-        self.last_event_seq: int = 0
+        if (
+            isinstance(initial_event_seq, bool)
+            or not isinstance(initial_event_seq, int)
+            or initial_event_seq < 0
+        ):
+            raise ValueError("initial_event_seq must be a non-negative integer")
+        self.last_event_seq = initial_event_seq
 
     def __aiter__(self) -> typing.AsyncIterator[ChatStreamEvent]:
         """返回当前逻辑轮次的异步事件迭代器。"""
@@ -164,6 +172,23 @@ class TurnEventStream(object):
 
             if parsed_event.type == "ping":
                 self._mark_transport_healthy()
+                continue
+            if isinstance(parsed_event, StreamGapEvent):
+                self._validate_gap_identity(parsed_event)
+                if parsed_event.gap_kind == "internal":
+                    await self._finish("protocol_error")
+                    raise RuntimeError(
+                        "authoritative turn event sequence contains an internal gap"
+                    )
+                if parsed_event.next_seq is None:
+                    await self._finish("protocol_error")
+                    raise RuntimeError("retained event prefix is missing replay floor")
+                self.last_event_seq = max(
+                    self.last_event_seq,
+                    parsed_event.next_seq,
+                )
+                self._mark_transport_healthy()
+                event = parsed_event
                 continue
             self._validate_turn_identity(parsed_event)
             self._response_observed = True
@@ -355,6 +380,20 @@ class TurnEventStream(object):
         if event.event_seq is None or event.event_seq < 1:
             raise ValueError("stream event requires a positive event_seq")
 
+    def _validate_gap_identity(self, event: StreamGapEvent) -> None:
+        """拒绝不属于当前逻辑轮次的非持久缺口信号。"""
+        attach_target = self._attach_target
+        if attach_target is None:
+            raise ValueError("turn stream is missing recovery coordinates")
+        if (
+            event.cid != attach_target["cid"]
+            or event.sid != attach_target["sid"]
+            or event.turn_id != attach_target["turn_id"]
+        ):
+            raise ValueError("stream gap does not belong to the current turn")
+        if event.requested_after_seq != self.last_event_seq:
+            raise ValueError("stream gap does not match the confirmed event cursor")
+
     def _has_sequence_gap(self, event: ChatStreamEvent) -> bool:
         """判断已建立水位后的事件序号是否出现缺口。"""
         event_seq = event.event_seq
@@ -533,6 +572,7 @@ def stream_chat(
     on_reconnect_status: ReconnectStatusCallback | None = None,
     on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     *_,
+    initial_event_seq: int = 0,
     **kwargs
 ) -> TurnEventStream:
     """流式获取对话事件。"""
@@ -545,6 +585,7 @@ def stream_chat(
         kwargs,
         on_reconnect_status,
         on_approval_snapshot,
+        initial_event_seq,
     )
 
 

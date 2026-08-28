@@ -55,6 +55,7 @@ from .executor import (
 )
 from ..support.idle_status import IdleStatusTimer
 from .stream_approval import ApprovalEventHandler
+from .delivery import SessionEventCursorStore
 from .stream_tools import (
     ToolCallBatchBuffer,
     ToolEventHandler,
@@ -270,6 +271,13 @@ async def stream_turn(
 
     tool_batch_buffer = ToolCallBatchBuffer()
 
+    configured_event_cursors = getattr(mind, "session_event_cursors", None)
+    if isinstance(configured_event_cursors, SessionEventCursorStore):
+        session_event_cursors = configured_event_cursors
+    else:
+        session_event_cursors = SessionEventCursorStore()
+        setattr(mind, "session_event_cursors", session_event_cursors)
+
     configured_approval_ledger = getattr(mind, "approval_call_ledger", None)
     if isinstance(configured_approval_ledger, ApprovalCallLedger):
         approval_ledger = configured_approval_ledger
@@ -447,6 +455,10 @@ async def stream_turn(
             pref_config,
             message,
             tools,
+            initial_event_seq=session_event_cursors.current(
+                cid=turn_context.cid,
+                sid=turn_context.sid,
+            ),
             on_reconnect_status=retrying_status.set_transport,
             on_approval_snapshot=approval_handler.restore_snapshot,
             **kwargs,
@@ -758,11 +770,20 @@ async def stream_turn(
         )
 
     finally:
+        stream_end_reason = (
+            getattr(event_stream, "end_reason", None)
+            if event_stream is not None
+            else None
+        )
+        if event_stream is not None and stream_end_reason == "settled":
+            session_event_cursors.advance(
+                cid=turn_context.cid,
+                sid=turn_context.sid,
+                event_seq=int(getattr(event_stream, "last_event_seq", 0)),
+            )
         stop_decision = await turn_finalizer.finalize(
-            stream_end_reason=(
-                getattr(event_stream, "end_reason", None) or "cancelled"
-                if event_stream is not None
-                else None
+            stream_end_reason=stream_end_reason or (
+                "cancelled" if event_stream is not None else None
             ),
             hook_events=turn_hook_events,
             prompt_blocked=prompt_blocked,

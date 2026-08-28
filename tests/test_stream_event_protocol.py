@@ -4,6 +4,7 @@ import pytest
 
 from mind_nova.stream_events import (
     PresentationSupersededEvent,
+    StreamGapEvent,
     TextMetaEvent,
     ToolApprovalRequiredEvent,
     ToolCallEvent,
@@ -34,6 +35,7 @@ def parse_stream_event(payload):
         current.setdefault("presentation_epoch", 1)
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
+        _complete_item_projection(current)
         if str(current.get("type") or "") == "tool.approval_required":
             current.setdefault("approval_id", "approval_test")
             current.setdefault("started_at_ms", 0)
@@ -80,6 +82,50 @@ def parse_stream_event(payload):
     return _parse_stream_event(current)
 
 
+def _complete_item_projection(payload) -> None:
+    """按正式协议为测试事件补齐 Canonical Item 字段。"""
+    event_type = str(payload.get("type") or "")
+    projection = None
+    if event_type.startswith("text."):
+        projection = (
+            payload.get("segment_id"),
+            "text",
+            "in_progress" if event_type == "text.delta" else "completed",
+        )
+    elif event_type == "tool.call":
+        projection = (payload.get("call_id"), "tool_call", "waiting_result")
+    elif event_type == "tool.output":
+        output_status = {
+            "completed": "completed",
+            "failed": "failed",
+            "cancelled": "cancelled",
+        }.get(payload.get("status"), "result_received")
+        projection = (
+            f"{payload.get('call_id')}:output",
+            "tool_output",
+            output_status,
+        )
+    elif event_type == "tool.approval_required":
+        projection = (
+            payload.get("approval_id") or "approval_test",
+            "approval",
+            "waiting_approval",
+        )
+    elif event_type.startswith("tool.builtin."):
+        status = "in_progress" if event_type.endswith("call") else "completed"
+        projection = (
+            payload.get("builtin_call_id") or "builtin_test",
+            "builtin_tool",
+            status,
+        )
+    if projection is None:
+        return
+    item_id, item_kind, item_status = projection
+    payload.setdefault("item_id", item_id)
+    payload.setdefault("item_kind", item_kind)
+    payload.setdefault("item_status", item_status)
+
+
 def _durable_tool_event() -> dict:
     """构造最新客户端工具调用协议事件。"""
     return {
@@ -121,15 +167,13 @@ def test_tool_call_batch_boundaries_are_typed_and_strict() -> None:
         "batch_id": "batch-1",
         "call_ids": ["call-a", "call-b"],
         "count": 2,
-        "ready": True,
-        "timeout_sec": 60,
     })
 
     assert isinstance(start, ToolCallsStartEvent)
     assert start.call_ids == ("call-a", "call-b")
     assert start.timeout_sec == 60
     assert isinstance(done, ToolCallsDoneEvent)
-    assert done.timeout_sec == 60
+    assert done.call_ids == start.call_ids
 
     for invalid in (
         {"ready": False},
@@ -146,6 +190,92 @@ def test_tool_call_batch_boundaries_are_typed_and_strict() -> None:
         }
         with pytest.raises(ValueError):
             parse_stream_event(payload)
+
+
+def test_formal_item_projection_requires_matching_domain_identity() -> None:
+    payload = {
+        "type": "text.delta",
+        "proto": "mind.chat",
+        "cid": "cid_test",
+        "sid": "sid_test",
+        "turn_id": "turn_test",
+        "event_seq": 1,
+        "presentation_epoch": 1,
+        "segment_id": "segment-1",
+        "item_id": "segment-1",
+        "item_kind": "text",
+        "item_status": "in_progress",
+        "text": "answer",
+    }
+
+    event = _parse_stream_event(payload)
+
+    assert event.item_id == "segment-1"
+    assert event.item_kind == "text"
+    assert event.item_status == "in_progress"
+
+    payload["item_id"] = "another-segment"
+    with pytest.raises(ValueError, match="domain identity"):
+        _parse_stream_event(payload)
+
+
+def test_formal_item_projection_is_required_only_for_display_events() -> None:
+    display_event = {
+        "type": "tool.call",
+        "proto": "mind.chat",
+        "cid": "cid_test",
+        "sid": "sid_test",
+        "turn_id": "turn_test",
+        "event_seq": 1,
+        "presentation_epoch": 1,
+        "call_id": "call-1",
+        "name": "test_tool",
+        "arguments": {},
+    }
+    with pytest.raises(ValueError, match="item_id is required"):
+        _parse_stream_event(display_event)
+
+    control_event = {
+        "type": "turn.start",
+        "proto": "mind.chat",
+        "cid": "cid_test",
+        "sid": "sid_test",
+        "turn_id": "turn_test",
+        "event_seq": 1,
+        "presentation_epoch": 1,
+        "item_id": "forbidden",
+    }
+    with pytest.raises(ValueError, match="must not carry Item projection"):
+        _parse_stream_event(control_event)
+
+
+def test_stream_gap_is_a_nonpersistent_control_event() -> None:
+    gap = _parse_stream_event({
+        "type": "stream.gap",
+        "cid": "cid_test",
+        "sid": "sid_test",
+        "turn_id": "turn_test",
+        "gap_kind": "retained_prefix",
+        "requested_after_seq": 2,
+        "first_event_seq": 5,
+        "next_seq": 4,
+        "replay_required": False,
+        "retryable": False,
+    })
+
+    assert isinstance(gap, StreamGapEvent)
+    assert gap.event_seq is None
+    assert gap.next_seq == 4
+
+    with pytest.raises(ValueError, match="sequence coordinates"):
+        _parse_stream_event({
+            "type": "stream.gap",
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_test",
+            "gap_kind": "internal",
+            "requested_after_seq": 2,
+        })
 
 
 def test_tool_call_requires_name_and_call_id() -> None:
@@ -230,6 +360,7 @@ def test_text_meta_event_copies_structured_metadata() -> None:
         "citations": [{"source": 0}],
         "sources": sources,
         "source_count": 1,
+        "builtin_call_ids": ["builtin-1"],
         "proto": "mind.chat",
         "round": 2,
     }
@@ -241,11 +372,12 @@ def test_text_meta_event_copies_structured_metadata() -> None:
     assert event.segment_id == "segment-1"
     assert event.sources == ({"url": "https://example.com"},)
     assert event.source_count == 1
+    assert event.builtin_call_ids == ("builtin-1",)
     assert event.proto == "mind.chat"
     assert event.round == 2
 
 
-def test_tool_call_event_normalizes_wire_aliases() -> None:
+def test_tool_call_event_rejects_removed_tool_name_alias() -> None:
     payload = _durable_tool_event()
     payload.pop("name")
     payload.update({
@@ -254,13 +386,8 @@ def test_tool_call_event_normalizes_wire_aliases() -> None:
         "arguments": {"command": "pytest -q"},
         "reason": "模型需要运行测试。",
     })
-    event = parse_stream_event(payload)
-
-    assert isinstance(event, ToolCallEvent)
-    assert event.name == "shell_command"
-    assert event.call_id == "call-1"
-    assert event.arguments == {"command": "pytest -q"}
-    assert event.reason == "模型需要运行测试。"
+    with pytest.raises(ValueError, match="removed protocol field"):
+        parse_stream_event(payload)
 
 
 def test_tool_call_event_accepts_calls_without_execution_metadata() -> None:
@@ -274,6 +401,16 @@ def test_tool_call_event_accepts_calls_without_execution_metadata() -> None:
 
     assert isinstance(event, ToolCallEvent)
     assert event.reason == "模型需要确认工作目录。"
+
+
+def test_tool_output_rejects_status_outside_formal_contract() -> None:
+    with pytest.raises(ValueError, match="status is invalid"):
+        parse_stream_event({
+            "type": "tool.output",
+            "name": "test_tool",
+            "call_id": "call-1",
+            "status": "reconciliation_required",
+        })
 
 
 def test_shell_tool_call_requires_model_reason() -> None:
@@ -540,6 +677,9 @@ def test_tool_call_batch_buffer_ignores_completed_batch_replay() -> None:
         "call_id": "call-1",
         "name": "test_tool",
         "arguments": {},
+        "item_id": "call-1",
+        "item_kind": "tool_call",
+        "item_status": "waiting_result",
     })
     done = _parse_stream_event({
         "type": "tool.calls.done",
@@ -552,7 +692,6 @@ def test_tool_call_batch_buffer_ignores_completed_batch_replay() -> None:
         "batch_id": "batch-replay",
         "call_ids": ["call-1"],
         "count": 1,
-        "ready": True,
     })
 
     buffer = ToolCallBatchBuffer()

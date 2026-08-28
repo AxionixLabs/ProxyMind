@@ -80,6 +80,7 @@ def parse_stream_event(payload):
         current.setdefault("presentation_epoch", 1)
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
+        _complete_item_projection(current)
         if str(current.get("type") or "") == "tool.approval_required":
             current.setdefault("approval_id", "approval_test")
             current.setdefault("started_at_ms", 0)
@@ -122,6 +123,50 @@ def parse_stream_event(payload):
                 current.setdefault("arguments", {})
                 current.setdefault("mcp_request_id", "mcp_request_test")
     return _parse_stream_event(current)
+
+
+def _complete_item_projection(payload) -> None:
+    """按正式协议为运行流测试补齐 Canonical Item 字段。"""
+    event_type = str(payload.get("type") or "")
+    projection = None
+    if event_type.startswith("text."):
+        projection = (
+            payload.get("segment_id"),
+            "text",
+            "in_progress" if event_type == "text.delta" else "completed",
+        )
+    elif event_type == "tool.call":
+        projection = (payload.get("call_id"), "tool_call", "waiting_result")
+    elif event_type == "tool.output":
+        output_status = {
+            "completed": "completed",
+            "failed": "failed",
+            "cancelled": "cancelled",
+        }.get(payload.get("status"), "result_received")
+        projection = (
+            f"{payload.get('call_id')}:output",
+            "tool_output",
+            output_status,
+        )
+    elif event_type == "tool.approval_required":
+        projection = (
+            payload.get("approval_id") or "approval_test",
+            "approval",
+            "waiting_approval",
+        )
+    elif event_type.startswith("tool.builtin."):
+        status = "in_progress" if event_type.endswith("call") else "completed"
+        projection = (
+            payload.get("builtin_call_id") or "builtin_test",
+            "builtin_tool",
+            status,
+        )
+    if projection is None:
+        return
+    item_id, item_kind, item_status = projection
+    payload.setdefault("item_id", item_id)
+    payload.setdefault("item_kind", item_kind)
+    payload.setdefault("item_status", item_status)
 
 
 def response_identity(

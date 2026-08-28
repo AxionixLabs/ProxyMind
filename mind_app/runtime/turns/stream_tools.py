@@ -155,7 +155,6 @@ class ToolCallBatchBuffer:
                 event.batch_id != ignored.batch_id
                 or event.call_ids != ignored.call_ids
                 or event.count != ignored.count
-                or event.timeout_sec != ignored.timeout_sec
             ):
                 raise ValueError("tool.calls.done does not match tool.calls.start")
             self._ignored_batch = None
@@ -168,7 +167,6 @@ class ToolCallBatchBuffer:
             event.batch_id != start.batch_id
             or event.call_ids != start.call_ids
             or event.count != start.count
-            or event.timeout_sec != start.timeout_sec
         ):
             raise ValueError("tool.calls.done does not match tool.calls.start")
         missing = [call_id for call_id in start.call_ids if call_id not in self._calls]

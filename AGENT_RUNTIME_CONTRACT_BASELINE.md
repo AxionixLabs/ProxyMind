@@ -6,6 +6,10 @@
 契约。它用于约束迁移兼容性，不取代代码中的解析器、类型和校验逻辑；发生差异时，
 先判断是代码契约变更还是本文漂移，再同步修改代码、测试和本文。
 
+线上 Mind Runtime 的规范权威为根目录 `PROTOCOL.md`。本基线只冻结 ProxyMind
+已有入口及迁移映射；与线上字段、事件或恢复语义冲突时必须按正式协议修正客户端，
+不得保留隐式别名或用本地 Runtime 状态覆盖服务端事实。
+
 ## 身份与序号
 
 迁移期间必须区分以下三组坐标：
@@ -19,6 +23,11 @@
 本地 `run_id` 与服务端状态快照中的 `run_id` 当前不是同一份已冻结的公开身份。
 阶段 1 必须在 adapter 中保存映射，不能依赖字符串恰好相等。服务端
 `event_seq`、订阅 `seq` 和未来本地 Event `sequence` 也不得混用。
+
+线上 `event_seq` 是 `cid + sid` 范围内跨 Turn 的持久水位。客户端通过
+`SessionEventCursorStore` 保存已处理水位，单 Turn 传输从该值开始去重并用
+`after_seq` attach；`turn.done`、`turn.failed` 和连接关闭都不推进本地 FIFO，
+只有 `turn.logical_settled` 是逻辑轮次结算事实。
 
 ## CLI 契约
 

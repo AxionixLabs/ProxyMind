@@ -31,8 +31,20 @@ def current_wire_envelope(monkeypatch) -> None:
             current.setdefault("cid", "cid_1")
             current.setdefault("sid", "sid_1")
             current.setdefault("presentation_epoch", 1)
-            if str(current.get("type") or "").startswith("text."):
-                current.setdefault("segment_id", "segment_test")
+        if str(current.get("type") or "").startswith("text."):
+            current.setdefault("segment_id", "segment_test")
+            current.setdefault("item_id", current["segment_id"])
+            current.setdefault("item_kind", "text")
+            current.setdefault(
+                "item_status",
+                "in_progress"
+                if current["type"] == "text.delta"
+                else "completed",
+            )
+        if str(current.get("type") or "") == "tool.call":
+            current.setdefault("item_id", current.get("call_id"))
+            current.setdefault("item_kind", "tool_call")
+            current.setdefault("item_status", "waiting_result")
         return parser(current)
 
     monkeypatch.setattr(chat, "parse_stream_event", parse)
@@ -137,6 +149,103 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
     build_payload.assert_awaited_once()
     endpoint.assert_called_once_with("/mind-chat")
     make_headers.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_stream_chat_continues_from_session_event_watermark(monkeypatch) -> None:
+    async def payloads():
+        yield {
+            "type": "text.delta",
+            "turn_id": "turn_1",
+            "event_seq": 11,
+            "text": "next turn",
+        }
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_1",
+            "event_seq": 12,
+            "next_input": None,
+        }
+
+    _install_stream(monkeypatch, payloads())
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        initial_event_seq=10,
+    )
+
+    events = await _collect(event_stream)
+
+    assert [event.event_seq for event in events] == [11, 12]
+    assert event_stream.last_event_seq == 12
+
+
+@pytest.mark.anyio
+async def test_retained_prefix_gap_advances_replay_floor(monkeypatch) -> None:
+    async def payloads():
+        yield {
+            "type": "stream.gap",
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "turn_id": "turn_1",
+            "gap_kind": "retained_prefix",
+            "requested_after_seq": 1,
+            "first_event_seq": 5,
+            "next_seq": 4,
+        }
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_1",
+            "event_seq": 5,
+            "next_input": None,
+        }
+
+    _install_stream(monkeypatch, payloads())
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        initial_event_seq=1,
+    )
+
+    events = await _collect(event_stream)
+
+    assert [event.type for event in events] == [
+        "stream.gap",
+        "turn.logical_settled",
+    ]
+    assert event_stream.last_event_seq == 5
+
+
+@pytest.mark.anyio
+async def test_internal_gap_stops_delivery(monkeypatch) -> None:
+    async def payloads():
+        yield {
+            "type": "stream.gap",
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "turn_id": "turn_1",
+            "gap_kind": "internal",
+            "requested_after_seq": 1,
+            "expected_event_seq": 2,
+            "observed_event_seq": 3,
+            "retryable": True,
+        }
+
+    _install_stream(monkeypatch, payloads())
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        initial_event_seq=1,
+    )
+
+    with pytest.raises(RuntimeError, match="internal gap"):
+        await _collect(event_stream)
+
+    assert event_stream.last_event_seq == 1
+    assert event_stream.end_reason == "protocol_error"
 
 
 @pytest.mark.anyio

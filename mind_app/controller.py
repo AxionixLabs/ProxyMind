@@ -34,6 +34,7 @@ from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
 from .runtime.environment.coding_lifecycle import WorkspaceCodingRuntimeOwner
 from .runtime.turns.event_reporting import EventReportRuntimeOwner
+from .runtime.turns.delivery import SessionEventCursorStore
 from .runtime.support.conversation import (
     ConversationState,
     ConversationTurn
@@ -150,6 +151,7 @@ class Mind(object):
         self.event_reporting = EventReportRuntimeOwner(
             pool=kwargs.get("event_report_pool"),
         )
+        self.session_event_cursors = SessionEventCursorStore()
 
         self._conversation_lifecycle_id: int = 0
 

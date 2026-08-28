@@ -109,6 +109,12 @@
   终态 transcript、Stop Hook 和 idle/output 关闭顺序，并隔离 Stop Hook 失败。
 - [x] `StreamTurnPresentation` 独占启动、失败、完成和未完整投影，使用具名模式区分
   本地失败上报、协议终态展示和权威 usage/meta；旧的两层失败转发模块已删除。
+- [x] 根目录 `PROTOCOL.md` 已作为线上唯一规范源接入：可展示事件严格校验
+  `item_id/item_kind/item_status`，控制事件拒绝 Item 字段；`tool.calls.done` 不再
+  继承 start 的 `ready/timeout_sec` 语义，旧 `tool` 名称别名已移除。
+- [x] `stream.gap` 已建模为非持久控制事件：`retained_prefix` 只推进到服务端给出的
+  回放下界，`internal` 立即停止交付；`SessionEventCursorStore` 按 `cid + sid`
+  跨 Turn 持有线上 `event_seq`，不与本地 Run sequence 混用。
 - [x] 新 runtime 核心没有导入 `mind_app`、`mind_core`、`mind_nova`、`engine`
   或 `server`；生成导入图只新增 `mind_app -> agent`。
 - [ ] 让 TUI 从 Event Queue 投影结果，并把长生命周期 Session 的关闭、并发提交
@@ -255,3 +261,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 1 | 工具结果冻结、同键并发去重、状态重试和 Effect 对账已收敛到 `ToolResultDelivery`；全量测试 `2832 passed, 13 skipped` | 回合级展示/清理、TUI Event 投影和长生命周期 Session 接管待完成 |
 | 2026-08-28 | 阶段 1 | 临时状态、终态记录、Stop Hook 和输出资源关闭已收敛到 `StreamTurnFinalizer`；全量测试 `2835 passed, 13 skipped` | 回合级展示、TUI Event 投影和长生命周期 Session 接管待完成 |
 | 2026-08-28 | 阶段 1 | 启动、失败和最终运行展示已收敛到 `StreamTurnPresentation`，两层旧失败转发已删除；全量测试 `2841 passed, 13 skipped` | TUI Event 投影和长生命周期 Session 接管待完成 |
+| 2026-08-28 | 阶段 1 | 正式 `PROTOCOL.md` 已落地 Canonical Item 门禁、工具批次边界、`stream.gap` 和 Session 跨 Turn 事件水位；全量测试 `2853 passed, 13 skipped` | TUI Event Queue 投影和长生命周期 Session application 接管待完成 |
