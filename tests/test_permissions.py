@@ -539,7 +539,7 @@ def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> N
     )
 
     approval = local_patch_approval(
-        SimpleNamespace(native_coding=coding),
+        SimpleNamespace(workspace_runtime=SimpleNamespace(coding=coding)),
         invocation,
     )
 

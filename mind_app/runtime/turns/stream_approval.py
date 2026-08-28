@@ -520,7 +520,7 @@ class ApprovalEventHandler:
         ):
             return
         update_error = apply_local_exec_policy_approval(
-            self.controller.exec_policy_manager,
+            self.controller.workspace_runtime.execution_policy,
             invocation=invocation,
             approval=approval,
             decision=decision,

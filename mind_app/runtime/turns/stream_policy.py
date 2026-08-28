@@ -230,7 +230,7 @@ def local_patch_approval(
     preview: dict[str, typing.Any] | None = None
 
     preview_patch = getattr(
-        getattr(controller, "native_coding", None),
+        controller.workspace_runtime.coding,
         "preview_patch",
         None,
     )

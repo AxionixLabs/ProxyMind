@@ -314,7 +314,9 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
             replace_pending_attachments=lambda _items: None,
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
-        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
         is_service_mcp_linked=lambda: False,
         external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
@@ -410,7 +412,9 @@ async def test_stream_settings_settle_before_queued_model_turn(
             replace_pending_attachments=lambda _items: None,
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
-        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
         apply_permissions=Mock(return_value=updated_permissions),
         external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
@@ -502,7 +506,9 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
             replace_pending_attachments=lambda _items: None,
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
-        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
         external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
     )
@@ -585,7 +591,9 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
             application=SimpleNamespace(emit=Mock()),
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
-        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
         is_service_mcp_linked=lambda: False,
         external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
@@ -671,7 +679,9 @@ async def test_idle_mcp_start_commits_result_before_next_query(
             application=SimpleNamespace(emit=Mock()),
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
-        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
         external_mcp=SimpleNamespace(current=None),
         stop_anim=AsyncMock(),
     )
@@ -759,7 +769,9 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
             application=SimpleNamespace(emit=views.append),
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
-        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
         set_history_workspace=Mock(),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,

@@ -183,7 +183,7 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
     pref_result, workspace_result, exec_result = await asyncio.gather(
         mind.fresh_pref_config(ttl_sec=0.0),
         fetch_runtime_workspace_root(),
-        mind.native_coding.running_exec_sessions(),
+        mind.workspace_runtime.coding.running_exec_sessions(),
         return_exceptions=True,
     )
 

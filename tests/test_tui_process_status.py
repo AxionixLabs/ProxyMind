@@ -267,13 +267,15 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
     task_event = asyncio.Event()
     mind = SimpleNamespace(
         task_event=task_event,
-        native_coding=SimpleNamespace(
-            running_exec_sessions=AsyncMock(return_value={
-                "count": 1,
-                "items": [{"command": "pytest -q"}],
-            }),
-            wait_exec_sessions_update=AsyncMock(
-                side_effect=asyncio.CancelledError(),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(
+                running_exec_sessions=AsyncMock(return_value={
+                    "count": 1,
+                    "items": [{"command": "pytest -q"}],
+                }),
+                wait_exec_sessions_update=AsyncMock(
+                    side_effect=asyncio.CancelledError(),
+                ),
             ),
         ),
     )
@@ -288,8 +290,9 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
         with pytest.raises(asyncio.CancelledError):
             await monitor_exec_status(runtime, mind)
 
-    mind.native_coding.running_exec_sessions.assert_awaited_once()
-    mind.native_coding.wait_exec_sessions_update.assert_awaited_once_with(
+    coding = mind.workspace_runtime.coding
+    coding.running_exec_sessions.assert_awaited_once()
+    coding.wait_exec_sessions_update.assert_awaited_once_with(
         revision=-1,
         timeout_sec=3600.0,
     )
@@ -306,16 +309,18 @@ async def test_process_status_monitor_splits_model_and_user_shell_sources() -> N
     task_event = asyncio.Event()
     mind = SimpleNamespace(
         task_event=task_event,
-        native_coding=SimpleNamespace(
-            running_exec_sessions=AsyncMock(return_value={
-                "count": 2,
-                "items": [
-                    {"origin": "tool", "session_id": "exec_model"},
-                    {"origin": "tui_shell", "session_id": "shell_user"},
-                ],
-            }),
-            wait_exec_sessions_update=AsyncMock(
-                side_effect=asyncio.CancelledError(),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(
+                running_exec_sessions=AsyncMock(return_value={
+                    "count": 2,
+                    "items": [
+                        {"origin": "tool", "session_id": "exec_model"},
+                        {"origin": "tui_shell", "session_id": "shell_user"},
+                    ],
+                }),
+                wait_exec_sessions_update=AsyncMock(
+                    side_effect=asyncio.CancelledError(),
+                ),
             ),
         ),
     )
@@ -364,22 +369,24 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
     )
     mind = SimpleNamespace(
         task_event=asyncio.Event(),
-        native_coding=SimpleNamespace(
-            running_exec_sessions=AsyncMock(return_value={
-                "count": 2,
-                "items": [
-                    {
-                        "session_id": "exec_background",
-                        "command": "ping -t 8.8.8.8",
-                    },
-                    {
-                        "session_id": "exec_current",
-                        "command": "adb devices",
-                    },
-                ],
-            }),
-            wait_exec_sessions_update=AsyncMock(
-                side_effect=asyncio.CancelledError(),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(
+                running_exec_sessions=AsyncMock(return_value={
+                    "count": 2,
+                    "items": [
+                        {
+                            "session_id": "exec_background",
+                            "command": "ping -t 8.8.8.8",
+                        },
+                        {
+                            "session_id": "exec_current",
+                            "command": "adb devices",
+                        },
+                    ],
+                }),
+                wait_exec_sessions_update=AsyncMock(
+                    side_effect=asyncio.CancelledError(),
+                ),
             ),
         ),
     )

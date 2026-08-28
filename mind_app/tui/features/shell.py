@@ -71,7 +71,7 @@ async def run_shell_escape(
     args = shell_command_args(executable, command)
 
     owner_cid, owner_sid = _conversation_owner(mind)
-    user_shell = mind.user_shell
+    user_shell = mind.workspace_runtime.user_shell
 
     try:
         snapshot = await user_shell.start_user_shell_session(

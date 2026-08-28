@@ -318,7 +318,7 @@ class ToolEventHandler:
             return ToolCallHandlingResult.handled()
 
         local_requirement = local_exec_policy_requirement(
-            self.controller.exec_policy_manager,
+            self.controller.workspace_runtime.execution_policy,
             turn_context,
             tool=name,
             arguments=arguments,
@@ -423,13 +423,12 @@ class ToolEventHandler:
         )
 
         patch_approval = local_patch_approval(self.controller, invocation)
+        execution_policy = self.controller.workspace_runtime.execution_policy
 
-        patch_session_approved = (
-            self.controller.exec_policy_manager.patch_scope_approved_for_session(
-                patch_approval.get("patch_scope"),
-                cwd=patch_approval.get("cwd"),
-                environment_id=patch_approval.get("environment_id"),
-            )
+        patch_session_approved = execution_policy.patch_scope_approved_for_session(
+            patch_approval.get("patch_scope"),
+            cwd=patch_approval.get("cwd"),
+            environment_id=patch_approval.get("environment_id"),
         )
         if patch_session_approved:
             patch_outcome = ApprovalOutcome.create(
@@ -491,7 +490,7 @@ class ToolEventHandler:
             return ToolCallHandlingResult.handled()
 
         update_error = apply_local_patch_approval(
-            self.controller.exec_policy_manager,
+            self.controller.workspace_runtime.execution_policy,
             approval=patch_approval,
             decision=patch_outcome.decision,
         )
@@ -593,7 +592,7 @@ class ToolEventHandler:
             return ToolCallHandlingResult.handled()
 
         update_error = apply_local_exec_policy_approval(
-            self.controller.exec_policy_manager,
+            self.controller.workspace_runtime.execution_policy,
             invocation=invocation,
             approval=local_approval,
             decision=local_outcome.decision,

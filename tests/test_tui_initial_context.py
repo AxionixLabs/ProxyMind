@@ -29,11 +29,13 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
                 "reasoning_effort": "high",
             },
         }),
-        native_coding=SimpleNamespace(
-            running_exec_sessions=AsyncMock(return_value={
-                "count": 1,
-                "items": [{"command": "pytest -q"}],
-            }),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(
+                running_exec_sessions=AsyncMock(return_value={
+                    "count": 1,
+                    "items": [{"command": "pytest -q"}],
+                }),
+            ),
         ),
         set_history_workspace=workspace_updates.append,
         permissions=preset_permissions("auto"),
@@ -103,8 +105,10 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
                         "reasoning_effort": "high",
                     },
                 }),
-                native_coding=SimpleNamespace(
-                    running_exec_sessions=AsyncMock(return_value={}),
+                workspace_runtime=SimpleNamespace(
+                    coding=SimpleNamespace(
+                        running_exec_sessions=AsyncMock(return_value={}),
+                    ),
                 ),
                 set_history_workspace=lambda _workspace: None,
                 permissions=preset_permissions("auto"),

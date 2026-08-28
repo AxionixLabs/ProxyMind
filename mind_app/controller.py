@@ -32,6 +32,7 @@ from engine.observability import (
 from .attach import Attach
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
+from .runtime.environment.coding_lifecycle import WorkspaceCodingRuntimeOwner
 from .runtime.turns.event_reporting import EventReportRuntimeOwner
 from .runtime.support.conversation import (
     ConversationState,
@@ -47,10 +48,7 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .builtin_tools import BuiltinToolRegistry, permission_tools
-from .native_coding import NativeCoding
-from .native_coding.exec.exec_policy import ExecPolicyManager
 from .approval.permission_grants import PermissionGrantStore
-from .native_coding.exec.user_shell import UserShellExecution
 from .approval.coordinator import ApprovalCoordinator
 from .approval.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
@@ -173,13 +171,9 @@ class Mind(object):
             kwargs.get("feature_settings") or FeatureSettings()
         )
 
-        self.native_coding: NativeCoding = NativeCoding(
-            root=self.history_workspace,
+        self.workspace_runtime = WorkspaceCodingRuntimeOwner(
+            self.history_workspace,
             application_layout=self.application_layout,
-        )
-        self.user_shell: UserShellExecution = self.native_coding.user_shell
-        self.exec_policy_manager = ExecPolicyManager(
-            workspace_root=self.history_workspace
         )
         self.permission_grants = PermissionGrantStore()
 
@@ -200,8 +194,6 @@ class Mind(object):
                 ),
             )
         )
-
-        self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
 
@@ -353,18 +345,12 @@ class Mind(object):
         target = workspace or Path(self.history_workspace)
         return Path(target).expanduser().resolve()
 
-    def _native_coding_close_done(self, task: asyncio.Task[None]) -> None:
-        """回收工作区切换时启动的进程清理任务。"""
-        self._native_coding_close_tasks.discard(task)
-        if not task.cancelled():
-            task.exception()
-
     def _build_client_tools(self) -> ClientToolRegistry:
         """按当前工作区构建客户端工具注册表。"""
         return default_client_tool_registry(
-            self.native_coding,
+            self.workspace_runtime.coding,
             execution_root=self.history_workspace,
-            exec_policy_manager=self.exec_policy_manager,
+            exec_policy_manager=self.workspace_runtime.execution_policy,
             subagent_runtime=self.subagents,
             approval_coordinator=self.approval_coordinator,
             features=self.features,
@@ -519,34 +505,11 @@ class Mind(object):
         normalized = normalize_workspace(workspace)
 
         if normalized and normalized != self.history_workspace:
-
-            previous_native_coding = self.native_coding
+            self.workspace_runtime.replace(normalized)
             self.history_workspace = normalized
 
             self.command_hook_sessions.clear()
-
-            self.native_coding = NativeCoding(
-                root=self.history_workspace,
-                application_layout=self.application_layout,
-            )
-            self.user_shell: UserShellExecution = self.native_coding.user_shell
-            self.exec_policy_manager = ExecPolicyManager(
-                workspace_root=self.history_workspace
-            )
             self.client_tools  = self._build_client_tools()
-
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop is not None:
-                task = loop.create_task(
-                    previous_native_coding.close(),
-                    name="coding workspace close",
-                )
-                self._native_coding_close_tasks.add(task)
-                task.add_done_callback(self._native_coding_close_done)
 
             observe("workspace.changed", workspace=self.history_workspace)
 
@@ -736,7 +699,7 @@ class Mind(object):
 
     async def _close_repl_session(self, session_id: str) -> None:
         """关闭指定执行会话持有的 JavaScript Kernel。"""
-        await self.native_coding.close_js_repl_session(session_id)
+        await self.workspace_runtime.coding.close_js_repl_session(session_id)
 
     async def begin_conversation_turn(
         self,
@@ -913,10 +876,12 @@ class Mind(object):
         for snapshot in subagent_snapshots:
             await self.hook_registry.cleanup_session(snapshot.thread.sid)
             with contextlib.suppress(Exception):
-                await self.native_coding.close_js_repl_session(snapshot.thread.sid)
+                await self.workspace_runtime.coding.close_js_repl_session(
+                    snapshot.thread.sid
+                )
 
         with contextlib.suppress(Exception):
-            await self.native_coding.close_js_repl_session(sid)
+            await self.workspace_runtime.coding.close_js_repl_session(sid)
 
         self.command_hook_sessions.clear_root(sid)
 
@@ -1031,13 +996,7 @@ class Mind(object):
             await self.hook_registry.close()
             await self.event_reporting.close()
 
-            with contextlib.suppress(Exception):
-                await self.native_coding.close()
-
-            close_tasks = tuple(self._native_coding_close_tasks)
-            self._native_coding_close_tasks.clear()
-            if close_tasks:
-                await asyncio.gather(*close_tasks, return_exceptions=True)
+            await self.workspace_runtime.close()
 
             await self.external_mcp.close()
             await self.service_runtime.close()

@@ -243,7 +243,7 @@ async def run_tui_loop(
             raise
         application.emit(ApplicationView(type="tui.gap"))
 
-        mind.native_coding.reset_patch_diff()
+        mind.workspace_runtime.coding.reset_patch_diff()
 
         turn_id = short_uid(12)
 

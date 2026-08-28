@@ -295,6 +295,11 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         end_approval_session=AsyncMock(),
     )
     transcripts = _TranscriptStore()
+    execution_policy = ExecPolicyManager(
+        workspace_root=Path.cwd(),
+        rules_paths=(),
+        writable_rules_path=Path.cwd() / ".pytest_cache" / "test-exec-policy.rules",
+    )
     return SimpleNamespace(
         report=SimpleNamespace(output_record_path=""),
         transcripts=transcripts,
@@ -306,10 +311,9 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
             interaction=interaction,
         ),
         approval_coordinator=ApprovalCoordinator(interaction),
-        exec_policy_manager=ExecPolicyManager(
-            workspace_root=Path.cwd(),
-            rules_paths=(),
-            writable_rules_path=Path.cwd() / ".pytest_cache" / "test-exec-policy.rules",
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(),
+            execution_policy=execution_policy,
         ),
         stop_anim=AsyncMock(),
         freeze_anim=AsyncMock(),
@@ -2716,7 +2720,7 @@ async def test_confirmed_approval_cannot_override_local_forbidden_rule(
     executions = []
     result_posts = []
     mind = _mind()
-    mind.exec_policy_manager.policy = Policy.from_parts([
+    mind.workspace_runtime.execution_policy.policy = Policy.from_parts([
         PrefixRule(
             PrefixPattern.from_values(["rm"]),
             decision=Decision.Forbidden,
@@ -2909,7 +2913,7 @@ async def test_local_patch_session_approval_skips_next_matching_patch(
     monkeypatch.setattr(stream, "post_tool_result", AsyncMock(return_value={}))
 
     mind = _mind()
-    mind.native_coding = SimpleNamespace(
+    mind.workspace_runtime.coding = SimpleNamespace(
         preview_patch=lambda **_kwargs: {
             "ok": True,
             "data": {"files": [{"path": "src/app.py"}]},

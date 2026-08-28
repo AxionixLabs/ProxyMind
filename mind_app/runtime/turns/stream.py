@@ -930,7 +930,7 @@ async def stream_turn(
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
             patch_preview=getattr(
-                getattr(mind, "native_coding", None),
+                mind.workspace_runtime.coding,
                 "preview_patch",
                 None,
             ),

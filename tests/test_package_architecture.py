@@ -134,14 +134,18 @@ def test_controller_does_not_expose_runtime_facades() -> None:
     ).exists()
     assert "event_reports" not in assigned_attributes
     assert not {
+        "_native_coding_close_tasks",
         "_service_start_lock",
         "_service_start_task",
         "config_service",
+        "exec_policy_manager",
         "keepalive_stop",
         "keepalive_task",
+        "native_coding",
         "server_manager",
         "service_runtime_context",
         "stop_runtime_on_exit",
+        "user_shell",
     } & assigned_attributes
     assert "RunReport" not in called_names
     assert not closes_borrowed_report

@@ -70,7 +70,9 @@ async def monitor_exec_status(
     try:
         while not mind.task_event.is_set():
             try:
-                snapshot = await mind.native_coding.running_exec_sessions()
+                snapshot = await (
+                    mind.workspace_runtime.coding.running_exec_sessions()
+                )
                 filtered = _without_running_session(
                     snapshot,
                     runtime.inline_process_session_id,
@@ -87,7 +89,7 @@ async def monitor_exec_status(
                 revision = -1
 
             change_task = asyncio.create_task(
-                mind.native_coding.wait_exec_sessions_update(
+                mind.workspace_runtime.coding.wait_exec_sessions_update(
                     revision=revision,
                     timeout_sec=PROCESS_STATUS_EVENT_WAIT_SEC,
                 ),
@@ -257,7 +259,9 @@ async def stop_all_exec_sessions(
     ))
 
     if sessions is None:
-        snapshot = await mind.native_coding.running_exec_sessions()
+        snapshot = await (
+            mind.workspace_runtime.coding.running_exec_sessions()
+        )
         sessions = _without_running_session(
             snapshot,
             runtime.inline_process_session_id,
@@ -272,7 +276,7 @@ async def stop_all_exec_sessions(
         for item in sessions
         if str(item.get("session_id") or "").strip()
     )
-    result = await mind.native_coding.stop_exec_sessions(
+    result = await mind.workspace_runtime.coding.stop_exec_sessions(
         session_ids=session_ids,
     )
 
@@ -322,7 +326,7 @@ async def _append_exec_snapshot(
 ) -> None:
     """读取后台会话并按指定表面提交一次摘要。"""
     try:
-        listing  = await mind.native_coding.running_exec_sessions()
+        listing  = await mind.workspace_runtime.coding.running_exec_sessions()
         excluded_session_id = runtime.inline_process_session_id
         sessions = _without_running_session(
             listing,
@@ -368,9 +372,11 @@ async def _load_exec_stream_snapshot(
     session_id = str(session.get("session_id") or "").strip()
 
     try:
-        snapshot = await mind.native_coding.exec_session_output_snapshot(
-            session_id=session_id,
-            max_output_chars=PS_OUTPUT_LIMIT,
+        snapshot = await (
+            mind.workspace_runtime.coding.exec_session_output_snapshot(
+                session_id=session_id,
+                max_output_chars=PS_OUTPUT_LIMIT,
+            )
         )
     except Exception as exc:
         return {
@@ -561,7 +567,7 @@ async def watch_user_shell_session(
         runtime=runtime,
         announce_detach=announce_detach,
         ready_event=ready_event,
-        execution=mind.user_shell,
+        execution=mind.workspace_runtime.user_shell,
     )
 
 
@@ -579,7 +585,7 @@ async def _watch_user_shell_session(
     application = mind.frontend.application
 
     try:
-        source = getattr(mind, "native_coding", None)
+        source = getattr(mind.workspace_runtime, "coding", None)
         running_sessions = getattr(source, "running_exec_sessions", None)
         if not callable(running_sessions):
             running_sessions = execution.running_exec_sessions

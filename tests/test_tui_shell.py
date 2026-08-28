@@ -42,6 +42,19 @@ class _ApplicationStub(object):
         self.views.append(view)
 
 
+def _workspace_runtime(
+    *,
+    coding=None,
+    user_shell=None,
+    **coding_attributes,
+) -> SimpleNamespace:
+    if coding is None:
+        coding = SimpleNamespace(**coding_attributes)
+    if user_shell is None:
+        user_shell = coding
+    return SimpleNamespace(coding=coding, user_shell=user_shell)
+
+
 def test_empty_shell_mode_submission_is_silent() -> None:
     runtime = TuiRuntime()
     runtime.input_model.set_shell_mode(True)
@@ -65,7 +78,7 @@ async def test_ps_without_sessions_renders_command_and_empty_terminal_state() ->
         }),
     )
     mind = SimpleNamespace(
-        native_coding=native_coding,
+        workspace_runtime=_workspace_runtime(coding=native_coding),
     )
 
     handled = await manage_exec_sessions(runtime, mind)
@@ -120,7 +133,7 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
         }
 
     output_snapshot = AsyncMock(side_effect=snapshot_for_session)
-    mind = SimpleNamespace(native_coding=SimpleNamespace(
+    mind = SimpleNamespace(workspace_runtime=_workspace_runtime(
         running_exec_sessions=AsyncMock(return_value={
             "count": len(sessions),
             "items": sessions,
@@ -207,7 +220,7 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        user_shell=user_shell,
+        workspace_runtime=_workspace_runtime(user_shell=user_shell),
         conversation=SimpleNamespace(snapshot=lambda: {
             "cid": "cid_owner",
             "sid": "sid_owner",
@@ -278,7 +291,7 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        user_shell=user_shell,
+        workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
     runtime = TuiRuntime()
 
@@ -346,7 +359,7 @@ async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
-        user_shell=user_shell,
+        workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
     runtime = TuiRuntime()
 
@@ -470,7 +483,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
-        user_shell=user_shell,
+        workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
     runtime = TuiRuntime()
 
@@ -591,7 +604,7 @@ async def test_detached_shell_completion_stays_with_owning_conversation(
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
-        native_coding=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(
             exec_session_output_snapshot=AsyncMock(return_value=snapshot),
         ),
         conversation=SimpleNamespace(snapshot=lambda: {
@@ -604,7 +617,7 @@ async def test_detached_shell_completion_stays_with_owning_conversation(
         runtime,
         mind,
         "exec_shell",
-        execution=mind.native_coding,
+        execution=mind.workspace_runtime.coding,
     )
 
     assert len(blocks) == expected_blocks
@@ -634,7 +647,7 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
     runtime.begin_command_layout()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
-        native_coding=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(
             exec_session_output_snapshot=AsyncMock(return_value=snapshot),
         ),
         conversation=SimpleNamespace(snapshot=lambda: dict(current)),
@@ -645,7 +658,7 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
             runtime,
             mind,
             "exec_shell",
-            execution=mind.native_coding,
+            execution=mind.workspace_runtime.coding,
         )
     )
     await asyncio.sleep(0)
@@ -803,7 +816,7 @@ async def test_stop_all_stops_immediately_and_cancels_background_watchers() -> N
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        native_coding=native_coding,
+        workspace_runtime=_workspace_runtime(coding=native_coding),
     )
 
     result = await stop_all_exec_sessions(runtime, mind)
@@ -843,7 +856,7 @@ async def test_stop_all_without_background_terminals_keeps_stopping_message() ->
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        native_coding=native_coding,
+        workspace_runtime=_workspace_runtime(coding=native_coding),
     )
 
     result = await stop_all_exec_sessions(runtime, mind)
@@ -874,7 +887,7 @@ async def test_ps_snapshot_does_not_acknowledge_completed_history() -> None:
         label="long task completed",
     )
     mind = SimpleNamespace(
-        native_coding=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 0,
                 "items": [],
@@ -915,7 +928,7 @@ async def test_ps_appends_snapshot_without_opening_viewer() -> None:
         "output_lines": ["line 1", "line 2"],
     })
     mind = SimpleNamespace(
-        native_coding=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 1,
                 "items": [session],
@@ -967,7 +980,7 @@ async def test_ps_excludes_inline_cell_but_keeps_detached_exec() -> None:
         "output_lines": ["detached output"],
     })
     mind = SimpleNamespace(
-        native_coding=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 2,
                 "items": [current, detached],
@@ -1060,7 +1073,7 @@ async def test_inline_shell_skips_only_fully_unchanged_render_blocks() -> None:
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        user_shell=user_shell,
+        workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
     runtime = TuiRuntime()
 
@@ -1448,7 +1461,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        user_shell=user_shell,
+        workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
     runtime = TuiRuntime()
 
@@ -1659,7 +1672,7 @@ async def test_inline_process_starts_are_serialized() -> None:
 async def test_exec_session_update_timeout_does_not_request_snapshot() -> None:
     wait_update = AsyncMock(return_value=False)
     mind = SimpleNamespace(
-        native_coding=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(
             wait_exec_session_update=wait_update,
         ),
     )
@@ -1667,7 +1680,7 @@ async def test_exec_session_update_timeout_does_not_request_snapshot() -> None:
     update_event = await _wait_for_exec_session_update(
         "exec_shell",
         {"revision": 7},
-        execution=mind.native_coding,
+        execution=mind.workspace_runtime.coding,
     )
 
     assert update_event is None
@@ -1789,7 +1802,7 @@ async def test_ps_cross_conversation_completion_does_not_commit_transcript(
     }
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
-        user_shell=SimpleNamespace(
+        workspace_runtime=_workspace_runtime(user_shell=SimpleNamespace(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 1,
                 "items": [running],
@@ -1801,7 +1814,7 @@ async def test_ps_cross_conversation_completion_does_not_commit_transcript(
                 "delta": [],
                 "snapshot": completed,
             }),
-        ),
+        )),
         conversation=SimpleNamespace(snapshot=lambda: {
             "cid": "cid_other",
             "sid": "sid_other",

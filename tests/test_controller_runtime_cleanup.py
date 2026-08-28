@@ -33,6 +33,46 @@ def test_controller_tracks_helix_tool_profile_with_link_state() -> None:
     assert controller.service_tool_profile is None
 
 
+def test_controller_rebuilds_workspace_tools_after_runtime_replacement(
+    tmp_path,
+) -> None:
+    controller = Mind.__new__(Mind)
+    controller.history_workspace = str(tmp_path / "previous")
+    controller.workspace_runtime = SimpleNamespace(replace=Mock())
+    controller.command_hook_sessions = SimpleNamespace(clear=Mock())
+    client_tools = object()
+    controller._build_client_tools = Mock(return_value=client_tools)
+
+    workspace = Mind.set_history_workspace(controller, tmp_path / "current")
+
+    normalized = controller.workspace_runtime.replace.call_args.args[0]
+    assert workspace == normalized
+    assert controller.history_workspace == normalized
+    assert controller.client_tools is client_tools
+    controller.command_hook_sessions.clear.assert_called_once_with()
+    controller._build_client_tools.assert_called_once_with()
+
+
+def test_controller_keeps_workspace_when_runtime_replacement_fails(
+    tmp_path,
+) -> None:
+    controller = Mind.__new__(Mind)
+    previous = str(tmp_path / "previous")
+    controller.history_workspace = previous
+    controller.workspace_runtime = SimpleNamespace(
+        replace=Mock(side_effect=RuntimeError("replace failed")),
+    )
+    controller.command_hook_sessions = SimpleNamespace(clear=Mock())
+    controller._build_client_tools = Mock()
+
+    with pytest.raises(RuntimeError, match="replace failed"):
+        Mind.set_history_workspace(controller, tmp_path / "current")
+
+    assert controller.history_workspace == previous
+    controller.command_hook_sessions.clear.assert_not_called()
+    controller._build_client_tools.assert_not_called()
+
+
 @pytest.mark.anyio
 async def test_repeated_cancellation_forces_shielded_cleanup() -> None:
     cleanup_started = asyncio.Event()
@@ -92,10 +132,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.event_reporting = SimpleNamespace(
         close=lambda: step("event_reporting"),
     )
-    controller.native_coding = SimpleNamespace(
-        close=lambda: step("native_coding"),
+    controller.workspace_runtime = SimpleNamespace(
+        close=lambda: step("workspace_runtime"),
     )
-    controller._native_coding_close_tasks = set()
     controller.external_mcp = SimpleNamespace(
         close=lambda: step("external_mcp"),
     )
@@ -109,7 +148,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "command_hooks",
         "hooks",
         "event_reporting",
-        "native_coding",
+        "workspace_runtime",
         "external_mcp",
         "service_runtime",
     ]
@@ -160,8 +199,11 @@ async def test_controller_session_end_uses_current_root_snapshot(
     controller.command_hook_sessions = SimpleNamespace(
         clear_root=Mock(),
     )
-    controller.native_coding = SimpleNamespace(
+    coding = SimpleNamespace(
         close_js_repl_session=AsyncMock(return_value=True),
+    )
+    controller.workspace_runtime = SimpleNamespace(
+        coding=coding,
     )
 
     ended = await Mind.end_conversation(controller, reason="exit")
@@ -185,7 +227,7 @@ async def test_controller_session_end_uses_current_root_snapshot(
     )
     assert [
         item.args[0]
-        for item in controller.native_coding.close_js_repl_session.await_args_list
+        for item in coding.close_js_repl_session.await_args_list
     ] == ["sid_child", "sid_test_1_abcdef"]
     controller.command_hook_sessions.clear_root.assert_called_once_with(
         "sid_test_1_abcdef"
