@@ -34,17 +34,8 @@ from mind_nova.requests.tools import (
     post_tool_result
 )
 from mind_nova.requests.effects import post_effect_reconciliation
-from ...output import (
-    OutputControlPort,
-    SourcesOutput
-)
+from ...output import OutputControlPort
 from .result import RunResult
-from ...presentation.run_views import (
-    build_run_completed_view,
-    build_run_incomplete_view,
-    build_run_started_view
-)
-from ..support.loop_support import finish_failure
 from ..hooks.tool import ToolCallCoordinator
 from ..hooks.models import StopHookDecision
 from ..hooks.turn import (
@@ -73,6 +64,10 @@ from .stream_outcome import StreamTurnOutcome
 from .stream_model import ModelStreamEventHandler
 from .stream_effects import ToolResultDelivery
 from .stream_finalize import StreamTurnFinalizer
+from .stream_presentation import (
+    FailureProjectionMode,
+    StreamTurnPresentation,
+)
 from ...stream_events.lifecycle import handle_lifecycle_event
 from engine.observability import (
     observe,
@@ -263,6 +258,13 @@ async def stream_turn(
 
     first_frame: bool = True
     outcome = StreamTurnOutcome()
+    run_presentation = StreamTurnPresentation(
+        outcome=outcome,
+        status_control=status_control,
+        content=content,
+        presentation=presentation,
+        event_report=ev_report,
+    )
 
     failed_tool_context: list[str] = []
 
@@ -336,7 +338,7 @@ async def stream_turn(
             skills=len(kwargs.get("skills") or []),
         )
 
-        await presentation.emit(build_run_started_view(
+        await run_presentation.emit_started(
             metadata=metadata,
             message=message,
             pref_config=pref_config,
@@ -349,7 +351,7 @@ async def stream_turn(
                 and turn_context.session_started
                 else ()
             ),
-        ))
+        )
 
         tool_call_coordinator = ToolCallCoordinator(
             hook_scope,
@@ -501,14 +503,9 @@ async def stream_turn(
                     await mind.await_cleanup(
                         mind.stop_anim("wait", settle=False)
                     )
-                await finish_failure(
-                    status_control,
-                    presentation,
-                    None,
-                    phase="turn.failed",
-                    error=outcome.error,
-                    usage=outcome.usage,
-                    terminal_meta=outcome.terminal_meta,
+                await run_presentation.emit_failure(
+                    "turn.failed",
+                    mode=FailureProjectionMode.TERMINAL,
                 )
                 continue
 
@@ -567,12 +564,9 @@ async def stream_turn(
                     await mind.await_cleanup(
                         mind.stop_anim("wait", settle=False)
                     )
-                await finish_failure(
-                    status_control,
-                    presentation,
-                    None,
-                    phase="turn.reconciliation_required",
-                    error=outcome.error,
+                await run_presentation.emit_failure(
+                    "turn.reconciliation_required",
+                    mode=FailureProjectionMode.PROJECTION_ONLY,
                 )
                 break
 
@@ -679,12 +673,8 @@ async def stream_turn(
         )
         if turn_context.agent.depth == 0:
             await mind.await_cleanup(mind.stop_anim("wait"))
-        await finish_failure(
-            status_control,
-            presentation,
-            ev_report,
-            phase="turn.tool_result_delivery_failed",
-            error=outcome.error,
+        await run_presentation.emit_failure(
+            "turn.tool_result_delivery_failed",
         )
 
     except LocalEffectReconciliationRequired as error:
@@ -697,13 +687,7 @@ async def stream_turn(
         )
         if turn_context.agent.depth == 0:
             await mind.await_cleanup(mind.stop_anim("wait"))
-        await finish_failure(
-            status_control,
-            presentation,
-            ev_report,
-            phase="turn.reconciliation_required",
-            error=outcome.error,
-        )
+        await run_presentation.emit_failure("turn.reconciliation_required")
 
     except PromptHookBlockedError as error:
         outcome.fail(
@@ -721,13 +705,7 @@ async def stream_turn(
             turn_id=turn_context.turn_id,
         )
 
-        await finish_failure(
-            status_control,
-            presentation,
-            ev_report,
-            phase="turn.prompt_blocked",
-            error=outcome.error,
-        )
+        await run_presentation.emit_failure("turn.prompt_blocked")
 
     except asyncio.CancelledError:
         outcome.interrupt()
@@ -758,44 +736,18 @@ async def stream_turn(
         if turn_context.agent.depth == 0:
             await mind.await_cleanup(mind.stop_anim("wait"))
 
-        await finish_failure(
-            status_control,
-            presentation,
-            ev_report,
-            phase="turn.failed",
-            error=outcome.error
-        )
+        await run_presentation.emit_failure("turn.failed")
 
     else:
         outcome.settle_stream()
         if not outcome.has_terminal_status:
-            await finish_failure(
-                status_control,
-                presentation,
-                ev_report,
-                phase="turn.incomplete",
-                error=outcome.error,
-            )
+            await run_presentation.emit_failure("turn.incomplete")
 
         if outcome.is_completed and turn_context.agent.depth == 0:
             model_events.flush_pending()
             mind.remember_last_assistant_reply(model_events.assistant_text)
 
-        await status_control.end_status()
-        await content.emit(SourcesOutput(model_events.sources))
-
-        if outcome.is_completed and not outcome.is_failed:
-            await presentation.emit(build_run_completed_view(
-                outcome.usage,
-                outcome.terminal_meta,
-            ))
-        elif outcome.is_incomplete:
-            await presentation.emit(build_run_incomplete_view(
-                outcome.usage,
-                reason=outcome.error,
-                can_continue=outcome.can_continue,
-                terminal_meta=outcome.terminal_meta,
-            ))
+        await run_presentation.emit_result(model_events.sources)
 
         observe(
             "stream.complete",
