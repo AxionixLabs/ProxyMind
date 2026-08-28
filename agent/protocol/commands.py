@@ -27,6 +27,7 @@ class SubmitTurnCommand:
     message: str
     attachments: tuple[Mapping[str, JsonValue], ...] = ()
     pref_config: Mapping[str, JsonValue] | None = None
+    extras: Mapping[str, JsonValue] | None = None
     idempotency_key: str = ""
     causation_id: str | None = None
     trace_context: Mapping[str, JsonValue] = field(default_factory=dict)
@@ -69,6 +70,18 @@ class SubmitTurnCommand:
                 raise TypeError("pref_config must be an object")
             frozen_pref = pref_value
 
+        frozen_extras: Mapping[str, JsonValue] | None = None
+        if self.extras is not None:
+            if not isinstance(self.extras, Mapping):
+                raise TypeError("extras must be an object")
+            extras_value = freeze_json(
+                dict(self.extras),
+                field_name="extras",
+            )
+            if not isinstance(extras_value, Mapping):
+                raise TypeError("extras must be an object")
+            frozen_extras = extras_value
+
         if not isinstance(self.trace_context, Mapping):
             raise TypeError("trace_context must be an object")
         trace_value = freeze_json(
@@ -83,6 +96,7 @@ class SubmitTurnCommand:
 
         object.__setattr__(self, "attachments", tuple(frozen_attachments))
         object.__setattr__(self, "pref_config", frozen_pref)
+        object.__setattr__(self, "extras", frozen_extras)
         object.__setattr__(self, "trace_context", trace_value)
         object.__setattr__(
             self,
@@ -98,6 +112,7 @@ class SubmitTurnCommand:
         message: str,
         attachments: typing.Iterable[Mapping[str, typing.Any]] = (),
         pref_config: Mapping[str, typing.Any] | None = None,
+        extras: Mapping[str, typing.Any] | None = None,
         session_id: str | None = None,
         run_id: str | None = None,
         command_id: str | None = None,
@@ -114,6 +129,7 @@ class SubmitTurnCommand:
             message=message,
             attachments=tuple(attachments),
             pref_config=pref_config,
+            extras=extras,
             idempotency_key=idempotency_key or resolved_command_id,
             causation_id=causation_id,
             trace_context=trace_context or {},
@@ -127,6 +143,8 @@ class SubmitTurnCommand:
         }
         if self.pref_config is not None:
             payload["pref_config"] = thaw_json(self.pref_config)
+        if self.extras is not None:
+            payload["extras"] = thaw_json(self.extras)
 
         return {
             "command_id": self.command_id,
@@ -166,6 +184,15 @@ class SubmitTurnCommand:
         return typing.cast(
             dict[str, typing.Any],
             thaw_json(self.pref_config),
+        )
+
+    def extras_value(self) -> dict[str, typing.Any] | None:
+        """返回旧 Turn adapter 可消费的独立扩展输入副本。"""
+        if self.extras is None:
+            return None
+        return typing.cast(
+            dict[str, typing.Any],
+            thaw_json(self.extras),
         )
 
 

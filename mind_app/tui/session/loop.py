@@ -3,6 +3,10 @@
 
 import typing
 import asyncio
+from agent.application import (
+    SubmitTurnCommand,
+    TurnApplication
+)
 from mind_app.frontend import ApplicationSink, ApplicationView
 from mind_nova.identifiers import short_uid
 from mind_nova.requests.fork import ResubmittablePrompt
@@ -43,6 +47,7 @@ from .turn_input import TuiTurnInputControl
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
+    from ...runtime.turns.result import RunResult
 
 
 @typing.runtime_checkable
@@ -107,7 +112,31 @@ async def run_tui_loop(
     initial_images: tuple[str, ...] = (),
     initial_model: str | None = None
 ) -> None:
-    """运行 TUI 输入、命令分派和模型轮次生命周期。"""
+    """运行 TUI 会话，并统一关闭其主动 Turn application。"""
+    turn_application = TurnApplication()
+    try:
+        await _run_tui_loop(
+            mind,
+            turn_application=turn_application,
+            local_session_id=f"tui_session_{short_uid(12)}",
+            initial_prompt=initial_prompt,
+            initial_images=initial_images,
+            initial_model=initial_model,
+        )
+    finally:
+        await turn_application.close(cancel_running=True)
+
+
+async def _run_tui_loop(
+    mind: "Mind",
+    *,
+    turn_application: TurnApplication["RunResult"],
+    local_session_id: str,
+    initial_prompt: str | None,
+    initial_images: tuple[str, ...],
+    initial_model: str | None,
+) -> None:
+    """处理 TUI 输入、命令分派和模型轮次。"""
     application = mind.frontend.application
     runtime     = require_tui_runtime(mind.frontend.runtime)
 
@@ -286,19 +315,37 @@ async def run_tui_loop(
 
         interrupt_notice = _TurnInterruptNotice(application, runtime)
 
-        await execute_tui_model_turn(
-            application,
-            runtime,
-            run_tui_model_turn(
+        submit_command = SubmitTurnCommand.create(
+            session_id=local_session_id,
+            message=prompt_text,
+            attachments=attachment_snapshot,
+            pref_config=state.pref_config,
+            extras=prompt_extras,
+        )
+
+        async def execute_submitted_turn(
+            command: SubmitTurnCommand,
+        ) -> "RunResult":
+            """把 TUI Command 适配到现有根轮次执行能力。"""
+            return await run_tui_model_turn(
                 mind,
-                message_text=prompt_text,
-                pref_config=state.pref_config,
+                message_text=command.message,
+                pref_config=command.pref_config_value() or {},
                 permissions=state.permissions,
+                attachments=command.attachment_values(),
                 turn_id=turn_id,
-                prompt_extras=prompt_extras,
+                prompt_extras=command.extras_value(),
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
                 on_interrupt_acknowledged=interrupt_notice.acknowledge,
+            )
+
+        await execute_tui_model_turn(
+            application,
+            runtime,
+            turn_application.submit(
+                submit_command,
+                execute_submitted_turn,
             ),
             turn_input_control=turn_input_control,
             stream_command_handler=dispatcher.handle_stream_command,

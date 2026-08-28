@@ -1,6 +1,6 @@
 # Agent Runtime 迁移计划
 
-状态：阶段 0 已完成；阶段 1 进行中（2026-08-28）
+状态：阶段 0、阶段 1 已完成；阶段 2 未开始（2026-08-28）
 
 这份计划配合 [Agent Runtime 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
@@ -27,7 +27,7 @@
 | 阶段 | 状态 | 目标 | 可交付物 | 完成信号 |
 | --- | --- | --- | --- | --- |
 | 0. 契约冻结 | 已完成 | 固定外部行为和依赖基线 | 导入图、协议清单、风险清单 | 全部阶段 0 退出条件通过 |
-| 1. Session 骨架 | 进行中 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
+| 1. Session 骨架 | 已完成 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
 | 2. 持久化收束 | 未开始 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
 | 3. 能力解耦 | 未开始 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
 | 4. 多入口迁移 | 未开始 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
@@ -74,10 +74,11 @@
 
 ## 阶段 1：Session 骨架
 
-状态：进行中
+状态：已完成（2026-08-28）
 
 现有 `root.py`、Turn executor 和各 runtime owner 只是本阶段的输入边界，
-新切片只接管了主动 `exec` 的命令和状态外壳；其余入口仍由旧运行时直接编排。
+新切片已接管主动 `exec` 和 TUI 普通 prompt 的命令、Session 队列、状态事件与
+终态投影；MCP、Subscription 和 TUI 其他操作仍由旧运行时直接编排。
 
 ### 工作项
 
@@ -117,14 +118,19 @@
   跨 Turn 持有线上 `event_seq`，不与本地 Run sequence 混用。
 - [x] 新 runtime 核心没有导入 `mind_app`、`mind_core`、`mind_nova`、`engine`
   或 `server`；生成导入图只新增 `mind_app -> agent`。
-- [ ] 让 TUI 从 Event Queue 投影结果，并把长生命周期 Session 的关闭、并发提交
-  和取消统一交给 application 组合；CLI 的流式展示仍使用现有 OutputSession。
+- [x] TUI 普通 prompt 已从 Event Queue 投影读取终态；`TurnApplication` 通过
+  `SessionRuntimeOwner` 管理长生命周期 SessionLoop，关闭、并发提交和取消均由
+  application 公开入口收束。TUI 流式展示仍使用现有 OutputSession。
 
 ### 出口条件
 
 - 同一个 Run 的并发提交不会产生交错状态序列；
 - 取消和关闭能等待 SessionLoop 收束；
 - 主动 `exec` 至少有成功、工具失败、用户取消三条测试路径。
+
+退出条件已全部满足：同 Session 并发提交的 FIFO 与逐 Run 连续序号、取消后
+SessionLoop 重建、并发关闭等待屏障，以及 TUI Event 终态投影均有定向测试；
+CLI 既有成功、工具失败和用户取消路径继续通过。阶段 2 可以开始，但尚未启用。
 
 ## 阶段 2：持久化收束
 
@@ -262,3 +268,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 1 | 临时状态、终态记录、Stop Hook 和输出资源关闭已收敛到 `StreamTurnFinalizer`；全量测试 `2835 passed, 13 skipped` | 回合级展示、TUI Event 投影和长生命周期 Session 接管待完成 |
 | 2026-08-28 | 阶段 1 | 启动、失败和最终运行展示已收敛到 `StreamTurnPresentation`，两层旧失败转发已删除；全量测试 `2841 passed, 13 skipped` | TUI Event 投影和长生命周期 Session 接管待完成 |
 | 2026-08-28 | 阶段 1 | 正式 `PROTOCOL.md` 已落地 Canonical Item 门禁、工具批次边界、`stream.gap` 和 Session 跨 Turn 事件水位；全量测试 `2853 passed, 13 skipped` | TUI Event Queue 投影和长生命周期 Session application 接管待完成 |
+| 2026-08-28 | 阶段 1 | TUI 普通 prompt 已接入 `TurnApplication`、长生命周期 SessionLoop 和 Event 终态投影；并发提交、取消重建及可取消关闭等待均有测试；全量测试 `2859 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 1 无未决项；阶段 2 未开始 |

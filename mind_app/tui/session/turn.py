@@ -33,6 +33,8 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ...runtime.turns.result import RunResult
 
+TurnValue = typing.TypeVar("TurnValue")
+
 
 class _TurnInterruptState(object):
     """保存单次活动轮次的用户中断来源。"""
@@ -60,10 +62,20 @@ def emit_tui_interrupt_notice(application: ApplicationSink) -> None:
     ))
 
 
+def _turn_result_status(result: object) -> str:
+    """优先读取 Event Queue 生成的稳定终态投影。"""
+    projection = getattr(result, "projection", None)
+    projected_status = getattr(projection, "status", None)
+    if isinstance(projected_status, str):
+        return projected_status
+    status = getattr(result, "status", None)
+    return status if isinstance(status, str) else ""
+
+
 async def execute_tui_model_turn(
     application: ApplicationSink,
     runtime: TurnRuntimePort,
-    turn: typing.Coroutine[typing.Any, typing.Any, "RunResult | None"],
+    turn: typing.Coroutine[typing.Any, typing.Any, TurnValue],
     *,
     turn_input_control: TuiTurnInputControl | None = None,
     stream_command_handler: typing.Callable[
@@ -71,7 +83,7 @@ async def execute_tui_model_turn(
         bool,
     ] | None = None,
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
-) -> "RunResult | None":
+) -> TurnValue | None:
     """执行可由主输入区定向取消的单个模型轮次。"""
     runtime.set_turn_start_pending(True)
     task = asyncio.create_task(turn, name="tui model turn")
@@ -140,7 +152,7 @@ async def execute_tui_model_turn(
     else:
         interrupted = bool(
             interrupt_state.requested
-            or getattr(result, "status", "") == "interrupted"
+            or _turn_result_status(result) == "interrupted"
         )
 
     finally:
@@ -183,6 +195,7 @@ async def run_tui_model_turn(
     message_text: str,
     pref_config: dict[str, typing.Any],
     permissions: PermissionSettings,
+    attachments: typing.Iterable[typing.Mapping[str, typing.Any]] | None = None,
     turn_id: str | None = None,
     prompt_extras: typing.Mapping[str, typing.Any] | None = None,
     on_prompt_prepared: typing.Callable[
@@ -191,20 +204,26 @@ async def run_tui_model_turn(
     ] | None = None,
     turn_input_control: TuiTurnInputControl | None = None,
     on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
-) -> None:
+) -> "RunResult":
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
     tool_filter_mode = mind.tool_profile_for_turn()
-    attachments: list[dict[str, typing.Any]] = []
-
-    if mind.attach.has_pending_attachments():
-        attachments = mind.attach.consume_pending_attachments()
+    if attachments is None:
+        attachment_values = (
+            mind.attach.consume_pending_attachments()
+            if mind.attach.has_pending_attachments()
+            else []
+        )
+    else:
+        attachment_values = [dict(item) for item in attachments]
+        if mind.attach.has_pending_attachments():
+            mind.attach.consume_pending_attachments()
 
     if on_prompt_prepared is not None:
-        on_prompt_prepared(attachments)
+        on_prompt_prepared(attachment_values)
 
     attachment_names = [
         str(attachment.get("filename") or "").strip()
-        for attachment in attachments
+        for attachment in attachment_values
         if str(attachment.get("filename") or "").strip()
     ]
     session_title = (
@@ -223,7 +242,7 @@ async def run_tui_model_turn(
         pref_config=pref_config,
         permissions=permissions,
         metadata={},
-        attachments=attachments,
+        attachments=attachment_values,
         extras=extras,
         turn_id=turn_id,
     )
@@ -254,13 +273,13 @@ async def run_tui_model_turn(
             session=session,
             pref_config=pref_config,
             tools=tools,
-            attachments=attachments,
+            attachments=attachment_values,
             ev_report=event_report,
             turn_execution=prepared,
             **prompt_kwargs,
         )
 
-    await execute_turn(
+    return await execute_turn(
         mind,
         pref_config,
         execution,

@@ -4,8 +4,10 @@
 import time
 import typing
 import asyncio
-from agent.application import submit_turn
-from agent.protocol import SubmitTurnCommand
+from agent.application import (
+    SubmitTurnCommand,
+    submit_turn
+)
 from engine.errors import AppError
 from mind_core.preference import apply_primary_model_override
 from engine.observability import (

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import pytest
 
 from agent.application import (
+    TurnApplication,
     project_run_result,
     submit_turn,
 )
@@ -48,10 +49,12 @@ def _command(
 def test_submit_turn_command_freezes_and_serializes_payload() -> None:
     attachment = {"kind": "image", "meta": {"width": 10}}
     pref_config = {"primary": {"model": "test-model"}}
+    extras = {"selection": {"line": 8}}
     command = SubmitTurnCommand.create(
         message="inspect",
         attachments=(attachment,),
         pref_config=pref_config,
+        extras=extras,
         session_id="session-local",
         run_id="run-local",
         command_id="command-local",
@@ -59,6 +62,7 @@ def test_submit_turn_command_freezes_and_serializes_payload() -> None:
 
     attachment["meta"]["width"] = 20
     pref_config["primary"]["model"] = "changed-model"
+    extras["selection"]["line"] = 9
 
     assert command.to_dict() == {
         "command_id": "command-local",
@@ -72,11 +76,13 @@ def test_submit_turn_command_freezes_and_serializes_payload() -> None:
                 "meta": {"width": 10},
             }],
             "pref_config": {"primary": {"model": "test-model"}},
+            "extras": {"selection": {"line": 8}},
         },
         "idempotency_key": "command-local",
         "causation_id": None,
         "trace_context": {},
     }
+    assert command.extras_value() == {"selection": {"line": 8}}
 
 
 @pytest.mark.anyio
@@ -154,6 +160,118 @@ async def test_session_loop_serializes_runs_and_deduplicates_command() -> None:
         "run_started",
         "run_completed",
     ]
+
+
+@pytest.mark.anyio
+async def test_turn_application_reuses_session_queue_across_submissions() -> None:
+    application: TurnApplication[_Result] = TurnApplication()
+    first = _command("first", run_id="run-app-first")
+    second = _command("second", run_id="run-app-second")
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    calls: list[str] = []
+
+    async def execute_first(_request: SubmitTurnCommand) -> _Result:
+        calls.append("first:start")
+        first_started.set()
+        await release_first.wait()
+        calls.append("first:end")
+        return _Result(status="completed")
+
+    async def execute_second(_request: SubmitTurnCommand) -> _Result:
+        calls.append("second")
+        return _Result(status="completed")
+
+    first_task = asyncio.create_task(application.submit(first, execute_first))
+    await first_started.wait()
+    second_task = asyncio.create_task(application.submit(second, execute_second))
+    await asyncio.sleep(0)
+
+    assert calls == ["first:start"]
+
+    release_first.set()
+    first_result, second_result = await asyncio.gather(
+        first_task,
+        second_task,
+    )
+    await application.close()
+
+    assert calls == ["first:start", "first:end", "second"]
+    assert first_result.projection.status == "completed"
+    assert second_result.projection.status == "completed"
+    assert [event.sequence for event in first_result.events] == [1, 2, 3]
+    assert [event.sequence for event in second_result.events] == [1, 2, 3]
+    assert application.closed
+
+
+@pytest.mark.anyio
+async def test_turn_application_cancellation_rebuilds_session_loop() -> None:
+    application: TurnApplication[_Result] = TurnApplication()
+    cancelled = _command("wait", run_id="run-app-cancelled")
+    resumed = _command("resume", run_id="run-app-resumed")
+    started = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def execute_cancelled(_request: SubmitTurnCommand) -> _Result:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+        raise AssertionError("unreachable")
+
+    async def execute_resumed(_request: SubmitTurnCommand) -> _Result:
+        return _Result(status="completed")
+
+    cancelled_task = asyncio.create_task(
+        application.submit(cancelled, execute_cancelled)
+    )
+    await started.wait()
+    cancelled_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_task
+
+    assert cleaned.is_set()
+
+    result = await application.submit(resumed, execute_resumed)
+    await application.close()
+
+    assert result.projection.status == "completed"
+
+
+@pytest.mark.anyio
+async def test_turn_application_close_waits_for_active_session() -> None:
+    application: TurnApplication[_Result] = TurnApplication()
+    command = _command("wait", run_id="run-app-close")
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(_request: SubmitTurnCommand) -> _Result:
+        started.set()
+        await release.wait()
+        return _Result(status="completed")
+
+    submit_task = asyncio.create_task(application.submit(command, execute))
+    await started.wait()
+    first_close = asyncio.create_task(application.close())
+    second_close = asyncio.create_task(application.close())
+    await asyncio.sleep(0)
+
+    assert not first_close.done()
+    assert not second_close.done()
+
+    first_close.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first_close
+    assert not second_close.done()
+
+    release.set()
+    result = await submit_task
+    await second_close
+
+    assert result.projection.status == "completed"
+    assert application.closed
 
 
 @pytest.mark.anyio

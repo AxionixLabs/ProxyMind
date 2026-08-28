@@ -1,12 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .commands import SubmitTurnResult, submit_turn
-from .projections import RunResultProjection, project_run_result
+from agent.protocol import SubmitTurnCommand
+from .commands import (
+    SubmitTurnResult,
+    TurnApplication,
+    submit_turn
+)
+from .projections import (
+    RunResultProjection,
+    project_run_result
+)
 
 __all__ = (
     "RunResultProjection",
     "SubmitTurnResult",
+    "SubmitTurnCommand",
+    "TurnApplication",
     "project_run_result",
     "submit_turn",
 )

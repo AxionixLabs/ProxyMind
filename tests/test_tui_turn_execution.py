@@ -172,7 +172,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
         on_prompt_prepared=prepared_attachments.extend,
     )
 
-    assert result is None
+    assert result == RunResult(status="completed", assistant_text="done")
     assert controller.attach.consumed == 1
     assert prepared_attachments == [{
         "filename": "screen.png",

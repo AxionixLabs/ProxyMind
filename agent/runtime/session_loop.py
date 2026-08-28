@@ -32,6 +32,7 @@ class _Submission(typing.Generic[ResultValue]):
     """保存 SessionLoop 队列中的命令和共享完成信号。"""
 
     command: SubmitTurnCommand
+    executor: TurnExecutor[ResultValue]
     future: asyncio.Future[RunExecution[ResultValue]]
 
 
@@ -41,9 +42,9 @@ class SessionLoop(typing.Generic[ResultValue]):
     def __init__(
         self,
         session_id: str,
-        executor: TurnExecutor[ResultValue],
+        executor: TurnExecutor[ResultValue] | None = None,
     ) -> None:
-        """绑定一个本地 Session 和无状态主动 Turn 执行端口。"""
+        """绑定一个本地 Session 和可选的默认 Turn 执行端口。"""
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
             raise ValueError("session_id is required")
@@ -87,6 +88,7 @@ class SessionLoop(typing.Generic[ResultValue]):
     async def execute(
         self,
         command: SubmitTurnCommand,
+        executor: TurnExecutor[ResultValue] | None = None,
     ) -> RunExecution[ResultValue]:
         """提交命令，并让相同幂等身份共享同一执行结果。"""
         if command.session_id != self.session_id:
@@ -97,10 +99,17 @@ class SessionLoop(typing.Generic[ResultValue]):
 
         future = self._resolve_existing(command)
         if future is None:
+            resolved_executor = executor or self._executor
+            if resolved_executor is None:
+                raise ValueError("turn executor is required")
             loop = asyncio.get_running_loop()
             future = loop.create_future()
             self._register(command, future)
-            await self._submissions.put(_Submission(command, future))
+            await self._submissions.put(_Submission(
+                command,
+                resolved_executor,
+                future,
+            ))
 
         return await asyncio.shield(future)
 
@@ -187,7 +196,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
             command = submission.command
             future = submission.future
-            actor = RunActor(command, self._executor, self._publish)
+            actor = RunActor(command, submission.executor, self._publish)
 
             try:
                 value = await actor.run()

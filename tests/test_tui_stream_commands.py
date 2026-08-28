@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from engine.errors import AppError
+from mind_app.runtime.turns.result import RunResult
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.styles import text_block
@@ -331,14 +332,15 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         await release_link.wait()
 
     def run_model_turn(_mind, *, message_text, **_kwargs):
-        async def execute() -> None:
+        async def execute() -> RunResult:
             turn_messages.append(message_text)
             if len(turn_messages) == 1:
                 first_turn_started.set()
                 await release_first_turn.wait()
-                return None
+                return RunResult(status="completed")
             second_turn_started.set()
             task_event.set()
+            return RunResult(status="completed")
 
         return execute()
 
@@ -427,14 +429,15 @@ async def test_stream_settings_settle_before_queued_model_turn(
         return updated_permissions
 
     def run_model_turn(_mind, *, permissions, **_kwargs):
-        async def execute() -> None:
+        async def execute() -> RunResult:
             turn_permissions.append(permissions)
             if len(turn_permissions) == 1:
                 first_turn_started.set()
                 await release_first_turn.wait()
-                return None
+                return RunResult(status="completed")
             second_turn_started.set()
             task_event.set()
+            return RunResult(status="completed")
 
         return execute()
 
@@ -518,14 +521,15 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         await release_panel.wait()
 
     def run_model_turn(_mind, *, message_text, **_kwargs):
-        async def execute() -> None:
+        async def execute() -> RunResult:
             turn_messages.append(message_text)
             if len(turn_messages) == 1:
                 first_turn_started.set()
                 await release_first_turn.wait()
-                return None
+                return RunResult(status="completed")
             second_turn_started.set()
             task_event.set()
+            return RunResult(status="completed")
 
         return execute()
 
@@ -608,9 +612,10 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
             link_cancelled.set()
 
     def run_model_turn(_mind, **_kwargs):
-        async def execute() -> None:
+        async def execute() -> RunResult:
             turn_started.set()
             await release_turn.wait()
+            return RunResult(status="completed")
 
         return execute()
 
@@ -693,10 +698,11 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         runtime.queue_background_block(text_block("External MCP ready"))
 
     def run_model_turn(_mind, *, message_text, **_kwargs):
-        async def execute() -> None:
+        async def execute() -> RunResult:
             assert message_text == "hi"
             model_started.set()
             task_event.set()
+            return RunResult(status="completed")
 
         return execute()
 

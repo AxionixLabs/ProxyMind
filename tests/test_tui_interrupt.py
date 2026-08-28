@@ -361,6 +361,28 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
 
 
 @pytest.mark.anyio
+async def test_tui_uses_event_projection_for_terminal_status() -> None:
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    projected = SimpleNamespace(
+        status="completed",
+        projection=SimpleNamespace(status="interrupted"),
+    )
+
+    async def turn():
+        return projected
+
+    result = await execute_tui_model_turn(
+        application,
+        runtime,
+        turn(),
+    )
+
+    assert result is projected
+    assert application.emit.call_args.args[0].type == "tui.interrupted"
+
+
+@pytest.mark.anyio
 async def test_external_cancellation_is_not_swallowed() -> None:
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
