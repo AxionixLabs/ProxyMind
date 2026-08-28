@@ -71,6 +71,29 @@ def test_packaged_backend_is_self_contained() -> None:
     )
 
 
+def test_agent_runtime_core_does_not_import_legacy_packages() -> None:
+    forbidden = {
+        "applications",
+        "backend",
+        "engine",
+        "mind_app",
+        "mind_core",
+        "mind_nova",
+        "server",
+    }
+    violations = [
+        *_forbidden_imports("agent/protocol", forbidden),
+        *_forbidden_imports("agent/domain", forbidden),
+        *_forbidden_imports("agent/ports", forbidden),
+        *_forbidden_imports("agent/runtime", forbidden),
+        *_forbidden_imports("agent/application", forbidden),
+    ]
+
+    assert not violations, "agent runtime imports legacy code:\n" + "\n".join(
+        violations
+    )
+
+
 def test_controller_does_not_expose_runtime_facades() -> None:
     controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
     tree = ast.parse(

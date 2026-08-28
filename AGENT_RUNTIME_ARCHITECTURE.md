@@ -1,11 +1,33 @@
 # Agent Runtime 架构基线
 
-状态：已采纳（Architecture Decision Record）
+状态：已采纳（Architecture Decision Record）；实施处于阶段 1
 
 这份文档是 ProxyMind 下一代 Agent Runtime 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 三个历史包职责交叉、状态所有权不清和
 副作用难以恢复的问题；它不改变 Mind/Helix 的产品边界，也不改动独立打包的
 `backend/`。
+
+## 文档权威与当前边界
+
+- 本文档是 ProxyMind Agent Runtime 的目标 ADR，不表示目标目录已经存在。
+- `AGENT_RUNTIME_MIGRATION.md` 是阶段状态的唯一权威来源；准备性拆分
+  不能自动计入后续阶段。
+- `AGENTS.md` 定义当前可执行的生产依赖规则。迁移计划没有启用
+  相应阶段时，继续遵守 `mind_app -> mind_core -> mind_nova` 边界。
+- 阶段 0 基线已于 2026-08-28 通过，阶段 1 从主动 `exec` 用例开始引入
+  顶层 `agent` 包、`SessionLoop` 和 `RunActor`；其他入口仍遵守当前包边界。
+
+### 本地运行时与线上协议身份
+
+本 ADR 中的 `Run` 是 ProxyMind 本地可恢复执行单元，不替换已有线上
+`cid` / `sid` / `turn_id` / `attempt` / `item_id` / `event_seq` 身份。迁移不得：
+
+- 为本地 `Run` 另建一套对外会话或 Item 协议；
+- 将本地事件序号冒充为服务端 `event_seq`；
+- 重命名或重新解释已稳定的线上协议字段。
+
+本地 Command/Event 必须显式携带所属的线上坐标，并在 adapter 边界完成
+本地 `run_id` 与线上 `turn_id` / `attempt` 的映射。
 
 ## 决策结论
 
@@ -75,7 +97,7 @@ agent/
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
 │   └── observability.py     # 日志、指标和 tracing 端口
 ├── stores/
-│   ├── thread_store.py      # Session/Run 元数据和最终记录
+│   ├── session_store.py     # Session/Run 元数据和最终记录
 │   ├── event_store.py       # 追加事件、读取游标和快照
 │   ├── agent_graph.py       # 子 Agent 图和检查点
 │   ├── effect_journal.py   # 外部副作用状态机
@@ -238,7 +260,10 @@ running -> cancelled
 
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
+| `mind_app/controller.py` | `composition.py`、application 公开门面 | 不再新增长期运行状态，已有所有权按完整生命周期迁出 |
+| `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI `exec` 已由类型化 Command 驱动；TUI、MCP、Subscription 仍把它作为过渡能力入口 |
 | `mind_app/runtime/turns/stream.py` | `runtime/session_loop.py`、`application/turn_pipeline.py` | 先拆出命令入口、状态转移、事件投影和副作用执行 |
+| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py`、`runtime/environment/coding_lifecycle.py` | capabilities、adapters、runtime supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `runtime/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
 | `mind_app/runtime/durable_effects.py` | `stores/effect_journal.py`、`stores/outbox.py` | 作为现有效果状态机的正式落点，不降级为日志工具 |

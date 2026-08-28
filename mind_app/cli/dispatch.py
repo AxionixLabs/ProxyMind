@@ -4,6 +4,8 @@
 import time
 import typing
 import asyncio
+from agent.application import submit_turn
+from agent.protocol import SubmitTurnCommand
 from engine.errors import AppError
 from mind_core.preference import apply_primary_model_override
 from engine.observability import (
@@ -70,12 +72,30 @@ async def run_selected_command(
                     command.model,
                 )
 
-            run_result = await run_root_turn(
-                mind,
+            submit_command = SubmitTurnCommand.create(
                 message=command.prompt,
                 attachments=attachments,
-                **calling_kwargs,
+                pref_config=calling_kwargs.get("pref_config"),
             )
+
+            async def execute_root_turn(
+                request: SubmitTurnCommand,
+            ) -> RunResult:
+                """把类型化命令适配到现有根轮次用例。"""
+                root_kwargs: dict[str, typing.Any] = {
+                    "attachments": request.attachment_values(),
+                }
+                pref_config = request.pref_config_value()
+                if pref_config is not None:
+                    root_kwargs["pref_config"] = pref_config
+                return await run_root_turn(
+                    mind,
+                    message=request.message,
+                    **root_kwargs,
+                )
+
+            execution = await submit_turn(submit_command, execute_root_turn)
+            run_result = execution.value
             mind.exit_code = run_result.exit_code
         elif isinstance(command, InteractiveCommand):
             await _run_tui_session(

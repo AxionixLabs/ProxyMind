@@ -874,6 +874,40 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
     assert mind.exit_code == 1
 
 
+@pytest.mark.anyio
+async def test_cancelled_exec_closes_agent_session_worker(
+    root_turn_adapter,
+) -> None:
+    started = asyncio.Event()
+
+    async def wait_for_cancellation(*_args, **_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    root_turn_adapter.side_effect = wait_for_cancellation
+    mind = SimpleNamespace(
+        exit_code=0,
+        permissions=preset_permissions("auto"),
+    )
+
+    task = asyncio.create_task(
+        run_selected_command(mind, ExecCommand(prompt="wait"))
+    )
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not [
+        item
+        for item in asyncio.all_tasks()
+        if item is not asyncio.current_task()
+        and item.get_name().startswith("agent session ")
+        and not item.done()
+    ]
+
+
 def test_upgrade_uses_text_frontend_without_tui_runtime() -> None:
     command = RuntimeUpgradeCommand()
 
