@@ -33,8 +33,7 @@ from mind_nova.stream_events import (
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent,
-    TurnRetryingEvent,
-    TurnTerminalEvent
+    TurnRetryingEvent
 )
 from mind_nova.requests.tools import (
     ToolResultRequestError,
@@ -54,10 +53,7 @@ from ...output import (
     ResponseIdentity,
     SourcesOutput
 )
-from .result import (
-    RunResult,
-    RunStatus
-)
+from .result import RunResult
 from ...presentation.run_views import (
     build_run_completed_view,
     build_run_incomplete_view,
@@ -89,6 +85,7 @@ from .stream_tools import (
     ToolEventHandler,
 )
 from .stream_setup import prepare_stream_turn
+from .stream_outcome import StreamTurnOutcome
 from ...stream_events.lifecycle import handle_lifecycle_event
 from ...stream_events.assistant_boundary import is_assistant_output_boundary
 from ...stream_state.segment import SegmentTracker
@@ -161,29 +158,6 @@ def _response_identity(
         round=round_no,
         attempt=attempt,
     )
-
-
-def _terminal_result_fields(event: TurnTerminalEvent) -> dict[str, typing.Any]:
-    """提取需要保留到运行结果和会话记录的终态字段。"""
-    fields: dict[str, typing.Any] = {}
-    for field_name in (
-        "response_id",
-        "model",
-        "route",
-        "request_id",
-        "service_tier",
-        "stop_reason",
-        "stop_sequence",
-    ):
-        value = getattr(event, field_name)
-        if value not in {None, ""}:
-            fields[field_name] = value
-    if isinstance(event, TurnDoneEvent):
-        if event.reason:
-            fields["reason"] = event.reason
-        if event.can_continue is not None:
-            fields["can_continue"] = event.can_continue
-    return fields
 
 
 def _extend_request_context(
@@ -323,22 +297,8 @@ async def stream_turn(
     presentation   = output_session.presentation
     content        = output_session.content
 
-    interrupted: bool     = False
-    first_frame: bool     = True
-    turn_completed: bool  = False
-    turn_incomplete: bool = False
-    turn_failed: bool     = False
-
-    reconciliation_required: bool = False
-
-    turn_usage: dict[str, typing.Any]         = {}
-    turn_terminal_meta: dict[str, typing.Any] = {}
-    turn_can_continue: bool                   = False
-
-    failure_error: str | None = None
-    result_status: RunStatus  = "incomplete"
-
-    result_additional_context: tuple[str, ...] = ()
+    first_frame: bool = True
+    outcome = StreamTurnOutcome()
 
     failed_tool_context: list[str] = []
 
@@ -926,15 +886,12 @@ async def stream_turn(
                 if tool_batch_buffer.active:
                     raise ValueError("turn.failed arrived before tool.calls.done")
 
-                turn_failed        = True
-                failure_error      = event.error
-                turn_usage         = dict(event.usage)
-                turn_terminal_meta = _terminal_result_fields(event)
+                outcome.record_failed_event(event)
 
                 observe(
                     "stream.turn_failed",
                     level="ERROR",
-                    error=failure_error,
+                    error=outcome.error,
                     stop_reason=event.stop_reason,
                 )
                 if turn_context.agent.depth == 0:
@@ -946,9 +903,9 @@ async def stream_turn(
                     presentation,
                     None,
                     phase="turn.failed",
-                    error=failure_error,
-                    usage=turn_usage,
-                    terminal_meta=turn_terminal_meta,
+                    error=outcome.error,
+                    usage=outcome.usage,
+                    terminal_meta=outcome.terminal_meta,
                 )
                 continue
 
@@ -984,8 +941,6 @@ async def stream_turn(
                     effect_id=event.effect_id,
                 )
 
-                reconciliation_required: bool = True
-
                 reconciliation_error = (
                     event.error or "effect outcome requires reconciliation"
                 )
@@ -995,14 +950,14 @@ async def stream_turn(
                         f"{reconciliation_error}; "
                         "failed to release the suspended turn"
                     )
-                failure_error = reconciliation_error
+                outcome.require_reconciliation(reconciliation_error)
 
                 observe(
                     "stream.reconciliation_required",
                     level="ERROR",
                     turn_id=turn_context.turn_id,
                     effect_id=event.effect_id,
-                    error=failure_error,
+                    error=outcome.error,
                     turn_released=cancelled,
                 )
                 if turn_context.agent.depth == 0:
@@ -1014,7 +969,7 @@ async def stream_turn(
                     presentation,
                     None,
                     phase="turn.reconciliation_required",
-                    error=failure_error,
+                    error=outcome.error,
                 )
                 break
 
@@ -1108,19 +1063,11 @@ async def stream_turn(
                 if tool_batch_buffer.active:
                     raise ValueError("turn.done arrived before tool.calls.done")
 
-                turn_usage         = dict(event.usage)
-                turn_terminal_meta = _terminal_result_fields(event)
-                turn_can_continue  = event.can_continue is True
+                outcome.record_done_event(event)
 
                 if event.status == "interrupted":
-                    interrupted = True
                     if callbacks.interrupted is not None:
                         callbacks.interrupted()
-                elif event.status == "completed":
-                    turn_completed = True
-                else:
-                    turn_incomplete = True
-                    failure_error = event.reason or None
 
                 if turn_context.agent.depth == 0:
                     await mind.await_cleanup(
@@ -1168,10 +1115,9 @@ async def stream_turn(
                 for ready_call in ready_calls:
                     tool_handling = await tool_event_handler.handle_call(ready_call)
                     if tool_handling.status == "interrupted":
-                        interrupted = True
-                        failure_error = tool_handling.error
+                        outcome.interrupt(tool_handling.error)
                         break
-                if interrupted:
+                if outcome.is_interrupted:
                     break
                 continue
 
@@ -1183,10 +1129,9 @@ async def stream_turn(
                 for ready_call in tool_batch_buffer.accept(event):
                     tool_handling = await tool_event_handler.handle_call(ready_call)
                     if tool_handling.status == "interrupted":
-                        interrupted = True
-                        failure_error = tool_handling.error
+                        outcome.interrupt(tool_handling.error)
                         break
-                if interrupted:
+                if outcome.is_interrupted:
                     break
                 continue
 
@@ -1204,9 +1149,7 @@ async def stream_turn(
             continue
 
     except ToolResultRequestError as error:
-        result_status = "reconciliation_required"
-        reconciliation_required = True
-        failure_error = f"{error.code}: {error}"
+        outcome.require_reconciliation(f"{error.code}: {error}")
         observe(
             "stream.tool_result_delivery_failed",
             level="ERROR",
@@ -1223,12 +1166,11 @@ async def stream_turn(
             presentation,
             ev_report,
             phase="turn.tool_result_delivery_failed",
-            error=failure_error,
+            error=outcome.error,
         )
 
     except LocalEffectReconciliationRequired as error:
-        result_status = "reconciliation_required"
-        failure_error = str(error)
+        outcome.require_reconciliation(str(error))
         observe(
             "stream.local_effect_reconciliation_required",
             level="ERROR",
@@ -1242,17 +1184,18 @@ async def stream_turn(
             presentation,
             ev_report,
             phase="turn.reconciliation_required",
-            error=failure_error,
+            error=outcome.error,
         )
 
     except PromptHookBlockedError as error:
-        result_status = "failed"
-        failure_error = str(error)
-        result_additional_context = error.additional_context
+        outcome.fail(
+            str(error),
+            additional_context=error.additional_context,
+        )
         prompt_blocked = True
 
-        if result_additional_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(result_additional_context)
+        if outcome.additional_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(outcome.additional_context)
 
         observe(
             "stream.prompt_blocked",
@@ -1265,11 +1208,11 @@ async def stream_turn(
             presentation,
             ev_report,
             phase="turn.prompt_blocked",
-            error=failure_error,
+            error=outcome.error,
         )
 
     except asyncio.CancelledError:
-        interrupted = True
+        outcome.interrupt()
         if failed_tool_context and turn_context.agent.depth == 0:
             mind.conversation.queue_turn_context(failed_tool_context)
         observe(
@@ -1281,17 +1224,18 @@ async def stream_turn(
         raise
 
     except Exception as e:
-        result_status = "failed"
-        result_additional_context = tuple(failed_tool_context)
-        if result_additional_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(result_additional_context)
+        outcome.fail(
+            friendly_exception_text(e),
+            additional_context=failed_tool_context,
+        )
+        if outcome.additional_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(outcome.additional_context)
         observe_exception(
             "stream.failed",
             e,
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
-        failure_error = friendly_exception_text(e)
 
         if turn_context.agent.depth == 0:
             await mind.await_cleanup(mind.stop_anim("wait"))
@@ -1301,68 +1245,46 @@ async def stream_turn(
             presentation,
             ev_report,
             phase="turn.failed",
-            error=failure_error
+            error=outcome.error
         )
 
     else:
-        if interrupted:
-            result_status = "interrupted"
-        elif reconciliation_required:
-            result_status = "reconciliation_required"
-        elif turn_failed:
-            result_status = "failed"
-        elif turn_completed:
-            result_status = "completed"
-        elif turn_incomplete:
-            result_status = "incomplete"
-        else:
-            failure_error = "stream ended before turn completion"
+        outcome.settle_stream()
+        if not outcome.has_terminal_status:
             await finish_failure(
                 status_control,
                 presentation,
                 ev_report,
                 phase="turn.incomplete",
-                error=failure_error,
+                error=outcome.error,
             )
 
-        if turn_completed and turn_context.agent.depth == 0:
+        if outcome.is_completed and turn_context.agent.depth == 0:
             record_pending_assistant_output()
             mind.remember_last_assistant_reply(tracker.assistant_text())
 
         await status_control.end_status()
         await content.emit(SourcesOutput(tuple(tracker.iter_sources())))
 
-        if turn_completed and not turn_failed:
+        if outcome.is_completed and not outcome.is_failed:
             await presentation.emit(build_run_completed_view(
-                turn_usage,
-                turn_terminal_meta,
+                outcome.usage,
+                outcome.terminal_meta,
             ))
-        elif turn_incomplete:
+        elif outcome.is_incomplete:
             await presentation.emit(build_run_incomplete_view(
-                turn_usage,
-                reason=failure_error,
-                can_continue=turn_can_continue,
-                terminal_meta=turn_terminal_meta,
+                outcome.usage,
+                reason=outcome.error,
+                can_continue=outcome.can_continue,
+                terminal_meta=outcome.terminal_meta,
             ))
 
         observe(
             "stream.complete",
-            outcome=(
-                "interrupted"
-                if interrupted
-                else "failed"
-                if turn_failed
-                else "reconciliation_required"
-                if reconciliation_required
-                else "incomplete"
-                if turn_incomplete
-                else "complete"
-                if turn_completed
-                else "incomplete"
-            ),
+            outcome=outcome.observation_outcome,
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-            usage=turn_usage or None,
+            usage=outcome.usage or None,
         )
 
     finally:
@@ -1389,21 +1311,21 @@ async def stream_turn(
 
         record_turn_finished(
             transcript,
-            status="interrupted" if interrupted else result_status,
-            usage=turn_usage,
-            error=failure_error,
-            terminal_meta=turn_terminal_meta,
+            status=outcome.status,
+            usage=outcome.usage,
+            error=outcome.error,
+            terminal_meta=outcome.terminal_meta,
         )
 
         if turn_hook_events is not None and not prompt_blocked:
-            stop_outcome = "interrupted" if interrupted else result_status
+            stop_outcome = outcome.status
             try:
-                if interrupted:
+                if outcome.is_interrupted:
                     await mind.await_cleanup(_discard_stop_hook_decision(
                         turn_hook_events.stop(
                             outcome=stop_outcome,
-                            error=failure_error,
-                            usage=turn_usage,
+                            error=outcome.error,
+                            usage=outcome.usage,
                             last_assistant_message=(
                                 tracker.assistant_text()
                             ),
@@ -1415,8 +1337,8 @@ async def stream_turn(
                 else:
                     stop_decision = await turn_hook_events.stop(
                         outcome=stop_outcome,
-                        error=failure_error,
-                        usage=turn_usage,
+                        error=outcome.error,
+                        usage=outcome.usage,
                         last_assistant_message=(
                             tracker.assistant_text()
                         ),
@@ -1435,26 +1357,13 @@ async def stream_turn(
         transcript.close()
 
         await idle_wait.cancel()
-        await mind.await_cleanup(output_control.stop(blink=not interrupted))
-
-    result = RunResult(
-        status=result_status,
-        assistant_text=tracker.assistant_text(),
-        usage=dict(turn_usage),
-        error=failure_error,
-        additional_context=result_additional_context,
-        **turn_terminal_meta,
-    )
-
-    continuation_allowed = (
-        result_status == "completed"
-        or (
-            result_status == "incomplete"
-            and turn_can_continue
+        await mind.await_cleanup(
+            output_control.stop(blink=not outcome.is_interrupted)
         )
-    )
 
-    if stop_decision.should_continue and continuation_allowed:
+    result = outcome.build_result(tracker.assistant_text())
+
+    if stop_decision.should_continue and outcome.continuation_allowed:
         continuation_count = turn_continuation_count(turn_execution)
         if continuation_count >= MAX_STOP_CONTINUATIONS:
             observe(
@@ -1483,9 +1392,9 @@ async def stream_turn(
             "hooks.stop.continuation_denied",
             level="WARNING",
             turn_id=turn_context.turn_id,
-            outcome=result_status,
-            can_continue=turn_can_continue,
-            stop_reason=turn_terminal_meta.get("stop_reason"),
+            outcome=outcome.status,
+            can_continue=outcome.can_continue,
+            stop_reason=outcome.terminal_meta.get("stop_reason"),
         )
 
     return result
