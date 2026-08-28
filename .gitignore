@@ -57,3 +57,4 @@ website/mind/pages/generated/*.md
 
 # 沙箱发布产物按平台生成，源码仍位于 codex-main/codex-rs
 /schematic/sandbox
+codex-main/
