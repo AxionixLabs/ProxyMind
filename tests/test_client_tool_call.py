@@ -24,7 +24,7 @@ from mind_app.runtime.hooks.models import (
     ToolResultSnapshot,
 )
 from mind_app.runtime.tools import client_call
-from mind_app.runtime.tools.display import show_tool_start
+from mind_app.runtime.tools.display import show_tool_result, show_tool_start
 from mind_app.runtime.durable_effects import (
     EffectJournalPersistenceError,
     EffectJournalDecision,
@@ -36,7 +36,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallResult,
     ClientToolCallRunner,
 )
-from mind_app.runtime.tools.run import hook_tool_response
+from mind_app.runtime.tools.run import ToolRunResult, hook_tool_response
 from mind_core.permissions import preset_permissions
 from mind_nova.stream_events import ExecutionEffect
 
@@ -236,6 +236,35 @@ async def test_malformed_patch_preview_is_skipped_without_blocking_display() -> 
         {"patch": "patch"},
         patch_preview={"files": []},
         call_id="patch-malformed-preview",
+    )
+
+    presentation.emit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_permission_tool_has_no_generic_tool_result_display() -> None:
+    presentation = SimpleNamespace(emit=AsyncMock())
+    result = ToolRunResult(
+        result={},
+        ok=True,
+        fields={"ok": True},
+        text="permissions granted",
+        data={},
+        hook_response={},
+        cost_ms=1,
+        status="completed",
+    )
+
+    await show_tool_start(
+        presentation,
+        "request_permissions",
+        {"permissions": {"network": {"enabled": True}}},
+    )
+    await show_tool_result(
+        presentation,
+        "request_permissions",
+        {"permissions": {"network": {"enabled": True}}},
+        result,
     )
 
     presentation.emit.assert_not_awaited()

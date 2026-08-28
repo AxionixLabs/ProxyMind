@@ -12,7 +12,8 @@ from mind_nova import const
 
 __all__ = [
     "PermissionGrant",
-    "PermissionGrantStore"
+    "PermissionGrantStore",
+    "normalize_permission_profile",
 ]
 
 
@@ -98,8 +99,11 @@ class PermissionGrantStore:
         ) if requested_permissions is not None else _profile(permissions)
         normalized_cwd = _normalize_cwd(cwd)
 
+        grant_scope: typing.Literal["turn", "session"] = (
+            "turn" if normalized_scope == "turn" else "session"
+        )
         grant = PermissionGrant(
-            scope=normalized_scope,
+            scope=grant_scope,
             cid=normalized_cid,
             sid=normalized_sid,
             turn_id=normalized_turn,
@@ -186,6 +190,152 @@ class PermissionGrantStore:
 def _profile(value: typing.Any) -> dict[str, typing.Any]:
     """复制并限制权限资料为对象。"""
     return copy.deepcopy(value) if isinstance(value, dict) else {}
+
+
+def normalize_permission_profile(
+    value: typing.Any,
+    *,
+    cwd: str | Path | None,
+) -> dict[str, typing.Any]:
+    """校验并规范化权限申请资料及其路径。"""
+    if not isinstance(value, dict):
+        raise ValueError("permissions must be an object")
+
+    unknown = set(value).difference({"network", "file_system"})
+    if unknown:
+        raise ValueError(
+            "permissions contains unsupported fields: "
+            + ", ".join(sorted(str(item) for item in unknown))
+        )
+
+    result: dict[str, typing.Any] = {}
+    network = value.get("network")
+    if network is not None:
+        if not isinstance(network, dict):
+            raise ValueError("permissions.network must be an object")
+        unknown_network = set(network).difference({"enabled"})
+        if unknown_network:
+            raise ValueError(
+                "permissions.network contains unsupported fields: "
+                + ", ".join(sorted(str(item) for item in unknown_network))
+            )
+        enabled = network.get("enabled")
+        if enabled is not None and not isinstance(enabled, bool):
+            raise ValueError("permissions.network.enabled must be boolean")
+        if enabled is not None:
+            result["network"] = {"enabled": enabled}
+
+    file_system = value.get("file_system")
+    if file_system is not None:
+        if not isinstance(file_system, dict):
+            raise ValueError("permissions.file_system must be an object")
+        unknown_file_system = set(file_system).difference({
+            "read",
+            "write",
+            "entries",
+            "glob_scan_max_depth",
+        })
+        if unknown_file_system:
+            raise ValueError(
+                "permissions.file_system contains unsupported fields: "
+                + ", ".join(sorted(str(item) for item in unknown_file_system))
+            )
+
+        normalized_file_system: dict[str, typing.Any] = {}
+        for access in ("read", "write"):
+            paths = file_system.get(access)
+            if paths is None:
+                continue
+            if not isinstance(paths, list):
+                raise ValueError(f"permissions.file_system.{access} must be a list")
+            normalized_paths: list[str] = []
+            for path in paths:
+                if not isinstance(path, str) or not path.strip():
+                    raise ValueError(
+                        f"permissions.file_system.{access} must contain non-empty strings"
+                    )
+                normalized_path = _normalize_permission_path(path, cwd)
+                if normalized_path not in normalized_paths:
+                    normalized_paths.append(normalized_path)
+            if normalized_paths:
+                normalized_file_system[access] = normalized_paths
+
+        entries = file_system.get("entries")
+        if entries is not None:
+            if not isinstance(entries, list):
+                raise ValueError("permissions.file_system.entries must be a list")
+            normalized_entries: list[dict[str, typing.Any]] = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise ValueError("permissions.file_system.entries must contain objects")
+                unsupported = set(entry).difference({
+                    "path",
+                    "access",
+                    "missing_path_behavior",
+                })
+                if unsupported:
+                    raise ValueError(
+                        "permissions.file_system entry contains unsupported fields: "
+                        + ", ".join(sorted(str(item) for item in unsupported))
+                    )
+                path = entry.get("path")
+                access = str(entry.get("access") or "").strip().casefold()
+                if access not in {"read", "write", "deny"}:
+                    raise ValueError(
+                        "permissions.file_system entry access must be read, write or deny"
+                    )
+                normalized_entry = dict(entry)
+                normalized_entry["path"] = _normalize_permission_path(path, cwd)
+                normalized_entry["access"] = access
+                if normalized_entry not in normalized_entries:
+                    normalized_entries.append(normalized_entry)
+            if normalized_entries:
+                normalized_file_system["entries"] = normalized_entries
+
+        depth = file_system.get("glob_scan_max_depth")
+        if depth is not None:
+            if isinstance(depth, bool) or not isinstance(depth, int) or depth < 1:
+                raise ValueError(
+                    "permissions.file_system.glob_scan_max_depth must be a positive integer"
+                )
+            normalized_file_system["glob_scan_max_depth"] = depth
+
+        if normalized_file_system:
+            result["file_system"] = normalized_file_system
+
+    if not result:
+        raise ValueError("permissions must contain at least one permission")
+    return result
+
+
+def _normalize_permission_path(
+    value: typing.Any,
+    cwd: str | Path | None,
+) -> typing.Any:
+    """将权限路径按当前工作目录转换为稳定表示。"""
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            raise ValueError("permission path must be non-empty")
+        if any(token in raw for token in ("*", "?", "[")):
+            return raw
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = Path(_normalize_cwd(cwd)) / path
+        try:
+            return str(path.resolve())
+        except (OSError, RuntimeError, ValueError):
+            return str(path)
+    if isinstance(value, dict):
+        path_value = value.get("path") or value.get("pattern")
+        path_kind = str(value.get("type") or value.get("kind") or "path").strip()
+        if not isinstance(path_value, str) or not path_value.strip():
+            raise ValueError("structured permission path must contain path or pattern")
+        normalized = dict(value)
+        key = "pattern" if path_kind in {"glob_pattern", "glob"} else "path"
+        normalized[key] = _normalize_permission_path(path_value, cwd)
+        return normalized
+    raise ValueError("permission path must be a string or object")
 
 
 def _normalize_cwd(value: str | Path | None) -> str:
@@ -278,7 +428,7 @@ def _permission_covers(container: typing.Any, candidate: typing.Any) -> bool:
 def _profile_key(profile: dict[str, typing.Any]) -> str:
     """生成权限资料的稳定键。"""
     encoded = json.dumps(profile, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode(const.CHARSET)).hexdigest()
+    return hashlib.sha256(memoryview(encoded.encode(const.CHARSET))).hexdigest()
 
 
 def _json_equal(left: typing.Any, right: typing.Any) -> bool:

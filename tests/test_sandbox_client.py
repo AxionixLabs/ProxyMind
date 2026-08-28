@@ -89,6 +89,9 @@ def test_spawn_payload_only_sends_windows_fields_to_windows_sidecar(
             env={},
             sandbox_mode="workspace-write",
             stdin_open=False,
+            additional_permissions={
+                "file_system": {"read": [str(tmp_path / "out.txt")]},
+            },
         )
 
     asyncio.run(run("darwin"))
@@ -96,6 +99,9 @@ def test_spawn_payload_only_sends_windows_fields_to_windows_sidecar(
 
     assert "level" not in captured["darwin"]
     assert captured["win32"]["level"] == "restricted-token"
+    assert captured["win32"]["additional_permissions"]["file_system"]["read"] == [
+        str(tmp_path / "out.txt")
+    ]
 
 
 def test_native_coding_reuses_application_layout_for_sandbox_paths(tmp_path) -> None:

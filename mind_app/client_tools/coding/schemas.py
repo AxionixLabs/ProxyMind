@@ -1,7 +1,61 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import typing
+
+
+PERMISSION_PROFILE_SCHEMA: dict[str, typing.Any] = {
+    "type": "object",
+    "properties": {
+        "network": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "是否请求网络访问。",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "file_system": {
+            "type": "object",
+            "properties": {
+                "read": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "请求读取的路径列表。",
+                },
+                "write": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "请求写入的路径列表。",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    "additionalProperties": False,
+    "description": "要申请的文件系统或网络权限。",
+}
+
+
+REQUEST_PERMISSIONS_INPUT_SCHEMA: dict[str, typing.Any] = {
+    "type": "object",
+    "properties": {
+        "environment_id": {
+            "type": "string",
+            "description": "目标执行环境标识；省略时使用当前环境。",
+        },
+        "reason": {
+            "type": "string",
+            "description": "向用户展示的权限申请理由。",
+        },
+        "permissions": PERMISSION_PROFILE_SCHEMA,
+    },
+    "required": ["permissions"],
+    "additionalProperties": False,
+}
 
 JS_REPL_INPUT_SCHEMA: dict[str, typing.Any] = {
     "type": "object",
@@ -53,9 +107,23 @@ SHELL_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
         },
         "sandbox_permissions": {
             "type": "string",
-            "enum": ["use_default", "require_escalated"],
+            "enum": [
+                "use_default",
+                "with_additional_permissions",
+                "require_escalated",
+            ],
             "default": "use_default",
-            "description": "单条命令的沙箱覆盖；require_escalated 需用户审批后使用宿主 shell。",
+            "description": (
+                "单条命令的沙箱覆盖；with_additional_permissions 必须同时提供 "
+                "additional_permissions，require_escalated 需用户审批后使用宿主 shell。"
+            ),
+        },
+        "additional_permissions": {
+            **PERMISSION_PROFILE_SCHEMA,
+            "description": (
+                "仅在 sandbox_permissions 为 with_additional_permissions 时提供的 "
+                "文件系统或网络权限申请。"
+            ),
         },
         "justification": {
             "type": "string",
@@ -112,9 +180,23 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
         },
         "sandbox_permissions": {
             "type": "string",
-            "enum": ["use_default", "require_escalated"],
+            "enum": [
+                "use_default",
+                "with_additional_permissions",
+                "require_escalated",
+            ],
             "default": "use_default",
-            "description": "单条命令的沙箱覆盖；require_escalated 需用户审批后使用宿主 shell。",
+            "description": (
+                "单条命令的沙箱覆盖；with_additional_permissions 必须同时提供 "
+                "additional_permissions，require_escalated 需用户审批后使用宿主 shell。"
+            ),
+        },
+        "additional_permissions": {
+            **PERMISSION_PROFILE_SCHEMA,
+            "description": (
+                "仅在 sandbox_permissions 为 with_additional_permissions 时提供的 "
+                "文件系统或网络权限申请。"
+            ),
         },
         "justification": {
             "type": "string",
@@ -124,6 +206,54 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
     "required": ["command"],
     "additionalProperties": False,
 }
+
+
+def shell_command_input_schema(
+    *,
+    exec_permission_approvals_enabled: bool = True,
+) -> dict[str, typing.Any]:
+    """按 inline 权限能力生成单条命令参数协议。"""
+    return _with_exec_permission_schema(
+        SHELL_COMMAND_INPUT_SCHEMA,
+        exec_permission_approvals_enabled=exec_permission_approvals_enabled,
+    )
+
+
+def exec_command_input_schema(
+    *,
+    exec_permission_approvals_enabled: bool = True,
+) -> dict[str, typing.Any]:
+    """按 inline 权限能力生成持续命令参数协议。"""
+    return _with_exec_permission_schema(
+        EXEC_COMMAND_INPUT_SCHEMA,
+        exec_permission_approvals_enabled=exec_permission_approvals_enabled,
+    )
+
+
+def _with_exec_permission_schema(
+    schema: dict[str, typing.Any],
+    *,
+    exec_permission_approvals_enabled: bool,
+) -> dict[str, typing.Any]:
+    """根据能力开关收窄命令沙箱覆盖参数。"""
+    result = copy.deepcopy(schema)
+    properties = result.get("properties")
+    if not isinstance(properties, dict):
+        return result
+    sandbox = properties.get("sandbox_permissions")
+    if isinstance(sandbox, dict):
+        sandbox["enum"] = (
+            [
+                "use_default",
+                "with_additional_permissions",
+                "require_escalated",
+            ]
+            if exec_permission_approvals_enabled
+            else ["use_default", "require_escalated"]
+        )
+    if not exec_permission_approvals_enabled:
+        properties.pop("additional_permissions", None)
+    return result
 
 WRITE_STDIN_INPUT_SCHEMA: dict[str, typing.Any] = {
     "type": "object",

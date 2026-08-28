@@ -5,6 +5,7 @@ import typing
 from engine.observability import observe_exception
 from mcp import ClientSession, types as mcp_types
 from mind_app.client_tools import ClientToolRegistry
+from mind_app.builtin_tools import BuiltinToolRegistry
 from .config import truncate_text
 from .contracts import McpSessionLike
 from .status import should_reraise_external
@@ -14,18 +15,20 @@ if typing.TYPE_CHECKING:
 
 
 class CompositeToolSession(McpSessionLike):
-    """合并客户端、外部和服务 MCP 会话，并按工具来源分发调用。"""
+    """合并内置、客户端、外部和服务 MCP 会话，并按工具来源分发调用。"""
 
     def __init__(
         self,
         service_session: ClientSession | None = None,
         external_group: typing.Any = None,
-        client_registry: ClientToolRegistry | None = None
+        client_registry: ClientToolRegistry | None = None,
+        builtin_registry: BuiltinToolRegistry | None = None,
     ) -> None:
-        """保存可选服务会话、外部工具分组和客户端工具。"""
+        """保存可选服务会话、外部工具分组及两类本地工具。"""
         self.service_session = service_session
         self.external_group  = external_group
         self.client_registry = client_registry
+        self.builtin_registry = builtin_registry
 
     @staticmethod
     def tool_for_openai(
@@ -49,6 +52,11 @@ class CompositeToolSession(McpSessionLike):
         """返回全部可用工具合并后的工具列表。"""
         client_names: set[str]      = set()
         tools: list[mcp_types.Tool] = []
+
+        if self.builtin_registry is not None:
+            builtin_result = self.builtin_registry.list_tools()
+            tools.extend(builtin_result.tools)
+            client_names.update(tool.name for tool in builtin_result.tools)
 
         if self.client_registry is not None:
             client_result = self.client_registry.list_tools()
@@ -115,6 +123,19 @@ class CompositeToolSession(McpSessionLike):
     ) -> mcp_types.CallToolResult:
         """根据工具名称选择外部会话或本地会话执行调用。"""
         payload = arguments if args is None else args
+
+        if self.builtin_registry is not None and self.builtin_registry.has_tool(name):
+            return await self.builtin_registry.call_tool(
+                self,
+                name,
+                payload,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                meta=meta,
+                call_id=call_id,
+                turn_context=turn_context,
+                pref_config=pref_config,
+            )
 
         if self.client_registry is not None and self.client_registry.has_tool(name):
             return await self.client_registry.call_tool(

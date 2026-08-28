@@ -31,6 +31,7 @@ from mind_app.native_coding.exec.exec_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
 )
+from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.runtime.processes import wait_for_process
 
 
@@ -207,6 +208,7 @@ class ShellCommandTools(NativeCodingComponent):
         audit_files: bool = False,
         sandbox_mode: str = "danger-full-access",
         sandbox_permissions: object = "use_default",
+        additional_permissions: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
         cmd = str(command or "")
@@ -220,6 +222,16 @@ class ShellCommandTools(NativeCodingComponent):
                 "sandbox_permissions_invalid",
                 command=cmd,
                 detail=str(exc),
+            )
+        if permission == "with_additional_permissions" and additional_permissions is None:
+            return self.fail_result(
+                "additional_permissions_required",
+                command=cmd,
+            )
+        if permission != "with_additional_permissions" and additional_permissions is not None:
+            return self.fail_result(
+                "additional_permissions_unexpected",
+                command=cmd,
             )
         if sandbox_mode not in {
             "danger-full-access",
@@ -295,6 +307,20 @@ class ShellCommandTools(NativeCodingComponent):
             self._record_shell_result(data)
             return result
 
+        normalized_additional_permissions: dict[str, typing.Any] | None = None
+        if additional_permissions is not None:
+            try:
+                normalized_additional_permissions = normalize_permission_profile(
+                    additional_permissions,
+                    cwd=workdir,
+                )
+            except ValueError as exc:
+                return self.fail_result(
+                    "additional_permissions_invalid",
+                    command=cmd,
+                    detail=str(exc),
+                )
+
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
         output_limit      = int(policy.get("output_limit") or self.max_output_chars)
 
@@ -309,6 +335,8 @@ class ShellCommandTools(NativeCodingComponent):
             "sandbox_mode": sandbox_mode,
             "sandbox_permissions": permission,
         }
+        if normalized_additional_permissions is not None:
+            runtime_info["additional_permissions"] = normalized_additional_permissions
 
         exec_cmd = list(runtime.prefix or [])
         exec_cmd.append(cmd)
@@ -325,6 +353,7 @@ class ShellCommandTools(NativeCodingComponent):
                     env=env,
                     timeout_sec=effective_timeout,
                     sandbox_mode=sandbox_mode,
+                    additional_permissions=normalized_additional_permissions,
                 )
             else:
                 capture = await ProcessCapture.run_shell(
@@ -471,6 +500,7 @@ class ShellCommandTools(NativeCodingComponent):
         env: dict[str, str],
         timeout_sec: int,
         sandbox_mode: str,
+        additional_permissions: dict[str, typing.Any] | None,
     ) -> CapturedProcessResult:
         """通过当前平台 sidecar 执行一次命令并转换为统一捕获结果。"""
         started = time.perf_counter()
@@ -489,6 +519,7 @@ class ShellCommandTools(NativeCodingComponent):
             stdin_enabled=False,
             env=env,
             sandbox_mode=sandbox_mode,
+            additional_permissions=additional_permissions,
         ))
 
         timed_out = False

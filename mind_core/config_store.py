@@ -52,8 +52,10 @@ enabled = []
 disabled = []
 
 [features]
-js_repl = true
-subagents = true
+js_repl = false
+subagents = false
+exec_permission_approvals = false
+request_permissions_tool = false
 
 [hooks]
 

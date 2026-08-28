@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp import types as mcp_types
 
+from mind_app.builtin_tools import BuiltinTool, BuiltinToolRegistry
 from mind_app.client_tools.registry import ClientToolRegistry
 from mind_app.client_tools.types import ClientTool
 from mind_app.mcp.session_adapter import CompositeToolSession
@@ -97,6 +98,39 @@ async def test_client_tool_rejects_missing_turn_context() -> None:
         )
 
     handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_builtin_tool_uses_separate_registry_and_wire_metadata() -> None:
+    received = []
+
+    async def handler(arguments, runtime):
+        received.append((arguments, runtime))
+        return _result()
+
+    registry = BuiltinToolRegistry([BuiltinTool(
+        name="request_permissions",
+        description="test",
+        input_schema={"type": "object"},
+        handler=handler,
+    )])
+    session = CompositeToolSession(builtin_registry=registry)
+
+    listed = await session.list_tools()
+    assert listed.tools[0].name == "request_permissions"
+    assert listed.tools[0].meta["builtin"] is True
+
+    result = await session.call_tool(
+        "request_permissions",
+        {"permissions": {}},
+        call_id="call_builtin",
+        turn_context=_child_turn(),
+        pref_config={"primary": {"model": "test-model"}},
+    )
+
+    assert result.isError is False
+    assert received[0][0] == {"permissions": {}}
+    assert received[0][1].call_id == "call_builtin"
 
 
 @pytest.mark.anyio

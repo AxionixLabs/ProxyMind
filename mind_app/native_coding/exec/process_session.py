@@ -50,6 +50,7 @@ class ProcessSessionSpec(object):
     env: dict[str, str] | None = None
     background: bool | None = None
     sandbox_mode: str = "danger-full-access"
+    additional_permissions: dict[str, typing.Any] | None = None
 
 
 class ProcessSession(object):
@@ -187,13 +188,18 @@ class ProcessSessionManager(object):
         if spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
             if self._sandbox_client is None:
                 raise SandboxUnavailable("sandbox client is not configured")
+            spawn_kwargs: dict[str, typing.Any] = {
+                "argv": spec.args,
+                "cwd": spec.cwd,
+                "env": spec.env or {},
+                "sandbox_mode": spec.sandbox_mode,
+                "stdin_open": spec.stdin_enabled,
+                "timeout_ms": max(1, int(spec.timeout_sec)) * 1000,
+            }
+            if spec.additional_permissions is not None:
+                spawn_kwargs["additional_permissions"] = spec.additional_permissions
             process = await self._sandbox_client.spawn(
-                argv=spec.args,
-                cwd=spec.cwd,
-                env=spec.env or {},
-                sandbox_mode=spec.sandbox_mode,
-                stdin_open=spec.stdin_enabled,
-                timeout_ms=max(1, int(spec.timeout_sec)) * 1000,
+                **spawn_kwargs,
             )
         else:
             stdin = asyncio.subprocess.PIPE if spec.stdin_enabled else asyncio.subprocess.DEVNULL

@@ -6,6 +6,7 @@ from mcp import types as mcp_types
 from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_app.approval.policy import approval_execpolicy_amendment
+from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import (
     ExecPolicyManager,
@@ -22,10 +23,10 @@ from mind_app.client_tools.types import (
 )
 from .schemas import (
     APPLY_PATCH_INPUT_SCHEMA,
-    EXEC_COMMAND_INPUT_SCHEMA,
     JS_REPL_INPUT_SCHEMA,
     JS_REPL_RESET_INPUT_SCHEMA,
-    SHELL_COMMAND_INPUT_SCHEMA,
+    exec_command_input_schema,
+    shell_command_input_schema,
     WRITE_STDIN_INPUT_SCHEMA
 )
 
@@ -166,12 +167,28 @@ def coding_tools(
     *,
     approval_coordinator: "ApprovalCoordinator | None" = None,
     exec_policy_manager: ExecPolicyManager | None = None,
+    exec_permission_approvals_enabled: bool = False,
 ) -> list[ClientTool]:
     """返回编码工具列表。"""
     coding = native_coding or NativeCoding()
     local_exec_policy = exec_policy_manager or ExecPolicyManager(
         workspace_root=coding.root
     )
+
+    def validate_inline_permission_feature(
+        arguments: dict[str, typing.Any],
+    ) -> None:
+        """校验 inline 权限能力是否对当前工具开放。"""
+        if (
+            not exec_permission_approvals_enabled
+            and str(arguments.get("sandbox_permissions") or "")
+                .strip()
+                .casefold() == "with_additional_permissions"
+        ):
+            raise ExecutionAuthorizationError(
+                "additional_permissions_disabled",
+                "inline additional permissions are disabled",
+            )
 
     async def js_repl_handler(
         arguments: dict[str, typing.Any],
@@ -277,11 +294,11 @@ def coding_tools(
         try:
             reject_model_execution(arguments)
             args = dict(arguments)
+            validate_inline_permission_feature(args)
             validate_sandbox_permission_arguments(args)
             execution_args = dict(args)
             execution_args.pop("justification", None)
             for field_name in (
-                "additional_permissions",
                 "environment_id",
                 "policy_fingerprint",
                 "patch_scope",
@@ -362,11 +379,11 @@ def coding_tools(
         try:
             reject_model_execution(arguments)
             args = dict(arguments)
+            validate_inline_permission_feature(args)
             validate_sandbox_permission_arguments(args)
             execution_args = dict(args)
             execution_args.pop("justification", None)
             for field_name in (
-                "additional_permissions",
                 "environment_id",
                 "policy_fingerprint",
                 "patch_scope",
@@ -431,7 +448,7 @@ def coding_tools(
             target=coding.agent_id
         )
 
-    return [
+    tools: list[ClientTool] = [
         ClientTool(
             name="js_repl",
             description=JS_REPL_DESCRIPTION,
@@ -455,7 +472,9 @@ def coding_tools(
                 "在工作区内执行单条本地 shell 命令。命令由系统默认 shell 解释执行，"
                 "适合运行单个诊断命令、测试、构建或脚本。代码修改请使用 apply_patch。"
             ),
-            input_schema=SHELL_COMMAND_INPUT_SCHEMA,
+            input_schema=shell_command_input_schema(
+                exec_permission_approvals_enabled=exec_permission_approvals_enabled,
+            ),
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=shell_command_handler,
         ),
@@ -465,7 +484,9 @@ def coding_tools(
                 "启动可持续读写的本地 shell 命令会话。适合长耗时任务、交互式任务和持续输出。"
                 "该实现使用标准输入输出管道，不提供真实 PTY。"
             ),
-            input_schema=EXEC_COMMAND_INPUT_SCHEMA,
+            input_schema=exec_command_input_schema(
+                exec_permission_approvals_enabled=exec_permission_approvals_enabled,
+            ),
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=exec_command_handler,
         ),
@@ -490,6 +511,7 @@ def coding_tools(
             handler=apply_patch_handler,
         ),
     ]
+    return tools
 
 
 def _js_repl_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -539,7 +561,7 @@ def _nested_canonical_arguments(
 ) -> dict[str, typing.Any]:
     """补齐嵌套进程工具需要的 canonical 默认参数。"""
     if tool == "shell_command":
-        return {
+        canonical = {
             "command": str(arguments.get("command") or ""),
             "cwd": str(arguments.get("cwd") or "."),
             "timeout_sec": int(arguments.get("timeout_sec") or 60),
@@ -553,8 +575,13 @@ def _nested_canonical_arguments(
                 else {}
             ),
         }
+        if arguments.get("environment_id") not in (None, ""):
+            canonical["environment_id"] = str(arguments["environment_id"])
+        if arguments.get("additional_permissions") is not None:
+            canonical["additional_permissions"] = arguments["additional_permissions"]
+        return canonical
     if tool == "exec_command":
-        return {
+        canonical = {
             "command": str(arguments.get("command") or ""),
             "cwd": str(arguments.get("cwd") or "."),
             "shell": str(arguments.get("shell") or "") or None,
@@ -571,6 +598,11 @@ def _nested_canonical_arguments(
                 else {}
             ),
         }
+        if arguments.get("environment_id") not in (None, ""):
+            canonical["environment_id"] = str(arguments["environment_id"])
+        if arguments.get("additional_permissions") is not None:
+            canonical["additional_permissions"] = arguments["additional_permissions"]
+        return canonical
     if tool == "write_stdin":
         return {
             "session_id": str(arguments.get("session_id") or ""),
@@ -715,6 +747,20 @@ async def _authorize_nested_tool(
             "sandbox_permissions_invalid",
             str(error),
         ) from error
+    command_cwd = arguments.get("cwd") or runtime.turn_context.cwd
+    additional_permissions = arguments.get("additional_permissions")
+    if additional_permissions is not None:
+        try:
+            additional_permissions = normalize_permission_profile(
+                additional_permissions,
+                cwd=command_cwd,
+            )
+        except ValueError as error:
+            raise ExecutionAuthorizationError(
+                "additional_permissions_invalid",
+                str(error),
+            ) from error
+
     requirement = exec_policy_manager.create_exec_approval_requirement_for_command(
         str(arguments.get("command") or ""),
         approval_policy=permissions.approval_policy,
@@ -725,7 +771,7 @@ async def _authorize_nested_tool(
         sandbox_permissions=sandbox_permissions,
         environment_id=arguments.get("environment_id"),
         tty=arguments.get("tty"),
-        additional_permissions=arguments.get("additional_permissions"),
+        additional_permissions=additional_permissions,
         policy_fingerprint=arguments.get("policy_fingerprint"),
         patch_scope=arguments.get("patch_scope"),
     )
@@ -735,10 +781,32 @@ async def _authorize_nested_tool(
             requirement.reason or f"local execution policy forbids nested {tool} command",
         )
 
+    if (
+        sandbox_permissions == "with_additional_permissions"
+        and additional_permissions
+        and not _nested_permission_granted(
+            runtime,
+            arguments,
+            permissions=additional_permissions,
+            cwd=command_cwd,
+        )
+    ):
+        if runtime.turn_context.permissions.approval_policy == "never":
+            raise ExecutionAuthorizationError(
+                "additional_permissions_approval_required",
+                "additional permissions require approval, but approval policy is never",
+            )
+        requirement = ExecApprovalRequirement.needs_approval(
+            reason="additional permissions require approval",
+            proposed_execpolicy_amendment=requirement.proposed_execpolicy_amendment,
+        )
+
     requires_approval = requirement.state == "needs_approval"
 
     approved  = not requires_approval
     canonical = _nested_canonical_arguments(tool, arguments)
+    if additional_permissions is not None:
+        canonical["additional_permissions"] = additional_permissions
 
     if requires_approval:
         if approval_coordinator is None:
@@ -823,6 +891,27 @@ async def _authorize_nested_tool(
         )
 
     return None
+
+
+def _nested_permission_granted(
+    runtime: ClientToolRuntime,
+    arguments: dict[str, typing.Any],
+    *,
+    permissions: dict[str, typing.Any],
+    cwd: typing.Any,
+) -> bool:
+    """判断嵌套命令是否已有覆盖申请的权限。"""
+    store = runtime.turn_context.permission_grants
+    if store is None:
+        return False
+    return bool(store.has_grant(
+        cid=runtime.turn_context.cid,
+        sid=runtime.turn_context.sid,
+        turn_id=runtime.turn_context.turn_id,
+        environment_id=arguments.get("environment_id"),
+        cwd=cwd,
+        permissions=permissions,
+    ))
 
 
 if __name__ == '__main__':

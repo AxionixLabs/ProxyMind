@@ -75,6 +75,11 @@ def tool_status_text(name: str) -> str | None:
     return tool_display_spec(name).status_text
 
 
+def is_approval_only_tool(name: str) -> bool:
+    """判断工具是否只通过专用审批表面反馈结果。"""
+    return str(name or "").strip() == "request_permissions"
+
+
 def merges_tool_start_event(name: str) -> bool:
     """判断历史回放是否将开始事件并入完成事件。"""
     return tool_display_spec(name).merge_start_event

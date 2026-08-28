@@ -297,6 +297,7 @@ class SandboxClient(object):
         stdin_open: bool,
         tty: bool = False,
         timeout_ms: int | None = None,
+        additional_permissions: dict[str, typing.Any] | None = None,
     ) -> SidecarProcess:
         await self.ensure_started()
         params: dict[str, typing.Any] = {
@@ -311,6 +312,8 @@ class SandboxClient(object):
         }
         if self.platform != "darwin":
             params["level"] = "restricted-token"
+        if additional_permissions is not None:
+            params["additional_permissions"] = dict(additional_permissions)
         response = await self._request("spawn", params)
 
         process_id = str(response.get("process_id") or "").strip()

@@ -1,8 +1,21 @@
 # -*- coding: utf-8 -*-
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from mind_app.approval.models import ApprovalOutcome
 from mind_app.approval.permission_grants import PermissionGrantStore
-from mind_app.runtime.execution import AgentContext, ToolInvocation, TurnContext
-from mind_app.runtime.turns.stream_policy import local_permission_approval
+from mind_app.builtin_tools.permissions import permission_tools
+from mind_app.client_tools.coding.native import coding_tools
+from mind_app.client_tools.types import ClientToolRuntime
+from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from mind_app.runtime.execution import AgentContext, TurnContext
+from mind_app.runtime.turns.stream_policy import (
+    local_exec_policy_requirement,
+)
 from mind_core.permissions import preset_permissions
 from mind_app.runtime.turns.stream_approval import approval_report_kwargs
 
@@ -159,30 +172,203 @@ def test_permission_approval_report_contains_only_grant_fields() -> None:
     assert "strict_auto_review" not in declined
 
 
-def test_local_permission_request_uses_permission_kind_and_native_decisions() -> None:
+@pytest.mark.anyio
+async def test_request_permissions_tool_records_turn_grant(tmp_path) -> None:
+    store = PermissionGrantStore()
     context = TurnContext.create(
         agent=AgentContext.root("sid-1"),
         cid="cid-1",
         sid="sid-1",
         source="test",
         pref_config={"primary": {"model": "test"}},
-        cwd="D:/workspace",
+        cwd=str(tmp_path),
         permissions=preset_permissions("auto"),
+        permission_grants=store,
     )
-    approval = local_permission_approval(ToolInvocation(
-        turn=context,
-        call_id="call-1",
-        name="shell_command",
-        arguments={
-            "command": "curl https://example.com",
-            "sandbox_permissions": "with_additional_permissions",
-            "additional_permissions": {"network": {"enabled": True}},
+    coordinator = SimpleNamespace(
+        request_outcome=AsyncMock(
+            return_value=ApprovalOutcome.create(
+                "grantForTurn",
+                source="user",
+                reason="user",
+            )
+        )
+    )
+    tool = permission_tools(coordinator)[0]
+    runtime = ClientToolRuntime(
+        session=SimpleNamespace(),
+        turn_context=context,
+        pref_config={},
+        call_id="call-permission",
+    )
+
+    result = await tool.handler({
+        "reason": "read generated output",
+        "permissions": {
+            "file_system": {
+                "read": ["output.txt"],
+            },
         },
-    ))
+    }, runtime)
+
+    assert result.isError is False
+    assert result.structuredContent["data"]["scope"] == "turn"
+    assert store.has_grant(
+        cid="cid-1",
+        sid="sid-1",
+        turn_id=context.turn_id,
+        environment_id="",
+        cwd=str(tmp_path),
+        permissions={
+            "file_system": {
+                "read": [str(tmp_path / "output.txt")],
+            },
+        },
+    ) is True
+    approval = coordinator.request_outcome.await_args.args[0]
     assert approval["kind"] == "request_permissions"
-    assert approval["available_decisions"] == [
-        "grantForTurn",
-        "grantForTurnWithStrictAutoReview",
-        "grantForSession",
-        "decline",
+    assert approval["permissions"]["file_system"]["read"] == [
+        str(tmp_path / "output.txt")
     ]
+
+
+@pytest.mark.anyio
+async def test_request_permissions_tool_skips_card_for_never_policy(tmp_path) -> None:
+    coordinator = SimpleNamespace(request_outcome=AsyncMock())
+    context = TurnContext.create(
+        agent=AgentContext.root("sid-1"),
+        cid="cid-1",
+        sid="sid-1",
+        source="test",
+        pref_config={"primary": {"model": "test"}},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("full-access"),
+        permission_grants=PermissionGrantStore(),
+    )
+    tool = permission_tools(coordinator)[0]
+    result = await tool.handler({
+        "permissions": {"network": {"enabled": True}},
+    }, ClientToolRuntime(
+        session=SimpleNamespace(),
+        turn_context=context,
+        pref_config={},
+        call_id="call-never",
+    ))
+
+    assert result.structuredContent["data"]["permissions"] == {}
+    coordinator.request_outcome.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("decision", "scope", "strict"),
+    [
+        ("grantForSession", "session", False),
+        ("grantForTurnWithStrictAutoReview", "turn", True),
+        ("decline", "turn", False),
+    ],
+)
+async def test_request_permissions_tool_returns_native_decision_result(
+    tmp_path,
+    decision: str,
+    scope: str,
+    strict: bool,
+) -> None:
+    store = PermissionGrantStore()
+    context = TurnContext.create(
+        agent=AgentContext.root("sid-1"),
+        cid="cid-1",
+        sid="sid-1",
+        source="test",
+        pref_config={"primary": {"model": "test"}},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("auto"),
+        permission_grants=store,
+    )
+    coordinator = SimpleNamespace(
+        request_outcome=AsyncMock(
+            return_value=ApprovalOutcome.create(
+                decision,
+                source="user",
+                reason="user",
+            )
+        )
+    )
+    tool = permission_tools(coordinator)[0]
+    result = await tool.handler(
+        {"permissions": {"network": {"enabled": True}}},
+        ClientToolRuntime(
+            session=SimpleNamespace(),
+            turn_context=context,
+            pref_config={},
+            call_id=f"call-{decision}",
+        ),
+    )
+
+    data = result.structuredContent["data"]
+    assert data["scope"] == scope
+    assert data["strict_auto_review"] is strict
+    assert bool(data["permissions"]) is (decision != "decline")
+    if decision == "grantForSession":
+        assert store.has_grant(
+            cid=context.cid,
+            sid=context.sid,
+            turn_id="turn-2",
+            environment_id="",
+            cwd=str(tmp_path),
+            permissions={"network": {"enabled": True}},
+        ) is True
+
+
+def test_inline_permissions_require_command_approval_until_granted(tmp_path) -> None:
+    context = TurnContext.create(
+        agent=AgentContext.root("sid-1"),
+        cid="cid-1",
+        sid="sid-1",
+        source="test",
+        pref_config={"primary": {"model": "test"}},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("auto"),
+        permission_grants=PermissionGrantStore(),
+    )
+    arguments = {
+        "command": "echo ready",
+        "sandbox_permissions": "with_additional_permissions",
+        "additional_permissions": {
+            "file_system": {"read": ["outside.txt"]},
+        },
+    }
+    requirement = local_exec_policy_requirement(
+        ExecPolicyManager(workspace_root=tmp_path),
+        context,
+        tool="shell_command",
+        arguments=arguments,
+        call_id="call-inline",
+    )
+    assert requirement is not None
+    assert requirement.state == "needs_approval"
+
+    assert context.permission_grants is not None
+    context.permission_grants.grant(
+        scope="turn",
+        cid=context.cid,
+        sid=context.sid,
+        turn_id=context.turn_id,
+        environment_id="",
+        cwd=str(tmp_path),
+        permissions={
+            "file_system": {"read": [str(tmp_path / "outside.txt")]},
+        },
+        requested_permissions={
+            "file_system": {"read": [str(tmp_path / "outside.txt")]},
+        },
+    )
+    granted = local_exec_policy_requirement(
+        ExecPolicyManager(workspace_root=tmp_path),
+        context,
+        tool="shell_command",
+        arguments=arguments,
+        call_id="call-inline-granted",
+    )
+    assert granted is not None
+    assert granted.state != "needs_approval"

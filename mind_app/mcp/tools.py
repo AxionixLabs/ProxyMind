@@ -43,13 +43,15 @@ def build_wire_tools(list_tools: mcp_types.ListToolsResult) -> list[dict[str, ty
 async def build_tool_context(
     service_session: ClientSession | None = None,
     external_group: typing.Any = None,
-    client_registry: typing.Any = None
+    client_registry: typing.Any = None,
+    builtin_registry: typing.Any = None,
 ) -> McpToolContext:
     """合并可用工具来源，并生成模型调用上下文。"""
     active_session = CompositeToolSession(
         service_session,
         external_group,
-        client_registry=client_registry
+        client_registry=client_registry,
+        builtin_registry=builtin_registry,
     )
 
     list_tools = await active_session.list_tools()

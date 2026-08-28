@@ -139,6 +139,14 @@ def tui_approval_content_lines(
             approval.summary,
             max_width=content_width,
         ))
+    elif (
+        isinstance(approval, ExecApprovalPresentation)
+        and approval.additional_permissions
+    ):
+        detail_groups.append(_approval_permission_rule_lines(
+            _permission_request_summary(approval.additional_permissions),
+            max_width=content_width,
+        ))
 
     option_groups = _approval_option_groups(
         decisions,
@@ -215,6 +223,33 @@ def _approval_permission_field_lines(
         [("class:approval-permission-value", value)],
         max_width=max_width,
     )
+
+
+def _permission_request_summary(permissions: dict[str, typing.Any]) -> str:
+    """生成命令审批中附加权限的简要规则。"""
+    parts: list[str] = []
+    network = permissions.get("network")
+    if isinstance(network, dict) and network.get("enabled") is True:
+        parts.append("network")
+
+    file_system = permissions.get("file_system")
+    if isinstance(file_system, dict):
+        for access in ("read", "write"):
+            paths = file_system.get(access)
+            if isinstance(paths, list) and paths:
+                values = ", ".join(str(path) for path in paths)
+                parts.append(f"{access} {values}")
+        entries = file_system.get("entries")
+        if isinstance(entries, list):
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                path = str(entry.get("path") or "").strip()
+                access = str(entry.get("access") or "").strip().casefold()
+                if path and access in {"read", "write", "deny"}:
+                    label = "deny read" if access == "deny" else access
+                    parts.append(f"{label} {path}")
+    return "; ".join(parts) or "additional permissions"
 
 
 def _approval_agent_source_line(

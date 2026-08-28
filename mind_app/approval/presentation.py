@@ -49,6 +49,16 @@ class ExecApprovalPresentation(object):
     commands: tuple[ApprovalCommand, ...]
     summary: str
     amendment: ExecPolicyAmendmentProposal | None = None
+    additional_permissions: dict[str, typing.Any] | None = None
+
+    def __post_init__(self) -> None:
+        """复制附加权限资料，避免展示状态被外部修改。"""
+        if self.additional_permissions is not None:
+            object.__setattr__(
+                self,
+                "additional_permissions",
+                copy.deepcopy(self.additional_permissions),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,11 +145,15 @@ def build_approval_presentation(
     summary = _approval_summary(normalized, resolved_kind)
 
     if resolved_kind in {"command", "write_stdin", "network_access"}:
+        additional_permissions = normalized.get("additional_permissions")
+        if not isinstance(additional_permissions, dict):
+            additional_permissions = None
         return ExecApprovalPresentation(
             context=context,
             commands=_command_values(normalized),
             summary=summary,
             amendment=approval_execpolicy_amendment(normalized),
+            additional_permissions=additional_permissions,
         )
 
     if resolved_kind == "apply_patch":

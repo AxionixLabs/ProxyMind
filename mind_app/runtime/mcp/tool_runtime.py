@@ -49,6 +49,18 @@ class ClientToolProvider(object):
         return self._mind.client_tools
 
 
+class BuiltinToolProvider(object):
+    """提供核心内置工具注册表。"""
+
+    def __init__(self, mind: "Mind") -> None:
+        """保存主控制器上下文。"""
+        self._mind = mind
+
+    def registry(self) -> typing.Any:
+        """返回核心内置工具注册表。"""
+        return getattr(self._mind, "builtin_tools", None)
+
+
 class ExternalMcpProvider(object):
     """提供已启动的外部 MCP 工具分组。"""
 
@@ -79,6 +91,7 @@ class CompositeToolRuntime(object):
         self._mind = mind
 
         self.client_provider   = ClientToolProvider(mind)
+        self.builtin_provider  = BuiltinToolProvider(mind)
         self.external_provider = ExternalMcpProvider(mind)
         self.service_provider  = ServiceMcpProvider()
 
@@ -101,10 +114,16 @@ class CompositeToolRuntime(object):
         before_user_flow: typing.Optional[typing.Callable[[], typing.Any]]
     ) -> SessionResult:
         """构建组合工具上下文并执行用户回调。"""
+        context_kwargs: dict[str, typing.Any] = {
+            "client_registry": self.client_provider.registry(),
+        }
+        builtin_registry = self.builtin_provider.registry()
+        if builtin_registry is not None:
+            context_kwargs["builtin_registry"] = builtin_registry
         tool_context = await build_tool_context(
             service_session,
             self.external_provider.group(),
-            client_registry=self.client_provider.registry()
+            **context_kwargs,
         )
 
         await self.run_before_user_flow(before_user_flow)

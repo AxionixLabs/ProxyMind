@@ -86,6 +86,7 @@ class NativeCoding(NativeCodingBase):
         output_encoding: str = "auto",
         sandbox_mode: str = "danger-full-access",
         sandbox_permissions: object = "use_default",
+        additional_permissions: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
         """执行单条 shell 命令。"""
         return await self._shell_command.shell_command(
@@ -95,6 +96,7 @@ class NativeCoding(NativeCodingBase):
             output_encoding=output_encoding,
             sandbox_mode=sandbox_mode,
             sandbox_permissions=sandbox_permissions,
+            additional_permissions=additional_permissions,
         )
 
     async def exec_command(
@@ -111,6 +113,7 @@ class NativeCoding(NativeCodingBase):
         sid: str = "",
         sandbox_mode: str = "danger-full-access",
         sandbox_permissions: object = "use_default",
+        additional_permissions: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
         """启动可持续读写的 shell 命令会话。"""
         return await self._exec_command.exec_command(
@@ -125,6 +128,7 @@ class NativeCoding(NativeCodingBase):
             sid=sid,
             sandbox_mode=sandbox_mode,
             sandbox_permissions=sandbox_permissions,
+            additional_permissions=additional_permissions,
         )
 
     async def write_stdin(

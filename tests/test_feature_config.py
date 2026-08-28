@@ -1,5 +1,6 @@
 import pytest
 
+from mind_app.builtin_tools import BuiltinToolRegistry, permission_tools
 from mind_app.client_tools.registry import default_registry
 from mind_core.config import (
     ConfigValidationError,
@@ -15,8 +16,10 @@ def test_feature_settings_use_normalized_defaults() -> None:
     config = normalize_config({})
 
     assert config["features"] == {
-        "js_repl": True,
-        "subagents": True,
+        "js_repl": False,
+        "subagents": False,
+        "exec_permission_approvals": False,
+        "request_permissions_tool": False,
     }
     assert FeatureSettings.from_config(config) == FeatureSettings()
 
@@ -26,13 +29,29 @@ def test_feature_settings_read_explicit_config() -> None:
         "features": {
             "js_repl": False,
             "subagents": False,
+            "exec_permission_approvals": False,
+            "request_permissions_tool": False,
         },
     })
 
     assert FeatureSettings.from_config(config) == FeatureSettings(
         js_repl=False,
         subagents=False,
+        exec_permission_approvals=False,
+        request_permissions_tool=False,
     )
+
+
+def test_optional_tool_features_can_be_enabled_explicitly() -> None:
+    config = normalize_config({
+        "features": {
+            "js_repl": True,
+            "subagents": True,
+        },
+    })
+
+    assert FeatureSettings.from_config(config).js_repl is True
+    assert FeatureSettings.from_config(config).subagents is True
 
 
 @pytest.mark.parametrize(
@@ -60,6 +79,52 @@ def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
     assert "shell_command" in names
 
 
+def test_permission_features_control_tool_surface(tmp_path) -> None:
+    tools = default_registry(
+        execution_root=tmp_path,
+        features=FeatureSettings(
+            request_permissions_tool=False,
+            exec_permission_approvals=False,
+        ),
+    ).list_tools().tools
+    by_name = {tool.name: tool for tool in tools}
+
+    assert "request_permissions" not in by_name
+    assert "with_additional_permissions" not in by_name["shell_command"].inputSchema[
+        "properties"
+    ]["sandbox_permissions"]["enum"]
+    assert "additional_permissions" not in by_name["exec_command"].inputSchema[
+        "properties"
+    ]
+
+
+def test_permission_features_are_disabled_by_default(tmp_path) -> None:
+    names = {
+        tool.name
+        for tool in default_registry(execution_root=tmp_path).list_tools().tools
+    }
+    assert "request_permissions" not in names
+
+
+def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
+    tools = default_registry(
+        execution_root=tmp_path,
+        features=FeatureSettings(
+            request_permissions_tool=True,
+            exec_permission_approvals=True,
+        ),
+    ).list_tools().tools
+    by_name = {tool.name: tool for tool in tools}
+
+    assert "request_permissions" not in by_name
+    assert "with_additional_permissions" in by_name["shell_command"].inputSchema[
+        "properties"
+    ]["sandbox_permissions"]["enum"]
+
+    builtin_tools = BuiltinToolRegistry(permission_tools(None)).list_tools().tools
+    assert [tool.name for tool in builtin_tools] == ["request_permissions"]
+
+
 def test_feature_switch_supports_temporary_cli_override(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     session = ConfigSession(
@@ -70,4 +135,4 @@ def test_feature_switch_supports_temporary_cli_override(tmp_path) -> None:
     resolution = session.resolve()
 
     assert resolution.config["features"]["js_repl"] is False
-    assert store.read_raw()["features"]["js_repl"] is True
+    assert store.read_raw()["features"]["js_repl"] is False

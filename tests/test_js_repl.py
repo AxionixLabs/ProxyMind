@@ -47,6 +47,7 @@ from mind_app.runtime.hooks.models import (
     ToolCallRunResult,
 )
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
+from mind_core.feature_config import FeatureSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.requests.turn_control import TurnControlRequestError
 
@@ -964,7 +965,11 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
 ) -> None:
     _require_node()
     coding = NativeCoding(tmp_path)
-    registry = default_registry(coding, execution_root=tmp_path)
+    registry = default_registry(
+        coding,
+        execution_root=tmp_path,
+        features=FeatureSettings(js_repl=True),
+    )
     session = CompositeToolSession(client_registry=registry)
     turn = TurnContext.create(
         agent=AgentContext.root("sid_root"),

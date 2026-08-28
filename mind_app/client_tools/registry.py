@@ -128,6 +128,7 @@ def default_registry(
         native_coding,
         approval_coordinator=approval_coordinator,
         exec_policy_manager=exec_policy_manager,
+        exec_permission_approvals_enabled=feature_settings.exec_permission_approvals,
     )
     if not feature_settings.js_repl:
         coding = [

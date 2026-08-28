@@ -8,6 +8,7 @@ from mind_app.approval.policy import (
     approval_execpolicy_amendment,
     approval_reason
 )
+from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.native_coding.exec.exec_policy import (
     ExecApprovalRequirement,
     ExecPolicyManager,
@@ -52,23 +53,92 @@ def local_exec_policy_requirement(
     except ValueError as error:
         return ExecApprovalRequirement.forbidden(str(error))
 
+    command_cwd = arguments.get("cwd") or turn_context.cwd
+    additional_permissions = arguments.get("additional_permissions")
+    if additional_permissions is not None:
+        try:
+            additional_permissions = normalize_permission_profile(
+                additional_permissions,
+                cwd=command_cwd,
+            )
+        except ValueError as error:
+            return ExecApprovalRequirement.forbidden(str(error))
+
     try:
-        return manager.create_exec_approval_requirement_for_command(
+        requirement = manager.create_exec_approval_requirement_for_command(
             command,
             approval_policy=turn_context.permissions.approval_policy,
             sandbox_mode=turn_context.permissions.sandbox_mode,
-            cwd=arguments.get("cwd") or turn_context.cwd,
+            cwd=command_cwd,
             tool=tool,
             amendment_id=f"local-rule-{call_id}",
             sandbox_permissions=sandbox_permissions,
             environment_id=arguments.get("environment_id"),
             tty=arguments.get("tty"),
-            additional_permissions=arguments.get("additional_permissions"),
+            additional_permissions=additional_permissions,
             policy_fingerprint=arguments.get("policy_fingerprint"),
             patch_scope=arguments.get("patch_scope"),
         )
     except ValueError as error:
         return ExecApprovalRequirement.forbidden(str(error))
+
+    if (
+        sandbox_permissions == "with_additional_permissions"
+        and additional_permissions
+        and not _has_permission_grant(
+            turn_context,
+            arguments,
+            permissions=additional_permissions,
+            cwd=command_cwd,
+        )
+    ):
+        if requirement.state == "forbidden":
+            return requirement
+        if turn_context.permissions.approval_policy == "never":
+            return ExecApprovalRequirement.forbidden(
+                "additional permissions require approval, but approval policy is never"
+            )
+        return ExecApprovalRequirement.needs_approval(
+            reason="additional permissions require approval",
+            proposed_execpolicy_amendment=requirement.proposed_execpolicy_amendment,
+        )
+
+    return requirement
+
+
+def normalize_local_permission_arguments(
+    turn_context: TurnContext,
+    arguments: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """规范化命令调用中的附加权限路径。"""
+    normalized = dict(arguments)
+    if normalized.get("additional_permissions") is not None:
+        normalized["additional_permissions"] = normalize_permission_profile(
+            normalized["additional_permissions"],
+            cwd=normalized.get("cwd") or turn_context.cwd,
+        )
+    return normalized
+
+
+def _has_permission_grant(
+    turn_context: TurnContext,
+    arguments: dict[str, typing.Any],
+    *,
+    permissions: typing.Any,
+    cwd: str | None,
+) -> bool:
+    """判断当前 Turn 或会话授权是否覆盖附加权限。"""
+    store = turn_context.permission_grants
+    if store is None:
+        return False
+    return bool(store.has_grant(
+        cid=turn_context.cid,
+        sid=turn_context.sid,
+        turn_id=turn_context.turn_id,
+        environment_id=arguments.get("environment_id"),
+        cwd=cwd,
+        permissions=permissions,
+    ))
 
 
 def local_exec_policy_approval(
@@ -147,44 +217,6 @@ def local_exec_policy_approval(
             "display": amendment.display,
         }
     return approval
-
-
-def local_permission_approval(
-    invocation: ToolInvocation,
-) -> dict[str, typing.Any]:
-    """构造工具附加权限缺失时的本地权限审批请求。"""
-    permissions = invocation.arguments.get("additional_permissions")
-    if not isinstance(permissions, dict) or not permissions:
-        raise ValueError("additional permissions must be a non-empty object")
-    reason = str(
-        invocation.arguments.get("justification")
-        or invocation.reason
-        or "additional permissions are required"
-    ).strip()
-    approval_id = f"local-permissions-{invocation.call_id}"
-    return {
-        "id": approval_id,
-        "approval_id": approval_id,
-        "request_id": approval_id,
-        "call_id": invocation.call_id,
-        "turn_id": invocation.turn.turn_id,
-        "kind": "request_permissions",
-        "tool": "request_permissions",
-        "arguments": {"permissions": permissions},
-        "permissions": typing.cast(dict[str, typing.Any], permissions),
-        "environment_id": str(
-            invocation.arguments.get("environment_id") or ""
-        ).strip(),
-        "cwd": str(invocation.arguments.get("cwd") or invocation.turn.cwd),
-        "reason": reason,
-        "justification": reason,
-        "available_decisions": [
-            "grantForTurn",
-            "grantForTurnWithStrictAutoReview",
-            "grantForSession",
-            "decline",
-        ],
-    }
 
 
 def local_patch_approval(

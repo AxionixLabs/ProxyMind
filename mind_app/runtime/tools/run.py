@@ -20,6 +20,7 @@ from mind_app.mcp.tool_result import (
 )
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.presentation.contracts import PresentationSink
+from mind_app.presentation.tool_policy import is_approval_only_tool
 from engine.enhance import enhance_result
 from ...output import OutputStatusPort
 from .enhance_reporter import ToolEnhanceReporter
@@ -227,17 +228,20 @@ async def run_tool_step(
 
             normalized = normalize_call_tool_result(result)
 
-            fields = await enhance_result(
-                pref_config=pref_config,
-                name=name,
-                result_fields=normalized.fields,
-                ok=ok,
-                reporter=ToolEnhanceReporter(
-                    status_control,
-                    presentation,
-                    tool_name=name,
+            if is_approval_only_tool(name):
+                fields = normalized.fields
+            else:
+                fields = await enhance_result(
+                    pref_config=pref_config,
+                    name=name,
+                    result_fields=normalized.fields,
+                    ok=ok,
+                    reporter=ToolEnhanceReporter(
+                        status_control,
+                        presentation,
+                        tool_name=name,
+                    )
                 )
-            )
             if isinstance(fields.get("ok"), bool):
                 ok = bool(fields["ok"])
             normalized = normalize_tool_fields(

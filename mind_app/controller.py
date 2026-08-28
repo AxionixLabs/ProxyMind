@@ -52,6 +52,7 @@ from .client_tools import (
     ClientToolRegistry,
     default_registry as default_client_tool_registry
 )
+from .builtin_tools import BuiltinToolRegistry, permission_tools
 from .native_coding import NativeCoding
 from .native_coding.exec.exec_policy import ExecPolicyManager
 from .approval.permission_grants import PermissionGrantStore
@@ -232,6 +233,7 @@ class Mind(object):
         self.subscription_runtime: AgentRuntime | None = None
 
         self.client_tools: ClientToolRegistry = self._build_client_tools()
+        self.builtin_tools: BuiltinToolRegistry = self._build_builtin_tools()
 
         self.tool_runtime: ToolRuntime = CompositeToolRuntime(self)
 
@@ -405,6 +407,15 @@ class Mind(object):
             approval_coordinator=self.approval_coordinator,
             features=self.features,
         )
+
+    def _build_builtin_tools(self) -> BuiltinToolRegistry:
+        """按当前能力开关构建核心内置工具注册表。"""
+        tools = (
+            permission_tools(self.approval_coordinator)
+            if self.features.request_permissions_tool
+            else ()
+        )
+        return BuiltinToolRegistry(tools)
 
     def recent_conversation_sessions(
         self,

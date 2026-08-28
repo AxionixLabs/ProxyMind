@@ -23,6 +23,7 @@ from mind_app.native_coding.exec.exec_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission
 )
+from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.native_coding.exec.sandbox_client import (
     SandboxProtocolError,
     SandboxUnavailable,
@@ -64,6 +65,7 @@ class ExecCommandTools(NativeCodingComponent):
         audit_files: bool = False,
         sandbox_mode: str = "danger-full-access",
         sandbox_permissions: object = "use_default",
+        additional_permissions: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
         """启动一个可持续读取和写入的 shell 命令会话。"""
         await self._session_manager.cleanup()
@@ -81,6 +83,18 @@ class ExecCommandTools(NativeCodingComponent):
                 tool="exec_command",
                 command=cmd,
                 detail=str(exc),
+            )
+        if permission == "with_additional_permissions" and additional_permissions is None:
+            return self.fail_result(
+                "additional_permissions_required",
+                tool="exec_command",
+                command=cmd,
+            )
+        if permission != "with_additional_permissions" and additional_permissions is not None:
+            return self.fail_result(
+                "additional_permissions_unexpected",
+                tool="exec_command",
+                command=cmd,
             )
 
         policy = self._command_policy.local_command_policy(
@@ -109,6 +123,21 @@ class ExecCommandTools(NativeCodingComponent):
                 cwd=cwd
             )
 
+        normalized_additional_permissions: dict[str, typing.Any] | None = None
+        if additional_permissions is not None:
+            try:
+                normalized_additional_permissions = normalize_permission_profile(
+                    additional_permissions,
+                    cwd=workdir,
+                )
+            except ValueError as exc:
+                return self.fail_result(
+                    "additional_permissions_invalid",
+                    tool="exec_command",
+                    command=cmd,
+                    detail=str(exc),
+                )
+
         timeout = self._bounded_int(
             policy.get("timeout_sec"), default=timeout_sec, minimum=1, maximum=7200
         )
@@ -133,6 +162,8 @@ class ExecCommandTools(NativeCodingComponent):
             "sandbox_mode": sandbox_mode,
             "sandbox_permissions": permission,
         }
+        if normalized_additional_permissions is not None:
+            runtime_info["additional_permissions"] = normalized_additional_permissions
 
         exec_cmd = list(runtime.prefix or [])
         exec_cmd.append(cmd)
@@ -157,6 +188,7 @@ class ExecCommandTools(NativeCodingComponent):
                 audit_before=audit_before,
                 env=env,
                 sandbox_mode=sandbox_mode,
+                additional_permissions=normalized_additional_permissions,
             ))
         except (
             SandboxUnavailable,

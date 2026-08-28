@@ -10,6 +10,7 @@ from mind_app.presentation.tool_views import (
     build_native_tool_result_view,
     build_tool_start_view
 )
+from mind_app.presentation.tool_policy import is_approval_only_tool
 from .plan_steps import PlanExecutionReport
 from .run import ToolRunResult
 
@@ -25,6 +26,8 @@ async def show_tool_start(
     patch_preview: dict[str, typing.Any] | None = None
 ) -> None:
     """发送普通工具开始执行的结构化展示数据。"""
+    if is_approval_only_tool(name):
+        return None
     if name in {UPDATE_PLAN_TOOL, "write_stdin"}:
         return None
 
@@ -57,6 +60,8 @@ async def show_tool_result(
     call_id: str = ""
 ) -> None:
     """发送工具结果的结构化展示数据。"""
+    if is_approval_only_tool(name):
+        return None
     display_ok   = tool_run.ok if ok is None else ok
     display_text = tool_run.text if text is None else str(text or "")
 

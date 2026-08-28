@@ -5,12 +5,16 @@ import typing
 from dataclasses import dataclass
 
 
-DEFAULT_JS_REPL_ENABLED: typing.Final[bool]   = True
-DEFAULT_SUBAGENTS_ENABLED: typing.Final[bool] = True
+DEFAULT_JS_REPL_ENABLED: typing.Final[bool]   = False
+DEFAULT_SUBAGENTS_ENABLED: typing.Final[bool] = False
+DEFAULT_EXEC_PERMISSION_APPROVALS_ENABLED: typing.Final[bool] = False
+DEFAULT_REQUEST_PERMISSIONS_TOOL_ENABLED: typing.Final[bool] = False
 
 FEATURE_DEFAULTS: typing.Final[dict[str, bool]] = {
     "js_repl": DEFAULT_JS_REPL_ENABLED,
     "subagents": DEFAULT_SUBAGENTS_ENABLED,
+    "exec_permission_approvals": DEFAULT_EXEC_PERMISSION_APPROVALS_ENABLED,
+    "request_permissions_tool": DEFAULT_REQUEST_PERMISSIONS_TOOL_ENABLED,
 }
 
 FEATURE_CONFIG_FIELDS = frozenset(FEATURE_DEFAULTS)
@@ -25,6 +29,8 @@ class FeatureSettings:
     """保存启动时固定的本地能力开关。"""
     js_repl: bool = DEFAULT_JS_REPL_ENABLED
     subagents: bool = DEFAULT_SUBAGENTS_ENABLED
+    exec_permission_approvals: bool = DEFAULT_EXEC_PERMISSION_APPROVALS_ENABLED
+    request_permissions_tool: bool = DEFAULT_REQUEST_PERMISSIONS_TOOL_ENABLED
 
     @classmethod
     def from_config(cls, config: typing.Any) -> "FeatureSettings":
@@ -34,6 +40,8 @@ class FeatureSettings:
         return cls(
             js_repl=values["js_repl"],
             subagents=values["subagents"],
+            exec_permission_approvals=values["exec_permission_approvals"],
+            request_permissions_tool=values["request_permissions_tool"],
         )
 
 
