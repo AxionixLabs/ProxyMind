@@ -323,16 +323,33 @@ class ClientToolCallRunner:
 
         resolution: typing.Literal["failed", "committed"] = (
             "failed"
-            if isinstance(data, dict) and data.get("executed") is False
+            if (
+                (
+                    isinstance(result, dict)
+                    and result.get("ok") is False
+                )
+                or (
+                    isinstance(data, dict)
+                    and data.get("executed") is False
+                )
+            )
             else "committed"
         )
+        reconciliation_error = ""
+        if resolution == "failed":
+            if isinstance(data, dict):
+                reconciliation_error = str(data.get("error") or "").strip()
+            if not reconciliation_error and isinstance(result, dict):
+                reconciliation_error = str(result.get("text") or "").strip()
+            if not reconciliation_error:
+                reconciliation_error = "client tool result reported failure"
 
         await self.effect_reconciler(
             effect_id=effect_id,
             request_id=f"effect-reconcile-{request_suffix}",
             resolution=resolution,
             result_payload=result_payload,
-            error="",
+            error=reconciliation_error,
             metadata={"source": "client_local_journal"},
         )
 

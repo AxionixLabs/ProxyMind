@@ -593,6 +593,7 @@ async def test_known_unexecuted_result_reconciles_as_failed() -> None:
 
     assert await runner.reconcile_known_effect("effect_client_call") is True
     assert reconciler.await_args.kwargs["resolution"] == "failed"
+    assert reconciler.await_args.kwargs["error"]
 
 
 @pytest.mark.anyio

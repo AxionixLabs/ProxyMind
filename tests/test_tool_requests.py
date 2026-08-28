@@ -374,6 +374,51 @@ async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_tool_result_moves_mixed_business_fields_into_data(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "status": "matched",
+            "delivered": True,
+            "already_received": False,
+            "request_id": "tool_result_mixed_1",
+        },
+    }), captured)
+
+    await tools.post_tool_result(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "shell_command",
+        True,
+        {
+            "ok": True,
+            "tool": "shell_command",
+            "text": "done",
+            "data": {"existing": True},
+            "stdout": "done",
+            "stderr": "",
+            "exit_code": 0,
+            "target": "local",
+        },
+        request_id="tool_result_mixed_1",
+    )
+
+    result = captured["json"]["result"]
+    assert set(result) == {
+        "ok", "tool", "source", "args", "text", "attachments", "data",
+    }
+    assert result["data"] == {
+        "existing": True,
+        "stdout": "done",
+        "stderr": "",
+        "exit_code": 0,
+        "target": "local",
+    }
+
+
+@pytest.mark.anyio
 async def test_amendment_approval_posts_id_and_parses_ack(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {

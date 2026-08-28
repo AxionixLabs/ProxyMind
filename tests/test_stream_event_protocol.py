@@ -19,6 +19,7 @@ from mind_nova.stream_events import (
     UnknownStreamEvent,
     parse_stream_event as _parse_stream_event,
 )
+from mind_app.runtime.turns.stream_tools import ToolCallBatchBuffer
 
 
 def parse_stream_event(payload):
@@ -512,6 +513,59 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert isinstance(output, ToolOutputEvent)
     assert output.payload["status"] == "completed"
     assert output.payload["result"] == {"ok": True, "text": "done"}
+
+
+def test_tool_call_batch_buffer_ignores_completed_batch_replay() -> None:
+    start = _parse_stream_event({
+        "type": "tool.calls.start",
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": 1,
+        "presentation_epoch": 1,
+        "batch_id": "batch-replay",
+        "call_ids": ["call-1"],
+        "count": 1,
+        "ready": True,
+    })
+    call = _parse_stream_event({
+        "type": "tool.call",
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": 2,
+        "presentation_epoch": 1,
+        "call_id": "call-1",
+        "name": "test_tool",
+        "arguments": {},
+    })
+    done = _parse_stream_event({
+        "type": "tool.calls.done",
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": 3,
+        "presentation_epoch": 1,
+        "batch_id": "batch-replay",
+        "call_ids": ["call-1"],
+        "count": 1,
+        "ready": True,
+    })
+
+    buffer = ToolCallBatchBuffer()
+    buffer.begin(start)
+    assert buffer.accept(call) == ()
+    assert buffer.complete(done) == (call,)
+    assert buffer.active is False
+
+    buffer.begin(start)
+    assert buffer.active is True
+    assert buffer.accept(call) == ()
+    assert buffer.complete(done) == ()
+    assert buffer.active is False
 
 
 def test_tool_approval_allows_missing_optional_reason() -> None:

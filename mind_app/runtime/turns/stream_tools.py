@@ -114,23 +114,30 @@ class ToolCallBatchBuffer:
 
     def __init__(self) -> None:
         """初始化空批次缓冲区。"""
-        self._start: ToolCallsStartEvent | None = None
-        self._calls: dict[str, ToolCallEvent] = {}
+        self._start: ToolCallsStartEvent | None         = None
+        self._calls: dict[str, ToolCallEvent]           = {}
+        self._ignored_batch: ToolCallsStartEvent | None = None
+        self._completed_batch_ids: set[str]             = set()
 
     @property
     def active(self) -> bool:
         """返回当前是否处于等待批次调用事件的状态。"""
-        return self._start is not None
+        return self._start is not None or self._ignored_batch is not None
 
     def begin(self, event: ToolCallsStartEvent) -> None:
         """登记批次声明并拒绝嵌套批次。"""
-        if self._start is not None:
+        if self._start is not None or self._ignored_batch is not None:
             raise ValueError("tool.calls.start arrived before previous batch completed")
+        if event.batch_id in self._completed_batch_ids:
+            self._ignored_batch = event
+            return
         self._start = event
         self._calls = {}
 
     def accept(self, event: ToolCallEvent) -> tuple[ToolCallEvent, ...]:
         """接收批内调用，批次外调用直接作为单调用返回。"""
+        if self._ignored_batch is not None:
+            return ()
         if self._start is None:
             return (event,)
         if event.call_id not in self._start.call_ids:
@@ -142,6 +149,18 @@ class ToolCallBatchBuffer:
 
     def complete(self, event: ToolCallsDoneEvent) -> tuple[ToolCallEvent, ...]:
         """校验批次结束声明并按声明顺序释放调用。"""
+        ignored = self._ignored_batch
+        if ignored is not None:
+            if (
+                event.batch_id != ignored.batch_id
+                or event.call_ids != ignored.call_ids
+                or event.count != ignored.count
+                or event.timeout_sec != ignored.timeout_sec
+            ):
+                raise ValueError("tool.calls.done does not match tool.calls.start")
+            self._ignored_batch = None
+            return ()
+
         start = self._start
         if start is None:
             raise ValueError("tool.calls.done arrived without tool.calls.start")
@@ -156,6 +175,7 @@ class ToolCallBatchBuffer:
         if missing:
             raise ValueError("tool.calls.done arrived before every tool.call")
         calls = tuple(self._calls[call_id] for call_id in start.call_ids)
+        self._completed_batch_ids.add(start.batch_id)
         self._start = None
         self._calls = {}
         return calls

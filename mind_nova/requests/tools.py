@@ -39,12 +39,6 @@ _ToolResultValue = typing.Union[
     dict[str, typing.Any],
 ]
 
-_TOOL_RESULT_ENVELOPE_KEYS = frozenset({
-    "ok",
-    "text",
-    "data",
-})
-
 _TOOL_RESULT_STATUS_VALUES = frozenset({
     "waiting_result",
     "result_received",
@@ -85,7 +79,7 @@ class _ToolResultPayload(typing.TypedDict):
     name: str
     ok: bool
     result: _ServerToolResult
-    additional_context: typing.NotRequired[list[str]]
+    additional_context: list[str]
 
 
 class _ToolApprovalPayload(typing.TypedDict):
@@ -946,7 +940,7 @@ async def renew_tool_result(
     request_id: str | None = None,
     timeout: float = 10.0,
 ) -> dict[str, typing.Any]:
-    """续期仍处于等待结果状态的客户端工具调用。"""
+    """续期仍由 Worker lease 持有的托管工具执行预算。"""
     normalized_request_id = (
         resolve_request_id(request_id, prefix="tool_result_renew")
         if request_id is not None
@@ -1040,8 +1034,7 @@ def build_tool_result_payload(
         )
     }
     contexts = _normalized_contexts(additional_context)
-    if contexts:
-        payload["additional_context"] = contexts
+    payload["additional_context"] = contexts
     return dict(payload)
 
 
@@ -1225,17 +1218,21 @@ def _tool_result_for_server(
         else []
     )
 
-    if _TOOL_RESULT_ENVELOPE_KEYS.issubset(result):
-        raw_data = result.get("data")
-        data = dict(raw_data) if isinstance(raw_data, dict) else {"value": raw_data}
-        if "target" in result and result.get("target") not in {None, ""}:
-            data["target"] = result["target"]
+    raw_data = result.get("data")
+    if isinstance(raw_data, dict):
+        data = dict(raw_data)
+    elif raw_data is None:
+        data = {}
     else:
-        data = {
-            key: value
-            for key, value in result.items()
-            if key not in _TOOL_RESULT_METADATA_KEYS
-        }
+        data = {"value": raw_data}
+
+    extra_data = {
+        key: value
+        for key, value in result.items()
+        if key not in _TOOL_RESULT_METADATA_KEYS and key != "data"
+    }
+    for key, value in extra_data.items():
+        data.setdefault(key, value)
 
     raw_args    = result.get("args")
     result_args = raw_args if isinstance(raw_args, dict) else {}

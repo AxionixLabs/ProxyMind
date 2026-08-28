@@ -64,6 +64,7 @@ from mind_nova.stream_events import (
     TurnInputAcceptedEvent,
     parse_stream_event as _parse_stream_event,
 )
+from mind_nova.requests.tools import ToolResultRequestError
 from mind_nova.turn_inputs import TurnInput
 
 
@@ -2161,6 +2162,153 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
         {"ok": True, "text": "done"},
     )
     assert posted_kwargs["arguments"] == {"value": 1}
+
+
+@pytest.mark.anyio
+async def test_stream_reconciles_uncertain_tool_result_before_failing(
+    monkeypatch,
+) -> None:
+    posted = 0
+    reconciled = []
+    effect_posts = []
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
+        )
+
+    async def post_tool_result(*_args, **_kwargs):
+        nonlocal posted
+        posted += 1
+        raise ToolResultRequestError(
+            "tool_result_reconciliation_required",
+            "tool result requires effect reconciliation",
+            status_code=409,
+            retryable=True,
+        )
+
+    async def get_status(**_kwargs):
+        return {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "call_id": "call-reconcile",
+            "turn_id": "turn_test",
+            "name": "test_tool",
+            "tool_status": "waiting_result",
+            "completion_mode": "interactive",
+            "turn_status": "reconciliation_required",
+            "result_received": False,
+            "effect_id": "effect-reconcile",
+            "effect_status": "unknown",
+            "reconciliation_required": True,
+        }
+
+    async def reconcile(_runner, effect_id):
+        reconciled.append(effect_id)
+        return False
+
+    async def post_effect_reconciliation(**kwargs):
+        effect_posts.append(kwargs)
+        return {"ok": True, "status": "reconciled", "effect": {}}
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+    monkeypatch.setattr(stream, "get_tool_result_status", get_status)
+    monkeypatch.setattr(
+        stream.ClientToolCallRunner,
+        "reconcile_known_effect",
+        reconcile,
+    )
+    monkeypatch.setattr(stream, "post_effect_reconciliation", post_effect_reconciliation)
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-reconcile",
+            "name": "test_tool",
+            "arguments": {"value": 1},
+        }),
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert posted == 1
+    assert reconciled == ["effect-reconcile"]
+    assert effect_posts[0]["effect_id"] == "effect-reconcile"
+    assert effect_posts[0]["resolution"] == "committed"
+    assert effect_posts[0]["result_payload"]["result"]["tool"] == "test_tool"
+
+
+@pytest.mark.anyio
+async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> None:
+    request_ids = []
+    statuses = 0
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
+        )
+
+    async def post_tool_result(*_args, **kwargs):
+        request_ids.append(kwargs["request_id"])
+        if len(request_ids) == 1:
+            raise ToolResultRequestError(
+                "tool_result_ack_invalid",
+                "tool result acknowledgement is invalid",
+                status_code=200,
+            )
+        return {}
+
+    async def get_status(**_kwargs):
+        nonlocal statuses
+        statuses += 1
+        return {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "call_id": "call-ack",
+            "turn_id": "turn_test",
+            "name": "test_tool",
+            "tool_status": "waiting_result",
+            "completion_mode": "interactive",
+            "turn_status": "active",
+            "result_received": False,
+            "reconciliation_required": False,
+        }
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+    monkeypatch.setattr(stream, "get_tool_result_status", get_status)
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-ack",
+            "name": "test_tool",
+            "arguments": {},
+        }),
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert statuses == 1
+    assert len(request_ids) == 2
+    assert request_ids[0] == request_ids[1]
 
 
 @pytest.mark.anyio
