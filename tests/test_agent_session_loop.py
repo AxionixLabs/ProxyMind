@@ -3,14 +3,29 @@ from dataclasses import dataclass
 
 import pytest
 
-from agent.application import submit_turn
-from agent.protocol import SubmitTurnCommand
+from agent.application import (
+    project_run_result,
+    submit_turn,
+)
+from agent.protocol import (
+    RunEvent,
+    SubmitTurnCommand,
+)
 from agent.runtime import SessionLoop
 
 
 @dataclass(frozen=True, slots=True)
 class _Result:
     status: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "assistant_text": "",
+            "usage": {},
+            "error": "tool failed" if self.status == "failed" else None,
+            "exit_code": 0 if self.status == "completed" else 1,
+        }
 
 
 def _command(
@@ -85,6 +100,9 @@ async def test_submit_turn_emits_successful_run_sequence() -> None:
     assert {event.causation_id for event in result.events} == {
         command.command_id
     }
+    assert result.projection.status == "completed"
+    assert result.projection.exit_code == 0
+    assert result.projection.result == result.value.to_dict()
 
 
 @pytest.mark.anyio
@@ -149,7 +167,71 @@ async def test_session_loop_emits_failed_tool_result() -> None:
 
     assert result.value.status == "failed"
     assert result.events[-1].kind == "run_failed"
-    assert result.events[-1].payload == {"status": "failed"}
+    assert result.events[-1].payload == {
+        "status": "failed",
+        "result": result.value.to_dict(),
+    }
+    assert result.projection.status == "failed"
+    assert result.projection.exit_code == 1
+
+
+@pytest.mark.anyio
+async def test_session_loop_rejects_inconsistent_turn_result() -> None:
+    command = _command("invalid", run_id="run-invalid")
+
+    class _InconsistentResult:
+        status = "completed"
+
+        @staticmethod
+        def to_dict() -> dict[str, object]:
+            return {
+                "status": "failed",
+                "exit_code": 1,
+            }
+
+    async def execute(_request: SubmitTurnCommand) -> _InconsistentResult:
+        return _InconsistentResult()
+
+    session = SessionLoop("session-local", execute)
+    try:
+        with pytest.raises(
+            ValueError,
+            match="payload status does not match result status",
+        ):
+            await session.execute(command)
+    finally:
+        await session.close()
+
+    events = session.events_for(command.run_id)
+    assert [event.kind for event in events] == [
+        "run_queued",
+        "run_started",
+        "run_failed",
+    ]
+    assert events[-1].payload["error"]["type"] == "ValueError"
+
+
+def test_run_result_projection_rejects_inconsistent_exit_code() -> None:
+    terminal = RunEvent.create(
+        sequence=1,
+        session_id="session-local",
+        run_id="run-invalid",
+        kind="run_completed",
+        payload={
+            "status": "completed",
+            "result": {
+                "status": "completed",
+                "exit_code": 1,
+            },
+        },
+        causation_id="command-local",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="terminal event exit_code is inconsistent",
+    ):
+        project_run_result((terminal,))
 
 
 @pytest.mark.anyio

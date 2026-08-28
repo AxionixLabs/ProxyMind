@@ -95,11 +95,15 @@
   idempotency key 去重，并为每个 Run 生成从 1 开始的连续事件序号。
 - [x] CLI `exec` 已通过 `agent.application.submit_turn` 提交命令，现有
   `run_root_turn` 作为注入能力执行；成功、失败和用户取消路径均有测试。
+- [x] `RunActor` 终态事件携带完整 `RunResult` 协议快照，application 校验唯一
+  终态、连续序号、状态和退出码；CLI `exec` 的退出码已改从该事件投影读取。
+- [x] `stream_turn` 的回调校验、请求参数固定、执行环境/skills 解析和输出会话
+  装配已收敛到 `stream_setup.py`，当前请求与停止 Hook 续跑参数分开持有。
 - [x] 新 runtime 核心没有导入 `mind_app`、`mind_core`、`mind_nova`、`engine`
   或 `server`；生成导入图只新增 `mind_app -> agent`。
-- [ ] 将 `stream_turn` 的输入、状态、模型流、工具效果和输出投影拆成独立调用点。
-- [ ] 让 CLI 和 TUI 从 Event Queue 投影结果，并把长生命周期 Session 的关闭、
-  并发提交和取消统一交给 application 组合。
+- [ ] 继续将 `stream_turn` 的状态转移、模型流、工具效果和输出投影拆成独立调用点。
+- [ ] 让 TUI 从 Event Queue 投影结果，并把长生命周期 Session 的关闭、并发提交
+  和取消统一交给 application 组合；CLI 的流式展示仍使用现有 OutputSession。
 
 ### 出口条件
 
@@ -238,3 +242,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 0 | 已完成主动 Turn 入口和五类 runtime 所有权收敛；全量测试 `2808 passed, 13 skipped` | 导入图、外部契约目录、Command/Event 映射、基线矩阵和 `backend/` 证据待收口 |
 | 2026-08-28 | 阶段 0 | 提交导入图、外部契约、Command/Event 映射、测试矩阵和 backend tree 基线；定向验收 `222 passed`，其余静态检查通过 | `engine -> mind_core -> engine` 循环登记到阶段 3；阶段 0 无未决项 |
 | 2026-08-28 | 阶段 1 | 主动 `exec` 已接入类型化 Command、SessionLoop、RunActor 和 Event Queue；全量测试 `2816 passed, 13 skipped`，导入图和静态检查通过 | `stream_turn` 内部职责拆分、CLI/TUI Event 投影和长生命周期 Session 接管待完成 |
+| 2026-08-28 | 阶段 1 | CLI 改从终态 Event 投影退出码；`stream_turn` 已拆出请求与输出会话准备边界；全量测试 `2822 passed, 13 skipped` | 模型流、状态、工具效果、输出投影、TUI 和长生命周期 Session 接管待完成 |

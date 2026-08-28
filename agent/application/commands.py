@@ -13,6 +13,10 @@ from agent.protocol import (
     SubmitTurnCommand
 )
 from agent.runtime import SessionLoop
+from .projections import (
+    RunResultProjection,
+    project_run_result
+)
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 
@@ -23,6 +27,7 @@ class SubmitTurnResult(typing.Generic[ResultValue]):
 
     value: ResultValue
     events: tuple[RunEvent, ...]
+    projection: RunResultProjection
 
 
 async def submit_turn(
@@ -44,6 +49,7 @@ async def submit_turn(
         return SubmitTurnResult(
             value=execution.value,
             events=execution.events,
+            projection=project_run_result(execution.events),
         )
 
 

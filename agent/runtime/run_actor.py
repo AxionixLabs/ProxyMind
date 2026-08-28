@@ -62,6 +62,7 @@ class RunActor(typing.Generic[ResultValue]):
 
         try:
             result = await self.executor(self.command)
+            state, event_kind, payload = self._terminal_result(result)
         except asyncio.CancelledError:
             self._transition(
                 RunStatus.CANCELLED,
@@ -90,31 +91,32 @@ class RunActor(typing.Generic[ResultValue]):
             )
             raise
 
-        outcome = _RESULT_STATES.get(str(result.status or "").strip())
+        self._transition(state, event_kind, payload=payload)
+        return result
+
+    @staticmethod
+    def _terminal_result(
+        result: ResultValue,
+    ) -> tuple[RunStatus, RunEventKind, dict[str, typing.Any]]:
+        """校验执行结果并构建终态事件载荷。"""
+        status = str(result.status or "").strip()
+        outcome = _RESULT_STATES.get(status)
         if outcome is None:
-            error = ValueError(
-                f"unsupported turn result status: {result.status!r}"
+            raise ValueError(f"unsupported turn result status: {result.status!r}")
+
+        result_payload = result.to_dict()
+        if not isinstance(result_payload, dict):
+            raise TypeError("turn result payload must be an object")
+        if str(result_payload.get("status") or "").strip() != status:
+            raise ValueError(
+                "turn result payload status does not match result status"
             )
-            self._transition(
-                RunStatus.FAILED,
-                "run_failed",
-                payload={
-                    "status": "failed",
-                    "error": {
-                        "type": type(error).__name__,
-                        "message": str(error),
-                    },
-                },
-            )
-            raise error
 
         state, event_kind = outcome
-        self._transition(
-            state,
-            event_kind,
-            payload={"status": state.value},
-        )
-        return result
+        return state, event_kind, {
+            "status": state.value,
+            "result": result_payload,
+        }
 
     def _transition(
         self,

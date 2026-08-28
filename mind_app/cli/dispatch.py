@@ -96,7 +96,7 @@ async def run_selected_command(
 
             execution = await submit_turn(submit_command, execute_root_turn)
             run_result = execution.value
-            mind.exit_code = run_result.exit_code
+            mind.exit_code = execution.projection.exit_code
         elif isinstance(command, InteractiveCommand):
             await _run_tui_session(
                 mind,

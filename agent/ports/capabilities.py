@@ -6,9 +6,13 @@ from agent.protocol import SubmitTurnCommand
 
 
 class TurnExecutorResult(typing.Protocol):
-    """约束主动 Turn 执行结果必须提供稳定状态。"""
+    """约束主动 Turn 执行结果必须提供稳定状态和协议字典。"""
 
     status: str
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        """返回不包含运行时对象的结构化结果。"""
+        ...
 
 
 TurnResultValue = typing.TypeVar(

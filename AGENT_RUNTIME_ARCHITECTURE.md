@@ -91,6 +91,7 @@ agent/
 ├── application/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── queries.py           # 历史、状态、计划和证据读取
+│   ├── projections.py       # Event Queue 到入口稳定结果的投影
 │   └── services.py          # 用例编排，不持有长期运行状态
 ├── ports/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
@@ -262,7 +263,7 @@ running -> cancelled
 | --- | --- | --- |
 | `mind_app/controller.py` | `composition.py`、application 公开门面 | 不再新增长期运行状态，已有所有权按完整生命周期迁出 |
 | `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI `exec` 已由类型化 Command 驱动；TUI、MCP、Subscription 仍把它作为过渡能力入口 |
-| `mind_app/runtime/turns/stream.py` | `runtime/session_loop.py`、`application/turn_pipeline.py` | 先拆出命令入口、状态转移、事件投影和副作用执行 |
+| `mind_app/runtime/turns/stream.py` | `runtime/session_loop.py`、`application/turn_pipeline.py` | 输入和输出会话准备已拆到 `stream_setup.py`；继续拆状态转移、模型流、事件投影和副作用执行 |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py`、`runtime/environment/coding_lifecycle.py` | capabilities、adapters、runtime supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `runtime/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |

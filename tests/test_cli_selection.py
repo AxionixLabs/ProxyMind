@@ -875,6 +875,28 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
 
 
 @pytest.mark.anyio
+async def test_exec_exit_code_comes_from_agent_event_projection(
+    monkeypatch,
+) -> None:
+    run_result = RunResult(status="completed", assistant_text="done")
+    submit = AsyncMock(return_value=SimpleNamespace(
+        value=run_result,
+        projection=SimpleNamespace(exit_code=7),
+    ))
+    monkeypatch.setattr(cli_dispatch, "submit_turn", submit)
+    mind = SimpleNamespace(
+        exit_code=0,
+        permissions=preset_permissions("auto"),
+    )
+
+    result = await run_selected_command(mind, ExecCommand(prompt="hello"))
+
+    assert result is run_result
+    assert mind.exit_code == 7
+    submit.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_cancelled_exec_closes_agent_session_worker(
     root_turn_adapter,
 ) -> None:

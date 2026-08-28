@@ -8,8 +8,6 @@ import typing
 import asyncio
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.mcp.contracts import McpSessionLike
-from mind_core.skills import skills_payload
-from mind_nova.events import EventReport
 from mind_nova.requests.chat import stream_chat
 from mind_nova.identifiers import stable_request_id
 from mind_nova.requests.turn_control import (
@@ -54,11 +52,8 @@ from ...output import (
     AssistantTextDelta,
     OutputControlPort,
     ResponseIdentity,
-    SessionFactory,
     SourcesOutput
 )
-from ...output.session import OutputSession
-from ..hooks.presentation import HookPresentationAdapter
 from .result import (
     RunResult,
     RunStatus
@@ -75,7 +70,6 @@ from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
 )
-from ..environment.exec_env import build_runtime_exec_env
 from ..support.session_policy import friendly_exception_text
 from ..tools.client_call import ClientToolCallRunner
 from ..durable_effects import LocalEffectReconciliationRequired
@@ -94,6 +88,7 @@ from .stream_tools import (
     ToolCallBatchBuffer,
     ToolEventHandler,
 )
+from .stream_setup import prepare_stream_turn
 from ...stream_events.lifecycle import handle_lifecycle_event
 from ...stream_events.assistant_boundary import is_assistant_output_boundary
 from ...stream_state.segment import SegmentTracker
@@ -152,30 +147,6 @@ class _RetryingStatus(object):
         self.state = state
         if self.sink is not None:
             self.sink(state)
-
-
-def _optional_callback(
-    value: typing.Any,
-    *,
-    name: str
-) -> typing.Callable[..., typing.Any] | None:
-    """校验可选回调并返回可调用边界。"""
-    if value is None:
-        return None
-    if not callable(value):
-        raise TypeError(f"{name} must be callable")
-    return value
-
-
-def _resolve_output_session_factory(
-    value: typing.Any,
-) -> SessionFactory:
-    """解析单轮输出工厂并校验续跑边界传入值。"""
-    if value is None:
-        raise RuntimeError("stream output session factory is required")
-    if not callable(value):
-        raise TypeError("session_factory must be callable")
-    return value
 
 
 def _response_identity(
@@ -331,117 +302,26 @@ async def stream_turn(
     **kwargs
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
-    on_turn_input_context = _optional_callback(
-        kwargs.pop("on_turn_input_context", None),
-        name="on_turn_input_context",
-    )
-    on_turn_input_event = _optional_callback(
-        kwargs.pop("on_turn_input_event", None),
-        name="on_turn_input_event",
-    )
-    on_turn_stream_end = _optional_callback(
-        kwargs.pop("on_turn_stream_end", None),
-        name="on_turn_stream_end",
-    )
-    on_turn_interrupted = _optional_callback(
-        kwargs.pop("on_turn_interrupted", None),
-        name="on_turn_interrupted",
-    )
-    on_retry_state = _optional_callback(
-        kwargs.pop("on_retry_state", None),
-        name="on_retry_state",
-    )
+    prepared = prepare_stream_turn(mind, turn_execution, kwargs)
+    callbacks = prepared.callbacks
+    reentry_kwargs = prepared.continuation_kwargs
+    ev_report = prepared.event_report
+    turn_context = prepared.context
+    hook_scope = prepared.hook_scope
+    message = prepared.message
+    kwargs = prepared.request_kwargs
+    output_session = prepared.output_session
+    metadata = kwargs["metadata"]
 
-    reentry_kwargs = dict(kwargs)
-    if on_turn_input_context is not None:
-        reentry_kwargs["on_turn_input_context"] = on_turn_input_context
-    if on_turn_input_event is not None:
-        reentry_kwargs["on_turn_input_event"] = on_turn_input_event
-    if on_turn_stream_end is not None:
-        reentry_kwargs["on_turn_stream_end"] = on_turn_stream_end
-    if on_turn_interrupted is not None:
-        reentry_kwargs["on_turn_interrupted"] = on_turn_interrupted
-    if on_retry_state is not None:
-        reentry_kwargs["on_retry_state"] = on_retry_state
-
-    started_at = time.perf_counter()
+    started_at = prepared.started_at
 
     event_count: int = 0
-
-    ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
-
-    if not isinstance(turn_execution, TurnExecution):
-        raise TypeError("turn_execution is required")
-
-    turn_context = turn_execution.context
-    hook_scope   = turn_execution.hook_scope
-    message      = turn_execution.message
-
-    if on_retry_state is None and turn_context.agent.depth == 0:
-        on_retry_state = mind.frontend.runtime.set_wait_retry_state
-
-    if on_turn_input_context is not None:
-        on_turn_input_context(turn_context)
-
-    kwargs["turn_id"]     = turn_context.turn_id
-    kwargs["permissions"] = turn_context.permissions
-
-    metadata = dict(turn_execution.metadata)
-    kwargs["metadata"] = metadata
-
-    if turn_execution.additional_context:
-        kwargs["additional_context"] = list(
-            turn_execution.additional_context
-        )
-    if turn_execution.system_message:
-        kwargs["system_message"] = turn_execution.system_message
-
-    if ev_report:
-        ev_report.begin_turn(turn_context.turn_id)
-
-    if not isinstance(kwargs.get("exec_env"), dict):
-        service_env = (
-            mind.service_exec_env_snapshot()
-            if mind.is_service_mcp_linked()
-            else None
-        )
-        kwargs["exec_env"] = build_runtime_exec_env(service_exec_env=service_env)
-
-    request_skills = kwargs.get("skills")
-    if request_skills is None:
-        try:
-            skill_config = mind.config_session.load()
-        except (OSError, TypeError, ValueError) as error:
-            observe_exception(
-                "skills.config.failed",
-                error,
-                level="WARNING",
-            )
-            skill_config = {}
-        kwargs["skills"] = skills_payload(skill_config)
-
-    session_factory_value = kwargs.pop("session_factory", None)
-    if session_factory_value is None:
-        frontend = getattr(mind, "frontend", None)
-        session_factory_value = getattr(frontend, "session_factory", None)
-    session_factory = _resolve_output_session_factory(session_factory_value)
-    reentry_kwargs["session_factory"] = session_factory
-
-    output_session: OutputSession = session_factory(
-        turn_context.output_record_path,
-        animate=bool(getattr(mind, "animate", True)),
-    )
 
     output_control: OutputControlPort = output_session.control
 
     status_control = output_session.status
     presentation   = output_session.presentation
     content        = output_session.content
-
-    if output_session.show_hook_lifecycle:
-        hook_scope = hook_scope.with_default_status_port(
-            HookPresentationAdapter(presentation)
-        )
 
     interrupted: bool     = False
     first_frame: bool     = True
@@ -844,7 +724,7 @@ async def stream_turn(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
-    retrying_status = _RetryingStatus(on_retry_state)
+    retrying_status = _RetryingStatus(callbacks.retry_state)
 
     try:
         transcript.open()
@@ -1000,8 +880,8 @@ async def stream_turn(
                 await content.emit(AssistantOutputBoundary())
 
             if event_type == "turn.start":
-                if on_turn_input_event is not None:
-                    on_turn_input_event(event)
+                if callbacks.input_event is not None:
+                    callbacks.input_event(event)
                 continue
 
             if event_type == "turn.thinking":
@@ -1234,8 +1114,8 @@ async def stream_turn(
 
                 if event.status == "interrupted":
                     interrupted = True
-                    if on_turn_interrupted is not None:
-                        on_turn_interrupted()
+                    if callbacks.interrupted is not None:
+                        callbacks.interrupted()
                 elif event.status == "completed":
                     turn_completed = True
                 else:
@@ -1251,8 +1131,8 @@ async def stream_turn(
                 continue
 
             if isinstance(event, (TurnInputAcceptedEvent, TurnLogicalSettledEvent)):
-                if on_turn_input_event is not None:
-                    accepted_input = on_turn_input_event(event)
+                if callbacks.input_event is not None:
+                    accepted_input = callbacks.input_event(event)
                     if (
                         isinstance(event, TurnInputAcceptedEvent)
                         and isinstance(accepted_input, TurnInput)
@@ -1500,8 +1380,8 @@ async def stream_turn(
         )
         retrying_status.close()
 
-        if on_turn_stream_end is not None and event_stream is not None:
-            on_turn_stream_end(
+        if callbacks.stream_end is not None and event_stream is not None:
+            callbacks.stream_end(
                 getattr(event_stream, "end_reason", None) or "cancelled"
             )
 
