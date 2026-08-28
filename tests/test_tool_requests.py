@@ -30,8 +30,8 @@ def _install_client(monkeypatch, response, captured) -> None:
         lambda path: f"https://example.test{path}",
     )
     monkeypatch.setattr(
-        tools.Channel,
-        "make_headers",
+        tools,
+        "build_service_headers",
         lambda: {"authorization": "test"},
     )
 
@@ -67,8 +67,8 @@ def _install_snapshot_client(monkeypatch, response, captured) -> None:
         lambda path: f"https://example.test{path}",
     )
     monkeypatch.setattr(
-        tools.Channel,
-        "make_headers",
+        tools,
+        "build_service_headers",
         lambda: {"authorization": "test"},
     )
 

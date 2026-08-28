@@ -4,8 +4,8 @@
 import json
 import httpx
 import typing
-from engine.channel import Channel
 from mind_nova.requests.payload import request_llm_conf
+from mind_nova.service_auth import build_service_headers
 from mind_nova.services import service_endpoints
 
 COMPACT_DEFAULT_STRATEGY = "memento"
@@ -29,7 +29,7 @@ async def stream_compact_events(
     timeout: float = 120.0
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """按 SSE 读取远端会话压缩事件。"""
-    headers = Channel.make_headers()
+    headers = build_service_headers()
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

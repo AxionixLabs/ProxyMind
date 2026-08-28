@@ -4,11 +4,11 @@
 import httpx
 import typing
 from dataclasses import dataclass
-from engine.channel import Channel
 from mind_nova.identifiers import (
     normalize_turn_id,
     resolve_request_id
 )
+from mind_nova.service_auth import build_service_headers
 from mind_nova.services import service_endpoints
 from mind_nova.requests.reliable import post_json_reliably
 from mind_nova.turn_inputs import TurnInput
@@ -149,7 +149,7 @@ async def get_turn_status(
                     "sid": normalized_sid,
                     "turn_id": normalized_turn_id,
                 },
-                headers=Channel.make_headers(),
+                headers=build_service_headers(),
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as error:
@@ -404,7 +404,7 @@ async def _post_json(
         response = await post_json_reliably(
             service_endpoints.endpoint(path),
             params={"cid": normalized_cid, "sid": normalized_sid},
-            headers=Channel.make_headers(),
+            headers=build_service_headers(),
             payload=payload,
             timeout=timeout,
             client_factory=httpx.AsyncClient,

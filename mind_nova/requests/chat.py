@@ -8,7 +8,7 @@ import random
 import typing
 import asyncio
 import contextlib
-from engine.channel import Channel
+from mind_nova.service_auth import build_service_headers
 from mind_nova.requests.payload import (
     build_chat_payload,
     request_llm_conf
@@ -316,7 +316,7 @@ class TurnEventStream(object):
 
         self._payload_stream = streaming(
             service_endpoints.endpoint("/mind-attach"),
-            Channel.make_headers(),
+            build_service_headers(),
             payload,
             self._timeout,
         )
@@ -446,7 +446,7 @@ class TurnEventStream(object):
 
         return streaming(
             service_endpoints.endpoint("/mind-chat"),
-            Channel.make_headers(),
+            build_service_headers(),
             payload,
             self._timeout,
         )
@@ -561,7 +561,7 @@ async def stream_heal(
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
     """流式获取修复链路事件。"""
-    headers = Channel.make_headers()
+    headers = build_service_headers()
 
     payload = {
         "llm_conf"   : request_llm_conf(pref_config),

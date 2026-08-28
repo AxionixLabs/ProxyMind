@@ -56,8 +56,8 @@ async def test_turn_status_returns_validated_authoritative_snapshot(
         lambda path: f"https://example.com{path}",
     )
     monkeypatch.setattr(
-        turn_control.Channel,
-        "make_headers",
+        turn_control,
+        "build_service_headers",
         lambda: {"authorization": "test"},
     )
 
@@ -202,8 +202,8 @@ async def test_steer_request_uses_session_query_and_stable_message_id(
         lambda path: f"https://example.com{path}",
     )
     monkeypatch.setattr(
-        turn_control.Channel,
-        "make_headers",
+        turn_control,
+        "build_service_headers",
         lambda: {"authorization": "test"},
     )
 
@@ -280,8 +280,8 @@ async def test_reconcile_request_validates_complete_classification(
         lambda path: f"https://example.com{path}",
     )
     monkeypatch.setattr(
-        turn_control.Channel,
-        "make_headers",
+        turn_control,
+        "build_service_headers",
         lambda: {"authorization": "test"},
     )
 

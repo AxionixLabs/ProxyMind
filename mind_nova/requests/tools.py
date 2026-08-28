@@ -3,12 +3,12 @@
 
 import httpx
 import typing
-from engine.channel import Channel
 from mind_nova.identifiers import (
     normalize_turn_id,
     resolve_request_id,
     stable_request_id
 )
+from mind_nova.service_auth import build_service_headers
 from mind_nova.requests.reliable import (
     get_json_reliably,
     post_json_reliably,
@@ -197,7 +197,7 @@ async def reconcile_tool_approval_snapshot(
                     "sid": normalized_sid,
                     "turn_id": normalized_turn_id,
                 },
-                headers=Channel.make_headers(),
+                headers=build_service_headers(),
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as error:
@@ -778,7 +778,7 @@ async def post_tool_result(
     request_id: str | None = None
 ) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
-    headers = Channel.make_headers()
+    headers = build_service_headers()
 
     payload = build_tool_result_payload(
         cid=cid,
@@ -881,7 +881,7 @@ async def get_tool_result_status(
     try:
         response = await get_json_reliably(
             service_endpoints.endpoint("/tool-result/status"),
-            headers=Channel.make_headers(),
+            headers=build_service_headers(),
             params={
                 "cid": normalized_cid,
                 "sid": normalized_sid,
@@ -962,7 +962,7 @@ async def renew_tool_result(
     try:
         response = await post_json_reliably(
             service_endpoints.endpoint("/tool-result/renew"),
-            headers=Channel.make_headers(),
+            headers=build_service_headers(),
             payload=payload,
             timeout=timeout,
             client_factory=httpx.AsyncClient,
@@ -1095,7 +1095,7 @@ async def post_tool_approval(
     if reason_text and clean_decision not in {"decline", "cancel"}:
         raise ValueError("tool approval reason requires decline or cancel")
 
-    headers = Channel.make_headers()
+    headers = build_service_headers()
 
     payload: _ToolApprovalPayload = {
         "request_id" : normalized_request_id,

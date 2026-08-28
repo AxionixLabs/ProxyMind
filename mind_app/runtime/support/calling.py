@@ -3,16 +3,11 @@
 
 import time
 import typing
-from ..execution import (
-    AgentContext,
-    TurnContext
-)
 from ..turns.executor import (
     TurnExecution,
-    build_turn_input_payload,
     execute_turn,
-    resolve_turn_hook_scope
 )
+from ..turns.root import prepare_root_turn
 from ..turns.result import RunResult
 from ...stream_events.worked import emit_worked_footer
 
@@ -78,59 +73,28 @@ async def calling(
     if pref_config is None:
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
 
-    runner       = mind.stream_turn
-    permissions  = kwargs.pop("permissions", None) or mind.permissions
+    runner = mind.stream_turn
+    permissions = kwargs.pop("permissions", None) or mind.permissions
     raw_metadata = kwargs.pop("metadata", None)
-    meta_in      = raw_metadata if isinstance(raw_metadata, dict) else {}
-    cid          = meta_in.get("cid") if isinstance(meta_in, dict) else None
-    sid          = meta_in.get("sid") if isinstance(meta_in, dict) else None
-
-    conversation_turn = await mind.begin_conversation_turn(
-        cid=cid,
-        sid=sid,
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    raw_attachments = kwargs.get("attachments")
+    attachments = (
+        tuple(item for item in raw_attachments if isinstance(item, dict))
+        if isinstance(raw_attachments, (list, tuple))
+        else ()
+    )
+    raw_extras = kwargs.get("extras")
+    execution = await prepare_root_turn(
+        mind,
+        message=message,
         title=message,
         source="calling",
-    )
-    meta = {
-        **meta_in,
-        **conversation_turn.metadata(),
-    }
-
-    turn_context = TurnContext.create(
-        agent=AgentContext.root(meta["sid"]),
-        cid=meta["cid"],
-        sid=meta["sid"],
-        source="calling",
         pref_config=pref_config,
-        cwd=mind.history_workspace,
         permissions=permissions,
-        permission_grants=getattr(mind, "permission_grants", None),
-        output_record_path=str(mind.report.output_record_path or ""),
-        transcript_path=mind.transcripts.path_for_session(meta["sid"]),
+        metadata=metadata,
+        attachments=attachments,
+        extras=raw_extras if isinstance(raw_extras, dict) else None,
         turn_id=kwargs.pop("turn_id", None),
-        session_started=conversation_turn.session_started,
-        session_start_reason=conversation_turn.start_reason,
-    )
-
-    raw_attachments = kwargs.get("attachments")
-    raw_extras      = kwargs.get("extras")
-
-    execution = TurnExecution(
-        context=turn_context,
-        message=message,
-        hook_scope=resolve_turn_hook_scope(mind, turn_context),
-        metadata=meta,
-        additional_context=conversation_turn.additional_context,
-        system_message=conversation_turn.system_message,
-        input_payload=build_turn_input_payload(
-            message,
-            attachments=(
-                item
-                for item in raw_attachments
-                if isinstance(item, dict)
-            ) if isinstance(raw_attachments, (list, tuple)) else (),
-            extras=raw_extras if isinstance(raw_extras, dict) else None,
-        ),
     )
     event_report = kwargs.pop("ev_report", None)
 

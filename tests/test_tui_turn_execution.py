@@ -59,7 +59,16 @@ class _TuiController:
         self.hook_scopes = []
         self.tool_filter_mode = "app"
 
-    async def begin_conversation_turn(self, *, title: str, source: str):
+    async def begin_conversation_turn(
+        self,
+        *,
+        cid=None,
+        sid=None,
+        title: str,
+        source: str,
+    ):
+        assert cid is None
+        assert sid is None
         self.events.append("conversation")
         self.conversation_calls.append((title, source))
         return ConversationTurn(

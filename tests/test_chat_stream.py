@@ -63,7 +63,7 @@ def _install_stream(monkeypatch, payloads) -> _PayloadStream:
         "turn_id": "turn_1",
         "metadata": {"cid": "cid_1", "sid": "sid_1"},
     }))
-    monkeypatch.setattr(chat.Channel, "make_headers", Mock(return_value={}))
+    monkeypatch.setattr(chat, "build_service_headers", Mock(return_value={}))
     monkeypatch.setattr(chat.service_endpoints, "endpoint", Mock(return_value="url"))
     monkeypatch.setattr(chat, "streaming", Mock(return_value=payload_stream))
     return payload_stream
@@ -74,7 +74,7 @@ def _install_reconnect_stream(monkeypatch, transport) -> None:
         "turn_id": "turn_001",
         "metadata": {"cid": "cid_1", "sid": "sid_1"},
     }))
-    monkeypatch.setattr(chat.Channel, "make_headers", Mock(return_value={
+    monkeypatch.setattr(chat, "build_service_headers", Mock(return_value={
         "authorization": "test",
     }))
     monkeypatch.setattr(
@@ -115,7 +115,7 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
     make_headers = Mock(return_value={"authorization": "test"})
     endpoint = Mock(return_value="https://example.com/chat")
     monkeypatch.setattr(chat, "build_chat_payload", build_payload)
-    monkeypatch.setattr(chat.Channel, "make_headers", make_headers)
+    monkeypatch.setattr(chat, "build_service_headers", make_headers)
     monkeypatch.setattr(chat.service_endpoints, "endpoint", endpoint)
     monkeypatch.setattr(chat, "streaming", streaming)
 

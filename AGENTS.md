@@ -50,24 +50,6 @@ mind_app -> mind_core -> mind_nova
 ## 验证
 
 - 修改后运行与影响范围匹配的测试，并执行 `python -m py_compile` 或等价语法检查。
-- 根目录提供 PyCharm 离线检查脚本，可在需要排查 IDE warning 时按需使用；
-  该工具不属于每次修改的强制验证步骤：
-
-```powershell
-.\inspect-ide-warnings.ps1 mind_app/tui/core/runtime.py
-```
-
-- 参数可以是项目内文件或目录；默认使用 `.idea/inspectionProfiles/Project_Default.xml`。
-- 报告写入 `.ide-inspection/reports/<模块名>`，原始输出写入
-  `.ide-inspection/inspect.log`，索引和 IDE 日志位于 `.ide-inspection/system`。
-- 需要查看完整启动输出时使用 `-ShowInspectorOutput`：
-
-```powershell
-.\inspect-ide-warnings.ps1 mind_app/tui/core/runtime.py -ShowInspectorOutput
-```
-
-- 脚本只清理当前报告的旧 XML，不修改 `venv` 或项目配置；检查失败时查看
-  `.ide-inspection/inspect.log`。
 
 ## 编辑与安全
 

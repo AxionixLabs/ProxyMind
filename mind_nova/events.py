@@ -5,14 +5,13 @@ import time
 import typing
 import asyncio
 import contextlib
-from engine.observability import (
-    observe,
-    observe_exception
-)
+import logging
 from mind_nova.identifiers import short_uid
 from mind_nova.requests.reports import post_stream_event
 from mind_nova.stream_events import StreamEvent
 from mind_nova import const
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class EventReport(object):
@@ -93,19 +92,23 @@ class EventReport(object):
             self.q.put_nowait(ev)
 
         except asyncio.QueueFull:
-            observe(
+            _LOGGER.warning(
                 "event_report.dropped",
-                level="WARNING",
-                reason="queue_full",
-                event_type=event.get("type"),
+                extra={
+                    "event": "event_report.dropped",
+                    "reason": "queue_full",
+                    "event_type": event.get("type"),
+                },
             )
 
         except RuntimeError:
-            observe(
+            _LOGGER.warning(
                 "event_report.dropped",
-                level="WARNING",
-                reason="no_loop",
-                event_type=event.get("type"),
+                extra={
+                    "event": "event_report.dropped",
+                    "reason": "no_loop",
+                    "event_type": event.get("type"),
+                },
             )
 
     async def open(self) -> None:
@@ -125,7 +128,11 @@ class EventReport(object):
         if error is None or isinstance(error, (KeyboardInterrupt, SystemExit)):
             return None
 
-        observe_exception("event_report.worker_failed", error, level="WARNING")
+        _LOGGER.warning(
+            "event_report.worker_failed",
+            exc_info=error,
+            extra={"event": "event_report.worker_failed"},
+        )
 
     async def work(self) -> None:
         """单 worker：严格按队列顺序发送"""
@@ -147,16 +154,18 @@ class EventReport(object):
                 )
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
+            except Exception as error:
                 task = asyncio.current_task()
                 if task is not None and task.cancelling():
-                    raise asyncio.CancelledError from e
-                observe_exception(
+                    raise asyncio.CancelledError from error
+                _LOGGER.warning(
                     "event_report.post_failed",
-                    e,
-                    level="WARNING",
-                    event_type=ev.get("type"),
-                    seq=ev.get("seq"),
+                    exc_info=True,
+                    extra={
+                        "event": "event_report.post_failed",
+                        "event_type": ev.get("type"),
+                        "seq": ev.get("seq"),
+                    },
                 )
             finally:
                 self.q.task_done()

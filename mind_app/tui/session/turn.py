@@ -13,16 +13,11 @@ from mind_app.presentation.models import TextSpan
 from mind_nova.events import EventReport
 from mind_nova import const
 from mind_core.permissions import PermissionSettings
-from ...runtime.execution import (
-    AgentContext,
-    TurnContext
-)
 from ...runtime.turns.executor import (
     TurnExecution,
-    build_turn_input_payload,
     execute_turn,
-    resolve_turn_hook_scope
 )
+from ...runtime.turns.root import prepare_root_turn
 from ..runtime.ports import TurnRuntimePort
 from ..core.interrupt import InterruptDisposition
 from .turn_input import TuiTurnInputControl
@@ -220,39 +215,17 @@ async def run_tui_model_turn(
     runner = mind.stream_turn
     extras = dict(prompt_extras or {})
 
-    conversation_turn = await mind.begin_conversation_turn(
+    execution = await prepare_root_turn(
+        mind,
+        message=message_text,
         title=session_title,
         source="tui",
-    )
-    turn_metadata = conversation_turn.metadata()
-
-    turn_context = TurnContext.create(
-        agent=AgentContext.root(turn_metadata["sid"]),
-        cid=turn_metadata["cid"],
-        sid=turn_metadata["sid"],
-        source="tui",
         pref_config=pref_config,
-        cwd=mind.history_workspace,
         permissions=permissions,
-        permission_grants=getattr(mind, "permission_grants", None),
-        output_record_path=str(mind.report.output_record_path or ""),
-        transcript_path=mind.transcripts.path_for_session(turn_metadata["sid"]),
+        metadata={},
+        attachments=attachments,
+        extras=extras,
         turn_id=turn_id,
-        session_started=conversation_turn.session_started,
-        session_start_reason=conversation_turn.start_reason,
-    )
-    execution = TurnExecution(
-        context=turn_context,
-        message=message_text,
-        hook_scope=resolve_turn_hook_scope(mind, turn_context),
-        metadata=turn_metadata,
-        additional_context=conversation_turn.additional_context,
-        system_message=conversation_turn.system_message,
-        input_payload=build_turn_input_payload(
-            message_text,
-            attachments=attachments,
-            extras=extras,
-        ),
     )
 
     async def run_tui_turn(

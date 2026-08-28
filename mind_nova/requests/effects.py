@@ -3,9 +3,9 @@
 
 import httpx
 import typing
-from engine.channel import Channel
 from mind_nova.services import service_endpoints
 from mind_nova.requests.reliable import post_json_reliably
+from mind_nova.service_auth import build_service_headers
 
 
 async def post_effect_reconciliation(
@@ -29,7 +29,7 @@ async def post_effect_reconciliation(
     }
     response = await post_json_reliably(
         service_endpoints.endpoint("/effect/reconcile"),
-        headers=Channel.make_headers(),
+        headers=build_service_headers(),
         payload=payload,
         timeout=timeout,
         client_factory=httpx.AsyncClient,

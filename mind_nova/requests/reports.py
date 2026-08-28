@@ -3,7 +3,7 @@
 
 import httpx
 import typing
-from engine.channel import Channel
+from mind_nova.service_auth import build_service_headers
 from mind_nova.services import service_endpoints
 
 
@@ -15,7 +15,7 @@ async def post_stream_event(
     timeout: float = 30.0
 ) -> None:
     """事件上报：把一条事件写入服务端缓存并广播给 SSE 订阅者。"""
-    headers = Channel.make_headers()
+    headers = build_service_headers()
     payload = {
         "cid"   : cid,
         "sid"   : sid,
@@ -34,7 +34,7 @@ async def open_report_session(
     timeout: float = 10.0
 ) -> dict[str, typing.Any]:
     """打开服务端报告会话，返回 report_url / report_id / stream_url / replay_url。"""
-    headers = Channel.make_headers()
+    headers = build_service_headers()
     payload: dict[str, typing.Any] = {
         "cid"  : cid,
         "sid"  : sid

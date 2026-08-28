@@ -25,10 +25,13 @@ from cryptography.hazmat.primitives import (
     serialization
 )
 from cryptography.hazmat.primitives.asymmetric import padding
-from engine.channel import Channel
 from engine.terminal import Terminal
 from engine.errors import AppError
 from mind_nova import const
+from mind_nova.service_auth import (
+    build_service_headers,
+    build_service_query,
+)
 
 AuthorizationDataEmitter = typing.Callable[[dict[str, typing.Any]], None]
 
@@ -223,11 +226,11 @@ async def receive_license(
     """
     使用激活码从远程授权服务器获取授权文件，并保存至本地路径。
     """
-    headers = Channel.make_headers()
+    headers = build_service_headers()
     payload = {
         "code": code.strip(),
         "castle": fingerprint(),
-    } | (params := Channel.make_params())
+    } | (params := build_service_query())
 
     if lic_file.exists():
         auth_info = verify_signature(lic_file)

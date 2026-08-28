@@ -7,7 +7,7 @@ import httpx
 import typing
 import mimetypes
 from pathlib import Path
-from engine.channel import Channel
+from mind_nova.service_auth import build_service_headers
 from mind_nova.services import service_endpoints
 from mind_nova import const
 
@@ -112,7 +112,7 @@ async def upload_file_stream(
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
 
-    headers = Channel.make_headers()
+    headers = build_service_headers()
     headers.pop("Content-Type", None)
 
     ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"

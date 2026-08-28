@@ -2,13 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
+import httpx
+
 from engine.observability import observe_exception
-from engine.channel import (
-    Channel,
-    Messenger
-)
 from mind_core.licensing import verify_signature
 from mind_nova import const
+from mind_nova.service_auth import (
+    build_service_headers,
+    build_service_query,
+)
 
 
 class RemoteServices(object):
@@ -21,10 +24,13 @@ class RemoteServices(object):
         url: str, key: typing.Optional[str] = None, *_, **kwargs
     ) -> dict:
         """通用异步 GET 请求方法。"""
-        headers, params = Channel.make_headers(), Channel.make_params() | kwargs
-        async with Messenger() as messenger:
-            resp = await messenger.poke("GET", url, headers=headers, params=params)
-            return resp.json()[key] if key else resp.json()
+        headers = build_service_headers()
+        params = build_service_query() | kwargs
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            payload = response.json()
+        return payload[key] if key else payload
 
     @staticmethod
     async def formatting() -> typing.Optional[dict]:

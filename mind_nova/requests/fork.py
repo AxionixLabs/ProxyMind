@@ -5,7 +5,7 @@ import httpx
 import typing
 from copy import deepcopy
 from dataclasses import dataclass
-from engine.channel import Channel
+from mind_nova.service_auth import build_service_headers
 from mind_nova.services import service_endpoints
 
 PromptSource = typing.Literal[
@@ -92,7 +92,7 @@ async def request_conversation_fork(
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 service_endpoints.endpoint("/fork"),
-                headers=Channel.make_headers(),
+                headers=build_service_headers(),
                 json=payload,
             )
     except httpx.RequestError as error:
