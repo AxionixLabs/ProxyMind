@@ -59,7 +59,6 @@ from .executor import (
     TurnExecution,
     build_turn_input_payload,
     create_continuation_execution,
-    record_turn_finished,
     record_turn_started,
     turn_continuation_count
 )
@@ -73,6 +72,7 @@ from .stream_setup import prepare_stream_turn
 from .stream_outcome import StreamTurnOutcome
 from .stream_model import ModelStreamEventHandler
 from .stream_effects import ToolResultDelivery
+from .stream_finalize import StreamTurnFinalizer
 from ...stream_events.lifecycle import handle_lifecycle_event
 from engine.observability import (
     observe,
@@ -166,13 +166,6 @@ def _join_text(*values: str) -> str:
         for text in [str(value or "").strip()]
         if text
     )
-
-
-async def _discard_stop_hook_decision(
-    awaitable: typing.Awaitable[StopHookDecision]
-) -> None:
-    """执行停止 Hook 并丢弃清理阶段不应消费的续跑决定。"""
-    await awaitable
 
 
 async def _cancel_reconciliation_turn(
@@ -306,6 +299,25 @@ async def stream_turn(
         status_control=status_control,
         provider_retry_sink=retrying_status.set_provider,
         idle_reschedule=idle_wait.reschedule,
+    )
+    turn_state_stores = [approval_ledger]
+    permission_grants = getattr(mind, "permission_grants", None)
+    if permission_grants is not None:
+        turn_state_stores.insert(0, permission_grants)
+    turn_finalizer = StreamTurnFinalizer(
+        cid=turn_context.cid,
+        sid=turn_context.sid,
+        turn_id=turn_context.turn_id,
+        outcome=outcome,
+        turn_state_stores=turn_state_stores,
+        transcript=transcript,
+        model_projection=model_events,
+        retry_state_close=retrying_status.close,
+        stream_end=callbacks.stream_end,
+        idle_wait=idle_wait,
+        output_control=output_control,
+        await_cleanup=mind.await_cleanup,
+        continuation_count=turn_continuation_count(turn_execution),
     )
 
     try:
@@ -794,73 +806,14 @@ async def stream_turn(
         )
 
     finally:
-        permission_grants = getattr(mind, "permission_grants", None)
-        if permission_grants is not None:
-            permission_grants.clear_turn(
-                cid=turn_context.cid,
-                sid=turn_context.sid,
-                turn_id=turn_context.turn_id,
-            )
-        approval_ledger.clear_turn(
-            cid=turn_context.cid,
-            sid=turn_context.sid,
-            turn_id=turn_context.turn_id,
-        )
-        retrying_status.close()
-
-        if callbacks.stream_end is not None and event_stream is not None:
-            callbacks.stream_end(
+        stop_decision = await turn_finalizer.finalize(
+            stream_end_reason=(
                 getattr(event_stream, "end_reason", None) or "cancelled"
-            )
-
-        model_events.flush_pending()
-
-        record_turn_finished(
-            transcript,
-            status=outcome.status,
-            usage=outcome.usage,
-            error=outcome.error,
-            terminal_meta=outcome.terminal_meta,
-        )
-
-        if turn_hook_events is not None and not prompt_blocked:
-            stop_outcome = outcome.status
-            try:
-                if outcome.is_interrupted:
-                    await mind.await_cleanup(_discard_stop_hook_decision(
-                        turn_hook_events.stop(
-                            outcome=stop_outcome,
-                            error=outcome.error,
-                            usage=outcome.usage,
-                            last_assistant_message=model_events.assistant_text,
-                            continuation_count=turn_continuation_count(
-                                turn_execution
-                            ),
-                        )
-                    ))
-                else:
-                    stop_decision = await turn_hook_events.stop(
-                        outcome=stop_outcome,
-                        error=outcome.error,
-                        usage=outcome.usage,
-                        last_assistant_message=model_events.assistant_text,
-                        continuation_count=turn_continuation_count(
-                            turn_execution
-                        ),
-                    )
-            except Exception as error:
-                observe_exception(
-                    "hooks.stop.failed",
-                    error,
-                    level="WARNING",
-                    turn_id=turn_context.turn_id,
-                )
-
-        transcript.close()
-
-        await idle_wait.cancel()
-        await mind.await_cleanup(
-            output_control.stop(blink=not outcome.is_interrupted)
+                if event_stream is not None
+                else None
+            ),
+            hook_events=turn_hook_events,
+            prompt_blocked=prompt_blocked,
         )
 
     result = outcome.build_result(model_events.assistant_text)
