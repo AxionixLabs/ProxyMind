@@ -32,7 +32,8 @@ from .execpolicy import (
 
 SandboxPermission = Literal[
     "use_default",
-    "require_escalated"
+    "require_escalated",
+    "with_additional_permissions",
 ]
 
 
@@ -99,8 +100,11 @@ def normalize_sandbox_permission(value: object) -> SandboxPermission:
         return "use_default"
     if normalized == "require_escalated":
         return "require_escalated"
+    if normalized == "with_additional_permissions":
+        return "with_additional_permissions"
     raise ValueError(
-        "sandbox_permissions must be 'use_default' or 'require_escalated'"
+        "sandbox_permissions must be 'use_default', 'require_escalated', "
+        "or 'with_additional_permissions'"
     )
 
 
@@ -109,6 +113,16 @@ def validate_sandbox_permission_arguments(
 ) -> SandboxPermission:
     """校验命令参数中的沙箱覆盖及审批理由组合。"""
     permission = normalize_sandbox_permission(arguments.get("sandbox_permissions"))
+    additional = arguments.get("additional_permissions")
+    if permission == "with_additional_permissions":
+        if not isinstance(additional, dict):
+            raise ValueError(
+                "additional permissions are required for with_additional_permissions"
+            )
+    elif additional is not None:
+        raise ValueError(
+            "additional permissions require with_additional_permissions"
+        )
     if "justification" in arguments and permission == "use_default":
         raise ValueError(
             "justification requires an explicit sandbox_permissions value"
@@ -855,7 +869,7 @@ def load_exec_policy_with_warning(
 
 
 def commands_for_exec_policy(command: Sequence[str] | str) -> list[list[str]]:
-    """按 Codex 的简单命令规则提取可评估命令序列。"""
+    """按简单命令规则提取可评估命令序列。"""
     words = _split_command(command)
     if not words:
         return []

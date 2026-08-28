@@ -1141,6 +1141,13 @@ async def stream_turn(
         )
 
     finally:
+        permission_grants = getattr(mind, "permission_grants", None)
+        if permission_grants is not None:
+            permission_grants.clear_turn(
+                cid=turn_context.cid,
+                sid=turn_context.sid,
+                turn_id=turn_context.turn_id,
+            )
         approval_ledger.clear_turn(
             cid=turn_context.cid,
             sid=turn_context.sid,

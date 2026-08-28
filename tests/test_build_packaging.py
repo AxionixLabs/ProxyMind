@@ -22,6 +22,43 @@ class _CompletedTransport:
         return None
 
 
+def test_windows_sandbox_runtime_requires_all_three_binaries(tmp_path) -> None:
+    sandbox = tmp_path / "sandbox" / "windows"
+    binary_dir = sandbox / "bin"
+    binary_dir.mkdir(parents=True)
+    expected = tuple(
+        binary_dir / name
+        for name in build.SANDBOX_RUNTIME_ASSETS["win32"]
+    )
+    for binary in expected:
+        binary.write_bytes(b"binary")
+
+    assert build.validate_sidecar_assets("win32", sandbox) == expected
+
+
+@pytest.mark.parametrize(
+    "missing_name",
+    [
+        "mind_sandbox_server.exe",
+        "codex-command-runner.exe",
+        "codex-windows-sandbox-setup.exe",
+    ],
+)
+def test_windows_sandbox_runtime_rejects_missing_helper(
+    tmp_path,
+    missing_name,
+) -> None:
+    sandbox = tmp_path / "sandbox" / "windows"
+    binary_dir = sandbox / "bin"
+    binary_dir.mkdir(parents=True)
+    for name in build.SANDBOX_RUNTIME_ASSETS["win32"]:
+        if name != missing_name:
+            (binary_dir / name).write_bytes(b"binary")
+
+    with pytest.raises(build.AppError, match=missing_name):
+        build.validate_sidecar_assets("win32", sandbox)
+
+
 @pytest.mark.anyio
 async def test_extensions_are_normalized_before_provider_bundle_is_copied(
         monkeypatch,

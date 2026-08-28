@@ -33,6 +33,7 @@ from mind_nova.stream_events import (
 from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from .stream_policy import (
     apply_local_exec_policy_approval,
+    local_permission_approval,
     apply_local_patch_approval,
     local_exec_policy_approval,
     local_exec_policy_cancelled_result,
@@ -231,6 +232,19 @@ class ToolEventHandler:
             hook_decision,
         )
         arguments = dict(invocation.arguments)
+
+        if (
+            isinstance(arguments.get("additional_permissions"), dict)
+            and arguments.get("additional_permissions")
+            and str(arguments.get("sandbox_permissions") or "")
+                .strip()
+                .casefold() == "with_additional_permissions"
+            and not approval_consumed
+            and not self._has_permission_grant(arguments)
+        ):
+            permission_result = await self._handle_permission_approval(invocation)
+            if permission_result is not None:
+                return permission_result
 
         if name == PLAN_STEPS_TOOL:
             tool_outcome = await self.client_runner.execute(
@@ -531,6 +545,123 @@ class ToolEventHandler:
                 },
             )
             return ToolCallHandlingResult.handled()
+        return None
+
+    def _has_permission_grant(
+        self,
+        arguments: dict[str, typing.Any],
+    ) -> bool:
+        """判断工具调用是否已被当前 Turn 或 session 授权。"""
+        store = getattr(self.turn_context, "permission_grants", None)
+        if store is None:
+            store = getattr(self.controller, "permission_grants", None)
+        if store is None:
+            return False
+        return bool(store.has_grant(
+            cid=self.turn_context.cid,
+            sid=self.turn_context.sid,
+            turn_id=self.turn_context.turn_id,
+            environment_id=arguments.get("environment_id"),
+            cwd=arguments.get("cwd") or self.turn_context.cwd,
+            permissions=arguments.get("additional_permissions"),
+        ))
+
+    async def _handle_permission_approval(
+        self,
+        invocation: ToolInvocation,
+    ) -> ToolCallHandlingResult | None:
+        """处理工具附加权限审批，批准后继续当前调用。"""
+        approval_coordinator = getattr(
+            self.controller,
+            "approval_coordinator",
+            None,
+        )
+        if approval_coordinator is None:
+            await self._reject_and_wait(
+                invocation,
+                reason="permission approval coordinator is unavailable",
+                result={
+                    "approval_denied": True,
+                    "error": "permission approval coordinator is unavailable",
+                },
+            )
+            return ToolCallHandlingResult.handled()
+
+        try:
+            approval = local_permission_approval(invocation)
+        except ValueError as error:
+            await self._reject_and_wait(
+                invocation,
+                reason="permission approval request is invalid",
+                result={
+                    "approval_denied": True,
+                    "error": str(error),
+                },
+            )
+            return ToolCallHandlingResult.handled()
+
+        outcome = await approval_coordinator.request_outcome(approval)
+        await self.presentation.emit(build_approval_view(
+            approval,
+            decision=outcome.decision,
+            source=outcome.source,
+        ))
+
+        if outcome.decision not in {
+            "grantForTurn",
+            "grantForTurnWithStrictAutoReview",
+            "grantForSession",
+        }:
+            result = (
+                local_exec_policy_cancelled_result()
+                if outcome.decision == "cancel"
+                else {
+                    "approval_denied": True,
+                    "error": "permission approval declined",
+                }
+            )
+            self.coordinator.record_rejected(
+                invocation,
+                "permission approval declined",
+                result=result,
+            )
+            await self._post_invocation_result(invocation, ok=False, result=result)
+            if outcome.decision == "cancel":
+                return await self._interrupt_after_approval(
+                    invocation.call_id,
+                    failure_message=(
+                        "failed to interrupt turn after permission approval cancellation"
+                    ),
+                )
+            await self.status_control.begin_reply_wait_status()
+            return ToolCallHandlingResult.handled()
+
+        store = getattr(self.turn_context, "permission_grants", None)
+        if store is None:
+            store = getattr(self.controller, "permission_grants", None)
+        if store is None:
+            await self._reject_and_wait(
+                invocation,
+                reason="permission grant store is unavailable",
+                result={
+                    "approval_denied": True,
+                    "error": "permission grant store is unavailable",
+                },
+            )
+            return ToolCallHandlingResult.handled()
+        store.grant(
+            scope=("session" if outcome.decision == "grantForSession" else "turn"),
+            cid=invocation.turn.cid,
+            sid=invocation.turn.sid,
+            turn_id=invocation.turn.turn_id,
+            environment_id=approval.get("environment_id"),
+            cwd=approval.get("cwd") or invocation.turn.cwd,
+            permissions=approval["permissions"],
+            requested_permissions=invocation.arguments.get("additional_permissions"),
+            strict_auto_review=(
+                outcome.decision == "grantForTurnWithStrictAutoReview"
+            ),
+        )
         return None
 
     async def _post_tool_outcome(

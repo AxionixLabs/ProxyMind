@@ -13,6 +13,9 @@ from mind_nova.identifiers import (
     short_uid
 )
 
+if typing.TYPE_CHECKING:
+    from mind_app.approval.permission_grants import PermissionGrantStore
+
 ROOT_AGENT_ID   = "root"
 ROOT_AGENT_TYPE = "root"
 
@@ -157,6 +160,7 @@ class TurnContext:
     model: str
     cwd: str
     permissions: PermissionSettings
+    permission_grants: "PermissionGrantStore | None" = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -174,6 +178,7 @@ class TurnContext:
         pref_config: dict[str, typing.Any],
         cwd: str,
         permissions: PermissionSettings,
+        permission_grants: "PermissionGrantStore | None" = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -207,6 +212,7 @@ class TurnContext:
             model=model,
             cwd=str(cwd or "").strip(),
             permissions=permissions,
+            permission_grants=permission_grants,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

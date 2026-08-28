@@ -96,6 +96,20 @@ def approval_report_kwargs(
         if amendment is None:
             raise RuntimeError("approval amendment decision is missing proposal")
         fields["execpolicy_amendment_id"] = amendment.id
+    if (
+        str(approval.get("kind") or "").strip() == "request_permissions"
+        and approved
+    ):
+        permissions = approval.get("permissions")
+        if not isinstance(permissions, dict):
+            raise RuntimeError("permission approval is missing permissions")
+        fields["permissions"] = typing.cast(dict[str, typing.Any], permissions)
+        fields["scope"] = (
+            "session" if decision == "grantForSession" else "turn"
+        )
+        fields["strict_auto_review"] = (
+            decision == "grantForTurnWithStrictAutoReview"
+        )
     if not approved and additional_context:
         fields["additional_context"] = additional_context
     return fields
@@ -141,6 +155,10 @@ class ApprovalEventHandler:
                 item.status == "resolved"
                 and item.decision in TOOL_APPROVAL_ACCEPT_DECISIONS
             ):
+                self._apply_permission_grant(
+                    approval_from_snapshot(item.approval),
+                    decision=typing.cast(ApprovalDecisionValue, item.decision),
+                )
                 self.ledger.record_approved(
                     cid=snapshot.cid,
                     sid=snapshot.sid,
@@ -193,6 +211,11 @@ class ApprovalEventHandler:
                 ),
             )
             if restored_decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
+                if restored_approval.get("kind") == "request_permissions":
+                    self._apply_permission_grant(
+                        restored_approval,
+                        decision=restored_decision,
+                    )
                 self.ledger.record_approved(
                     cid=snapshot.cid,
                     sid=snapshot.sid,
@@ -246,6 +269,16 @@ class ApprovalEventHandler:
                 and isinstance(event.ack, dict)
                 and str(event.ack.get("tool_status") or "") == "approved"
             ):
+                if event.kind == "request_permissions":
+                    ack_decision = str(event.ack.get("decision") or "")
+                    if ack_decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
+                        self._apply_permission_grant(
+                            approval,
+                            decision=typing.cast(
+                                ApprovalDecisionValue,
+                                ack_decision,
+                            ),
+                        )
                 self.ledger.record_approved(
                     cid=turn_context.cid,
                     sid=turn_context.sid,
@@ -321,7 +354,10 @@ class ApprovalEventHandler:
             decision, decision_source = "decline", "hook"
         elif permission_decision is not None and permission_decision.action == "allow":
             decision, decision_source = "accept", "hook"
-        elif turn_context.permissions.approval_policy == "never":
+        elif (
+            turn_context.permissions.approval_policy == "never"
+            and approval.get("kind") != "request_permissions"
+        ):
             decision, decision_source = "decline", "policy"
         else:
             outcome = await self.controller.approval_coordinator.request_outcome(
@@ -408,6 +444,8 @@ class ApprovalEventHandler:
                 call_id=approval_call_id,
                 decision=decision,
             )
+            if approval.get("kind") == "request_permissions":
+                self._apply_permission_grant(approval, decision=decision)
             self.ledger.record_approved(
                 cid=turn_context.cid,
                 sid=turn_context.sid,
@@ -494,6 +532,58 @@ class ApprovalEventHandler:
                 call_id=call_id,
                 decision=decision,
                 error=update_error,
+            )
+
+    def _apply_permission_grant(
+        self,
+        approval: dict[str, typing.Any],
+        *,
+        decision: ApprovalDecisionValue,
+    ) -> None:
+        """把权限审批结果写入当前 Turn 或会话授权存储。"""
+        if decision not in {
+            "grantForTurn",
+            "grantForTurnWithStrictAutoReview",
+            "grantForSession",
+        }:
+            return None
+        store = getattr(self.controller, "permission_grants", None)
+        if store is None:
+            observe(
+                "approval.permission_grant_unavailable",
+                level="WARNING",
+                call_id=str(approval.get("call_id") or ""),
+            )
+            return None
+        permissions = approval.get("permissions")
+        if not isinstance(permissions, dict):
+            observe(
+                "approval.permission_grant_invalid",
+                level="WARNING",
+                call_id=str(approval.get("call_id") or ""),
+            )
+            return None
+        try:
+            store.grant(
+                scope=("session" if decision == "grantForSession" else "turn"),
+                cid=self.turn_context.cid,
+                sid=self.turn_context.sid,
+                turn_id=str(approval.get("turn_id") or self.turn_context.turn_id),
+                environment_id=approval.get("environment_id"),
+                cwd=approval.get("cwd") or self.turn_context.cwd,
+                permissions=permissions,
+                requested_permissions=permissions,
+                strict_auto_review=(
+                    decision == "grantForTurnWithStrictAutoReview"
+                ),
+            )
+        except (TypeError, ValueError, OSError) as error:
+            observe_exception(
+                "approval.permission_grant_failed",
+                error,
+                level="WARNING",
+                call_id=str(approval.get("call_id") or ""),
+                decision=decision,
             )
 
 

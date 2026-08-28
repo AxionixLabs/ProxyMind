@@ -431,6 +431,7 @@ class SubagentRuntime:
                 pref_config=pref_config,
                 cwd=thread.cwd,
                 permissions=thread.permissions,
+                permission_grants=getattr(self._controller, "permission_grants", None),
                 transcript_path=thread.transcript_path,
                 parent_transcript_path=thread.parent_transcript_path,
                 session_started=turn.turn_index == 1,

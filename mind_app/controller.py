@@ -54,6 +54,7 @@ from .client_tools import (
 )
 from .native_coding import NativeCoding
 from .native_coding.exec.exec_policy import ExecPolicyManager
+from .approval.permission_grants import PermissionGrantStore
 from .native_coding.exec.user_shell import UserShellExecution
 from .approval.coordinator import ApprovalCoordinator
 from .approval.ledger import ApprovalCallLedger
@@ -192,6 +193,7 @@ class Mind(object):
         self.exec_policy_manager = ExecPolicyManager(
             workspace_root=self.history_workspace
         )
+        self.permission_grants = PermissionGrantStore()
 
         self.subagents: SubagentRuntime = (
             kwargs.get("subagent_runtime")

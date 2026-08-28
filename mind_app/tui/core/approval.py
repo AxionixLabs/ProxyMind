@@ -322,11 +322,15 @@ class TuiApproval(object):
 
         @bindings.add("y")
         def _(event) -> None:
-            self.finish("accept")
+            self._finish_shortcut("accept", "grantForTurn")
 
         @bindings.add("s")
         def _(event) -> None:
-            self.finish("acceptForSession")
+            self._finish_shortcut("acceptForSession", "grantForSession")
+
+        @bindings.add("r")
+        def _(event) -> None:
+            self._finish_shortcut("grantForTurnWithStrictAutoReview")
 
         @bindings.add("p")
         def _(event) -> None:
@@ -342,6 +346,16 @@ class TuiApproval(object):
                 self._finish_index(selected_number - 1)
 
         return bindings
+
+    def _finish_shortcut(self, *decisions: ApprovalDecisionValue) -> None:
+        """按当前卡片支持的决定完成快捷键操作。"""
+        state = self.state
+        if state is None:
+            return None
+        for decision in decisions:
+            if decision in state.decisions:
+                self.finish(decision)
+                return None
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@ from mind_app.approval.presentation import (
     ApprovalCommand,
     ApprovalPresentation,
     ExecApprovalPresentation,
+    RequestPermissionsApprovalPresentation,
     ToolApprovalPresentation,
     ensure_approval_presentation,
 )
@@ -46,6 +47,8 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-context": "#7D8A98",
     "approval-field-label": "bold #AAB7C4",
     "approval-field-value": "#AAB7C4",
+    "approval-permission-label": "",
+    "approval-permission-value": "bold",
     "approval-meta": "dim #8896A5",
     "approval-omitted": "dim #8896A5",
     "approval-footer": "dim #8896A5",
@@ -65,6 +68,7 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-patch-count-add": "ansigreen",
     "approval-patch-count-remove": "ansired",
     "approval-patch-context": "",
+    "approval-permission-rule": "cyan",
 })
 
 
@@ -100,17 +104,39 @@ def tui_approval_content_lines(
     detail_groups: list[list[list[tuple[str, str]]]] = []
 
     if environment := _approval_environment(approval):
-        detail_groups.append(_approval_field_lines(
-            "Environment",
-            environment,
-            max_width=content_width,
-        ))
+        detail_groups.append(
+            _approval_permission_field_lines(
+                "Environment",
+                environment,
+                max_width=content_width,
+            )
+            if isinstance(approval, RequestPermissionsApprovalPresentation)
+            else _approval_field_lines(
+                "Environment",
+                environment,
+                max_width=content_width,
+            )
+        )
 
     justification = approval.context.justification
     if justification:
-        detail_groups.append(_approval_field_lines(
-            "Reason",
-            justification,
+        detail_groups.append(
+            _approval_permission_field_lines(
+                "Reason",
+                justification,
+                max_width=content_width,
+            )
+            if isinstance(approval, RequestPermissionsApprovalPresentation)
+            else _approval_field_lines(
+                "Reason",
+                justification,
+                max_width=content_width,
+            )
+        )
+
+    if isinstance(approval, RequestPermissionsApprovalPresentation):
+        detail_groups.append(_approval_permission_rule_lines(
+            approval.summary,
             max_width=content_width,
         ))
 
@@ -160,6 +186,33 @@ def _approval_field_lines(
     return _wrap_prefixed_line(
         ("class:approval-field-label", f"{label}: "),
         [("class:approval-field-value", value)],
+        max_width=max_width,
+    )
+
+
+def _approval_permission_rule_lines(
+    summary: str,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成权限规则摘要行。"""
+    return _wrap_prefixed_line(
+        ("class:approval-permission-label", "Permission rule: "),
+        [("class:approval-permission-rule", summary)],
+        max_width=max_width,
+    )
+
+
+def _approval_permission_field_lines(
+    label: str,
+    value: str,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成权限卡片中的原生字段样式。"""
+    return _wrap_prefixed_line(
+        ("class:approval-permission-label", f"{label}: "),
+        [("class:approval-permission-value", value)],
         max_width=max_width,
     )
 
@@ -234,6 +287,8 @@ def _approval_operation_lines(
         return _patch_approval_card_lines(approval, max_width=max_width)
     if isinstance(approval, ExecApprovalPresentation):
         return _exec_approval_card_lines(approval, max_width=max_width)
+    if isinstance(approval, RequestPermissionsApprovalPresentation):
+        return []
     return _tool_approval_card_lines(approval, max_width=max_width)
 
 
@@ -285,11 +340,14 @@ def approval_command_pager_lines(
             terminal_capabilities=terminal_capabilities,
         )
 
-    commands = (
-        approval.commands
-        if isinstance(approval, ExecApprovalPresentation)
-        else approval.operations
-    )
+    if isinstance(approval, RequestPermissionsApprovalPresentation):
+        commands = (approval.summary,)
+    else:
+        commands = (
+            approval.commands
+            if isinstance(approval, ExecApprovalPresentation)
+            else approval.operations
+        )
     if not commands:
         commands = (approval.summary,)
 

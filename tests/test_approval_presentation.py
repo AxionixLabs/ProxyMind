@@ -3,6 +3,7 @@
 from mind_app.approval.presentation import (
     ApplyPatchApprovalPresentation,
     ExecApprovalPresentation,
+    RequestPermissionsApprovalPresentation,
     ToolApprovalPresentation,
     build_approval_presentation,
     ensure_approval_presentation,
@@ -126,12 +127,27 @@ def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> Non
         "available_decisions": ["accept", "decline"],
     })
 
-    assert isinstance(permissions, ToolApprovalPresentation)
+    assert isinstance(permissions, RequestPermissionsApprovalPresentation)
     assert permissions.summary == (
-        "network access; file access: D:/workspace/out"
+        "network; write `D:/workspace/out`"
     )
     assert isinstance(mcp, ToolApprovalPresentation)
     assert mcp.summary == "github: create_issue"
+
+
+def test_permission_summary_formats_structured_paths() -> None:
+    presentation = build_approval_presentation({
+        "kind": "request_permissions",
+        "permissions": {
+            "file_system": {
+                "entries": [{
+                    "path": {"type": "path", "path": "D:/workspace/out"},
+                    "access": "read",
+                }]
+            }
+        },
+    })
+    assert presentation.summary == "read `D:/workspace/out`"
 
 
 def test_approval_request_keeps_canonical_kind_and_payload_snapshot() -> None:

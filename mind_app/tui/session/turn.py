@@ -234,6 +234,7 @@ async def run_tui_model_turn(
         pref_config=pref_config,
         cwd=mind.history_workspace,
         permissions=permissions,
+        permission_grants=getattr(mind, "permission_grants", None),
         output_record_path=str(mind.report.output_record_path or ""),
         transcript_path=mind.transcripts.path_for_session(turn_metadata["sid"]),
         turn_id=turn_id,

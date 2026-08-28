@@ -383,12 +383,9 @@ def test_sandbox_permission_helpers_validate_and_select_host_mode() -> None:
         "workspace-write"
     )
 
-    try:
-        normalize_sandbox_permission("with_additional_permissions")
-    except ValueError as error:
-        assert "sandbox_permissions" in str(error)
-    else:
-        raise AssertionError("invalid sandbox permission must be rejected")
+    assert normalize_sandbox_permission("with_additional_permissions") == (
+        "with_additional_permissions"
+    )
 
 
 def test_policy_prompt_never_gets_no_persistent_amendment(tmp_path) -> None:

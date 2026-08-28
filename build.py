@@ -332,17 +332,32 @@ async def report_binary_info(command: list[str]) -> None:
     compile_log(result)
 
 
-def validate_sidecar_asset(ops: str, sandbox: Path) -> Path:
-    """校验当前平台的 sidecar 产物存在且可执行。"""
-    executable_name = (
-        "mind_sandbox_server.exe" if ops == "win32" else "mind_sandbox_server"
-    )
-    executable = sandbox / "bin" / executable_name
-    if not executable.is_file():
-        raise AppError(f"未找到 {ops} sidecar 可执行文件: {executable}")
-    if ops == "darwin" and not os.access(executable, os.X_OK):
-        raise AppError(f"macOS sidecar 不具备执行权限: {executable}")
-    return executable
+SANDBOX_RUNTIME_ASSETS = {
+    "win32": (
+        "mind_sandbox_server.exe",
+        "codex-command-runner.exe",
+        "codex-windows-sandbox-setup.exe",
+    ),
+    "darwin": ("mind_sandbox_server",),
+}
+
+
+def validate_sidecar_assets(ops: str, sandbox: Path) -> tuple[Path, ...]:
+    """校验当前平台打包所需的全部沙箱运行时文件。"""
+    try:
+        asset_names = SANDBOX_RUNTIME_ASSETS[ops]
+    except KeyError as error:
+        raise AppError(f"不支持的沙箱运行时平台: {ops}") from error
+
+    assets = tuple(sandbox / "bin" / name for name in asset_names)
+    missing = tuple(asset for asset in assets if not asset.is_file())
+    if missing:
+        paths = ", ".join(str(asset) for asset in missing)
+        raise AppError(f"缺少 {ops} 沙箱运行时文件: {paths}")
+
+    if ops == "darwin" and not os.access(assets[0], os.X_OK):
+        raise AppError(f"macOS sidecar 不具备执行权限: {assets[0]}")
+    return assets
 
 
 async def packaging() -> tuple[
@@ -548,7 +563,7 @@ async def post_build() -> None:
     r, s = schematic / "resources", schematic / kit / support
     skills = schematic / "skills"
     sandbox = schematic / "sandbox" / support
-    validate_sidecar_asset(ops, sandbox)
+    validate_sidecar_assets(ops, sandbox)
 
     local_pack, local_file = [
         (r, target / schematic.name / r.name),

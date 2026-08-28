@@ -54,6 +54,49 @@ def test_patch_approval_pager_uses_patch_body() -> None:
     ] == ["*** Begin Patch", "+new line"]
 
 
+def test_permissions_approval_card_uses_native_fields_and_rule_color() -> None:
+    approval = {
+        "kind": "request_permissions",
+        "approval_id": "approval-permissions",
+        "call_id": "call-permissions",
+        "environment_id": "workspace-write",
+        "reason": "需要读取构建目录",
+        "permissions": {
+            "network": {"enabled": True},
+            "file_system": {
+                    "entries": [{"path": "D:/workspace/out", "access": "read"}]
+            },
+        },
+        "available_decisions": [
+            "grantForTurn",
+            "grantForTurnWithStrictAutoReview",
+            "grantForSession",
+            "decline",
+        ],
+    }
+    lines = tui_approval_content_lines(
+        list(approval["available_decisions"]),
+        approval=approval,
+        width=120,
+    )
+    text = "\n".join(
+        "".join(value for _style, value in line)
+        for line in lines
+    )
+    assert "Would you like to grant these permissions?" in text
+    assert "Environment: workspace-write" in text
+    assert "Reason: 需要读取构建目录" in text
+    assert "Permission rule:" in text
+    assert any(
+        style == "class:approval-permission-rule"
+        for line in lines
+        for style, _value in line
+    )
+    assert TUI_APPROVAL_STYLE.get_attrs_for_style_str(
+        "class:approval-permission-value"
+    ).bold
+
+
 def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
     approval = {
         "tool": "apply_patch",

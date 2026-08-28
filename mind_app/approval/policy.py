@@ -302,8 +302,18 @@ def approval_decisions(
             ]
         return decisions
 
-    decisions = list(DEFAULT_APPROVAL_DECISIONS)
-    if approval_execpolicy_amendment(approval) is not None:
+    kind = str(approval.get("kind") or "command") if isinstance(approval, dict) else "command"
+    kind_defaults: dict[str, list[ApprovalDecisionValue]] = {
+        "request_permissions": [
+            "grantForTurn",
+            "grantForTurnWithStrictAutoReview",
+            "grantForSession",
+            "decline",
+        ],
+        "mcp_tool_call": ["accept", "decline"],
+    }
+    decisions = list(kind_defaults.get(kind, DEFAULT_APPROVAL_DECISIONS))
+    if kind == "command" and approval_execpolicy_amendment(approval) is not None:
         decisions[1] = "acceptWithExecpolicyAmendment"
     return decisions
 

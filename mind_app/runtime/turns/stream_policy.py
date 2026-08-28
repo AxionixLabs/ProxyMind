@@ -149,6 +149,44 @@ def local_exec_policy_approval(
     return approval
 
 
+def local_permission_approval(
+    invocation: ToolInvocation,
+) -> dict[str, typing.Any]:
+    """构造工具附加权限缺失时的本地权限审批请求。"""
+    permissions = invocation.arguments.get("additional_permissions")
+    if not isinstance(permissions, dict) or not permissions:
+        raise ValueError("additional permissions must be a non-empty object")
+    reason = str(
+        invocation.arguments.get("justification")
+        or invocation.reason
+        or "additional permissions are required"
+    ).strip()
+    approval_id = f"local-permissions-{invocation.call_id}"
+    return {
+        "id": approval_id,
+        "approval_id": approval_id,
+        "request_id": approval_id,
+        "call_id": invocation.call_id,
+        "turn_id": invocation.turn.turn_id,
+        "kind": "request_permissions",
+        "tool": "request_permissions",
+        "arguments": {"permissions": permissions},
+        "permissions": typing.cast(dict[str, typing.Any], permissions),
+        "environment_id": str(
+            invocation.arguments.get("environment_id") or ""
+        ).strip(),
+        "cwd": str(invocation.arguments.get("cwd") or invocation.turn.cwd),
+        "reason": reason,
+        "justification": reason,
+        "available_decisions": [
+            "grantForTurn",
+            "grantForTurnWithStrictAutoReview",
+            "grantForSession",
+            "decline",
+        ],
+    }
+
+
 def local_patch_approval(
     controller: "Mind",
     invocation: ToolInvocation

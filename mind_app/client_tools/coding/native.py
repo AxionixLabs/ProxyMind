@@ -280,6 +280,14 @@ def coding_tools(
             validate_sandbox_permission_arguments(args)
             execution_args = dict(args)
             execution_args.pop("justification", None)
+            for field_name in (
+                "additional_permissions",
+                "environment_id",
+                "policy_fingerprint",
+                "patch_scope",
+                "tty",
+            ):
+                execution_args.pop(field_name, None)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="shell_command", arguments=arguments, error=exc
@@ -357,6 +365,14 @@ def coding_tools(
             validate_sandbox_permission_arguments(args)
             execution_args = dict(args)
             execution_args.pop("justification", None)
+            for field_name in (
+                "additional_permissions",
+                "environment_id",
+                "policy_fingerprint",
+                "patch_scope",
+                "tty",
+            ):
+                execution_args.pop(field_name, None)
         except ExecutionAuthorizationError as exc:
             return authorization_failure_result(
                 coding, tool="exec_command", arguments=arguments, error=exc

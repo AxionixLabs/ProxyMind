@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+import copy
 from dataclasses import dataclass
 from mind_app.presentation.models import PatchView
 from mind_app.presentation.patch_views import build_patch_start_view
@@ -67,9 +68,22 @@ class ToolApprovalPresentation(object):
     summary: str
 
 
+@dataclass(frozen=True, slots=True)
+class RequestPermissionsApprovalPresentation(object):
+    """保存权限申请卡片的展示数据。"""
+    context: ApprovalPresentationContext
+    permissions: dict[str, typing.Any]
+    summary: str
+
+    def __post_init__(self) -> None:
+        """复制权限资料，避免展示状态被外部修改。"""
+        object.__setattr__(self, "permissions", copy.deepcopy(self.permissions))
+
+
 ApprovalPresentation: typing.TypeAlias = (
     ExecApprovalPresentation
     | ApplyPatchApprovalPresentation
+    | RequestPermissionsApprovalPresentation
     | ToolApprovalPresentation
 )
 
@@ -83,6 +97,7 @@ def ensure_approval_presentation(
         (
             ExecApprovalPresentation,
             ApplyPatchApprovalPresentation,
+            RequestPermissionsApprovalPresentation,
             ToolApprovalPresentation,
         ),
     ):
@@ -136,6 +151,16 @@ def build_approval_presentation(
             patch_view=patch_view,
         )
 
+    if resolved_kind == "request_permissions":
+        permissions = normalized.get("permissions")
+        if not isinstance(permissions, dict):
+            permissions = {}
+        return RequestPermissionsApprovalPresentation(
+            context=context,
+            permissions=permissions,
+            summary=summary,
+        )
+
     return ToolApprovalPresentation(
         context=context,
         operations=_tool_operation_values(normalized),
@@ -154,17 +179,34 @@ def _approval_summary(
             parts: list[str] = []
             if isinstance(permissions.get("network"), dict):
                 if permissions["network"].get("enabled") is True:
-                    parts.append("network access")
+                    parts.append("network")
             if isinstance(permissions.get("file_system"), dict):
                 entries = permissions["file_system"].get("entries")
                 if isinstance(entries, list):
-                    paths = [
-                        str(item.get("path") or "").strip()
-                        for item in entries
-                        if isinstance(item, dict) and str(item.get("path") or "").strip()
+                    grouped: dict[str, list[str]] = {
+                        "read": [],
+                        "write": [],
+                        "deny": [],
+                    }
+                    for item in entries:
+                        if not isinstance(item, dict):
+                            continue
+                        path = _permission_path(item.get("path"))
+                        access = str(item.get("access") or "").strip().casefold()
+                        if path and access in grouped:
+                            grouped[access].append(path)
+                    non_empty = [
+                        (access, paths)
+                        for access, paths in grouped.items()
+                        if paths
                     ]
-                    if paths:
-                        parts.append("file access: " + ", ".join(paths))
+                    for access, paths in non_empty:
+                        label = {
+                            "read": "read",
+                            "write": "write",
+                            "deny": "deny read",
+                        }[access]
+                        parts.append(f"{label} " + ", ".join(paths))
             if parts:
                 return "; ".join(parts)
         return "additional permissions"
@@ -219,6 +261,8 @@ def _presentation_context(
     ).replace("_", " ")
 
     justification = _text(payload.get("justification"))
+    if not justification and kind == "request_permissions":
+        justification = _text(payload.get("reason"))
     agent_depth   = payload.get("agent_depth")
 
     if isinstance(agent_depth, bool) or not isinstance(agent_depth, int):
@@ -352,6 +396,29 @@ def _command_text(value: typing.Any) -> str:
     if isinstance(value, (list, tuple)):
         return " ".join(str(item) for item in value)
     return str(value or "").strip()
+
+
+def _permission_path(value: typing.Any) -> str:
+    """将结构化文件路径转换为卡片摘要文本。"""
+    if isinstance(value, str):
+        text = value.strip()
+        return f"`{text}`" if text else ""
+    if not isinstance(value, dict):
+        return ""
+    path_type = str(value.get("type") or "").strip()
+    if path_type == "path":
+        text = _text(value.get("path"))
+        return f"`{text}`" if text else ""
+    if path_type == "glob_pattern":
+        text = _text(value.get("pattern"))
+        return f"glob `{text}`" if text else ""
+    if path_type == "special":
+        nested = value.get("value")
+        if isinstance(nested, dict):
+            text = _text(nested.get("path") or nested.get("subpath"))
+            return f"`{text}`" if text else ""
+    text = _text(value.get("path") or value.get("pattern"))
+    return f"`{text}`" if text else ""
 
 
 def _text(value: typing.Any) -> str:
