@@ -10,6 +10,7 @@ from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.support.conversation import ConversationTurn
 from mind_app.runtime.turns import executor as turn_executor
+from mind_app.tui.session import turn as tui_turn
 from mind_app.tui.session.turn import run_tui_model_turn
 from mind_core.permissions import preset_permissions
 
@@ -52,7 +53,6 @@ class _TuiController:
         self.transcripts = SimpleNamespace(
             path_for_session=lambda _sid: "D:/sessions/session.jsonl",
         )
-        self.stream_turn = object()
         self.sessions = []
         self.lifecycle_calls = []
         self.conversation_calls = []
@@ -100,21 +100,34 @@ class _TuiController:
             [{"name": "tool", "meta": {"domain": "coding"}}],
         )
 
-    async def run_turn_lifecycle(self, runner, **kwargs):
-        self.events.append("operation")
-        self.lifecycle_calls.append((runner, kwargs))
-        if self.failure is not None:
-            raise self.failure
-        return RunResult(status="completed", assistant_text="done")
-
     @staticmethod
     async def await_cleanup(awaitable) -> None:
         await awaitable
 
 
+@pytest.fixture
+def tui_turn_operations(monkeypatch):
+    """替换 TUI 用例直接依赖的流式和前台生命周期操作。"""
+    stream_operation = object()
+
+    async def run_foreground_turn(controller, operation, *args, **kwargs):
+        """记录前台生命周期调用并返回测试结果。"""
+        assert args == (controller,)
+        controller.events.append("operation")
+        controller.lifecycle_calls.append((operation, kwargs))
+        if controller.failure is not None:
+            raise controller.failure
+        return RunResult(status="completed", assistant_text="done")
+
+    monkeypatch.setattr(tui_turn, "stream_turn", stream_operation)
+    monkeypatch.setattr(tui_turn, "run_foreground_turn", run_foreground_turn)
+    return stream_operation
+
+
 @pytest.mark.anyio
 async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     monkeypatch,
+    tui_turn_operations,
 ) -> None:
     controller = _TuiController(attachments=[{
         "filename": "screen.png",
@@ -158,7 +171,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     assert report.closed == [True]
 
     runner, call = controller.lifecycle_calls[0]
-    assert runner is controller.stream_turn
+    assert runner is tui_turn_operations
     assert call["turn_execution"].additional_context == ("queued context",)
     assert call["turn_execution"].system_message == "queued system"
     assert call["attachments"] == [{
@@ -195,6 +208,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
 @pytest.mark.anyio
 async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
     monkeypatch,
+    tui_turn_operations,
 ) -> None:
     controller = _TuiController()
     report = _Report(controller.events)
@@ -226,6 +240,7 @@ async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
 @pytest.mark.anyio
 async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
     monkeypatch,
+    tui_turn_operations,
 ) -> None:
     controller = _TuiController()
     controller.tool_filter_mode = None
@@ -259,7 +274,10 @@ async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
 
 
 @pytest.mark.anyio
-async def test_tui_turn_closes_report_after_failure(monkeypatch) -> None:
+async def test_tui_turn_closes_report_after_failure(
+    monkeypatch,
+    tui_turn_operations,
+) -> None:
     controller = _TuiController(failure=RuntimeError("stream failed"))
     report = _Report(controller.events)
     monkeypatch.setattr(turn_executor, "EventReport", lambda *_args: report)
@@ -279,6 +297,7 @@ async def test_tui_turn_closes_report_after_failure(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_tui_turn_closes_report_without_drain_after_cancellation(
     monkeypatch,
+    tui_turn_operations,
 ) -> None:
     controller = _TuiController(failure=asyncio.CancelledError())
     report = _Report(controller.events)

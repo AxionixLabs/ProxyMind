@@ -69,3 +69,26 @@ def test_packaged_backend_is_self_contained() -> None:
     assert not violations, "backend imports application code:\n" + "\n".join(
         violations
     )
+
+
+def test_controller_does_not_expose_turn_use_case_facades() -> None:
+    controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
+    tree = ast.parse(
+        controller_path.read_text(encoding="utf-8-sig"),
+        filename=str(controller_path),
+    )
+    controller = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Mind"
+    )
+    methods = {
+        node.name
+        for node in controller.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    assert not {"calling", "run_turn_lifecycle", "stream_turn"} & methods
+    assert not (
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
+    ).exists()

@@ -23,6 +23,7 @@ from mind_app.runtime.subagents.control import (
 )
 from mind_app.runtime.subagents.delivery import AgentMessageReceipt
 from mind_app.runtime.subagents.runtime import SubagentRuntime
+from mind_app.runtime.turns import stream as turn_stream
 from mind_app.runtime.subagents.graph import AgentGraphStore
 from mind_app.runtime.subagents.mailbox import (
     AgentMailboxStore,
@@ -34,6 +35,16 @@ from mind_core.permissions import preset_permissions
 from mind_nova.identifiers import new_cid, new_sid
 from mind_nova.stream_events import MarkerEvent
 from mind_nova.turn_inputs import TurnInput
+
+
+@pytest.fixture(autouse=True)
+def stream_operation_adapter(monkeypatch) -> None:
+    """将子轮次流式操作转给测试控制器替身。"""
+    async def stream_turn(controller, **kwargs):
+        """调用测试控制器上的流式执行替身。"""
+        return await controller.run_stream_turn(**kwargs)
+
+    monkeypatch.setattr(turn_stream, "stream_turn", stream_turn)
 
 
 class _Controller:
@@ -55,7 +66,7 @@ class _Controller:
             [{"name": "tool", "meta": {"domain": "coding"}}],
         )
 
-    async def stream_turn(self, **kwargs):
+    async def run_stream_turn(self, **kwargs):
         self.stream_calls.append(kwargs)
         if self.stream_handler is not None:
             return await self.stream_handler(**kwargs)

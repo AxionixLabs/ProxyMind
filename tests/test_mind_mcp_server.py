@@ -34,6 +34,11 @@ def _source_layout(tmp_path: Path) -> ApplicationLayout:
     )
 
 
+def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
+    """使用指定根轮次用例构造 MCP 测试运行时。"""
+    return MindMcpRuntime(mind, turn_runner=turn_runner)
+
+
 def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
     server = create_mind_mcp_server(layout=_source_layout(tmp_path))
 
@@ -64,15 +69,15 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
+    turn_runner = AsyncMock(return_value=result)
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
         resume_conversation=AsyncMock(),
-        calling=AsyncMock(return_value=result),
     )
-    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
 
     actual = await runtime.execute(
         prompt="inspect",
@@ -88,7 +93,8 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         reason="mcp_tool_call",
         source="mcp_server",
     )
-    mind.calling.assert_awaited_once_with(
+    turn_runner.assert_awaited_once_with(
+        mind,
         message="inspect",
         permissions=PermissionSettings("read-only", "on-request"),
     )
@@ -100,6 +106,7 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
+    turn_runner = AsyncMock(return_value=RunResult(status="completed"))
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         permissions=PermissionSettings("workspace-write", "on-request"),
@@ -107,9 +114,8 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
         reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
         resume_conversation=AsyncMock(),
-        calling=AsyncMock(return_value=RunResult(status="completed")),
     )
-    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
 
     await runtime.execute(
         prompt="inspect",
@@ -118,7 +124,8 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
         working_directory=str(tmp_path),
     )
 
-    mind.calling.assert_awaited_once_with(
+    turn_runner.assert_awaited_once_with(
+        mind,
         message="inspect",
         permissions=PermissionSettings("workspace-write", "on-request"),
     )
@@ -135,15 +142,15 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
         **metadata,
         "workspace": str(tmp_path.resolve()),
     }
+    turn_runner = AsyncMock(return_value=result)
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(),
         find_conversation_session=Mock(return_value=record),
         resume_conversation=AsyncMock(return_value=metadata),
-        calling=AsyncMock(return_value=result),
     )
-    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
 
     actual = await runtime.execute(
         prompt="continue",
@@ -168,15 +175,15 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
 
 @pytest.mark.anyio
 async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
+    turn_runner = AsyncMock()
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(),
         find_conversation_session=Mock(return_value=None),
         resume_conversation=AsyncMock(),
-        calling=AsyncMock(),
     )
-    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
 
     actual = await runtime.execute(
         prompt="continue",
@@ -189,7 +196,7 @@ async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
     assert actual.run.status == "failed"
     assert actual.run.error == "session_id is unavailable for this working directory"
     assert actual.session_id is None
-    mind.calling.assert_not_awaited()
+    turn_runner.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -201,22 +208,22 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
         "sid": "sid_test_1_abcdef",
     }
 
-    async def wait_forever(**_kwargs) -> RunResult:
+    async def wait_forever(_controller, **_kwargs) -> RunResult:
         started.set()
         try:
             await asyncio.Event().wait()
         finally:
             cancelled.set()
 
+    turn_runner = AsyncMock(side_effect=wait_forever)
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
         resume_conversation=AsyncMock(),
-        calling=AsyncMock(side_effect=wait_forever),
     )
-    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
 
     timed_out = await runtime.execute(
         prompt="wait",
@@ -232,8 +239,10 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
     assert timed_out.run.error == "request timed out after 0.01 seconds"
     assert timed_out.session_id == metadata["sid"]
 
-    mind.calling = AsyncMock(
-        return_value=RunResult(status="completed", assistant_text="next")
+    turn_runner.side_effect = None
+    turn_runner.return_value = RunResult(
+        status="completed",
+        assistant_text="next",
     )
     following = await runtime.execute(
         prompt="next",
@@ -253,22 +262,22 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
         "sid": "sid_test_1_abcdef",
     }
 
-    async def wait_forever(**_kwargs) -> RunResult:
+    async def wait_forever(_controller, **_kwargs) -> RunResult:
         started.set()
         try:
             await asyncio.Event().wait()
         finally:
             cancelled.set()
 
+    turn_runner = AsyncMock(side_effect=wait_forever)
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
         resume_conversation=AsyncMock(),
-        calling=AsyncMock(side_effect=wait_forever),
     )
-    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
 
     task = asyncio.create_task(runtime.execute(
         prompt="wait",

@@ -22,6 +22,7 @@ from ..history import (
     INTERACTIVE_HISTORY_SOURCES
 )
 from ..runtime.turns.result import RunResult
+from ..runtime.turns.root import run_root_turn
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -69,7 +70,8 @@ async def run_selected_command(
                     command.model,
                 )
 
-            run_result = await mind.calling(
+            run_result = await run_root_turn(
+                mind,
                 message=command.prompt,
                 attachments=attachments,
                 **calling_kwargs,

@@ -90,7 +90,8 @@ def test_normalize_forward_request_preserves_message_and_intent() -> None:
 @pytest.mark.anyio
 async def test_agent_executor_runs_message_and_sends_completion() -> None:
     result = RunResult(status="completed", assistant_text="done")
-    mind = SimpleNamespace(calling=AsyncMock(return_value=result))
+    turn_runner = AsyncMock(return_value=result)
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_completed=AsyncMock(),
@@ -108,7 +109,7 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         },
     )
 
-    await AgentExecutor().execute(
+    await AgentExecutor(turn_runner).execute(
         mind,
         client,
         object(),
@@ -116,7 +117,8 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         request,
     )
 
-    mind.calling.assert_awaited_once_with(
+    turn_runner.assert_awaited_once_with(
+        mind,
         message="inspect workspace",
         metadata={
             "origin": "server",
@@ -132,7 +134,8 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
 @pytest.mark.anyio
 async def test_agent_executor_propagates_tui_turn_id() -> None:
     result = RunResult(status="completed", assistant_text="done")
-    mind = SimpleNamespace(calling=AsyncMock(return_value=result))
+    turn_runner = AsyncMock(return_value=result)
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_completed=AsyncMock(),
@@ -145,7 +148,7 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
         payload={"message": "inspect workspace"},
     )
 
-    await AgentExecutor().execute(
+    await AgentExecutor(turn_runner).execute(
         mind,
         client,
         object(),
@@ -154,12 +157,13 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
         turn_id="turn_remote",
     )
 
-    assert mind.calling.await_args.kwargs["turn_id"] == "turn_remote"
+    assert turn_runner.await_args.kwargs["turn_id"] == "turn_remote"
 
 
 @pytest.mark.anyio
 async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
-    mind = SimpleNamespace(calling=AsyncMock(return_value=RunResult(status="interrupted")))
+    turn_runner = AsyncMock(return_value=RunResult(status="interrupted"))
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_cancelled=AsyncMock(),
@@ -172,7 +176,7 @@ async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
         payload={"message": "inspect workspace"},
     )
 
-    await AgentExecutor().execute(
+    await AgentExecutor(turn_runner).execute(
         mind,
         client,
         object(),
@@ -194,11 +198,11 @@ async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
 async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
     started = asyncio.Event()
 
-    async def calling(**_kwargs):
+    async def run_root_turn(_controller, **_kwargs):
         started.set()
         await asyncio.Future()
 
-    mind = SimpleNamespace(calling=calling)
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_cancelled=AsyncMock(),
@@ -211,7 +215,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
         payload={"message": "inspect workspace"},
     )
 
-    task = asyncio.create_task(AgentExecutor().execute(
+    task = asyncio.create_task(AgentExecutor(run_root_turn).execute(
         mind,
         client,
         object(),
@@ -231,7 +235,8 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
 @pytest.mark.anyio
 async def test_agent_executor_reports_execution_failure() -> None:
     error = RuntimeError("execution failed")
-    mind = SimpleNamespace(calling=AsyncMock(side_effect=error))
+    turn_runner = AsyncMock(side_effect=error)
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_failed=AsyncMock(),
@@ -245,7 +250,7 @@ async def test_agent_executor_reports_execution_failure() -> None:
     )
 
     with pytest.raises(RuntimeError, match="execution failed"):
-        await AgentExecutor().execute(
+        await AgentExecutor(turn_runner).execute(
             mind,
             client,
             object(),
@@ -315,13 +320,7 @@ async def test_terminal_outbox_resends_stable_envelope_until_ack() -> None:
 @pytest.mark.anyio
 async def test_agent_ws_enqueues_message_without_executing_it() -> None:
     events: list[str] = []
-    mind = SimpleNamespace(
-        calling=_recording_mock(
-            events,
-            "calling",
-            RunResult(status="completed", assistant_text="done"),
-        ),
-    )
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_received=_recording_mock(events, "received"),
     )
@@ -342,7 +341,6 @@ async def test_agent_ws_enqueues_message_without_executing_it() -> None:
     )
 
     assert seq == 7
-    mind.calling.assert_not_awaited()
     assert events == ["received"]
     assert client.send_mind_received.await_args.kwargs["disposition"] == "queued"
     assert [item.request.message_id for item in inbox.pending_items()] == [
@@ -352,11 +350,7 @@ async def test_agent_ws_enqueues_message_without_executing_it() -> None:
 
 @pytest.mark.anyio
 async def test_agent_ws_replay_acknowledges_without_duplicate_inbox_item() -> None:
-    mind = SimpleNamespace(
-        calling=AsyncMock(
-            return_value=RunResult(status="completed", assistant_text="done")
-        ),
-    )
+    mind = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_received=AsyncMock(),
     )
@@ -378,7 +372,6 @@ async def test_agent_ws_replay_acknowledges_without_duplicate_inbox_item() -> No
     )
 
     assert client.send_mind_received.await_count == 2
-    mind.calling.assert_not_awaited()
     assert len(inbox.items) == 1
 
 

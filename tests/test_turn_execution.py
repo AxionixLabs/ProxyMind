@@ -20,9 +20,9 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope,
 )
-from mind_app.runtime.support.calling import calling
 from mind_app.runtime.support.conversation import ConversationTurn
 from mind_app.runtime.turns import executor as turn_executor
+from mind_app.runtime.turns import root as root_turns
 from mind_app.runtime.turns.executor import (
     TurnExecution,
     build_turn_input_payload,
@@ -626,7 +626,9 @@ async def test_execute_turn_records_input_when_session_setup_stops(
 
 
 @pytest.mark.anyio
-async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> None:
+async def test_root_calling_composes_conversation_and_terminal_lifecycle(
+    monkeypatch,
+) -> None:
     permissions = preset_permissions("auto")
     runtime = SimpleNamespace(
         begin_terminal_progress=Mock(),
@@ -639,6 +641,8 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
     async def stream_turn(*_args, **kwargs):
         captured.append(kwargs)
         return RunResult(status="completed", assistant_text="done")
+
+    monkeypatch.setattr(root_turns, "stream_turn", stream_turn)
 
     async def with_mcp_session(_pref_config, function):
         return await function("session", [])
@@ -670,7 +674,6 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
             additional_context=("queued context",),
             system_message="queued system",
         )),
-        stream_turn=stream_turn,
         with_mcp_session=with_mcp_session,
         await_cleanup=await_cleanup,
         start_anim=AsyncMock(),
@@ -680,7 +683,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle() -> No
         hook_scope=Mock(side_effect=hook_scope),
     )
 
-    result = await calling(
+    result = await root_turns.run_root_turn(
         mind,
         {"primary": {"model": "test-model"}},
         message="hello",

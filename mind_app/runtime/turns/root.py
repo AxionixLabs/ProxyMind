@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 from collections.abc import Mapping
+from mind_nova.events import EventReport
 from mind_app.runtime.execution import (
     AgentContext,
     TurnContext,
@@ -10,12 +12,71 @@ from mind_app.runtime.execution import (
 from mind_app.runtime.turns.executor import (
     TurnExecution,
     build_turn_input_payload,
+    execute_turn,
     resolve_turn_hook_scope,
 )
+from mind_app.runtime.turns.result import RunResult
+from mind_app.runtime.turns.stream import stream_turn
+from mind_app.stream_events.worked import emit_worked_footer
 from mind_core.permissions import PermissionSettings
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
+    from mind_app.mcp.contracts import McpSessionLike
+
+
+class RootTurnRunner(typing.Protocol):
+    """定义提交根轮次请求所需的应用用例。"""
+
+    async def __call__(
+        self,
+        controller: "Mind",
+        pref_config: dict[str, typing.Any] | None = None,
+        *,
+        message: str,
+        **kwargs: typing.Any,
+    ) -> RunResult:
+        """准备并执行一次根轮次。"""
+        ...
+
+
+async def run_foreground_turn(
+    controller: "Mind",
+    operation: typing.Callable[..., typing.Awaitable[RunResult]],
+    *args: typing.Any,
+    **kwargs: typing.Any,
+) -> RunResult:
+    """在主前端进度和动画生命周期内执行一次轮次操作。"""
+    started_at = time.perf_counter()
+    frontend_runtime = controller.frontend.runtime
+    frontend_runtime.begin_terminal_progress()
+    completed = False
+
+    try:
+        await controller.start_anim()
+        result = await operation(*args, **kwargs)
+        completed = True
+        return result
+    finally:
+        try:
+            if completed:
+                finish_turn_wait = getattr(
+                    frontend_runtime,
+                    "finish_turn_wait",
+                    None,
+                )
+                if callable(finish_turn_wait):
+                    finish_turn_wait()
+            if completed and controller.animate:
+                emit_worked_footer(
+                    controller.frontend.application,
+                    time.perf_counter() - started_at,
+                )
+        finally:
+            try:
+                await controller.await_cleanup(controller.stop_anim("wait"))
+            finally:
+                frontend_runtime.end_terminal_progress()
 
 
 async def prepare_root_turn(
@@ -71,6 +132,72 @@ async def prepare_root_turn(
             attachments=attachments,
             extras=extras,
         ),
+    )
+
+
+async def run_root_turn(
+    controller: "Mind",
+    pref_config: dict[str, typing.Any] | None = None,
+    *,
+    message: str,
+    **kwargs: typing.Any,
+) -> RunResult:
+    """准备根轮次并通过主前端生命周期执行。"""
+    if not str(message or "").strip():
+        return RunResult(status="failed", error="message is empty")
+
+    if pref_config is None:
+        pref_config = await controller.fresh_pref_config(ttl_sec=0.0)
+
+    permissions = kwargs.pop("permissions", None) or controller.permissions
+    raw_metadata = kwargs.pop("metadata", None)
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    raw_attachments = kwargs.get("attachments")
+    attachments = (
+        tuple(item for item in raw_attachments if isinstance(item, dict))
+        if isinstance(raw_attachments, (list, tuple))
+        else ()
+    )
+    raw_extras = kwargs.get("extras")
+    execution = await prepare_root_turn(
+        controller,
+        message=message,
+        title=message,
+        source="calling",
+        pref_config=pref_config,
+        permissions=permissions,
+        metadata=metadata,
+        attachments=attachments,
+        extras=raw_extras if isinstance(raw_extras, dict) else None,
+        turn_id=kwargs.pop("turn_id", None),
+    )
+    event_report = kwargs.pop("ev_report", None)
+
+    async def execute_prepared_turn(
+        prepared: TurnExecution,
+        session: "McpSessionLike",
+        tools: list[dict[str, typing.Any]],
+        report: EventReport,
+    ) -> RunResult:
+        """使用主前端生命周期执行已经准备好的根轮次。"""
+        return await run_foreground_turn(
+            controller,
+            stream_turn,
+            controller,
+            session=session,
+            pref_config=pref_config,
+            tools=tools,
+            turn_execution=prepared,
+            ev_report=report,
+            **kwargs,
+        )
+
+    return await execute_turn(
+        controller,
+        pref_config,
+        execution,
+        execute_prepared_turn,
+        event_report=event_report,
     )
 
 

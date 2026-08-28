@@ -7,6 +7,7 @@ import asyncio
 from engine.errors import AppError
 from engine.observability import observe
 from ..runtime.agent.client import AgentClient
+from ..runtime.turns.root import RootTurnRunner, run_root_turn
 from .models import (
     AgentInboxItem,
     AgentForwardRequest,
@@ -96,6 +97,10 @@ def get_runtime_message_cache(runtime: AgentSessionRuntime) -> set[str]:
 class AgentExecutor(object):
     """执行服务端下发的本地任务并回写结果。"""
 
+    def __init__(self, turn_runner: RootTurnRunner = run_root_turn) -> None:
+        """绑定根轮次应用用例。"""
+        self._turn_runner = turn_runner
+
     async def execute(
         self,
         mind: "Mind",
@@ -153,7 +158,7 @@ class AgentExecutor(object):
             if turn_id:
                 calling_kwargs["turn_id"] = turn_id
 
-            runner = mind.calling(**calling_kwargs)
+            runner = self._turn_runner(mind, **calling_kwargs)
 
             if timeout_sec is not None:
                 result = await asyncio.wait_for(runner, timeout=timeout_sec)

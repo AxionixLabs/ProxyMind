@@ -34,7 +34,7 @@ from mind_app.presentation.models import (
     TracePreview,
 )
 from mind_app.presentation.run_views import build_run_started_view
-from mind_app.runtime.support.calling import run_turn_lifecycle
+from mind_app.runtime.turns.root import run_foreground_turn
 from mind_app.stream_events.worked import (
     emit_worked_footer,
     worked_footer_text,
@@ -529,7 +529,7 @@ async def test_non_animated_mode_does_not_emit_worked_footer() -> None:
     )
     runner = AsyncMock()
 
-    await run_turn_lifecycle(mind, runner)
+    await run_foreground_turn(mind, runner)
 
     assert application.views == []
 
@@ -567,7 +567,7 @@ async def test_worked_footer_precedes_final_animation_cleanup() -> None:
     async def runner() -> None:
         events.append("runner")
 
-    await run_turn_lifecycle(mind, runner)
+    await run_foreground_turn(mind, runner)
 
     assert events == [
         "progress.begin",

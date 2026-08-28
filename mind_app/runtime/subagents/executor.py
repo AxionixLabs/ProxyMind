@@ -55,7 +55,10 @@ class StreamSubagentExecutor:
         if execution.context.agent.depth == 0:
             raise ValueError("subagent execution requires a child agent context")
 
-        return await self._controller.stream_turn(
+        from mind_app.runtime.turns.stream import stream_turn
+
+        return await stream_turn(
+            self._controller,
             session=session,
             pref_config=pref_config,
             tools=tools,

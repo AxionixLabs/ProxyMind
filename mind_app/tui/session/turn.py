@@ -17,7 +17,8 @@ from ...runtime.turns.executor import (
     TurnExecution,
     execute_turn,
 )
-from ...runtime.turns.root import prepare_root_turn
+from ...runtime.turns.root import prepare_root_turn, run_foreground_turn
+from ...runtime.turns.stream import stream_turn
 from ..runtime.ports import TurnRuntimePort
 from ..core.interrupt import InterruptDisposition
 from .turn_input import TuiTurnInputControl
@@ -212,7 +213,6 @@ async def run_tui_model_turn(
         or "Image"
     )
 
-    runner = mind.stream_turn
     extras = dict(prompt_extras or {})
 
     execution = await prepare_root_turn(
@@ -247,8 +247,10 @@ async def run_tui_model_turn(
         if on_interrupt_acknowledged is not None:
             prompt_kwargs["on_turn_interrupted"] = on_interrupt_acknowledged
 
-        return await mind.run_turn_lifecycle(
-            runner,
+        return await run_foreground_turn(
+            mind,
+            stream_turn,
+            mind,
             session=session,
             pref_config=pref_config,
             tools=tools,

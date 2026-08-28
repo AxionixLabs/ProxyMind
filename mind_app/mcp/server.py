@@ -17,6 +17,7 @@ from mind_app.frontend.contracts import Frontend
 from mind_app.frontend.sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.turns.result import RunResult
+from mind_app.runtime.turns.root import RootTurnRunner, run_root_turn
 from mind_app.output.silent import create_silent_output_session
 from mind_app.paths import (
     ensure_mind_home,
@@ -76,10 +77,16 @@ class _McpRequestState(object):
 class MindMcpRuntime(object):
     """管理 stdio MCP 服务持有的长驻应用运行时。"""
 
-    def __init__(self, mind: Mind) -> None:
+    def __init__(
+        self,
+        mind: Mind,
+        *,
+        turn_runner: RootTurnRunner = run_root_turn,
+    ) -> None:
         """绑定主控制器并初始化串行调用锁。"""
         self.mind              = mind
         self.default_workspace = Path(mind.history_workspace).resolve()
+        self._turn_runner      = turn_runner
 
         self._call_lock = asyncio.Lock()
 
@@ -266,7 +273,8 @@ class MindMcpRuntime(object):
 
         request.session_id = metadata["sid"]
 
-        run = await self.mind.calling(
+        run = await self._turn_runner(
+            self.mind,
             message=message,
             permissions=permissions,
         )

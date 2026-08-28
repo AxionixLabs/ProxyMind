@@ -33,10 +33,6 @@ from engine.observability import (
     observe_exception
 )
 from .attach import Attach
-from .runtime.support.calling import (
-    calling as run_calling,
-    run_turn_lifecycle as run_turn_lifecycle_wrapper
-)
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
 from .runtime.support.conversation import (
@@ -101,9 +97,7 @@ def _normalize_tool_profile(value: str) -> ToolFilterMode:
 
 
 if typing.TYPE_CHECKING:
-    from .runtime.turns.result import RunResult
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
-    from .runtime.turns.executor import TurnExecution
     from .subscription.runtime import AgentRuntime
     from server import ConfigServiceRuntime
 
@@ -1400,51 +1394,6 @@ class Mind(object):
             function,
             before_user_flow=before_user_flow
         )
-
-    async def run_turn_lifecycle(
-        self,
-        runner: typing.Callable[..., typing.Awaitable["RunResult"]],
-        **kwargs
-    ) -> "RunResult":
-        """单轮执行生命周期入口。"""
-        return await run_turn_lifecycle_wrapper(self, runner, **kwargs)
-
-    async def calling(
-        self,
-        pref_config: typing.Optional[dict[str, typing.Any]] = None,
-        *,
-        message: str,
-        **kwargs
-    ) -> "RunResult":
-        """调用入口：统一委托运行时模块执行单次请求。"""
-        return await run_calling(
-            self,
-            pref_config=pref_config,
-            message=message,
-            **kwargs
-        )
-
-    async def stream_turn(
-        self,
-        session: McpSessionLike,
-        pref_config: dict[str, typing.Any],
-        tools: list[dict[str, typing.Any]],
-        *_,
-        turn_execution: "TurnExecution",
-        **kwargs
-    ) -> "RunResult":
-        """流式执行入口。"""
-        from .runtime.turns.stream import stream_turn as run_stream_turn
-
-        return await run_stream_turn(
-            self,
-            session,
-            pref_config,
-            tools,
-            turn_execution=turn_execution,
-            **kwargs
-        )
-
 
 if __name__ == '__main__':
     pass

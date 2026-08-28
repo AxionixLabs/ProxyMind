@@ -12,6 +12,7 @@ from mind_app.cli import (
     bootstrap,
     entry,
 )
+from mind_app.cli import dispatch as cli_dispatch
 from mind_app.cli import frontend as cli_frontend
 from mind_app.cli.commands import (
     AgentListenCommand,
@@ -57,6 +58,14 @@ from mind_core.config import ConfigOverride
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from mind_core.permissions import preset_permissions
 from engine.errors import AppError
+
+
+@pytest.fixture
+def root_turn_adapter(monkeypatch) -> AsyncMock:
+    """替换 CLI 直接依赖的根轮次用例。"""
+    turn_runner = AsyncMock()
+    monkeypatch.setattr(cli_dispatch, "run_root_turn", turn_runner)
+    return turn_runner
 
 
 async def _await_cleanup(awaitable) -> None:
@@ -517,15 +526,17 @@ def test_exec_appends_piped_stdin_to_prompt_argument() -> None:
 
 
 @pytest.mark.anyio
-async def test_direct_cli_command_forwards_images_to_initial_request() -> None:
+async def test_direct_cli_command_forwards_images_to_initial_request(
+    root_turn_adapter,
+) -> None:
     run_result = RunResult(status="completed", assistant_text="done")
     attachments = [{"kind": "image", "data_url": "data:image/png;base64,AA=="}]
     attach = SimpleNamespace(
         add_pending_attachments=Mock(),
         consume_pending_attachments=Mock(return_value=attachments),
     )
+    root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
-        calling=AsyncMock(return_value=run_result),
         attach=attach,
         exit_code=99,
         permissions=preset_permissions("auto"),
@@ -541,14 +552,17 @@ async def test_direct_cli_command_forwards_images_to_initial_request() -> None:
     assert mind.exit_code == 0
     attach.add_pending_attachments.assert_called_once_with("screen.png")
     attach.consume_pending_attachments.assert_called_once_with()
-    mind.calling.assert_awaited_once_with(
+    root_turn_adapter.assert_awaited_once_with(
+        mind,
         message="hello",
         attachments=attachments,
     )
 
 
 @pytest.mark.anyio
-async def test_direct_cli_command_applies_temporary_model_override() -> None:
+async def test_direct_cli_command_applies_temporary_model_override(
+    root_turn_adapter,
+) -> None:
     run_result = RunResult(status="completed", assistant_text="done")
     fresh_pref_config = AsyncMock(return_value={
         "primary": {
@@ -556,8 +570,8 @@ async def test_direct_cli_command_applies_temporary_model_override() -> None:
             "enabled": True,
         },
     })
+    root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
-        calling=AsyncMock(return_value=run_result),
         fresh_pref_config=fresh_pref_config,
         exit_code=99,
         permissions=preset_permissions("auto"),
@@ -570,7 +584,8 @@ async def test_direct_cli_command_applies_temporary_model_override() -> None:
 
     assert result is run_result
     fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
-    mind.calling.assert_awaited_once_with(
+    root_turn_adapter.assert_awaited_once_with(
+        mind,
         pref_config={
             "primary": {
                 "model": "exec-model",
@@ -839,10 +854,10 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_failed_exec_sets_nonzero_exit_code() -> None:
+async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
     run_result = RunResult(status="failed", error="request failed")
+    root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
-        calling=AsyncMock(return_value=run_result),
         exit_code=0,
         permissions=preset_permissions("auto"),
     )

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from mind_nova import const
 
-from mind_app.runtime.support.calling import run_turn_lifecycle
+from mind_app.runtime.turns.root import run_foreground_turn
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.runtime import TuiRuntime
@@ -297,7 +297,7 @@ async def test_turn_lifecycle_clears_terminal_progress_on_failure() -> None:
         raise RuntimeError("failed")
 
     with pytest.raises(RuntimeError, match="failed"):
-        await run_turn_lifecycle(mind, runner)
+        await run_foreground_turn(mind, runner)
 
     assert events == [
         "progress.begin",
