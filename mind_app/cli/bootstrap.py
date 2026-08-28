@@ -471,15 +471,15 @@ async def _run_controller(
     """创建 Controller 并运行用户命令。"""
     hook_status = None
 
-    if output_mode == "tui":
-        from ..tui.adapters.hooks import TuiHookStatusAdapter
-        from ..tui.core.runtime import require_tui_runtime
-
-        hook_status = TuiHookStatusAdapter(
-            require_tui_runtime(frontend.runtime)
-        )
-
     try:
+        if output_mode == "tui":
+            from ..tui.adapters.hooks import TuiHookStatusAdapter
+            from ..tui.core.runtime import require_tui_runtime
+
+            hook_status = TuiHookStatusAdapter(
+                require_tui_runtime(frontend.runtime)
+            )
+
         server = ServerManage(
             runtime_spec.launch_command,
             env=process_env(),
@@ -513,9 +513,6 @@ async def _run_controller(
         report.close()
         raise
 
-    controller.bind_server_manager(server)
-    controller.bind_service_runtime_context(service_context)
-
     completed: bool = False
 
     interactive_tui = bool(
@@ -524,6 +521,9 @@ async def _run_controller(
     )
 
     try:
+        controller.bind_server_manager(server)
+        controller.bind_service_runtime_context(service_context)
+
         if output_mode == "tui":
             from ..tui.core.runtime import require_tui_runtime
             from ..tui.session.state import preload_tui_prompt_context
@@ -666,11 +666,14 @@ async def _run_controller(
         raise
 
     finally:
-        await finalize_application(
-            controller,
-            output_mode=output_mode,
-            completed=completed,
-        )
+        try:
+            await finalize_application(
+                controller,
+                output_mode=output_mode,
+                completed=completed,
+            )
+        finally:
+            report.close()
 
 
 async def start_tui_external_mcp(controller: Mind) -> None:

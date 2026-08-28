@@ -167,7 +167,7 @@ class Mind(object):
             cleanup_session=self.hook_registry.cleanup_session,
         )
 
-        self.report: RunReport = kwargs.get("report") or RunReport(self.src_total_place)
+        self.report: RunReport = kwargs["report"]
 
         self.attach: Attach = Attach()
 
@@ -1201,8 +1201,6 @@ class Mind(object):
             raise
         else:
             observe("runtime.close.complete")
-        finally:
-            self.report.close()
 
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""

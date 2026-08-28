@@ -102,7 +102,6 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.stop_keepalive_supervisor = lambda: step("keepalive")
     controller.server_manager = None
     controller.stop_runtime_on_exit = False
-    controller.report = SimpleNamespace(close=lambda: timeline.append("report"))
 
     await Mind.close_runtime_resources(controller)
 
@@ -117,7 +116,6 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "external_mcp",
         "config_service",
         "keepalive",
-        "report",
     ]
 
 

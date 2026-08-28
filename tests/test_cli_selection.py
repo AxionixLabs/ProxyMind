@@ -968,6 +968,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         "mind_app.tui.features.helix.confirm_tui_service_runtime_startup",
         confirm_helix,
     )
+    report = SimpleNamespace(close=Mock())
 
     await bootstrap._run_controller(
         AgentListenCommand(helix_profile="api"),
@@ -978,7 +979,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
         reports=tmp_path,
         preference=preference,
         config_session=SimpleNamespace(),
-        report=SimpleNamespace(close=Mock()),
+        report=report,
         runtime_spec=SimpleNamespace(
             launch_command=[],
             working_directory=str(tmp_path),
@@ -994,6 +995,50 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     assert server_calls == [
         (([],), {"env": {}, "cwd": str(tmp_path)}),
     ]
+    report.close.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_run_controller_closes_report_when_initialization_fails(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    report = SimpleNamespace(close=Mock())
+
+    monkeypatch.setattr(
+        bootstrap,
+        "ServerManage",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(bootstrap, "process_env", lambda: {})
+
+    def fail_controller(*_args, **_kwargs):
+        raise RuntimeError("controller failed")
+
+    monkeypatch.setattr(bootstrap, "Mind", fail_controller)
+
+    with pytest.raises(RuntimeError, match="controller failed"):
+        await bootstrap._run_controller(
+            AgentListenCommand(),
+            frontend=SimpleNamespace(),
+            design=None,
+            animation=SimpleNamespace(),
+            home=tmp_path,
+            reports=tmp_path,
+            preference=SimpleNamespace(),
+            config_session=SimpleNamespace(),
+            report=report,
+            runtime_spec=SimpleNamespace(
+                launch_command=[],
+                working_directory=str(tmp_path),
+            ),
+            service_context=SimpleNamespace(),
+            power=1,
+            output_mode="text",
+            permissions=preset_permissions("auto"),
+        )
+
+    report.close.assert_called_once_with()
 
 
 def test_doctor_json_uses_application_json_sink(monkeypatch) -> None:

@@ -19,6 +19,7 @@ from mind_app.mcp.server import (
     MindMcpRuntime,
     create_mind_mcp_server,
 )
+from mind_app.mcp import server as mcp_server
 from mind_app.runtime.turns.result import RunResult
 from mind_core.application_paths import ApplicationLayout
 from mind_core.permissions import PermissionSettings
@@ -36,7 +37,11 @@ def _source_layout(tmp_path: Path) -> ApplicationLayout:
 
 def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
     """使用指定根轮次用例构造 MCP 测试运行时。"""
-    return MindMcpRuntime(mind, turn_runner=turn_runner)
+    return MindMcpRuntime(
+        mind,
+        report=SimpleNamespace(close=Mock()),
+        turn_runner=turn_runner,
+    )
 
 
 def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
@@ -60,6 +65,119 @@ def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
     ]
     assert properties["timeout_sec"]["default"] == 900.0
     assert properties["session_id"]["default"] is None
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
+    tmp_path,
+) -> None:
+    timeline = []
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        end_conversation=AsyncMock(
+            side_effect=lambda **_kwargs: timeline.append("session"),
+        ),
+        close_runtime_resources=AsyncMock(
+            side_effect=lambda: timeline.append("resources"),
+        ),
+    )
+    report = SimpleNamespace(
+        close=Mock(side_effect=lambda: timeline.append("report")),
+    )
+    runtime = MindMcpRuntime(
+        typing.cast(typing.Any, mind),
+        report=report,
+        turn_runner=AsyncMock(),
+    )
+
+    await runtime.close()
+
+    assert timeline == ["session", "resources", "report"]
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
+    tmp_path,
+) -> None:
+    timeline = []
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        end_conversation=AsyncMock(side_effect=RuntimeError("session failed")),
+        close_runtime_resources=AsyncMock(
+            side_effect=lambda: timeline.append("resources"),
+        ),
+    )
+    report = SimpleNamespace(
+        close=Mock(side_effect=lambda: timeline.append("report")),
+    )
+    runtime = MindMcpRuntime(
+        typing.cast(typing.Any, mind),
+        report=report,
+        turn_runner=AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="session failed"):
+        await runtime.close()
+
+    assert timeline == ["resources", "report"]
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
+    tmp_path,
+) -> None:
+    timeline = []
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        end_conversation=AsyncMock(),
+        close_runtime_resources=AsyncMock(
+            side_effect=RuntimeError("cleanup failed"),
+        ),
+    )
+    report = SimpleNamespace(
+        close=Mock(side_effect=lambda: timeline.append("report")),
+    )
+    runtime = MindMcpRuntime(
+        typing.cast(typing.Any, mind),
+        report=report,
+        turn_runner=AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        await runtime.close()
+
+    assert timeline == ["report"]
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_closes_report_when_configuration_fails(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    report = SimpleNamespace(close=Mock())
+
+    class FailingConfigSession:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def resolve(self):
+            raise RuntimeError("configuration failed")
+
+    monkeypatch.setattr(mcp_server, "ensure_mind_home", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "mind_reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        mcp_server,
+        "mind_config_path",
+        lambda: tmp_path / "config.toml",
+    )
+    monkeypatch.setattr(mcp_server, "RunReport", lambda *_args, **_kwargs: report)
+    monkeypatch.setattr(mcp_server, "ConfigStore", lambda _path: object())
+    monkeypatch.setattr(mcp_server, "ConfigSession", FailingConfigSession)
+
+    with pytest.raises(RuntimeError, match="configuration failed"):
+        await MindMcpRuntime.open(_source_layout(tmp_path))
+
+    report.close.assert_called_once_with()
 
 
 @pytest.mark.anyio

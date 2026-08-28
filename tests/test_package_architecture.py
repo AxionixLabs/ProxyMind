@@ -92,6 +92,19 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         for node in ast.walk(controller)
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
     }
+    called_names = {
+        node.func.id
+        for node in ast.walk(controller)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    closes_borrowed_report = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "close"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "report"
+        for node in ast.walk(controller)
+    )
 
     assert not {
         "calling",
@@ -108,3 +121,5 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
     ).exists()
     assert "event_reports" not in assigned_attributes
+    assert "RunReport" not in called_names
+    assert not closes_borrowed_report

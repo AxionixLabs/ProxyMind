@@ -81,11 +81,13 @@ class MindMcpRuntime(object):
         self,
         mind: Mind,
         *,
+        report: RunReport,
         turn_runner: RootTurnRunner = run_root_turn,
     ) -> None:
-        """绑定主控制器并初始化串行调用锁。"""
+        """绑定主控制器、运行报告和串行调用锁。"""
         self.mind              = mind
         self.default_workspace = Path(mind.history_workspace).resolve()
+        self._report           = report
         self._turn_runner      = turn_runner
 
         self._call_lock = asyncio.Lock()
@@ -101,53 +103,59 @@ class MindMcpRuntime(object):
         home   = ensure_mind_home()
         report = RunReport(str(mind_reports_dir()), label="mcp_server")
 
-        config_session = ConfigSession(
-            ConfigStore(mind_config_path()),
-            config_overrides,
-            profile=config_profile,
-            workspace=Path.cwd(),
-        )
-        config_resolution = config_session.resolve()
+        try:
+            config_session = ConfigSession(
+                ConfigStore(mind_config_path()),
+                config_overrides,
+                profile=config_profile,
+                workspace=Path.cwd(),
+            )
+            config_resolution = config_session.resolve()
 
-        permissions = resolve_permissions(
-            config_resolution.config,
-            interactive=False,
-        )
+            permissions = resolve_permissions(
+                config_resolution.config,
+                interactive=False,
+            )
 
-        pref = Preferences(config_session)
+            pref = Preferences(config_session)
 
-        route_shell_tools(layout.supports)
-        clear_exec_env_cache()
+            route_shell_tools(layout.supports)
+            clear_exec_env_cache()
 
-        frontend = Frontend(
-            application=NullApplicationSink(),
-            interaction=NonInteractiveInteraction(),
-            session_factory=create_silent_output_session,
-        )
+            frontend = Frontend(
+                application=NullApplicationSink(),
+                interaction=NonInteractiveInteraction(),
+                session_factory=create_silent_output_session,
+            )
 
-        hook_registry = HookRegistry()
+            hook_registry = HookRegistry()
 
-        mind = Mind(
-            const.SHOW_LEVEL,
-            os.cpu_count() or 1,
-            {},
-            src_opera_place=str(home),
-            src_total_place=str(mind_reports_dir()),
-            pref=pref,
-            config_session=config_session,
-            animate=False,
-            frontend=frontend,
-            design=None,
-            report=report,
-            workspace_root=Path.cwd(),
-            permissions=permissions,
-            hook_registry=hook_registry,
-            application_layout=layout,
-            agent_settings=AgentSettings.from_config(config_resolution.config),
-            feature_settings=FeatureSettings.from_config(
-                config_resolution.config
-            ),
-        )
+            mind = Mind(
+                const.SHOW_LEVEL,
+                os.cpu_count() or 1,
+                {},
+                src_opera_place=str(home),
+                src_total_place=str(mind_reports_dir()),
+                pref=pref,
+                config_session=config_session,
+                animate=False,
+                frontend=frontend,
+                design=None,
+                report=report,
+                workspace_root=Path.cwd(),
+                permissions=permissions,
+                hook_registry=hook_registry,
+                application_layout=layout,
+                agent_settings=AgentSettings.from_config(
+                    config_resolution.config
+                ),
+                feature_settings=FeatureSettings.from_config(
+                    config_resolution.config
+                ),
+            )
+        except BaseException:
+            report.close()
+            raise
 
         try:
             await pref.load_pref()
@@ -155,16 +163,23 @@ class MindMcpRuntime(object):
                 await ServiceConfig(config_session).load_domain()
             )
             await mind.external_mcp.start()
+            return cls(mind, report=report)
         except BaseException:
-            await mind.close_runtime_resources()
+            try:
+                await mind.close_runtime_resources()
+            finally:
+                report.close()
             raise
 
-        return cls(mind)
-
     async def close(self) -> None:
-        """关闭主控制器持有的外部 MCP、工具和报告资源。"""
-        await self.mind.end_conversation(reason="exit")
-        await self.mind.close_runtime_resources()
+        """关闭应用运行时，并最后释放进程报告。"""
+        try:
+            await self.mind.end_conversation(reason="exit")
+        finally:
+            try:
+                await self.mind.close_runtime_resources()
+            finally:
+                self._report.close()
 
     async def execute(
         self,
