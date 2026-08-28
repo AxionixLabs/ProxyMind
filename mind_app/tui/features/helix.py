@@ -294,7 +294,7 @@ def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
 
 def helix_runtime_home_url(mind: "Mind") -> str:
     """返回当前 Helix 服务管理器确认的首页地址。"""
-    server_manager = getattr(mind, "server_manager", None)
+    server_manager = mind.service_runtime.manager
 
     url = str(getattr(server_manager, "url", "") or "").strip()
 
@@ -399,7 +399,8 @@ async def stop_helix_runtime(mind: "Mind") -> None:
         await runtime.begin_operation_status(
             lambda: {"summary": "Helix MCP stopping"},
         )
-    await mind.stop_service_runtime()
+    mind.unlink_service_mcp()
+    await mind.service_runtime.stop()
 
 
 async def prepare_tui_service_runtime(
@@ -425,7 +426,7 @@ async def prepare_tui_service_runtime(
 
 async def confirm_tui_service_runtime_startup(mind: "Mind") -> bool:
     """在后台准备开始前完成缺失运行时的下载确认。"""
-    context = mind.require_service_runtime_context()
+    context = mind.service_runtime.require_context()
     if not service_runtime_asset_missing(context):
         return True
     runtime = require_tui_runtime(mind.frontend.runtime)

@@ -925,8 +925,7 @@ async def test_agent_listen_starts_config_service(monkeypatch, tmp_path) -> None
     )
     controller = SimpleNamespace(
         frontend=frontend,
-        bind_server_manager=Mock(),
-        bind_service_runtime_context=Mock(),
+        service_runtime=SimpleNamespace(bind=Mock()),
         start_config_service=AsyncMock(),
         external_mcp=SimpleNamespace(current=None),
         is_service_mcp_linked=lambda: False,

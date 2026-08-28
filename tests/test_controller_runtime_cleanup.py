@@ -76,8 +76,9 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.subscription = SimpleNamespace(
         close=lambda: step("subscription"),
     )
-    controller.cancel_service_runtime_startup = (
-        lambda: step("service_startup")
+    controller.service_runtime = SimpleNamespace(
+        cancel_startup=lambda: step("service_startup"),
+        close=lambda: step("service_runtime"),
     )
     controller.subagents = SimpleNamespace(
         shutdown=lambda: step("subagents"),
@@ -99,9 +100,6 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         close=lambda: step("external_mcp"),
     )
     controller.stop_config_service = lambda: step("config_service")
-    controller.stop_keepalive_supervisor = lambda: step("keepalive")
-    controller.server_manager = None
-    controller.stop_runtime_on_exit = False
 
     await Mind.close_runtime_resources(controller)
 
@@ -115,7 +113,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "native_coding",
         "external_mcp",
         "config_service",
-        "keepalive",
+        "service_runtime",
     ]
 
 

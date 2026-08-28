@@ -855,7 +855,7 @@ class TuiCommandDispatcher(object):
         present_on_cancel: bool = True,
     ) -> bool:
         """发现缺失运行时时完成下载并结束当前命令。"""
-        context = self.mind.require_service_runtime_context()
+        context = self.mind.service_runtime.require_context()
         if not service_runtime_asset_missing(context):
             return False
 
@@ -1038,7 +1038,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "shutdown"):
-            self.mind.stop_runtime_on_exit = True
+            self.mind.service_runtime.request_termination_on_close()
             self.mind.task_event.set()
             self._present(fragment_block(
                 TextSpan("• ", BODY_STYLE),

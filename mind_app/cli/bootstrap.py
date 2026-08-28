@@ -521,8 +521,7 @@ async def _run_controller(
     )
 
     try:
-        controller.bind_server_manager(server)
-        controller.bind_service_runtime_context(service_context)
+        controller.service_runtime.bind(server, service_context)
 
         if output_mode == "tui":
             from ..tui.core.runtime import require_tui_runtime

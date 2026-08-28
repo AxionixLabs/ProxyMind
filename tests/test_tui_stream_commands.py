@@ -298,7 +298,11 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=Mock(),
+            require_context=lambda: object(),
+            cancel_startup=AsyncMock(),
+        ),
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
@@ -312,9 +316,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         is_service_mcp_linked=lambda: False,
-        require_service_runtime_context=lambda: object(),
         external_mcp=SimpleNamespace(current=None),
-        cancel_service_runtime_startup=AsyncMock(),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
@@ -394,7 +396,9 @@ async def test_stream_settings_settle_before_queued_model_turn(
         subscription=SimpleNamespace(current=None),
         permissions=initial_permissions,
         task_event=task_event,
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=Mock(),
+        ),
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
@@ -484,7 +488,9 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=Mock(),
+        ),
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
@@ -567,7 +573,11 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=Mock(),
+            require_context=lambda: object(),
+            cancel_startup=AsyncMock(),
+        ),
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
@@ -577,9 +587,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         is_service_mcp_linked=lambda: False,
-        require_service_runtime_context=lambda: object(),
         external_mcp=SimpleNamespace(current=None),
-        cancel_service_runtime_startup=AsyncMock(),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
@@ -653,7 +661,9 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=Mock(),
+        ),
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
@@ -729,16 +739,19 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
         finally:
             link_cancelled.set()
 
-    async def cancel_service_runtime_startup() -> None:
+    async def cancel_startup_cleanup() -> None:
         cleanup_started.set()
         await release_cleanup.wait()
 
-    cancel_startup = AsyncMock(side_effect=cancel_service_runtime_startup)
+    cancel_startup = AsyncMock(side_effect=cancel_startup_cleanup)
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         permissions=preset_permissions("auto"),
         task_event=task_event,
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=Mock(),
+            cancel_startup=cancel_startup,
+        ),
         pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
@@ -748,7 +761,6 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         set_history_workspace=Mock(),
-        cancel_service_runtime_startup=cancel_startup,
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )

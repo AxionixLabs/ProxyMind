@@ -248,7 +248,7 @@ async def start_service_runtime(
     await mind.start_inbuild_startup_anim(lambda: dict(status))
 
     try:
-        await ensure_runtime_started(mind.server_manager)
+        await ensure_runtime_started(mind.service_runtime.manager)
         status["state"] = "ready"
     except Exception as error:
         status["state"] = "failed"
@@ -264,7 +264,7 @@ async def start_service_runtime(
         if not defer_activity_stop:
             await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
 
-    mind.start_keepalive_supervisor()
+    mind.service_runtime.start_keepalive()
 
     observe(
         "helix.start.complete",
@@ -295,7 +295,7 @@ async def prepare_and_start_service_runtime(
 
     async def prepare() -> bool:
         """在串行边界内完成本地服务准备和发布。"""
-        context = mind.require_service_runtime_context()
+        context = mind.service_runtime.require_context()
 
         if service_runtime_asset_missing(context) and not download_confirmed:
             if confirm_download is None or not await confirm_download(context):
@@ -323,7 +323,7 @@ async def prepare_and_start_service_runtime(
         return True
 
     try:
-        linked = await mind.run_service_runtime_startup(prepare)
+        linked = await mind.service_runtime.run_startup(prepare)
     except asyncio.CancelledError:
         observe(
             "helix.prepare.interrupted",

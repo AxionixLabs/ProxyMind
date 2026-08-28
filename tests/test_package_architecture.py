@@ -107,12 +107,22 @@ def test_controller_does_not_expose_runtime_facades() -> None:
     )
 
     assert not {
+        "bind_server_manager",
+        "bind_service_runtime_context",
         "calling",
+        "cancel_service_runtime_startup",
+        "keepalive_task_done",
         "pause_subscription_listener",
+        "reboot_runtime",
+        "require_service_runtime_context",
         "restart_external_mcp_runtime",
+        "run_service_runtime_startup",
         "run_turn_lifecycle",
+        "start_keepalive_supervisor",
         "start_external_mcp_runtime",
         "start_subscription_listener",
+        "stop_keepalive_supervisor",
+        "stop_service_runtime",
         "stop_external_mcp_runtime",
         "stop_subscription_listener",
         "stream_turn",
@@ -121,5 +131,14 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
     ).exists()
     assert "event_reports" not in assigned_attributes
+    assert not {
+        "_service_start_lock",
+        "_service_start_task",
+        "keepalive_stop",
+        "keepalive_task",
+        "server_manager",
+        "service_runtime_context",
+        "stop_runtime_on_exit",
+    } & assigned_attributes
     assert "RunReport" not in called_names
     assert not closes_borrowed_report

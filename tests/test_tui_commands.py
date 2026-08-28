@@ -262,11 +262,14 @@ async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
 async def test_shutdown_command_reports_stopping_runtime_status() -> None:
     views = []
     task_event = asyncio.Event()
+    request_termination = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        stop_runtime_on_exit=False,
+        service_runtime=SimpleNamespace(
+            request_termination_on_close=request_termination,
+        ),
         task_event=task_event,
     )
     dispatcher = TuiCommandDispatcher(
@@ -279,7 +282,7 @@ async def test_shutdown_command_reports_stopping_runtime_status() -> None:
     action = await dispatcher.dispatch("/shutdown")
 
     assert action is DispatchAction.EXIT
-    assert mind.stop_runtime_on_exit is True
+    request_termination.assert_called_once_with()
     assert task_event.is_set()
     result = next(
         view for view in views
@@ -632,7 +635,7 @@ async def test_linked_missing_helix_runtime_download_ends_current_command(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
-        require_service_runtime_context=lambda: context,
+        service_runtime=SimpleNamespace(require_context=lambda: context),
         is_service_mcp_linked=linked,
     )
     foreground = SimpleNamespace(
@@ -704,7 +707,7 @@ async def test_unlinked_helix_command_skips_runtime_lookup(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        require_service_runtime_context=runtime_context,
+        service_runtime=SimpleNamespace(require_context=runtime_context),
         is_service_mcp_linked=lambda: False,
     )
     choose = AsyncMock()
@@ -815,7 +818,7 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        require_service_runtime_context=lambda: context,
+        service_runtime=SimpleNamespace(require_context=lambda: context),
         is_service_mcp_linked=lambda: True,
         tool_profile_for_turn=lambda: "app",
         set_service_tool_profile=Mock(),
@@ -1685,7 +1688,9 @@ async def test_helix_link_switches_profile_without_restarting(
 async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
     mind = SimpleNamespace(
         is_service_mcp_linked=lambda: True,
-        server_manager=SimpleNamespace(url="http://127.0.0.1:9000"),
+        service_runtime=SimpleNamespace(
+            manager=SimpleNamespace(url="http://127.0.0.1:9000"),
+        ),
     )
     open_url = AsyncMock()
     monkeypatch.setattr(helix.FileAssist, "open_url", open_url)
@@ -1808,7 +1813,9 @@ def test_helix_home_failure_uses_browser_failure_status() -> None:
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        server_manager=SimpleNamespace(url="http://127.0.0.1:9000"),
+        service_runtime=SimpleNamespace(
+            manager=SimpleNamespace(url="http://127.0.0.1:9000"),
+        ),
     )
 
     helix.render_helix_home_failure(mind, AppError("open failed"))
@@ -1833,8 +1840,10 @@ def test_helix_home_failure_uses_browser_failure_status() -> None:
 )
 async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     views = []
+    stop_runtime = AsyncMock(side_effect=error)
     mind = SimpleNamespace(
-        stop_service_runtime=AsyncMock(side_effect=error),
+        service_runtime=SimpleNamespace(stop=stop_runtime),
+        unlink_service_mcp=Mock(),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -1859,6 +1868,8 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     statuses = [view for view in views if view.type == "tui.helix.status"]
     assert len(statuses) == 1
     assert statuses[0].renderable.plain_text == expected
+    mind.unlink_service_mcp.assert_called_once_with()
+    stop_runtime.assert_awaited_once_with()
 
 
 def _completions(text: str):

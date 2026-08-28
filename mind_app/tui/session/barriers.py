@@ -124,7 +124,7 @@ class TuiForegroundTasks(object):
         return self.start(
             "Helix MCP",
             lambda: link_helix_runtime(self.mind),
-            cancel_cleanup=self.mind.cancel_service_runtime_startup,
+            cancel_cleanup=self.mind.service_runtime.cancel_startup,
             activity_kind="inbuild",
             on_succeeded=lambda linked: render_helix_link_result(
                 self.mind,
@@ -213,7 +213,7 @@ class TuiForegroundTasks(object):
             cancel_turn()
             return True
         if matches_command(command, "shutdown"):
-            self.mind.stop_runtime_on_exit = True
+            self.mind.service_runtime.request_termination_on_close()
             self.mind.task_event.set()
             self.cancel()
             cancel_turn()
@@ -223,7 +223,7 @@ class TuiForegroundTasks(object):
                 self._defer_notice("Helix MCP is already linked.")
                 return True
             try:
-                context = self.mind.require_service_runtime_context()
+                context = self.mind.service_runtime.require_context()
             except AppError:
                 return False
             if service_runtime_asset_missing(context):
@@ -364,7 +364,7 @@ class TuiForegroundTasks(object):
         if matches_command(command, "quit"):
             self.mind.task_event.set()
         elif matches_command(command, "shutdown"):
-            self.mind.stop_runtime_on_exit = True
+            self.mind.service_runtime.request_termination_on_close()
             self.mind.task_event.set()
         else:
             return False

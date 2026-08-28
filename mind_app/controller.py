@@ -8,9 +8,7 @@ import asyncio
 import sqlite3
 import contextlib
 from pathlib import Path
-from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
-from engine.ports import terminate_port_process
 from engine.errors import AppError
 from mind_core.preference import Preferences
 from mind_core.application_paths import ApplicationLayout
@@ -32,8 +30,8 @@ from engine.observability import (
     observe_exception
 )
 from .attach import Attach
-from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
+from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
 from .runtime.turns.event_reporting import EventReportRuntimeOwner
 from .runtime.support.conversation import (
     ConversationState,
@@ -98,7 +96,6 @@ def _normalize_tool_profile(value: str) -> ToolFilterMode:
 
 
 if typing.TYPE_CHECKING:
-    from .runtime.mcp.service_runtime import ServiceRuntimeContext
     from server import ConfigServiceRuntime
 
 
@@ -210,19 +207,12 @@ class Mind(object):
 
         self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
-        self.server_manager: typing.Optional[ServerManage]       = None
-        self.keepalive_stop: typing.Optional[asyncio.Event]      = None
-        self.keepalive_task: typing.Optional[asyncio.Task[None]] = None
-
-        self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
-
-        self._service_start_task: asyncio.Task[bool] | None = None
-        self._service_start_lock: asyncio.Lock              = asyncio.Lock()
 
         self.config_service: ConfigServiceRuntime | None = None
 
         self.external_mcp = ExternalMcpRuntimeOwner(self)
+        self.service_runtime = ServiceRuntimeOwner()
 
         self.subscription = SubscriptionRuntimeOwner(self)
 
@@ -235,8 +225,6 @@ class Mind(object):
 
         self.service_mcp_linked: bool                    = False
         self.service_tool_profile: ToolFilterMode | None = None
-
-        self.stop_runtime_on_exit: bool = False
 
         self.last_assistant_reply: str = ""
 
@@ -257,20 +245,6 @@ class Mind(object):
     def remote(self, value: dict) -> None:
         """设置远程全局配置，并在异常输入时兜底为空字典。"""
         self.__remote = value if isinstance(value, dict) else {}
-
-    @staticmethod
-    def keepalive_task_done(task: asyncio.Task[None]) -> None:
-        """回收后台保活任务异常，避免事件循环输出未取回异常。"""
-        if task.cancelled():
-            return None
-
-        try:
-            error = task.exception()
-        except asyncio.CancelledError:
-            return None
-
-        if error is not None:
-            observe_exception("keepalive.task.failed", error, level="WARNING")
 
     @staticmethod
     async def await_cleanup(awaitable: typing.Awaitable[CleanupResult]) -> CleanupResult:
@@ -514,20 +488,6 @@ class Mind(object):
                 level="WARNING",
             )
 
-    def bind_server_manager(self, server_manager: ServerManage) -> None:
-        """绑定本地后台服务管理器。"""
-        self.server_manager = server_manager
-
-    def bind_service_runtime_context(self, context: "ServiceRuntimeContext") -> None:
-        """绑定服务运行时准备上下文。"""
-        self.service_runtime_context = context
-
-    def require_service_runtime_context(self) -> "ServiceRuntimeContext":
-        """返回已绑定的服务运行时上下文，未绑定时抛出错误。"""
-        if self.service_runtime_context is None:
-            raise AppError("Service runtime context is not bound")
-        return self.service_runtime_context
-
     def link_service_mcp(
         self,
         exec_env: typing.Optional[dict[str, typing.Any]] = None,
@@ -636,23 +596,6 @@ class Mind(object):
     def last_assistant_reply_snapshot(self) -> str:
         """返回最近一次完整模型回复原文。"""
         return self.last_assistant_reply
-
-    def start_keepalive_supervisor(self) -> None:
-        """启动应用生命周期内的本地后台服务保活任务。"""
-        if self.keepalive_task and not self.keepalive_task.done():
-            return None
-
-        self.keepalive_stop = asyncio.Event()
-
-        self.keepalive_task = asyncio.create_task(
-            run_keepalive(
-                self.keepalive_stop,
-                server_manager=self.server_manager
-            ),
-            name="local service keepalive"
-        )
-        self.keepalive_task.add_done_callback(self.keepalive_task_done)
-        observe("keepalive.started")
 
     def hook_scope(
         self,
@@ -1045,44 +988,6 @@ class Mind(object):
         """把指定 archived 会话迁移回 active 集合。"""
         return self.history_store.unarchive_session(cid=cid, sid=sid)
 
-    async def run_service_runtime_startup(
-        self,
-        operation: typing.Callable[
-            [],
-            typing.Coroutine[typing.Any, typing.Any, bool],
-        ]
-    ) -> bool:
-        """复用正在执行的本地服务准备任务。"""
-        async with self._service_start_lock:
-            task = self._service_start_task
-            if task is None:
-                task = asyncio.create_task(
-                    operation(),
-                    name="service runtime startup",
-                )
-                self._service_start_task = task
-
-        try:
-            return bool(await asyncio.shield(task))
-        finally:
-            if task.done():
-                async with self._service_start_lock:
-                    if self._service_start_task is task:
-                        self._service_start_task = None
-
-    async def cancel_service_runtime_startup(self) -> None:
-        """取消并回收尚未完成的本地服务准备任务。"""
-        async with self._service_start_lock:
-            task = self._service_start_task
-            self._service_start_task = None
-
-        if task is None:
-            return None
-        if not task.done():
-            task.cancel()
-
-        await asyncio.gather(task, return_exceptions=True)
-
     async def start_config_service(self) -> None:
         """启动应用生命周期内的配置服务。"""
         if self.config_service is None:
@@ -1136,31 +1041,12 @@ class Mind(object):
         await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
         return self.pref.to_config()
 
-    async def stop_keepalive_supervisor(self) -> None:
-        """停止应用生命周期内的本地后台服务保活任务。"""
-        was_running = self.keepalive_stop is not None or self.keepalive_task is not None
-        if self.keepalive_stop is not None:
-            self.keepalive_stop.set()
-
-        task = self.keepalive_task
-
-        self.keepalive_task = None
-        self.keepalive_stop = None
-
-        if task and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-        if was_running:
-            observe("keepalive.stopped")
-
     async def close_runtime_resources(self) -> None:
         """关闭主控制器持有的运行时资源，并按退出策略处理本地后台进程。"""
         observe("runtime.close.start")
         try:
             await self.subscription.close()
-            await self.cancel_service_runtime_startup()
+            await self.service_runtime.cancel_startup()
 
             await self.subagents.shutdown()
             approval_coordinator = getattr(
@@ -1184,55 +1070,12 @@ class Mind(object):
 
             await self.external_mcp.close()
             await self.stop_config_service()
-            await self.stop_keepalive_supervisor()
-
-            server_manager      = self.server_manager
-            self.server_manager = None
-
-            if server_manager is not None:
-                try:
-                    await server_manager.close()
-                finally:
-                    if self.stop_runtime_on_exit:
-                        with contextlib.suppress(Exception):
-                            await terminate_port_process(server_manager.port)
+            await self.service_runtime.close()
         except BaseException as error:
             observe_exception("runtime.close.failed", error)
             raise
         else:
             observe("runtime.close.complete")
-
-    async def reboot_runtime(self) -> None:
-        """重启已绑定的后台进程，并在完成后恢复保活任务。"""
-        server_manager = self.server_manager
-        if server_manager is None:
-            raise AppError("Server manager is not bound")
-
-        observe("helix.restart.start")
-        await self.stop_keepalive_supervisor()
-
-        try:
-            await server_manager.restart()
-            ready = await server_manager.wait_until_ready(10.0, 0.3)
-        finally:
-            self.start_keepalive_supervisor()
-
-        if not ready:
-            raise AppError("Server not ready after reboot")
-
-        observe("helix.restart.complete")
-
-    async def stop_service_runtime(self) -> None:
-        """停止已绑定的后台进程，并关闭对应保活任务。"""
-        if self.server_manager is None:
-            raise AppError("Server manager is not bound")
-
-        observe("helix.stop.start")
-
-        self.unlink_service_mcp()
-        await self.stop_keepalive_supervisor()
-        await terminate_port_process(self.server_manager.port)
-        observe("helix.stop.complete")
 
     async def stop_anim(
         self,

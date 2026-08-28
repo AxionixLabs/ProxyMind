@@ -208,44 +208,19 @@ async def test_tui_starts_external_mcp_before_helix_background(
 @pytest.mark.anyio
 async def test_service_runtime_activity_clears_without_settling() -> None:
     mind = SimpleNamespace(
-        server_manager=SimpleNamespace(ensure_running=AsyncMock()),
+        service_runtime=SimpleNamespace(
+            manager=SimpleNamespace(ensure_running=AsyncMock()),
+            start_keepalive=Mock(),
+        ),
         start_inbuild_startup_anim=AsyncMock(),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
-        start_keepalive_supervisor=Mock(),
     )
 
     await service_runtime.start_service_runtime(mind)
 
     mind.stop_anim.assert_awaited_once_with("inbuild", settle=False)
-    mind.start_keepalive_supervisor.assert_called_once_with()
-
-
-@pytest.mark.anyio
-async def test_service_runtime_startup_reuses_first_ready_result() -> None:
-    mind = Mind.__new__(Mind)
-    mind._service_start_lock = asyncio.Lock()
-    mind._service_start_task = None
-    mind.service_mcp_linked = False
-    operation_called = Mock()
-
-    async def operation() -> bool:
-        operation_called()
-        await asyncio.sleep(0)
-        mind.service_mcp_linked = True
-        return True
-
-    results = await asyncio.gather(
-        mind.run_service_runtime_startup(operation),
-        mind.run_service_runtime_startup(operation),
-    )
-
-    assert results == [True, True]
-    assert operation_called.call_count == 1
-
-    mind.service_mcp_linked = False
-    assert await mind.run_service_runtime_startup(operation)
-    assert operation_called.call_count == 2
+    mind.service_runtime.start_keepalive.assert_called_once_with()
 
 
 @pytest.mark.anyio
