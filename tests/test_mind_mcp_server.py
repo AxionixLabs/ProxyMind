@@ -364,9 +364,10 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
     assert application.command.extras_value() == {
         "working_directory": str(tmp_path.resolve()),
         "sandbox_mode": "read-only",
-        "approval_policy": "on-request",
-        "approvals_reviewer": "user",
-    }
+            "approval_policy": "on-request",
+            "approvals_reviewer": "user",
+            "network_access": "restricted",
+        }
     assert actual.run.assistant_text == "done"
     assert actual.to_dict()["assistant_text"] == "projected"
     await runtime.close()

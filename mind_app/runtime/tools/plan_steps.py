@@ -53,11 +53,10 @@ class PlanExecutionReport:
     def fields(self) -> dict[str, typing.Any]:
         """返回标准工具结果字段。"""
         return {
-            "ok"          : self.ok,
-            "tool"        : "plan_steps",
-            "text"        : self.text,
-            "attachments" : self.attachments,
-            "data"        : self.data
+            "ok": self.ok,
+            "text": self.text,
+            "attachments": self.attachments,
+            "data": self.data
         }
 
 
@@ -73,10 +72,10 @@ class StepPlanExecutor:
         pref_config: typing.Mapping[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator
     ) -> None:
-        self.session               = session
-        self.tools                 = tools
-        self.turn_context          = turn_context
-        self.pref_config           = dict(pref_config)
+        self.session = session
+        self.tools = tools
+        self.turn_context = turn_context
+        self.pref_config = dict(pref_config)
         self.tool_call_coordinator = tool_call_coordinator
 
     async def execute_tool_call(
@@ -107,9 +106,9 @@ class StepPlanExecutor:
         call_id: str | None = None
     ) -> list[PlanStepResult]:
         """按计划声明顺序执行所有步骤。"""
-        loops        = int(plan.get("loops") or 1)
+        loops = int(plan.get("loops") or 1)
         stop_on_fail = bool(plan.get("stop_on_fail", True))
-        steps        = _plan_steps(plan)
+        steps = _plan_steps(plan)
 
         results: list[PlanStepResult] = []
 
@@ -142,9 +141,9 @@ class StepPlanExecutor:
         call_id: str | None,
     ) -> PlanStepResult:
         """执行计划中的单个步骤。"""
-        name          = str(step.get("tool") or "").strip()
+        name = str(step.get("tool") or "").strip()
         raw_arguments = step.get("args")
-        arguments     = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
+        arguments = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
         observe(
             "plan_step.start",
             run=run_index,
@@ -262,10 +261,10 @@ class StepPlanExecutor:
             ok=False,
             text=text,
             result={
-                "ok"          : False,
-                "text"        : text,
-                "attachments" : [],
-                "data"        : {"error": text},
+                "ok": False,
+                "text": text,
+                "attachments": [],
+                "data": {"error": text},
             },
             additional_context=tuple(additional_context),
         )
@@ -282,9 +281,9 @@ class StepPlanExecutor:
         cost_ms: int
     ) -> PlanExecutionReport:
         """根据计划和步骤结果生成执行汇总与回传数据。"""
-        steps          = _plan_steps(plan)
+        steps = _plan_steps(plan)
         requested_runs = int(plan.get("loops") or 1)
-        step_count     = len(steps)
+        step_count = len(steps)
 
         calls_by_run: dict[int, int] = {}
 
@@ -308,7 +307,7 @@ class StepPlanExecutor:
         )
 
         stopped = bool(fail_count and plan.get("stop_on_fail", True))
-        ok      = not errors and fail_count == 0
+        ok = not errors and fail_count == 0
 
         step_summaries: list[dict[str, typing.Any]] = []
 
@@ -316,12 +315,12 @@ class StepPlanExecutor:
             items = results_by_step[step_index]
 
             step_summaries.append({
-                "index"      : step_index,
-                "tool"       : str(step.get("tool") or ""),
-                "call_count" : len(items),
-                "ok_count"   : sum(1 for item in items if item.ok),
-                "fail_count" : sum(1 for item in items if not item.ok),
-                "elapsed_ms" : sum(item.cost_ms for item in items),
+                "index": step_index,
+                "tool": str(step.get("tool") or ""),
+                "call_count": len(items),
+                "ok_count": sum(1 for item in items if item.ok),
+                "fail_count": sum(1 for item in items if not item.ok),
+                "elapsed_ms": sum(item.cost_ms for item in items),
             })
 
         complete_results: list[dict[str, typing.Any]] = []
@@ -341,12 +340,12 @@ class StepPlanExecutor:
                 attachments.extend(result_attachments)
 
                 complete_results.append({
-                    "run"     : item.run,
-                    "step"    : item.index,
-                    "tool"    : item.tool,
-                    "ok"      : item.ok,
-                    "cost_ms" : item.cost_ms,
-                    "result"  : result_fields,
+                    "run": item.run,
+                    "step": item.index,
+                    "tool": item.tool,
+                    "ok": item.ok,
+                    "cost_ms": item.cost_ms,
+                    "result": result_fields,
                 })
 
         text = cls._report_text(
@@ -362,18 +361,18 @@ class StepPlanExecutor:
         )
 
         data = {
-            "requested_runs" : requested_runs,
-            "completed_runs" : completed_runs,
-            "attempted_runs" : max(calls_by_run, default=0),
-            "steps_per_run"  : step_count,
-            "call_count"     : len(results),
-            "ok_count"       : ok_count,
-            "fail_count"     : fail_count,
-            "stopped"        : stopped,
-            "elapsed_ms"     : cost_ms,
-            "result_mode"    : "full" if requested_runs == 1 else "aggregate",
-            "steps"          : step_summaries,
-            "errors"         : errors[:ERROR_PREVIEW_LIMIT]
+            "requested_runs": requested_runs,
+            "completed_runs": completed_runs,
+            "attempted_runs": max(calls_by_run, default=0),
+            "steps_per_run": step_count,
+            "call_count": len(results),
+            "ok_count": ok_count,
+            "fail_count": fail_count,
+            "stopped": stopped,
+            "elapsed_ms": cost_ms,
+            "result_mode": "full" if requested_runs == 1 else "aggregate",
+            "steps": step_summaries,
+            "errors": errors[:ERROR_PREVIEW_LIMIT]
         }
 
         if requested_runs == 1:
@@ -455,24 +454,24 @@ class StepPlanExecutor:
             if item.ok:
                 continue
 
-            key   = (item.index, item.tool, item.text)
+            key = (item.index, item.tool, item.text)
             group = groups_by_key.get(key)
 
             if group is None:
                 group = {
-                    "step"      : item.index,
-                    "tool"      : item.tool,
-                    "reason"    : item.text,
-                    "count"     : 0,
-                    "first_run" : item.run,
-                    "last_run"  : item.run,
+                    "step": item.index,
+                    "tool": item.tool,
+                    "reason": item.text,
+                    "count": 0,
+                    "first_run": item.run,
+                    "last_run": item.run,
                 }
                 groups_by_key[key] = group
                 groups.append(group)
 
-            group["count"]     = int(group["count"]) + 1
+            group["count"] = int(group["count"]) + 1
             group["first_run"] = min(int(group["first_run"]), item.run)
-            group["last_run"]  = max(int(group["last_run"]), item.run)
+            group["last_run"] = max(int(group["last_run"]), item.run)
 
         return groups
 
@@ -487,6 +486,7 @@ class StepPlanExecutor:
             return f"{elapsed_sec:.1f}s"
         minutes, seconds = divmod(int(elapsed_sec), 60)
         return f"{minutes}m {seconds:02d}s"
+
 
 def _plan_steps(plan: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
     """读取已标准化计划中的步骤列表。"""

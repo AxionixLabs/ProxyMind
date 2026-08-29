@@ -24,6 +24,7 @@ from mind_app.runtime.tools.display import show_tool_result
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
 from mind_app.runtime.tools.run import server_tool_output_result
 from mind_app.stream_events.tool_trace import coding_trace_tool
+from mind_nova.requests.tools import build_tool_result_envelope
 from mind_nova.requests.turn_control import TurnControlRequestError
 from mind_nova.stream_events import (
     ToolApprovalRequiredEvent,
@@ -31,7 +32,7 @@ from mind_nova.stream_events import (
     ToolCallsDoneEvent,
     ToolCallsStartEvent,
     ToolEvent,
-    ToolOutputEvent
+    ToolOutputEvent,
 )
 from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from .stream_policy import (
@@ -73,17 +74,25 @@ def tool_invocation_from_event(
     )
 
 
-def hook_denied_result(reason: str) -> dict[str, typing.Any]:
+def hook_denied_result(
+    reason: str,
+    *,
+    tool: str,
+    args: typing.Mapping[str, typing.Any],
+) -> dict[str, typing.Any]:
     """构建前置 Hook 阻止工具时的标准结果。"""
     text = str(reason or "tool use denied by hook")
-    return {
-        "ok": False,
-        "text": text,
-        "data": {
+    return build_tool_result_envelope(
+        tool=tool,
+        ok=False,
+        args=args,
+        text=text,
+        attachments=[],
+        data={
             "hook_denied": True,
             "error": text,
         },
-    }
+    )
 
 
 ToolCallHandlingStatus = typing.Literal["handled", "interrupted"]
@@ -135,11 +144,11 @@ class ToolCallBatchBuffer:
         self._calls = {}
 
     def accept(self, event: ToolCallEvent) -> tuple[ToolCallEvent, ...]:
-        """接收批内调用，批次外调用直接作为单调用返回。"""
+        """接收批内调用，并拒绝缺少完整批次边界的调用。"""
         if self._ignored_batch is not None:
             return ()
         if self._start is None:
-            return (event,)
+            raise ValueError("tool.call arrived without tool.calls.start")
         if event.call_id not in self._start.call_ids:
             raise ValueError("tool.call call_id is not declared by tool.calls.start")
         if event.call_id in self._calls:
@@ -246,16 +255,7 @@ class ToolEventHandler:
         approval_consumed = approval_state == "approved"
 
         if not name:
-            await self.post_result(
-                turn_context.cid,
-                turn_context.sid,
-                event.call_id,
-                "",
-                False,
-                {"error": "tool.call missing name/tool"},
-            )
-            await self.status_control.begin_reply_wait_status()
-            return ToolCallHandlingResult.handled()
+            raise ValueError("tool.call name must be a non-empty string")
 
         invocation = tool_invocation_from_event(
             turn_context,
@@ -276,9 +276,12 @@ class ToolEventHandler:
                 invocation.call_id,
                 invocation.name,
                 False,
-                hook_denied_result(hook_decision.reason),
+                hook_denied_result(
+                    hook_decision.reason,
+                    tool=invocation.name,
+                    args=invocation.arguments,
+                ),
                 additional_context=hook_decision.additional_context,
-                tool_arguments=invocation.arguments,
             )
             await self.status_control.begin_reply_wait_status(delay_sec=0.15)
             return ToolCallHandlingResult.handled()
@@ -414,11 +417,7 @@ class ToolEventHandler:
         invocation: ToolInvocation
     ) -> ToolCallHandlingResult | None:
         """处理本地补丁专用审批，批准时允许继续执行。"""
-        approval_coordinator = getattr(
-            self.controller,
-            "approval_coordinator",
-            None,
-        )
+        approval_coordinator = self.controller.approval_coordinator
 
         patch_approval = local_patch_approval(self.controller, invocation)
         execution_policy = self.controller.workspace_runtime.execution_policy
@@ -445,11 +444,7 @@ class ToolEventHandler:
             )
             return ToolCallHandlingResult.handled()
         else:
-            active_coordinator = typing.cast(
-                "ApprovalCoordinator",
-                approval_coordinator,
-            )
-            patch_outcome = await active_coordinator.request_outcome(
+            patch_outcome = await approval_coordinator.request_outcome(
                 patch_approval
             )
             await self.presentation.emit(build_approval_view(
@@ -476,6 +471,11 @@ class ToolEventHandler:
                 invocation,
                 ok=False,
                 result=patch_result,
+                text=(
+                    "user cancelled"
+                    if patch_outcome.decision == "cancel"
+                    else None
+                ),
             )
             if patch_outcome.decision == "cancel":
                 return await self._interrupt_after_approval(
@@ -553,6 +553,11 @@ class ToolEventHandler:
                 invocation,
                 ok=False,
                 result=local_result,
+                text=(
+                    "user cancelled"
+                    if local_outcome.decision == "cancel"
+                    else None
+                ),
             )
             if local_outcome.decision == "cancel":
                 return await self._interrupt_after_approval(
@@ -597,7 +602,6 @@ class ToolEventHandler:
             tool_result.name,
             tool_result.ok,
             tool_result.fields,
-            tool_arguments=invocation.arguments,
             additional_context=outcome.additional_context,
         )
 
@@ -606,17 +610,30 @@ class ToolEventHandler:
         invocation: ToolInvocation,
         *,
         ok: bool,
-        result: typing.Any
+        result: typing.Mapping[str, typing.Any],
+        text: str | None = None,
     ) -> None:
         """提交未进入客户端执行器的确定工具结果。"""
+        result_text = str(
+            text
+            if text is not None
+            else result.get("error") or result.get("reason") or ""
+        )
+        envelope = build_tool_result_envelope(
+            tool=invocation.name,
+            ok=ok,
+            args=invocation.arguments,
+            text=result_text,
+            attachments=[],
+            data=result,
+        )
         await self.post_result(
             invocation.turn.cid,
             invocation.turn.sid,
             invocation.call_id,
             invocation.name,
             ok,
-            result,
-            tool_arguments=invocation.arguments,
+            envelope,
         )
 
     async def _reject_and_wait(
@@ -649,7 +666,3 @@ class ToolEventHandler:
         if not await self.interrupt_turn(call_id):
             raise TurnControlRequestError(failure_message)
         return ToolCallHandlingResult.interrupted()
-
-
-if __name__ == '__main__':
-    pass

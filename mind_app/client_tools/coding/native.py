@@ -78,6 +78,9 @@ def build_coding_result(
     data = output.get("data")
     if not isinstance(data, dict):
         data = {}
+    else:
+        data = dict(data)
+    data["target"] = target
 
     text        = str(output.get("text") or data or "")
     result_text = f"tool={tool} target={target} ok={ok} {text}"
@@ -85,11 +88,11 @@ def build_coding_result(
     structured: dict[str, typing.Any] | None = {
         "ok"          : ok,
         "tool"        : tool,
+        "source"      : "client",
         "args"        : dict(args or {}),
         "text"        : result_text,
         "attachments" : list(output.get("attachments") or []),
         "data"        : data,
-        "target"      : target
     }
 
     return mcp_types.CallToolResult(
@@ -327,7 +330,7 @@ def coding_tools(
 
         return build_coding_result(
             tool="shell_command",
-            args=args,
+            args=execution_args,
             raw=raw,
             target=coding.agent_id
         )
@@ -414,7 +417,7 @@ def coding_tools(
 
         return build_coding_result(
             tool="exec_command",
-            args=args,
+            args=execution_args,
             raw=raw,
             target=coding.agent_id
         )

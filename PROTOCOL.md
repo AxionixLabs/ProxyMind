@@ -160,12 +160,8 @@ Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox
   "source": "client",
   "captured_at": "2026-08-29T12:00:00Z",
   "environment_id": "local",
+  "cwd": "D:\\PycharmProjects\\AppServer\\src",
   "status": "available",
-  "platform": {
-    "system": "Windows",
-    "machine": "AMD64",
-    "path_separator": "\\"
-  },
   "shell": {
     "name": "powershell",
     "syntax": "powershell",
@@ -175,38 +171,27 @@ Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox
   "workspace": {
     "root": "D:\\PycharmProjects\\AppServer",
     "allowed_roots": [],
-    "markers": [".git", "pyproject.toml"],
-    "projects": {
-      "python": {
-        "markers": ["pyproject.toml"],
-        "virtual_environments": []
-      }
-    },
     "source": "client"
-  },
-  "runtimes": {
-    "python": {"available": true, "version": "3.13"}
   },
   "tools": {
     "rg": {"available": true, "command": "rg"}
   },
   "providers": {},
-  "env": {"names": ["VIRTUAL_ENV"]},
   "extensions": {}
 }
 ```
 
 - `snapshot_id` 使用 `envsnap_` 前缀；`source` 固定为 `client`；`captured_at` 必须携带时区；`status` 只允许 `available`、`starting`、`unavailable`。
-- `platform`、`shell`、`workspace` 为必填对象；`runtimes`、`tools`、`providers`、`env` 和 `extensions` 可省略并使用空值。
-- runtime/tool capability 固定包含 `available`，并可携带 `command`、`executable`、`path`、`version`、`source`。未知结构只能位于显式 `extensions` 中；扩展不会投影给模型。
-- `env` 只允许 `names`，不得发送环境变量值。凭据、token、cookie、Authorization、密码和密钥不得进入快照或扩展字段。
-- 完整快照最大 131072 UTF-8 字节；各映射、列表和扩展深度还受 OpenAPI 模型限制。空路径、重复 `allowed_roots`、重复环境变量名和未知字段返回 `422`。
-- 服务端对规范化快照计算 `sha256:` 指纹并写入不可变 `TurnExecutionSpec`。指纹必须与其中的 `agent_request.exec_env` 一致；Worker 接管从同一执行规格重建上下文，不读取接管机器的当前环境。
+- `snapshot_id` 是一次快照的身份；`cwd` 是当前实际执行工作目录，不能用工作区根目录代替。`workspace.root` 只表示工作区根目录，二者可以不同。
+- `status_detail` 在 `starting` 或 `unavailable` 时可提供连接、初始化或探测原因；它是观测信息，不是授权结论。
+- `shell`、`workspace` 为必填对象；`tools`、`providers` 和 `extensions` 可省略并使用空值。provider 通过 `tools` 声明自身提供的工具能力。能力固定包含 `available`，并可携带 `command`、`executable`、`path`、`version`、`source`。未知结构只能位于显式 `extensions` 中；扩展不会投影给模型。
+- 完整快照最大 131072 UTF-8 字节；各映射、列表和扩展深度还受 OpenAPI 模型限制。空路径、重复 `allowed_roots` 和未知字段返回 `422`。
+- 服务端对环境事实计算 `sha256:` 指纹并写入不可变 `TurnExecutionSpec.environment_fingerprint`。该字段承载环境事实指纹：包含 `cwd`、状态、shell、workspace 和能力事实，但不包含易变的 `snapshot_id` 与 `captured_at`。快照身份仍完整保存在执行规格中；Worker 接管从同一执行规格重建上下文，不读取接管机器的当前环境。
 
 每次模型采样前，服务端从已校验的 Turn 请求生成两个独立的瞬态 canonical item：
 
 1. `permissions.instructions` 使用 `developer` 角色和 `<permissions instructions>` 标记，描述有效 `sandbox_mode`、`network_access`、可写根目录、审批策略、审查者和 `request_permissions` 工具可用性。
-2. `environment.context` 使用 `user` 角色和 `<environment_context>` 标记，描述客户端声明的环境身份、状态、平台、shell、workspace、运行时、工具、provider 能力和环境变量名称。没有 `exec_env` 时不生成该 item。
+2. `environment.context` 使用 `user` 角色和 `<environment_context>` 标记，描述客户端声明的环境身份、cwd、状态、shell、workspace roots 和明确声明的本地工具/provider 能力。快照身份和采集时间用于持久化与审计，不作为模型事实内容。没有 `exec_env` 时不生成该 item。
 
 两个 item 参与模型上下文预算、历史裁剪后的重新测量和 provider 请求构造，但不写入 canonical Transcript、摘要、fork prompt 或工具参数。内部内容类型元数据在发送给 provider 前剥离。`additional_context` 仍只位于当前用户任务正文之前，不承载权限或环境快照。
 

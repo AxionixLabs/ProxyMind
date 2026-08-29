@@ -4,9 +4,20 @@
 import typing
 from mind_nova.identifiers import (
     normalize_turn_id,
-    short_uid
+    short_uid,
 )
+from .environment import normalize_client_environment_snapshot
 from .permissions import permission_payload
+
+
+_AGENT_REQUEST_OPTION_FIELDS = frozenset({
+    "agent",
+    "extras",
+    "metadata",
+    "skills",
+    "streaming",
+    "tool_choice",
+})
 
 
 def empty_primary_request_slot() -> dict[str, str]:
@@ -89,20 +100,22 @@ async def build_chat_payload(
     pref_config: dict[str, typing.Any],
     message: str,
     tools: list[dict],
-    attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
+    attachments: list[dict[str, typing.Any]] | None = None,
     **kwargs: typing.Any
 ) -> dict[str, typing.Any]:
     """构建对话请求载荷。"""
-    if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
-        runtime_exec_env = {}
+    raw_exec_env = kwargs.pop("exec_env", None)
+    runtime_exec_env = (
+        normalize_client_environment_snapshot(raw_exec_env)
+        if raw_exec_env is not None
+        else None
+    )
 
     raw_additional_context = kwargs.pop("additional_context", ())
     if not isinstance(raw_additional_context, (tuple, list)):
         raise TypeError("additional context must be a sequence")
 
-    raw_system_message = kwargs.pop("system_message", None)
-    if raw_system_message is None:
-        raw_system_message = kwargs.pop("systemMessage", "")
+    raw_system_message = kwargs.pop("system_message", "")
     if not isinstance(raw_system_message, str):
         raise TypeError("system message must be a string")
 
@@ -121,16 +134,24 @@ async def build_chat_payload(
 
     permissions = permission_payload(kwargs.pop("permissions", None))
 
+    unknown_fields = sorted(set(kwargs).difference(_AGENT_REQUEST_OPTION_FIELDS))
+    if unknown_fields:
+        raise ValueError(
+            "unsupported AgentRequest fields: " + ", ".join(unknown_fields)
+        )
+
     payload: dict[str, typing.Any] = {
         "turn_id": turn_id,
         "llm_conf": request_llm_conf(pref_config),
         "message": message,
         "tools": tools,
         "hosted_tools": request_hosted_tools(pref_config),
-        "exec_env": runtime_exec_env,
         **permissions,
-        **kwargs
+        **kwargs,
     }
+
+    if runtime_exec_env is not None:
+        payload["exec_env"] = runtime_exec_env
 
     if attachments:
         payload["attachments"] = attachments
@@ -142,7 +163,3 @@ async def build_chat_payload(
         payload["system_message"] = system_message
 
     return payload
-
-
-if __name__ == '__main__':
-    pass

@@ -35,7 +35,11 @@ from mind_app.presentation.models import (
     RunIncompleteView,
 )
 from mind_app.runtime.mcp import tool_runtime
-from mind_app.runtime.execution import AgentContext, TurnContext
+from mind_app.runtime.execution import (
+    AgentContext,
+    ToolInvocation,
+    TurnContext,
+)
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
@@ -317,6 +321,55 @@ def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     return current
 
 
+def _batched_stream_payloads(
+    payload: dict[str, typing.Any],
+) -> tuple[dict[str, typing.Any], ...]:
+    """把单个工具调用夹具展开为完整的工具批次事件。"""
+    if payload.get("type") != "tool.call":
+        return (payload,)
+    call_id = str(payload.get("call_id") or "")
+    batch_id = f"batch_{call_id}"
+    boundary = {
+        field_name: payload[field_name]
+        for field_name in (
+            "proto",
+            "cid",
+            "sid",
+            "turn_id",
+            "presentation_epoch",
+        )
+        if field_name in payload
+    }
+    identity = {
+        **boundary,
+        "batch_id": batch_id,
+        "call_ids": [call_id],
+        "count": 1,
+    }
+    return (
+        {"type": "tool.calls.start", **identity, "ready": True},
+        payload,
+        {"type": "tool.calls.done", **identity},
+    )
+
+
+def _client_result_fields(
+    invocation: ToolInvocation,
+    *,
+    text: str = "done",
+) -> dict[str, typing.Any]:
+    """构造客户端工具投递使用的严格结果信封。"""
+    return {
+        "ok": True,
+        "tool": invocation.name,
+        "source": "client",
+        "args": dict(invocation.arguments),
+        "text": text,
+        "attachments": [],
+        "data": {},
+    }
+
+
 def _open_effect_journal(db_path: Path):
     """让流测试使用隔离的本地效果账本。"""
     return open_effect_journal(db_path)
@@ -415,7 +468,8 @@ async def _run_stream(
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
             for payload in events:
-                yield parse_stream_event(payload)
+                for batched_payload in _batched_stream_payloads(payload):
+                    yield parse_stream_event(batched_payload)
     else:
         stream_chat = stream_factory
 
@@ -518,7 +572,7 @@ async def _run_stream(
         ),
     )
     stream_options = {
-        "exec_env": {},
+        "exec_env": None,
         "skills": (
             list(request_skills)
             if request_skills is not None
@@ -2286,7 +2340,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -2320,9 +2374,17 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
         "call-client",
         "test_tool",
         True,
-        {"ok": True, "text": "done"},
+        {
+            "ok": True,
+            "tool": "test_tool",
+            "source": "client",
+            "args": {"value": 1},
+            "text": "done",
+            "attachments": [],
+            "data": {},
+        },
     )
-    assert posted_kwargs["arguments"] == {"value": 1}
+    assert "arguments" not in posted_kwargs
 
 
 @pytest.mark.anyio
@@ -2342,7 +2404,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -2422,7 +2484,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -2470,6 +2532,57 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
     assert statuses == 1
     assert len(request_ids) == 2
     assert request_ids[0] == request_ids[1]
+
+
+@pytest.mark.anyio
+async def test_stream_stops_deterministic_tool_result_terminal_without_failure(
+    monkeypatch,
+) -> None:
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields=_client_result_fields(invocation),
+            )
+        )
+
+    async def post_tool_result(*_args, **_kwargs):
+        raise ToolResultRequestError(
+            "tool_call_turn_closed",
+            "turn no longer accepts tool results",
+        )
+
+    status_query = AsyncMock()
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+    monkeypatch.setattr(stream, "get_tool_result_status", status_query)
+
+    result, mind = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-closed",
+            "name": "test_tool",
+            "arguments": {},
+        }),
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "interrupted"
+    assert result.error == (
+        "tool_call_turn_closed: turn no longer accepts tool results"
+    )
+    status_query.assert_not_awaited()
+    failure_views = [
+        item
+        for item in mind.output_session.presentation.items
+        if isinstance(item, FailureView)
+    ]
+    assert failure_views[-1].phase == "turn.tool_result_delivery_stopped"
 
 
 @pytest.mark.anyio
@@ -2762,7 +2875,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -2838,7 +2951,7 @@ async def test_confirmed_approval_skips_duplicate_local_prompt_on_replayed_call(
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -2902,7 +3015,10 @@ async def test_confirmed_approval_cannot_override_local_forbidden_rule(
                 ok=True,
                 text="must not execute",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "must not execute"},
+                fields=_client_result_fields(
+                    invocation,
+                    text="must not execute",
+                ),
             )
         )
 
@@ -2971,9 +3087,17 @@ async def test_local_policy_cancel_interrupts_turn(monkeypatch) -> None:
 
     assert result.status == "interrupted"
     assert result_posts[0][0][4] is False
-    assert result_posts[0][0][5]["data"] == {
-        "executed": False,
-        "status": "cancelled",
+    assert result_posts[0][0][5] == {
+        "ok": False,
+        "tool": "shell_command",
+        "source": "client",
+        "args": {"command": "rm -rf build"},
+        "text": "user cancelled",
+        "attachments": [],
+        "data": {
+            "executed": False,
+            "status": "cancelled",
+        },
     }
     stream.interrupt_turn.assert_awaited_once()
 
@@ -3003,7 +3127,7 @@ async def test_stream_persists_local_shell_rule_from_approval(
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -3065,7 +3189,7 @@ async def test_stream_allows_local_shell_approval_without_tool_reason(
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -3118,7 +3242,7 @@ async def test_local_patch_session_approval_skips_next_matching_patch(
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -3496,7 +3620,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
                 ok=True,
                 text="done",
                 call_id=invocation.call_id,
-                fields={"ok": True, "text": "done"},
+                fields=_client_result_fields(invocation),
             )
         )
 
@@ -3546,4 +3670,12 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     assert presentation.context.kind == "command"
     assert executed == [expected_arguments]
     assert runner.calls[0]["tool_input"] == expected_hook_input
-    assert posted[0][0][5] == {"ok": True, "text": "done"}
+    assert posted[0][0][5] == {
+        "ok": True,
+        "tool": tool_name,
+        "source": "client",
+        "args": expected_arguments,
+        "text": "done",
+        "attachments": [],
+        "data": {},
+    }

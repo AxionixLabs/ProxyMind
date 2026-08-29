@@ -219,6 +219,21 @@ def test_unknown_config_field_is_rejected() -> None:
         normalize_config({"typo": True})
 
 
+def test_network_access_is_normalized_as_a_root_permission_field() -> None:
+    assert normalize_config({})["network_access"] == "restricted"
+    assert normalize_config({"network_access": "enabled"})[
+        "network_access"
+    ] == "enabled"
+
+    with pytest.raises(ConfigValidationError, match="network_access"):
+        normalize_config({"network_access": "open"})
+
+
+def test_removed_approval_reviewer_is_rejected() -> None:
+    with pytest.raises(ConfigValidationError, match="approvals_reviewer"):
+        normalize_config({"approvals_reviewer": "guardian_subagent"})
+
+
 def test_default_config_uses_only_provider_profiles(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
 

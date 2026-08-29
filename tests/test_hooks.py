@@ -2138,6 +2138,7 @@ async def test_post_tool_use_stop_returns_feedback_without_blocking() -> None:
     assert result.visible_result.fields == {
         "ok": True,
         "text": "review the tool result",
+        "attachments": [],
         "data": {"hook_feedback": True},
     }
 
@@ -2178,6 +2179,7 @@ async def test_post_tool_use_block_rejects_result_before_replacement() -> None:
     assert result.visible_result.fields == {
         "ok": False,
         "text": "reject this result",
+        "attachments": [],
         "data": {
             "hook_blocked": True,
             "error": "reject this result",

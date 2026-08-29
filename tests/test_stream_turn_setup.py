@@ -56,6 +56,42 @@ def _execution() -> TurnExecution:
     )
 
 
+def _exec_env_snapshot() -> dict:
+    """构造固定且完整的客户端环境快照。"""
+    return {
+        "snapshot_id": "envsnap_test_snapshot",
+        "source": "client",
+        "captured_at": "2026-08-29T12:00:00Z",
+        "environment_id": "local",
+        "cwd": "D:\\PycharmProjects\\ProxyMind",
+        "status": "available",
+        "status_detail": None,
+        "shell": {
+            "name": "powershell",
+            "syntax": "powershell",
+            "executable": "pwsh.exe",
+            "prefix": ["pwsh.exe", "-Command"],
+            "source": None,
+        },
+        "workspace": {
+            "root": "D:\\PycharmProjects\\ProxyMind",
+            "allowed_roots": [],
+            "source": "client",
+        },
+        "tools": {},
+        "providers": {},
+        "extensions": {},
+    }
+
+
+def _service_environment_provider() -> dict:
+    """构造固定的服务端环境能力提供方快照。"""
+    return {
+        "tools": {},
+        "extensions": {},
+    }
+
+
 def _controller(
     session_factory: Mock,
     *,
@@ -72,7 +108,10 @@ def _controller(
         ),
         config_session=SimpleNamespace(load=Mock(return_value={})),
         is_service_mcp_linked=Mock(return_value=True),
-        service_exec_env_snapshot=Mock(return_value={"SERVICE": "ready"}),
+        service_exec_env_snapshot=Mock(
+            return_value=_service_environment_provider()
+        ),
+        history_workspace="D:\\PycharmProjects\\ProxyMind",
     )
 
 
@@ -86,14 +125,14 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     controller = _controller(session_factory)
     execution = _execution()
     options = {
-        "exec_env": {"LOCAL": "ready"},
+        "exec_env": _exec_env_snapshot(),
         "skills": [{"name": "test"}],
         "session_factory": session_factory,
         "ev_report": event_report,
         "on_turn_input_context": input_context,
         "on_turn_input_event": input_event,
         "on_retry_state": retry_state,
-        "opaque_option": "preserved",
+        "extras": {"trace": "preserved"},
     }
 
     prepared = stream_setup.prepare_stream_turn(
@@ -109,9 +148,9 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     assert prepared.event_report is event_report
     assert prepared.callbacks.retry_state is retry_state
     assert prepared.request_kwargs == {
-        "exec_env": {"LOCAL": "ready"},
+        "exec_env": _exec_env_snapshot(),
         "skills": [{"name": "test"}],
-        "opaque_option": "preserved",
+        "extras": {"trace": "preserved"},
         "turn_id": "turn_test",
         "permissions": execution.context.permissions,
         "metadata": {
@@ -139,7 +178,8 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
         session_factory,
         retry_state=retry_state,
     )
-    build_exec_env = Mock(return_value={"BUILT": "ready"})
+    snapshot = _exec_env_snapshot()
+    build_exec_env = Mock(return_value=snapshot)
     build_skills = Mock(return_value=[{"name": "resolved"}])
     monkeypatch.setattr(stream_setup, "build_runtime_exec_env", build_exec_env)
     monkeypatch.setattr(stream_setup, "skills_payload", build_skills)
@@ -150,15 +190,18 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
         {},
     )
 
-    assert prepared.request_kwargs["exec_env"] == {"BUILT": "ready"}
+    assert prepared.request_kwargs["exec_env"] == snapshot
     assert prepared.request_kwargs["skills"] == [{"name": "resolved"}]
     assert prepared.callbacks.retry_state is retry_state
     assert prepared.continuation_kwargs == {
+        "exec_env": snapshot,
         "session_factory": session_factory,
     }
     controller.service_exec_env_snapshot.assert_called_once_with()
     build_exec_env.assert_called_once_with(
-        service_exec_env={"SERVICE": "ready"}
+        cwd=".",
+        workspace_root="D:\\PycharmProjects\\ProxyMind",
+        service_exec_env=_service_environment_provider()
     )
     controller.config_session.load.assert_called_once_with()
     build_skills.assert_called_once_with({})
@@ -175,7 +218,7 @@ def test_prepare_stream_turn_rejects_non_callable_callback() -> None:
             _controller(session_factory),
             _execution(),
             {
-                "exec_env": {},
+                "exec_env": _exec_env_snapshot(),
                 "skills": [],
                 "on_turn_input_event": "invalid",
             },

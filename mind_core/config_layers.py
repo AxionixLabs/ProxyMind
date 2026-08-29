@@ -7,18 +7,18 @@ import copy
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from pathlib import Path
 from mind_core.config import (
     ConfigOverride,
     apply_config_overrides,
     normalize_config,
-    validate_config
+    validate_config,
 )
 from mind_core.config_store import (
     ConfigStore,
-    ConfigStoreError
+    ConfigStoreError,
 )
 from mind_core.hook_discovery import (
     HOOKS_FILE_NAME,
@@ -26,15 +26,15 @@ from mind_core.hook_discovery import (
     normalize_hook_table,
     resolve_hook_definitions,
     resolve_hook_file_source,
-    resolve_hook_source
+    resolve_hook_source,
 )
 from mind_core.hooks import (
     HookDefinitionConfig,
-    HookStateTable
+    HookStateTable,
 )
 from mind_core.project_trust import (
     ProjectTrustContext,
-    ProjectTrustDecision
+    ProjectTrustDecision,
 )
 from mind_nova import const
 
@@ -52,6 +52,7 @@ PROJECT_USER_ONLY_ROOTS = frozenset({
     "service",
     "tui",
     "approvals_reviewer",
+    "network_access",
 })
 
 MCP_STDIO_FIELDS = frozenset({
@@ -488,10 +489,7 @@ def _read_project_config(
     path: Path
 ) -> tuple[dict[str, typing.Any], tuple[str, ...]]:
     """读取项目配置并移除只能由用户层设置的根字段。"""
-    config = typing.cast(
-        dict[str, typing.Any],
-        ConfigStore(path).read_raw(create=False),
-    )
+    config = ConfigStore(path).read_raw(create=False)
 
     ignored = tuple(sorted(PROJECT_USER_ONLY_ROOTS.intersection(config)))
     for key in ignored:
@@ -512,10 +510,7 @@ def _replace_project_hooks(
     if not _config_path_is_present(source_path):
         return result
 
-    source_config = typing.cast(
-        dict[str, typing.Any],
-        ConfigStore(source_path).read_raw(create=False),
-    )
+    source_config = ConfigStore(source_path).read_raw(create=False)
     if "hooks" in source_config:
         result["hooks"] = copy.deepcopy(source_config["hooks"])
     return result

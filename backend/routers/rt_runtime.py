@@ -9,25 +9,7 @@ runtime_router = APIRouter(tags=["Runtime"])
 
 @runtime_router.get(path="/api/runtime/exec-env", include_in_schema=False)
 async def api_exec_env() -> dict:
-    """
-    返回 Helix 进程的本地执行环境信息。
-
-    请求参数:
-        无。
-
-    返回:
-        {
-          "ok": true,
-          "data": {
-            "platform": {...},
-            "shell": {...},
-            "runtimes": {...},
-            "tools": {...},
-            "env": {...},
-            "workspace": {...}
-          }
-        }
-    """
+    """返回 Helix 进程的固定提供方能力结构。"""
     return {
         "ok"   : True,
         "data" : exec_env()

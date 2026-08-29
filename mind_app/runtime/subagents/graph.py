@@ -12,7 +12,8 @@ from mind_core.permissions import PermissionSettings
 from mind_nova.requests.permissions import (
     normalize_approval_policy,
     normalize_approval_reviewer,
-    normalize_sandbox_mode
+    normalize_network_access,
+    normalize_sandbox_mode,
 )
 from mind_app.paths import agent_graph_db_path
 from mind_app.runtime.execution import AgentContext
@@ -20,11 +21,15 @@ from mind_app.runtime.subagents.context import ForkContextSnapshot
 from mind_app.runtime.subagents.control import (
     AgentGraphCheckpoint,
     AgentGraphRecord,
-    AgentSubmission
+    AgentResumeStatus,
+    AgentStatus,
+    AgentSubmission,
+    AgentSubmissionKind,
 )
 from mind_app.runtime.subagents.mailbox import (
     AgentMailboxEvent,
-    AgentMailboxSnapshot
+    AgentMailboxEventKind,
+    AgentMailboxSnapshot,
 )
 from mind_app.runtime.subagents.thread import AgentThreadContext
 
@@ -400,6 +405,7 @@ def _record_payload(record: AgentGraphRecord) -> dict[str, typing.Any]:
                 "sandbox_mode": thread.permissions.sandbox_mode,
                 "approval_policy": thread.permissions.approval_policy,
                 "approvals_reviewer": thread.permissions.approvals_reviewer,
+                "network_access": thread.permissions.network_access,
             },
             "pref_config": thread.config_snapshot(),
             "spawn_turn_id": thread.spawn_turn_id,
@@ -473,26 +479,74 @@ def _checkpoint_from_payload(payload: typing.Any) -> AgentGraphCheckpoint:
     )
 
 
+def _agent_status(value: typing.Any) -> AgentStatus:
+    """校验并收窄持久化的执行主体状态。"""
+    status = _required_text(value, "agent status")
+    match status:
+        case "pending":
+            return "pending"
+        case "running":
+            return "running"
+        case "completed":
+            return "completed"
+        case "failed":
+            return "failed"
+        case "interrupted":
+            return "interrupted"
+        case "interrupted_by_restart":
+            return "interrupted_by_restart"
+        case "closed":
+            return "closed"
+        case _:
+            raise ValueError("agent graph status is invalid")
+
+
+def _agent_resume_status(value: typing.Any) -> AgentResumeStatus | None:
+    """校验并收窄关闭前的可恢复状态。"""
+    if value is None:
+        return None
+    status = _required_text(value, "agent resume status")
+    match status:
+        case "completed":
+            return "completed"
+        case "failed":
+            return "failed"
+        case "interrupted":
+            return "interrupted"
+        case "interrupted_by_restart":
+            return "interrupted_by_restart"
+        case _:
+            raise ValueError("agent graph resume status is invalid")
+
+
+def _submission_kind(value: typing.Any) -> AgentSubmissionKind:
+    """校验并收窄任务提交类型。"""
+    kind = _required_text(value, "submission kind")
+    if kind == "initial":
+        return "initial"
+    if kind == "followup":
+        return "followup"
+    raise ValueError("agent submission kind is invalid")
+
+
+def _mailbox_event_kind(value: typing.Any) -> AgentMailboxEventKind:
+    """校验并收窄邮箱事件类型。"""
+    kind = _required_text(value, "mailbox event kind")
+    if kind == "message":
+        return "message"
+    if kind == "queue":
+        return "queue"
+    if kind == "status":
+        return "status"
+    raise ValueError("mailbox event kind is invalid")
+
+
 def _record_from_payload(payload: typing.Any) -> AgentGraphRecord:
     """校验并还原单个执行主体快照。"""
     data = _mapping(payload, "agent graph record")
 
-    status = _required_text(data.get("status"), "agent status")
-    if status not in {
-        "pending", "running", "completed", "failed", "interrupted",
-        "interrupted_by_restart", "closed",
-    }:
-        raise ValueError("agent graph status is invalid")
-
-    resume_status = data.get("status_before_close")
-    if resume_status not in {
-        None,
-        "completed",
-        "failed",
-        "interrupted",
-        "interrupted_by_restart",
-    }:
-        raise ValueError("agent graph resume status is invalid")
+    status = _agent_status(data.get("status"))
+    resume_status = _agent_resume_status(data.get("status_before_close"))
 
     queue = data.get("queue")
     if not isinstance(queue, list):
@@ -500,7 +554,7 @@ def _record_from_payload(payload: typing.Any) -> AgentGraphRecord:
 
     return AgentGraphRecord(
         thread=_thread_from_payload(data.get("thread")),
-        status=typing.cast(typing.Any, status),
+        status=status,
         submission=_submission_from_payload(data.get("submission")),
         queue=tuple(
             _submission_from_payload(item)
@@ -508,7 +562,7 @@ def _record_from_payload(payload: typing.Any) -> AgentGraphRecord:
         ),
         turn_count=_nonnegative_int(data.get("turn_count"), "turn count"),
         error=str(data.get("error") or ""),
-        status_before_close=typing.cast(typing.Any, resume_status),
+        status_before_close=resume_status,
     )
 
 
@@ -584,6 +638,9 @@ def _thread_from_payload(payload: typing.Any) -> AgentThreadContext:
             approvals_reviewer=normalize_approval_reviewer(
                 permission_data.get("approvals_reviewer")
             ),
+            network_access=normalize_network_access(
+                permission_data.get("network_access")
+            ),
         ),
         pref_config=pref_config,
         spawn_turn_id=_required_text(data.get("spawn_turn_id"), "spawn turn id"),
@@ -601,7 +658,7 @@ def _submission_from_payload(payload: typing.Any) -> AgentSubmission | None:
         return None
 
     data = _mapping(payload, "agent submission")
-    kind = _required_text(data.get("kind"), "submission kind")
+    kind = _submission_kind(data.get("kind"))
 
     return AgentSubmission(
         submission_id=_required_text(
@@ -609,7 +666,7 @@ def _submission_from_payload(payload: typing.Any) -> AgentSubmission | None:
             "submission id",
         ),
         message=_required_text(data.get("message"), "submission message"),
-        kind=typing.cast(typing.Any, kind),
+        kind=kind,
         created_at_ms=_positive_int(
             data.get("created_at_ms"),
             "submission timestamp",
@@ -641,10 +698,7 @@ def _mailbox_event_from_payload(payload: typing.Any) -> AgentMailboxEvent:
     return AgentMailboxEvent(
         event_id=_required_text(data.get("event_id"), "mailbox event id"),
         sequence=_positive_int(data.get("sequence"), "mailbox event sequence"),
-        kind=typing.cast(
-            typing.Any,
-            _required_text(data.get("kind"), "mailbox event kind"),
-        ),
+        kind=_mailbox_event_kind(data.get("kind")),
         created_at_ms=_positive_int(
             data.get("created_at_ms"),
             "mailbox event timestamp",

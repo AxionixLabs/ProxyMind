@@ -4,18 +4,16 @@
 import time
 import typing
 from mind_app.approval.models import ApprovalDecisionValue
-from mind_app.approval.policy import (
-    approval_execpolicy_amendment
-)
+from mind_app.approval.policy import approval_execpolicy_amendment
 from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.native_coding.exec.exec_policy import (
     ExecApprovalRequirement,
     ExecPolicyManager,
-    validate_sandbox_permission_arguments
+    validate_sandbox_permission_arguments,
 )
 from mind_app.runtime.execution import (
     ToolInvocation,
-    TurnContext
+    TurnContext,
 )
 
 if typing.TYPE_CHECKING:
@@ -224,32 +222,21 @@ def local_patch_approval(
 
     preview: dict[str, typing.Any] | None = None
 
-    preview_patch = getattr(
-        controller.workspace_runtime.coding,
-        "preview_patch",
-        None,
-    )
-
-    if callable(preview_patch):
-        build_preview = typing.cast(
-            typing.Callable[..., typing.Any],
-            preview_patch,
+    expected_sha256 = arguments.get("expected_sha256")
+    if not isinstance(expected_sha256, dict):
+        expected_sha256 = None
+    try:
+        candidate = controller.workspace_runtime.coding.preview_patch(
+            patch=patch,
+            expected_sha256=expected_sha256,
+            force=bool(arguments.get("force", False)),
         )
-        expected_sha256 = arguments.get("expected_sha256")
-        if not isinstance(expected_sha256, dict):
-            expected_sha256 = None
-        try:
-            candidate = build_preview(
-                patch=patch,
-                expected_sha256=expected_sha256,
-                force=bool(arguments.get("force", False)),
-            )
-        except (OSError, TypeError, ValueError, UnicodeError, KeyError):
-            candidate = None
-        if isinstance(candidate, dict) and candidate.get("ok"):
-            preview = candidate.get("data")
-            if not isinstance(preview, dict):
-                preview = None
+    except (OSError, TypeError, ValueError, UnicodeError, KeyError):
+        candidate = None
+    if isinstance(candidate, dict) and candidate.get("ok"):
+        preview = candidate.get("data")
+        if not isinstance(preview, dict):
+            preview = None
 
     scope: list[str] = []
     if preview is not None:
@@ -378,14 +365,6 @@ def local_exec_policy_denied_result(requirement: ExecApprovalRequirement) -> dic
 def local_exec_policy_cancelled_result() -> dict[str, typing.Any]:
     """构造本地审批取消后的未执行结果。"""
     return {
-        "ok": False,
-        "text": "user cancelled",
-        "data": {
-            "executed": False,
-            "status": "cancelled",
-        },
+        "executed": False,
+        "status": "cancelled",
     }
-
-
-if __name__ == '__main__':
-    pass

@@ -8,14 +8,14 @@ import tempfile
 import contextlib
 from collections.abc import (
     Callable,
-    MutableMapping
+    MutableMapping,
 )
 from pathlib import Path
 from tomlkit.items import (
     AoT,
     Comment,
     Table,
-    Whitespace
+    Whitespace,
 )
 from tomlkit.toml_document import TOMLDocument
 from mind_nova import const
@@ -24,7 +24,7 @@ from mind_core.provider_config import (
     DEFAULT_PROVIDER_ID,
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
-    DEFAULT_ROUTE_NAME
+    DEFAULT_ROUTE_NAME,
 )
 
 ConfigBody = list[tuple[typing.Any, typing.Any]]
@@ -34,6 +34,7 @@ TableLocation = tuple[Table, ConfigBody | None]
 DEFAULT_CONFIG_TEXT = f"""model_provider = "{DEFAULT_PROVIDER_ID}"
 project_root_markers = [".git"]
 approvals_reviewer = "user"
+network_access = "restricted"
 
 [model_providers.{DEFAULT_PROVIDER_ID}]
 name = "{DEFAULT_PROVIDER_ID}"
@@ -113,8 +114,8 @@ class ConfigStore(object):
                 f"config is invalid: {target} ({error})"
             ) from error
 
-    def read_raw(self, *, create: bool = True) -> dict[str, object]:
-        """读取不丢失未知字段的普通配置字典。"""
+    def read_raw(self, *, create: bool = True) -> dict[str, typing.Any]:
+        """在 TOML 适配边界读取不丢失未知字段的动态配置字典。"""
         return dict(self.read_document(create=create).unwrap())
 
     def update(

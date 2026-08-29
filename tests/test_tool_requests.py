@@ -49,6 +49,26 @@ def _response(status_code, body):
     )
 
 
+def _result_envelope(
+    *,
+    tool: str = "test_tool",
+    ok: bool = True,
+    args: dict | None = None,
+    text: str = "ready",
+    data: dict | None = None,
+) -> dict:
+    """构造严格的客户端工具结果信封。"""
+    return {
+        "ok": ok,
+        "tool": tool,
+        "source": "client",
+        "args": {} if args is None else args,
+        "text": text,
+        "attachments": [],
+        "data": {} if data is None else data,
+    }
+
+
 def _install_snapshot_client(monkeypatch, response, captured) -> None:
     class ClientStub:
         def __init__(self, *, timeout) -> None:
@@ -139,115 +159,7 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("result", "expected"),
-    (
-        (
-            {
-                "ok": True,
-                "tool": "shell_command",
-                "source": "client",
-                "args": {"command": "echo ready"},
-                "text": "completed",
-                "attachments": [],
-                "data": {
-                    "command": "echo ready",
-                    "exit_code": 0,
-                    "stdout": "ready\n",
-                    "target": "local",
-                },
-            },
-            {
-                "ok": True,
-                "tool": "test_tool",
-                "source": "client",
-                "args": {"command": "echo ready"},
-                "text": "completed",
-                "attachments": [],
-                "data": {
-                    "command": "echo ready",
-                    "exit_code": 0,
-                    "stdout": "ready\n",
-                    "target": "local",
-                },
-            },
-        ),
-        (
-            {
-                "ok": True,
-                "tool": "device_snapshot",
-                "args": {},
-                "text": "snapshot ready",
-                "attachments": [{"kind": "file", "path": "snapshot.json"}],
-                "data": {
-                    "serial": "device-1",
-                    "battery": 80,
-                    "target": "device-1",
-                },
-            },
-            {
-                "ok": True,
-                "tool": "test_tool",
-                "source": "client",
-                "args": {},
-                "text": "snapshot ready",
-                "attachments": [{"kind": "file", "path": "snapshot.json"}],
-                "data": {
-                    "serial": "device-1",
-                    "battery": 80,
-                    "target": "device-1",
-                },
-            },
-        ),
-        (
-            {"answer": 42, "source_url": "https://example.test/docs"},
-            {
-                "ok": True,
-                "tool": "test_tool",
-                "source": "client",
-                "args": {},
-                "text": "",
-                "attachments": [],
-                "data": {
-                    "answer": 42,
-                    "source_url": "https://example.test/docs",
-                },
-            },
-        ),
-        (
-            {"approval_denied": True, "error": "approval rejected"},
-            {
-                "ok": True,
-                "tool": "test_tool",
-                "source": "client",
-                "args": {},
-                "text": "approval rejected",
-                "attachments": [],
-                "data": {
-                    "approval_denied": True,
-                    "error": "approval rejected",
-                },
-            },
-        ),
-        (
-            "plain output",
-            {
-                "ok": True,
-                "tool": "test_tool",
-                "source": "client",
-                "args": {},
-                "text": "plain output",
-                "attachments": [],
-                "data": {"value": "plain output"},
-            },
-        ),
-    ),
-)
-async def test_tool_result_posts_only_transport_fields(
-    monkeypatch,
-    result,
-    expected,
-) -> None:
+async def test_tool_result_posts_strict_envelope_once(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
         "ok": True,
@@ -259,6 +171,11 @@ async def test_tool_result_posts_only_transport_fields(
         },
     }), captured)
 
+    result = _result_envelope(
+        args={"command": "echo ready"},
+        text="completed",
+        data={"stdout": "ready\n", "stderr": "", "exit_code": 0},
+    )
     await tools.post_tool_result(
         "cid_1",
         "sid_1",
@@ -278,9 +195,40 @@ async def test_tool_result_posts_only_transport_fields(
         "call_id": "call_1",
         "name": "test_tool",
         "ok": True,
-        "result": expected,
+        "result": result,
         "additional_context": ["inspect policy", "verify output"],
     }
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    (
+        ({"ok": True, "text": "legacy"}, "missing fields"),
+        (
+            {**_result_envelope(), "stdout": "legacy"},
+            "unknown fields: stdout",
+        ),
+        (
+            _result_envelope(tool="different_tool"),
+            "tool does not match request name",
+        ),
+        (
+            _result_envelope(ok=False),
+            "ok does not match request ok",
+        ),
+    ),
+)
+def test_tool_result_rejects_noncanonical_envelopes(result, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        tools.build_tool_result_payload(
+            cid="cid_1",
+            sid="sid_1",
+            call_id="call_1",
+            name="test_tool",
+            ok=True,
+            result=result,
+            request_id="tool_result_request_1",
+        )
 
 
 @pytest.mark.anyio
@@ -302,7 +250,7 @@ async def test_tool_result_accepts_idempotent_already_received_ack(monkeypatch) 
         "call_1",
         "test_tool",
         True,
-        {"ok": True, "text": "ready"},
+        _result_envelope(),
         additional_context=("PostToolUse context",),
         request_id="tool_result_request_1",
     )
@@ -312,7 +260,7 @@ async def test_tool_result_accepts_idempotent_already_received_ack(monkeypatch) 
 
 
 @pytest.mark.anyio
-async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
+async def test_tool_result_preserves_matching_failure_status(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
         "ok": True,
@@ -330,12 +278,11 @@ async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
         "call_1",
         "test_tool",
         False,
-        {
-            "ok": True,
-            "text": "failed",
-            "attachments": [],
-            "data": {"error": "failed"},
-        },
+        _result_envelope(
+            ok=False,
+            text="failed",
+            data={"error": "failed"},
+        ),
     )
 
     assert captured["json"]["ok"] is False
@@ -447,7 +394,7 @@ async def test_tool_result_status_rejects_legacy_expiry_field(monkeypatch) -> No
 
 
 @pytest.mark.anyio
-async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
+async def test_tool_result_preserves_canonical_envelope_arguments(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
         "ok": True,
@@ -465,16 +412,12 @@ async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
         "call_1",
         "js_repl",
         True,
-        {
-            "ok": True,
-            "tool": "js_repl",
-            "args": {"code": "stale"},
-            "text": "42",
-            "attachments": [],
-            "data": {"output": "42"},
-            "target": "native_coding",
-        },
-        arguments={"code": "6 * 7"},
+        _result_envelope(
+            tool="js_repl",
+            args={"code": "6 * 7"},
+            text="42",
+            data={"output": "42", "target": "native_coding"},
+        ),
     )
 
     assert captured["json"]["result"] == {
@@ -489,48 +432,20 @@ async def test_tool_result_uses_current_call_arguments(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_tool_result_moves_mixed_business_fields_into_data(monkeypatch) -> None:
-    captured = {}
-    _install_client(monkeypatch, _response(200, {
-        "ok": True,
-        "data": {
-            "status": "matched",
-            "delivered": True,
-            "already_received": False,
-            "request_id": "tool_result_mixed_1",
-        },
-    }), captured)
-
-    await tools.post_tool_result(
-        "cid_1",
-        "sid_1",
-        "call_1",
-        "shell_command",
-        True,
-        {
-            "ok": True,
-            "tool": "shell_command",
-            "text": "done",
-            "data": {"existing": True},
-            "stdout": "done",
-            "stderr": "",
-            "exit_code": 0,
-            "target": "local",
-        },
-        request_id="tool_result_mixed_1",
-    )
-
-    result = captured["json"]["result"]
-    assert set(result) == {
-        "ok", "tool", "source", "args", "text", "attachments", "data",
-    }
-    assert result["data"] == {
-        "existing": True,
-        "stdout": "done",
-        "stderr": "",
-        "exit_code": 0,
-        "target": "local",
-    }
+async def test_tool_result_rejects_flat_business_fields() -> None:
+    with pytest.raises(ValueError, match="unknown fields: stdout"):
+        await tools.post_tool_result(
+            "cid_1",
+            "sid_1",
+            "call_1",
+            "shell_command",
+            True,
+            {
+                **_result_envelope(tool="shell_command", text="done"),
+                "stdout": "done",
+            },
+            request_id="tool_result_mixed_1",
+        )
 
 
 @pytest.mark.parametrize(
@@ -548,7 +463,10 @@ def test_tool_result_rejects_removed_cloud_sandbox_handoff_fields(field) -> None
             call_id="call_1",
             name="shell_command",
             ok=True,
-            result={"ok": True, "data": {field: {}}},
+            result=_result_envelope(
+                tool="shell_command",
+                data={field: {}},
+            ),
         )
 
 

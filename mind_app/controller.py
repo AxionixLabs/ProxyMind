@@ -693,10 +693,12 @@ class Mind(object):
             ("sandbox_mode",): settings.sandbox_mode,
             ("approval_policy",): settings.approval_policy,
             ("approvals_reviewer",): settings.approvals_reviewer,
+            ("network_access",): settings.network_access,
         }, ensure_effective={
             ("sandbox_mode",): settings.sandbox_mode,
             ("approval_policy",): settings.approval_policy,
             ("approvals_reviewer",): settings.approvals_reviewer,
+            ("network_access",): settings.network_access,
         })
         effective = resolve_permissions(effective_config, interactive=True)
         self.permissions = effective

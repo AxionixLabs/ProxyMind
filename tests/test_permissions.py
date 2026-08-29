@@ -150,6 +150,10 @@ def test_permission_defaults_follow_entry_type() -> None:
         {"sandbox_mode": "read-only", "approval_policy": "never"},
         interactive=True,
     ) == PermissionSettings("read-only", "never")
+    assert resolve_permissions(
+        {"network_access": "enabled"},
+        interactive=True,
+    ).network_access == "enabled"
 
 
 @pytest.mark.anyio
@@ -164,8 +168,47 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
     assert payload["sandbox_mode"] == "workspace-write"
     assert payload["approval_policy"] == "on-request"
     assert payload["approvals_reviewer"] == "user"
+    assert payload["network_access"] == "restricted"
     assert "access_mode" not in payload
     assert "mode" not in payload
+
+
+@pytest.mark.anyio
+async def test_request_payload_preserves_granular_approval_policy() -> None:
+    policy = {
+        "granular": {
+            "sandbox_approval": True,
+            "rules": False,
+            "skill_approval": True,
+            "request_permissions": True,
+            "mcp_elicitations": False,
+        },
+    }
+    payload = await build_chat_payload(
+        {},
+        "inspect",
+        [],
+        permissions={
+            "sandbox_mode": "workspace-write",
+            "approval_policy": policy,
+            "approvals_reviewer": "user",
+            "network_access": "enabled",
+        },
+    )
+
+    assert payload["approval_policy"] == policy
+    assert payload["network_access"] == "enabled"
+
+
+@pytest.mark.anyio
+async def test_request_payload_rejects_invalid_network_access() -> None:
+    with pytest.raises(ValueError, match="invalid network access"):
+        await build_chat_payload(
+            {},
+            "inspect",
+            [],
+            permissions={"network_access": "open"},
+        )
 
 
 @pytest.mark.anyio
@@ -237,10 +280,22 @@ async def test_request_payload_normalizes_system_message() -> None:
         "inspect",
         [],
         permissions=preset_permissions("auto"),
-        systemMessage=" keep this focused ",
+        system_message=" keep this focused ",
     )
 
     assert payload["system_message"] == "keep this focused"
+
+
+@pytest.mark.anyio
+async def test_request_payload_rejects_removed_system_message_alias() -> None:
+    with pytest.raises(ValueError, match="unsupported AgentRequest fields: systemMessage"):
+        await build_chat_payload(
+            {},
+            "inspect",
+            [],
+            permissions=preset_permissions("auto"),
+            systemMessage="removed alias",
+        )
 
 
 @pytest.mark.anyio
@@ -437,9 +492,13 @@ async def test_command_justification_is_not_passed_to_native_executor(
     result = await tool.handler(arguments, runtime)
 
     assert result.isError is False
-    assert result.structuredContent["args"] == arguments
+    assert result.structuredContent["args"] == {
+        "command": "echo ready",
+        "sandbox_permissions": "require_escalated",
+    }
     native_arguments = getattr(coding, tool_name).await_args.kwargs
     assert "justification" not in native_arguments
+    assert arguments["justification"] == "需要使用宿主 shell"
 
 
 def test_approval_card_presentation_is_owned_by_client() -> None:

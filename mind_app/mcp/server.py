@@ -53,7 +53,8 @@ from mind_core.service_config import ServiceConfig
 from mind_nova.requests.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,
-    SandboxMode
+    SandboxMode,
+    normalize_network_access,
 )
 from mind_nova.services import service_endpoints
 from mind_nova import const
@@ -257,10 +258,18 @@ class MindMcpRuntime(object):
             "approvals_reviewer",
             "user",
         )
+        effective_network_access = normalize_network_access(
+            getattr(
+                current_permissions,
+                "network_access",
+                "restricted",
+            )
+        )
         permissions = PermissionSettings(
             sandbox_mode=effective_sandbox_mode,
             approval_policy=effective_approval_policy,
             approvals_reviewer=effective_approval_reviewer,
+            network_access=effective_network_access,
         )
 
         try:
@@ -323,6 +332,7 @@ class MindMcpRuntime(object):
                 "sandbox_mode": permissions.sandbox_mode,
                 "approval_policy": permissions.approval_policy,
                 "approvals_reviewer": permissions.approvals_reviewer,
+                "network_access": permissions.network_access,
             },
         )
 

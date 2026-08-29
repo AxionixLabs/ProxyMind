@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import typing
 from dataclasses import replace
-from types import SimpleNamespace
 from pathlib import Path
-from typing import cast
+from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -57,6 +57,21 @@ def _invocation() -> ToolInvocation:
         name="test_tool",
         arguments={"value": 1},
     )
+
+
+def _compact_fields(
+    *,
+    ok: bool = True,
+    text: str = "done",
+    data: dict[str, typing.Any] | None = None,
+) -> dict[str, typing.Any]:
+    """构造客户端工具生命周期的规范化字段。"""
+    return {
+        "ok": ok,
+        "text": text,
+        "attachments": [],
+        "data": {} if data is None else data,
+    }
 
 
 def _runner(
@@ -142,7 +157,7 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
     runner, ports = _runner(coordinator)
     tool_run = SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "done"},
+        fields=_compact_fields(),
         text="done",
         cost_ms=7,
     )
@@ -161,7 +176,15 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
 
     assert result.ok is True
     assert result.arguments == {"value": 1}
-    assert result.fields == {"ok": True, "text": "done"}
+    assert result.fields == {
+        "ok": True,
+        "tool": "test_tool",
+        "source": "client",
+        "args": {"value": 1},
+        "text": "done",
+        "attachments": [],
+        "data": {},
+    }
     assert result.cost_ms == 7
     ports.output.record_tool_arguments.assert_called_once_with(
         "test_tool",
@@ -197,7 +220,7 @@ async def test_apply_patch_start_uses_read_only_preview_before_execution(monkeyp
     runner.patch_preview = preview
     tool_run = SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "done"},
+        fields=_compact_fields(),
         text="done",
         cost_ms=1,
         result=None,
@@ -314,7 +337,7 @@ async def test_durable_tool_uses_journal_before_hooks(
             visible_result=HookVisibleToolResult(
                 ok=True,
                 text="done",
-                fields={"ok": True, "text": "done"},
+                fields=_compact_fields(),
             ),
         )
 
@@ -329,7 +352,7 @@ async def test_durable_tool_uses_journal_before_hooks(
         order.append("tool")
         return SimpleNamespace(
             ok=True,
-            fields={"ok": True, "text": "done"},
+            fields=_compact_fields(),
             text="done",
             cost_ms=1,
         )
@@ -366,7 +389,7 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
             visible_result=HookVisibleToolResult(
                 ok=True,
                 text="done",
-                fields={"ok": True, "text": "done"},
+                fields=_compact_fields(),
             ),
         )
 
@@ -378,7 +401,7 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
     )
     tool_run = SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "done"},
+        fields=_compact_fields(),
         text="done",
         cost_ms=1,
     )
@@ -438,7 +461,7 @@ async def test_custom_operation_uses_same_durable_effect_boundary(
             text="plan complete",
             cost_ms=4,
             call_id=invocation.call_id,
-            fields={"ok": True, "text": "plan complete"},
+            fields=_compact_fields(text="plan complete"),
         )
         operation(invocation)
         return ToolOperationResult(
@@ -497,7 +520,7 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
             visible_result=HookVisibleToolResult(
                 ok=True,
                 text="done",
-                fields={"ok": True, "text": "done"},
+                fields=_compact_fields(),
             ),
         )
 
@@ -509,7 +532,7 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
     )
     monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "done"},
+        fields=_compact_fields(),
         text="done",
         cost_ms=1,
     )))
@@ -545,7 +568,15 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
         "text": "done",
         "cost_ms": 1,
         "call_id": "call-1",
-        "fields": {"ok": True, "text": "done"},
+        "fields": {
+            "ok": True,
+            "tool": "test_tool",
+            "source": "client",
+            "args": {"value": 1},
+            "text": "done",
+            "attachments": [],
+            "data": {},
+        },
         "additional_context": [],
     }
     assert persisted["reconciliation_result_payload"]["call_id"] == "call-1"
@@ -685,7 +716,7 @@ async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch)
     )
     tool_run = SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "done"},
+        fields=_compact_fields(),
         text="done",
         cost_ms=200,
     )
@@ -758,7 +789,7 @@ async def test_tool_start_trace_uses_two_stage_policy(
     )
     tool_run = SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "done"},
+        fields=_compact_fields(),
         text="done",
         cost_ms=7,
     )
@@ -854,6 +885,7 @@ async def test_client_tool_call_applies_post_hook_replacement(
                 fields={
                     "ok": False,
                     "text": "replacement",
+                    "attachments": [],
                     "data": {"redacted": True},
                 },
                 additional_context=("review replacement",),
@@ -864,7 +896,7 @@ async def test_client_tool_call_applies_post_hook_replacement(
     runner, _ports = _runner(coordinator)
     tool_run = SimpleNamespace(
         ok=True,
-        fields={"ok": True, "text": "original"},
+        fields=_compact_fields(text="original"),
         text="original",
         cost_ms=3,
     )
@@ -885,12 +917,13 @@ async def test_client_tool_call_applies_post_hook_replacement(
 
 
 def test_client_tool_outcome_rejects_invalid_result() -> None:
+    invalid_result: typing.Any = SimpleNamespace()
     with pytest.raises(
         TypeError,
         match="must return ClientToolCallResult",
     ):
         ClientToolCallOutcome(
-            result=cast(ClientToolCallResult, SimpleNamespace())
+            result=invalid_result
         )
 
 
@@ -900,7 +933,15 @@ def test_client_tool_result_has_no_hook_feedback_fields() -> None:
         arguments={},
         ok=True,
         text="done",
-        fields={"ok": True, "text": "done"},
+        fields={
+            "ok": True,
+            "tool": "test_tool",
+            "source": "client",
+            "args": {},
+            "text": "done",
+            "attachments": [],
+            "data": {},
+        },
     )
 
     assert "additional_context" not in client_call.ClientToolCallResult.__slots__

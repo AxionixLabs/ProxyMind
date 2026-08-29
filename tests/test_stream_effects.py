@@ -38,15 +38,24 @@ async def _deliver(
     request_id=None,
 ) -> None:
     """使用稳定工具调用身份投递一份测试结果。"""
+    data = {"value": 1} if result is None else result
+    text = str(data.get("error") or "ready")
     await delivery.deliver(
         "cid-test",
         "sid-test",
         "call-test",
         "test_tool",
         True,
-        {"value": 1} if result is None else result,
+        {
+            "ok": True,
+            "tool": "test_tool",
+            "source": "client",
+            "args": {"input": 2},
+            "text": text,
+            "attachments": [],
+            "data": data,
+        },
         additional_context=("context",),
-        tool_arguments={"input": 2},
         request_id=request_id,
     )
 
@@ -182,59 +191,42 @@ async def test_delivery_queries_transient_registration_status_before_retry(
 
 
 @pytest.mark.anyio
-async def test_delivery_accepts_authoritative_result_for_same_request() -> None:
-    request_ids = []
-
-    async def post_result(*_args, **kwargs) -> None:
-        request_ids.append(kwargs["request_id"])
+async def test_delivery_stops_when_call_already_completed() -> None:
+    async def post_result(*_args, **_kwargs) -> None:
         raise ToolResultRequestError(
             "tool_call_already_completed",
             "result already completed",
         )
 
-    async def get_status(**_kwargs):
-        return {
-            "tool_status": "result_received",
-            "result_received": True,
-            "request_id": request_ids[0],
-            "reconciliation_required": False,
-        }
-
-    async def sleep(_delay: float) -> None:
-        return None
-
+    get_status = AsyncMock()
     delivery = _delivery(
         post_result=post_result,
         get_status=get_status,
-        sleep=sleep,
     )
 
-    await _deliver(delivery)
+    with pytest.raises(ToolResultRequestError) as caught:
+        await _deliver(delivery)
 
-    assert len(request_ids) == 1
+    assert caught.value.code == "tool_call_already_completed"
+    get_status.assert_not_awaited()
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("error_code", "tool_status"),
+    "error_code",
     (
-        ("tool_call_execution_timed_out", "execution_timed_out"),
-        ("tool_call_cancelled", "cancelled"),
-        ("tool_call_turn_closed", "turn_closed"),
+        "tool_call_execution_timed_out",
+        "tool_call_cancelled",
+        "tool_call_turn_closed",
     ),
 )
-async def test_delivery_queries_terminal_status_for_reconciliation(
+async def test_delivery_stops_on_deterministic_terminal_error(
     error_code,
-    tool_status,
 ) -> None:
     async def post_result(*_args, **_kwargs) -> None:
         raise ToolResultRequestError(error_code, "tool call closed")
 
-    get_status = AsyncMock(return_value={
-        "tool_status": tool_status,
-        "result_received": False,
-        "reconciliation_required": False,
-    })
+    get_status = AsyncMock()
 
     async def sleep(_delay: float) -> None:
         return None
@@ -248,8 +240,29 @@ async def test_delivery_queries_terminal_status_for_reconciliation(
     with pytest.raises(ToolResultRequestError) as caught:
         await _deliver(delivery)
 
-    assert caught.value.code == f"tool_call_{tool_status}"
-    get_status.assert_awaited_once()
+    assert caught.value.code == error_code
+    get_status.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_delivery_does_not_retry_request_id_conflict() -> None:
+    async def post_result(*_args, **_kwargs) -> None:
+        raise ToolResultRequestError(
+            "request_id_conflict",
+            "request id content conflicts with the stored result",
+        )
+
+    get_status = AsyncMock()
+    delivery = _delivery(
+        post_result=post_result,
+        get_status=get_status,
+    )
+
+    with pytest.raises(ToolResultRequestError) as caught:
+        await _deliver(delivery)
+
+    assert caught.value.code == "request_id_conflict"
+    get_status.assert_not_awaited()
 
 
 @pytest.mark.anyio

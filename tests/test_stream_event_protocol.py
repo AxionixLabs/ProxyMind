@@ -737,6 +737,27 @@ def test_tool_call_batch_buffer_ignores_completed_batch_replay() -> None:
     assert buffer.active is False
 
 
+def test_tool_call_batch_buffer_rejects_call_outside_batch() -> None:
+    call = _parse_stream_event({
+        "type": "tool.call",
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": 1,
+        "presentation_epoch": 1,
+        "call_id": "call-1",
+        "name": "test_tool",
+        "arguments": {},
+        "item_id": "call-1",
+        "item_kind": "tool_call",
+        "item_status": "waiting_result",
+    })
+
+    with pytest.raises(ValueError, match="without tool.calls.start"):
+        ToolCallBatchBuffer().accept(call)
+
+
 def test_tool_approval_allows_missing_optional_reason() -> None:
     approval = parse_stream_event({
         "type": "tool.approval_required",

@@ -2,14 +2,19 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass, field
+from dataclasses import (
+    dataclass,
+    field,
+)
 from mind_nova.requests.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,
+    NetworkAccess,
     SandboxMode,
     normalize_approval_policy,
     normalize_approval_reviewer,
-    normalize_sandbox_mode
+    normalize_network_access,
+    normalize_sandbox_mode,
 )
 
 PermissionPreset = typing.Literal[
@@ -27,6 +32,7 @@ class PermissionSettings(object):
     approval_policy: ApprovalPolicy
     display_label: str | None = field(default=None, compare=False)
     approvals_reviewer: ApprovalReviewer = "user"
+    network_access: NetworkAccess = "restricted"
 
     @property
     def preset(self) -> PermissionPreset:
@@ -50,15 +56,24 @@ def preset_permissions(
     """返回用户预设对应的权限设置。"""
     if preset == "read-only":
         return PermissionSettings(
-            "read-only", "on-request", display_label, approvals_reviewer
+            sandbox_mode="read-only",
+            approval_policy="on-request",
+            display_label=display_label,
+            approvals_reviewer=approvals_reviewer,
         )
     if preset == "auto":
         return PermissionSettings(
-            "workspace-write", "on-request", display_label, approvals_reviewer
+            sandbox_mode="workspace-write",
+            approval_policy="on-request",
+            display_label=display_label,
+            approvals_reviewer=approvals_reviewer,
         )
     if preset == "full-access":
         return PermissionSettings(
-            "danger-full-access", "never", display_label, approvals_reviewer
+            sandbox_mode="danger-full-access",
+            approval_policy="never",
+            display_label=display_label,
+            approvals_reviewer=approvals_reviewer,
         )
     raise ValueError(f"unsupported permission preset: {preset}")
 
@@ -77,11 +92,13 @@ def resolve_permissions(
     sandbox_value  = data.get("sandbox_mode") or default_sandbox
     approval_value = data.get("approval_policy") or default_approval
     reviewer_value = data.get("approvals_reviewer") or "user"
+    network_value = data.get("network_access") or "restricted"
 
     return PermissionSettings(
         sandbox_mode=normalize_sandbox_mode(sandbox_value),
         approval_policy=normalize_approval_policy(approval_value),
         approvals_reviewer=normalize_approval_reviewer(reviewer_value),
+        network_access=normalize_network_access(network_value),
     )
 
 

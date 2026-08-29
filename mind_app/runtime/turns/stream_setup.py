@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import time
 import typing
 from dataclasses import dataclass
 from engine.observability import observe_exception
 from mind_core.skills import skills_payload
 from mind_nova.events import EventReport
+from mind_nova.requests.environment import normalize_client_environment_snapshot
 from mind_app.output import (
     OutputSession,
     SessionFactory,
@@ -151,14 +153,36 @@ def prepare_stream_turn(
     if event_report:
         event_report.begin_turn(context.turn_id)
 
-    if not isinstance(request_kwargs.get("exec_env"), dict):
+    if "exec_env" in request_kwargs:
+        raw_exec_env = request_kwargs.get("exec_env")
+        if raw_exec_env is None:
+            del request_kwargs["exec_env"]
+        else:
+            request_kwargs["exec_env"] = normalize_client_environment_snapshot(
+                raw_exec_env
+            )
+    else:
         service_env = (
             controller.service_exec_env_snapshot()
             if controller.is_service_mcp_linked()
             else None
         )
-        request_kwargs["exec_env"] = build_runtime_exec_env(
-            service_exec_env=service_env
+        try:
+            request_kwargs["exec_env"] = build_runtime_exec_env(
+                cwd=context.cwd,
+                workspace_root=controller.history_workspace,
+                service_exec_env=service_env
+            )
+        except (OSError, RuntimeError) as error:
+            observe_exception(
+                "exec_env.capture.failed",
+                error,
+                level="WARNING",
+            )
+
+    if "exec_env" in request_kwargs:
+        continuation_kwargs["exec_env"] = copy.deepcopy(
+            request_kwargs["exec_env"]
         )
 
     if request_kwargs.get("skills") is None:

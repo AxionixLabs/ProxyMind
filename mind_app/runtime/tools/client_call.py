@@ -22,7 +22,11 @@ from mind_app.client_tools.types import (
 )
 from mind_app.mcp.contracts import McpSessionLike
 from mind_nova.requests.effects import post_effect_reconciliation
-from mind_nova.requests.tools import build_tool_result_payload
+from mind_nova.requests.tools import (
+    ToolResultEnvelope,
+    build_tool_result_envelope,
+    build_tool_result_payload,
+)
 from mind_app.output import (
     OutputControlPort,
     OutputStatusPort
@@ -43,6 +47,7 @@ from mind_app.presentation.tool_policy import (
     is_two_stage_tool,
     tool_status_text
 )
+from mind_nova import const
 from .display import (
     show_tool_result,
     show_tool_start
@@ -93,6 +98,67 @@ class ClientToolCallOutcome:
                 if text
             ),
         )
+
+
+def _client_result_envelope(
+    *,
+    name: str,
+    ok: bool,
+    fallback_args: typing.Mapping[str, typing.Any],
+    fallback_text: str,
+    fields: typing.Mapping[str, typing.Any],
+) -> ToolResultEnvelope:
+    """从客户端规范字段显式构建 wire 工具结果信封。"""
+    compact_fields = frozenset({"ok", "text", "attachments", "data"})
+    envelope_fields = frozenset({
+        "ok",
+        "tool",
+        "source",
+        "args",
+        "text",
+        "attachments",
+        "data",
+    })
+    field_names = set(fields)
+    if field_names != compact_fields and field_names != envelope_fields:
+        unknown = sorted(field_names.difference(envelope_fields))
+        if unknown:
+            raise ValueError(
+                "client tool result contains unknown fields: "
+                + ", ".join(unknown)
+            )
+        missing = sorted(compact_fields.difference(field_names))
+        raise ValueError(
+            "client tool result is missing fields: " + ", ".join(missing)
+        )
+    field_ok = fields.get("ok")
+    if not isinstance(field_ok, bool) or field_ok != ok:
+        raise ValueError("client tool result ok does not match execution status")
+    field_tool = fields.get("tool", name)
+    if field_tool != name:
+        raise ValueError("client tool result tool does not match invocation")
+    if "source" in fields and fields.get("source") != "client":
+        raise ValueError("client tool result source must be client")
+    args = fields.get("args", fallback_args)
+    text = fields.get("text", fallback_text)
+    attachments = fields.get("attachments")
+    data = fields.get("data")
+    if not isinstance(args, dict):
+        raise TypeError("client tool result args must be an object")
+    if not isinstance(text, str):
+        raise TypeError("client tool result text must be a string")
+    if not isinstance(attachments, list):
+        raise TypeError("client tool result attachments must be a list")
+    if not isinstance(data, dict):
+        raise TypeError("client tool result data must be an object")
+    return build_tool_result_envelope(
+        tool=name,
+        ok=ok,
+        args=args,
+        text=text,
+        attachments=attachments,
+        data=data,
+    )
 
 
 ClientToolOperation = typing.Callable[
@@ -179,7 +245,9 @@ class ClientToolCallRunner:
     @staticmethod
     def _effect_request_suffix(effect_id: str) -> str:
         """为效果核对命令生成固定长度的稳定请求后缀。"""
-        return hashlib.sha256(str(effect_id or "").encode("utf-8")).hexdigest()[:32]
+        return hashlib.sha256(
+            str(effect_id or "").encode(const.CHARSET)
+        ).hexdigest()[:32]
 
     @staticmethod
     def _denied_result(
@@ -189,14 +257,17 @@ class ClientToolCallRunner:
         """构建被前置 Hook 阻止的工具结果。"""
         text = str(reason or "tool use denied by hook")
 
-        fields = {
-            "ok": False,
-            "text": text,
-            "data": {
+        fields = build_tool_result_envelope(
+            tool=invocation.name,
+            ok=False,
+            args=invocation.arguments,
+            text=text,
+            attachments=[],
+            data={
                 "hook_denied": True,
                 "error": text,
             },
-        }
+        )
 
         return ClientToolCallResult(
             name=invocation.name,
@@ -217,15 +288,18 @@ class ClientToolCallRunner:
         """构建本地副作用尚未开始时的确定失败结果。"""
         detail = f"{type(error).__name__}: {error}"
         text = f"{status}: {detail}"
-        fields = {
-            "ok": False,
-            "text": text,
-            "data": {
+        fields = build_tool_result_envelope(
+            tool=invocation.name,
+            ok=False,
+            args=invocation.arguments,
+            text=text,
+            attachments=[],
+            data={
                 "executed": False,
                 "status": status,
                 "error": detail,
             },
-        }
+        )
         return ClientToolCallOutcome(result=ClientToolCallResult(
             name=invocation.name,
             arguments=dict(invocation.arguments),
@@ -304,7 +378,6 @@ class ClientToolCallRunner:
             ok=result.ok,
             result=result.fields,
             additional_context=outcome.additional_context,
-            arguments=invocation.arguments,
             request_id=f"effect-tool-result-{request_suffix}",
         )
 
@@ -497,11 +570,14 @@ class ClientToolCallRunner:
             text = f"{type(exc).__name__}: {exc}"
             ok   = False
 
-            fields = {
-                "ok": False,
-                "text": text,
-                "data": {"error": text},
-            }
+            fields = build_tool_result_envelope(
+                tool=name,
+                ok=False,
+                args=arguments,
+                text=text,
+                attachments=[],
+                data={"error": text},
+            )
 
             hook_response = None
 
@@ -530,14 +606,22 @@ class ClientToolCallRunner:
                 call_id=call_id,
             )
 
+        envelope = _client_result_envelope(
+            name=name,
+            ok=ok,
+            fallback_args=arguments,
+            fallback_text=str(text or ""),
+            fields=fields,
+        )
+
         return ClientToolCallResult(
             name=name,
-            arguments=arguments,
+            arguments=dict(envelope["args"]),
             ok=ok,
             text=str(text or ""),
             cost_ms=cost_ms,
             call_id=call_id,
-            fields=fields,
+            fields=envelope,
             hook_response=hook_response,
             response=response,
         )
@@ -652,15 +736,22 @@ class ClientToolCallRunner:
         else:
             visible = hook_run.visible_result
 
+            envelope = _client_result_envelope(
+                name=hook_run.value.name,
+                ok=visible.ok,
+                fallback_args=hook_run.value.arguments,
+                fallback_text=visible.text,
+                fields=visible.fields,
+            )
             outcome = ClientToolCallOutcome(
                 result=ClientToolCallResult(
                     name=hook_run.value.name,
-                    arguments=dict(hook_run.value.arguments),
+                    arguments=dict(envelope["args"]),
                     ok=visible.ok,
                     text=visible.text,
                     cost_ms=hook_run.value.cost_ms,
                     call_id=hook_run.value.call_id,
-                    fields=visible.fields,
+                    fields=envelope,
                     hook_response=hook_run.value.hook_response,
                     response=hook_run.value.response,
                 ),

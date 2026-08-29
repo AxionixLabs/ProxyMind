@@ -28,6 +28,7 @@ def apply_tool_result_effect(
         result_fields = {
             "ok": False,
             "text": result_text,
+            "attachments": [],
             "data": {
                 "hook_blocked": True,
                 "error": result_text,
@@ -43,6 +44,7 @@ def apply_tool_result_effect(
         result_fields = {
             "ok": result_ok,
             "text": result_text,
+            "attachments": [],
             "data": {
                 "hook_feedback": True,
             },
@@ -59,30 +61,46 @@ def apply_tool_result_effect(
 def _coerce_hook_result_fields(
     value: typing.Any,
     *,
-    default_ok: bool
+    default_ok: bool,
 ) -> tuple[bool, str, dict[str, typing.Any]]:
     """把 Hook 替换结果转换为稳定工具结果字段。"""
     if isinstance(value, dict):
-        fields = dict(value)
+        raw_fields = dict(value)
+        unknown = sorted(
+            set(raw_fields).difference({"ok", "text", "attachments", "data"})
+        )
+        if unknown:
+            raise ValueError(
+                "hook replacement result contains unknown fields: "
+                + ", ".join(unknown)
+            )
     else:
-        fields = {
+        raw_fields = {
             "ok": default_ok,
             "text": _hook_result_text(value),
-            "data": value,
+            "attachments": [],
+            "data": {"value": value},
         }
 
-    ok = bool(fields["ok"]) if isinstance(fields.get("ok"), bool) else default_ok
+    raw_ok = raw_fields.get("ok", default_ok)
+    if not isinstance(raw_ok, bool):
+        raise TypeError("hook replacement result ok must be a boolean")
+    raw_text = raw_fields.get("text", _hook_result_text(value))
+    if not isinstance(raw_text, str):
+        raise TypeError("hook replacement result text must be a string")
+    attachments = raw_fields.get("attachments", [])
+    if not isinstance(attachments, list):
+        raise TypeError("hook replacement result attachments must be a list")
+    data = raw_fields.get("data", {})
+    if not isinstance(data, dict):
+        raise TypeError("hook replacement result data must be an object")
 
-    fields["ok"] = ok
-
-    text = str(
-        fields.get("text")
-        or fields.get("error")
-        or _hook_result_text(value)
-    )
-    fields["text"] = text
-
-    return ok, text, fields
+    return raw_ok, raw_text, {
+        "ok": raw_ok,
+        "text": raw_text,
+        "attachments": attachments,
+        "data": data,
+    }
 
 
 def _hook_result_text(value: typing.Any) -> str:
@@ -93,7 +111,3 @@ def _hook_result_text(value: typing.Any) -> str:
         return str(value if value is not None else "")
     except (TypeError, ValueError):
         return ""
-
-
-if __name__ == '__main__':
-    pass

@@ -8,6 +8,7 @@ import asyncio
 from dataclasses import dataclass
 from mind_nova.identifiers import stable_request_id
 from mind_nova.requests.tools import (
+    ToolResultEnvelope,
     ToolResultRequestError,
     build_tool_result_payload,
 )
@@ -23,12 +24,7 @@ _RETRYABLE_DELIVERY_CODES = frozenset({
 
 _QUERYABLE_CODES = frozenset({
     *_RETRYABLE_DELIVERY_CODES,
-    "request_id_conflict",
-    "tool_call_already_completed",
     "tool_result_reconciliation_required",
-    "tool_call_execution_timed_out",
-    "tool_call_cancelled",
-    "tool_call_turn_closed",
 })
 
 _RECONCILIATION_CONFLICT_CODES = frozenset({
@@ -47,9 +43,8 @@ class _FrozenToolResult:
     call_id: str
     tool_name: str
     ok: bool
-    result: typing.Any
+    result: ToolResultEnvelope
     additional_context: tuple[str, ...]
-    arguments: dict[str, typing.Any] | None
     request_id: str
     payload: dict[str, typing.Any]
 
@@ -67,19 +62,13 @@ class _FrozenToolResult:
         call_id: str,
         tool_name: str,
         ok: bool,
-        result: typing.Any,
+        result: typing.Mapping[str, typing.Any],
         additional_context: typing.Sequence[str],
-        arguments: typing.Mapping[str, typing.Any] | None,
         request_id: str | None,
     ) -> "_FrozenToolResult":
         """复制调用方数据并生成稳定服务端请求载荷。"""
-        frozen_result = copy.deepcopy(result)
+        frozen_result = copy.deepcopy(dict(result))
         frozen_context = tuple(str(value) for value in additional_context)
-        frozen_arguments = (
-            copy.deepcopy(dict(arguments))
-            if arguments is not None
-            else None
-        )
         payload = build_tool_result_payload(
             cid=cid,
             sid=sid,
@@ -88,7 +77,6 @@ class _FrozenToolResult:
             ok=ok,
             result=frozen_result,
             additional_context=frozen_context,
-            arguments=frozen_arguments,
             request_id=request_id,
         )
         return cls(
@@ -97,9 +85,8 @@ class _FrozenToolResult:
             call_id=str(call_id),
             tool_name=str(tool_name),
             ok=bool(ok),
-            result=frozen_result,
+            result=payload["result"],
             additional_context=frozen_context,
-            arguments=frozen_arguments,
             request_id=payload["request_id"],
             payload=payload,
         )
@@ -145,9 +132,8 @@ class ToolResultDelivery:
         call_id: str,
         tool_name: str,
         ok: bool,
-        tool_result: typing.Any,
+        tool_result: typing.Mapping[str, typing.Any],
         additional_context: typing.Sequence[str] = (),
-        tool_arguments: typing.Mapping[str, typing.Any] | None = None,
         request_id: str | None = None,
     ) -> None:
         """冻结工具结果，并以唯一请求完成一次持久投递。"""
@@ -159,7 +145,6 @@ class ToolResultDelivery:
             ok=ok,
             result=tool_result,
             additional_context=additional_context,
-            arguments=tool_arguments,
             request_id=request_id,
         )
         loop = asyncio.get_running_loop()
@@ -215,6 +200,11 @@ class ToolResultDelivery:
             return
         except ToolResultRequestError as delivery_error:
             first_error = delivery_error
+            if (
+                delivery_error.is_deterministic_terminal
+                or delivery_error.code == "request_id_conflict"
+            ):
+                raise
             if not (
                 delivery_error.retryable
                 or delivery_error.code in _QUERYABLE_CODES
@@ -307,7 +297,6 @@ class ToolResultDelivery:
             frozen.ok,
             frozen.result,
             additional_context=frozen.additional_context,
-            arguments=frozen.arguments,
             request_id=frozen.request_id,
         )
 
@@ -412,7 +401,3 @@ class ToolResultDelivery:
             first_error.retryable
             or first_error.code in _RETRYABLE_DELIVERY_CODES
         )
-
-
-if __name__ == '__main__':
-    pass

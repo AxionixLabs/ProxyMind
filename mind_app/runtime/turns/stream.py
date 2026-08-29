@@ -476,6 +476,7 @@ async def stream_turn(
             "sandbox_mode": turn_context.permissions.sandbox_mode,
             "approval_policy": turn_context.permissions.approval_policy,
             "approvals_reviewer": turn_context.permissions.approvals_reviewer,
+            "network_access": turn_context.permissions.network_access,
         }
         model_request = ModelStreamRequest(
             pref_config=pref_config,
@@ -709,7 +710,12 @@ async def stream_turn(
             continue
 
     except ToolResultRequestError as error:
-        outcome.require_reconciliation(f"{error.code}: {error}")
+        if error.is_deterministic_terminal:
+            outcome.interrupt(f"{error.code}: {error}")
+            failure_phase = "turn.tool_result_delivery_stopped"
+        else:
+            outcome.require_reconciliation(f"{error.code}: {error}")
+            failure_phase = "turn.tool_result_delivery_failed"
         observe(
             "stream.tool_result_delivery_failed",
             level="ERROR",
@@ -722,7 +728,7 @@ async def stream_turn(
         if turn_context.agent.depth == 0:
             await mind.await_cleanup(mind.stop_anim("wait"))
         await run_presentation.emit_failure(
-            "turn.tool_result_delivery_failed",
+            failure_phase,
         )
 
     except LocalEffectReconciliationRequired as error:

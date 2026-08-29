@@ -131,7 +131,6 @@ async def enhance_heal_element(
         return {
             "ok"          : False,
             "text"        : "Element location failed.",
-            "target"      : target,
             "attachments" : attachments,
             "data"        : heal_result_data
         }
@@ -139,7 +138,6 @@ async def enhance_heal_element(
     return {
         "ok"          : True,
         "text"        : "Element location succeeded.",
-        "target"      : target,
         "attachments" : attachments,
         "data"        : heal_result_data
     }
