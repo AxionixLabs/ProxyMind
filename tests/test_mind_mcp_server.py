@@ -320,12 +320,14 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
         async def submit(self, command, executor):
             self.command = command
             value = await executor(command)
+            projected_result = value.to_dict()
+            projected_result["assistant_text"] = "projected"
             return SimpleNamespace(
                 value=value,
                 projection=RunResultProjection(
                     status=value.status,
                     exit_code=value.exit_code,
-                    result=value.to_dict(),
+                    result=projected_result,
                 ),
             )
 
@@ -365,6 +367,8 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
         "approval_policy": "on-request",
         "approvals_reviewer": "user",
     }
+    assert actual.run.assistant_text == "done"
+    assert actual.to_dict()["assistant_text"] == "projected"
     await runtime.close()
     assert application.closed is True
 

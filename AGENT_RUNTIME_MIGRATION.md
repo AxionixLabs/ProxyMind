@@ -273,12 +273,13 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 
 状态：进行中（2026-08-29）
 
-当前切片：stdio MCP 与 subscription 的执行层已经通过注入的
-`TurnApplication` 提交 `SubmitTurnCommand`。入口只负责请求校验、工作区、权限、
-WebSocket mailbox 和状态回执；Session 状态、取消、事件序列和 application 关闭
-由统一入口拥有。旧 `run_root_turn` 仅作为显式执行器适配；subscription 的终态
-回执已改由 application Event projection 分类，下一切片复核四类入口的结果投影
-一致性。
+当前切片：stdio MCP、subscription 和 CLI `exec` 已通过注入的
+`TurnApplication` 提交 `SubmitTurnCommand`，并以 `RunResultProjection` 作为终态
+观测或回执的权威来源。入口只负责请求校验、工作区、权限、WebSocket mailbox
+和前端生命周期；Session 状态、取消、事件序列和 application 关闭由统一入口拥有。
+TUI 已在中断收束处优先读取同一 projection，但正文展示仍由既有 EventReport
+生命周期承载。旧 `run_root_turn` 仅作为显式执行器适配，下一切片将收口 TUI 的
+展示结果边界并继续清理 legacy 执行器依赖。
 
 ### 当前证据
 
@@ -305,6 +306,8 @@ WebSocket mailbox 和状态回执；Session 状态、取消、事件序列和 ap
 - [x] subscription 终态分类使用 `TurnApplication.submit()` 返回的
   `RunResultProjection`，不再以执行器返回对象决定完成、失败或中断；原始结果仅
   保留兼容错误文本。
+- [x] CLI `exec` 的 `command.complete` 观测使用 projection 的终态，不再从原始
+  `RunResult.status` 重新解释命令结果；退出码和结构化结果继续保持原有兼容入口。
 
 当前未满足阶段 4 出口：四类入口尚未共享同一套完整的结果/展示投影，旧根轮次和
 legacy Helix/process adapter 仍需在后续切片迁移。
@@ -419,3 +422,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 3 | 完成 model/MCP/Helix/process/filesystem capability ports；新增协议值对象、统一 `CapabilityError`、本地进程/文件实现和四类内存替身；定向 capability 测试 30 项、全量测试 `2926 passed, 11 skipped` | 旧 `mind_nova` wire decoder、`ServerManage`、`ProcessSessionManager` 和 `SandboxClient` 作为 legacy adapters 转入阶段 4/5；模型轮次不隐式触发 Helix |
 | 2026-08-29 | 阶段 4 | stdio MCP `mind_exec` 通过注入的 `TurnApplication` 提交冻结 `SubmitTurnCommand`，structured content 优先来自 `RunResultProjection`；MCP 不再直接拥有 Turn application 生命周期；定向 MCP/架构测试 `24 passed` | CLI、TUI、Subscription 仍待统一 Command Gateway；旧根轮次仅保留为显式执行器 adapter |
 | 2026-08-29 | 阶段 4 | Subscription `AgentExecutor` 接入长驻 `TurnApplication`，稳定冻结远端身份、metadata、附件和 extras，并在取消/关闭时收束 Session；终态分类改用 Event projection；定向 Subscription 测试 `49 passed`，全量测试 `2929 passed, 11 skipped` | 四类入口的完整结果/展示投影仍待统一；旧根轮次和 legacy Helix/process adapter 待迁移 |
+| 2026-08-29 | 阶段 4 | CLI `exec` 的完成观测改用 `RunResultProjection.status`，补齐结果投影权威性测试；CLI/架构定向测试 `107 passed` | 四类入口仍保留兼容性原始结果对象；旧根轮次和 legacy Helix/process adapter 待迁移 |

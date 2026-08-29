@@ -882,9 +882,11 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
     run_result = RunResult(status="completed", assistant_text="done")
     submit = AsyncMock(return_value=SimpleNamespace(
         value=run_result,
-        projection=SimpleNamespace(exit_code=7),
+        projection=SimpleNamespace(exit_code=7, status="projected"),
     ))
     close = AsyncMock()
+    observe = Mock()
+    monkeypatch.setattr(cli_dispatch, "observe", observe)
     monkeypatch.setattr(
         cli_dispatch,
         "TurnApplication",
@@ -901,6 +903,7 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
     assert mind.exit_code == 7
     submit.assert_awaited_once()
     close.assert_awaited_once_with(cancel_running=True)
+    assert observe.call_args_list[-1].kwargs["outcome"] == "projected"
 
 
 @pytest.mark.anyio
@@ -911,7 +914,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     run_result = RunResult(status="completed", assistant_text="done")
     submit = AsyncMock(return_value=SimpleNamespace(
         value=run_result,
-        projection=SimpleNamespace(exit_code=0),
+        projection=SimpleNamespace(exit_code=0, status="completed"),
     ))
     close = AsyncMock()
     application = SimpleNamespace(submit=submit, close=close)

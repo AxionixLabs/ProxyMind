@@ -306,7 +306,7 @@ running -> cancelled
 | `agent/capabilities/mcp.py`、`helix.py`、`process.py`、`filesystem.py` | `capabilities` | MCP/Helix 内存替身和本地进程/文件实现均可脱离网络、TUI 和 legacy runtime 测试；受限进程只接受显式 sandbox launcher，旧 `engine` adapter 在阶段 4 接管 |
 | `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
-| `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | 四类入口均通过 `RuntimeServices` 接收 application；CLI/TUI/MCP/Subscription 的执行命令已冻结并提交统一入口，Subscription 回执投影与旧能力适配器仍待收口 |
+| `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | 四类入口均通过 `RuntimeServices` 接收 application；CLI/TUI/MCP/Subscription 的执行命令已冻结并提交统一入口，终态观测和回执优先使用 projection，兼容原始结果对象与旧能力适配器仍待收口 |
 | `mind_app/mcp/server.py` | `adapters/mcp_server.py` | `mind_exec` 已通过注入的 `TurnApplication` 提交 `SubmitTurnCommand`，structured content 优先使用 `RunResultProjection`；`MindMcpRuntime` 仍保留控制器配置和旧根轮次执行器，待统一结果投影后退役 |
 | `mind_app/subscription/forwarding.py`、`subscription/runtime.py` | `adapters/subscription.py`、`application` | `AgentExecutor` 将远端 forward 冻结为稳定 `SubmitTurnCommand`，长驻 application 由 `AgentRuntime` 拥有并在 shutdown 关闭；完成/失败/中断分类使用 application 的 Event projection |
 | `engine` | capability 的基础实现 | 保持平台基础设施定位，禁止反向依赖 Agent 业务 |

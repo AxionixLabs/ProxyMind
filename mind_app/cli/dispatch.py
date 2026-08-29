@@ -58,6 +58,7 @@ async def run_selected_command(
     )
 
     run_result: RunResult | None = None
+    run_outcome: str | None = None
 
     try:
         if isinstance(command, AgentListenCommand):
@@ -121,6 +122,7 @@ async def run_selected_command(
             finally:
                 await turn_application.close(cancel_running=True)
             run_result = execution.value
+            run_outcome = execution.projection.status
             mind.exit_code = execution.projection.exit_code
         elif isinstance(command, InteractiveCommand):
             await _run_tui_session(
@@ -187,7 +189,7 @@ async def run_selected_command(
         observe(
             "command.complete",
             command=command_name,
-            outcome=run_result.status if run_result is not None else None,
+            outcome=run_outcome,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
 
