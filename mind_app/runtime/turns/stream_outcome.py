@@ -97,6 +97,16 @@ class StreamTurnOutcome:
         """合并服务端失败终态及其用量和响应元数据。"""
         self._terminal_statuses.add("failed")
         self.error = event.error
+        self.error_code = event.error_type or None
+        self.error_details = {
+            key: value
+            for key, value in {
+                "source": event.error_source,
+                "status_code": event.status_code,
+                "retryable": event.retryable,
+            }.items()
+            if value not in {None, ""}
+        }
         self._record_terminal(event)
 
     def record_done_event(self, event: TurnDoneEvent) -> None:

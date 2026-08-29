@@ -61,6 +61,29 @@ def test_outcome_prioritizes_reconciliation_over_failed_terminal() -> None:
     )
 
 
+def test_outcome_preserves_server_failure_metadata() -> None:
+    outcome = StreamTurnOutcome()
+    outcome.record_failed_event(TurnFailedEvent(
+        type="turn.failed",
+        error="content rejected",
+        error_type="provider_error",
+        error_source="provider",
+        status_code=422,
+        retryable=False,
+    ))
+
+    assert outcome.build_result("") == RunResult(
+        status="failed",
+        error="content rejected",
+        error_code="provider_error",
+        error_details={
+            "source": "provider",
+            "status_code": 422,
+            "retryable": False,
+        },
+    )
+
+
 def test_outcome_marks_stream_without_terminal_as_incomplete() -> None:
     outcome = StreamTurnOutcome()
 

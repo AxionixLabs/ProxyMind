@@ -542,6 +542,9 @@ async def stream_turn(
                     "stream.turn_failed",
                     level="ERROR",
                     error=outcome.error,
+                    error_type=event.error_type or None,
+                    error_source=event.error_source or None,
+                    retryable=event.retryable,
                     stop_reason=event.stop_reason,
                 )
                 if turn_context.agent.depth == 0:

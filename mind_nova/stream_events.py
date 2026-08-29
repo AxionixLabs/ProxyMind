@@ -104,6 +104,10 @@ class TurnFailedEvent(TurnTerminalEvent):
     """描述失败的模型轮次。"""
     status: typing.Literal["failed"] = "failed"
     error: str = "unknown error"
+    error_type: str = ""
+    error_source: str = ""
+    status_code: int | None = None
+    retryable: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -123,6 +127,9 @@ class TurnRetryingEvent(StreamEvent):
     retry_in_ms: int
     reason: str = "stream_error"
     supersedes_item_id: str = ""
+    error_type: str = ""
+    error_source: str = ""
+    retryable: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -455,6 +462,7 @@ def parse_stream_event(
         return TurnFailedEvent(
             **common,
             **_terminal_fields(raw),
+            **_failure_fields(raw),
             error=_error_text(raw.get("error")),
         )
     if event_type == "turn.done":
@@ -494,6 +502,7 @@ def parse_stream_event(
             retry_in_ms=retry_in_ms,
             reason=_text(raw.get("reason")) or "stream_error",
             supersedes_item_id=_text(raw.get("supersedes_item_id")),
+            **_retry_failure_fields(raw),
         )
     if event_type == "turn.input.accepted":
         return TurnInputAcceptedEvent(
@@ -981,9 +990,92 @@ def _terminal_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     }
 
 
+def _failure_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """读取失败事件中可选的错误分类和传输元数据。"""
+    error = payload.get("error")
+    error_object = error if isinstance(error, Mapping) else {}
+    top_error_type = _text(payload.get("error_type"))
+    nested_error_type = _text(error_object.get("type"))
+    if top_error_type and nested_error_type and top_error_type != nested_error_type:
+        raise ValueError("failure error_type does not match error.type")
+
+    retryable: bool | None = None
+    if "retryable" in error_object:
+        retryable = _required_bool(
+            error_object.get("retryable"),
+            "failure error.retryable",
+        )
+    elif "retryable" in payload:
+        retryable = _required_bool(
+            payload.get("retryable"),
+            "failure retryable",
+        )
+
+    status_code = payload.get("status_code")
+    if status_code is not None:
+        status_code = _required_positive_int(status_code, "failure status_code")
+
+    return {
+        "error_type": top_error_type or nested_error_type,
+        "error_source": (
+            _text(error_object.get("source"))
+            or _text(payload.get("error_source"))
+        ),
+        "status_code": status_code,
+        "retryable": retryable,
+    }
+
+
+def _retry_failure_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """读取并校验新协议中 turn.retrying 的错误信封。"""
+    if not any(
+        key in payload
+        for key in ("error_type", "error")
+    ):
+        return {
+            "error_type": "",
+            "error_source": "",
+            "retryable": None,
+        }
+
+    error_type = _required_text(
+        payload.get("error_type"),
+        "turn.retrying error_type",
+    )
+    error = payload.get("error")
+    if not isinstance(error, Mapping):
+        raise ValueError("turn.retrying error must be an object")
+    nested_type = _required_text(
+        error.get("type"),
+        "turn.retrying error.type",
+    )
+    if nested_type != error_type:
+        raise ValueError("turn.retrying error_type does not match error.type")
+    source = _required_text(
+        error.get("source"),
+        "turn.retrying error.source",
+    )
+    retryable = _required_bool(
+        error.get("retryable"),
+        "turn.retrying error.retryable",
+    )
+    return {
+        "error_type": error_type,
+        "error_source": source,
+        "retryable": retryable,
+    }
+
+
 def _optional_bool(value: typing.Any) -> bool | None:
     """读取可选布尔协议值。"""
     return value if isinstance(value, bool) else None
+
+
+def _required_bool(value: typing.Any, field_name: str) -> bool:
+    """读取必填布尔协议值。"""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
 
 
 def _turn_done_status(value: typing.Any) -> TurnDoneStatus:

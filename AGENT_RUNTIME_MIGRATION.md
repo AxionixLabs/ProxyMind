@@ -211,7 +211,11 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
   协议及未知异常转换为稳定的 `ModelCapabilityError`；`RunResult` 保留
   `error_code/error_details`，`RunActor` 直接收到能力异常时也写入具名 `run_failed`
   事件，避免错误只停留在 UI 文本。
-- [x] 全量测试 `2890 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
+- [x] `TurnRetryingEvent` 和 `TurnFailedEvent` 已保留服务端 `error_type`、来源、
+  HTTP 状态和可重试性；新格式出现时校验 `error_type == error.type`，并将失败分类
+  投影到 `RunResult.error_code/error_details`。缺少附加字段的历史事件暂时兼容，
+  待服务端全量启用后再收紧缺省路径。
+- [x] 全量测试 `2892 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
   `mind.py -> agent`，没有形成新的跨边界循环，语法、边界与 diff 检查通过。
 
 当前未满足阶段出口：模型事件类仍位于 `mind_nova`；MCP、Helix、process 和
@@ -337,3 +341,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 3 | 模型请求、事件流生命周期与结束原因已进入 `agent.protocol/ports`，远端翻译收口到 capability；`mind.py` 通过 `RuntimeServices` 统一注入模型、Turn store 和效果账本工厂，application 不再反向加载具体组合；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |
 | 2026-08-29 | 阶段 3 | runtime 增加 `ModelEventStream` 运行时契约门禁，并在流式回合 `finally` 等待 capability 关闭，覆盖正常、失败和取消路径；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |
 | 2026-08-29 | 阶段 3 | `RemoteModelEventStream` 统一模型能力异常，`RunResult` 与 `run_failed` 事件保留稳定错误码、重试性和 JSON 细节；全量测试 `2890 passed, 11 skipped`，定向异常/持久化测试通过 | 模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 端口尚未接管 |
+| 2026-08-29 | 阶段 3 | 客户端事件模型接收新的 provider retry/failure 元数据并校验错误类型一致性；失败分类进入 `RunResult`，`Retrying` 展示状态机保持不变；全量测试 `2892 passed, 11 skipped` | 模型事件类整体仍位于 `mind_nova`；MCP、Helix、process、filesystem 端口尚未接管 |

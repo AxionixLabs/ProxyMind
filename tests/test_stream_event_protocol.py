@@ -325,12 +325,21 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
         "max_attempts": 3,
         "retry_in_ms": 250,
         "reason": "stream_reset",
+        "error_type": "provider_error",
+        "error": {
+            "type": "provider_error",
+            "source": "provider",
+            "retryable": True,
+        },
     })
 
     assert isinstance(event, TurnRetryingEvent)
     assert event.attempt == 2
     assert event.max_attempts == 3
     assert event.retry_in_ms == 250
+    assert event.error_type == "provider_error"
+    assert event.error_source == "provider"
+    assert event.retryable is True
 
     for invalid in (
         {"attempt": 0, "max_attempts": 3, "retry_in_ms": 0},
@@ -348,6 +357,21 @@ def test_turn_retrying_requires_strict_attempt_metadata() -> None:
             "attempt": 2,
             "max_attempts": 3,
             "retry_in_ms": 0,
+        })
+
+    with pytest.raises(ValueError, match="error.type"):
+        parse_stream_event({
+            "type": "turn.retrying",
+            "round": 2,
+            "attempt": 2,
+            "max_attempts": 3,
+            "retry_in_ms": 0,
+            "error_type": "provider_error",
+            "error": {
+                "type": "different_error",
+                "source": "provider",
+                "retryable": True,
+            },
         })
 
 
@@ -964,8 +988,31 @@ def test_turn_terminal_events_preserve_response_metadata() -> None:
     assert isinstance(failed, TurnFailedEvent)
     assert failed.status == "failed"
     assert failed.error == "pause_turn is not supported"
+    assert failed.error_type == ""
     assert failed.stop_reason == "pause_turn"
     assert failed.usage == {"output_tokens": 2}
+
+
+def test_failed_event_preserves_provider_error_metadata() -> None:
+    failed = parse_stream_event({
+        "type": "turn.failed",
+        "status": "failed",
+        "error_type": "provider_error",
+        "error": {
+            "type": "provider_error",
+            "source": "provider",
+            "retryable": False,
+            "message": "content rejected",
+        },
+        "status_code": 422,
+    })
+
+    assert isinstance(failed, TurnFailedEvent)
+    assert failed.error == "content rejected"
+    assert failed.error_type == "provider_error"
+    assert failed.error_source == "provider"
+    assert failed.status_code == 422
+    assert failed.retryable is False
 
 
 def test_logical_settlement_accepts_null_next_input() -> None:
