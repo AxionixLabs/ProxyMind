@@ -273,11 +273,12 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 
 状态：进行中（2026-08-29）
 
-当前切片：stdio MCP 的 `mind_exec` 请求层已经改为通过注入的
-`TurnApplication` 提交 `SubmitTurnCommand`。请求层只负责请求校验、工作区和
-权限解析；Session 状态、取消、事件投影和 application 关闭由统一入口拥有。旧
-`run_root_turn` 仅作为显式执行器适配，下一切片迁移 TUI 与 subscription 的同一
-Command Gateway。
+当前切片：stdio MCP 与 subscription 的执行层已经通过注入的
+`TurnApplication` 提交 `SubmitTurnCommand`。入口只负责请求校验、工作区、权限、
+WebSocket mailbox 和状态回执；Session 状态、取消、事件序列和 application 关闭
+由统一入口拥有。旧 `run_root_turn` 仅作为显式执行器适配；subscription 的终态
+回执已改由 application Event projection 分类，下一切片复核四类入口的结果投影
+一致性。
 
 ### 当前证据
 
@@ -290,9 +291,20 @@ Command Gateway。
   通过 application 的 Session runtime 收束，不释放调用锁前留下活动 Run。
 - [x] 新增 application 边界测试，验证命令坐标、执行器适配和关闭顺序；MCP 与
   architecture 定向测试通过。
+- [x] `AgentRuntime` 生产组合从 `RuntimeServices` 创建单个长驻
+  `TurnApplication`；`AgentExecutor` 将远端 `message_id/call_id/sid` 冻结为稳定
+  command/run/session identity，metadata、附件和 extras 随命令快照保存。
+- [x] 订阅执行超时和取消均包在 application 提交边界外，保证
+  `TurnApplication.submit()` 的 Session 取消收束生效；运行时关闭时回收其拥有的
+  application，显式注入的测试执行器不被越权关闭。
+- [x] 新增 subscription 命令冻结、组合和关闭测试；订阅旧行为定向测试共 `39
+  passed`。
+- [x] subscription 终态分类使用 `TurnApplication.submit()` 返回的
+  `RunResultProjection`，不再以执行器返回对象决定完成、失败或中断；原始结果仅
+  保留兼容错误文本。
 
-当前未满足阶段 4 出口：CLI/TUI/Subscription 尚未全部切换到同一 Command Gateway，
-旧根轮次和 legacy Helix/process adapter 仍需在后续切片迁移。
+当前未满足阶段 4 出口：四类入口尚未共享同一套完整的结果/展示投影，旧根轮次和
+legacy Helix/process adapter 仍需在后续切片迁移。
 
 ### 工作项
 
@@ -403,3 +415,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 3 | 冻结 JSON 的解冻边界改为具名类型和运行时对象校验，清除 `agent` 生产代码中的强制类型断言；全量测试 `2914 passed, 11 skipped`，定向测试 `96 passed`，语法检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
 | 2026-08-29 | 阶段 3 | 完成 model/MCP/Helix/process/filesystem capability ports；新增协议值对象、统一 `CapabilityError`、本地进程/文件实现和四类内存替身；定向 capability 测试 30 项、全量测试 `2926 passed, 11 skipped` | 旧 `mind_nova` wire decoder、`ServerManage`、`ProcessSessionManager` 和 `SandboxClient` 作为 legacy adapters 转入阶段 4/5；模型轮次不隐式触发 Helix |
 | 2026-08-29 | 阶段 4 | stdio MCP `mind_exec` 通过注入的 `TurnApplication` 提交冻结 `SubmitTurnCommand`；MCP 不再直接拥有 Turn application 生命周期；定向 MCP/架构测试 `24 passed` | CLI、TUI、Subscription 仍待统一 Command Gateway；旧根轮次仅保留为显式执行器 adapter |
+| 2026-08-29 | 阶段 4 | Subscription `AgentExecutor` 接入长驻 `TurnApplication`，稳定冻结远端身份、metadata、附件和 extras，并在取消/关闭时收束 Session；终态分类改用 Event projection；定向 Subscription 测试 `49 passed`，全量测试 `2929 passed, 11 skipped` | 四类入口的完整结果/展示投影仍待统一；旧根轮次和 legacy Helix/process adapter 待迁移 |

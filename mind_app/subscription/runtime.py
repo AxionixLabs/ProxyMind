@@ -5,6 +5,8 @@ import typing
 import asyncio
 import platform
 from dataclasses import dataclass
+from agent.application import TurnApplication
+from mind_app.paths import agent_runtime_db_path
 from engine.observability import observe_exception
 from ..runtime.agent.client import AgentClient
 from .forwarding import (
@@ -78,7 +80,8 @@ class AgentRuntime(object):
         self.config      = config or build_default_agent_config()
         self.client      = client or AgentClient(base_url=self.config.base_url)
         self.inbox       = inbox or AgentInbox()
-        self.executor    = executor or AgentExecutor()
+        self._executor_owned = executor is None
+        self.executor    = executor or self._build_default_executor(mind)
         self.live_status = live_status or AgentLiveStatus()
         self.status_outbox = AgentStatusOutbox()
 
@@ -113,6 +116,18 @@ class AgentRuntime(object):
             self.live_status
         )
         self.task: asyncio.Task[None] | None = None
+
+    @staticmethod
+    def _build_default_executor(mind: "Mind") -> AgentExecutor:
+        """为生产订阅运行时组合持久 Turn application。"""
+        runtime_services = getattr(mind, "runtime_services", None)
+        factory = getattr(runtime_services, "create_turn_application", None)
+        if callable(factory):
+            application = factory(agent_runtime_db_path())
+            if not isinstance(application, TurnApplication):
+                raise TypeError("turn application factory returned an invalid application")
+            return AgentExecutor(turn_application=application)
+        return AgentExecutor()
 
     def remember_context(
         self,
@@ -375,16 +390,22 @@ class AgentRuntime(object):
 
     async def shutdown(self) -> None:
         """取消尚未处理的远端任务并停止订阅运行时。"""
-        for item in list(self.inbox.pending_items()):
-            context = self.contexts.get(item.request.message_id)
-            if context is None:
-                continue
-            await self.status_outbox.cancelled(
-                item.request,
-                session_id=context.runtime.session_id,
-                reason="client_shutdown",
-            )
-        await self.stop()
+        try:
+            for item in list(self.inbox.pending_items()):
+                context = self.contexts.get(item.request.message_id)
+                if context is None:
+                    continue
+                await self.status_outbox.cancelled(
+                    item.request,
+                    session_id=context.runtime.session_id,
+                    reason="client_shutdown",
+                )
+        finally:
+            try:
+                await self.stop()
+            finally:
+                if self._executor_owned:
+                    await self.executor.close()
 
 if __name__ == '__main__':
     pass

@@ -24,6 +24,7 @@ from mind_app.subscription.ws import (
     handle_server_message,
     recv_json_or_stop,
 )
+from agent.application import TurnApplication
 from mind_app.runtime.agent.client import AgentClient
 from mind_app.runtime.turns.result import RunResult
 
@@ -129,6 +130,66 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
     )
     client.send_mind_started.assert_awaited_once()
     client.send_mind_completed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_agent_executor_submits_frozen_forward_command() -> None:
+    result = RunResult(status="completed", assistant_text="done")
+    turn_runner = AsyncMock(return_value=result)
+
+    class RecordingApplication(TurnApplication):
+        def __init__(self) -> None:
+            super().__init__()
+            self.command = None
+
+        async def submit(self, command, executor):
+            self.command = command
+            return await super().submit(command, executor)
+
+    application = RecordingApplication()
+    client = SimpleNamespace(
+        send_mind_started=AsyncMock(),
+        send_mind_completed=AsyncMock(),
+    )
+    request = AgentForwardRequest(
+        message_id="message-1",
+        call_id="call-1",
+        cid="cid-1",
+        sid="sid-1",
+        payload={
+            "message": "inspect workspace",
+            "metadata": {"origin": "server"},
+            "attachments": [{"path": "README.md"}],
+            "extras": {"source": "agent"},
+        },
+    )
+
+    executor = AgentExecutor(turn_runner, turn_application=application)
+    await executor.execute(
+        SimpleNamespace(),
+        client,
+        object(),
+        SimpleNamespace(session_id="agent-session"),
+        request,
+    )
+
+    assert application.command.command_id == "agent-forward:message-1"
+    assert application.command.run_id == "agent-forward:sid-1:call-1"
+    assert application.command.session_id == "sid-1"
+    assert application.command.attachment_values() == [{"path": "README.md"}]
+    assert application.command.extras_value() == {
+        "cid": "cid-1",
+        "sid": "sid-1",
+        "call_id": "call-1",
+        "message_id": "message-1",
+        "metadata": {
+            "origin": "server",
+            "cid": "cid-1",
+            "sid": "sid-1",
+        },
+        "request_extras": {"source": "agent"},
+    }
+    await executor.close()
 
 
 @pytest.mark.anyio

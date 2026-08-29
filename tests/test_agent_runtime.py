@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from agent.application import TurnApplication
 
 from mind_app.controller import Mind
 from mind_app.subscription.forwarding import AgentInbox
@@ -82,6 +83,35 @@ async def test_agent_runtime_starts_once_and_stops_listener() -> None:
 
     assert cancelled.is_set()
     assert not runtime.is_running()
+
+
+@pytest.mark.anyio
+async def test_agent_runtime_composes_and_closes_injected_turn_application() -> None:
+    application = TurnApplication()
+    created_paths = []
+
+    def create_application(path):
+        created_paths.append(path)
+        return application
+
+    runtime = AgentRuntime(
+        SimpleNamespace(
+            runtime_services=SimpleNamespace(
+                create_turn_application=create_application,
+            ),
+        ),
+        config=_config(),
+        client=SimpleNamespace(),
+        supervisor=SimpleNamespace(run=AsyncMock()),
+    )
+
+    assert runtime.executor._turn_application is application
+    assert created_paths
+    assert not application.closed
+
+    await runtime.shutdown()
+
+    assert application.closed
 
 
 @pytest.mark.anyio

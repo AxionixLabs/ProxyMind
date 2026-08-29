@@ -4,10 +4,18 @@
 import time
 import typing
 import asyncio
+from collections.abc import Mapping
+from agent.application import (
+    TurnApplication,
+    SubmitTurnResult,
+    SubmitTurnCommand,
+    submit_turn,
+)
 from engine.errors import AppError
 from engine.observability import observe
 from ..runtime.agent.client import AgentClient
 from ..runtime.turns.root import RootTurnRunner, run_root_turn
+from ..runtime.turns.result import RunResult
 from .models import (
     AgentInboxItem,
     AgentForwardRequest,
@@ -97,9 +105,20 @@ def get_runtime_message_cache(runtime: AgentSessionRuntime) -> set[str]:
 class AgentExecutor(object):
     """执行服务端下发的本地任务并回写结果。"""
 
-    def __init__(self, turn_runner: RootTurnRunner = run_root_turn) -> None:
-        """绑定根轮次应用用例。"""
+    def __init__(
+        self,
+        turn_runner: RootTurnRunner = run_root_turn,
+        *,
+        turn_application: TurnApplication[RunResult] | None = None,
+    ) -> None:
+        """绑定根轮次执行器和可选的长生命周期 Turn application。"""
         self._turn_runner = turn_runner
+        self._turn_application = turn_application
+
+    async def close(self) -> None:
+        """关闭由订阅执行器持有的长生命周期 Turn application。"""
+        if self._turn_application is not None:
+            await self._turn_application.close(cancel_running=True)
 
     async def execute(
         self,
@@ -151,21 +170,56 @@ class AgentExecutor(object):
                 call_id=request.call_id
             )
 
-            calling_kwargs: dict[str, typing.Any] = {
-                "message": message,
-                "metadata": metadata,
-            }
-            if turn_id:
-                calling_kwargs["turn_id"] = turn_id
+            command = self._build_command(
+                request,
+                message=message,
+                metadata=metadata,
+                timeout_sec=timeout_sec,
+                turn_id=turn_id,
+            )
 
-            runner = self._turn_runner(mind, **calling_kwargs)
+            async def execute_root_turn(
+                submitted: SubmitTurnCommand,
+            ) -> RunResult:
+                """把冻结命令适配为现有根轮次执行器。"""
+                values = submitted.extras_value() or {}
+                root_kwargs: dict[str, typing.Any] = {
+                    "metadata": dict(values.get("metadata", metadata)),
+                }
+                attachments = submitted.attachment_values()
+                if attachments:
+                    root_kwargs["attachments"] = attachments
+                request_extras = values.get("request_extras")
+                if isinstance(request_extras, Mapping) and request_extras:
+                    root_kwargs["extras"] = dict(request_extras)
+                submitted_turn_id = values.get("turn_id")
+                if isinstance(submitted_turn_id, str) and submitted_turn_id:
+                    root_kwargs["turn_id"] = submitted_turn_id
+                return await self._turn_runner(
+                    mind,
+                    message=submitted.message,
+                    **root_kwargs,
+                )
+
+            execution: SubmitTurnResult[RunResult]
+            submitted = (
+                self._turn_application.submit(command, execute_root_turn)
+                if self._turn_application is not None
+                else submit_turn(command, execute_root_turn)
+            )
 
             if timeout_sec is not None:
-                result = await asyncio.wait_for(runner, timeout=timeout_sec)
+                execution = await asyncio.wait_for(
+                    submitted,
+                    timeout=timeout_sec,
+                )
             else:
-                result = await runner
+                execution = await submitted
 
-            if str(result.status or "").strip().lower() == "interrupted":
+            result = execution.value
+            projected_status = execution.projection.status
+
+            if projected_status == "interrupted":
                 await self._send_cancelled(
                     client,
                     connection,
@@ -176,8 +230,8 @@ class AgentExecutor(object):
                 )
                 return None
 
-            if not result.ok:
-                raise AppError(result.error or f"run {result.status}")
+            if projected_status != "completed":
+                raise AppError(result.error or f"run {projected_status}")
 
             if status_outbox is not None:
                 await status_outbox.completed(request, session_id=runtime.session_id)
@@ -222,6 +276,57 @@ class AgentExecutor(object):
             "agent.forward.complete",
             call_id=request.call_id,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+
+    @staticmethod
+    def _build_command(
+        request: AgentForwardRequest,
+        *,
+        message: str,
+        metadata: Mapping[str, typing.Any],
+        timeout_sec: float | None,
+        turn_id: str | None,
+    ) -> SubmitTurnCommand:
+        """把订阅请求冻结为可恢复的主动 Turn 命令。"""
+        payload_extras = request.payload.get("extras")
+        if payload_extras is not None and not isinstance(payload_extras, Mapping):
+            raise ValueError("mind.forward payload.extras must be an object")
+
+        raw_attachments = request.payload.get("attachments", ())
+        if raw_attachments in (None, ""):
+            raw_attachments = ()
+        if not isinstance(raw_attachments, (tuple, list)):
+            raise ValueError("mind.forward payload.attachments must be a sequence")
+        attachments: list[Mapping[str, typing.Any]] = []
+        for attachment in raw_attachments:
+            if not isinstance(attachment, Mapping):
+                raise ValueError(
+                    "mind.forward payload.attachments entries must be objects"
+                )
+            attachments.append(dict(attachment))
+
+        command_extras: dict[str, typing.Any] = {
+            "cid": request.cid,
+            "sid": request.sid,
+            "call_id": request.call_id,
+            "message_id": request.message_id,
+            "metadata": dict(metadata),
+        }
+        if payload_extras:
+            command_extras["request_extras"] = dict(payload_extras)
+        if timeout_sec is not None:
+            command_extras["timeout_sec"] = timeout_sec
+        if turn_id:
+            command_extras["turn_id"] = turn_id
+
+        return SubmitTurnCommand.create(
+            command_id=f"agent-forward:{request.message_id}",
+            idempotency_key=f"agent-forward:{request.message_id}",
+            run_id=f"agent-forward:{request.sid}:{request.call_id}",
+            session_id=request.sid,
+            message=message,
+            attachments=attachments,
+            extras=command_extras,
         )
 
     @staticmethod
