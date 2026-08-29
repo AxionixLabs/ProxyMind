@@ -14,7 +14,11 @@ from agent.ports import (
     ModelEventStream,
     ReconnectStatusCallback,
 )
-from agent.protocol import ModelEvent, ModelStreamRequest
+from agent.protocol import (
+    ModelEvent,
+    ModelStreamRequest,
+    validate_model_event,
+)
 
 
 class RemoteModelEventStream:
@@ -43,7 +47,7 @@ class RemoteModelEventStream:
         """转发事件并确保迭代结束时关闭远端资源。"""
         try:
             async for event in self._stream:
-                yield _require_model_event(event)
+                yield validate_model_event(event)
         except asyncio.CancelledError:
             raise
         except ModelCapabilityError:
@@ -98,13 +102,6 @@ class RemoteModelCapability:
         except Exception as error:
             raise _classify_model_error(error) from error
         return RemoteModelEventStream(stream)
-
-
-def _require_model_event(event: typing.Any) -> ModelEvent:
-    """校验传输对象满足 capability 对外承诺的模型事件坐标契约。"""
-    if not isinstance(event, ModelEvent):
-        raise TypeError("model transport returned an invalid event object")
-    return event
 
 
 def _classify_model_error(error: BaseException) -> ModelCapabilityError:

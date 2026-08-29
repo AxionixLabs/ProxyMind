@@ -4,7 +4,8 @@
 from .commands import SubmitTurnCommand
 from .events import (
     ModelEvent,
-    RunEvent
+    RunEvent,
+    validate_model_event,
 )
 from .model import (
     ModelStreamEndReason,
@@ -14,6 +15,7 @@ from .model import (
 __all__ = (
     "RunEvent",
     "ModelEvent",
+    "validate_model_event",
     "ModelStreamRequest",
     "ModelStreamEndReason",
     "SubmitTurnCommand",

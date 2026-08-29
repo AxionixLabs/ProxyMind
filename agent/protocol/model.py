@@ -10,8 +10,9 @@ from dataclasses import (
 )
 from .json_value import (
     JsonValue,
+    ThawedJsonValue,
     freeze_json,
-    thaw_json
+    thaw_object,
 )
 
 ModelStreamEndReason: typing.TypeAlias = typing.Literal[
@@ -101,27 +102,27 @@ class ModelStreamRequest:
         object.__setattr__(self, "options", frozen_options)
         object.__setattr__(self, "timeout", float(self.timeout))
 
-    def pref_config_value(self) -> dict[str, typing.Any]:
+    def pref_config_value(self) -> dict[str, ThawedJsonValue]:
         """返回远端 adapter 可消费的独立模型配置。"""
-        return typing.cast(dict[str, typing.Any], thaw_json(self.pref_config))
+        return thaw_object(self.pref_config, field_name="pref_config")
 
-    def tool_values(self) -> list[dict[str, typing.Any]]:
+    def tool_values(self) -> list[dict[str, ThawedJsonValue]]:
         """返回远端 adapter 可消费的独立工具列表。"""
         return [
-            typing.cast(dict[str, typing.Any], thaw_json(item))
+            thaw_object(item, field_name="tools")
             for item in self.tools
         ]
 
-    def attachment_values(self) -> list[dict[str, typing.Any]]:
+    def attachment_values(self) -> list[dict[str, ThawedJsonValue]]:
         """返回远端 adapter 可消费的独立附件列表。"""
         return [
-            typing.cast(dict[str, typing.Any], thaw_json(item))
+            thaw_object(item, field_name="attachments")
             for item in self.attachments
         ]
 
-    def option_values(self) -> dict[str, typing.Any]:
+    def option_values(self) -> dict[str, ThawedJsonValue]:
         """返回远端 adapter 可消费的独立扩展参数。"""
-        return typing.cast(dict[str, typing.Any], thaw_json(self.options))
+        return thaw_object(self.options, field_name="model options")
 
 
 def _freeze_objects(

@@ -15,8 +15,9 @@ from agent.protocol import (
 )
 from agent.protocol.json_value import (
     JsonValue,
+    ThawedJsonValue,
     freeze_json,
-    thaw_json,
+    thaw_object,
 )
 
 ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
@@ -73,9 +74,12 @@ class ModelCapabilityError(RuntimeError):
         return str(self)
 
     @property
-    def details(self) -> dict[str, typing.Any]:
+    def details(self) -> dict[str, ThawedJsonValue]:
         """返回错误细节的独立可变副本。"""
-        return typing.cast(dict[str, typing.Any], thaw_json(self._details))
+        return thaw_object(
+            self._details,
+            field_name="model capability error details",
+        )
 
     def to_dict(self) -> dict[str, typing.Any]:
         """返回可写入终态事件的错误对象。"""

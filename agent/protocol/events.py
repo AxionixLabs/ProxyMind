@@ -32,6 +32,61 @@ class ModelEvent(typing.Protocol):
     event_seq: int | None
     presentation_epoch: int
 
+
+def validate_model_event(event: ModelEvent) -> ModelEvent:
+    """校验模型事件跨 capability 边界的公共协议字段。"""
+    if not isinstance(event, ModelEvent):
+        raise TypeError("model transport returned an invalid event object")
+
+    if not isinstance(event.type, str) or not event.type.strip():
+        raise ValueError("model event type is required")
+    for field_name, value in (
+        ("proto", event.proto),
+        ("cid", event.cid),
+        ("sid", event.sid),
+        ("turn_id", event.turn_id),
+    ):
+        if not isinstance(value, str):
+            raise TypeError(f"model event {field_name} must be a string")
+
+    if event.type == "ping":
+        if event.event_seq is not None and (
+            isinstance(event.event_seq, bool)
+            or not isinstance(event.event_seq, int)
+            or event.event_seq <= 0
+        ):
+            raise ValueError("model event ping event_seq must be positive")
+        if (
+            isinstance(event.presentation_epoch, bool)
+            or not isinstance(event.presentation_epoch, int)
+            or event.presentation_epoch < 1
+        ):
+            raise ValueError("model event presentation_epoch must be positive")
+        return event
+
+    if event.proto != "mind.chat":
+        raise ValueError("model event proto must be mind.chat")
+    for field_name, value in (
+        ("cid", event.cid),
+        ("sid", event.sid),
+        ("turn_id", event.turn_id),
+    ):
+        if not value.strip():
+            raise ValueError(f"model event {field_name} is required")
+    if (
+        isinstance(event.event_seq, bool)
+        or not isinstance(event.event_seq, int)
+        or event.event_seq < 1
+    ):
+        raise ValueError("model event event_seq must be positive")
+    if (
+        isinstance(event.presentation_epoch, bool)
+        or not isinstance(event.presentation_epoch, int)
+        or event.presentation_epoch < 1
+    ):
+        raise ValueError("model event presentation_epoch must be positive")
+    return event
+
 RunEventKind = typing.Literal[
     "run_queued",
     "run_started",

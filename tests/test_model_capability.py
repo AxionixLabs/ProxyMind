@@ -179,6 +179,46 @@ async def test_remote_model_event_stream_rejects_invalid_event_and_closes() -> N
     assert raw.closed is True
 
 
+@pytest.mark.anyio
+async def test_remote_model_event_stream_rejects_invalid_event_coordinates() -> None:
+    class RawStream:
+        end_reason = "protocol_error"
+        last_event_seq = 0
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def __aiter__(self):
+            return self._iterate()
+
+        async def _iterate(self):
+            yield SimpleNamespace(
+                type="turn.start",
+                proto="mind.chat",
+                cid="cid_test",
+                sid="sid_test",
+                turn_id="turn_test",
+                event_seq=True,
+                presentation_epoch=1,
+            )
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    raw = RawStream()
+    stream = model_adapter.RemoteModelEventStream(raw)
+
+    with pytest.raises(ModelCapabilityError) as captured:
+        async for _event in stream:
+            pass
+
+    error = captured.value
+    assert error.code == "model_protocol_error"
+    assert error.retryable is False
+    assert error.details == {"exception_type": "ValueError"}
+    assert raw.closed is True
+
+
 def test_model_capability_error_freezes_details() -> None:
     details = {"status_code": 503, "nested": {"attempt": 1}}
     error = ModelCapabilityError(

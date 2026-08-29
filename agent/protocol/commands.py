@@ -10,11 +10,12 @@ from dataclasses import (
     dataclass,
     field
 )
-
 from .json_value import (
     JsonValue,
+    ThawedJsonValue,
     freeze_json,
-    thaw_json
+    thaw_json,
+    thaw_object,
 )
 
 
@@ -201,30 +202,24 @@ class SubmitTurnCommand:
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
-    def attachment_values(self) -> list[dict[str, typing.Any]]:
+    def attachment_values(self) -> list[dict[str, ThawedJsonValue]]:
         """返回旧 Turn adapter 可消费的独立附件副本。"""
         return [
-            typing.cast(dict[str, typing.Any], thaw_json(item))
+            thaw_object(item, field_name="attachments")
             for item in self.attachments
         ]
 
-    def pref_config_value(self) -> dict[str, typing.Any] | None:
+    def pref_config_value(self) -> dict[str, ThawedJsonValue] | None:
         """返回旧 Turn adapter 可消费的独立配置副本。"""
         if self.pref_config is None:
             return None
-        return typing.cast(
-            dict[str, typing.Any],
-            thaw_json(self.pref_config),
-        )
+        return thaw_object(self.pref_config, field_name="pref_config")
 
-    def extras_value(self) -> dict[str, typing.Any] | None:
+    def extras_value(self) -> dict[str, ThawedJsonValue] | None:
         """返回旧 Turn adapter 可消费的独立扩展输入副本。"""
         if self.extras is None:
             return None
-        return typing.cast(
-            dict[str, typing.Any],
-            thaw_json(self.extras),
-        )
+        return thaw_object(self.extras, field_name="extras")
 
 
 def _new_id(prefix: str) -> str:
