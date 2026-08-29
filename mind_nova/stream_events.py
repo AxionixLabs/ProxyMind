@@ -780,12 +780,6 @@ def parse_stream_event(
             raise ValueError("tool.call name is required")
         if not tool_fields["call_id"]:
             raise ValueError("tool.call call_id is required")
-        if tool_fields["name"] in {
-            "shell_command",
-            "exec_command",
-            "write_stdin",
-        } and not tool_fields["reason"]:
-            raise ValueError("tool.call shell reason is required")
         return ToolCallEvent(
             **common,
             **_item_fields(

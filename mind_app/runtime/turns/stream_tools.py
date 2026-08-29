@@ -512,31 +512,6 @@ class ToolEventHandler:
         requirement: ExecApprovalRequirement
     ) -> ToolCallHandlingResult | None:
         """处理本地执行策略要求的审批，批准时允许继续执行。"""
-        reason = str(
-            invocation.arguments.get("justification")
-            or invocation.reason
-            or ""
-        ).strip()
-
-        requested_permissions = str(
-            invocation.arguments.get("sandbox_permissions") or ""
-        ).strip().casefold()
-
-        if (
-            invocation.name in {"shell_command", "exec_command"}
-            and not reason
-            and requested_permissions != "require_escalated"
-        ):
-            await self._reject_and_wait(
-                invocation,
-                reason="shell approval reason is missing",
-                result={
-                    "execution_denied": True,
-                    "error": "shell approval reason is missing",
-                },
-            )
-            return ToolCallHandlingResult.handled()
-
         if self.turn_context.permissions.approval_policy == "never":
             await self._reject_and_wait(
                 invocation,

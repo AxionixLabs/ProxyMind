@@ -35,6 +35,7 @@ async def _deliver(
     delivery: ToolResultDelivery,
     *,
     result=None,
+    request_id=None,
 ) -> None:
     """使用稳定工具调用身份投递一份测试结果。"""
     await delivery.deliver(
@@ -46,6 +47,7 @@ async def _deliver(
         {"value": 1} if result is None else result,
         additional_context=("context",),
         tool_arguments={"input": 2},
+        request_id=request_id,
     )
 
 
@@ -71,6 +73,7 @@ async def test_delivery_deduplicates_concurrent_identical_results() -> None:
 
     assert len(posts) == 1
     assert posts[0][1]["request_id"].startswith("tool_result_")
+    assert posts[0][1]["additional_context"] == ("context",)
 
 
 @pytest.mark.anyio
@@ -84,6 +87,19 @@ async def test_delivery_rejects_different_result_for_same_call() -> None:
 
     assert caught.value.code == "tool_result_local_conflict"
     assert caught.value.details == {"call_id": "call-test"}
+    post_result.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_delivery_rejects_different_request_for_same_call() -> None:
+    post_result = AsyncMock(return_value=None)
+    delivery = _delivery(post_result=post_result)
+    await _deliver(delivery, request_id="tool_result_request_1")
+
+    with pytest.raises(ToolResultRequestError) as caught:
+        await _deliver(delivery, request_id="tool_result_request_2")
+
+    assert caught.value.code == "tool_result_local_conflict"
     post_result.assert_awaited_once()
 
 
@@ -124,6 +140,116 @@ async def test_delivery_retries_unknown_ack_with_same_request_id() -> None:
         sid="sid-test",
         call_id="call-test",
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_code",
+    ("tool_call_missing", "tool_call_not_ready"),
+)
+async def test_delivery_queries_transient_registration_status_before_retry(
+    error_code,
+) -> None:
+    request_ids = []
+
+    async def post_result(*_args, **kwargs) -> None:
+        request_ids.append(kwargs["request_id"])
+        if len(request_ids) == 1:
+            raise ToolResultRequestError(error_code, "not ready")
+
+    get_status = AsyncMock(return_value={
+        "tool_status": "waiting_result",
+        "result_received": False,
+        "reconciliation_required": False,
+    })
+
+    async def sleep(_delay: float) -> None:
+        return None
+
+    delivery = _delivery(
+        post_result=post_result,
+        get_status=get_status,
+        sleep=sleep,
+    )
+    await _deliver(delivery)
+
+    assert request_ids[0] == request_ids[1]
+    get_status.assert_awaited_once_with(
+        cid="cid-test",
+        sid="sid-test",
+        call_id="call-test",
+    )
+
+
+@pytest.mark.anyio
+async def test_delivery_accepts_authoritative_result_for_same_request() -> None:
+    request_ids = []
+
+    async def post_result(*_args, **kwargs) -> None:
+        request_ids.append(kwargs["request_id"])
+        raise ToolResultRequestError(
+            "tool_call_already_completed",
+            "result already completed",
+        )
+
+    async def get_status(**_kwargs):
+        return {
+            "tool_status": "result_received",
+            "result_received": True,
+            "request_id": request_ids[0],
+            "reconciliation_required": False,
+        }
+
+    async def sleep(_delay: float) -> None:
+        return None
+
+    delivery = _delivery(
+        post_result=post_result,
+        get_status=get_status,
+        sleep=sleep,
+    )
+
+    await _deliver(delivery)
+
+    assert len(request_ids) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error_code", "tool_status"),
+    (
+        ("tool_call_execution_timed_out", "execution_timed_out"),
+        ("tool_call_cancelled", "cancelled"),
+        ("tool_call_turn_closed", "turn_closed"),
+    ),
+)
+async def test_delivery_queries_terminal_status_for_reconciliation(
+    error_code,
+    tool_status,
+) -> None:
+    async def post_result(*_args, **_kwargs) -> None:
+        raise ToolResultRequestError(error_code, "tool call closed")
+
+    get_status = AsyncMock(return_value={
+        "tool_status": tool_status,
+        "result_received": False,
+        "reconciliation_required": False,
+    })
+
+    async def sleep(_delay: float) -> None:
+        return None
+
+    delivery = _delivery(
+        post_result=post_result,
+        get_status=get_status,
+        sleep=sleep,
+    )
+
+    with pytest.raises(ToolResultRequestError) as caught:
+        await _deliver(delivery)
+
+    assert caught.value.code == f"tool_call_{tool_status}"
+    get_status.assert_awaited_once()
 
 
 @pytest.mark.anyio

@@ -437,14 +437,20 @@ def test_tool_output_rejects_status_outside_formal_contract() -> None:
         })
 
 
-def test_shell_tool_call_requires_model_reason() -> None:
-    with pytest.raises(ValueError, match="shell reason is required"):
-        parse_stream_event({
-            "type": "tool.call",
-            "name": "shell_command",
-            "call_id": "call_without_reason",
-            "arguments": {"command": "pwd"},
-        })
+@pytest.mark.parametrize(
+    "name",
+    ("shell_command", "exec_command", "write_stdin", "apply_patch"),
+)
+def test_client_tool_call_allows_missing_optional_reason(name) -> None:
+    event = parse_stream_event({
+        "type": "tool.call",
+        "name": name,
+        "call_id": f"call_without_reason_{name}",
+        "arguments": {},
+    })
+
+    assert isinstance(event, ToolCallEvent)
+    assert event.reason == ""
 
 
 def test_turn_reconciliation_required_is_a_typed_terminal_pause() -> None:

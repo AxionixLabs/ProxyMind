@@ -274,9 +274,10 @@ def _presentation_context(
         or payload.get("environment_id")
     ).replace("_", " ")
 
-    justification = _text(payload.get("justification"))
-    if not justification and kind == "request_permissions":
-        justification = _text(payload.get("reason"))
+    justification = _text(
+        payload.get("justification")
+        or payload.get("reason")
+    )
     agent_depth   = payload.get("agent_depth")
 
     if isinstance(agent_depth, bool) or not isinstance(agent_depth, int):

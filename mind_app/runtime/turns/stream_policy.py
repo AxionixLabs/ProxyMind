@@ -5,8 +5,7 @@ import time
 import typing
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import (
-    approval_execpolicy_amendment,
-    approval_reason
+    approval_execpolicy_amendment
 )
 from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.native_coding.exec.exec_policy import (
@@ -187,28 +186,24 @@ def local_exec_policy_approval(
         if value not in (None, "", (), [], {}):
             approval[field_name] = value
 
-    justification = str(
-        invocation.arguments.get("justification") or invocation.reason or ""
+    reason = str(
+        invocation.reason
+        or invocation.arguments.get("justification")
+        or ""
     ).strip()
 
     if (
-        not justification
+        not reason
         and str(invocation.arguments.get("sandbox_permissions") or "")
         .strip()
         .casefold()
         == "require_escalated"
     ):
-        justification = "Command requested host shell execution."
-    if justification:
-        approval["justification"] = justification
-    if requirement.reason:
-        approval["reason"] = requirement.reason
-    if invocation.reason:
-        approval["approval_reason"] = invocation.reason
-    selected_reason = approval_reason(approval)
-    if selected_reason:
-        approval["reason"] = selected_reason
-        approval["justification"] = selected_reason
+        reason = "Command requested host shell execution."
+    if not reason:
+        reason = str(requirement.reason or "").strip()
+    if reason:
+        approval["reason"] = reason
     amendment = requirement.proposed_execpolicy_amendment
     if amendment is not None:
         approval["proposed_execpolicy_amendment"] = {
@@ -293,7 +288,6 @@ def local_patch_approval(
             "decline",
         ],
         "reason": reason,
-        "justification": reason,
     }
     environment_id = str(arguments.get("environment_id") or "").strip()
     if environment_id:

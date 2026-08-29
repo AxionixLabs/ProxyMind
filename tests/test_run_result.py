@@ -2516,6 +2516,7 @@ async def test_stream_reports_plan_result_after_local_execution(
     )
 
     assert result.status == "completed"
+    assert len(posted) == 1
     assert posted[0][0][:5] == (
         "cid_test",
         "sid_test",
@@ -2984,7 +2985,8 @@ async def test_stream_persists_local_shell_rule_from_approval(
     result_posts = []
 
     async def request_outcome(_coordinator, approval):
-        assert approval["justification"] == "清理临时构建目录。"
+        assert approval["reason"] == "清理临时构建目录。"
+        assert "justification" not in approval
         assert approval["proposed_execpolicy_amendment"]["display"] == "rm -rf"
         return ApprovalOutcome.create(
             "acceptWithExecpolicyAmendment",
@@ -3036,6 +3038,59 @@ async def test_stream_persists_local_shell_rule_from_approval(
         "shell_command",
         True,
     )
+
+
+@pytest.mark.anyio
+async def test_stream_allows_local_shell_approval_without_tool_reason(
+    monkeypatch,
+) -> None:
+    approvals = []
+    executions = []
+
+    async def request_outcome(_coordinator, approval):
+        approvals.append(approval)
+        return ApprovalOutcome.create(
+            "accept",
+            source="user",
+            reason="user",
+        )
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        executions.append(invocation)
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields={"ok": True, "text": "done"},
+            )
+        )
+
+    monkeypatch.setattr(
+        ApprovalCoordinator,
+        "request_outcome",
+        request_outcome,
+    )
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", AsyncMock(return_value={}))
+
+    result, _mind_state = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-without-reason",
+            "name": "shell_command",
+            "arguments": {"command": "rm -rf build"},
+        }),
+        {"type": "turn.done"},
+    ])
+
+    assert result.status == "completed"
+    assert len(approvals) == 1
+    assert approvals[0]["reason"]
+    assert len(executions) == 1
 
 
 @pytest.mark.anyio

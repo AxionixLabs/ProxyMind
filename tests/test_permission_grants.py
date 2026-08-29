@@ -195,6 +195,8 @@ async def test_request_permissions_tool_records_turn_grant(tmp_path) -> None:
         )
     )
     tool = permission_tools(coordinator)[0]
+    assert "reason" in tool.input_schema["properties"]
+    assert "justification" not in tool.input_schema["properties"]
     runtime = ClientToolRuntime(
         session=SimpleNamespace(),
         turn_context=context,
@@ -230,6 +232,8 @@ async def test_request_permissions_tool_records_turn_grant(tmp_path) -> None:
     assert approval["permissions"]["file_system"]["read"] == [
         str(tmp_path / "output.txt")
     ]
+    assert approval["reason"] == "read generated output"
+    assert "justification" not in approval
 
 
 @pytest.mark.anyio

@@ -86,7 +86,6 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         "cwd": normalized_cwd,
         "cwd_raw": raw_cwd,
         "reason": event.reason,
-        "justification": event.reason,
         "arguments": arguments,
     }
     if event.kind == "apply_patch":
@@ -226,7 +225,6 @@ def approval_from_snapshot(
         "cwd": normalized_cwd,
         "cwd_raw": raw_cwd,
         "arguments": arguments,
-        "justification": str(approval.get("reason") or "").strip(),
     })
     if operation and operation_field not in approval:
         approval[operation_field] = operation

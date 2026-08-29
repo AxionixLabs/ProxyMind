@@ -284,6 +284,34 @@ async def test_tool_result_posts_only_transport_fields(
 
 
 @pytest.mark.anyio
+async def test_tool_result_accepts_idempotent_already_received_ack(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "status": "already_received",
+            "delivered": True,
+            "already_received": True,
+            "request_id": "tool_result_request_1",
+        },
+    }), captured)
+
+    acknowledgement = await tools.post_tool_result(
+        "cid_1",
+        "sid_1",
+        "call_1",
+        "test_tool",
+        True,
+        {"ok": True, "text": "ready"},
+        additional_context=("PostToolUse context",),
+        request_id="tool_result_request_1",
+    )
+
+    assert acknowledgement["data"]["status"] == "already_received"
+    assert captured["json"]["additional_context"] == ["PostToolUse context"]
+
+
+@pytest.mark.anyio
 async def test_tool_result_uses_outer_failure_status(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(200, {
@@ -503,6 +531,25 @@ async def test_tool_result_moves_mixed_business_fields_into_data(monkeypatch) ->
         "exit_code": 0,
         "target": "local",
     }
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("pending_cloud_sandbox", "sandbox_requests", "cloud_schema"),
+)
+def test_tool_result_rejects_removed_cloud_sandbox_handoff_fields(field) -> None:
+    with pytest.raises(
+        ValueError,
+        match="removed cloud sandbox handoff fields",
+    ):
+        tools.build_tool_result_payload(
+            cid="cid_1",
+            sid="sid_1",
+            call_id="call_1",
+            name="shell_command",
+            ok=True,
+            result={"ok": True, "data": {field: {}}},
+        )
 
 
 @pytest.mark.anyio
@@ -884,11 +931,16 @@ async def test_decline_request_allows_reason(monkeypatch) -> None:
         "decline",
         turn_id="turn_001",
         request_id="approval_request_2",
+        approval={
+            "reason": "user denied",
+            "justification": "legacy duplicate",
+        },
         reason="user denied",
         additional_context=("Use the safe wrapper.",),
     )
 
     assert captured["json"]["reason"] == "user denied"
+    assert "justification" not in captured["json"]
     assert captured["json"]["additional_context"] == ["Use the safe wrapper."]
     assert "execpolicy_amendment_id" not in captured["json"]
 

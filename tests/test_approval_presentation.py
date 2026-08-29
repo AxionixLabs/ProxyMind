@@ -32,6 +32,17 @@ def test_command_payload_is_normalized_to_exec_presentation() -> None:
     assert ensure_approval_presentation(presentation) is presentation
 
 
+def test_canonical_reason_is_projected_to_ui_justification() -> None:
+    presentation = build_approval_presentation({
+        "id": "approval-command",
+        "tool": "exec_command",
+        "reason": "需要运行定向测试",
+        "arguments": {"command": "pytest -q"},
+    })
+
+    assert presentation.context.justification == "需要运行定向测试"
+
+
 def test_patch_payload_is_normalized_with_structured_preview() -> None:
     presentation = build_approval_presentation({
         "id": "approval-patch",

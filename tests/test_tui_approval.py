@@ -277,23 +277,20 @@ def test_approval_displays_environment_and_justification_only() -> None:
     )
 
 
-def test_approval_does_not_render_legacy_reason_without_justification() -> None:
+def test_approval_renders_canonical_reason_without_justification() -> None:
     lines = tui_approval_content_lines(
         ["accept", "decline"],
         approval={
             "tool": "shell_command",
             "command": "pytest -q",
             "environment": "local",
-            "reason": "legacy reason",
+            "reason": "需要运行定向测试",
             "show_timer": False,
         },
         width=80,
     )
 
-    assert not any(
-        line.startswith("Reason:")
-        for line in _line_texts(lines)
-    )
+    assert "Reason: 需要运行定向测试" in _line_texts(lines)
 
 
 def test_long_command_wraps_within_content_width() -> None:

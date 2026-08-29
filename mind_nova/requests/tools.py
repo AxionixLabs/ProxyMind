@@ -58,6 +58,12 @@ _TOOL_RESULT_METADATA_KEYS = frozenset({
     "attachments",
 })
 
+_REMOVED_CLOUD_SANDBOX_HANDOFF_FIELDS: typing.Final[frozenset[str]] = frozenset({
+    "pending_cloud_sandbox",
+    "sandbox_requests",
+    "cloud_schema",
+})
+
 
 class _ServerToolResult(typing.TypedDict):
     """描述服务端接收的规范工具结果。"""
@@ -1253,6 +1259,15 @@ def _tool_result_for_server(
     }
     for key, value in extra_data.items():
         data.setdefault(key, value)
+
+    removed_fields = sorted(
+        _REMOVED_CLOUD_SANDBOX_HANDOFF_FIELDS.intersection(data)
+    )
+    if removed_fields:
+        raise ValueError(
+            "tool result contains removed cloud sandbox handoff fields: "
+            + ", ".join(removed_fields)
+        )
 
     raw_args    = result.get("args")
     result_args = raw_args if isinstance(raw_args, dict) else {}

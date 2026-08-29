@@ -135,7 +135,6 @@ def permission_tools(
             "environment_id": environment_id,
             "cwd": str(runtime.turn_context.cwd),
             "reason": reason,
-            "justification": reason,
             "available_decisions": [
                 "grantForTurn",
                 "grantForTurnWithStrictAutoReview",

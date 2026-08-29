@@ -70,7 +70,8 @@ def test_approval_from_snapshot_matches_event_shape() -> None:
         "patch": "*** Update File: a.txt\n+ok\n",
         "cwd": str(Path(".").resolve()),
     }
-    assert approval["justification"] == "需要修改文件"
+    assert approval["reason"] == "需要修改文件"
+    assert "justification" not in approval
 
 
 def _client_runtime(
@@ -165,6 +166,28 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
     assert payload["approvals_reviewer"] == "user"
     assert "access_mode" not in payload
     assert "mode" not in payload
+
+
+@pytest.mark.anyio
+async def test_request_payload_enables_only_explicit_hosted_tool_groups() -> None:
+    payload = await build_chat_payload(
+        {
+            "hosted_tools": {
+                "groups": {
+                    "sandbox_cloud": True,
+                    "perf_engine": False,
+                    "unknown_group": True,
+                },
+            },
+        },
+        "inspect",
+        [],
+        permissions=preset_permissions("auto"),
+    )
+
+    assert payload["hosted_tools"] == {
+        "enabled_groups": ["sandbox_cloud"],
+    }
 
 
 @pytest.mark.anyio
@@ -385,6 +408,40 @@ async def test_native_shell_handler_accepts_client_arguments_without_remote_gran
     getattr(coding, tool_name).assert_awaited_once()
 
 
+def test_justification_is_only_exposed_by_process_start_tools() -> None:
+    schemas = {
+        tool.name: tool.input_schema
+        for tool in coding_tools()
+    }
+
+    assert "justification" in schemas["shell_command"]["properties"]
+    assert "justification" in schemas["exec_command"]["properties"]
+    assert "justification" not in schemas["write_stdin"]["properties"]
+    assert "justification" not in schemas["apply_patch"]["properties"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", ("shell_command", "exec_command"))
+async def test_command_justification_is_not_passed_to_native_executor(
+    tool_name,
+) -> None:
+    coding = _coding_stub()
+    tool = next(item for item in coding_tools(coding) if item.name == tool_name)
+    runtime = _client_runtime(preset_permissions("full-access"))
+    arguments = {
+        "command": "echo ready",
+        "sandbox_permissions": "require_escalated",
+        "justification": "需要使用宿主 shell",
+    }
+
+    result = await tool.handler(arguments, runtime)
+
+    assert result.isError is False
+    assert result.structuredContent["args"] == arguments
+    native_arguments = getattr(coding, tool_name).await_args.kwargs
+    assert "justification" not in native_arguments
+
+
 def test_approval_card_presentation_is_owned_by_client() -> None:
     approval = {
         "tool": "shell_command",
@@ -479,7 +536,7 @@ def test_approval_from_event_uses_direct_command_fields() -> None:
     assert approval["cwd_raw"] == "."
     assert approval["turn_id"] == ""
     assert approval["reason"] == "需要检查命令输出"
-    assert approval["justification"] == "需要检查命令输出"
+    assert "justification" not in approval
 
 
 def test_approval_from_event_preserves_network_permissions_and_mcp_fields() -> None:
@@ -554,6 +611,8 @@ def test_patch_approval_uses_patch_operation_and_dedicated_prompt(tmp_path) -> N
         "acceptForSession",
         "decline",
     ]
+    assert approval["reason"] == "需要更新实现"
+    assert "justification" not in approval
     assert approval_prompt(approval) == "Would you like to make the following edits?"
     assert approval_decisions(approval) == [
         "accept",
