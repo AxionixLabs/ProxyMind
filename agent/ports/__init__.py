@@ -4,6 +4,7 @@
 from .capabilities import (
     ApprovalSnapshotCallback,
     ModelCapability,
+    ModelCapabilityError,
     ModelEventStream,
     ReconnectStatusCallback,
     TurnExecutor,
@@ -30,6 +31,7 @@ __all__ = (
     "LocalEffectReconciliationRequired",
     "ApprovalSnapshotCallback",
     "ModelCapability",
+    "ModelCapabilityError",
     "ModelEventStream",
     "ReconnectStatusCallback",
     "RunFact",

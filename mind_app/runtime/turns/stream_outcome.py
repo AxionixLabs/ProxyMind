@@ -35,6 +35,8 @@ class StreamTurnOutcome:
     can_continue: bool = False
     error: str | None = None
     additional_context: tuple[str, ...] = ()
+    error_code: str | None = None
+    error_details: dict[str, typing.Any] = field(default_factory=dict)
     _terminal_statuses: set[RunStatus] = field(
         default_factory=set,
         init=False,
@@ -120,11 +122,17 @@ class StreamTurnOutcome:
         self,
         error: str,
         *,
+        error_code: str | None = None,
+        error_details: typing.Mapping[str, typing.Any] | None = None,
         additional_context: typing.Iterable[str] = (),
     ) -> None:
         """记录本地失败及需要交还上层会话的上下文。"""
         self._terminal_statuses.add("failed")
         self.error = str(error)
+        if error_code not in {None, ""}:
+            self.error_code = str(error_code)
+        if error_details is not None:
+            self.error_details = dict(error_details)
         self.additional_context = (
             (additional_context,)
             if isinstance(additional_context, str)
@@ -143,6 +151,8 @@ class StreamTurnOutcome:
             assistant_text=assistant_text,
             usage=dict(self.usage),
             error=self.error,
+            error_code=self.error_code,
+            error_details=dict(self.error_details),
             additional_context=self.additional_context,
             **self.terminal_meta,
         )

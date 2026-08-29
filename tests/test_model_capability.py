@@ -4,7 +4,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from agent.application import ModelStreamRequest
+from agent.application import (
+    ModelCapabilityError,
+    ModelStreamRequest,
+)
 from agent.capabilities import model as model_adapter
 from agent.composition import open_model_capability
 
@@ -78,7 +81,7 @@ def test_remote_model_capability_translates_frozen_request(monkeypatch) -> None:
         on_approval_snapshot=approval,
     )
 
-    assert result is event_stream
+    assert isinstance(result, model_adapter.RemoteModelEventStream)
     stream_chat.assert_called_once_with(
         {"primary": {"model": "test-model"}},
         "inspect",
@@ -95,3 +98,55 @@ def test_remote_model_capability_translates_frozen_request(monkeypatch) -> None:
             "approvals_reviewer": "user",
         },
     )
+
+
+@pytest.mark.anyio
+async def test_remote_model_event_stream_normalizes_iteration_failure_and_closes() -> None:
+    class RawStream:
+        end_reason = "fatal"
+        last_event_seq = 9
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def __aiter__(self):
+            return self._iterate()
+
+        async def _iterate(self):
+            yield {"type": "turn.start"}
+            raise TimeoutError("read timed out")
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    raw = RawStream()
+    stream = model_adapter.RemoteModelEventStream(raw)
+
+    with pytest.raises(ModelCapabilityError) as captured:
+        async for _event in stream:
+            pass
+
+    error = captured.value
+    assert error.code == "model_transport_timeout"
+    assert error.retryable is True
+    assert error.details == {"exception_type": "TimeoutError"}
+    assert raw.closed is True
+    assert stream.last_event_seq == 9
+
+
+def test_model_capability_error_freezes_details() -> None:
+    details = {"status_code": 503, "nested": {"attempt": 1}}
+    error = ModelCapabilityError(
+        "model_transport_http_error",
+        "service unavailable",
+        retryable=True,
+        details=details,
+    )
+    details["nested"]["attempt"] = 2
+
+    assert error.to_dict() == {
+        "code": "model_transport_http_error",
+        "message": "service unavailable",
+        "retryable": True,
+        "details": {"status_code": 503, "nested": {"attempt": 1}},
+    }

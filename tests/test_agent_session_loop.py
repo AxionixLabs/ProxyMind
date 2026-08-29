@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import pytest
 
 from agent.application import (
+    ModelCapabilityError,
     TurnApplication,
     project_run_result,
     submit_turn,
@@ -291,6 +292,36 @@ async def test_session_loop_emits_failed_tool_result() -> None:
     }
     assert result.projection.status == "failed"
     assert result.projection.exit_code == 1
+
+
+@pytest.mark.anyio
+async def test_session_loop_persists_named_capability_error_when_executor_raises() -> None:
+    command = _command("model", run_id="run-model-failed")
+
+    async def execute(_request: SubmitTurnCommand) -> _Result:
+        raise ModelCapabilityError(
+            "model_transport_timeout",
+            "model transport timed out",
+            retryable=True,
+            details={"exception_type": "TimeoutError"},
+        )
+
+    session = SessionLoop("session-local", execute)
+    try:
+        with pytest.raises(ModelCapabilityError):
+            await session.execute(command)
+    finally:
+        await session.close()
+
+    assert session.events_for(command.run_id)[-1].payload == {
+        "status": "failed",
+        "error": {
+            "code": "model_transport_timeout",
+            "message": "model transport timed out",
+            "retryable": True,
+            "details": {"exception_type": "TimeoutError"},
+        },
+    }
 
 
 @pytest.mark.anyio

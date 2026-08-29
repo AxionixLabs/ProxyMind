@@ -276,6 +276,9 @@ running -> cancelled
 - Model capability 接收冻结、可序列化的 `ModelStreamRequest`，返回具有明确关闭
   和事件水位生命周期的流，不返回 UI 对象；重连展示和审批恢复通过独立 callback
   端口接入，不写入请求协议对象；runtime 必须在回合收尾中校验并等待流关闭。
+  传输、协议和适配器失败统一为 `ModelCapabilityError`，以稳定 `code`、
+  `retryable` 和 JSON `details` 进入 Run 终态结果与持久事件，不把 HTTP 客户端
+  异常类型泄漏到 runtime。
 - MCP/Helix capability 只暴露工具发现、调用和生命周期结果。
 - Process/filesystem capability 复用现有 `engine.ports` 等低层能力；端口探测和
   进程清理不下沉到协议包。
@@ -296,6 +299,7 @@ running -> cancelled
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`capabilities/model.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；后续继续把请求/事件类型与传输实现分开，协议不得导入 `engine` |
 | `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/capabilities/model.py` | `mind_app` 已改为只调用 `RuntimeServices` 中的 `ModelCapability`；当前 capability adapter 临时复用既有事件流，待事件类型和传输实现完成迁移后删除该导入 |
+| `agent/ports/capabilities.py`、`agent/capabilities/model.py` | `ports`、`capabilities/model.py` | `ModelCapabilityError` 统一传输/协议失败，`RemoteModelEventStream` 负责异步迭代和幂等关闭；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
 | `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | CLI、TUI 与 stdio MCP 已从进程入口接收 application 依赖；CLI `exec` 与 TUI 普通 prompt 已只调用公开用例，其他操作后续只做边界翻译和生命周期接入 |

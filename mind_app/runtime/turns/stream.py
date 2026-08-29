@@ -7,6 +7,7 @@ import asyncio
 from agent.application import (
     LocalEffectReconciliationRequired,
     ModelCapability,
+    ModelCapabilityError,
     ModelEventStream,
     ModelStreamRequest,
 )
@@ -750,6 +751,29 @@ async def stream_turn(
         )
 
         await run_presentation.emit_failure("turn.prompt_blocked")
+
+    except ModelCapabilityError as error:
+        outcome.fail(
+            error.message,
+            error_code=error.code,
+            error_details=error.details,
+            additional_context=failed_tool_context,
+        )
+        if outcome.additional_context and turn_context.agent.depth == 0:
+            mind.conversation.queue_turn_context(outcome.additional_context)
+        observe(
+            "stream.model_capability_failed",
+            level="ERROR",
+            turn_id=turn_context.turn_id,
+            code=error.code,
+            retryable=error.retryable,
+            details=error.details,
+        )
+
+        if turn_context.agent.depth == 0:
+            await mind.await_cleanup(mind.stop_anim("wait"))
+
+        await run_presentation.emit_failure("turn.failed")
 
     except asyncio.CancelledError:
         outcome.interrupt()

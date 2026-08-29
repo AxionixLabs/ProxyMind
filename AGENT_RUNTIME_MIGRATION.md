@@ -207,11 +207,15 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
   迁入 `agent.protocol`。AST 边界测试禁止旧运行时重新直连模型传输。
 - [x] `agent.capabilities` 只允许依赖 `agent` 内部边界与迁移期协议传输包，禁止
   导入 `mind_app`、`mind_core`、`engine`、`server` 或 `backend`。
-- [x] 全量测试 `2884 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
+- [x] `RemoteModelEventStream` 覆盖远端流异步迭代和幂等关闭，将 HTTP、超时、
+  协议及未知异常转换为稳定的 `ModelCapabilityError`；`RunResult` 保留
+  `error_code/error_details`，`RunActor` 直接收到能力异常时也写入具名 `run_failed`
+  事件，避免错误只停留在 UI 文本。
+- [x] 全量测试 `2890 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
   `mind.py -> agent`，没有形成新的跨边界循环，语法、边界与 diff 检查通过。
 
-当前未满足阶段出口：模型事件类仍位于 `mind_nova`；capability 失败尚未转换为
-具名、可持久化错误；MCP、Helix、process 和 filesystem 尚未完成端口接管。
+当前未满足阶段出口：模型事件类仍位于 `mind_nova`；MCP、Helix、process 和
+filesystem 尚未完成端口接管。
 
 ### 工作项
 
@@ -332,3 +336,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 2 | `SQLiteRunStore` 落地事件、快照、outbox、最终事实原子提交与恢复门禁；效果账本迁入 `agent.stores`，CLI/TUI 生产组合接入独立 `runtime.db`；全量测试 `2876 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 2 无未决项；阶段 3 未开始 |
 | 2026-08-29 | 阶段 3 | 模型请求、事件流生命周期与结束原因已进入 `agent.protocol/ports`，远端翻译收口到 capability；`mind.py` 通过 `RuntimeServices` 统一注入模型、Turn store 和效果账本工厂，application 不再反向加载具体组合；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |
 | 2026-08-29 | 阶段 3 | runtime 增加 `ModelEventStream` 运行时契约门禁，并在流式回合 `finally` 等待 capability 关闭，覆盖正常、失败和取消路径；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |
+| 2026-08-29 | 阶段 3 | `RemoteModelEventStream` 统一模型能力异常，`RunResult` 与 `run_failed` 事件保留稳定错误码、重试性和 JSON 细节；全量测试 `2890 passed, 11 skipped`，定向异常/持久化测试通过 | 模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 端口尚未接管 |

@@ -34,10 +34,17 @@ class RunResult(object):
     stop_sequence: str | None = None
     reason: str = ""
     can_continue: bool = False
+    error_code: str | None = None
+    error_details: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """规范化轮次结果中的可变数据和附加上下文。"""
         object.__setattr__(self, "usage", copy.deepcopy(dict(self.usage or {})))
+        object.__setattr__(
+            self,
+            "error_details",
+            copy.deepcopy(dict(self.error_details or {})),
+        )
         object.__setattr__(
             self,
             "additional_context",
@@ -85,6 +92,10 @@ class RunResult(object):
 
         if self.status == "incomplete":
             result["can_continue"] = self.can_continue
+        if self.error_code not in {None, ""}:
+            result["error_code"] = self.error_code
+        if self.error_details:
+            result["error_details"] = copy.deepcopy(self.error_details)
         if self.additional_context:
             result["additional_context"] = list(self.additional_context)
 

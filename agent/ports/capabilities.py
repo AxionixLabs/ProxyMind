@@ -12,6 +12,11 @@ from agent.protocol import (
     ModelStreamRequest,
     SubmitTurnCommand,
 )
+from agent.protocol.json_value import (
+    JsonValue,
+    freeze_json,
+    thaw_json,
+)
 
 ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
 
@@ -19,6 +24,66 @@ ApprovalSnapshotCallback: typing.TypeAlias = Callable[
     [object],
     Awaitable[None] | None,
 ]
+
+
+class ModelCapabilityError(RuntimeError):
+    """表示模型能力边界已经将传输或协议失败归一化。
+
+    capability adapter 负责创建此异常并提供稳定错误码；runtime 只读取公开字段，
+    将其写入本轮终态和持久事件，不得依赖具体 HTTP 客户端异常类型。
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        details: typing.Mapping[str, JsonValue] | None = None,
+    ) -> None:
+        """校验并保存可序列化的模型能力错误快照。"""
+        normalized_code = str(code or "").strip()
+        if not normalized_code:
+            raise ValueError("model capability error code is required")
+        normalized_message = str(message or "").strip()
+        if not normalized_message:
+            raise ValueError("model capability error message is required")
+        if not isinstance(retryable, bool):
+            raise TypeError("model capability error retryable must be boolean")
+        if details is None:
+            details = {}
+        if not isinstance(details, typing.Mapping):
+            raise TypeError("model capability error details must be an object")
+        frozen_details = freeze_json(
+            dict(details),
+            field_name="model capability error details",
+        )
+        if not isinstance(frozen_details, typing.Mapping):
+            raise TypeError("model capability error details must be an object")
+
+        self.code = normalized_code
+        self.retryable = retryable
+        self._details = frozen_details
+        super().__init__(normalized_message)
+
+    @property
+    def message(self) -> str:
+        """返回已经清洗的稳定错误消息。"""
+        return str(self)
+
+    @property
+    def details(self) -> dict[str, typing.Any]:
+        """返回错误细节的独立可变副本。"""
+        return typing.cast(dict[str, typing.Any], thaw_json(self._details))
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        """返回可写入终态事件的错误对象。"""
+        return {
+            "code": self.code,
+            "message": self.message,
+            "retryable": self.retryable,
+            "details": self.details,
+        }
 
 
 @typing.runtime_checkable

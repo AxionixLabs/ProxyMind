@@ -56,7 +56,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
 )
-from agent.application import ModelStreamRequest
+from agent.application import ModelCapabilityError, ModelStreamRequest
 from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
@@ -606,6 +606,29 @@ def test_run_result_preserves_nested_usage_and_terminal_metadata() -> None:
     assert dumped["can_continue"] is True
 
 
+def test_run_result_serializes_named_error_details_without_aliasing() -> None:
+    details = {"status_code": 503, "transport": {"attempt": 2}}
+    result = RunResult(
+        status="failed",
+        error="service unavailable",
+        error_code="model_transport_http_error",
+        error_details=details,
+    )
+    details["transport"]["attempt"] = 9
+    dumped = result.to_dict()
+    dumped["error_details"]["transport"]["attempt"] = 7
+
+    assert result.error_details == {
+        "status_code": 503,
+        "transport": {"attempt": 2},
+    }
+    assert dumped["error_code"] == "model_transport_http_error"
+    assert dumped["error_details"] == {
+        "status_code": 503,
+        "transport": {"attempt": 7},
+    }
+
+
 @pytest.mark.anyio
 async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
     expected = RunResult(status="completed", assistant_text="done")
@@ -671,6 +694,32 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         },
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_stream_persists_named_model_capability_failure(monkeypatch) -> None:
+    async def failed_stream(*_args, **_kwargs):
+        if False:
+            yield None
+        raise ModelCapabilityError(
+            "model_transport_timeout",
+            "model transport timed out",
+            retryable=True,
+            details={"exception_type": "TimeoutError"},
+        )
+
+    result, _mind = await _run_stream(
+        monkeypatch,
+        [],
+        stream_factory=failed_stream,
+    )
+
+    assert result == RunResult(
+        status="failed",
+        error="model transport timed out",
+        error_code="model_transport_timeout",
+        error_details={"exception_type": "TimeoutError"},
+    )
 
 
 @pytest.mark.anyio

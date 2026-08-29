@@ -13,6 +13,7 @@ from agent.domain import (
     RunStatus
 )
 from agent.ports import (
+    ModelCapabilityError,
     TurnExecutor,
     TurnExecutorResult
 )
@@ -87,6 +88,16 @@ class RunActor(typing.Generic[ResultValue]):
                 RunStatus.INTERRUPTED,
                 "run_interrupted",
                 payload={"status": "interrupted"},
+            )
+            raise
+        except ModelCapabilityError as error:
+            await self._transition(
+                RunStatus.FAILED,
+                "run_failed",
+                payload={
+                    "status": "failed",
+                    "error": error.to_dict(),
+                },
             )
             raise
         except TimeoutError as error:

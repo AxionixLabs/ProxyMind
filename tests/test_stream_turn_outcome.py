@@ -74,3 +74,19 @@ def test_outcome_marks_stream_without_terminal_as_incomplete() -> None:
         status="incomplete",
         error="stream ended before turn completion",
     )
+
+
+def test_outcome_preserves_named_capability_error() -> None:
+    outcome = StreamTurnOutcome()
+    outcome.fail(
+        "service unavailable",
+        error_code="model_transport_http_error",
+        error_details={"status_code": 503},
+    )
+
+    assert outcome.build_result("") == RunResult(
+        status="failed",
+        error="service unavailable",
+        error_code="model_transport_http_error",
+        error_details={"status_code": 503},
+    )
