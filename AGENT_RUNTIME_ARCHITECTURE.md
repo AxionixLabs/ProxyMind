@@ -275,7 +275,7 @@ running -> cancelled
 
 - Model capability 接收冻结、可序列化的 `ModelStreamRequest`，返回具有明确关闭
   和事件水位生命周期的流，不返回 UI 对象；重连展示和审批恢复通过独立 callback
-  端口接入，不写入请求协议对象。
+  端口接入，不写入请求协议对象；runtime 必须在回合收尾中校验并等待流关闭。
 - MCP/Helix capability 只暴露工具发现、调用和生命周期结果。
 - Process/filesystem capability 复用现有 `engine.ports` 等低层能力；端口探测和
   进程清理不下沉到协议包。

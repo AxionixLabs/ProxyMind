@@ -7,6 +7,7 @@ import asyncio
 from agent.application import (
     LocalEffectReconciliationRequired,
     ModelCapability,
+    ModelEventStream,
     ModelStreamRequest,
 )
 from mind_app.approval.ledger import ApprovalCallLedger
@@ -492,6 +493,8 @@ async def stream_turn(
             on_reconnect_status=retrying_status.set_transport,
             on_approval_snapshot=approval_handler.restore_snapshot,
         )
+        if not isinstance(event_stream, ModelEventStream):
+            raise TypeError("model capability returned an invalid event stream")
 
         async for event in event_stream:
             event_count += 1
@@ -799,6 +802,14 @@ async def stream_turn(
         )
 
     finally:
+        if event_stream is not None:
+            try:
+                await mind.await_cleanup(event_stream.aclose())
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                observe_exception("stream.model_close_failed", error)
+
         stream_end_reason = (
             getattr(event_stream, "end_reason", None)
             if event_stream is not None

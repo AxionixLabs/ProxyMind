@@ -195,6 +195,9 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
   配置、消息、工具、附件和请求选项；重连状态和审批恢复 callback 不进入协议对象。
 - [x] `ModelCapability` 明确事件迭代、服务端水位和关闭生命周期；
   `RemoteModelCapability` 是唯一把冻结请求翻译到现有远端传输的实现。
+- [x] `stream_turn` 在进入事件处理前校验 `ModelEventStream` 的异步迭代、关闭、
+  终止原因和服务端游标端口，并在 `finally` 中等待 `aclose()` 完成，关闭失败只
+  进入结构化观测，不跳过本轮终态收尾。
 - [x] `mind.py` 是唯一具体组合根，创建一次 `RuntimeServices` 并显式传给 CLI、
   TUI 与 stdio MCP；主动 Turn、停止 Hook 续跑和子 Agent 从同一容器取得模型能力。
 - [x] `agent.application` 不再导入 `agent.composition`、stores 或 capabilities；
@@ -328,3 +331,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 1 | TUI 普通 prompt 已接入 `TurnApplication`、长生命周期 SessionLoop 和 Event 终态投影；并发提交、取消重建及可取消关闭等待均有测试；全量测试 `2859 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 1 无未决项；阶段 2 未开始 |
 | 2026-08-28 | 阶段 2 | `SQLiteRunStore` 落地事件、快照、outbox、最终事实原子提交与恢复门禁；效果账本迁入 `agent.stores`，CLI/TUI 生产组合接入独立 `runtime.db`；全量测试 `2876 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 2 无未决项；阶段 3 未开始 |
 | 2026-08-29 | 阶段 3 | 模型请求、事件流生命周期与结束原因已进入 `agent.protocol/ports`，远端翻译收口到 capability；`mind.py` 通过 `RuntimeServices` 统一注入模型、Turn store 和效果账本工厂，application 不再反向加载具体组合；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |
+| 2026-08-29 | 阶段 3 | runtime 增加 `ModelEventStream` 运行时契约门禁，并在流式回合 `finally` 等待 capability 关闭，覆盖正常、失败和取消路径；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |

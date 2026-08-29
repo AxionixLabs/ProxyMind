@@ -432,6 +432,27 @@ async def _run_stream(
     class ModelCapabilityStub:
         """把测试流工厂适配到正式模型能力端口。"""
 
+        def __init__(self) -> None:
+            self.last_stream = None
+
+        class _EventStream(object):
+            """为测试迭代器补齐模型流关闭端口。"""
+
+            def __init__(self, iterator) -> None:
+                self._iterator = iterator
+                self.end_reason = getattr(iterator, "end_reason", None)
+                self.last_event_seq = getattr(iterator, "last_event_seq", 0)
+                self.closed = False
+
+            def __aiter__(self):
+                return self._iterator.__aiter__()
+
+            async def aclose(self) -> None:
+                self.closed = True
+                close = getattr(self._iterator, "aclose", None)
+                if close is not None:
+                    await close()
+
         def stream(
             self,
             request: ModelStreamRequest,
@@ -440,7 +461,7 @@ async def _run_stream(
             on_approval_snapshot=None,
         ):
             """按旧测试工厂签名展开冻结请求。"""
-            return stream_chat(
+            iterator = stream_chat(
                 request.pref_config_value(),
                 request.message,
                 request.tool_values(),
@@ -451,6 +472,8 @@ async def _run_stream(
                 on_approval_snapshot=on_approval_snapshot,
                 **request.option_values(),
             )
+            self.last_stream = self._EventStream(iterator)
+            return self.last_stream
 
     mind.runtime_services.model_capability = ModelCapabilityStub()
     output_session = _output_session(
@@ -621,6 +644,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         usage={"output_tokens": 3},
     )
     assert mind.remembered == ["answer"]
+    assert mind.runtime_services.model_capability.last_stream.closed is True
     assert mind.output_session.content.items == [
         AssistantTextDelta("answer", response_identity()),
         AssistantSegmentCompleted(response_identity()),

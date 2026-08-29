@@ -6,6 +6,11 @@
 ## 工作方式
 
 - 先理解现有实现和调用链，再做小范围、可验证的修改。
+- 架构判断先于任何改动：开始需求、修复或重构前，先确认改动在目标架构中的
+  职责归属、依赖方向、状态所有权和生命周期；优先调整边界和复用现有能力，
+  不为了通过单个需求临时堆叠代码、复制逻辑或增加无归属的兼容层。
+- 架构迁移阶段、准入条件和完成证据仍以 `AGENT_RUNTIME_MIGRATION.md` 为准；
+  需求实现必须遵守当前阶段边界，不能以局部功能完成推断架构迁移完成。
 - 不做无关重构，不保留无意义兼容层或只转发一次调用的 facade。
 - 优先复用现有模块、契约和生命周期；只有边界或状态所有权明确时才拆模块。
 - 避免含义不清的布尔值、`None` 和数字位置参数；优先使用关键字参数、枚举或具名类型。
@@ -26,8 +31,10 @@
 以下是 Agent Runtime 迁移完成前的当前生产依赖边界，不是目标目录声明。
 
 ```text
+mind.py -> agent.composition
 mind.py -> mind_app.cli -> mind_app.controller
                          -> mind_app.runtime / subscription / tui / output
+mind_app -> agent.application
 mind_app -> mind_core -> mind_nova
 ```
 
@@ -37,7 +44,8 @@ mind_app -> mind_core -> mind_nova
   不得导入 `mind_core` 或 `mind_app`。
 - `backend` 只能依赖自身、标准库和第三方库；其他包不得导入 `backend`。
 - `engine.ports` 负责本地端口探测和进程清理，不放入 `mind_nova`。
-- CLI 是组合根；控制器、runtime 和 subscription 不判断具体输出前端。
+- `mind.py` 是当前唯一具体组合根；CLI、控制器、runtime 和 subscription 不组装
+  具体能力，也不判断具体输出前端。
 - 保持公共 API 精简，不为测试扩大生产模块的公开接口；测试辅助函数放在测试代码中。
 
 ### Agent Runtime 迁移规则

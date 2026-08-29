@@ -2,21 +2,26 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable
+)
 from agent.protocol import (
     ModelStreamEndReason,
     ModelStreamRequest,
     SubmitTurnCommand,
 )
 
-
 ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
+
 ApprovalSnapshotCallback: typing.TypeAlias = Callable[
     [object],
     Awaitable[None] | None,
 ]
 
 
+@typing.runtime_checkable
 class ModelEventStream(typing.Protocol):
     """暴露模型事件迭代、恢复游标和显式关闭生命周期。"""
 
