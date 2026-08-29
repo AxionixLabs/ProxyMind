@@ -288,9 +288,11 @@ TUI 已在中断收束处优先读取同一 projection，但正文展示仍由�
 
 阶段 4B（Harness 与协议前端边界）已启动：SessionLoop、RunActor 和 Session 所有者
 已从 `agent.runtime` 迁移到 `agent.harness`，并通过完整用例、恢复/取消/并发测试。
-下一切片建立与 `Mind`、TUI 和 `prompt_toolkit` 无关的 Protocol Client，之后 TUI
-消费该客户端的 Canonical Event/Item 投影，桌面端和 Web 复用同一客户端语义，不
-复刻 Harness 状态机。
+最新 `exec_env` 契约插入切片已收口：模型请求使用显式不可变环境快照，本机采集和
+Helix provider 聚合由进程级注入的 capability 负责；CLI、TUI、MCP 和 subscription
+均在 queued 命令持久化前冻结快照。下一切片建立与 `Mind`、TUI 和
+`prompt_toolkit` 无关的 Protocol Client；TUI、桌面端和 Web 复用同一客户端语义，
+不复刻 Harness 状态机。
 
 ### 当前证据
 
@@ -322,6 +324,15 @@ TUI 已在中断收束处优先读取同一 projection，但正文展示仍由�
 - [x] `agent.runtime` 已重命名为 `agent.harness`，`session_runtime.py` 已重命名为
   `session_owner.py`；`agent.application`、架构边界测试和 SessionLoop 测试均已切换，
   旧包没有生产导入。
+- [x] 客户端 `exec_env` 已按正式协议形成每 Turn 快照并在 continuation 中复用；
+  `ModelStreamRequest.environment_snapshot` 将它作为一等不可变输入，通用 `options`
+  拒绝 `exec_env`，远端 model adapter 只在 wire 边界显式映射该字段。
+- [x] `EnvironmentSnapshotCapability` 由 `RuntimeServices` 进程级注入；本机 shell/
+  tool 静态事实由 capability 实例缓存，每次 Turn 仍生成独立 `snapshot_id`，旧
+  `mind_app/runtime/environment/exec_env.py` 已删除且没有兼容 facade。
+- [x] CLI、TUI、MCP 和 subscription 在创建 `SubmitTurnCommand` 前捕获环境；命令
+  深冻结快照并将其纳入序列化和 SHA-256 意图指纹，SQLite queued redispatch 测试
+  证明执行器读取持久命令中的原快照，不在恢复进程重新采集。
 
 当前未满足阶段 4 出口：四类入口尚未共享同一套完整的结果/展示投影，旧根轮次和
 legacy Helix/process adapter 仍需在后续切片迁移；阶段 4B 的 Protocol Client 和
@@ -344,6 +355,8 @@ TUI 迁移尚未完成。
    `turn.logical_settled`、审批和工具结果命令。
 8. 根目录 `server/` 只作为客户端内置 `ConfigServiceRuntime` 保留，提供配置 UI
    和健康检查；它不拥有 Harness 状态，也不承载 `mind.chat` 线上服务端职责。
+9. [x] 将本机环境采集与 Helix provider 聚合迁入注入式 environment capability；在
+   `SubmitTurnCommand` 持久化前冻结快照并纳入指纹，queued redispatch 不得重采集。
 
 ### 出口条件
 
@@ -355,6 +368,8 @@ TUI 迁移尚未完成。
 - TUI 的模型、工具、审批和效果编排不再绕过 Protocol Client。
 - `agent.harness` 成为本地 Session/Run 编排的唯一实现包，旧 `agent.runtime`
   已删除且不再有生产导入。
+- continuation、provider retry 和 queued redispatch 都复用持久命令中的同一环境
+  `snapshot_id`，恢复进程不读取当前环境替换它。
 
 ## 阶段 5：历史包退役
 
@@ -467,3 +482,5 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 4 | CLI `exec` 的完成观测改用 `RunResultProjection.status`，补齐结果投影权威性测试；CLI/架构定向测试 `107 passed` | 四类入口仍保留兼容性原始结果对象；旧根轮次和 legacy Helix/process adapter 待迁移 |
 | 2026-08-29 | 阶段 4 规划修订 | 根据多前端目标补充 Protocol Client 与 Canonical Event/Item reducer 边界；明确 `mind.chat` 是 TUI、桌面端和 Web 的公共 wire contract，`agent.protocol` 仅为本地 Harness 事件 | 阶段 4B 尚未开始；TUI 仍依赖 `Mind`、`stream_turn` 和 EventReport，协议 SDK 的最终归属待确定 |
 | 2026-08-29 | 阶段 4 规划修订 | 将主线名称从 Agent Runtime 提升为 Agent Harness；目标编排包确定为 `agent.harness`，根目录 `server/` 明确为客户端内置 ConfigServiceRuntime，仅提供配置 UI/健康检查 | 已完成 `agent.runtime` -> `agent.harness` 的首个完整切片；Protocol Client/TUI 迁移仍待开始，server 仍出现在当前导入图中但不属于 Harness 状态边界 |
+| 2026-08-29 | 阶段 4 插入切片 | 复核新的客户端 `exec_env` 快照契约；将环境快照提升为 `ModelStreamRequest.environment_snapshot` 一等冻结字段，通用 options 拒绝夹带，model adapter 在 wire 边界映射回 `exec_env`；定向测试 `93 passed`、全量测试 `2951 passed, 11 skipped` | 本机采集和 Helix provider 聚合仍位于 legacy runtime；持久 queued 命令尚未冻结环境快照，跨进程 redispatch 仍需收口 |
+| 2026-08-29 | 阶段 4 插入切片 | 完成环境输入所有权收口：新增进程级 `EnvironmentSnapshotCapability`，删除 legacy `exec_env.py`；四类主动入口在提交前捕获，`SubmitTurnCommand` 深冻结、序列化并纳入指纹，stream/model adapter 只消费命令快照；补齐 SQLite 重启恢复证据，全量测试 `2951 passed, 11 skipped` | 环境切片完成；阶段 4 下一项恢复为 Protocol Client 与 TUI Canonical Event/Item 投影迁移 |

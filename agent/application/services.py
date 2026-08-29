@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from agent.ports import (
     EffectJournal,
+    EnvironmentSnapshotCapability,
     ModelCapability,
 )
 from .commands import TurnApplication
@@ -27,6 +28,7 @@ class RuntimeServices:
     """
 
     model_capability: ModelCapability
+    environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
 
@@ -34,6 +36,14 @@ class RuntimeServices:
         """拒绝缺失能力，确保组合错误在启动边界暴露。"""
         if not isinstance(self.model_capability, ModelCapability):
             raise TypeError("model capability does not implement ModelCapability")
+        if not isinstance(
+            self.environment_capability,
+            EnvironmentSnapshotCapability,
+        ):
+            raise TypeError(
+                "environment capability does not implement "
+                "EnvironmentSnapshotCapability"
+            )
         if not callable(self.create_turn_application):
             raise TypeError("turn application factory must be callable")
         if not callable(self.create_effect_journal):

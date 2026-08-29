@@ -39,8 +39,27 @@ def _source_layout(tmp_path: Path) -> ApplicationLayout:
     )
 
 
+class _EnvironmentCapability:
+    """提供 MCP 入口测试使用的固定环境快照。"""
+
+    def __init__(self) -> None:
+        self.clear_cache_mock = Mock()
+        self.capture_mock = Mock(return_value={
+            "snapshot_id": "envsnap_mcp",
+        })
+
+    def capture(self, **kwargs) -> dict[str, object]:
+        return self.capture_mock(**kwargs)
+
+    def clear_cache(self) -> None:
+        self.clear_cache_mock()
+
+
 def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
     """使用指定根轮次用例构造 MCP 测试运行时。"""
+    mind.runtime_services = _runtime_services()
+    mind.is_service_mcp_linked = Mock(return_value=False)
+    mind.service_exec_env_snapshot = Mock(return_value=None)
     return MindMcpRuntime(
         mind,
         report=SimpleNamespace(close=Mock()),
@@ -51,11 +70,15 @@ def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
 
 def _runtime_services(model_capability: object | None = None) -> SimpleNamespace:
     """构造 MCP 入口测试使用的进程级依赖。"""
-    return SimpleNamespace(model_capability=(
-        object()
-        if model_capability is None
-        else model_capability
-    ), create_turn_application=lambda _path: TurnApplication())
+    return SimpleNamespace(
+        model_capability=(
+            object()
+            if model_capability is None
+            else model_capability
+        ),
+        environment_capability=_EnvironmentCapability(),
+        create_turn_application=lambda _path: TurnApplication(),
+    )
 
 
 def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
@@ -244,7 +267,6 @@ async def test_mind_mcp_runtime_injects_model_capability(
     monkeypatch.setattr(mcp_server, "Preferences", lambda _session: pref)
     monkeypatch.setattr(mcp_server, "Mind", build_controller)
     monkeypatch.setattr(mcp_server, "route_shell_tools", Mock())
-    monkeypatch.setattr(mcp_server, "clear_exec_env_cache", Mock())
     monkeypatch.setattr(
         mcp_server,
         "ServiceConfig",
@@ -258,6 +280,7 @@ async def test_mind_mcp_runtime_injects_model_capability(
     )
 
     assert captured["runtime_services"] is runtime_services
+    runtime_services.environment_capability.clear_cache_mock.assert_called_once_with()
     await runtime.close()
 
 
@@ -271,6 +294,9 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     turn_runner = AsyncMock(return_value=result)
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
+        runtime_services=_runtime_services(),
+        is_service_mcp_linked=Mock(return_value=False),
+        service_exec_env_snapshot=Mock(return_value=None),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
@@ -297,6 +323,7 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     turn_runner.assert_awaited_once_with(
         mind,
         message="inspect",
+        exec_env={"snapshot_id": "envsnap_mcp"},
         permissions=PermissionSettings("read-only", "on-request"),
     )
 
@@ -337,6 +364,9 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
     application = RecordingApplication()
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
+        runtime_services=_runtime_services(),
+        is_service_mcp_linked=Mock(return_value=False),
+        service_exec_env_snapshot=Mock(return_value=None),
         set_history_workspace=Mock(),
         reset_conversation=AsyncMock(return_value=metadata),
         find_conversation_session=Mock(return_value=None),
@@ -361,6 +391,9 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
     assert actual.run is result
     assert application.command.session_id == metadata["sid"]
     assert application.command.message == "inspect"
+    assert application.command.environment_snapshot_value() == {
+        "snapshot_id": "envsnap_mcp",
+    }
     assert application.command.extras_value() == {
         "working_directory": str(tmp_path.resolve()),
         "sandbox_mode": "read-only",
@@ -401,6 +434,7 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
     turn_runner.assert_awaited_once_with(
         mind,
         message="inspect",
+        exec_env={"snapshot_id": "envsnap_mcp"},
         permissions=PermissionSettings("workspace-write", "on-request"),
     )
 

@@ -25,12 +25,40 @@ def _model_event(event_type: str = "turn.start") -> SimpleNamespace:
     )
 
 
+def _environment_snapshot() -> dict:
+    return {
+        "snapshot_id": "envsnap_test",
+        "source": "client",
+        "captured_at": "2026-08-29T12:00:00Z",
+        "environment_id": "local",
+        "cwd": "D:\\workspace\\project",
+        "status": "available",
+        "status_detail": None,
+        "shell": {
+            "name": "powershell",
+            "syntax": "powershell",
+            "executable": "powershell.exe",
+            "prefix": ["powershell.exe", "-NoProfile", "-Command"],
+            "source": "path",
+        },
+        "workspace": {
+            "root": "D:\\workspace",
+            "allowed_roots": [],
+            "source": "client",
+        },
+        "tools": {},
+        "providers": {},
+        "extensions": {},
+    }
+
+
 def _request() -> ModelStreamRequest:
     return ModelStreamRequest(
         pref_config={"primary": {"model": "test-model"}},
         message="inspect",
         tools=({"name": "read_file"},),
         attachments=({"path": "screen.png"},),
+        environment_snapshot=_environment_snapshot(),
         options={
             "metadata": {"cid": "cid_test", "sid": "sid_test"},
             "permissions": {
@@ -46,18 +74,25 @@ def _request() -> ModelStreamRequest:
 
 def test_model_stream_request_freezes_and_copies_protocol_values() -> None:
     options = {"metadata": {"cid": "cid_test"}}
+    environment_snapshot = _environment_snapshot()
     request = ModelStreamRequest(
         pref_config={},
         message="inspect",
         tools=({"name": "read_file"},),
+        environment_snapshot=environment_snapshot,
         options=options,
     )
     options["metadata"]["cid"] = "changed"
+    environment_snapshot["cwd"] = "D:\\changed"
 
     assert request.option_values() == {"metadata": {"cid": "cid_test"}}
     returned = request.option_values()
     returned["metadata"]["cid"] = "mutated"
     assert request.option_values() == {"metadata": {"cid": "cid_test"}}
+    assert request.environment_snapshot_value()["cwd"] == "D:\\workspace\\project"
+    returned_environment = request.environment_snapshot_value()
+    returned_environment["cwd"] = "D:\\mutated"
+    assert request.environment_snapshot_value()["cwd"] == "D:\\workspace\\project"
 
 
 def test_model_stream_request_rejects_runtime_objects() -> None:
@@ -77,6 +112,16 @@ def test_model_stream_request_rejects_reserved_options() -> None:
             message="inspect",
             tools=(),
             options={"timeout": 1.0},
+        )
+
+
+def test_model_stream_request_rejects_exec_env_in_generic_options() -> None:
+    with pytest.raises(ValueError, match="reserved fields: exec_env"):
+        ModelStreamRequest(
+            pref_config={},
+            message="inspect",
+            tools=(),
+            options={"exec_env": _environment_snapshot()},
         )
 
 
@@ -104,6 +149,7 @@ def test_remote_model_capability_translates_frozen_request(monkeypatch) -> None:
         on_reconnect_status=reconnect,
         on_approval_snapshot=approval,
         initial_event_seq=7,
+        exec_env=_environment_snapshot(),
         metadata={"cid": "cid_test", "sid": "sid_test"},
         permissions={
             "sandbox_mode": "workspace-write",

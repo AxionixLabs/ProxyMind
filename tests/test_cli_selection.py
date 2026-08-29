@@ -68,6 +68,18 @@ def root_turn_adapter(monkeypatch) -> AsyncMock:
     return turn_runner
 
 
+@pytest.fixture(autouse=True)
+def frozen_environment_snapshot(monkeypatch) -> dict[str, object]:
+    """固定 CLI 提交边界捕获的环境事实。"""
+    snapshot = {"snapshot_id": "envsnap_cli"}
+    monkeypatch.setattr(
+        cli_dispatch,
+        "capture_active_turn_environment",
+        Mock(return_value=snapshot),
+    )
+    return snapshot
+
+
 async def _await_cleanup(awaitable) -> None:
     await awaitable
 
@@ -540,6 +552,7 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
     mind = SimpleNamespace(
         attach=attach,
         exit_code=99,
+        history_workspace=".",
         permissions=preset_permissions("auto"),
     )
     command = ExecCommand(
@@ -557,6 +570,7 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
         mind,
         message="hello",
         attachments=attachments,
+        exec_env={"snapshot_id": "envsnap_cli"},
     )
 
 
@@ -575,6 +589,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
     mind = SimpleNamespace(
         fresh_pref_config=fresh_pref_config,
         exit_code=99,
+        history_workspace=".",
         permissions=preset_permissions("auto"),
     )
 
@@ -595,6 +610,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
         },
         message="hello",
         attachments=[],
+        exec_env={"snapshot_id": "envsnap_cli"},
     )
 
 
@@ -866,6 +882,7 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
     root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
         exit_code=0,
+        history_workspace=".",
         permissions=preset_permissions("auto"),
     )
 
@@ -894,6 +911,7 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
     )
     mind = SimpleNamespace(
         exit_code=0,
+        history_workspace=".",
         permissions=preset_permissions("auto"),
     )
 
@@ -931,6 +949,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
             create_turn_application=open_application,
         ),
         exit_code=0,
+        history_workspace=".",
         permissions=preset_permissions("auto"),
     )
 
@@ -939,6 +958,9 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     submitted_command = submit.await_args.args[0]
     assert result is run_result
     assert submitted_command.session_id == "cli_session_stable"
+    assert submitted_command.environment_snapshot_value() == {
+        "snapshot_id": "envsnap_cli",
+    }
     open_application.assert_called_once_with(db_path)
     derive_session.assert_called_once_with("cli", coordinates)
     close.assert_awaited_once_with(cancel_running=True)
@@ -957,6 +979,7 @@ async def test_cancelled_exec_closes_agent_session_worker(
     root_turn_adapter.side_effect = wait_for_cancellation
     mind = SimpleNamespace(
         exit_code=0,
+        history_workspace=".",
         permissions=preset_permissions("auto"),
     )
 
@@ -1263,7 +1286,6 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch.setattr(bootstrap, "Preferences", lambda _path: object())
     monkeypatch.setattr(bootstrap, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
     monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)
-    monkeypatch.setattr(bootstrap, "clear_exec_env_cache", lambda: None)
     monkeypatch.setattr(bootstrap, "ensure_service_runtime_asset", ensure_upgrade)
     result = await bootstrap._run_application(
         command,

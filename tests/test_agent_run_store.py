@@ -46,6 +46,7 @@ def _command(
     session_id: str = "session-durable",
     run_id: str = "run-durable",
     command_id: str = "command-durable",
+    environment_snapshot: dict[str, object] | None = None,
 ) -> SubmitTurnCommand:
     return SubmitTurnCommand.create(
         session_id=session_id,
@@ -53,6 +54,7 @@ def _command(
         command_id=command_id,
         idempotency_key=f"intent-{run_id}",
         message="inspect",
+        environment_snapshot=environment_snapshot,
     )
 
 
@@ -131,24 +133,44 @@ async def test_run_store_commits_event_snapshot_outbox_and_final_facts(
 async def test_queued_run_is_safely_redispatched_after_restart(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime.db"
     store = SQLiteRunStore(db_path)
-    original = _command()
+    original_environment = {
+        "snapshot_id": "envsnap_before_restart",
+        "workspace": {"root": str(tmp_path)},
+    }
+    original = _command(environment_snapshot=original_environment)
     await store.append_event(
         original,
         _event(original, 1, "run_queued", "queued"),
     )
 
-    retry = _command(command_id="command-retry")
+    original_environment["workspace"]["root"] = "changed-after-queue"
+    retry = _command(
+        command_id="command-retry",
+        environment_snapshot={
+            "snapshot_id": "envsnap_before_restart",
+            "workspace": {"root": str(tmp_path)},
+        },
+    )
     application = open_turn_application(db_path)
-    calls: list[str] = []
+    calls: list[tuple[str, dict[str, object] | None]] = []
 
     async def execute(request: SubmitTurnCommand) -> _Result:
-        calls.append(request.command_id)
+        calls.append((
+            request.command_id,
+            request.environment_snapshot_value(),
+        ))
         return _Result()
 
     result = await application.submit(retry, execute)
     await application.close()
 
-    assert calls == [original.command_id]
+    assert calls == [(
+        original.command_id,
+        {
+            "snapshot_id": "envsnap_before_restart",
+            "workspace": {"root": str(tmp_path)},
+        },
+    )]
     assert result.events[0].kind == "run_queued"
     assert [event.sequence for event in result.events] == [1, 2, 3]
 

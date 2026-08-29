@@ -24,6 +24,16 @@ from mind_core.permissions import preset_permissions
 from mind_app.tui.session.turn import execute_tui_model_turn
 
 
+@pytest.fixture(autouse=True)
+def frozen_environment_snapshot(monkeypatch) -> None:
+    """固定 TUI 命令提交时捕获的环境事实。"""
+    monkeypatch.setattr(
+        loop,
+        "capture_active_turn_environment",
+        Mock(return_value={"snapshot_id": "envsnap_tui"}),
+    )
+
+
 async def _render_next_frame(runtime: TuiRuntime):
     previous_revision = runtime.screen.application.render_counter
     runtime.invalidate()

@@ -92,12 +92,29 @@ def _service_environment_provider() -> dict:
     }
 
 
+class _EnvironmentCapability:
+    """记录环境捕获调用的能力替身。"""
+
+    def __init__(self, snapshot: dict) -> None:
+        self.capture_mock = Mock(return_value=snapshot)
+
+    def capture(self, **kwargs) -> dict:
+        return self.capture_mock(**kwargs)
+
+    def clear_cache(self) -> None:
+        pass
+
+
 def _controller(
     session_factory: Mock,
     *,
     retry_state: Mock | None = None,
+    environment_snapshot: dict | None = None,
 ) -> SimpleNamespace:
     """构造准备阶段需要的控制器能力。"""
+    environment_capability = _EnvironmentCapability(
+        environment_snapshot or _exec_env_snapshot()
+    )
     return SimpleNamespace(
         animate=False,
         frontend=SimpleNamespace(
@@ -110,6 +127,9 @@ def _controller(
         is_service_mcp_linked=Mock(return_value=True),
         service_exec_env_snapshot=Mock(
             return_value=_service_environment_provider()
+        ),
+        runtime_services=SimpleNamespace(
+            environment_capability=environment_capability,
         ),
         history_workspace="D:\\PycharmProjects\\ProxyMind",
     )
@@ -174,14 +194,13 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
     output_session = _output_session()
     session_factory = Mock(return_value=output_session)
     retry_state = Mock()
+    snapshot = _exec_env_snapshot()
     controller = _controller(
         session_factory,
         retry_state=retry_state,
+        environment_snapshot=snapshot,
     )
-    snapshot = _exec_env_snapshot()
-    build_exec_env = Mock(return_value=snapshot)
     build_skills = Mock(return_value=[{"name": "resolved"}])
-    monkeypatch.setattr(stream_setup, "build_runtime_exec_env", build_exec_env)
     monkeypatch.setattr(stream_setup, "skills_payload", build_skills)
 
     prepared = stream_setup.prepare_stream_turn(
@@ -198,10 +217,13 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
         "session_factory": session_factory,
     }
     controller.service_exec_env_snapshot.assert_called_once_with()
-    build_exec_env.assert_called_once_with(
+    environment_capability = (
+        controller.runtime_services.environment_capability
+    )
+    environment_capability.capture_mock.assert_called_once_with(
         cwd=".",
         workspace_root="D:\\PycharmProjects\\ProxyMind",
-        service_exec_env=_service_environment_provider()
+        providers={"helix": _service_environment_provider()},
     )
     controller.config_session.load.assert_called_once_with()
     build_skills.assert_called_once_with({})

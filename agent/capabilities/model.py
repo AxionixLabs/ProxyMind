@@ -84,6 +84,10 @@ class RemoteModelCapability:
     ) -> ModelEventStream:
         """创建保留重连、审批恢复和事件水位语义的远端流。"""
         try:
+            request_options = request.option_values()
+            environment_snapshot = request.environment_snapshot_value()
+            if environment_snapshot is not None:
+                request_options["exec_env"] = environment_snapshot
             stream = stream_chat(
                 request.pref_config_value(),
                 request.message,
@@ -93,7 +97,7 @@ class RemoteModelCapability:
                 on_reconnect_status=on_reconnect_status,
                 on_approval_snapshot=on_approval_snapshot,
                 initial_event_seq=request.initial_event_seq,
-                **request.option_values(),
+                **request_options,
             )
         except asyncio.CancelledError:
             raise

@@ -196,6 +196,7 @@ async def run_tui_model_turn(
     pref_config: dict[str, typing.Any],
     permissions: PermissionSettings,
     attachments: typing.Iterable[typing.Mapping[str, typing.Any]] | None = None,
+    environment_snapshot: typing.Mapping[str, typing.Any] | None = None,
     turn_id: str | None = None,
     prompt_extras: typing.Mapping[str, typing.Any] | None = None,
     on_prompt_prepared: typing.Callable[
@@ -254,7 +255,13 @@ async def run_tui_model_turn(
         event_report: EventReport
     ) -> "RunResult":
         """使用 TUI 前端生命周期执行已经准备好的根轮次。"""
-        prompt_kwargs: dict[str, typing.Any] = {}
+        prompt_kwargs: dict[str, typing.Any] = {
+            "exec_env": (
+                dict(environment_snapshot)
+                if environment_snapshot is not None
+                else None
+            ),
+        }
         if extras:
             prompt_kwargs["extras"] = extras
         if turn_input_control is not None:

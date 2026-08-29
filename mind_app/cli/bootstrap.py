@@ -48,7 +48,6 @@ from ..presentation.models import (
     TextStyle
 )
 from ..reporting import RunReport
-from ..runtime.environment.exec_env import clear_exec_env_cache
 from ..runtime.environment.shell_tools import route_shell_tools
 from ..runtime.environment.workspace import fetch_runtime_workspace_root
 from ..runtime.mcp.service_runtime import (
@@ -310,7 +309,8 @@ async def _run_application(
         )
 
         route_shell_tools(supports)
-        clear_exec_env_cache()
+        if runtime_services is not None:
+            runtime_services.environment_capability.clear_cache()
 
         observe(
             "runtime.resolved",

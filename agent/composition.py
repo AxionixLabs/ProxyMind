@@ -13,8 +13,11 @@ from agent.stores import (
     LocalEffectJournal,
     SQLiteRunStore,
 )
-from agent.capabilities import RemoteModelCapability
-from agent.ports import ModelCapability
+from agent.capabilities import (
+    LocalEnvironmentSnapshotCapability,
+    RemoteModelCapability,
+)
+from agent.ports import EnvironmentSnapshotCapability, ModelCapability
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 
@@ -22,7 +25,7 @@ ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 def open_turn_application(
     db_path: str | Path,
 ) -> TurnApplication[ResultValue]:
-    """使用 Agent Runtime 专用 SQLite store 组合主动 Turn 应用入口。"""
+    """使用 Agent Harness 专用 SQLite store 组合主动 Turn 应用入口。"""
     return TurnApplication(SQLiteRunStore(db_path))
 
 
@@ -36,10 +39,16 @@ def open_model_capability() -> ModelCapability:
     return RemoteModelCapability()
 
 
+def open_environment_capability() -> EnvironmentSnapshotCapability:
+    """组合进程级本机环境快照能力。"""
+    return LocalEnvironmentSnapshotCapability()
+
+
 def create_runtime_services() -> RuntimeServices:
-    """创建供单个进程入口共享的 Agent Runtime 依赖。"""
+    """创建供单个进程入口共享的 Agent Harness 依赖。"""
     return RuntimeServices(
         model_capability=open_model_capability(),
+        environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=open_effect_journal,
     )

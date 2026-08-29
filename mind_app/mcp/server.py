@@ -32,7 +32,7 @@ from mind_app.paths import (
     mind_reports_dir
 )
 from mind_app.reporting import RunReport
-from mind_app.runtime.environment.exec_env import clear_exec_env_cache
+from mind_app.runtime.environment.snapshot import capture_turn_environment
 from mind_app.runtime.environment.shell_tools import route_shell_tools
 from mind_core.application_paths import (
     ApplicationLayout,
@@ -137,7 +137,7 @@ class MindMcpRuntime(object):
             pref = Preferences(config_session)
 
             route_shell_tools(layout.supports)
-            clear_exec_env_cache()
+            runtime_services.environment_capability.clear_cache()
 
             frontend = Frontend(
                 application=NullApplicationSink(),
@@ -324,9 +324,15 @@ class MindMcpRuntime(object):
 
         request.session_id = metadata["sid"]
 
+        environment_snapshot = capture_turn_environment(
+            self.mind,
+            cwd=workspace,
+            workspace_root=workspace,
+        )
         command = SubmitTurnCommand.create(
             session_id=request.session_id,
             message=message,
+            environment_snapshot=environment_snapshot,
             extras={
                 "working_directory": str(workspace),
                 "sandbox_mode": permissions.sandbox_mode,
@@ -341,6 +347,7 @@ class MindMcpRuntime(object):
         ) -> RunResult:
             """将 application 命令适配到旧根轮次执行器。"""
             root_kwargs: dict[str, typing.Any] = {
+                "exec_env": submitted.environment_snapshot_value(),
                 "permissions": permissions,
             }
             attachments = submitted.attachment_values()

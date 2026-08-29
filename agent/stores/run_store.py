@@ -37,7 +37,7 @@ class SQLiteRunStore:
     """使用独立 SQLite 文件事务保存 Run 事件、快照、事实和 outbox。"""
 
     def __init__(self, db_path: str | Path) -> None:
-        """绑定 Agent Runtime 专用数据库文件。"""
+        """绑定 Agent Harness 专用数据库文件。"""
         self.db_path = Path(db_path).expanduser()
 
     async def append_event(

@@ -6,6 +6,7 @@ from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
+import mind_app.subscription.forwarding as forwarding_module
 from mind_app.subscription.forwarding import (
     AgentExecutor,
     AgentInbox,
@@ -27,6 +28,18 @@ from mind_app.subscription.ws import (
 from agent.application import TurnApplication
 from mind_app.runtime.agent.client import AgentClient
 from mind_app.runtime.turns.result import RunResult
+
+
+@pytest.fixture(autouse=True)
+def frozen_environment_snapshot(monkeypatch) -> dict[str, object]:
+    """固定订阅命令提交时捕获的环境事实。"""
+    snapshot = {"snapshot_id": "envsnap_subscription"}
+    monkeypatch.setattr(
+        forwarding_module,
+        "capture_active_turn_environment",
+        Mock(return_value=snapshot),
+    )
+    return snapshot
 
 
 def _forward_message() -> dict[str, object]:
@@ -92,7 +105,7 @@ def test_normalize_forward_request_preserves_message_and_intent() -> None:
 async def test_agent_executor_runs_message_and_sends_completion() -> None:
     result = RunResult(status="completed", assistant_text="done")
     turn_runner = AsyncMock(return_value=result)
-    mind = SimpleNamespace()
+    mind = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_completed=AsyncMock(),
@@ -121,6 +134,7 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
     turn_runner.assert_awaited_once_with(
         mind,
         message="inspect workspace",
+        exec_env={"snapshot_id": "envsnap_subscription"},
         metadata={
             "origin": "server",
             "cid": "cid-1",
@@ -166,7 +180,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
 
     executor = AgentExecutor(turn_runner, turn_application=application)
     await executor.execute(
-        SimpleNamespace(),
+        SimpleNamespace(history_workspace="."),
         client,
         object(),
         SimpleNamespace(session_id="agent-session"),
@@ -177,6 +191,9 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
     assert application.command.run_id == "agent-forward:sid-1:call-1"
     assert application.command.session_id == "sid-1"
     assert application.command.attachment_values() == [{"path": "README.md"}]
+    assert application.command.environment_snapshot_value() == {
+        "snapshot_id": "envsnap_subscription",
+    }
     assert application.command.extras_value() == {
         "cid": "cid-1",
         "sid": "sid-1",
@@ -196,7 +213,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
 async def test_agent_executor_propagates_tui_turn_id() -> None:
     result = RunResult(status="completed", assistant_text="done")
     turn_runner = AsyncMock(return_value=result)
-    mind = SimpleNamespace()
+    mind = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_completed=AsyncMock(),
@@ -224,7 +241,7 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
 @pytest.mark.anyio
 async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
     turn_runner = AsyncMock(return_value=RunResult(status="interrupted"))
-    mind = SimpleNamespace()
+    mind = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_cancelled=AsyncMock(),
@@ -263,7 +280,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
         started.set()
         await asyncio.Future()
 
-    mind = SimpleNamespace()
+    mind = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_cancelled=AsyncMock(),
@@ -297,7 +314,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
 async def test_agent_executor_reports_execution_failure() -> None:
     error = RuntimeError("execution failed")
     turn_runner = AsyncMock(side_effect=error)
-    mind = SimpleNamespace()
+    mind = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_failed=AsyncMock(),

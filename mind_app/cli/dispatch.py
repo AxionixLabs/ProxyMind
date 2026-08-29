@@ -28,6 +28,7 @@ from ..history import (
 from ..runtime.turns.result import RunResult
 from ..runtime.turns.root import run_root_turn
 from ..paths import agent_runtime_db_path
+from ..runtime.environment.snapshot import capture_active_turn_environment
 from ..runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:
@@ -91,10 +92,12 @@ async def run_selected_command(
                     "cli",
                     mind.conversation.snapshot(),
                 )
+            environment_snapshot = capture_active_turn_environment(mind)
             submit_command = SubmitTurnCommand.create(
                 session_id=local_session_id,
                 message=command.prompt,
                 attachments=attachments,
+                environment_snapshot=environment_snapshot,
                 pref_config=calling_kwargs.get("pref_config"),
             )
 
@@ -104,6 +107,7 @@ async def run_selected_command(
                 """把类型化命令适配到现有根轮次用例。"""
                 root_kwargs: dict[str, typing.Any] = {
                     "attachments": request.attachment_values(),
+                    "exec_env": request.environment_snapshot_value(),
                 }
                 pref_config = request.pref_config_value()
                 if pref_config is not None:

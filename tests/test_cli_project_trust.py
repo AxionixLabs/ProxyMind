@@ -99,7 +99,6 @@ def _patch_application_bootstrap(
     monkeypatch.setattr(bootstrap, "RunReport", lambda _path: report)
     monkeypatch.setattr(bootstrap, "Preferences", lambda _session: object())
     monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)
-    monkeypatch.setattr(bootstrap, "clear_exec_env_cache", lambda: None)
     monkeypatch.setattr(bootstrap, "observe", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         bootstrap,

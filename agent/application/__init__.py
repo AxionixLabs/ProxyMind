@@ -3,8 +3,10 @@
 
 from agent.protocol import SubmitTurnCommand
 from agent.protocol import ModelStreamEndReason, ModelStreamRequest
+from agent.protocol.json_value import JsonValue
 from agent.ports import (
     CapabilityError,
+    EnvironmentSnapshotCapability,
     FilesystemCapability,
     EffectJournal,
     EffectJournalDecision,
@@ -40,12 +42,14 @@ from .services import RuntimeServices
 __all__ = (
     "EffectJournal",
     "CapabilityError",
+    "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "EffectJournalDecision",
     "EffectJournalPersistenceError",
     "LocalEffectReconciliationRequired",
     "HelixCapability",
     "HelixState",
+    "JsonValue",
     "McpCapability",
     "ModelCapability",
     "ModelCapabilityError",

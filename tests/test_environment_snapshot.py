@@ -2,10 +2,10 @@
 
 import datetime
 import backend.utilities.runtime.exec_env
-import mind_app.runtime.environment.exec_env as runtime_environment
 
 import pytest
 
+from agent.capabilities import LocalEnvironmentSnapshotCapability
 from mind_nova.requests.environment import (
     normalize_client_environment_snapshot,
     normalize_environment_provider,
@@ -41,7 +41,8 @@ def _snapshot() -> dict:
 
 
 def test_runtime_snapshot_has_stable_protocol_shape() -> None:
-    snapshot = runtime_environment.exec_env()
+    capability = LocalEnvironmentSnapshotCapability()
+    snapshot = capability.capture(cwd=".", workspace_root=".")
     captured_at = snapshot["captured_at"].replace("Z", "+00:00")
 
     assert snapshot["snapshot_id"].startswith("envsnap_")
@@ -73,7 +74,7 @@ def test_runtime_snapshot_separates_cwd_and_workspace_root(tmp_path) -> None:
     current_directory = workspace / "src"
     current_directory.mkdir(parents=True)
 
-    snapshot = runtime_environment.exec_env(
+    snapshot = LocalEnvironmentSnapshotCapability().capture(
         cwd=current_directory,
         workspace_root=workspace,
     )
@@ -84,10 +85,10 @@ def test_runtime_snapshot_separates_cwd_and_workspace_root(tmp_path) -> None:
 
 def test_helix_provider_keeps_tools_without_runtimes(tmp_path) -> None:
     provider = backend.utilities.runtime.exec_env.exec_env()
-    snapshot = runtime_environment.build_runtime_exec_env(
+    snapshot = LocalEnvironmentSnapshotCapability().capture(
         cwd=tmp_path,
         workspace_root=tmp_path,
-        service_exec_env=provider,
+        providers={"helix": provider},
     )
 
     assert "runtimes" not in provider

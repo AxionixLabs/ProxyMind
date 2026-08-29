@@ -40,6 +40,14 @@
 本地 Command/Event 必须显式携带所属的线上坐标，并在 adapter 边界完成
 本地 `run_id` 与线上 `turn_id` / `attempt` 的映射。
 
+客户端执行环境也是 Turn 输入事实，而不是进程级可变配置。`PROTOCOL.md` 和
+`mind_nova.requests.environment` 拥有线上 `exec_env` schema 与规范化；Harness
+只保存已经校验的不可变快照，不复制字段模型。每个新 Turn 采集新 `snapshot_id`，
+同一 Turn 的 continuation、重试和安全 redispatch 必须复用原快照，且快照必须在
+持久 queued 命令的幂等指纹内。当前实现由注入的 environment capability 捕获，
+并在四类主动入口创建 `SubmitTurnCommand` 前完成冻结；执行和 queued redispatch
+只读取命令快照，不再按当前进程环境重新采集。
+
 线上 `event_seq` 的客户端水位按 `cid + sid` 归属 Session，而不是归属单次
 Turn 或连接。`mind_nova` 只实现事件解析、去重和 attach；跨 Turn 水位由
 `mind_app` 的 `SessionEventCursorStore` 持有。本地 `RunEvent.sequence` 仍只在
@@ -170,6 +178,7 @@ agent/
 │   ├── mcp.py               # MCP 工具发现与调用能力
 │   ├── helix.py             # Helix 执行面连接
 │   ├── process.py           # 进程、端口和沙箱能力
+│   ├── environment.py       # 客户端执行环境快照采集与 provider 聚合
 │   └── filesystem.py        # 受控文件能力
 ├── adapters/
 │   ├── protocol_client.py # mind.chat 命令、传输恢复和 Canonical Item 投影
@@ -341,7 +350,9 @@ running -> cancelled
 
 - Model capability 接收冻结、可序列化的 `ModelStreamRequest`，返回具有明确关闭
   和事件水位生命周期的流，不返回 UI 对象；重连展示和审批恢复通过独立 callback
-  端口接入，不写入请求协议对象；runtime 必须在回合收尾中校验并等待流关闭。
+  端口接入，不写入请求协议对象。已规范化的执行环境通过显式
+  `environment_snapshot` 字段进入请求，禁止隐藏在通用 `options`；model adapter
+  只在 wire 边界将其映射回 `exec_env`。Harness 必须在回合收尾中校验并等待流关闭。
   传输、协议和适配器失败统一为 `ModelCapabilityError`，以稳定 `code`、
   `retryable` 和 JSON `details` 进入 Run 终态结果与持久事件，不把 HTTP 客户端
   异常类型泄漏到 runtime。
@@ -369,6 +380,7 @@ running -> cancelled
 | `mind_nova/requests/chat.py`、`stream_events.py` | `adapters/protocol_client.py` | 当前同时承担远端模型 capability 的过渡传输和 Protocol Client；后续先抽出与 `Mind`/TUI 无关的命令、游标、回放和 Canonical Item 边界，再由 TUI、桌面端和 Web 共用 |
 | `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/capabilities/model.py` | `mind_app` 已改为只调用 `RuntimeServices` 中的 `ModelCapability`；当前 capability adapter 临时复用既有事件流，待事件类型和传输实现完成迁移后删除该导入 |
 | `agent/ports/capabilities.py`、`agent/capabilities/model.py` | `ports`、`capabilities/model.py` | `ModelCapabilityError` 统一传输/协议失败，`RemoteModelEventStream` 负责异步迭代和幂等关闭；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
+| 已删除的 `mind_app/runtime/environment/exec_env.py`、`mind_nova/requests/environment.py` | `capabilities/environment.py`、正式协议 SDK | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化继续由 `mind_nova` 拥有。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
 | `agent/protocol/capabilities.py`、`agent/ports/capabilities.py` | `protocol`、`ports` | MCP 工具值对象、Helix 生命周期、受控进程/文件和本地 sandbox 权限只通过具名 port 表达；不把 SDK 会话、进程句柄或操作系统路径带入 domain |
 | `agent/capabilities/mcp.py`、`helix.py`、`process.py`、`filesystem.py` | `capabilities` | MCP/Helix 内存替身和本地进程/文件实现均可脱离网络、TUI 和 legacy runtime 测试；受限进程只接受显式 sandbox launcher，旧 `engine` adapter 在阶段 4 接管 |
 | `mind_app/runtime/turns/delivery.py` | `harness/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
@@ -411,6 +423,8 @@ running -> cancelled
     不依赖 `Mind`、TUI、`prompt_toolkit` 或本地 `OutputSession`。
 11. TUI、桌面端和 Web 使用同一组 Canonical Event/Item fixture 验证去重、回放、
     `turn.logical_settled`、审批和工具结果命令，不各自复制协议状态机。
+12. 新 Turn 的环境快照在进入持久队列前冻结并纳入命令指纹；continuation 和 queued
+    redispatch 复用同一 `snapshot_id`，不得按恢复进程的当前环境重新采集。
 
 ## 版本与兼容
 

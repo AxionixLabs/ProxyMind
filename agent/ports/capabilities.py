@@ -299,6 +299,29 @@ class FilesystemCapability(typing.Protocol):
         """释放文件能力持有的资源。"""
         ...
 
+
+@typing.runtime_checkable
+class EnvironmentSnapshotCapability(typing.Protocol):
+    """为新 Turn 捕获经正式协议校验的客户端环境事实。
+
+    实现方可以缓存进程级静态探测结果，但每次捕获必须返回独立快照；application
+    会把它冻结进提交命令，后续排队、恢复和执行不得重新读取本机环境。
+    """
+
+    def capture(
+        self,
+        *,
+        cwd: str | Path,
+        workspace_root: str | Path,
+        providers: Mapping[str, Mapping[str, JsonValue]] | None = None,
+    ) -> Mapping[str, JsonValue]:
+        """返回一个新 Turn 的完整环境快照。"""
+        ...
+
+    def clear_cache(self) -> None:
+        """清除实现持有的可复用环境探测事实。"""
+        ...
+
 ApprovalSnapshotCallback: typing.TypeAlias = Callable[
     [object],
     Awaitable[None] | None,

@@ -51,9 +51,14 @@ def test_submit_turn_command_freezes_and_serializes_payload() -> None:
     attachment = {"kind": "image", "meta": {"width": 10}}
     pref_config = {"primary": {"model": "test-model"}}
     extras = {"selection": {"line": 8}}
+    environment_snapshot = {
+        "snapshot_id": "envsnap_original",
+        "workspace": {"root": "D:/workspace"},
+    }
     command = SubmitTurnCommand.create(
         message="inspect",
         attachments=(attachment,),
+        environment_snapshot=environment_snapshot,
         pref_config=pref_config,
         extras=extras,
         session_id="session-local",
@@ -64,6 +69,7 @@ def test_submit_turn_command_freezes_and_serializes_payload() -> None:
     attachment["meta"]["width"] = 20
     pref_config["primary"]["model"] = "changed-model"
     extras["selection"]["line"] = 9
+    environment_snapshot["workspace"]["root"] = "D:/changed"
 
     assert command.to_dict() == {
         "command_id": "command-local",
@@ -76,6 +82,10 @@ def test_submit_turn_command_freezes_and_serializes_payload() -> None:
                 "kind": "image",
                 "meta": {"width": 10},
             }],
+            "environment_snapshot": {
+                "snapshot_id": "envsnap_original",
+                "workspace": {"root": "D:/workspace"},
+            },
             "pref_config": {"primary": {"model": "test-model"}},
             "extras": {"selection": {"line": 8}},
         },
@@ -84,6 +94,10 @@ def test_submit_turn_command_freezes_and_serializes_payload() -> None:
         "trace_context": {},
     }
     assert command.extras_value() == {"selection": {"line": 8}}
+    assert command.environment_snapshot_value() == {
+        "snapshot_id": "envsnap_original",
+        "workspace": {"root": "D:/workspace"},
+    }
 
 
 @pytest.mark.anyio

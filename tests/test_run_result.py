@@ -464,6 +464,7 @@ async def _run_stream(
     show_hook_lifecycle: bool = False,
     permissions: PermissionSettings | None = None,
     effect_journal=None,
+    environment_snapshot: dict[str, typing.Any] | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -488,6 +489,7 @@ async def _run_stream(
 
         def __init__(self) -> None:
             self.last_stream = None
+            self.last_request: ModelStreamRequest | None = None
 
         class _EventStream(object):
             """为测试迭代器补齐模型流关闭端口。"""
@@ -515,6 +517,7 @@ async def _run_stream(
             on_approval_snapshot=None,
         ):
             """按旧测试工厂签名展开冻结请求。"""
+            self.last_request = request
             iterator = stream_chat(
                 request.pref_config_value(),
                 request.message,
@@ -572,7 +575,7 @@ async def _run_stream(
         ),
     )
     stream_options = {
-        "exec_env": None,
+        "exec_env": environment_snapshot,
         "skills": (
             list(request_skills)
             if request_skills is not None
@@ -600,6 +603,54 @@ async def _run_stream(
         **stream_options,
     )
     return result, mind
+
+
+@pytest.mark.anyio
+async def test_stream_passes_environment_as_explicit_model_request_field(
+    monkeypatch,
+) -> None:
+    snapshot = {
+        "snapshot_id": "envsnap_stream_test",
+        "source": "client",
+        "captured_at": "2026-08-29T12:00:00Z",
+        "environment_id": "local",
+        "cwd": "D:\\workspace\\project",
+        "status": "available",
+        "shell": {"name": "powershell", "syntax": "powershell"},
+        "workspace": {"root": "D:\\workspace", "source": "client"},
+    }
+
+    _result, mind = await _run_stream(
+        monkeypatch,
+        [
+            {"type": "turn.done", "status": "interrupted", "usage": {}},
+            {"type": "turn.logical_settled", "next_input": None},
+        ],
+        environment_snapshot=snapshot,
+    )
+
+    request = mind.runtime_services.model_capability.last_request
+    assert isinstance(request, ModelStreamRequest)
+    assert request.environment_snapshot_value() == {
+        **snapshot,
+        "status_detail": None,
+        "shell": {
+            "name": "powershell",
+            "syntax": "powershell",
+            "executable": None,
+            "prefix": [],
+            "source": None,
+        },
+        "workspace": {
+            "root": "D:\\workspace",
+            "allowed_roots": [],
+            "source": "client",
+        },
+        "tools": {},
+        "providers": {},
+        "extensions": {},
+    }
+    assert "exec_env" not in request.option_values()
 
 
 @pytest.mark.anyio

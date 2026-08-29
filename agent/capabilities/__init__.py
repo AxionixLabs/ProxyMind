@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from .helix import InMemoryHelixCapability
+from .environment import LocalEnvironmentSnapshotCapability
 from .mcp import InMemoryMcpCapability
 from .model import RemoteModelCapability
 from .filesystem import InMemoryFilesystemCapability, LocalFilesystemCapability
@@ -13,6 +14,7 @@ from .process import (
 
 __all__ = (
     "InMemoryHelixCapability",
+    "LocalEnvironmentSnapshotCapability",
     "InMemoryFilesystemCapability",
     "InMemoryMcpCapability",
     "InMemoryProcessCapability",

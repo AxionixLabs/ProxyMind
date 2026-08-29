@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+from collections.abc import Mapping
 from agent.application import (
     LocalEffectReconciliationRequired,
     ModelCapability,
@@ -472,6 +473,12 @@ async def stream_turn(
             else ()
         )
         timeout = request_options.pop("timeout", 60.0)
+        environment_snapshot = request_options.pop("exec_env", None)
+        if (
+            environment_snapshot is not None
+            and not isinstance(environment_snapshot, Mapping)
+        ):
+            raise TypeError("exec_env must be an object")
         request_options["permissions"] = {
             "sandbox_mode": turn_context.permissions.sandbox_mode,
             "approval_policy": turn_context.permissions.approval_policy,
@@ -483,6 +490,7 @@ async def stream_turn(
             message=message,
             tools=tuple(tools),
             attachments=attachments,
+            environment_snapshot=environment_snapshot,
             options=request_options,
             timeout=timeout,
             initial_event_seq=session_event_cursors.current(

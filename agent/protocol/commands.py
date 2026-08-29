@@ -28,6 +28,7 @@ class SubmitTurnCommand:
     run_id: str
     message: str
     attachments: tuple[Mapping[str, JsonValue], ...] = ()
+    environment_snapshot: Mapping[str, JsonValue] | None = None
     pref_config: Mapping[str, JsonValue] | None = None
     extras: Mapping[str, JsonValue] | None = None
     idempotency_key: str = ""
@@ -72,6 +73,18 @@ class SubmitTurnCommand:
                 raise TypeError("pref_config must be an object")
             frozen_pref = pref_value
 
+        frozen_environment: Mapping[str, JsonValue] | None = None
+        if self.environment_snapshot is not None:
+            if not isinstance(self.environment_snapshot, Mapping):
+                raise TypeError("environment_snapshot must be an object")
+            environment_value = freeze_json(
+                dict(self.environment_snapshot),
+                field_name="environment_snapshot",
+            )
+            if not isinstance(environment_value, Mapping):
+                raise TypeError("environment_snapshot must be an object")
+            frozen_environment = environment_value
+
         frozen_extras: Mapping[str, JsonValue] | None = None
         if self.extras is not None:
             if not isinstance(self.extras, Mapping):
@@ -97,6 +110,11 @@ class SubmitTurnCommand:
         causation_id = str(self.causation_id or "").strip() or None
 
         object.__setattr__(self, "attachments", tuple(frozen_attachments))
+        object.__setattr__(
+            self,
+            "environment_snapshot",
+            frozen_environment,
+        )
         object.__setattr__(self, "pref_config", frozen_pref)
         object.__setattr__(self, "extras", frozen_extras)
         object.__setattr__(self, "trace_context", trace_value)
@@ -113,6 +131,7 @@ class SubmitTurnCommand:
         *,
         message: str,
         attachments: typing.Iterable[Mapping[str, typing.Any]] = (),
+        environment_snapshot: Mapping[str, typing.Any] | None = None,
         pref_config: Mapping[str, typing.Any] | None = None,
         extras: Mapping[str, typing.Any] | None = None,
         session_id: str | None = None,
@@ -130,6 +149,7 @@ class SubmitTurnCommand:
             run_id=run_id or _new_id("run"),
             message=message,
             attachments=tuple(attachments),
+            environment_snapshot=environment_snapshot,
             pref_config=pref_config,
             extras=extras,
             idempotency_key=idempotency_key or resolved_command_id,
@@ -159,6 +179,7 @@ class SubmitTurnCommand:
             run_id=value.get("run_id"),
             message=payload.get("message"),
             attachments=tuple(attachments),
+            environment_snapshot=payload.get("environment_snapshot"),
             pref_config=payload.get("pref_config"),
             extras=payload.get("extras"),
             idempotency_key=value.get("idempotency_key"),
@@ -174,6 +195,10 @@ class SubmitTurnCommand:
         }
         if self.pref_config is not None:
             payload["pref_config"] = thaw_json(self.pref_config)
+        if self.environment_snapshot is not None:
+            payload["environment_snapshot"] = thaw_json(
+                self.environment_snapshot
+            )
         if self.extras is not None:
             payload["extras"] = thaw_json(self.extras)
 
@@ -214,6 +239,17 @@ class SubmitTurnCommand:
         if self.pref_config is None:
             return None
         return thaw_object(self.pref_config, field_name="pref_config")
+
+    def environment_snapshot_value(
+        self,
+    ) -> dict[str, ThawedJsonValue] | None:
+        """返回执行 adapter 可消费的独立环境快照副本。"""
+        if self.environment_snapshot is None:
+            return None
+        return thaw_object(
+            self.environment_snapshot,
+            field_name="environment_snapshot",
+        )
 
     def extras_value(self) -> dict[str, ThawedJsonValue] | None:
         """返回旧 Turn adapter 可消费的独立扩展输入副本。"""

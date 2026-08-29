@@ -45,6 +45,7 @@ from .turn import (
 )
 from .turn_input import TuiTurnInputControl
 from ...paths import agent_runtime_db_path
+from ...runtime.environment.snapshot import capture_active_turn_environment
 from ...runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:
@@ -332,10 +333,12 @@ async def _run_tui_loop(
                 "tui",
                 mind.conversation.snapshot(),
             )
+        environment_snapshot = capture_active_turn_environment(mind)
         submit_command = SubmitTurnCommand.create(
             session_id=resolved_local_session_id,
             message=prompt_text,
             attachments=attachment_snapshot,
+            environment_snapshot=environment_snapshot,
             pref_config=state.pref_config,
             extras=prompt_extras,
         )
@@ -350,6 +353,7 @@ async def _run_tui_loop(
                 pref_config=command.pref_config_value() or {},
                 permissions=state.permissions,
                 attachments=command.attachment_values(),
+                environment_snapshot=command.environment_snapshot_value(),
                 turn_id=turn_id,
                 prompt_extras=command.extras_value(),
                 on_prompt_prepared=bind_prompt_attachments,

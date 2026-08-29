@@ -17,6 +17,16 @@ from mind_app.tui.session import loop
 from mind_core.permissions import preset_permissions
 
 
+@pytest.fixture(autouse=True)
+def frozen_environment_snapshot(monkeypatch) -> None:
+    """固定 TUI 命令提交时捕获的环境事实。"""
+    monkeypatch.setattr(
+        loop,
+        "capture_active_turn_environment",
+        Mock(return_value={"snapshot_id": "envsnap_tui"}),
+    )
+
+
 @pytest.mark.anyio
 async def test_tui_uses_durable_runtime_composition_for_real_layout(
     monkeypatch,

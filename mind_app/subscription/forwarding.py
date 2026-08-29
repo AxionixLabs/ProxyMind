@@ -14,6 +14,7 @@ from agent.application import (
 from engine.errors import AppError
 from engine.observability import observe
 from ..runtime.agent.client import AgentClient
+from ..runtime.environment.snapshot import capture_active_turn_environment
 from ..runtime.turns.root import RootTurnRunner, run_root_turn
 from ..runtime.turns.result import RunResult
 from .models import (
@@ -170,12 +171,14 @@ class AgentExecutor(object):
                 call_id=request.call_id
             )
 
+            environment_snapshot = capture_active_turn_environment(mind)
             command = self._build_command(
                 request,
                 message=message,
                 metadata=metadata,
                 timeout_sec=timeout_sec,
                 turn_id=turn_id,
+                environment_snapshot=environment_snapshot,
             )
 
             async def execute_root_turn(
@@ -184,6 +187,7 @@ class AgentExecutor(object):
                 """把冻结命令适配为现有根轮次执行器。"""
                 values = submitted.extras_value() or {}
                 root_kwargs: dict[str, typing.Any] = {
+                    "exec_env": submitted.environment_snapshot_value(),
                     "metadata": dict(values.get("metadata", metadata)),
                 }
                 attachments = submitted.attachment_values()
@@ -286,6 +290,7 @@ class AgentExecutor(object):
         metadata: Mapping[str, typing.Any],
         timeout_sec: float | None,
         turn_id: str | None,
+        environment_snapshot: Mapping[str, typing.Any] | None,
     ) -> SubmitTurnCommand:
         """把订阅请求冻结为可恢复的主动 Turn 命令。"""
         payload_extras = request.payload.get("extras")
@@ -326,6 +331,7 @@ class AgentExecutor(object):
             session_id=request.sid,
             message=message,
             attachments=attachments,
+            environment_snapshot=environment_snapshot,
             extras=command_extras,
         )
 

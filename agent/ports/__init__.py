@@ -4,6 +4,7 @@
 from .capabilities import (
     ApprovalSnapshotCallback,
     CapabilityError,
+    EnvironmentSnapshotCapability,
     FilesystemCapability,
     HelixCapability,
     HelixState,
@@ -41,6 +42,7 @@ __all__ = (
     "LocalEffectReconciliationRequired",
     "ApprovalSnapshotCallback",
     "CapabilityError",
+    "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "HelixCapability",
     "HelixState",

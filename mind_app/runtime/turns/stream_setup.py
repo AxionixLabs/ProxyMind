@@ -13,7 +13,7 @@ from mind_app.output import (
     OutputSession,
     SessionFactory,
 )
-from mind_app.runtime.environment.exec_env import build_runtime_exec_env
+from mind_app.runtime.environment.snapshot import capture_turn_environment
 from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.hooks.presentation import HookPresentationAdapter
 from mind_app.runtime.hooks.scope import HookExecutionScope
@@ -162,23 +162,13 @@ def prepare_stream_turn(
                 raw_exec_env
             )
     else:
-        service_env = (
-            controller.service_exec_env_snapshot()
-            if controller.is_service_mcp_linked()
-            else None
+        environment_snapshot = capture_turn_environment(
+            controller,
+            cwd=context.cwd,
+            workspace_root=controller.history_workspace,
         )
-        try:
-            request_kwargs["exec_env"] = build_runtime_exec_env(
-                cwd=context.cwd,
-                workspace_root=controller.history_workspace,
-                service_exec_env=service_env
-            )
-        except (OSError, RuntimeError) as error:
-            observe_exception(
-                "exec_env.capture.failed",
-                error,
-                level="WARNING",
-            )
+        if environment_snapshot is not None:
+            request_kwargs["exec_env"] = environment_snapshot
 
     if "exec_env" in request_kwargs:
         continuation_kwargs["exec_env"] = copy.deepcopy(

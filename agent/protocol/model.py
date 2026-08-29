@@ -23,6 +23,8 @@ ModelStreamEndReason: typing.TypeAlias = typing.Literal[
 ]
 _RESERVED_MODEL_OPTIONS = frozenset({
     "attachments",
+    "environment_snapshot",
+    "exec_env",
     "initial_event_seq",
     "message",
     "on_approval_snapshot",
@@ -41,6 +43,7 @@ class ModelStreamRequest:
     message: str
     tools: tuple[Mapping[str, JsonValue], ...]
     attachments: tuple[Mapping[str, JsonValue], ...] = ()
+    environment_snapshot: Mapping[str, JsonValue] | None = None
     options: Mapping[str, JsonValue] = field(default_factory=dict)
     timeout: float = 60.0
     initial_event_seq: int = 0
@@ -55,6 +58,11 @@ class ModelStreamRequest:
             raise TypeError("model tools must be a sequence")
         if not isinstance(self.attachments, (tuple, list)):
             raise TypeError("model attachments must be a sequence")
+        if (
+            self.environment_snapshot is not None
+            and not isinstance(self.environment_snapshot, Mapping)
+        ):
+            raise TypeError("model environment snapshot must be an object")
         if not isinstance(self.options, Mapping):
             raise TypeError("model options must be an object")
         reserved_options = _RESERVED_MODEL_OPTIONS.intersection(self.options)
@@ -83,6 +91,15 @@ class ModelStreamRequest:
             dict(self.options),
             field_name="model options",
         )
+        frozen_environment: Mapping[str, JsonValue] | None = None
+        if self.environment_snapshot is not None:
+            environment_value = freeze_json(
+                dict(self.environment_snapshot),
+                field_name="model environment snapshot",
+            )
+            if not isinstance(environment_value, Mapping):
+                raise TypeError("model environment snapshot must be an object")
+            frozen_environment = environment_value
         if not isinstance(frozen_config, Mapping):
             raise TypeError("model pref_config must be an object")
         if not isinstance(frozen_options, Mapping):
@@ -98,6 +115,11 @@ class ModelStreamRequest:
             self,
             "attachments",
             _freeze_objects(self.attachments, field_name="attachments"),
+        )
+        object.__setattr__(
+            self,
+            "environment_snapshot",
+            frozen_environment,
         )
         object.__setattr__(self, "options", frozen_options)
         object.__setattr__(self, "timeout", float(self.timeout))
@@ -119,6 +141,17 @@ class ModelStreamRequest:
             thaw_object(item, field_name="attachments")
             for item in self.attachments
         ]
+
+    def environment_snapshot_value(
+        self,
+    ) -> dict[str, ThawedJsonValue] | None:
+        """返回远端 adapter 可消费的独立环境快照。"""
+        if self.environment_snapshot is None:
+            return None
+        return thaw_object(
+            self.environment_snapshot,
+            field_name="model environment snapshot",
+        )
 
     def option_values(self) -> dict[str, ThawedJsonValue]:
         """返回远端 adapter 可消费的独立扩展参数。"""
