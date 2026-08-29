@@ -4,6 +4,8 @@
 import typing
 import asyncio
 from agent.ports import (
+    RunPersistence,
+    RunSnapshot,
     TurnExecutor,
     TurnExecutorResult
 )
@@ -19,8 +21,9 @@ ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 class SessionRuntimeOwner(typing.Generic[ResultValue]):
     """持有长生命周期 SessionLoop，并统一收束取消与关闭。"""
 
-    def __init__(self) -> None:
+    def __init__(self, persistence: RunPersistence | None = None) -> None:
         """创建尚未启动任何 SessionLoop 的运行时所有者。"""
+        self._persistence = persistence
         self._sessions: dict[str, SessionLoop[ResultValue]] = {}
         self._lock = asyncio.Lock()
         self._close_task: asyncio.Task[None] | None = None
@@ -52,6 +55,18 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
         session = await self._take_session(session_id)
         if session is not None:
             await session.close()
+
+    async def recover_session(
+        self,
+        session_id: str,
+    ) -> tuple[RunSnapshot, ...]:
+        """读取指定 Session 的未终结 Run，不触发外部能力重放。"""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("session_id is required")
+        if self._persistence is None:
+            return ()
+        return await self._persistence.recover_session(normalized_session_id)
 
     async def close(self, *, cancel_running: bool = False) -> None:
         """停止全部 Session，并按调用方选择等待或取消活动 Run。"""
@@ -105,7 +120,10 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
                 raise RuntimeError("session runtime is closing")
             session = self._sessions.get(normalized_session_id)
             if session is None:
-                session = SessionLoop(normalized_session_id)
+                session = SessionLoop(
+                    normalized_session_id,
+                    persistence=self._persistence,
+                )
                 self._sessions[normalized_session_id] = session
             return session
 

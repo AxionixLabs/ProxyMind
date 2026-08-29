@@ -11,6 +11,12 @@ from unittest.mock import (
 
 import pytest
 from mcp import types as mcp_types
+from agent.application import (
+    EffectJournalDecision,
+    EffectJournalPersistenceError,
+    LocalEffectReconciliationRequired,
+    open_effect_journal,
+)
 
 from mind_app.runtime.execution import (
     AgentContext,
@@ -25,12 +31,6 @@ from mind_app.runtime.hooks.models import (
 )
 from mind_app.runtime.tools import client_call
 from mind_app.runtime.tools.display import show_tool_result, show_tool_start
-from mind_app.runtime.durable_effects import (
-    EffectJournalPersistenceError,
-    EffectJournalDecision,
-    LocalEffectJournal,
-    LocalEffectReconciliationRequired,
-)
 from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
@@ -362,7 +362,7 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
-    journal = LocalEffectJournal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db")
     runner, ports = _runner(
         coordinator,
         effect_journal=journal,
@@ -417,7 +417,7 @@ async def test_custom_operation_uses_same_durable_effect_boundary(
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
     runner, _ports = _runner(
         coordinator,
-        effect_journal=LocalEffectJournal(tmp_path / "effects.db"),
+        effect_journal=open_effect_journal(tmp_path / "effects.db"),
     )
     operation = Mock()
 

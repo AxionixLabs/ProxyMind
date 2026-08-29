@@ -18,6 +18,28 @@ from mind_core.permissions import preset_permissions
 
 
 @pytest.mark.anyio
+async def test_tui_uses_durable_runtime_composition_for_real_layout(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    close = AsyncMock()
+    application = SimpleNamespace(close=close)
+    open_application = Mock(return_value=application)
+    run_loop = AsyncMock()
+    db_path = tmp_path / "runtime.db"
+    monkeypatch.setattr(loop, "open_turn_application", open_application)
+    monkeypatch.setattr(loop, "agent_runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(loop, "_run_tui_loop", run_loop)
+
+    await loop.run_tui_loop(SimpleNamespace(application_layout=object()))
+
+    open_application.assert_called_once_with(db_path)
+    assert run_loop.await_args.kwargs["turn_application"] is application
+    assert run_loop.await_args.kwargs["local_session_id"] is None
+    close.assert_awaited_once_with(cancel_running=True)
+
+
+@pytest.mark.anyio
 async def test_effort_menu_uses_primary_selection_contract() -> None:
     runtime = TuiRuntime()
     runtime.select_menu = AsyncMock(return_value="high")

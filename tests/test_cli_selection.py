@@ -883,7 +883,12 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
         value=run_result,
         projection=SimpleNamespace(exit_code=7),
     ))
-    monkeypatch.setattr(cli_dispatch, "submit_turn", submit)
+    close = AsyncMock()
+    monkeypatch.setattr(
+        cli_dispatch,
+        "TurnApplication",
+        Mock(return_value=SimpleNamespace(submit=submit, close=close)),
+    )
     mind = SimpleNamespace(
         exit_code=0,
         permissions=preset_permissions("auto"),
@@ -894,6 +899,43 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
     assert result is run_result
     assert mind.exit_code == 7
     submit.assert_awaited_once()
+    close.assert_awaited_once_with(cancel_running=True)
+
+
+@pytest.mark.anyio
+async def test_exec_uses_durable_runtime_composition_for_real_layout(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    run_result = RunResult(status="completed", assistant_text="done")
+    submit = AsyncMock(return_value=SimpleNamespace(
+        value=run_result,
+        projection=SimpleNamespace(exit_code=0),
+    ))
+    close = AsyncMock()
+    application = SimpleNamespace(submit=submit, close=close)
+    open_application = Mock(return_value=application)
+    derive_session = Mock(return_value="cli_session_stable")
+    db_path = tmp_path / "runtime.db"
+    coordinates = {"cid": "cid-online", "sid": "sid-online"}
+    monkeypatch.setattr(cli_dispatch, "open_turn_application", open_application)
+    monkeypatch.setattr(cli_dispatch, "agent_runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(cli_dispatch, "derive_local_session_id", derive_session)
+    mind = SimpleNamespace(
+        application_layout=object(),
+        conversation=SimpleNamespace(snapshot=Mock(return_value=coordinates)),
+        exit_code=0,
+        permissions=preset_permissions("auto"),
+    )
+
+    result = await run_selected_command(mind, ExecCommand(prompt="hello"))
+
+    submitted_command = submit.await_args.args[0]
+    assert result is run_result
+    assert submitted_command.session_id == "cli_session_stable"
+    open_application.assert_called_once_with(db_path)
+    derive_session.assert_called_once_with("cli", coordinates)
+    close.assert_awaited_once_with(cancel_running=True)
 
 
 @pytest.mark.anyio

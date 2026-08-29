@@ -1,6 +1,6 @@
 # Agent Runtime 架构基线
 
-状态：已采纳（Architecture Decision Record）；实施处于阶段 1
+状态：已采纳（Architecture Decision Record）；阶段 2 已完成，阶段 3 未开始
 
 这份文档是 ProxyMind 下一代 Agent Runtime 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 三个历史包职责交叉、状态所有权不清和
@@ -16,8 +16,9 @@
   不能自动计入后续阶段。
 - `AGENTS.md` 定义当前可执行的生产依赖规则。迁移计划没有启用
   相应阶段时，继续遵守 `mind_app -> mind_core -> mind_nova` 边界。
-- 阶段 0、阶段 1 已于 2026-08-28 通过；主动 `exec` 和 TUI 普通 prompt 已使用
-  顶层 `agent` 包、`SessionLoop` 和 `RunActor`，其他入口仍遵守当前包边界。
+- 阶段 0、阶段 1、阶段 2 已于 2026-08-28 通过；主动 `exec` 和 TUI 普通
+  prompt 已使用顶层 `agent` 包、持久化 `SessionLoop` 和 `RunActor`，其他入口
+  仍遵守当前包边界。
 
 ### 本地运行时与线上协议身份
 
@@ -246,6 +247,19 @@ running -> cancelled
 流式 token 属于易失投影，可以不落事件日志；最终 assistant message、工具请求、
 工具结果、审批决定、计划步骤和证据引用必须持久化。
 
+阶段 2 的首个生产切片已经落实以下边界：
+
+- `agent/stores/run_store.py` 编排 SQLite 事务，私有 schema 与记录投影分别位于
+  `_run_schema.py`、`_run_records.py`；公开存储实现不泄漏数据库行或 SQL。
+- `runtime.db` 的 schema/snapshot 版本为 1；事件、快照、outbox 和最终事实由
+  同一事务提交。`effects.db`、`agents.db`、`history.db` 保持独立文件和所有权。
+- queued 快照可以使用持久化原命令安全再派发；running、waiting_effect 和执行
+  超时必须对账，waiting_approval 保持等待，paused 只能显式恢复。
+- `agent/stores/effect_journal.py` 是本地外部效果状态机的正式实现；旧
+  `mind_app/runtime/durable_effects.py` 已删除，没有兼容 facade。
+- CLI 和 TUI 的生产组合使用哈希派生的本地 Session 身份接入 `runtime.db`；
+  测试替身可以显式使用内存运行时。本切片不改变线上 Session/Turn 身份。
+
 ## 能力与适配器
 
 ### 入站适配器
@@ -274,7 +288,8 @@ running -> cancelled
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py`、`runtime/environment/coding_lifecycle.py` | capabilities、adapters、runtime supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `runtime/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
-| `mind_app/runtime/durable_effects.py` | `stores/effect_journal.py`、`stores/outbox.py` | 作为现有效果状态机的正式落点，不降级为日志工具 |
+| `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
+| `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`capabilities/model.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；后续继续把请求/事件类型与传输实现分开，协议不得导入 `engine` |
 | `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |

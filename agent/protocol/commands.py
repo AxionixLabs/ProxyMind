@@ -4,6 +4,7 @@
 import json
 import uuid
 import typing
+import hashlib
 from collections.abc import Mapping
 from dataclasses import (
     dataclass,
@@ -135,6 +136,35 @@ class SubmitTurnCommand:
             trace_context=trace_context or {},
         )
 
+    @classmethod
+    def from_dict(
+        cls,
+        value: Mapping[str, typing.Any],
+    ) -> "SubmitTurnCommand":
+        """从持久化协议字典还原并重新校验主动 Turn 命令。"""
+        if not isinstance(value, Mapping):
+            raise TypeError("command must be an object")
+        if value.get("kind") != "submit_turn":
+            raise ValueError("unsupported command kind")
+        payload = value.get("payload")
+        if not isinstance(payload, Mapping):
+            raise TypeError("command payload must be an object")
+        attachments = payload.get("attachments", ())
+        if not isinstance(attachments, (tuple, list)):
+            raise TypeError("command attachments must be a sequence")
+        return cls(
+            command_id=value.get("command_id"),
+            session_id=value.get("session_id"),
+            run_id=value.get("run_id"),
+            message=payload.get("message"),
+            attachments=tuple(attachments),
+            pref_config=payload.get("pref_config"),
+            extras=payload.get("extras"),
+            idempotency_key=value.get("idempotency_key"),
+            causation_id=value.get("causation_id"),
+            trace_context=value.get("trace_context") or {},
+        )
+
     def to_dict(self) -> dict[str, typing.Any]:
         """返回不包含运行时对象的协议字典。"""
         payload: dict[str, typing.Any] = {
@@ -158,17 +188,18 @@ class SubmitTurnCommand:
         }
 
     def fingerprint(self) -> str:
-        """返回忽略 command_id 的确定性意图指纹。"""
+        """返回忽略 command_id 的 SHA-256 意图指纹。"""
         value = self.to_dict()
         value.pop("command_id")
         value.pop("causation_id")
-        return json.dumps(
+        encoded = json.dumps(
             value,
             ensure_ascii=True,
             allow_nan=False,
             sort_keys=True,
             separators=(",", ":"),
-        )
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     def attachment_values(self) -> list[dict[str, typing.Any]]:
         """返回旧 Turn adapter 可消费的独立附件副本。"""

@@ -6,7 +6,8 @@ import typing
 import asyncio
 from agent.application import (
     SubmitTurnCommand,
-    submit_turn
+    TurnApplication,
+    open_turn_application,
 )
 from engine.errors import AppError
 from mind_core.preference import apply_primary_model_override
@@ -27,6 +28,8 @@ from ..history import (
 )
 from ..runtime.turns.result import RunResult
 from ..runtime.turns.root import run_root_turn
+from ..paths import agent_runtime_db_path
+from ..runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -74,7 +77,20 @@ async def run_selected_command(
                     command.model,
                 )
 
+            durable_runtime = getattr(mind, "application_layout", None) is not None
+            turn_application = (
+                open_turn_application(agent_runtime_db_path())
+                if durable_runtime
+                else TurnApplication()
+            )
+            local_session_id = None
+            if durable_runtime:
+                local_session_id = derive_local_session_id(
+                    "cli",
+                    mind.conversation.snapshot(),
+                )
             submit_command = SubmitTurnCommand.create(
+                session_id=local_session_id,
                 message=command.prompt,
                 attachments=attachments,
                 pref_config=calling_kwargs.get("pref_config"),
@@ -96,7 +112,13 @@ async def run_selected_command(
                     **root_kwargs,
                 )
 
-            execution = await submit_turn(submit_command, execute_root_turn)
+            try:
+                execution = await turn_application.submit(
+                    submit_command,
+                    execute_root_turn,
+                )
+            finally:
+                await turn_application.close(cancel_running=True)
             run_result = execution.value
             mind.exit_code = execution.projection.exit_code
         elif isinstance(command, InteractiveCommand):

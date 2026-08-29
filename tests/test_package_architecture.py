@@ -87,10 +87,38 @@ def test_agent_runtime_core_does_not_import_legacy_packages() -> None:
         *_forbidden_imports("agent/ports", forbidden),
         *_forbidden_imports("agent/runtime", forbidden),
         *_forbidden_imports("agent/application", forbidden),
+        *_forbidden_imports("agent/stores", forbidden),
     ]
 
     assert not violations, "agent runtime imports legacy code:\n" + "\n".join(
         violations
+    )
+
+
+def test_legacy_application_uses_only_agent_application_entry() -> None:
+    violations: list[str] = []
+    package_root = PROJECT_ROOT / "mind_app"
+
+    for path in package_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            imported: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                imported = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                imported = (node.module or "",)
+
+            for module in imported:
+                if module == "agent" or module.startswith("agent."):
+                    if module != "agent.application":
+                        relative = path.relative_to(PROJECT_ROOT)
+                        violations.append(
+                            f"{relative}:{node.lineno} -> {module}"
+                        )
+
+    assert not violations, (
+        "legacy application bypasses agent.application:\n"
+        + "\n".join(violations)
     )
 
 

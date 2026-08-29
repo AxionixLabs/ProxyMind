@@ -60,6 +60,11 @@ def effect_journal_db_path() -> Path:
     return mind_history_dir() / "effects.db"
 
 
+def agent_runtime_db_path() -> Path:
+    """返回 Agent Runtime 事件、快照和 outbox SQLite 文件路径。"""
+    return mind_history_dir() / "runtime.db"
+
+
 def ensure_writable_dir(path: Path) -> Path:
     """确保目录存在且可写。"""
     target = Path(path).expanduser()

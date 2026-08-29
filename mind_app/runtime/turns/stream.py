@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+from agent.application import LocalEffectReconciliationRequired
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.mcp.contracts import McpSessionLike
 from mind_nova.requests.chat import stream_chat
@@ -44,7 +45,6 @@ from ..hooks.turn import (
 )
 from ..support.session_policy import friendly_exception_text
 from ..tools.client_call import ClientToolCallRunner
-from ..durable_effects import LocalEffectReconciliationRequired
 from ..tools.plan_call import PlanToolCallRunner
 from .executor import (
     TurnExecution,

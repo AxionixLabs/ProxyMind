@@ -914,6 +914,26 @@ async def get_tool_result_status(
             "tool result status returned an invalid response",
             status_code=response.status_code,
         )
+    completion_mode = data.get("completion_mode")
+    execution_deadline_at = data.get("execution_deadline_at")
+    if (
+        "expires_at" in data
+        or "execution_deadline_at" not in data
+        or completion_mode not in {"interactive", "execution"}
+        or (
+            execution_deadline_at is not None
+            and (
+                not isinstance(execution_deadline_at, str)
+                or not execution_deadline_at.strip()
+            )
+        )
+        or (completion_mode == "interactive" and execution_deadline_at is not None)
+    ):
+        raise ToolResultRequestError(
+            "tool_result_status_invalid",
+            "tool result status returned an invalid response",
+            status_code=response.status_code,
+        )
     if (
         str(data.get("cid") or "") != normalized_cid
         or str(data.get("sid") or "") != normalized_sid

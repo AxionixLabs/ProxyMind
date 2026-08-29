@@ -18,6 +18,9 @@ from .json_value import (
 RunEventKind = typing.Literal[
     "run_queued",
     "run_started",
+    "run_waiting_approval",
+    "run_waiting_effect",
+    "run_paused",
     "run_completed",
     "run_failed",
     "run_incomplete",
@@ -87,6 +90,25 @@ class RunEvent:
             payload=payload,
             causation_id=causation_id,
             occurred_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        value: Mapping[str, typing.Any],
+    ) -> "RunEvent":
+        """从持久化协议字典还原并重新校验 Run 事件。"""
+        if not isinstance(value, Mapping):
+            raise TypeError("run event must be an object")
+        return cls(
+            event_id=value.get("event_id"),
+            sequence=value.get("sequence"),
+            session_id=value.get("session_id"),
+            run_id=value.get("run_id"),
+            kind=value.get("kind"),
+            payload=value.get("payload"),
+            causation_id=value.get("causation_id"),
+            occurred_at=value.get("occurred_at"),
         )
 
     def to_dict(self) -> dict[str, typing.Any]:

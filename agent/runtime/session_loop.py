@@ -3,10 +3,22 @@
 
 import typing
 import asyncio
+from collections.abc import (
+    Awaitable,
+    Callable,
+)
 from dataclasses import dataclass
 from agent.ports import (
+    RunPersistence,
+    RunPersistenceConflict,
+    RunRecoveryRequired,
+    RunSnapshot,
     TurnExecutor,
     TurnExecutorResult
+)
+from agent.domain import (
+    RecoveryAction,
+    RunState,
 )
 from agent.protocol import (
     RunEvent,
@@ -31,8 +43,7 @@ class RunExecution(typing.Generic[ResultValue]):
 class _Submission(typing.Generic[ResultValue]):
     """保存 SessionLoop 队列中的命令和共享完成信号。"""
 
-    command: SubmitTurnCommand
-    executor: TurnExecutor[ResultValue]
+    actor: RunActor[ResultValue]
     future: asyncio.Future[RunExecution[ResultValue]]
 
 
@@ -43,6 +54,7 @@ class SessionLoop(typing.Generic[ResultValue]):
         self,
         session_id: str,
         executor: TurnExecutor[ResultValue] | None = None,
+        persistence: RunPersistence | None = None,
     ) -> None:
         """绑定一个本地 Session 和可选的默认 Turn 执行端口。"""
         normalized_session_id = str(session_id or "").strip()
@@ -51,6 +63,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
         self.session_id = normalized_session_id
         self._executor = executor
+        self._persistence = persistence
         self._submissions: asyncio.Queue[_Submission[ResultValue] | None] = (
             asyncio.Queue()
         )
@@ -67,6 +80,10 @@ class SessionLoop(typing.Generic[ResultValue]):
         self._fingerprints: dict[str, str] = {}
         self._run_commands: dict[str, str] = {}
         self._worker: asyncio.Task[None] | None = None
+        self._submit_lock = asyncio.Lock()
+        self._initialize_lock = asyncio.Lock()
+        self._recoveries: tuple[RunSnapshot, ...] = ()
+        self._initialized = False
         self._closing = False
         self._closed = False
 
@@ -79,6 +96,7 @@ class SessionLoop(typing.Generic[ResultValue]):
         """幂等启动唯一命令消费任务。"""
         if self._closed or self._closing:
             raise RuntimeError("session loop is closing")
+        await self._initialize()
         if self._worker is None:
             self._worker = asyncio.create_task(
                 self._run(),
@@ -97,19 +115,17 @@ class SessionLoop(typing.Generic[ResultValue]):
             raise RuntimeError("session loop is closing")
         await self.start()
 
-        future = self._resolve_existing(command)
-        if future is None:
-            resolved_executor = executor or self._executor
-            if resolved_executor is None:
-                raise ValueError("turn executor is required")
-            loop = asyncio.get_running_loop()
-            future = loop.create_future()
-            self._register(command, future)
-            await self._submissions.put(_Submission(
-                command,
-                resolved_executor,
-                future,
-            ))
+        async with self._submit_lock:
+            future = self._resolve_existing(command)
+            if future is None:
+                resolved_executor = executor or self._executor
+                if resolved_executor is None:
+                    raise ValueError("turn executor is required")
+                actor = await self._prepare_actor(command, resolved_executor)
+                loop = asyncio.get_running_loop()
+                future = loop.create_future()
+                self._register(command, future)
+                await self._submissions.put(_Submission(actor, future))
 
         return await asyncio.shield(future)
 
@@ -143,6 +159,16 @@ class SessionLoop(typing.Generic[ResultValue]):
             else:
                 await self._submissions.put(None)
             await asyncio.gather(worker, return_exceptions=True)
+
+        if cancel_running:
+            while True:
+                try:
+                    submission = self._submissions.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if submission is None:
+                    continue
+                await submission.actor.cancel_queued()
 
         for future in set(self._futures_by_command.values()):
             if not future.done():
@@ -194,9 +220,9 @@ class SessionLoop(typing.Generic[ResultValue]):
             if submission is None:
                 return None
 
-            command = submission.command
+            actor = submission.actor
+            command = actor.command
             future = submission.future
-            actor = RunActor(command, submission.executor, self._publish)
 
             try:
                 value = await actor.run()
@@ -205,21 +231,115 @@ class SessionLoop(typing.Generic[ResultValue]):
                     future.cancel()
                 raise
             except BaseException as error:
+                try:
+                    await self._refresh_recoveries()
+                except BaseException as recovery_error:
+                    error = recovery_error
                 if not future.done():
                     future.set_exception(error)
             else:
-                if not future.done():
-                    future.set_result(RunExecution(
-                        command_id=command.command_id,
-                        run_id=command.run_id,
-                        value=value,
-                        events=self.events_for(command.run_id),
-                    ))
+                try:
+                    await self._refresh_recoveries()
+                except BaseException as error:
+                    if not future.done():
+                        future.set_exception(error)
+                else:
+                    if not future.done():
+                        future.set_result(RunExecution(
+                            command_id=command.command_id,
+                            run_id=command.run_id,
+                            value=value,
+                            events=self.events_for(command.run_id),
+                        ))
 
-    def _publish(self, event: RunEvent) -> None:
-        """同步记录事件后放入 Session 对外事件队列。"""
-        self._events_by_run.setdefault(event.run_id, []).append(event)
-        self._events.put_nowait(event)
+    async def _initialize(self) -> None:
+        """首次启动时读取 Session 的未终结恢复快照。"""
+        if self._initialized:
+            return None
+        async with self._initialize_lock:
+            if self._initialized:
+                return None
+            if self._persistence is not None:
+                self._recoveries = await self._persistence.recover_session(
+                    self.session_id
+                )
+            self._initialized = True
+
+    async def _prepare_actor(
+        self,
+        command: SubmitTurnCommand,
+        executor: TurnExecutor[ResultValue],
+    ) -> RunActor[ResultValue]:
+        """创建新 RunActor，或仅对同一 queued 命令执行安全恢复。"""
+        persisted = (
+            await self._persistence.find_run(command)
+            if self._persistence is not None
+            else None
+        )
+        if persisted is not None:
+            if persisted.recovery_action is not RecoveryAction.REDISPATCH:
+                raise RunPersistenceConflict("persisted run cannot be redispatched")
+            blockers = tuple(
+                item
+                for item in self._recoveries
+                if item.recovery_action is not RecoveryAction.REDISPATCH
+            )
+            queued = tuple(
+                item
+                for item in self._recoveries
+                if item.recovery_action is RecoveryAction.REDISPATCH
+            )
+            if blockers or (
+                queued
+                and queued[0].command.run_id != persisted.command.run_id
+            ):
+                raise RunRecoveryRequired(self._recoveries)
+            persisted_command = persisted.command
+            events = await self._persistence.load_events(persisted_command.run_id)
+            self._events_by_run[persisted_command.run_id] = list(events)
+            self._recoveries = tuple(
+                item
+                for item in self._recoveries
+                if item.command.run_id != persisted_command.run_id
+            )
+            return RunActor(
+                persisted_command,
+                executor,
+                self._event_sink_for(persisted_command),
+                state=RunState(
+                    session_id=persisted_command.session_id,
+                    run_id=persisted_command.run_id,
+                    status=persisted.status,
+                    sequence=persisted.sequence,
+                ),
+            )
+        if self._recoveries:
+            raise RunRecoveryRequired(self._recoveries)
+
+        actor = RunActor(command, executor, self._event_sink_for(command))
+        await actor.enqueue()
+        return actor
+
+    async def _refresh_recoveries(self) -> None:
+        """在 Run 收束后刷新阻止后续盲目派发的恢复门禁。"""
+        if self._persistence is not None:
+            self._recoveries = await self._persistence.recover_session(
+                self.session_id
+            )
+
+    def _event_sink_for(
+        self,
+        command: SubmitTurnCommand,
+    ) -> Callable[[RunEvent], Awaitable[None]]:
+        """把当前 Run 命令显式绑定到异步事件提交出口。"""
+        async def publish(event: RunEvent) -> None:
+            """持久提交一项事件后更新当前 Session 的易失投影。"""
+            if self._persistence is not None:
+                await self._persistence.append_event(command, event)
+            self._events_by_run.setdefault(event.run_id, []).append(event)
+            self._events.put_nowait(event)
+
+        return publish
 
 
 if __name__ == '__main__':

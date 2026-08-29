@@ -56,7 +56,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallResult,
 )
 from mind_app.runtime.tools import client_call
-from mind_app.runtime.durable_effects import LocalEffectJournal
+from agent.application import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import PermissionSettings, preset_permissions
@@ -320,8 +320,8 @@ def _install_effect_journal(monkeypatch, db_path: Path) -> None:
     """让流测试使用隔离的本地效果账本。"""
     monkeypatch.setattr(
         client_call,
-        "LocalEffectJournal",
-        lambda: LocalEffectJournal(db_path),
+        "open_effect_journal",
+        lambda _path: open_effect_journal(db_path),
     )
 
 

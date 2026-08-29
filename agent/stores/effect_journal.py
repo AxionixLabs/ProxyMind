@@ -6,10 +6,12 @@ import time
 import typing
 import asyncio
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
-from mind_app.paths import effect_journal_db_path
-from mind_nova.stream_events import ExecutionEffect
+from agent.ports import (
+    EffectIntent,
+    EffectJournalDecision,
+    EffectJournalPersistenceError,
+)
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS local_effects (
@@ -24,45 +26,27 @@ CREATE TABLE IF NOT EXISTS local_effects (
 );
 """
 
-
-class LocalEffectReconciliationRequired(RuntimeError):
-    """表示本地效果结果不确定，必须先核对再继续。"""
-
-    def __init__(self, effect_id: str) -> None:
-        """保存需要核对的效果标识。"""
-        self.effect_id = str(effect_id or "").strip()
-        super().__init__(f"local effect requires reconciliation: {self.effect_id}")
-
-
-class EffectJournalPersistenceError(RuntimeError):
-    """表示本地效果账本无法完成持久化操作。"""
-
-
-@dataclass(frozen=True, slots=True)
-class EffectJournalDecision:
-    """描述本地效果是否执行、复用或等待核对。"""
-    action: typing.Literal["execute", "reuse", "reconcile"]
-    result_payload: dict[str, typing.Any] | None = None
+EFFECT_STORE_SCHEMA_VERSION: typing.Final = 1
 
 
 class LocalEffectJournal:
     """按 effect_id 与 fingerprint 持久记录本地副作用结果。"""
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
+    def __init__(self, db_path: str | Path) -> None:
         """绑定独立的本地效果账本文件。"""
-        self.db_path = Path(db_path or effect_journal_db_path()).expanduser()
+        self.db_path = Path(db_path).expanduser()
 
-    async def inspect(self, effect: ExecutionEffect) -> EffectJournalDecision:
+    async def inspect(self, effect: EffectIntent) -> EffectJournalDecision:
         """不取得执行权地读取已提交结果或核对要求。"""
         return await asyncio.to_thread(self._inspect, effect)
 
-    async def begin(self, effect: ExecutionEffect) -> EffectJournalDecision:
+    async def begin(self, effect: EffectIntent) -> EffectJournalDecision:
         """原子取得执行权，或返回已提交结果与核对要求。"""
         return await asyncio.to_thread(self._begin, effect)
 
     async def commit(
         self,
-        effect: ExecutionEffect,
+        effect: EffectIntent,
         result_payload: dict[str, typing.Any]
     ) -> None:
         """持久提交一次已知的本地效果结果。"""
@@ -70,7 +54,7 @@ class LocalEffectJournal:
 
     async def mark_unknown(
         self,
-        effect: ExecutionEffect,
+        effect: EffectIntent,
         error: BaseException,
         *,
         result_payload: dict[str, typing.Any] | None = None
@@ -100,17 +84,28 @@ class LocalEffectJournal:
             ) from error
 
     def _connect(self) -> sqlite3.Connection:
-        """建立启用 WAL 和立即事务的 SQLite 连接。"""
+        """建立启用 WAL 的连接并校验效果账本 schema 版本。"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.db_path, timeout=30.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
+        current_version = int(
+            connection.execute("PRAGMA user_version").fetchone()[0]
+        )
+        if current_version > EFFECT_STORE_SCHEMA_VERSION:
+            connection.close()
+            raise RuntimeError("effect store schema is newer than this client")
         connection.execute(_SCHEMA_SQL)
+        if current_version < EFFECT_STORE_SCHEMA_VERSION:
+            connection.execute(
+                f"PRAGMA user_version={EFFECT_STORE_SCHEMA_VERSION}"
+            )
         return connection
 
-    def _begin(self, effect: ExecutionEffect) -> EffectJournalDecision:
+    def _begin(self, effect: EffectIntent) -> EffectJournalDecision:
         """在同步事务中决定效果的下一步动作。"""
+        _validate_effect(effect)
         now_ms = int(time.time() * 1000)
         connection = self._connect()
         try:
@@ -182,8 +177,9 @@ class LocalEffectJournal:
         finally:
             connection.close()
 
-    def _inspect(self, effect: ExecutionEffect) -> EffectJournalDecision:
+    def _inspect(self, effect: EffectIntent) -> EffectJournalDecision:
         """在同步连接中读取效果状态，但不创建或更新效果记录。"""
+        _validate_effect(effect)
         connection = self._connect()
         try:
             row = connection.execute(
@@ -215,10 +211,11 @@ class LocalEffectJournal:
 
     def _commit(
         self,
-        effect: ExecutionEffect,
+        effect: EffectIntent,
         result_payload: dict[str, typing.Any]
     ) -> None:
         """在同步事务中提交规范化结果。"""
+        _validate_effect(effect)
         encoded = json.dumps(
             result_payload,
             ensure_ascii=False,
@@ -249,11 +246,12 @@ class LocalEffectJournal:
 
     def _mark_unknown(
         self,
-        effect: ExecutionEffect,
+        effect: EffectIntent,
         error: str,
         result_payload: dict[str, typing.Any] | None,
     ) -> None:
         """在同步事务中持久化不确定状态及候选结果。"""
+        _validate_effect(effect)
         encoded_result = (
             json.dumps(
                 result_payload,
@@ -267,7 +265,7 @@ class LocalEffectJournal:
         connection = self._connect()
         try:
             with connection:
-                connection.execute(
+                cursor = connection.execute(
                     """
                     UPDATE local_effects
                        SET status = 'reconciliation_required', error = ?,
@@ -283,6 +281,8 @@ class LocalEffectJournal:
                         effect.fingerprint,
                     ),
                 )
+                if cursor.rowcount != 1:
+                    raise ValueError("local effect identity is invalid")
         finally:
             connection.close()
 
@@ -340,6 +340,21 @@ class LocalEffectJournal:
                     raise ValueError("local effect reconciliation identity is invalid")
         finally:
             connection.close()
+
+
+def _validate_effect(effect: EffectIntent) -> None:
+    """校验效果身份、SHA-256 指纹和显式重放策略。"""
+    effect_id = str(effect.effect_id or "").strip()
+    fingerprint = str(effect.fingerprint or "").strip().lower()
+    if not effect_id:
+        raise ValueError("effect_id is required")
+    if (
+        len(fingerprint) != 64
+        or any(character not in "0123456789abcdef" for character in fingerprint)
+    ):
+        raise ValueError("effect fingerprint must be SHA-256")
+    if effect.replay not in {"safe", "manual"}:
+        raise ValueError("effect replay policy is invalid")
 
 
 if __name__ == "__main__":

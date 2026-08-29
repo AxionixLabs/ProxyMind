@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from mind_app.runtime.durable_effects import (
+from agent.application import (
     EffectJournalPersistenceError,
-    LocalEffectJournal,
+    open_effect_journal,
 )
 from mind_nova.stream_events import ExecutionEffect
 
@@ -25,7 +25,7 @@ def _effect(
 
 @pytest.mark.anyio
 async def test_effect_journal_reuses_committed_result(tmp_path: Path) -> None:
-    journal = LocalEffectJournal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db")
     effect = _effect()
 
     assert (await journal.begin(effect)).action == "execute"
@@ -40,7 +40,7 @@ async def test_effect_journal_reuses_committed_result(tmp_path: Path) -> None:
 async def test_effect_journal_never_replays_uncertain_manual_effect(
     tmp_path: Path,
 ) -> None:
-    journal = LocalEffectJournal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db")
     effect = _effect()
 
     assert (await journal.begin(effect)).action == "execute"
@@ -49,7 +49,7 @@ async def test_effect_journal_never_replays_uncertain_manual_effect(
 
 @pytest.mark.anyio
 async def test_effect_journal_inspection_does_not_claim_execution(tmp_path: Path) -> None:
-    journal = LocalEffectJournal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db")
     effect = _effect()
 
     assert (await journal.inspect(effect)).action == "execute"
@@ -60,7 +60,7 @@ async def test_effect_journal_inspection_does_not_claim_execution(tmp_path: Path
 
 @pytest.mark.anyio
 async def test_effect_journal_rejects_fingerprint_conflict(tmp_path: Path) -> None:
-    journal = LocalEffectJournal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db")
     await journal.begin(_effect())
 
     with pytest.raises(ValueError, match="fingerprint conflicts"):
@@ -72,7 +72,7 @@ async def test_effect_journal_preserves_candidate_result_for_reconciliation(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "effects.db"
-    journal = LocalEffectJournal(db_path)
+    journal = open_effect_journal(db_path)
     effect = _effect()
     candidate = {"ok": True, "text": "applied"}
     await journal.begin(effect)
@@ -98,7 +98,7 @@ async def test_effect_journal_exposes_stored_reconciliation_result(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "effects.db"
-    journal = LocalEffectJournal(db_path)
+    journal = open_effect_journal(db_path)
     effect = _effect()
     server_result = {
         "request_id": "effect-result-test",
@@ -129,7 +129,7 @@ async def test_mark_reconciled_wraps_storage_failures(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    journal = LocalEffectJournal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db")
 
     def fail(_effect_id: str) -> None:
         raise sqlite3.OperationalError("database is unavailable")

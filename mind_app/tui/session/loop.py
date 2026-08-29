@@ -5,7 +5,8 @@ import typing
 import asyncio
 from agent.application import (
     SubmitTurnCommand,
-    TurnApplication
+    TurnApplication,
+    open_turn_application,
 )
 from mind_app.frontend import ApplicationSink, ApplicationView
 from mind_nova.identifiers import short_uid
@@ -44,6 +45,8 @@ from .turn import (
     run_tui_model_turn
 )
 from .turn_input import TuiTurnInputControl
+from ...paths import agent_runtime_db_path
+from ...runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -113,12 +116,21 @@ async def run_tui_loop(
     initial_model: str | None = None
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
-    turn_application = TurnApplication()
+    durable_runtime = getattr(mind, "application_layout", None) is not None
+    turn_application = (
+        open_turn_application(agent_runtime_db_path())
+        if durable_runtime
+        else TurnApplication()
+    )
     try:
         await _run_tui_loop(
             mind,
             turn_application=turn_application,
-            local_session_id=f"tui_session_{short_uid(12)}",
+            local_session_id=(
+                None
+                if durable_runtime
+                else f"tui_session_{short_uid(12)}"
+            ),
             initial_prompt=initial_prompt,
             initial_images=initial_images,
             initial_model=initial_model,
@@ -131,7 +143,7 @@ async def _run_tui_loop(
     mind: "Mind",
     *,
     turn_application: TurnApplication["RunResult"],
-    local_session_id: str,
+    local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
     initial_model: str | None,
@@ -315,8 +327,14 @@ async def _run_tui_loop(
 
         interrupt_notice = _TurnInterruptNotice(application, runtime)
 
+        resolved_local_session_id = local_session_id
+        if resolved_local_session_id is None:
+            resolved_local_session_id = derive_local_session_id(
+                "tui",
+                mind.conversation.snapshot(),
+            )
         submit_command = SubmitTurnCommand.create(
-            session_id=local_session_id,
+            session_id=resolved_local_session_id,
             message=prompt_text,
             attachments=attachment_snapshot,
             pref_config=state.pref_config,

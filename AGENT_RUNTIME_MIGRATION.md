@@ -1,6 +1,6 @@
 # Agent Runtime 迁移计划
 
-状态：阶段 0、阶段 1 已完成；阶段 2 未开始（2026-08-28）
+状态：阶段 0、阶段 1、阶段 2 已完成；阶段 3 未开始（2026-08-28）
 
 这份计划配合 [Agent Runtime 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
@@ -28,7 +28,7 @@
 | --- | --- | --- | --- | --- |
 | 0. 契约冻结 | 已完成 | 固定外部行为和依赖基线 | 导入图、协议清单、风险清单 | 全部阶段 0 退出条件通过 |
 | 1. Session 骨架 | 已完成 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
-| 2. 持久化收束 | 未开始 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
+| 2. 持久化收束 | 已完成 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
 | 3. 能力解耦 | 未开始 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
 | 4. 多入口迁移 | 未开始 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
 | 5. 历史包退役 | 未开始 | 删除历史职责和过渡入口 | 旧包删除清单 | 生产导入图只剩 `agent` |
@@ -130,11 +130,11 @@
 
 退出条件已全部满足：同 Session 并发提交的 FIFO 与逐 Run 连续序号、取消后
 SessionLoop 重建、并发关闭等待屏障，以及 TUI Event 终态投影均有定向测试；
-CLI 既有成功、工具失败和用户取消路径继续通过。阶段 2 可以开始，但尚未启用。
+CLI 既有成功、工具失败和用户取消路径继续通过，据此启用阶段 2。
 
 ## 阶段 2：持久化收束
 
-状态：未开始
+状态：已完成（2026-08-28）
 
 ### 工作项
 
@@ -144,11 +144,40 @@ CLI 既有成功、工具失败和用户取消路径继续通过。阶段 2 可�
 3. 将 Agent Graph 检查点与 Session/Run 历史分开存储，避免恢复时互相污染。
 4. 增加进程终止、网络超时、未知结果和重复 dispatch 的恢复测试。
 
+### 已完成证据
+
+- [x] `LocalEffectJournal` 已从 `mind_app/runtime/durable_effects.py` 迁入
+  `agent/stores/effect_journal.py`，旧文件已删除且没有转发 facade；效果端口要求
+  稳定 `effect_id`、SHA-256 指纹和 `safe/manual` 重放策略，不确定结果进入对账。
+- [x] `SQLiteRunStore` 使用独立 `runtime.db`，schema 与 snapshot 版本均为 1；
+  `run_events`、`run_snapshots`、`run_outbox` 和 `run_facts` 在同一个
+  `BEGIN IMMEDIATE` 事务中推进，序号、身份和状态转移均在写入门禁校验。
+- [x] `RunActor` 在进入队列和调用 executor 前分别持久提交 queued/running；
+  `SessionLoop` 启动时读取未终结快照，只有 queued 原命令允许安全再派发，
+  running/waiting_effect/超时进入 reconciliation，waiting_approval 和 paused
+  保持显式等待或恢复动作。
+- [x] 最终结果投影为 `final_result`、`assistant_message`、`tool_result`、
+  `approval_decision` 和 `evidence_reference` 事实，可按 Run 回读；流式 token
+  不作为恢复前提。
+- [x] `runtime.db`、`effects.db`、`agents.db` 和 `history.db` 分离；CLI 与 TUI
+  生产组合使用稳定哈希本地 Session 身份，线上 `cid/sid` 不写入本地身份。
+- [x] `/tool-result/status` 客户端契约门禁使用正式字段
+  `execution_deadline_at`，拒绝文档旧字段 `expires_at`；交互型工具要求截止点为
+  `null`。
+- [x] AST 边界测试覆盖 `agent/stores` 不导入历史包，并强制 `mind_app` 只能通过
+  `agent.application` 公开入口调用新运行时；生成导入图保持只有
+  `mind_app -> agent` 的正向边。
+
 ### 出口条件
 
 - 重启后可以恢复 queued/running/waiting/paused 状态；
 - 未知外部结果进入人工对账，不自动重复高风险动作；
 - 最终消息、工具结果、审批决定和证据引用可读取；流式 token 不作为恢复前提。
+
+退出条件已全部满足：原子事务、版本门禁、四类恢复动作、超时与未知结果对账、
+重复/冲突身份、最终事实回读以及 CLI/TUI 真实组合路径均有定向测试；全量测试
+`2876 passed, 11 skipped`，导入图、语法检查和 `git diff --check` 通过。
+阶段 3 尚未启用。
 
 ## 阶段 3：能力解耦
 
@@ -269,3 +298,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 1 | 启动、失败和最终运行展示已收敛到 `StreamTurnPresentation`，两层旧失败转发已删除；全量测试 `2841 passed, 13 skipped` | TUI Event 投影和长生命周期 Session 接管待完成 |
 | 2026-08-28 | 阶段 1 | 正式 `PROTOCOL.md` 已落地 Canonical Item 门禁、工具批次边界、`stream.gap` 和 Session 跨 Turn 事件水位；全量测试 `2853 passed, 13 skipped` | TUI Event Queue 投影和长生命周期 Session application 接管待完成 |
 | 2026-08-28 | 阶段 1 | TUI 普通 prompt 已接入 `TurnApplication`、长生命周期 SessionLoop 和 Event 终态投影；并发提交、取消重建及可取消关闭等待均有测试；全量测试 `2859 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 1 无未决项；阶段 2 未开始 |
+| 2026-08-28 | 阶段 2 | `SQLiteRunStore` 落地事件、快照、outbox、最终事实原子提交与恢复门禁；效果账本迁入 `agent.stores`，CLI/TUI 生产组合接入独立 `runtime.db`；全量测试 `2876 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 2 无未决项；阶段 3 未开始 |

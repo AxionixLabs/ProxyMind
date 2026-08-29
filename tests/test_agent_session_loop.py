@@ -154,9 +154,9 @@ async def test_session_loop_serializes_runs_and_deduplicates_command() -> None:
     assert second_result.run_id == "run-second"
     assert [event.kind for event in session.drain_events()] == [
         "run_queued",
+        "run_queued",
         "run_started",
         "run_completed",
-        "run_queued",
         "run_started",
         "run_completed",
     ]

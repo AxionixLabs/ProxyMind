@@ -23,6 +23,11 @@ def _install_client(monkeypatch, response, captured) -> None:
             captured.update(kwargs)
             return response
 
+        async def get(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return response
+
     monkeypatch.setattr(tools.httpx, "AsyncClient", ClientStub)
     monkeypatch.setattr(
         tools.service_endpoints,
@@ -329,6 +334,88 @@ async def test_tool_result_rejects_invalid_request_id() -> None:
             "ready",
             request_id="invalid request id",
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("completion_mode", "execution_deadline_at"),
+    (
+        ("interactive", None),
+        ("execution", "2026-08-28T00:00:00Z"),
+    ),
+)
+async def test_tool_result_status_uses_execution_deadline_contract(
+    monkeypatch,
+    completion_mode,
+    execution_deadline_at,
+) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "call_id": "call_1",
+            "turn_id": "turn_1",
+            "name": "test_tool",
+            "tool_status": "waiting_result",
+            "completion_mode": completion_mode,
+            "turn_status": "waiting_tool",
+            "result_received": False,
+            "request_id": None,
+            "completed_at": None,
+            "execution_deadline_at": execution_deadline_at,
+            "failure_reason": None,
+            "effect_id": None,
+            "effect_status": None,
+            "reconciliation_required": False,
+        },
+    }), captured)
+
+    status = await tools.get_tool_result_status(
+        cid="cid_1",
+        sid="sid_1",
+        call_id="call_1",
+        timeout=3.0,
+        retry_delays=(0.0,),
+    )
+
+    assert status["execution_deadline_at"] == execution_deadline_at
+    assert "expires_at" not in status
+    assert captured["url"] == "https://example.test/tool-result/status"
+    assert captured["params"] == {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "call_id": "call_1",
+    }
+    assert captured["timeout"] == 3.0
+
+
+@pytest.mark.anyio
+async def test_tool_result_status_rejects_legacy_expiry_field(monkeypatch) -> None:
+    captured = {}
+    _install_client(monkeypatch, _response(200, {
+        "ok": True,
+        "data": {
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "call_id": "call_1",
+            "tool_status": "waiting_result",
+            "completion_mode": "interactive",
+            "result_received": False,
+            "expires_at": "2026-08-28T00:00:00Z",
+        },
+    }), captured)
+
+    with pytest.raises(tools.ToolResultRequestError) as caught:
+        await tools.get_tool_result_status(
+            cid="cid_1",
+            sid="sid_1",
+            call_id="call_1",
+            retry_delays=(0.0,),
+        )
+
+    assert caught.value.code == "tool_result_status_invalid"
 
 
 @pytest.mark.anyio

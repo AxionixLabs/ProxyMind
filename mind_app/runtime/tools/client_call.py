@@ -4,6 +4,12 @@
 import typing
 import asyncio
 import hashlib
+from agent.application import (
+    EffectJournal,
+    EffectJournalPersistenceError,
+    LocalEffectReconciliationRequired,
+    open_effect_journal,
+)
 from dataclasses import (
     dataclass,
     field,
@@ -34,6 +40,7 @@ from mind_app.runtime.hooks.models import (
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.stream_events.tool_trace import coding_trace_tool
+from mind_app.paths import effect_journal_db_path
 from mind_app.presentation.tool_policy import (
     is_two_stage_tool,
     tool_status_text
@@ -46,13 +53,6 @@ from .run import (
     ToolRunResult,
     run_tool_step
 )
-from ..durable_effects import (
-    EffectJournalPersistenceError,
-    LocalEffectJournal,
-    LocalEffectReconciliationRequired
-)
-
-
 @dataclass(slots=True)
 class ClientToolCallResult:
     """描述一次客户端工具执行结果。"""
@@ -117,7 +117,7 @@ class ClientToolCallRunner:
         pref_config: dict[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator,
         patch_preview: typing.Callable[..., dict[str, typing.Any]] | None = None,
-        effect_journal: LocalEffectJournal | None = None,
+        effect_journal: EffectJournal | None = None,
         effect_reconciler: typing.Callable[..., typing.Awaitable[
             dict[str, typing.Any]
         ]] | None = None,
@@ -132,7 +132,10 @@ class ClientToolCallRunner:
         self.pref_config           = pref_config
         self.tool_call_coordinator = tool_call_coordinator
         self.patch_preview         = patch_preview
-        self.effect_journal        = effect_journal or LocalEffectJournal()
+        self.effect_journal        = (
+            effect_journal
+            or open_effect_journal(effect_journal_db_path())
+        )
         self.effect_reconciler     = effect_reconciler or post_effect_reconciliation
         self.interrupt_turn        = interrupt_turn
 
